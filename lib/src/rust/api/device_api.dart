@@ -484,11 +484,17 @@ Future<MqttRequestDto> renderNetworkMqttCommand({
 /// splice is the same single-pass discipline every other template fill in
 /// this crate uses — a value is data, never template.
 ///
-/// A placeholder nothing fills STAYS in the text, and the caller must treat
-/// a returned topic still carrying `{` as unsubscribable: a literal
-/// `{serial}` on the wire is a topic no broker publishes on, and
-/// subscribing to it is how an entity renders forever-Unknown while the
-/// code claims a stream is filling it.
+/// A placeholder nothing fills is a REFUSAL, not a returned string: a literal
+/// `{serial}` on the wire is a topic no broker publishes on, and subscribing
+/// to it is how an entity renders forever-Unknown while the code claims a
+/// stream is filling it. The rule used to be stated only in this doc comment
+/// and enforced by the caller re-scanning the answer for a `{` — a protocol
+/// rule living in the UI layer, where the next caller would not find it, and
+/// one that could not tell an unfilled placeholder from a brace that arrived
+/// inside a VALUE. Asked of the template instead, the two are never confused,
+/// and the error names the placeholder that went unanswered, so a log says
+/// which value is missing rather than that the topic "still has a
+/// placeholder".
 ///
 /// A value carrying the topic language itself is REFUSED, exactly as the
 /// command-topic renderer refuses it (see [`mqtt::TOPIC_LANGUAGE`]). These
@@ -530,6 +536,9 @@ Future<List<StateTopicFallbackDto>> specStateTopicFallbacks({
 /// each sent only when supplied: a broker that expects neither refuses a
 /// CONNECT carrying two empty strings, and one that expects a token takes a
 /// username with no password.
+///
+/// Fails rather than truncating when a client id or credential is longer than
+/// the two-byte length prefix MQTT gives it.
 Future<Uint8List> mqttConnectPacket({
   required String clientId,
   String? username,
@@ -3860,14 +3869,23 @@ class ParameterDto {
   /// Enumerated set of allowed values. When present (and non-empty) the
   /// device accepts only these values, so the UI should offer a choice
   /// among them instead of a free min..max range.
+  ///
+  /// Resolved by [`Parameter::allowed_with_labels`], so the two spellings
+  /// the catalogue uses for one fact arrive here as one list: the schema's
+  /// `allowed` (+ `labels`), and the `values` raw→label code table nine
+  /// BLE parameters write instead. A consumer sees a choice either way.
   final Int64List? allowed;
 
-  /// Human-readable labels for `allowed`, paired 1:1 by index (the upstream
-  /// spec-format contract). Only present when `allowed` is present and the
-  /// lengths match exactly — a mismatched spec keeps its `allowed` values
-  /// but has its labels dropped rather than mispaired (see the `From`
-  /// conversion below).
+  /// Human-readable labels for `allowed`, paired 1:1 by index. Always the
+  /// same length as `allowed` when both are present: a value the spec
+  /// labelled nowhere is labelled with its own raw number rather than left
+  /// to be paired off by position. Absent only when `allowed` is.
   final List<String>? labels;
+
+  /// What this parameter means, in the spec's own words — the sentence a
+  /// control surface can show beside a knob whose name is `flag` or `mcu`.
+  /// `None` when the spec says nothing.
+  final String? description;
 
   /// Multiplier of the parameter's linear transform, when the spec declares
   /// one. A treadmill's `speed` is wire-units with `scale: 0.1` and
@@ -3888,7 +3906,11 @@ class ParameterDto {
   /// Value the encoder substitutes when the caller supplies nothing — the
   /// reason a speed slider does not need to know the protocol's `flag`
   /// byte. Surfaced so the UI can pre-fill or omit the control entirely.
-  final PlatformInt64? default_;
+  ///
+  /// A number, like `min` and `max` beside it, because the schema types the
+  /// key `number`: a spec writing `default: 2.0` used to fail to parse at
+  /// all, taking the whole device with it.
+  final double? default_;
 
   /// Transport role the encoder fills rather than the caller
   /// (`packet_length` | `sequence` | `checksum`), rendered as the spec's
@@ -3921,6 +3943,7 @@ class ParameterDto {
     this.max,
     this.allowed,
     this.labels,
+    this.description,
     this.scale,
     this.valueOffset,
     this.unit,
@@ -3938,6 +3961,7 @@ class ParameterDto {
       max.hashCode ^
       allowed.hashCode ^
       labels.hashCode ^
+      description.hashCode ^
       scale.hashCode ^
       valueOffset.hashCode ^
       unit.hashCode ^
@@ -3957,6 +3981,7 @@ class ParameterDto {
           max == other.max &&
           allowed == other.allowed &&
           labels == other.labels &&
+          description == other.description &&
           scale == other.scale &&
           valueOffset == other.valueOffset &&
           unit == other.unit &&

@@ -3246,7 +3246,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiDeviceApiMqttConnectPacketConstMeta,
         argValues: [clientId, username, password],
@@ -3368,7 +3368,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiDeviceApiMqttPublishPacketConstMeta,
         argValues: [topic, payload],
@@ -3403,7 +3403,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiDeviceApiMqttSubscribePacketConstMeta,
         argValues: [topic, packetId],
@@ -4675,7 +4675,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiDeviceApiRoombaConnectPacketConstMeta,
         argValues: [blid, password],
@@ -6868,8 +6868,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ParameterDto dco_decode_parameter_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 13)
-      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    if (arr.length != 14)
+      throw Exception('unexpected arr length: expect 14 but see ${arr.length}');
     return ParameterDto(
       name: dco_decode_String(arr[0]),
       valueType: dco_decode_String(arr[1]),
@@ -6877,13 +6877,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       max: dco_decode_opt_box_autoadd_f_64(arr[3]),
       allowed: dco_decode_opt_list_prim_i_64_strict(arr[4]),
       labels: dco_decode_opt_list_String(arr[5]),
-      scale: dco_decode_opt_box_autoadd_f_64(arr[6]),
-      valueOffset: dco_decode_opt_box_autoadd_f_64(arr[7]),
-      unit: dco_decode_opt_String(arr[8]),
-      default_: dco_decode_opt_box_autoadd_i_64(arr[9]),
-      auto: dco_decode_opt_String(arr[10]),
-      source: dco_decode_opt_String(arr[11]),
-      userSettable: dco_decode_bool(arr[12]),
+      description: dco_decode_opt_String(arr[6]),
+      scale: dco_decode_opt_box_autoadd_f_64(arr[7]),
+      valueOffset: dco_decode_opt_box_autoadd_f_64(arr[8]),
+      unit: dco_decode_opt_String(arr[9]),
+      default_: dco_decode_opt_box_autoadd_f_64(arr[10]),
+      auto: dco_decode_opt_String(arr[11]),
+      source: dco_decode_opt_String(arr[12]),
+      userSettable: dco_decode_bool(arr[13]),
     );
   }
 
@@ -10053,10 +10054,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_max = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_allowed = sse_decode_opt_list_prim_i_64_strict(deserializer);
     var var_labels = sse_decode_opt_list_String(deserializer);
+    var var_description = sse_decode_opt_String(deserializer);
     var var_scale = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_valueOffset = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_unit = sse_decode_opt_String(deserializer);
-    var var_default_ = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_default_ = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_auto = sse_decode_opt_String(deserializer);
     var var_source = sse_decode_opt_String(deserializer);
     var var_userSettable = sse_decode_bool(deserializer);
@@ -10067,6 +10069,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       max: var_max,
       allowed: var_allowed,
       labels: var_labels,
+      description: var_description,
       scale: var_scale,
       valueOffset: var_valueOffset,
       unit: var_unit,
@@ -13003,10 +13006,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_f_64(self.max, serializer);
     sse_encode_opt_list_prim_i_64_strict(self.allowed, serializer);
     sse_encode_opt_list_String(self.labels, serializer);
+    sse_encode_opt_String(self.description, serializer);
     sse_encode_opt_box_autoadd_f_64(self.scale, serializer);
     sse_encode_opt_box_autoadd_f_64(self.valueOffset, serializer);
     sse_encode_opt_String(self.unit, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.default_, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.default_, serializer);
     sse_encode_opt_String(self.auto, serializer);
     sse_encode_opt_String(self.source, serializer);
     sse_encode_bool(self.userSettable, serializer);

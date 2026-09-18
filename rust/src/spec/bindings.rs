@@ -949,7 +949,7 @@ const SETPOINT_ALIASES: &[&str] = &["set_value", "set_temperature", "set_target"
 /// is not its path.
 ///
 /// A `toggle` is withheld from an entity with no state binding, which is the
-/// same rule [`is_assumed_state_switch`] applies when deciding whether such
+/// same rule [`is_assumed_state_control`] applies when deciding whether such
 /// an entity belongs on the surface at all. Admission and resolution have to
 /// agree: a spec writing `{turn_on: a, toggle: b}` with no `state_command`
 /// is admitted on `turn_on` alone, and without this filter it then listed
@@ -980,6 +980,50 @@ pub fn resolve_network_actions<'a>(
         actions.retain(|action| action.role != TOGGLE.role);
     }
     actions
+}
+
+/// The choices one entity's picker offers, as (raw, label) pairs.
+///
+/// An entity states its own option list in `state_mapping.options`, and that
+/// is the first answer because it is the richest: the same table labels a
+/// READING, so what the picker offers and what the card displays are the same
+/// words. When it states none, the bound command's own parameter is asked —
+/// the values it accepts are, after all, the values the device accepts.
+///
+/// This is where the command parameter's `values`/`enum` tables stopped being
+/// dead. The catalogue's `select` entities all happen to carry
+/// `state_mapping.options` today, so nothing on screen changes; what changes
+/// is that a spec stating the set ONCE, on the command that sends it, now
+/// draws a picker instead of a blank one — which is how every spec author who
+/// read the schema's `enum` key would reasonably write it.
+///
+/// Only a picker's role is consulted (`select_option` and the mode pickers a
+/// climate card draws). A numeric setpoint's parameter can carry an `enum`
+/// too, and a slider is not the control for it — that judgement belongs to
+/// the platform's roles, which is exactly what this reads.
+pub fn entity_options(entity: &Entity, actions: &[NetworkAction<'_>]) -> Vec<(String, String)> {
+    let declared = entity.options();
+    if !declared.is_empty() {
+        return declared;
+    }
+    const PICKERS: &[&str] = &[
+        SELECT_OPTION.role,
+        SET_HVAC_MODE.role,
+        SET_FAN_MODE.role,
+        SET_EFFECT.role,
+    ];
+    actions
+        .iter()
+        .filter(|action| PICKERS.contains(&action.role))
+        .find_map(|action| {
+            let parameter = action
+                .command
+                .parameters
+                .get(*action.user_params.first()?)?;
+            let table = parameter.code_table();
+            (!table.is_empty()).then_some(table)
+        })
+        .unwrap_or_default()
 }
 
 /// Whether an entity says where a reading of its own comes from.
@@ -1242,8 +1286,7 @@ fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
             .options_source
             .as_ref()
             .is_some_and(|source| http::endpoint_request(spec, &source.command).is_some())
-        || is_assumed_state_switch(spec, entity)
-        || is_assumed_state_cover(spec, entity)
+        || is_assumed_state_control(spec, entity)
 }
 
 /// Where one entity's reading comes from, resolved once from the spec.
@@ -1283,8 +1326,14 @@ impl StateBinding<'_> {
 ///
 /// The order matters and each step is a fact the spec states, not a guess:
 ///
-/// 1. `state_command` names something. That vocabulary is closed and the
-///    renderer owns it.
+/// 1. `state_command` names something in the spec's own vocabulary — a
+///    top-level `commands` entry or a live `http_endpoints` one. That
+///    vocabulary is closed and the renderer owns it, so a name outside it is
+///    not a binding: `render_state_request` answers `CommandNotFound`, and
+///    every poll built on it fails. Divoom's panels and a Sony set are the
+///    cases — `Channel/GetOnOff`, `getPowerStatus` — where the spec names a
+///    WIRE command, in the vendor's own protocol, that this spec describes
+///    nowhere. Admitting them drew sensors that could never fill.
 /// 2. Otherwise `state_topic` is a location, and the DEVICE decides what kind:
 ///    on a device that speaks MQTT it is a topic, whatever it looks like. A
 ///    Hisense set's `/remoteapp/mobile/broadcast/ui_service/state` opens with a
@@ -1310,7 +1359,7 @@ impl StateBinding<'_> {
 /// surface rule exists to prevent.
 pub fn state_binding<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<StateBinding<'a>> {
     if let Some(command) = entity.state_command.as_deref() {
-        return Some(StateBinding::Command(command));
+        return state_command_resolves(spec, command).then_some(StateBinding::Command(command));
     }
     let topic = entity.state_topic.as_deref()?;
     if entity.state_mapping.is_empty() {
@@ -1324,6 +1373,22 @@ pub fn state_binding<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<Sta
     }
     crate::protocol::http::path_renderable_from_spec(spec, topic)
         .then_some(StateBinding::HttpPath(topic))
+}
+
+/// Whether a `state_command` names something this spec describes.
+///
+/// The same two lookups [`crate::protocol::http::render_state_request`] makes,
+/// in the same order, so admission and rendering cannot disagree: a top-level
+/// command, or an `http_endpoints` entry that is present and not `sunset`
+/// (`endpoint_request` enforces both). A sunset endpoint is deliberately not a
+/// binding — a poll at a removed address is a reading that can never arrive.
+///
+/// The renderer's third arm — a bare path — is NOT accepted here. That arm
+/// exists for a `state_topic`, which is a location and reaches the resolver
+/// further down this function; a `state_command` is a NAME by the schema's own
+/// words, and a name shaped like a path is still a name nothing answers to.
+fn state_command_resolves(spec: &DeviceSpec, command: &str) -> bool {
+    spec.commands.contains_key(command) || http::endpoint_request(spec, command).is_some()
 }
 
 /// Whether a location opens with a `scheme://` — the RFC 3986 shape, so a
@@ -1362,26 +1427,38 @@ fn speaks_mqtt(spec: &DeviceSpec) -> bool {
             .any(|command| command.transport.as_deref() == Some(mqtt::TRANSPORT))
 }
 
-/// The switch carve-out of [`on_network_surface`], separated so the P13
-/// group path can ask the same question the screen's admission does.
-fn is_assumed_state_switch(spec: &DeviceSpec, entity: &Entity) -> bool {
-    if entity.platform.as_deref() != Some("switch") {
+/// The assumed-state carve-out of [`on_network_surface`], separated so the
+/// P13 group path can ask the same question the screen's admission does.
+///
+/// Three platforms, each admitted on its own case rather than on a general
+/// rule, because the general rule is wrong: an entity whose only resolving
+/// action TAKES A VALUE — a `number`'s setpoint, a `select`'s option — is a
+/// control that cannot say what it is currently set to, which is the same
+/// objection `set_cover_position` is held to two doors down. Discrete
+/// motions are what admit here.
+///
+/// - `switch`: P13's case. A TV's Power switch on a set that honestly
+///   reports no power state (Roku over ECP). Its discrete sends work; the
+///   reading does not exist to bind.
+/// - `cover`: a garage door whose spec binds open/close/stop but no state
+///   yet (ratgdo before its `state_mapping` landed).
+/// - `light`: the same entity wearing a third name. A Divoom panel's
+///   `screen_on`/`screen_off` are ordinary HTTP commands that work, and its
+///   `state_command` names a wire call (`Channel/GetOnOff`) the spec
+///   describes nowhere — so once an unresolvable name stopped counting as a
+///   binding, a closed list would have deleted three working controls to
+///   punish one unreadable reading.
+///
+/// The narrowings that keep it honest are in
+/// [`assumed_state_actions_resolve`], not here: admission is by what
+/// RESOLVES, never by what is written, and the two state-REQUIRING roles
+/// (`toggle`, `set_cover_position`) do not admit on their own.
+fn is_assumed_state_control(spec: &DeviceSpec, entity: &Entity) -> bool {
+    let platform = entity.platform.as_deref();
+    if !matches!(platform, Some("switch") | Some("cover") | Some("light")) {
         return false;
     }
-    assumed_state_actions_resolve(spec, "switch", entity)
-}
-
-/// The cover spelling of the same carve-out: a garage door whose spec binds
-/// open/close/stop but no state yet (ratgdo before its state_mapping landed)
-/// is admitted on the strength of its FIXED motions resolving. A resolving
-/// `set_cover_position` alone does not admit — a stateless position slider
-/// is the toggle problem wearing a track: the client cannot honestly draw a
-/// thumb it has no reading for.
-fn is_assumed_state_cover(spec: &DeviceSpec, entity: &Entity) -> bool {
-    if entity.platform.as_deref() != Some("cover") {
-        return false;
-    }
-    assumed_state_actions_resolve(spec, "cover", entity)
+    assumed_state_actions_resolve(spec, platform.expect("matched above"), entity)
 }
 
 /// Whether any qualifying action beyond the state-requiring ones (`toggle`,
@@ -3157,6 +3234,220 @@ entities:
         assert_eq!(resolve("http", "appliance/{device_id}/state"), None);
         // A path whose placeholder the spec cannot fill can never be issued.
         assert_eq!(resolve("http", "/api/{username}/sensors"), None);
+    }
+
+    /// A `state_command` NAMES something, and the vocabulary it names into is
+    /// the spec's own. Divoom's panels and a Sony set write a wire call the
+    /// spec describes nowhere (`Channel/GetOnOff`, `getPowerStatus`), and
+    /// `render_state_request` answers CommandNotFound for every poll built on
+    /// one — so admitting it drew sensors that could never fill.
+    #[test]
+    fn a_state_command_binds_only_when_the_spec_describes_it() {
+        const TEMPLATE: &str = r#"
+device:
+  name: Test Panel
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+http_endpoints:
+  - name: live_endpoint
+    method: POST
+    path: /api
+  - name: removed_endpoint
+    method: POST
+    path: /old
+    status: sunset
+commands:
+  get_state:
+    description: Read state.
+    transport: http
+    method: GET
+    path: /state
+entities:
+  - name: Reading
+    platform: sensor
+    state_command: "NAME"
+    state_mapping:
+      value: field
+"#;
+        let resolve = |name: &str| -> Option<String> {
+            let yaml = TEMPLATE.replace("NAME", name);
+            let spec = parse_device_spec(&yaml).expect("test spec should parse");
+            state_binding(&spec, &spec.entities[0]).map(|b| b.location().to_string())
+        };
+
+        // The two vocabularies the renderer looks in, in the same order.
+        assert_eq!(resolve("get_state").as_deref(), Some("get_state"));
+        assert_eq!(resolve("live_endpoint").as_deref(), Some("live_endpoint"));
+        // A removed endpoint is a reading that can never arrive.
+        assert_eq!(resolve("removed_endpoint"), None);
+        // A wire call in the vendor's protocol, which this spec describes
+        // nowhere.
+        assert_eq!(resolve("Channel/GetOnOff"), None);
+        // A name shaped like a path is still a name. The bare-path arm of the
+        // renderer is for a `state_topic`, which is a LOCATION.
+        assert_eq!(resolve("/query/active-app"), None);
+    }
+
+    /// The other half of the same change: an entity whose SENDS resolve keeps
+    /// its controls when its reading does not. A Divoom panel's light is the
+    /// case — `screen_on`/`screen_off` are ordinary HTTP commands that work,
+    /// and only the state call is fictional.
+    #[test]
+    fn a_light_whose_sends_resolve_survives_an_unreadable_state_command() {
+        const PANEL: &str = r#"
+device:
+  name: Test Panel
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  screen_on:
+    description: Wake the panel.
+    transport: http
+    method: POST
+    path: /post
+    body: '{"Command": "Channel/OnOffScreen", "OnOff": 1}'
+  screen_off:
+    description: Blank the panel.
+    transport: http
+    method: POST
+    path: /post
+    body: '{"Command": "Channel/OnOffScreen", "OnOff": 0}'
+entities:
+  - name: Pixel Display
+    platform: light
+    state_command: "Channel/GetOnOff"
+    commands:
+      turn_on: screen_on
+      turn_off: screen_off
+"#;
+        let spec = parse_device_spec(PANEL).expect("test spec should parse");
+        let entity = &spec.entities[0];
+        assert_eq!(
+            state_binding(&spec, entity),
+            None,
+            "the state call is not a binding"
+        );
+        assert_eq!(
+            network_entities(&spec).len(),
+            1,
+            "and the working controls are not deleted to punish it"
+        );
+        let roles: Vec<&str> = resolve_network_actions(&spec, entity)
+            .iter()
+            .map(|a| a.role)
+            .collect();
+        assert_eq!(roles, vec!["turn_on", "turn_off"]);
+    }
+
+    /// A picker whose options live on the command that sends them. Every
+    /// vendored `select` states them on the entity as well, so this is the
+    /// spelling a spec author reading the schema's `enum` key would use —
+    /// and it used to draw an empty picker.
+    #[test]
+    fn a_pickers_options_fall_back_to_the_commands_own_table() {
+        const TEMPLATE: &str = r#"
+device:
+  name: Test Cooker
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  set_cook_mode:
+    description: Set the mode.
+    transport: http
+    method: GET
+    path: /set?mode={mode}
+    parameters:
+      mode:
+        type: integer
+        required: true
+        TABLE
+entities:
+  - name: Cook Mode
+    platform: select
+    state_command: set_cook_mode
+    state_mapping:
+      value: mode
+    commands:
+      select_option: set_cook_mode
+"#;
+        let options = |table: &str| -> Vec<(String, String)> {
+            let yaml = TEMPLATE.replace("TABLE", table);
+            let spec = parse_device_spec(&yaml).expect("test spec should parse");
+            let entity = &spec.entities[0];
+            let actions = resolve_network_actions(&spec, entity);
+            entity_options(entity, &actions)
+        };
+
+        // A code table: the values AND what each one means.
+        assert_eq!(
+            options("values:\n          0: \"off\"\n          50: \"warm\""),
+            vec![
+                ("0".to_string(), "off".to_string()),
+                ("50".to_string(), "warm".to_string())
+            ]
+        );
+        // A bare `enum`: the entries are the words the device speaks, so each
+        // labels itself.
+        assert_eq!(
+            options("enum: [\"AUTO\", \"HIGH\"]"),
+            vec![
+                ("AUTO".to_string(), "AUTO".to_string()),
+                ("HIGH".to_string(), "HIGH".to_string())
+            ]
+        );
+        // Neither: a picker with nothing to pick, reported as nothing rather
+        // than as a guess.
+        assert_eq!(options("min: 0"), Vec::new());
+    }
+
+    /// The entity's own table still wins: it labels the READING too, so the
+    /// picker and the card say the same words.
+    #[test]
+    fn an_entitys_own_options_win_over_the_commands_table() {
+        const COOKER: &str = r#"
+device:
+  name: Test Cooker
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  set_cook_mode:
+    description: Set the mode.
+    transport: http
+    method: GET
+    path: /set?mode={mode}
+    parameters:
+      mode:
+        type: integer
+        required: true
+        values:
+          0: "off"
+          50: "warm"
+entities:
+  - name: Cook Mode
+    platform: select
+    state_command: set_cook_mode
+    state_mapping:
+      value: mode
+      options:
+        0: "Off"
+        50: "Warm"
+    commands:
+      select_option: set_cook_mode
+"#;
+        let spec = parse_device_spec(COOKER).expect("test spec should parse");
+        let entity = &spec.entities[0];
+        let actions = resolve_network_actions(&spec, entity);
+        assert_eq!(
+            entity_options(entity, &actions),
+            vec![
+                ("0".to_string(), "Off".to_string()),
+                ("50".to_string(), "Warm".to_string())
+            ]
+        );
     }
 
     /// A colon inside a path is not a scheme. `://` is the whole test, and the

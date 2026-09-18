@@ -517,13 +517,21 @@ pub struct ParameterDto {
     /// Enumerated set of allowed values. When present (and non-empty) the
     /// device accepts only these values, so the UI should offer a choice
     /// among them instead of a free min..max range.
+    ///
+    /// Resolved by [`Parameter::allowed_with_labels`], so the two spellings
+    /// the catalogue uses for one fact arrive here as one list: the schema's
+    /// `allowed` (+ `labels`), and the `values` raw→label code table nine
+    /// BLE parameters write instead. A consumer sees a choice either way.
     pub allowed: Option<Vec<i64>>,
-    /// Human-readable labels for `allowed`, paired 1:1 by index (the upstream
-    /// spec-format contract). Only present when `allowed` is present and the
-    /// lengths match exactly — a mismatched spec keeps its `allowed` values
-    /// but has its labels dropped rather than mispaired (see the `From`
-    /// conversion below).
+    /// Human-readable labels for `allowed`, paired 1:1 by index. Always the
+    /// same length as `allowed` when both are present: a value the spec
+    /// labelled nowhere is labelled with its own raw number rather than left
+    /// to be paired off by position. Absent only when `allowed` is.
     pub labels: Option<Vec<String>>,
+    /// What this parameter means, in the spec's own words — the sentence a
+    /// control surface can show beside a knob whose name is `flag` or `mcu`.
+    /// `None` when the spec says nothing.
+    pub description: Option<String>,
     /// Multiplier of the parameter's linear transform, when the spec declares
     /// one. A treadmill's `speed` is wire-units with `scale: 0.1` and
     /// `unit: km/h`: the UI works in km/h and the encoder inverts the
@@ -540,7 +548,11 @@ pub struct ParameterDto {
     /// Value the encoder substitutes when the caller supplies nothing — the
     /// reason a speed slider does not need to know the protocol's `flag`
     /// byte. Surfaced so the UI can pre-fill or omit the control entirely.
-    pub default: Option<i64>,
+    ///
+    /// A number, like `min` and `max` beside it, because the schema types the
+    /// key `number`: a spec writing `default: 2.0` used to fail to parse at
+    /// all, taking the whole device with it.
+    pub default: Option<f64>,
     /// Transport role the encoder fills rather than the caller
     /// (`packet_length` | `sequence` | `checksum`), rendered as the spec's
     /// snake_case wire string. When set, the UI must NOT offer a control for
@@ -1395,25 +1407,37 @@ impl From<(&Characteristic, &str, &Command)> for CommandDto {
 
 impl From<(&str, &Parameter)> for ParameterDto {
     fn from((name, p): (&str, &Parameter)) -> Self {
-        // Labels pair with `allowed` 1:1 by index. Specs are loaded from
-        // untrusted packs, so a mismatch must not panic; and mispairing
-        // (zipping short, or padding) would silently attach the wrong label
-        // to a value the device really acts on. Decision: keep `allowed`
-        // (it is what the device accepts) and drop `labels` entirely unless
-        // both are present with exactly equal lengths. Labels without
-        // `allowed` have nothing to pair with and are dropped for the same
-        // reason.
-        let labels = match (&p.allowed, &p.labels) {
-            (Some(allowed), Some(labels)) if allowed.len() == labels.len() => Some(labels.clone()),
-            _ => None,
+        // The choice set and its labels are resolved once, in the spec
+        // layer, so `allowed` + `labels` + `values` cannot be read three
+        // different ways by three consumers. `allowed_with_labels` is also
+        // where mispairing is refused: specs load from untrusted packs, and
+        // zipping a short `labels` list would silently attach the wrong name
+        // to a value the device really acts on.
+        let (allowed, labels) = match p.allowed_with_labels() {
+            Some(pairs) => {
+                // All or nothing, as it has always been at this boundary: a
+                // list that names only some of the values would be paired by
+                // index on the far side, and the unnamed ones would read as
+                // their own number twice over ("1 (1)").
+                let labels = pairs
+                    .iter()
+                    .map(|(_, label)| label.clone())
+                    .collect::<Option<Vec<String>>>();
+                (
+                    Some(pairs.into_iter().map(|(value, _)| value).collect()),
+                    labels,
+                )
+            }
+            None => (None, None),
         };
         Self {
             name: name.to_string(),
             value_type: p.value_type.to_string(),
             min: p.min.map(|v| v as f64),
             max: p.max.map(|v| v as f64),
-            allowed: p.allowed.clone(),
+            allowed,
             labels,
+            description: p.description.clone(),
             scale: p.scale,
             value_offset: p.value_offset,
             unit: p.unit.clone(),
@@ -2202,8 +2226,11 @@ fn network_surface_for(
                 ),
                 is_instanced: entity.instances.is_some(),
                 value_field: entity.value_field().map(str::to_string),
-                options: entity
-                    .options()
+                // Resolved from the entity's own table when it has one and
+                // from the bound command's parameter when it does not — see
+                // `bindings::entity_options`, which is the one place that
+                // decides it.
+                options: bindings::entity_options(entity, &actions)
                     .into_iter()
                     .map(|(raw, label)| NetworkOptionDto { raw, label })
                     .collect(),
@@ -3040,11 +3067,17 @@ pub fn render_network_mqtt_command(
 /// splice is the same single-pass discipline every other template fill in
 /// this crate uses — a value is data, never template.
 ///
-/// A placeholder nothing fills STAYS in the text, and the caller must treat
-/// a returned topic still carrying `{` as unsubscribable: a literal
-/// `{serial}` on the wire is a topic no broker publishes on, and
-/// subscribing to it is how an entity renders forever-Unknown while the
-/// code claims a stream is filling it.
+/// A placeholder nothing fills is a REFUSAL, not a returned string: a literal
+/// `{serial}` on the wire is a topic no broker publishes on, and subscribing
+/// to it is how an entity renders forever-Unknown while the code claims a
+/// stream is filling it. The rule used to be stated only in this doc comment
+/// and enforced by the caller re-scanning the answer for a `{` — a protocol
+/// rule living in the UI layer, where the next caller would not find it, and
+/// one that could not tell an unfilled placeholder from a brace that arrived
+/// inside a VALUE. Asked of the template instead, the two are never confused,
+/// and the error names the placeholder that went unanswered, so a log says
+/// which value is missing rather than that the topic "still has a
+/// placeholder".
 ///
 /// A value carrying the topic language itself is REFUSED, exactly as the
 /// command-topic renderer refuses it (see [`mqtt::TOPIC_LANGUAGE`]). These
@@ -3056,26 +3089,41 @@ pub fn fill_mqtt_state_topic(
     topic: String,
     values: HashMap<String, String>,
 ) -> anyhow::Result<String> {
-    let mut fills: Vec<(String, String)> = Vec::new();
-    for (name, value) in values {
-        let placeholder = format!("{{{name}}}");
-        // Only what this topic actually uses: a stored credential carrying a
-        // slash is nobody's business here unless the topic names it.
-        if !topic.contains(&placeholder) {
-            continue;
-        }
+    // Walked once, so a value is data and never template: a serial that
+    // happens to contain `{productType}` lands verbatim rather than having
+    // the product type spliced into it on a second pass.
+    let mut unanswered: Option<String> = None;
+    let mut hostile: Option<(String, String)> = None;
+    let filled = crate::protocol::walk_placeholders(&topic, |name| {
+        let Some(value) = values.get(name) else {
+            unanswered.get_or_insert_with(|| name.to_string());
+            return Ok(None);
+        };
+        // Only what this topic actually uses is examined: a stored credential
+        // carrying a slash is nobody's business here unless the topic names
+        // it, which is what walking the template (rather than the store)
+        // buys.
         if value.contains(crate::protocol::mqtt::TOPIC_LANGUAGE) {
-            anyhow::bail!(
-                "the value for {{{name}}} carries a topic separator or \
-                 wildcard ({value:?}); it would rewrite the state topic \
-                 rather than fill it"
-            );
+            hostile.get_or_insert_with(|| (name.to_string(), value.clone()));
+            return Ok(None);
         }
-        fills.push((placeholder, value));
+        Ok(Some(value.clone()))
+    })?;
+    if let Some((name, value)) = hostile {
+        anyhow::bail!(
+            "the value for {{{name}}} carries a topic separator or \
+             wildcard ({value:?}); it would rewrite the state topic \
+             rather than fill it"
+        );
     }
-    // Deterministic order even though exact-key lookup makes ties impossible.
-    fills.sort();
-    Ok(crate::protocol::fill_placeholders_once(&topic, &fills))
+    if let Some(name) = unanswered {
+        anyhow::bail!(
+            "the state topic {topic:?} names {{{name}}}, which nothing this \
+             device is known by answers; it cannot be subscribed until that \
+             value is known"
+        );
+    }
+    Ok(filled)
 }
 
 /// The second spelling of each state topic the spec declares one for.
@@ -3121,18 +3169,23 @@ pub struct StateTopicFallbackDto {
 /// each sent only when supplied: a broker that expects neither refuses a
 /// CONNECT carrying two empty strings, and one that expects a token takes a
 /// username with no password.
+///
+/// Fails rather than truncating when a client id or credential is longer than
+/// the two-byte length prefix MQTT gives it.
 pub fn mqtt_connect_packet(
     client_id: String,
     username: Option<String>,
     password: Option<String>,
-) -> Vec<u8> {
-    crate::protocol::mqtt::connect_packet(&crate::protocol::mqtt::ConnectOptions {
-        client_id: &client_id,
-        username: username.as_deref(),
-        password: password.as_deref(),
-        keepalive_seconds: crate::protocol::mqtt::KEEPALIVE_SECONDS,
-        clean_session: true,
-    })
+) -> anyhow::Result<Vec<u8>> {
+    Ok(crate::protocol::mqtt::connect_packet(
+        &crate::protocol::mqtt::ConnectOptions {
+            client_id: &client_id,
+            username: username.as_deref(),
+            password: password.as_deref(),
+            keepalive_seconds: crate::protocol::mqtt::KEEPALIVE_SECONDS,
+            clean_session: true,
+        },
+    )?)
 }
 
 /// Render a named `transport: mqtt` command — the Roomba sibling of
@@ -3168,8 +3221,8 @@ pub fn roomba_state_fields(payload: String) -> HashMap<String, String> {
 }
 
 /// MQTT CONNECT, with the BLID as both client id and username.
-pub fn roomba_connect_packet(blid: String, password: String) -> Vec<u8> {
-    crate::protocol::roomba::connect_packet(&blid, &password)
+pub fn roomba_connect_packet(blid: String, password: String) -> anyhow::Result<Vec<u8>> {
+    Ok(crate::protocol::roomba::connect_packet(&blid, &password)?)
 }
 
 /// MQTT SUBSCRIBE at QoS 0.
@@ -3177,15 +3230,15 @@ pub fn roomba_connect_packet(blid: String, password: String) -> Vec<u8> {
 /// The topic filter is the caller's. `#` is a legitimate choice where a spec
 /// cannot say which shape a given firmware publishes on — the Roomba's case —
 /// and a named topic is the ordinary one.
-pub fn mqtt_subscribe_packet(topic: String, packet_id: u16) -> Vec<u8> {
-    crate::protocol::mqtt::subscribe_packet(&topic, packet_id)
+pub fn mqtt_subscribe_packet(topic: String, packet_id: u16) -> anyhow::Result<Vec<u8>> {
+    Ok(crate::protocol::mqtt::subscribe_packet(&topic, packet_id)?)
 }
 
 /// MQTT PUBLISH at QoS 0. No packet id, no acknowledgement: a higher QoS
 /// needs bookkeeping the codec deliberately does not hold, and no device
 /// broker in the catalogue acknowledges commands.
-pub fn mqtt_publish_packet(topic: String, payload: String) -> Vec<u8> {
-    crate::protocol::mqtt::publish_packet(&topic, &payload)
+pub fn mqtt_publish_packet(topic: String, payload: String) -> anyhow::Result<Vec<u8>> {
+    Ok(crate::protocol::mqtt::publish_packet(&topic, &payload)?)
 }
 
 /// MQTT PINGREQ, sent inside the keepalive window to hold the session open.
@@ -5075,9 +5128,33 @@ pub struct CameraKeepaliveDto {
 /// keepalive); `camera{}` used to be parsed by nothing.
 pub fn camera_for_device(spec_yaml: String) -> anyhow::Result<Option<CameraDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let json = |v: &Option<serde_yaml::Value>| -> Option<String> {
-        v.as_ref()
-            .and_then(|value| serde_json::to_string(value).ok())
+    // A keepalive parameter block that will not serialise is REPORTED, not
+    // dropped. These params are the body of the JSON-RPC call that opens the
+    // camera session (Snapmaker's `startCamera`), so a spec whose block
+    // cannot be rendered — a non-string mapping key, which JSON has no
+    // spelling for — describes a session that cannot be opened. Dropped
+    // silently, the viewer sent `startCamera` with no params, the printer
+    // answered nothing, and the screen showed a black frame with no reason
+    // on it. The failure names the field and the spec's own error.
+    let json = |field: &str, v: &Option<serde_yaml::Value>| -> anyhow::Result<Option<String>> {
+        let Some(value) = v.as_ref() else {
+            return Ok(None);
+        };
+        serde_json::to_string(value).map(Some).map_err(|e| {
+            anyhow::anyhow!("camera keepalive {field} is not representable as JSON: {e}")
+        })
+    };
+    let keepalive = match spec.camera.as_ref().and_then(|c| c.keepalive.as_ref()) {
+        Some(k) => Some(CameraKeepaliveDto {
+            transport: k.transport.clone(),
+            url_template: k.url_template.clone(),
+            start_method: k.start_method.clone(),
+            start_params_json: json("start_params", &k.start_params)?,
+            stop_method: k.stop_method.clone(),
+            stop_params_json: json("stop_params", &k.stop_params)?,
+            interval_seconds: k.interval_seconds,
+        }),
+        None => None,
     };
     Ok(spec.camera.as_ref().map(|c| CameraDto {
         streams: c
@@ -5092,15 +5169,7 @@ pub fn camera_for_device(spec_yaml: String) -> anyhow::Result<Option<CameraDto>>
                 target_fps: s.target_fps,
             })
             .collect(),
-        keepalive: c.keepalive.as_ref().map(|k| CameraKeepaliveDto {
-            transport: k.transport.clone(),
-            url_template: k.url_template.clone(),
-            start_method: k.start_method.clone(),
-            start_params_json: json(&k.start_params),
-            stop_method: k.stop_method.clone(),
-            stop_params_json: json(&k.stop_params),
-            interval_seconds: k.interval_seconds,
-        }),
+        keepalive,
     }))
 }
 
@@ -6515,6 +6584,57 @@ services:
         assert_eq!(set_speed.advanced_reason, None);
     }
 
+    /// A `values` code table is nine catalogue parameters' way of saying
+    /// "these are the only values that mean anything". Dropped, each drew a
+    /// 0..255 slider over a two- or four-value switch; read, it is the same
+    /// choice `allowed`/`labels` describes, so it crosses the FFI in the one
+    /// pair the control surface already draws.
+    #[test]
+    fn a_values_code_table_reaches_the_dto_as_a_labelled_choice() {
+        const CODED: &str = r#"
+device:
+  name: "Coded Strip"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          set_light_on_off:
+            description: "Power"
+            template: [0x7E, 0x00, 0x04, "{state}"]
+            parameters:
+              state:
+                type: uint8
+                description: "0 off, 1 on."
+                values:
+                  0: "off"
+                  1: "on"
+"#;
+        let dto = load_device_spec(CODED.into()).unwrap();
+        let state = dto.services[0].characteristics[0].commands[0]
+            .parameters
+            .iter()
+            .find(|p| p.name == "state")
+            .expect("the parameter reaches the DTO");
+        assert_eq!(state.allowed, Some(vec![0, 1]));
+        assert_eq!(
+            state.labels,
+            Some(vec!["off".to_string(), "on".to_string()]),
+            "a choice the user can read, not two raw numbers"
+        );
+        assert_eq!(
+            state.description.as_deref(),
+            Some("0 off, 1 on."),
+            "the spec's own sentence about the parameter"
+        );
+    }
+
     #[test]
     fn advanced_command_flags_reach_the_dto() {
         let dto = load_device_spec(TREADMILL_YAML.into()).unwrap();
@@ -7717,11 +7837,15 @@ device:
             .unwrap(),
             "455/NN2-EU-ABC1234D/status/current"
         );
-        // A placeholder the store cannot answer stays visible — the caller's
-        // signal to badge the entity instead of subscribing to a literal.
-        assert_eq!(
-            fill_mqtt_state_topic("{productType}/{unknown}/x".into(), values).unwrap(),
-            "455/{unknown}/x"
+        // A placeholder the store cannot answer is a refusal, not a returned
+        // literal: `{unknown}` is a topic level no broker publishes on, and
+        // subscribing to it is how an entity looks live and reads Unknown
+        // forever. The message names the value that is missing.
+        let refused = fill_mqtt_state_topic("{productType}/{unknown}/x".into(), values)
+            .expect_err("an unanswered placeholder must not reach a subscription");
+        assert!(
+            refused.to_string().contains("{unknown}"),
+            "the refusal should name the placeholder: {refused}"
         );
         // A value is data: one containing braces lands verbatim and is never
         // re-scanned as template.
@@ -8201,6 +8325,202 @@ device:
         );
     }
 
+    // ── Brother QL test label ───────────────────────────────────────────────
+
+    /// A QL-shaped spec with the real QL-1110NWB head (1296 dots / 162 bytes
+    /// a row), so the geometry under test is the geometry that ships.
+    fn brother_spec_yaml(head_dots: u32) -> String {
+        format!(
+            r#"
+device:
+  name: "Brother QL-1110NWB Label Printer"
+  manufacturer: "Brother Industries"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "printer"
+  transport: "tcp-raw"
+  identification:
+    default_port: 9100
+  features:
+    - type: "image_upload"
+      max_width: {head_dots}
+      max_height: 35434
+      format: "1bit-bitmap"
+  protocol_handler: "brother_ql_raster"
+"#
+        )
+    }
+
+    /// The job header a QL raster job opens with: 4 bytes of mode, 200 of
+    /// invalidate, 2 of init, then `ESC i z` and its ten bytes. Everything
+    /// this test reads is at a fixed offset, so the header is decoded rather
+    /// than matched byte-for-byte — a change to the cut or margin commands
+    /// after it should not rewrite these tests.
+    fn brother_job_header(job: &[u8]) -> (u8, u8, u8, u32) {
+        const MEDIA_AND_QUALITY: usize = 4 + 200 + 2;
+        assert_eq!(
+            &job[MEDIA_AND_QUALITY..MEDIA_AND_QUALITY + 3],
+            &[0x1B, 0x69, 0x7A],
+            "the media/quality command should open the job"
+        );
+        let b = &job[MEDIA_AND_QUALITY + 3..];
+        let rows = u32::from_le_bytes([b[4], b[5], b[6], b[7]]);
+        (b[1], b[2], b[3], rows) // media type, width mm, length mm, rows
+    }
+
+    /// The dots the first raster row lights, as (leftmost dot index from the
+    /// head's left edge, count). The test label's first row is its top
+    /// border, so every dot of the canvas is black there — which makes the
+    /// row a direct readout of the canvas width and where it sits on the
+    /// head.
+    fn brother_first_row_span(job: &[u8], head_dots: usize) -> (usize, usize) {
+        let start = job
+            .windows(2)
+            .position(|w| w == [0x67, 0x00])
+            .expect("the job should carry at least one raster row");
+        let row_bytes = head_dots / 8;
+        // `g 0x00 n <data>`: the marker carries the length's high byte, so the
+        // count is the ONE byte after it.
+        assert_eq!(
+            job[start + 2] as usize,
+            row_bytes,
+            "a raster row is one full head width"
+        );
+        let row = &job[start + 3..start + 3 + row_bytes];
+        let lit: Vec<usize> = (0..head_dots)
+            .filter(|i| row[i / 8] & (0x80 >> (i % 8)) != 0)
+            .collect();
+        let first = *lit.first().expect("the border row is not blank");
+        // Contiguous by construction — a border row is solid — and asserting
+        // it is what makes "count" mean "width".
+        assert_eq!(
+            lit,
+            (first..first + lit.len()).collect::<Vec<_>>(),
+            "the top border should be one solid run"
+        );
+        // The encoder mirrors the canvas, so canvas column 0 lands at the
+        // head's LAST dot index. Reported from the left edge of the printed
+        // run, which is what the geometry is stated in.
+        (head_dots - first - lit.len(), lit.len())
+    }
+
+    /// Continuous tape: the canvas is the media width in dots at 300 dpi, and
+    /// the strip is the fixed 400 rows a tape with no label boundary can
+    /// safely take.
+    #[test]
+    fn a_continuous_test_label_is_the_media_width_in_dots_by_a_fixed_strip() {
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                media_width_mm: 62,
+                media_length_mm: 0,
+                media_die_cut: false,
+                auto_cut: true,
+            },
+        )
+        .expect("a 62mm continuous test label should encode");
+        let (media_type, width_mm, length_mm, rows) = brother_job_header(&job);
+        assert_eq!(media_type, 0x0A, "continuous");
+        assert_eq!((width_mm, length_mm), (62, 0));
+        assert_eq!(rows, 400, "continuous tape takes the fixed strip");
+        // 62 mm at 300 dpi is 732 dots, comfortably inside the 1296-dot head.
+        let (_, width) = brother_first_row_span(&job, 1296);
+        assert_eq!(width, 732);
+    }
+
+    /// The ~44-dot dead zone at the right of the head. A media width wider
+    /// than the head can print is capped at what prints, or the box's right
+    /// edge simply is not on the label.
+    #[test]
+    fn a_test_label_stays_off_the_heads_dead_zone() {
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                // 111 mm is 1311 dots — wider than the whole head.
+                media_width_mm: 111,
+                media_length_mm: 0,
+                media_die_cut: false,
+                auto_cut: false,
+            },
+        )
+        .expect("an over-wide media should still encode, capped");
+        let (_, width) = brother_first_row_span(&job, 1296);
+        assert_eq!(width, 1296 - 44, "capped at what the head actually prints");
+    }
+
+    /// A die-cut label HAS a boundary, and the raw mm→dots length overshoots
+    /// it by the inter-label gap. The canvas undershoots by ~1/8 so the test
+    /// box stays inside one label instead of running onto the next.
+    #[test]
+    fn a_die_cut_test_label_undershoots_the_label_length() {
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                media_width_mm: 29,
+                media_length_mm: 90,
+                media_die_cut: true,
+                auto_cut: true,
+            },
+        )
+        .expect("a 29x90 die-cut test label should encode");
+        let (media_type, width_mm, length_mm, rows) = brother_job_header(&job);
+        assert_eq!(media_type, 0x0B, "die-cut");
+        assert_eq!((width_mm, length_mm), (29, 90));
+        // 90 mm at 300 dpi is 1062 dots; 1062 - 1062/8 = 930.
+        assert_eq!(rows, 930);
+        assert!(
+            rows < 1062,
+            "the box must end before the label does, not at the gap"
+        );
+    }
+
+    /// The two `.max(8)` clamps, which are `max` and not `clamp` precisely
+    /// because a malformed spec can cross their bounds. A head narrower than
+    /// its own dead zone, and a zero media width, must both produce a small
+    /// label rather than a panic or an empty canvas.
+    #[test]
+    fn a_degenerate_head_or_media_clamps_instead_of_panicking() {
+        // A 16-dot head: `1296 - 44` has nothing to give, so the printable
+        // width floors at 8 rather than at 0 (or underflowing).
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(16),
+            BrotherQlJobParamsDto {
+                media_width_mm: 12,
+                media_length_mm: 0,
+                media_die_cut: false,
+                auto_cut: false,
+            },
+        )
+        .expect("a tiny head should clamp, not crash");
+        assert_eq!(brother_first_row_span(&job, 16).1, 8);
+
+        // Zero media width (no media loaded, or a status reply that said so).
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                media_width_mm: 0,
+                media_length_mm: 0,
+                media_die_cut: false,
+                auto_cut: false,
+            },
+        )
+        .expect("a zero media width should clamp, not crash");
+        assert_eq!(brother_first_row_span(&job, 1296).1, 8);
+
+        // A die-cut label of zero length: one row, not zero and not a panic.
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                media_width_mm: 29,
+                media_length_mm: 0,
+                media_die_cut: true,
+                auto_cut: false,
+            },
+        )
+        .expect("a zero-length die-cut label should clamp, not crash");
+        assert_eq!(brother_job_header(&job).3, 1);
+    }
+
     /// `camera_for_device` parses the `camera:` block into the typed feed +
     /// keepalive the viewer consumes (it used to be parsed by nothing), and
     /// serialises the WebSocket keepalive params to JSON for the FFI.
@@ -8258,6 +8578,39 @@ camera:
         assert_eq!(params["expect_pw"], false);
         let stop: serde_json::Value = serde_json::from_str(&k.stop_params_json.unwrap()).unwrap();
         assert_eq!(stop["domain"], "lan");
+    }
+
+    /// A keepalive block that cannot be rendered as JSON is REPORTED. These
+    /// params are the body of the call that opens the camera session, so
+    /// dropping them silently sent `camera.start_monitor` with no arguments
+    /// and left a black frame with no reason on it.
+    #[test]
+    fn camera_keepalive_params_that_cannot_be_json_are_refused_by_name() {
+        let yaml = r#"
+device:
+  name: "Snapmaker-ish"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "printer"
+camera:
+  streams:
+    - transport: "mjpeg_snapshot_poll"
+      url_template: "http://{address}/monitor.jpg"
+  keepalive:
+    transport: "websocket_jsonrpc"
+    url_template: "ws://{address}/websocket"
+    start_method: "camera.start_monitor"
+    start_params:
+      ? [lan, 0]
+      : "a sequence key, which JSON has no spelling for"
+"#;
+        let err = camera_for_device(yaml.to_string())
+            .expect_err("an unrenderable keepalive must not pass as a working one");
+        assert!(
+            err.to_string().contains("start_params"),
+            "the failure should name the field: {err}"
+        );
     }
 
     /// A spec with no camera block yields None (not an error).

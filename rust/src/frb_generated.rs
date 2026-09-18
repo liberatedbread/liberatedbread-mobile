@@ -2931,15 +2931,16 @@ fn wire__crate__api__device_api__mqtt_connect_packet_impl(
             let api_password = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok =
-                        Result::<_, ()>::Ok(crate::api::device_api::mqtt_connect_packet(
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::mqtt_connect_packet(
                             api_client_id,
                             api_username,
                             api_password,
-                        ))?;
-                    Ok(output_ok)
-                })())
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
             }
         },
     )
@@ -3071,12 +3072,13 @@ fn wire__crate__api__device_api__mqtt_publish_packet_impl(
             let api_payload = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok(
-                        crate::api::device_api::mqtt_publish_packet(api_topic, api_payload),
-                    )?;
-                    Ok(output_ok)
-                })())
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::device_api::mqtt_publish_packet(api_topic, api_payload)?;
+                        Ok(output_ok)
+                    })(),
+                )
             }
         },
     )
@@ -3107,12 +3109,15 @@ fn wire__crate__api__device_api__mqtt_subscribe_packet_impl(
             let api_packet_id = <u16>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok(
-                        crate::api::device_api::mqtt_subscribe_packet(api_topic, api_packet_id),
-                    )?;
-                    Ok(output_ok)
-                })())
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::mqtt_subscribe_packet(
+                            api_topic,
+                            api_packet_id,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
             }
         },
     )
@@ -4492,12 +4497,13 @@ fn wire__crate__api__device_api__roomba_connect_packet_impl(
             let api_password = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
-                transform_result_sse::<_, ()>((move || {
-                    let output_ok = Result::<_, ()>::Ok(
-                        crate::api::device_api::roomba_connect_packet(api_blid, api_password),
-                    )?;
-                    Ok(output_ok)
-                })())
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::device_api::roomba_connect_packet(api_blid, api_password)?;
+                        Ok(output_ok)
+                    })(),
+                )
             }
         },
     )
@@ -7284,10 +7290,11 @@ impl SseDecode for crate::api::device_api::ParameterDto {
         let mut var_max = <Option<f64>>::sse_decode(deserializer);
         let mut var_allowed = <Option<Vec<i64>>>::sse_decode(deserializer);
         let mut var_labels = <Option<Vec<String>>>::sse_decode(deserializer);
+        let mut var_description = <Option<String>>::sse_decode(deserializer);
         let mut var_scale = <Option<f64>>::sse_decode(deserializer);
         let mut var_valueOffset = <Option<f64>>::sse_decode(deserializer);
         let mut var_unit = <Option<String>>::sse_decode(deserializer);
-        let mut var_default_ = <Option<i64>>::sse_decode(deserializer);
+        let mut var_default_ = <Option<f64>>::sse_decode(deserializer);
         let mut var_auto = <Option<String>>::sse_decode(deserializer);
         let mut var_source = <Option<String>>::sse_decode(deserializer);
         let mut var_userSettable = <bool>::sse_decode(deserializer);
@@ -7298,6 +7305,7 @@ impl SseDecode for crate::api::device_api::ParameterDto {
             max: var_max,
             allowed: var_allowed,
             labels: var_labels,
+            description: var_description,
             scale: var_scale,
             value_offset: var_valueOffset,
             unit: var_unit,
@@ -10114,6 +10122,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ParameterDto {
             self.max.into_into_dart().into_dart(),
             self.allowed.into_into_dart().into_dart(),
             self.labels.into_into_dart().into_dart(),
+            self.description.into_into_dart().into_dart(),
             self.scale.into_into_dart().into_dart(),
             self.value_offset.into_into_dart().into_dart(),
             self.unit.into_into_dart().into_dart(),
@@ -12724,10 +12733,11 @@ impl SseEncode for crate::api::device_api::ParameterDto {
         <Option<f64>>::sse_encode(self.max, serializer);
         <Option<Vec<i64>>>::sse_encode(self.allowed, serializer);
         <Option<Vec<String>>>::sse_encode(self.labels, serializer);
+        <Option<String>>::sse_encode(self.description, serializer);
         <Option<f64>>::sse_encode(self.scale, serializer);
         <Option<f64>>::sse_encode(self.value_offset, serializer);
         <Option<String>>::sse_encode(self.unit, serializer);
-        <Option<i64>>::sse_encode(self.default, serializer);
+        <Option<f64>>::sse_encode(self.default, serializer);
         <Option<String>>::sse_encode(self.auto, serializer);
         <Option<String>>::sse_encode(self.source, serializer);
         <bool>::sse_encode(self.user_settable, serializer);

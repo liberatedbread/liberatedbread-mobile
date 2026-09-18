@@ -29,6 +29,10 @@ use crate::spec::types::{DeviceSpec, SpecCommand};
 /// than occupying the slot until a TCP timeout.
 pub const KEEPALIVE_SECONDS: u16 = 60;
 
+/// The largest body MQTT 3.1.1 can frame: the remaining-length field is a
+/// varint of at most four bytes, seven value bits each.
+pub const MAX_REMAINING_LENGTH: usize = 268_435_455;
+
 /// What a CONNACK said.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectOutcome {
@@ -94,9 +98,14 @@ impl<'a> ConnectOptions<'a> {
 }
 
 /// CONNECT.
-pub fn connect_packet(options: &ConnectOptions<'_>) -> Vec<u8> {
+///
+/// Fallible because the three caller-supplied strings are length-prefixed: see
+/// [`encode_string`]. A client id, username or password past 65535 bytes is
+/// refused by name rather than silently truncated into a packet the broker
+/// reads as a different one.
+pub fn connect_packet(options: &ConnectOptions<'_>) -> Result<Vec<u8>, ProtocolError> {
     let mut variable = Vec::new();
-    encode_string(&mut variable, "MQTT");
+    encode_string(&mut variable, "protocol name", "MQTT")?;
     variable.push(0x04); // protocol level 4 = MQTT 3.1.1
 
     // Flags: username (0x80), password (0x40), clean session (0x02). Built
@@ -115,16 +124,16 @@ pub fn connect_packet(options: &ConnectOptions<'_>) -> Vec<u8> {
     variable.push(flags);
     variable.extend_from_slice(&options.keepalive_seconds.to_be_bytes());
 
-    encode_string(&mut variable, options.client_id);
+    encode_string(&mut variable, "client id", options.client_id)?;
     // Order is fixed by the spec: client id, then username, then password.
     if let Some(username) = options.username {
-        encode_string(&mut variable, username);
+        encode_string(&mut variable, "username", username)?;
     }
     if let Some(password) = options.password {
-        encode_string(&mut variable, password);
+        encode_string(&mut variable, "password", password)?;
     }
 
-    packet(0x10, &variable)
+    Ok(packet(0x10, &variable))
 }
 
 /// SUBSCRIBE at QoS 0.
@@ -132,12 +141,12 @@ pub fn connect_packet(options: &ConnectOptions<'_>) -> Vec<u8> {
 /// The topic is the caller's, `#` included: which topic shape a given firmware
 /// publishes on is a spec question, and for some devices the honest answer is
 /// "subscribe to everything and see".
-pub fn subscribe_packet(topic: &str, packet_id: u16) -> Vec<u8> {
+pub fn subscribe_packet(topic: &str, packet_id: u16) -> Result<Vec<u8>, ProtocolError> {
     let mut variable = Vec::new();
     variable.extend_from_slice(&packet_id.to_be_bytes());
-    encode_string(&mut variable, topic);
+    encode_string(&mut variable, "topic filter", topic)?;
     variable.push(0x00); // requested QoS
-    packet(0x82, &variable)
+    Ok(packet(0x82, &variable))
 }
 
 /// PUBLISH at QoS 0 — no packet id, no acknowledgement.
@@ -145,11 +154,23 @@ pub fn subscribe_packet(topic: &str, packet_id: u16) -> Vec<u8> {
 /// QoS 0 only, deliberately: a higher QoS needs packet-id bookkeeping and a
 /// retransmit timer, which is state this codec does not hold. Every device
 /// broker in the catalogue publishes commands this way.
-pub fn publish_packet(topic: &str, payload: &str) -> Vec<u8> {
+pub fn publish_packet(topic: &str, payload: &str) -> Result<Vec<u8>, ProtocolError> {
     let mut variable = Vec::new();
-    encode_string(&mut variable, topic);
+    encode_string(&mut variable, "topic", topic)?;
     variable.extend_from_slice(payload.as_bytes());
-    packet(0x30, &variable)
+    // The payload is NOT length-prefixed — it is whatever is left of the
+    // packet — so its own ceiling is the remaining-length varint's, which is
+    // four bytes wide and no more.
+    if variable.len() > MAX_REMAINING_LENGTH {
+        return Err(ProtocolError::ParameterInvalid {
+            name: "payload".to_string(),
+            value: variable.len() as f64,
+            reason: format!(
+                "an MQTT packet's remaining length is a four-byte varint, so a                  PUBLISH cannot carry more than {MAX_REMAINING_LENGTH} bytes"
+            ),
+        });
+    }
+    Ok(packet(0x30, &variable))
 }
 
 pub fn pingreq_packet() -> Vec<u8> {
@@ -248,10 +269,28 @@ fn packet(header: u8, body: &[u8]) -> Vec<u8> {
 }
 
 /// MQTT's length-prefixed UTF-8 string: two big-endian bytes, then the bytes.
-fn encode_string(out: &mut Vec<u8>, value: &str) {
+///
+/// Two bytes is the whole of the format's vocabulary for a length, so 65535
+/// bytes is the ceiling and a longer value has no encoding at all. Written as
+/// `len as u16` this wrapped: a 65536-byte topic went out as a two-byte length
+/// of 0 followed by 65536 bytes, which the broker reads as an empty topic
+/// followed by 65536 bytes of whatever packet it thinks comes next — the
+/// stream's framing is gone from there on, and nothing upstream would ever say
+/// why. `what` names the field so the refusal points at the value the caller
+/// supplied rather than at "a string".
+fn encode_string(out: &mut Vec<u8>, what: &str, value: &str) -> Result<(), ProtocolError> {
     let bytes = value.as_bytes();
-    out.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
+    let length = u16::try_from(bytes.len()).map_err(|_| ProtocolError::ParameterInvalid {
+        name: what.to_string(),
+        value: bytes.len() as f64,
+        reason: format!(
+            "an MQTT string is prefixed with a two-byte length, so it cannot              carry more than {} bytes",
+            u16::MAX
+        ),
+    })?;
+    out.extend_from_slice(&length.to_be_bytes());
     out.extend_from_slice(bytes);
+    Ok(())
 }
 
 fn decode_string(body: &[u8]) -> Result<(String, usize), ProtocolError> {
@@ -417,7 +456,7 @@ fn substitute_topic(
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    walk(template, |param| {
+    crate::protocol::walk_placeholders(template, |param| {
         // Unlike a payload, a topic has no legitimate braces, so a
         // parameter-shaped name the command does not declare is a mistake
         // rather than literal text.
@@ -438,12 +477,27 @@ fn substitute_topic(
     })
 }
 
-/// Fill `{name}` placeholders in a payload, verbatim.
+/// Fill `{name}` placeholders in a payload.
 ///
-/// No escaping, unlike the same field on the Kasa transport: this payload is a
+/// No ESCAPING, unlike the same field on the Kasa transport: this payload is a
 /// bare string as often as it is JSON, and escaping `KEY_POWER` would corrupt
 /// a value carrying a quote rather than protect it. A spec whose payload is
 /// JSON declares `arguments` and gets the typed, escaped path.
+///
+/// A value IS validated against its parameter's declared type, which is the
+/// half escaping could not have covered anyway. Hisense's `set_volume`
+/// declares `volume` as an `integer` and publishes the bare decimal as its
+/// whole payload (`body: "{volume}"`); with no check, a value picked up from
+/// a device reply or a stored credential went out verbatim, so a TV asked for
+/// `"KEY_POWER"` on the volume topic got exactly that. Every other transport
+/// already validates here — `arguments` through `http::render_body`, a Kasa or
+/// HTTP literal body through `kasa::substitute`, an XML body through
+/// `substitute_markup` — and this was the one payload shape that did not.
+///
+/// A validated non-string is written BARE (`typed_json`'s rendering of the
+/// number or boolean), not quoted: the payload is not JSON, and `"50"` is a
+/// different payload from `50`. A `string` parameter still passes through
+/// verbatim — a bare-string payload has no syntax to inject into.
 ///
 /// A brace naming something the command does not declare is left as written
 /// rather than refused — a JSON payload written as a `body` template is full
@@ -454,76 +508,17 @@ fn substitute_plain(
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    walk(template, |param| {
-        if !command.parameters.contains_key(param) {
+    crate::protocol::walk_placeholders(template, |param| {
+        let Some(parameter) = command.parameters.get(param) else {
             return Ok(None);
-        }
-        resolve(command, command_name, param, values).map(Some)
+        };
+        let raw = resolve(command, command_name, param, values)?;
+        let rendered = match crate::protocol::http::declared_type(parameter.value_type.as_deref()) {
+            crate::protocol::http::DeclaredType::String => raw,
+            _ => crate::protocol::http::typed_json(Some(parameter), param, &raw)?.to_string(),
+        };
+        Ok(Some(rendered))
     })
-}
-
-/// One left-to-right pass over a template, handing each `{name}` to `fill`.
-///
-/// Single-pass on purpose. Replacing placeholders one parameter at a time —
-/// the obvious loop, and what this used to do — re-scans its own output, so a
-/// value that happens to contain `{other}` has `other`'s value substituted
-/// into it on a later turn. The values are credentials and device replies,
-/// which makes that a way to pull one parameter somewhere the spec never put
-/// it. Walking the template once cannot: what `fill` returns is never looked
-/// at again.
-///
-/// What counts as a placeholder is `{` + a parameter-shaped name + `}`, not
-/// any pair of braces. That distinction is what lets a JSON payload be
-/// written as a `body` template: in `{"id": "{id}"}` the outer brace is
-/// followed by a quote, so it is object syntax and is emitted as written,
-/// while `{id}` is filled. Scanning for brace PAIRS instead would swallow
-/// everything up to the first `}` and substitute nothing.
-///
-/// `fill` returning `None` means "not a placeholder after all" — the caller's
-/// way of saying a name it does not know is the author's literal text.
-fn walk(
-    template: &str,
-    mut fill: impl FnMut(&str) -> Result<Option<String>, ProtocolError>,
-) -> Result<String, ProtocolError> {
-    let mut out = String::with_capacity(template.len());
-    let mut rest = template;
-    while let Some(open) = rest.find('{') {
-        let (literal, tail) = rest.split_at(open);
-        out.push_str(literal);
-        match placeholder_name(tail) {
-            Some(name) => {
-                match fill(name)? {
-                    Some(value) => out.push_str(&value),
-                    None => {
-                        out.push('{');
-                        out.push_str(name);
-                        out.push('}');
-                    }
-                }
-                rest = &tail[name.len() + 2..];
-            }
-            None => {
-                // Not a placeholder: a JSON object's brace, or an unclosed one
-                // the author meant literally. Emit it and keep looking — the
-                // rest of the template may still hold real placeholders.
-                out.push('{');
-                rest = &tail[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    Ok(out)
-}
-
-/// The parameter name in `{name}` at the head of `tail`, if that is what it
-/// is. A name is what the schema allows a parameter to be called: one or more
-/// of `[A-Za-z0-9_]`, nothing else.
-fn placeholder_name(tail: &str) -> Option<&str> {
-    let after_brace = tail.strip_prefix('{')?;
-    let end = after_brace.find('}')?;
-    let name = &after_brace[..end];
-    let shaped = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
-    shaped.then_some(name)
 }
 
 /// A parameter's value: the caller's, else the spec's declared default, else
@@ -551,13 +546,21 @@ pub fn render_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `publish_packet` for the cases where every string obviously fits — the
+    /// length ceiling has its own tests below.
+    fn publish(topic: &str, payload: &str) -> Vec<u8> {
+        publish_packet(topic, payload).expect("topic fits its length prefix")
+    }
+
     #[test]
     fn connect_carries_the_client_id_username_and_password_in_order() {
         let packet = connect_packet(&ConnectOptions::with_credentials(
             "BLID123",
             "BLID123",
             "  :1:secret",
-        ));
+        ))
+        .expect("every string fits its length prefix");
         assert_eq!(packet[0], 0x10);
         // MQTT 3.1.1 protocol name and level.
         assert_eq!(&packet[2..8], b"\x00\x04MQTT");
@@ -576,7 +579,7 @@ mod tests {
     #[test]
     fn publish_and_subscribe_round_trip_through_the_parser() {
         let mut stream = Vec::new();
-        stream.extend(publish_packet("cmd", r#"{"command":"clean"}"#));
+        stream.extend(publish("cmd", r#"{"command":"clean"}"#));
         stream.extend(pingreq_packet());
 
         let (packets, consumed) = parse_incoming(&stream).unwrap();
@@ -604,7 +607,7 @@ mod tests {
     /// as one packet is the bug `parse_incoming`'s consumed count prevents.
     #[test]
     fn a_partial_packet_is_left_in_the_buffer() {
-        let whole = publish_packet("delta", r#"{"state":{}}"#);
+        let whole = publish("delta", r#"{"state":{}}"#);
         for split in 1..whole.len() {
             let (packets, consumed) = parse_incoming(&whole[..split]).unwrap();
             assert!(packets.is_empty(), "parsed a packet from {split} bytes");
@@ -621,7 +624,7 @@ mod tests {
     fn multi_byte_remaining_lengths_round_trip() {
         for size in [0usize, 1, 127, 128, 16_383, 16_384] {
             let payload = "x".repeat(size);
-            let whole = publish_packet("delta", &payload);
+            let whole = publish("delta", &payload);
             let (packets, consumed) = parse_incoming(&whole).unwrap();
             assert_eq!(consumed, whole.len(), "size {size}");
             assert_eq!(
@@ -642,7 +645,7 @@ mod tests {
     #[test]
     fn a_qos1_publish_skips_its_packet_id() {
         let mut variable = Vec::new();
-        encode_string(&mut variable, "delta");
+        encode_string(&mut variable, "topic", "delta").expect("fits");
         variable.extend_from_slice(&7u16.to_be_bytes());
         variable.extend_from_slice(br#"{"ok":1}"#);
         let raw = packet(0x32, &variable); // 0x32 = PUBLISH, QoS 1
@@ -661,7 +664,7 @@ mod tests {
     fn several_packets_in_one_read_are_all_returned() {
         let mut stream = Vec::new();
         stream.extend([0x20, 0x02, 0x00, 0x00]);
-        stream.extend(publish_packet("delta", "{}"));
+        stream.extend(publish("delta", "{}"));
         stream.extend([0xD0, 0x00]);
 
         let (packets, consumed) = parse_incoming(&stream).unwrap();
@@ -687,7 +690,8 @@ mod tests {
             password: None,
             keepalive_seconds: 30,
             clean_session: true,
-        });
+        })
+        .expect("every string fits its length prefix");
         assert_eq!(packet[9], 0x02, "clean session only");
         assert_eq!(&packet[10..12], &30u16.to_be_bytes());
         // Client id and nothing after it.
@@ -704,8 +708,70 @@ mod tests {
             password: None,
             keepalive_seconds: KEEPALIVE_SECONDS,
             clean_session: false,
-        });
+        })
+        .expect("every string fits its length prefix");
         assert_eq!(packet[9], 0x80, "username flag, no clean session");
+    }
+
+    /// An MQTT string is prefixed with a TWO-byte length, so 65535 bytes is
+    /// the whole of what the format can say. Written as `len as u16` the count
+    /// wrapped: a 65536-byte topic went out as a length of 0 followed by
+    /// 65536 bytes, and the broker lost the stream's framing from there on
+    /// with nothing anywhere able to say why.
+    #[test]
+    fn a_string_past_the_two_byte_length_is_refused_not_wrapped() {
+        let long = "t".repeat(u16::MAX as usize + 1);
+
+        let error = publish_packet(&long, "x").expect_err("no encoding exists for this topic");
+        assert!(
+            matches!(&error, ProtocolError::ParameterInvalid { name, .. } if name == "topic"),
+            "{error}"
+        );
+
+        let error =
+            subscribe_packet(&long, 1).expect_err("no encoding exists for this topic filter");
+        assert!(
+            matches!(&error, ProtocolError::ParameterInvalid { name, .. } if name == "topic filter"),
+            "{error}"
+        );
+
+        for (label, options) in [
+            (
+                "client id",
+                ConnectOptions::with_credentials(&long, "u", "p"),
+            ),
+            (
+                "username",
+                ConnectOptions::with_credentials("c", &long, "p"),
+            ),
+            (
+                "password",
+                ConnectOptions::with_credentials("c", "u", &long),
+            ),
+        ] {
+            let error = connect_packet(&options).expect_err("no encoding exists for this string");
+            assert!(
+                matches!(&error, ProtocolError::ParameterInvalid { name, .. } if name == label),
+                "{label}: {error}"
+            );
+        }
+    }
+
+    /// And the boundary itself still encodes: exactly 65535 bytes is a legal
+    /// MQTT string, so the refusal must not be an off-by-one that rejects it.
+    #[test]
+    fn a_string_of_exactly_sixty_five_thousand_five_hundred_and_thirty_five_bytes_encodes() {
+        let topic = "t".repeat(u16::MAX as usize);
+        let raw = publish_packet(&topic, "").expect("65535 bytes is a legal MQTT string");
+        let (packets, consumed) = parse_incoming(&raw).unwrap();
+        assert_eq!(consumed, raw.len());
+        assert_eq!(
+            packets[0],
+            Incoming::Publish {
+                topic,
+                payload: String::new(),
+            }
+        );
     }
 }
 
@@ -758,6 +824,21 @@ commands:
         type: "string"
         required: true
         source: "credential:mqtt_client_id"
+  set_volume:
+    description: "Absolute volume; the payload is the bare decimal level."
+    transport: "mqtt"
+    path: "/remoteapp/tv/platform_service/{client_id}/actions/changevolume"
+    parameters:
+      client_id:
+        type: "string"
+        required: true
+        source: "credential:mqtt_client_id"
+      volume:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+    body: "{volume}"
 "#;
 
     fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -827,6 +908,64 @@ commands:
             &values(&[("client_id", "56:b8:88:4e$his$256DBF")])
         )
         .is_ok());
+    }
+
+    /// Hisense's `set_volume` declares `volume` as an `integer` and publishes
+    /// the bare decimal as its whole payload. A `body:` placeholder used to go
+    /// out verbatim — the one payload shape in the crate that skipped the
+    /// declared-type check every other one applies — so a value picked up from
+    /// a device reply or a stored credential reached the set unexamined.
+    #[test]
+    fn a_body_placeholder_is_validated_against_its_declared_type() {
+        let request = render_request(
+            &spec(),
+            "set_volume",
+            &values(&[("client_id", "phone1"), ("volume", "50")]),
+        )
+        .expect("renders");
+        assert_eq!(
+            request.topic,
+            "/remoteapp/tv/platform_service/phone1/actions/changevolume"
+        );
+        // Bare, unquoted: the payload is not JSON, and "50" is a different
+        // payload from 50.
+        assert_eq!(request.payload, "50");
+
+        let error = render_request(
+            &spec(),
+            "set_volume",
+            &values(&[("client_id", "phone1"), ("volume", "KEY_POWER")]),
+        )
+        .expect_err("a non-numeric volume must not reach the set");
+        assert!(
+            matches!(&error, ProtocolError::ParameterInvalid { name, .. } if name == "volume"),
+            "{error}"
+        );
+    }
+
+    /// A `string` parameter still goes out verbatim: a bare-string payload has
+    /// no syntax to inject into, and escaping `KEY_POWER` would corrupt a value
+    /// carrying a quote rather than protect it.
+    #[test]
+    fn a_string_body_placeholder_is_still_verbatim() {
+        let yaml = TV.replace(
+            r#"      volume:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100"#,
+            r#"      volume:
+        type: "string"
+        required: true"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let request = render_request(
+            &spec,
+            "set_volume",
+            &values(&[("client_id", "p"), ("volume", r#"a"b\c"#)]),
+        )
+        .expect("renders");
+        assert_eq!(request.payload, r#"a"b\c"#);
     }
 
     /// A topic placeholder the command never declared as a parameter would be

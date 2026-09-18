@@ -536,6 +536,36 @@ impl SpecCommandParameter {
     pub fn value_table(&self) -> Vec<(String, String)> {
         value_table(self.values.as_ref())
     }
+
+    /// Every value this parameter accepts, as (raw, label) pairs in
+    /// declaration order — the choices a control offers for it, or empty when
+    /// it takes a range rather than a set.
+    ///
+    /// The catalogue states this two ways and a consumer must not care which.
+    /// `values` is a code table, raw → label (Wemo's `set_cook_mode`:
+    /// `50: warm`). `enum` is a bare list of accepted values with no labels
+    /// (Frigidaire's `fan_mode`: `[AUTO, HIGH, …]`), so each entry labels
+    /// itself — which is right, because those entries ARE the words the
+    /// device speaks. Both are read here so neither spelling is the one that
+    /// renders as a blank picker.
+    ///
+    /// A `values` table wins where a parameter writes both: it says strictly
+    /// more (the same values, plus what each means), and no catalogue
+    /// parameter disagrees between the two.
+    pub fn code_table(&self) -> Vec<(String, String)> {
+        let table = self.value_table();
+        if !table.is_empty() {
+            return table;
+        }
+        let Some(serde_yaml::Value::Sequence(values)) = self.extensions.get("enum") else {
+            return Vec::new();
+        };
+        values
+            .iter()
+            .filter_map(scalar_to_string)
+            .map(|raw| (raw.clone(), raw))
+            .collect()
+    }
 }
 
 /// A `payload_formats:` entry: how to read one returned value.
@@ -2093,12 +2123,11 @@ impl<'de> Deserialize<'de> for TemplateElement {
 
 /// A command parameter definition.
 ///
-/// Unknown keys sweep into `extensions`: specs annotate parameters with
-/// `description`, which documents the parameter without changing how it
-/// encodes. `type`/`min`/`max` still bound the encoded value, so
-/// a typo here should fail loudly. `allowed`/`labels`/`notes` are documented
+/// Unrecognised keys are ignored rather than swept into an extensions bag:
+/// `type`/`min`/`max` bound the encoded value, so a typo in one should fail
+/// loudly. `allowed`/`labels`/`values`/`notes`/`description` are documented
 /// optional extensions (admore declares enumerated allowed values with UI
-/// labels); they are parsed and preserved but do not yet drive validation.
+/// labels); they do not change how a value encodes, only how it is offered.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Parameter {
     #[serde(rename = "type")]
@@ -2111,14 +2140,47 @@ pub struct Parameter {
     /// `set_brightness` takes `seq`, `light_mode` and `flag` alongside the
     /// brightness itself, and the spec defaults all three, so a brightness
     /// slider only needs to provide `brightness`.
+    ///
+    /// `f64` because the schema types this key `number` while it types
+    /// `min`/`max` `integer`. Read as an integer, the perfectly ordinary
+    /// `default: 2.0` — the same raw value written with a decimal point —
+    /// was a serde type error, and a type error here fails the WHOLE spec:
+    /// one punctuation choice cost a device. Carried as a number instead, a
+    /// fractional default costs only the send that relies on it, where
+    /// `coerce_param` already refuses a fractional value by name.
     #[serde(default)]
-    pub default: Option<i64>,
+    pub default: Option<f64>,
     /// Enumerated set of allowed integer values (admore setting_id commands).
     #[serde(default)]
     pub allowed: Option<Vec<i64>>,
     /// Human-readable labels paired with `allowed`, for UI display.
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Code table for a parameter whose raw numbers are really an
+    /// enumeration: raw value → label, exactly as [`FormatField::values`]
+    /// spells the same idea on the decode side.
+    ///
+    /// Nine catalogue parameters carry one — elk-bledom's `state`
+    /// (`0: off, 1: on`), wl-smartled's `light_mode` (`0: all, 1: RGB, …`) —
+    /// and dropping it drew each of them as a raw 0..255 slider with no hint
+    /// that only two or four values mean anything. The schema does not
+    /// declare the key on a BLE parameter (it spells the same table
+    /// `allowed` + `labels`), which is filed in SPECS_TO_FIX.md; the
+    /// catalogue writes `values` regardless, and reading what the catalogue
+    /// says is cheaper than a device rendered as a mystery number.
+    ///
+    /// See [`Self::allowed_with_labels`] for how the two spellings fold into
+    /// the one pair a control surface draws.
+    #[serde(default, deserialize_with = "de_value_table")]
+    pub values: Option<IndexMap<String, String>>,
+    /// What this parameter means, in the spec author's own words.
+    ///
+    /// Parsed because it is the sentence a client shows when it has to ask a
+    /// person for the value: [`crate::spec::credentials`] reads it off a
+    /// `source: credential:<name>` parameter, which is the BLE half of the
+    /// join it already does for network commands.
+    #[serde(default)]
+    pub description: Option<String>,
     /// Number semantics of the value this parameter carries, shared with
     /// [`FormatField`]: the client encodes by inverting
     /// `raw = round((value - value_offset) / scale)`, which is why the
@@ -2248,6 +2310,8 @@ impl Default for Parameter {
             default: None,
             allowed: None,
             labels: None,
+            values: None,
+            description: None,
             scale: None,
             value_offset: None,
             unit: None,
@@ -2281,6 +2345,57 @@ impl Parameter {
     /// `source`, which nothing parsed.
     pub fn is_user_settable(&self) -> bool {
         self.auto.is_none() && self.default.is_none() && self.source.is_none()
+    }
+
+    /// The choices this parameter offers, as (raw value, label) pairs in the
+    /// order the spec declares them — or `None` when it offers a range rather
+    /// than a set.
+    ///
+    /// The catalogue states the same fact two ways and a control surface must
+    /// not care which: `allowed` (+ optional `labels`) is what the schema
+    /// declares, `values` is the raw→label code table nine parameters write
+    /// instead. `allowed` wins where both are present, because it is the one
+    /// the schema defines and the one the parser bounds-checks; the `values`
+    /// table then only supplies labels for the values `allowed` lists.
+    ///
+    /// A label is never paired by guesswork: `labels` shorter or longer than
+    /// `allowed` is dropped entirely rather than zipped, because mislabelling
+    /// a value the device really acts on is worse than showing the number.
+    /// That is why the label is an `Option` per value and not a parallel
+    /// list — a value nobody named says so, and a consumer shows the number.
+    ///
+    /// Entries outside the declared type are NOT filtered here — the parser
+    /// rejects such a spec outright (`AllowedValueOutsideBounds`), so by the
+    /// time anything asks, every entry is sendable.
+    pub fn allowed_with_labels(&self) -> Option<Vec<(i64, Option<String>)>> {
+        if let Some(allowed) = self.allowed.as_ref().filter(|a| !a.is_empty()) {
+            let paired = match &self.labels {
+                Some(labels) if labels.len() == allowed.len() => Some(labels),
+                _ => None,
+            };
+            return Some(
+                allowed
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &value)| {
+                        let label = paired
+                            .map(|labels| labels[i].clone())
+                            .or_else(|| self.values.as_ref()?.get(&value.to_string()).cloned());
+                        (value, label)
+                    })
+                    .collect(),
+            );
+        }
+        // A `values` table on its own IS the set: the keys are the raw values
+        // the device accepts. A key that is not an integer is not a raw wire
+        // value — `de_value_table` keeps `default:`-style keys verbatim — so
+        // it is skipped rather than allowed to collapse the table.
+        let table = self.values.as_ref().filter(|t| !t.is_empty())?;
+        let pairs: Vec<(i64, Option<String>)> = table
+            .iter()
+            .filter_map(|(raw, label)| Some((raw.parse::<i64>().ok()?, Some(label.clone()))))
+            .collect();
+        (!pairs.is_empty()).then_some(pairs)
     }
 
     /// Whether this parameter states the meaning of its value rather than

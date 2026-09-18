@@ -277,7 +277,7 @@ fn build_play_write(
     sequence: u16,
 ) -> Result<EncodedWrite, ProtocolError> {
     let (characteristic, tag) =
-        command_channel(spec, command_name).ok_or_else(|| ProtocolError::CommandNotFound {
+        command_channel(spec, command_name)?.ok_or_else(|| ProtocolError::CommandNotFound {
             uuid: "<any>".to_string(),
             command: command_name.to_string(),
         })?;
@@ -515,7 +515,7 @@ fn build_framed_command(
     sequence: u16,
 ) -> Result<EncodedWrite, ProtocolError> {
     let (characteristic, tag) =
-        command_channel(spec, command_name).ok_or_else(|| ProtocolError::CommandNotFound {
+        command_channel(spec, command_name)?.ok_or_else(|| ProtocolError::CommandNotFound {
             uuid: "<any>".to_string(),
             command: command_name.to_string(),
         })?;
@@ -551,11 +551,20 @@ fn build_framed_command(
 /// Resolves by which characteristic declares the command rather than by a
 /// hardcoded UUID, so the play command can live on whichever channel the spec
 /// puts it. The tag is the characteristic's `framing.channel_tag` (0 for the
-/// Daniao command channel), defaulting to 0 when unstated.
+/// Daniao command channel); an UNSTATED tag is 0, which is the scheme's own
+/// default and the only silence this reads as a value.
+///
+/// A tag that IS stated but is not a byte — `256`, `-1`, `"bulk"` — is an
+/// error, not a 0. `.as_u64().unwrap_or(0) as u8` said 0 for every one of
+/// those: `256` wrapped to the command channel and a misspelled tag fell back
+/// to it, so a write meant for the bulk channel went out framed for the
+/// command one and the device answered nothing. `image_upload::frame_command`
+/// reads the same key through a typed `Option<u8>` and refuses the same
+/// values; the two disagreeing about one YAML key was the whole bug.
 fn command_channel<'a>(
     spec: &'a DeviceSpec,
     command_name: &str,
-) -> Option<(&'a Characteristic, u8)> {
+) -> Result<Option<(&'a Characteristic, u8)>, ProtocolError> {
     for service in &spec.services {
         for characteristic in &service.characteristics {
             let has_command = characteristic
@@ -565,16 +574,26 @@ fn command_channel<'a>(
             if !has_command {
                 continue;
             }
-            let tag = characteristic
+            let declared = characteristic
                 .framing
                 .as_ref()
-                .and_then(|f| f.get("channel_tag"))
-                .and_then(|t| t.as_u64())
-                .unwrap_or(0) as u8;
-            return Some((characteristic, tag));
+                .and_then(|f| f.get("channel_tag"));
+            let tag = match declared {
+                None | Some(serde_yaml::Value::Null) => 0,
+                Some(value) => value
+                    .as_u64()
+                    .and_then(|t| u8::try_from(t).ok())
+                    .ok_or_else(|| ProtocolError::InvalidFraming {
+                        reason: format!(
+                            "characteristic {} declares channel_tag {value:?}, which is not a                              byte; a fragment channel tag is 0..=255",
+                            characteristic.uuid
+                        ),
+                    })?,
+            };
+            return Ok(Some((characteristic, tag)));
         }
     }
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -866,6 +885,42 @@ services:
             &[0x08, 0x00],
             "i1=0 payload"
         );
+    }
+
+    /// `framing.channel_tag` was read as `.as_u64().unwrap_or(0) as u8`, so
+    /// every malformed spelling — a value past a byte, a negative, a word —
+    /// silently became 0, the Daniao COMMAND channel. A bulk write framed for
+    /// the command channel is a write the device drops with no error anywhere.
+    /// `image_upload::frame_command` reads the same key through a typed
+    /// `Option<u8>` and has always refused these; the two now agree.
+    #[test]
+    fn a_channel_tag_that_is_not_a_byte_is_refused_not_truncated_to_zero() {
+        for hostile in ["256", "-1", "\"bulk\""] {
+            let yaml = SPEC.replace(
+                r#"framing: { scheme: "daniao_fragment", channel_tag: 0 }"#,
+                &format!(r#"framing: {{ scheme: "daniao_fragment", channel_tag: {hostile} }}"#),
+            );
+            let spec = parse_device_spec(&yaml).expect("fixture parses");
+            let error = encode_bookmark_enable(&spec, 0, 7)
+                .expect_err("a malformed channel tag must not frame as channel 0");
+            assert!(
+                matches!(&error, ProtocolError::InvalidFraming { .. }),
+                "{hostile}: {error}"
+            );
+        }
+    }
+
+    /// An UNSTATED tag is still 0 — that is the scheme's own default and the
+    /// BIN characteristic in this fixture relies on it.
+    #[test]
+    fn an_unstated_channel_tag_is_still_zero() {
+        let yaml = SPEC.replace(
+            r#"framing: { scheme: "daniao_fragment", channel_tag: 0 }"#,
+            r#"framing: { scheme: "daniao_fragment" }"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let (_service, write) = encode_bookmark_enable(&spec, 0, 7).expect("encodes");
+        assert_eq!(write.bytes[3], 0, "the fragment header's tag byte");
     }
 
     #[test]

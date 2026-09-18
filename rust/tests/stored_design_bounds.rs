@@ -139,3 +139,48 @@ fn a_mismatched_bitmap_inside_the_limit_is_still_a_typed_error() {
         "not a dimension-limit error: {err}"
     );
 }
+
+/// The other unbounded input at this boundary: the design's NAME.
+///
+/// The "DN" header holds the TinyProgram protobuf between offset 10 and the
+/// base AMX at 256, and the name is embedded TWICE (as `name` and as
+/// `description`), so every byte costs two of that 246-byte budget. Past it,
+/// the AMX copy used to overwrite the protobuf's tail and the header CRC
+/// sealed the damage — a container the device refuses without saying why,
+/// after an upload the app reported as saved. `daniao_store` refuses it, and
+/// this is that refusal seen from where Dart calls it: the name is the only
+/// thing the message needs to name, and `MAX_NAME_BYTES` is read from the
+/// container so the file cannot pin a number the builder disagrees with.
+#[test]
+fn a_stored_name_the_header_cannot_hold_is_refused_at_the_ffi() {
+    use liberated_bread_core::protocol::daniao_store::MAX_NAME_BYTES;
+
+    let store = |name: String| -> Result<(), String> {
+        encode_stored_image(
+            spec_yaml(),
+            None,
+            2,
+            2,
+            [255, 0, 0].repeat(4),
+            name,
+            905003,
+            5,
+            "none".to_string(),
+            0,
+            0,
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+    };
+
+    store("n".repeat(MAX_NAME_BYTES)).expect("the advertised limit must actually store");
+    let err = store("n".repeat(MAX_NAME_BYTES + 100))
+        .expect_err("a name past the header budget must not encode");
+    assert!(
+        err.contains("name") && err.contains(&MAX_NAME_BYTES.to_string()),
+        "the refusal must name the input and its limit: {err}"
+    );
+    // And a name past the whole buffer is an error too, not a slice panic
+    // crossing the FFI as a PanicException.
+    assert!(store("n".repeat(5000)).is_err());
+}

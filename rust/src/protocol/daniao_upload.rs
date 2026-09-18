@@ -310,19 +310,54 @@ pub struct EffectEntry {
     pub diy: u32,
 }
 
-/// Parse one M_EFFECT_LIST notification (mt 2904) into its effect entries.
+/// Parse ONE M_EFFECT_LIST notification (mt 2904) into its effect entries.
 ///
 /// The device answers a list request with several framed notifications, each
 /// carrying a batch of entries; a caller decodes each and merges them. Each
 /// entry is a protobuf sub-message `{1: slot, 2: type, 3: index, 4: cid,
 /// 6: name}`; only slot and cid are read here. A notification that is not an
 /// effect list, or is truncated, yields an empty list rather than an error.
+///
+/// This reads a notification as a whole frame, so it only sees the entries
+/// that fit the FIRST fragment of a message the device split: the entry
+/// straddling the boundary stops the loop, and a continuation fragment (no
+/// `F1 01`) yields nothing. That is silent — a missing cid reads as a design
+/// the device never stored, and the caller falls back to slot 0, which is a
+/// playlist that does not cycle. Where the caller holds the whole collection
+/// window (both of them do), [`parse_effect_list_frames`] is the entry point:
+/// it reassembles first and cannot lose an entry to an MTU.
 pub fn parse_effect_list(notification: &[u8]) -> Vec<EffectEntry> {
     use super::daniao::FRAG_HEADER_LEN;
-    if notification.len() < FRAG_HEADER_LEN + 20 {
+    if notification.len() < FRAG_HEADER_LEN {
         return Vec::new();
     }
-    let dnx = &notification[FRAG_HEADER_LEN..];
+    parse_effect_list_frame(&notification[FRAG_HEADER_LEN..])
+}
+
+/// Parse a whole collection window of notifications into its effect entries.
+///
+/// Reassembles by serial first ([`reassemble_notifications`]), then reads each
+/// completed frame — the discipline `device_info_resolution`'s caller already
+/// follows on this same characteristic, and the one `parse_effect_list` alone
+/// cannot: a list frame long enough to split loses its straddling entry and
+/// every entry after it when each notification is decoded on its own.
+///
+/// Entries come back in frame order, deduplicated by nothing: a caller merging
+/// by cid keeps merging by cid.
+pub fn parse_effect_list_frames(notifications: &[Vec<u8>]) -> Vec<EffectEntry> {
+    reassemble_notifications(notifications)
+        .iter()
+        .flat_map(|frame| parse_effect_list_frame(frame))
+        .collect()
+}
+
+/// The entry reader, over ONE reassembled `F1 01 …` frame (no fragment
+/// header). Shared by the per-notification and the whole-window entry points
+/// so the two cannot disagree about what an entry is.
+fn parse_effect_list_frame(dnx: &[u8]) -> Vec<EffectEntry> {
+    if dnx.len() < 20 {
+        return Vec::new();
+    }
     if dnx[0] != 0xF1 || dnx[1] != 0x01 {
         return Vec::new();
     }
@@ -367,26 +402,66 @@ const MT_DEVICE_INFO: u16 = 2103;
 /// Grouping by serial keeps unrelated messages in the same batch apart. Needed
 /// because at a 23-byte MTU a ~130-byte DeviceInfo spans ~9 notifications, and
 /// its width/height fields sit past the first fragment.
+///
+/// `total` IS checked, and it is the whole difference between a frame and a
+/// guess. Concatenating every fragment that shares a serial and calling the
+/// result a frame was wrong twice: a message one notification short of its
+/// `total` — a dropped BLE notify, a collection window that closed early —
+/// came back as a SHORTER frame that still starts `F1 01` and still carries a
+/// message type, so `device_info_resolution` read a truncated protobuf and
+/// answered from whatever fields survived; and the serial is one byte, so two
+/// unrelated messages that happened to reuse it in one batch were spliced into
+/// a single frame. A message is emitted only once its `remaining` values are
+/// exactly `total-1 … 0`, each seen once; a serial that starts over mid-group
+/// (a repeated `remaining`, or a different `total`) begins a NEW message and
+/// abandons the incomplete one rather than absorbing it.
+///
+/// Arrival order within a serial does not matter — the fragments are placed by
+/// their own `remaining`, not by when they turned up.
 pub fn reassemble_notifications(fragments: &[Vec<u8>]) -> Vec<Vec<u8>> {
     use super::daniao::FRAG_HEADER_LEN;
     use std::collections::BTreeMap;
+
     let mut groups: BTreeMap<u8, Vec<&Vec<u8>>> = BTreeMap::new();
     for f in fragments {
-        if f.len() > FRAG_HEADER_LEN {
+        // `total == 0` and `remaining >= total` are not fragment headers of
+        // any message this scheme can describe; dropping them here keeps the
+        // completeness test below arithmetic rather than defensive.
+        if f.len() > FRAG_HEADER_LEN && f[1] > 0 && f[2] < f[1] {
             groups.entry(f[0]).or_default().push(f);
         }
     }
-    groups
-        .into_values()
-        .map(|mut frags| {
-            frags.sort_by_key(|f| std::cmp::Reverse(f[2]));
-            let mut buf = Vec::new();
-            for f in frags {
-                buf.extend_from_slice(&f[FRAG_HEADER_LEN..]);
+
+    let mut out = Vec::new();
+    for group in groups.into_values() {
+        // Fragments of ONE message, keyed by `remaining` so a duplicate is
+        // visible and the order they arrived in is irrelevant.
+        let mut held: BTreeMap<u8, &Vec<u8>> = BTreeMap::new();
+        let mut total: Option<u8> = None;
+        for f in group {
+            let (declared, remaining) = (f[1], f[2]);
+            if total != Some(declared) || held.contains_key(&remaining) {
+                // Either a different message on a reused serial, or this one
+                // starting over. What was accumulating can never complete now.
+                held.clear();
+                total = Some(declared);
             }
-            buf
-        })
-        .collect()
+            held.insert(remaining, f);
+            if held.len() == declared as usize {
+                let mut buf = Vec::new();
+                for chunk in held.values().rev() {
+                    buf.extend_from_slice(&chunk[FRAG_HEADER_LEN..]);
+                }
+                out.push(buf);
+                held.clear();
+                total = None;
+            }
+        }
+        // Whatever is still held is an incomplete message. It is dropped, not
+        // emitted short: a truncated frame is indistinguishable from a real
+        // one to every decoder downstream.
+    }
+    out
 }
 
 /// Read the panel `(width, height)` out of ONE reassembled
@@ -497,11 +572,21 @@ fn parse_effect_entry(mut entry: &[u8]) -> Option<EffectEntry> {
 /// progress, …) or not parseable as a DNX packet at all.
 ///
 /// The channel fragments with the standard 4-byte `[serial][total][remaining]
-/// [tag]` header. Only the FIRST fragment is examined: the 8-byte DNX header
-/// and the SimpleMessage's small varint fields sit well inside any fragment's
-/// payload, so a split packet still decides here — and a continuation
-/// fragment (which carries raw tail bytes, no DNX header) returns `None`
+/// [tag]` header, and only the FIRST fragment is examined — a continuation
+/// fragment carries raw tail bytes and no DNX header, so it returns `None`
 /// instead of a misparse.
+///
+/// A first fragment that does not reach the SimpleMessage returns `None` too,
+/// and that is the point. The fields this decides on do NOT "sit well inside
+/// any fragment's payload", which is what this comment used to claim: the DNX
+/// header is 8 bytes and the extended header another 12, so the protobuf
+/// starts at DNX offset 20, and a 23-byte MTU gives a notification 16 DNX
+/// bytes. On that link every multi-fragment reply arrived with `i1` unread and
+/// defaulted to 0 — which is the SUCCESS code — so a rejected START read as
+/// StartAccepted and a device-side failure read as Complete, and the app
+/// logged a stored design that was never stored. A single-fragment message
+/// (`total == 1`) keeps the empty-body-means-success reading the live capture
+/// relies on: the curtain omits `i1` entirely on success.
 pub fn parse_upload_event(notification: &[u8]) -> Option<UploadEvent> {
     use super::daniao::FRAG_HEADER_LEN;
     // Inbound DNX header, read off the live JY25CUT curtain (2026-08-10):
@@ -533,9 +618,17 @@ pub fn parse_upload_event(notification: &[u8]) -> Option<UploadEvent> {
     // SimpleMessage: varint fields i1=1, i2=2, i3=3 (play_effect's captured
     // payload `08 a1 e9 04 10 00` is this same shape from the other side).
     // Unset fields default to 0, like protobuf itself — the live curtain
-    // omits i1 entirely on success. A packet cut short of the extended
-    // header (a fragmented tail) simply reads as "no fields", which the mt
-    // alone already decides.
+    // omits i1 entirely on success.
+    //
+    // That default is only readable when the protobuf is actually in hand. A
+    // FRAGMENTED packet whose first notification stops short of DNX offset 20
+    // has not delivered the SimpleMessage at all, and "no fields" there means
+    // "not yet", not "success". Returning None hands the caller nothing rather
+    // than a verdict it invented; the caller reassembles (see
+    // `reassemble_notifications`) or waits.
+    if total > 1 && dnx.len() <= 20 {
+        return None;
+    }
     let mut i1 = 0u64;
     let mut i3 = 0u64;
     let mut body = if dnx.len() > 20 { &dnx[20..] } else { &[] };
@@ -647,6 +740,91 @@ services:
         );
     }
 
+    /// A list frame long enough to split loses its straddling entry and every
+    /// entry after it when each notification is decoded on its own: the
+    /// continuation fragments carry no `F1 01`, so they read as "not an effect
+    /// list". A caller that missed a cid falls back to slot 0, which the code
+    /// itself documents as a playlist that does not cycle.
+    /// `parse_effect_list_frames` reassembles first, so both entries survive.
+    #[test]
+    fn a_fragmented_effect_list_decodes_every_entry_after_reassembly() {
+        let entry = |slot: u8, cid: &[u8], name: &str| {
+            let mut e = vec![0x08, slot, 0x10, 0x01, 0x18, slot, 0x20];
+            e.extend_from_slice(cid);
+            e.push(0x32);
+            e.push(name.len() as u8);
+            e.extend_from_slice(name.as_bytes());
+            e.extend_from_slice(&[0x38, 0x01]);
+            let mut out = vec![0x0A, e.len() as u8];
+            out.extend_from_slice(&e);
+            out
+        };
+        let mut frame = vec![0xF1, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0B, 0x58];
+        frame.extend_from_slice(&[0u8; 12]); // extended header
+        frame.extend(entry(33, &[0xA1, 0xE9, 0x04], "E-33"));
+        frame.extend(entry(34, &[0xA2, 0xE9, 0x04], "E-34"));
+
+        // Split it the way a 23-byte MTU does: 16 frame bytes per notify.
+        let chunks: Vec<&[u8]> = frame.chunks(16).collect();
+        let total = chunks.len() as u8;
+        assert!(total > 1, "the fixture must actually fragment");
+        let fragments: Vec<Vec<u8>> = chunks
+            .iter()
+            .enumerate()
+            .map(|(i, chunk)| {
+                let mut f = vec![0x55, total, total - 1 - i as u8, 0x00];
+                f.extend_from_slice(chunk);
+                f
+            })
+            .collect();
+
+        // Per notification, the old way: only what fit fragment 0 survives.
+        let per_notification: Vec<EffectEntry> = fragments
+            .iter()
+            .flat_map(|f| parse_effect_list(f))
+            .collect();
+        assert!(
+            per_notification.len() < 2,
+            "the fixture must be one a per-notification decode loses: {per_notification:?}"
+        );
+
+        let entries = parse_effect_list_frames(&fragments);
+        assert_eq!(
+            entries,
+            vec![
+                EffectEntry {
+                    cid: 79009,
+                    slot: 33,
+                    type_: 1,
+                    diy: 1
+                },
+                EffectEntry {
+                    cid: 79010,
+                    slot: 34,
+                    type_: 1,
+                    diy: 1
+                },
+            ]
+        );
+    }
+
+    /// The unfragmented case still works through the whole-window entry point:
+    /// a `total == 1` message is its own frame.
+    #[test]
+    fn an_unfragmented_effect_list_decodes_through_the_window_parser() {
+        let mut frame = vec![0xF1, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0B, 0x58];
+        frame.extend_from_slice(&[0u8; 12]);
+        frame.extend_from_slice(&[
+            0x0A, 0x12, 0x08, 0x21, 0x10, 0x01, 0x18, 0x21, 0x20, 0xA1, 0xE9, 0x04, 0x32, 0x04,
+            0x45, 0x2D, 0x33, 0x33, 0x38, 0x01,
+        ]);
+        let mut notification = vec![0x07, 1, 0, 0];
+        notification.extend_from_slice(&frame);
+        let entries = parse_effect_list_frames(&[notification]);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].cid, 79009);
+    }
+
     #[test]
     fn non_effect_list_notification_parses_empty() {
         // Zeroed bytes (no F1 01, wrong mt) are not an effect list.
@@ -707,6 +885,50 @@ services:
         assert_eq!(rebuilt.len(), 1, "one serial -> one frame");
         assert_eq!(rebuilt[0], frame, "chunks reassemble to the original frame");
         assert_eq!(device_info_resolution(&rebuilt[0]), Some((20, 20)));
+    }
+
+    /// A message one fragment short of its `total` used to come back as a
+    /// SHORTER frame that still starts `F1 01` and still carries a message
+    /// type, so every decoder downstream read it as a real — and wrong —
+    /// answer. It is dropped now.
+    #[test]
+    fn a_message_missing_a_fragment_yields_no_frame_at_all() {
+        let frame = captured_device_info_frame();
+        let chunks: Vec<&[u8]> = frame.chunks(16).collect();
+        let total = chunks.len() as u8;
+        let all: Vec<Vec<u8>> = chunks
+            .iter()
+            .enumerate()
+            .map(|(i, chunk)| {
+                let mut f = vec![0x55, total, total - 1 - i as u8, 0x00];
+                f.extend_from_slice(chunk);
+                f
+            })
+            .collect();
+
+        // Every fragment but the last: a dropped notify, or a window that
+        // closed a beat early.
+        let short = &all[..all.len() - 1];
+        assert!(
+            reassemble_notifications(short).is_empty(),
+            "an incomplete message must not surface as a truncated frame"
+        );
+        // And the whole batch still rebuilds.
+        assert_eq!(reassemble_notifications(&all), vec![frame]);
+    }
+
+    /// The serial is ONE byte, so two unrelated messages in one collection
+    /// window can reuse it. Concatenating everything that shared a serial
+    /// spliced them into a single frame; they come back as two now.
+    #[test]
+    fn two_messages_reusing_one_serial_stay_apart() {
+        let first = response(2934, &[0x08, 0x00]);
+        let second = response(2933, &[0x08, 0x32]);
+        // `response` already frames each as [serial=1][total=1][remaining=0].
+        let frames = reassemble_notifications(&[first.clone(), second.clone()]);
+        assert_eq!(frames.len(), 2, "one serial, two messages");
+        assert_eq!(frames[0], first[4..]);
+        assert_eq!(frames[1], second[4..]);
     }
 
     #[test]
@@ -849,6 +1071,60 @@ services:
         assert_eq!(
             parse_upload_event(&response(2933, &[0x08, 0x32])),
             Some(UploadEvent::Progress { value: 50 })
+        );
+    }
+
+    /// The verdict lives in `i1`, at DNX offset 20 — past the 8-byte DNX
+    /// header and the 12-byte extended header. At a 23-byte MTU a notification
+    /// carries 16 DNX bytes, so on a fragmented reply the first fragment does
+    /// not hold it, and an unread `i1` defaults to 0, which is SUCCESS. A
+    /// device-side failure (i1=5) therefore read as Complete, and the app
+    /// logged a design it had committed nowhere. Fragment 1 now decides
+    /// nothing; the reassembled frame decides.
+    #[test]
+    fn a_first_fragment_short_of_the_verdict_decides_nothing() {
+        // A completion carrying i1=5, split into two 20-byte notifications.
+        let whole = response(2934, &[0x08, 0x05]);
+        let frame = &whole[4..];
+        let chunks: Vec<&[u8]> = frame.chunks(16).collect();
+        let total = chunks.len() as u8;
+        assert_eq!(total, 2, "the fixture must split in two");
+        let fragments: Vec<Vec<u8>> = chunks
+            .iter()
+            .enumerate()
+            .map(|(i, chunk)| {
+                let mut f = vec![0x27, total, total - 1 - i as u8, 0x00];
+                f.extend_from_slice(chunk);
+                f
+            })
+            .collect();
+
+        assert_eq!(
+            parse_upload_event(&fragments[0]),
+            None,
+            "a first fragment that has not delivered i1 must not report Complete"
+        );
+        assert_eq!(parse_upload_event(&fragments[1]), None, "a continuation");
+
+        // Reassembled, the real verdict comes out — a failure, not a success.
+        let rebuilt = reassemble_notifications(&fragments);
+        assert_eq!(rebuilt.len(), 1);
+        let mut framed = vec![0x27, 1, 0, 0];
+        framed.extend_from_slice(&rebuilt[0]);
+        assert_eq!(
+            parse_upload_event(&framed),
+            Some(UploadEvent::Failed { code: 5 })
+        );
+    }
+
+    /// The single-fragment reading the live capture relies on is untouched:
+    /// the curtain omits `i1` entirely on success, so an empty body on a
+    /// `total == 1` message is still Complete.
+    #[test]
+    fn a_single_fragment_with_no_body_is_still_a_success() {
+        assert_eq!(
+            parse_upload_event(&response(2934, &[])),
+            Some(UploadEvent::Complete)
         );
     }
 

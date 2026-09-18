@@ -561,8 +561,20 @@ pub fn encode_command_with_bytes(
     // param (a protobuf `varint`) before or after it means the total is not
     // known until every element is emitted. So reserve fixed-width zero
     // placeholders for length fields, then patch them once the packet is built.
+    //
+    // An `auto` CHECKSUM is reserved the same way, and for a sharper reason:
+    // it covers frame bytes, and the frame is not final until the lengths are
+    // patched in and any `fixed_length` padding is laid down. Computed inline
+    // it summed a length field that was still a zero placeholder, so a frame
+    // declaring both roles went out with a checksum over bytes the device
+    // never receives — valid-looking, silently dropped, and impossible to see
+    // from the app. Reserving defers the sum to the finished frame; the span
+    // still ends at the checksum's own offset, so nothing that follows it
+    // (trailing padding included) is folded in.
     let mut bytes = Vec::new();
     let mut length_fixups: Vec<(usize, usize, bool)> = Vec::new(); // (offset, width, be)
+                                                                   // (offset, width, big_endian, role, parameter name)
+    let mut checksum_fixups: Vec<(usize, usize, bool, AutoRole, String)> = Vec::new();
     for element in template {
         match element {
             TemplateElement::Byte(b) => bytes.push(*b),
@@ -607,17 +619,35 @@ pub fn encode_command_with_bytes(
                     Some(
                         role @ (AutoRole::Checksum | AutoRole::XorChecksum | AutoRole::Crc16Modbus),
                     ) => match params.get(name.as_str()) {
+                        // A supplied value is still honoured, so a stateless
+                        // caller that already knows the checksum is not made
+                        // to let the encoder recompute it.
                         Some(v) => *v,
                         None => {
-                            compute_checksum(&bytes, def.expect("auto implies a def"), name, role)?
-                                as f64
+                            let width = def
+                                .map(|d| &d.value_type)
+                                .unwrap_or(&ValueType::Uint8)
+                                .fixed_byte_size()
+                                .ok_or_else(|| ProtocolError::ParameterInvalid {
+                                    name: name.clone(),
+                                    value: 0.0,
+                                    reason: "an auto checksum must be a fixed-width type".into(),
+                                })?;
+                            checksum_fixups.push((
+                                bytes.len(),
+                                width,
+                                big_endian,
+                                role,
+                                name.clone(),
+                            ));
+                            bytes.resize(bytes.len() + width, 0);
+                            continue;
                         }
                     },
                     _ => match params.get(name.as_str()) {
                         Some(v) => *v,
                         None => def
                             .and_then(|d| d.default)
-                            .map(|d| d as f64)
                             .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?,
                     },
                 };
@@ -660,6 +690,26 @@ pub fn encode_command_with_bytes(
             let src = if big_endian { width - 1 - i } else { i };
             bytes[offset + i] = le[src];
         }
+    }
+
+    // Now the frame is what goes on the wire, so the checksums can cover it.
+    // Each spans `checksum_start` up to its own offset — "the bytes already
+    // emitted", exactly as before, but read off the FINISHED frame, so a
+    // patched length is summed as the number the device will see.
+    for (offset, width, big_endian, role, name) in checksum_fixups {
+        let def = param_defs
+            .and_then(|d| d.params.get(name.as_str()))
+            .expect("a reserved checksum implies a def");
+        let sum = compute_checksum(&bytes[..offset], def, &name, role)?;
+        validate_param_range(&name, sum as f64, def)?;
+        let typed = coerce_param(sum as f64, &def.value_type, &name)?;
+        let mut encoded = Vec::with_capacity(width);
+        append_typed(&mut encoded, typed, big_endian);
+        // The reservation was made from the same `fixed_byte_size`, so the
+        // two agree by construction; asserting it here is what keeps a future
+        // widening of one from silently shifting the frame.
+        debug_assert_eq!(encoded.len(), width);
+        bytes[offset..offset + encoded.len()].copy_from_slice(&encoded);
     }
     Ok(bytes)
 }
@@ -1948,6 +1998,90 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_checksum_covers_the_patched_packet_length_not_its_placeholder() {
+        // The one frame shape that made the ordering visible: an
+        // `auto: packet_length` field BEFORE an `auto: checksum`. The length
+        // is not known until the packet is built, so it is emitted as a zero
+        // placeholder and patched at the end — and a checksum computed inline
+        // summed the placeholder. The device sums the real length, so every
+        // such frame went out with a checksum that could not verify.
+        //
+        // Template 02 {len} {b} {chk}: four bytes total, so len = 4. Sum from
+        // index 1 is 04 + 53 = 0x57 — 0x53 alone (0x53) is what the old order
+        // produced.
+        let cmd = Command {
+            description: "x".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x02),
+                TemplateElement::Param("len".into()),
+                TemplateElement::Param("b".into()),
+                TemplateElement::Param("chk".into()),
+            ]),
+            parameters: Some(pset([
+                (
+                    "len",
+                    Parameter {
+                        value_type: ValueType::Uint8,
+                        auto: Some(AutoRole::PacketLength),
+                        ..Default::default()
+                    },
+                ),
+                ("b", param(ValueType::Uint8, None, None)),
+                ("chk", checksum_param()),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: None,
+        };
+        let params = HashMap::from([("b".into(), 0x53 as f64)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0x02, 0x04, 0x53, 0x57]
+        );
+    }
+
+    #[test]
+    fn a_checksum_still_ends_at_its_own_position_when_the_frame_is_padded() {
+        // The other half of the ordering: `fixed_length` pads AFTER the
+        // checksum's slot, and those pad bytes are not part of the span —
+        // "up to but not including this parameter's own position" is a
+        // statement about the checksum's OFFSET, not about the buffer's end.
+        // Govee's frames list their pad bytes in the template for exactly
+        // this reason; a spec that leaves them to `fixed_length` must still
+        // get the checksum of what precedes the byte.
+        let cmd = Command {
+            description: "x".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x33),
+                TemplateElement::Param("b".into()),
+                TemplateElement::Param("chk".into()),
+            ]),
+            parameters: Some(pset([
+                ("b", param(ValueType::Uint8, None, None)),
+                ("chk", checksum_param()),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: Some(6),
+        };
+        let params = HashMap::from([("b".into(), 0x05 as f64)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0x33, 0x05, 0x05, 0x00, 0x00, 0x00]
+        );
+    }
+
     // ── auto: xor_checksum ──────────────────────────────────────────────────
 
     /// The Govee 20-byte frame shape: `set_brightness` is `33 04 <val>` then
@@ -2530,13 +2664,13 @@ mod tests {
             parameters: Some(pset([
                 ("seq", {
                     let mut p = param(ValueType::Uint8, None, None);
-                    p.default = Some(0);
+                    p.default = Some(0.0);
                     p
                 }),
                 ("brightness", param(ValueType::Uint8, Some(0), Some(100))),
                 ("flag", {
                     let mut p = param(ValueType::Uint8, None, None);
-                    p.default = Some(16);
+                    p.default = Some(16.0);
                     p
                 }),
             ])),

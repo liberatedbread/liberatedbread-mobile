@@ -91,6 +91,75 @@ pub(crate) fn fill_placeholders_once(template: &str, fills: &[(String, String)])
     }
 }
 
+/// One left-to-right pass over a template, handing each `{name}` to `fill`.
+///
+/// Shared by the two renderers whose templates are DOCUMENTS rather than
+/// paths — MQTT's `body:` payloads and the Kasa/Rabbit Air/HTTP literal JSON
+/// bodies. Both need a scanner that tells a placeholder from the author's own
+/// braces, and both had a bug the other did not until they shared one.
+///
+/// Single-pass on purpose. Replacing placeholders one parameter at a time —
+/// the obvious loop, and what this used to do — re-scans its own output, so a
+/// value that happens to contain `{other}` has `other`'s value substituted
+/// into it on a later turn. The values are credentials and device replies,
+/// which makes that a way to pull one parameter somewhere the spec never put
+/// it. Walking the template once cannot: what `fill` returns is never looked
+/// at again.
+///
+/// What counts as a placeholder is `{` + a parameter-shaped name + `}`, not
+/// any pair of braces. That distinction is what lets a JSON payload be
+/// written as a `body` template: in `{"id": "{id}"}` the outer brace is
+/// followed by a quote, so it is object syntax and is emitted as written,
+/// while `{id}` is filled. Scanning for brace PAIRS instead would swallow
+/// everything up to the first `}` and substitute nothing.
+///
+/// `fill` returning `None` means "not a placeholder after all" — the caller's
+/// way of saying a name it does not know is the author's literal text.
+pub(crate) fn walk_placeholders(
+    template: &str,
+    mut fill: impl FnMut(&str) -> Result<Option<String>, ProtocolError>,
+) -> Result<String, ProtocolError> {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let (literal, tail) = rest.split_at(open);
+        out.push_str(literal);
+        match placeholder_name(tail) {
+            Some(name) => {
+                match fill(name)? {
+                    Some(value) => out.push_str(&value),
+                    None => {
+                        out.push('{');
+                        out.push_str(name);
+                        out.push('}');
+                    }
+                }
+                rest = &tail[name.len() + 2..];
+            }
+            None => {
+                // Not a placeholder: a JSON object's brace, or an unclosed one
+                // the author meant literally. Emit it and keep looking — the
+                // rest of the template may still hold real placeholders.
+                out.push('{');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// The parameter name in `{name}` at the head of `tail`, if that is what it
+/// is. A name is what the schema allows a parameter to be called: one or more
+/// of `[A-Za-z0-9_]`, nothing else.
+fn placeholder_name(tail: &str) -> Option<&str> {
+    let after_brace = tail.strip_prefix('{')?;
+    let end = after_brace.find('}')?;
+    let name = &after_brace[..end];
+    let shaped = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    shaped.then_some(name)
+}
+
 /// Resolve one command parameter's value for a render.
 ///
 /// The order is the contract, and every network transport shares it because

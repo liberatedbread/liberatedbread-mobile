@@ -751,3 +751,152 @@ with itself and with the rest of the catalogue, which is lower-case
 throughout.
 
 **Fix (upstream).** Lower-case it.
+
+### S-04 — a BLE command parameter's code table is written `values:`, which the schema does not declare
+
+**Where.** `device-specs/schema.json`, the BLE command parameter block
+(`services[].characteristics[].commands.*.parameters.*`), against
+`devices/elk-bledom-led-strip.yaml` (`set_light_on_off.state`,
+`set_scheduler.on_off`, `set_mic_on_off.state`), `devices/lotuslamp-x.yaml`
+(`set_timer.timer_type`) and `devices/wl-smartled-pixel-strips.yaml`
+(`set_brightness.light_mode`, `set_channel_mask.state`, `set_mic_on_off.state`,
+`set_timer.mode`, `query_timer.mode`).
+
+**Evidence.**
+
+Nine parameters across three specs carry `values: {0: off, 1: on}` — a raw →
+label code table, the same shape the schema DOES declare on a `format` field
+and on a network command's parameter. The BLE parameter block declares no such
+key: its vocabulary for an enumeration is `allowed` (the values) plus `labels`
+(their names, paired by index). The block does not set
+`additionalProperties: false`, so all nine validate, and a consumer that
+implemented only what the schema declares saw a parameter with no constraint
+at all and drew a 0..255 slider over a two- or four-value switch.
+
+Both spellings say the same thing, and the schema says one of them twice: the
+code table is `values` for a reading and `allowed`+`labels` for a write, which
+is a difference in direction, not in meaning.
+
+**Fix (upstream).** Either:
+
+1. Declare `values` on the BLE command parameter, with the same description
+   the `format` field's carries, and say how it relates to `allowed`/`labels`
+   (values IS the set; labels name what allowed lists); or
+2. Rewrite the nine parameters as `allowed` + `labels` and say in the block's
+   description that `values` is a decode-side key with no meaning here.
+
+The app reads both today (`Parameter::allowed_with_labels`), preferring
+`allowed` where a parameter writes both, so either fix is compatible with what
+ships.
+
+### S-05 — `state_command`'s own example names something the spec describes nowhere
+
+**Where.** `device-specs/schema.json`, `entities[].state_command`, against
+`devices/divoom-pixoo.yaml:502,510,515,520` and
+`devices/sony-bravia.yaml:1179,1447,1452,1457`.
+
+**Evidence.**
+
+The key's description ends "Names a command in the spec's own
+`http_endpoints`/command vocabulary" — and its example, `'Channel/GetOnOff'`,
+is a Divoom WIRE command that appears in neither of those places in
+divoom-pixoo.yaml. Sony's four sensors do the same with JSON-RPC method names
+(`getPowerStatus`, `getPlayingContentInfo`, `getVolumeInformation`), which the
+spec's own notes describe as a transport gap.
+
+A consumer that believes the sentence cannot render a request for any of the
+eight: there is no method, path or body to build one from. A consumer that
+believes the example has to invent the envelope the vendor's API wants, which
+is per-device knowledge the spec exists to carry. The app takes the sentence,
+so those eight entities no longer claim a state poll.
+
+**Fix (upstream).** Pick one and make the other conform:
+
+1. If `state_command` is a NAME, give each of the eight an `http_endpoints`
+   entry (or a `commands` entry) carrying the method, path and request body
+   that fetches it, and point `state_command` at that name. Divoom's is one
+   POST to `/post` with `{"Command": "Channel/GetOnOff"}` — the spec already
+   documents that envelope for its write commands; and replace the key's
+   example with one that resolves.
+2. If it is a wire-protocol token to be posted to `state_endpoint`, say so in
+   the description, and define how a consumer builds the request around it
+   (which is a per-API question the schema would then have to answer).
+
+Sony's four are additionally blocked on the JSON-RPC-plus-auth-header
+transport their own notes name; the entities can stay declared, but a
+consumer should not be told a poll exists that nothing can issue.
+
+### S-06 — a BLE discovery `manufacturer_data.pattern` does not say whether it starts at the company-id bytes
+
+**Where.** `device-specs/schema.json`,
+`discovery.methods[].ble.manufacturer_data` (`match`, `pattern`, `mask`),
+against `devices/ideal-led.yaml`, `devices/magic-display.yaml`,
+`devices/shining-glasses.yaml`, `devices/shining-mask.yaml` on one reading and
+`devices/banlanx-sp6xxe.yaml`, `devices/braun-silk-expert-pro5.yaml`,
+`devices/emazinglights-spectra.yaml` on the other.
+
+**Evidence.**
+
+Nine vendored matchers declare a `pattern`, and they measure it from two
+different places. The four `company_id: 21076` specs write patterns that
+INCLUDE the company-id bytes: ideal-led's `54520061` is "TR" (0x5254
+little-endian = 21076) followed by `00 61`, and its own description says the
+payload "starts with 0x54 0x52 0x00 0x61". banlanx-sp6xxe and
+braun-silk-expert-pro5 say the opposite in as many words — "match on the
+payload after the two company-ID bytes" — and their two-byte patterns only
+make sense that way; emazinglights-spectra's `48554231` ("HUB1") is likewise
+the payload after company `0x454C` ("LE").
+
+The schema says nothing about the origin, so a consumer must guess, and either
+guess mismatches half the set. This matters most for exactly the specs that
+NEED the pattern: the four sharing company id 21076 are distinguishable by
+nothing else, so a scan either ranks all four equally or, with the wrong
+origin, matches none of them.
+
+**Fix (upstream).** State the origin in `pattern`'s description — the natural
+reading is "the manufacturer-specific AD payload AFTER the two company-id
+bytes, since `company_id` already matched those" — and rewrite whichever group
+disagrees with it (the four 21076 patterns become `0061`, `0027`, `0041`,
+`004e` under that reading). While there: say that `mask` must be the same
+length as `pattern`, and that a `masked` match compares
+`payload & mask == pattern & mask`.
+
+The app executes none of these today; the ambiguity is why.
+
+### S-07 — lg-webos publishes no per-command `example_body`, so its 32 frames have nothing to diff against while Samsung's 38 do
+
+**Where.** `devices/lg-webos.yaml`, `commands` (all 32), against
+`devices/samsung-tizen-tv.yaml`, which publishes `example_body` on 38 of its
+39 commands.
+
+**Evidence.**
+
+Samsung declares the exact wire frame for every WebSocket command it carries
+(`example_body: '{"method":"ms.remote.control","params":{...}}'`), which is
+what lets `rust/tests/websocket_control.rs` compare the renderer's output with
+the catalogue byte for byte — the discipline Hue, Roomba and Wemo already
+have. LG declares none. It publishes ONE frame, in prose:
+`protocol_details.remote_common.request_format.example`
+(`'{"id": 12, "type": "request", "uri": "ssap://audio/volumeUp", "payload": {}}'`),
+which the same test file diffs — but that covers one command out of 32, and it
+is a prose example rather than a field a consumer can enumerate.
+
+The gap is not cosmetic for this spec in particular. LG is the two-socket
+device: nine of its commands ride a `pointer` channel that speaks
+line-structured plain text (`type:button\nname:HOME\n\n`) on a socket the TV
+hands out at runtime, and the other twenty-three ride the JSON `ssap` socket.
+A command that lands on the wrong socket is accepted and ignored, which on a
+TV is indistinguishable from broken hardware. The test can only assert the
+SHAPE of those frames today (it checks the channel, the `type:button` prefix
+and the trailing blank line); with `example_body` it could assert the frames.
+
+**Fix (upstream).** Add `example_body` to each of lg-webos.yaml's commands,
+spelled exactly as Samsung's are — the rendered JSON for the ssap commands
+(with a pinned `id`, as the prose example uses 12), and the literal text frame
+including its `\n\n` terminator for the nine pointer buttons. The app side
+needs no change: `rust/tests/websocket_control.rs` already enumerates
+`example_body` for Samsung and would pick LG's up the moment they exist.
+
+While there: the prose example in `request_format` and the per-command bodies
+should agree on the `id` they use, so a reader is not left wondering whether
+12 means something.

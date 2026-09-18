@@ -3181,3 +3181,102 @@ fn the_vendored_tvs_declare_their_pairing_tokens() {
         );
     }
 }
+
+/// The nine catalogue parameters that spell their enumeration `values` must
+/// reach a consumer as a CHOICE, not as a range.
+///
+/// They are real switches and mode bytes — elk-bledom's on/off `state`,
+/// wl-smartled's four-way `light_mode` — and the struct that carries a BLE
+/// parameter had no field for the table, so every one of them drew as a
+/// 0..255 slider with no hint that two or four values mean anything. Counted
+/// here rather than listed one by one: the count is what says the whole set
+/// is read, and a spec refresh that adds a tenth should notice it.
+#[test]
+fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
+    let mut coded: Vec<(String, String, String, usize)> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let raw = fs::read_to_string(&path).expect("a bundled spec should read");
+        let Ok(spec) = parse_device_spec(&raw) else {
+            continue;
+        };
+        for service in &spec.services {
+            for characteristic in &service.characteristics {
+                let Some(commands) = &characteristic.commands else {
+                    continue;
+                };
+                for (command_name, command) in commands {
+                    let Some(parameters) = &command.parameters else {
+                        continue;
+                    };
+                    for (name, parameter) in &parameters.params {
+                        if parameter.values.is_none() {
+                            continue;
+                        }
+                        let choices = parameter.allowed_with_labels().unwrap_or_else(|| {
+                            panic!(
+                                "{}: {command_name}.{name} declares a code table and \
+                                     offers no choices",
+                                path.display()
+                            )
+                        });
+                        coded.push((
+                            path.file_name().unwrap().to_string_lossy().into_owned(),
+                            command_name.clone(),
+                            name.clone(),
+                            choices.len(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        coded.len(),
+        9,
+        "the catalogue's coded BLE parameters, each offering its codes: {coded:#?}"
+    );
+    assert!(
+        coded.iter().all(|(_, _, _, count)| *count >= 2),
+        "a code table with one entry is not a choice: {coded:#?}"
+    );
+}
+
+/// No bundled entity may claim a state poll the spec cannot answer.
+///
+/// `state_command` NAMES something in the spec's own vocabulary — the schema
+/// says so in those words — and `render_state_request` answers CommandNotFound
+/// for anything else. Divoom's panels and a Sony set write a wire call from
+/// the vendor's own protocol there (`Channel/GetOnOff`, `getPowerStatus`), and
+/// while those were admitted the screen polled them every four seconds and
+/// drew sensors that could never fill. The resolver refuses them now; this is
+/// the guard that a refresh reintroducing one is visible here rather than on a
+/// device.
+#[test]
+fn no_vendored_entity_binds_a_state_command_that_cannot_be_rendered() {
+    use liberated_bread_core::protocol::http::render_state_request;
+    use liberated_bread_core::spec::bindings::{network_entities, state_binding, StateBinding};
+
+    for path in vendored_yaml_paths() {
+        let raw = fs::read_to_string(&path).expect("a bundled spec should read");
+        let Ok(spec) = parse_device_spec(&raw) else {
+            continue;
+        };
+        for entity in network_entities(&spec) {
+            let Some(StateBinding::Command(name)) = state_binding(&spec, entity) else {
+                continue;
+            };
+            // Placeholders are the caller's to fill, so an empty value map
+            // may still fail on one; what must not happen is the command
+            // being unknown.
+            if let Err(e) = render_state_request(&spec, name, &Default::default()) {
+                assert!(
+                    !e.to_string().contains("not found"),
+                    "{}: entity {:?} binds state_command {name:?}, which this \
+                     spec describes nowhere: {e}",
+                    path.display(),
+                    entity.name
+                );
+            }
+        }
+    }
+}

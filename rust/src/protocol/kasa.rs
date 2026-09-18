@@ -160,27 +160,37 @@ pub fn render_state_request(
 /// `pub(crate)` because Rabbit Air's envelope bodies and the HTTP transport's
 /// literal JSON bodies carry the same `{name}` placeholders with the same
 /// semantics — one substitution rule, one home.
+/// The scan is ONE left-to-right pass over the template
+/// ([`crate::protocol::walk_placeholders`]), not a `String::replace` per
+/// parameter. The loop it replaced re-scanned its own output: a value
+/// substituted early that happened to contain another declared parameter's
+/// `{name}` had THAT parameter's value spliced into it on a later turn, so a
+/// strip's `child_id` — whatever the device's `get_sysinfo` reply said — could
+/// pull a credential into a place the spec never put one. Walking once cannot:
+/// what `fill` returns is never looked at again. The MQTT and WebSocket
+/// renderers were rewritten for exactly this; this one was the copy left
+/// behind, and Rabbit Air's envelope bodies and the HTTP transport's literal
+/// JSON bodies both run through it.
 pub(crate) fn substitute(
     template: &str,
     command: &SpecCommand,
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    let mut out = template.to_string();
-    for (name, parameter) in &command.parameters {
-        let placeholder = format!("{{{name}}}");
-        if out.contains(&placeholder) {
-            let value = resolve_param(command, command_name, name, values)?;
-            let rendered =
-                match crate::protocol::http::declared_type(parameter.value_type.as_deref()) {
-                    crate::protocol::http::DeclaredType::String => json_escape(&value),
-                    _ => crate::protocol::http::typed_json(Some(parameter), name, &value)?
-                        .to_string(),
-                };
-            out = out.replace(&placeholder, &rendered);
-        }
-    }
-    Ok(out)
+    crate::protocol::walk_placeholders(template, |name| {
+        // A brace pair naming nothing the command declares is the author's
+        // JSON syntax, not a placeholder — which is the whole reason this
+        // scanner and not the path renderer's.
+        let Some(parameter) = command.parameters.get(name) else {
+            return Ok(None);
+        };
+        let value = resolve_param(command, command_name, name, values)?;
+        let rendered = match crate::protocol::http::declared_type(parameter.value_type.as_deref()) {
+            crate::protocol::http::DeclaredType::String => json_escape(&value),
+            _ => crate::protocol::http::typed_json(Some(parameter), name, &value)?.to_string(),
+        };
+        Ok(Some(rendered))
+    })
 }
 
 /// One value as it may appear INSIDE a JSON string — the escaping serde_json
@@ -302,6 +312,17 @@ commands:
       child_id:
         type: "string"
         required: true
+  set_child_and_brightness:
+    description: "Two placeholders in one body, string then numeric."
+    transport: "tcp-json"
+    body: '{"context":{"child_ids":["{child_id}"]},"system":{"set_brightness":{brightness}}}'
+    parameters:
+      child_id:
+        type: "string"
+        required: true
+      brightness:
+        type: "integer"
+        required: true
   set_brightness:
     description: "A placeholder in NUMERIC position, not inside a string."
     transport: "tcp-json"
@@ -367,6 +388,27 @@ entities:
         assert_eq!(
             request.json,
             r#"{"context":{"child_ids":["8006ABC00"]},"system":{"set_relay_state":{"state":1}}}"#
+        );
+    }
+
+    /// A resolved value is data, never template. `child_id` is whatever the
+    /// device's own `get_sysinfo` reply said, so one that happens to contain
+    /// `{brightness}` must land on the wire as those thirteen characters. The
+    /// old `String::replace`-per-parameter loop re-scanned its own output and
+    /// substituted `brightness` INTO the child id on the next turn — a way to
+    /// pull one parameter's value somewhere the spec never put it, and the
+    /// same bug the MQTT and WebSocket renderers were rewritten to end.
+    #[test]
+    fn a_resolved_value_is_never_rescanned_for_another_placeholder() {
+        let request = render_request(
+            &spec(),
+            "set_child_and_brightness",
+            &values(&[("child_id", "{brightness}"), ("brightness", "42")]),
+        )
+        .expect("renders");
+        assert_eq!(
+            request.json,
+            r#"{"context":{"child_ids":["{brightness}"]},"system":{"set_brightness":42}}"#
         );
     }
 

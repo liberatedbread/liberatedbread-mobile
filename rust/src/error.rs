@@ -128,7 +128,10 @@ pub enum SpecError {
         parameter_name: String,
         value_type: crate::spec::types::ValueType,
         bound: String,
-        value: i64,
+        /// `f64` because `default` is a `number` in the schema while
+        /// `min`/`max` are `integer`; an integral value still renders
+        /// without a decimal point, so the message reads the same.
+        value: f64,
     },
 
     #[error("parameter '{parameter_name}' has min={min} > max={max}; bounds are inverted")]
@@ -172,9 +175,20 @@ pub enum SpecError {
     )]
     DefaultOutsideBounds {
         parameter_name: String,
-        value: i64,
+        value: f64,
         min: i64,
         max: i64,
+    },
+
+    #[error(
+        "parameter '{parameter_name}' declares both a default and {conflict}; \
+         the two say different things about what goes on the wire when the \
+         caller supplies nothing, and the encoder never reaches the default"
+    )]
+    DefaultWithConflictingSource {
+        parameter_name: String,
+        /// `source` or `auto` — whichever the default was written beside.
+        conflict: String,
     },
 
     #[error(
