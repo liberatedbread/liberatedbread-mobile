@@ -501,12 +501,37 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     specKey: specKey,
   );
 
+  /// What this screen knows about Ubiquiti hardware, in one place.
+  ///
+  /// R-086: BELONGS IN RUST, or rather in the catalogue. These are product
+  /// facts — which platform strings name a Protect controller, which
+  /// pictograms mean a camera — and a screen is the wrong place to hold them:
+  /// a new Ubiquiti model is a spec refresh everywhere else in this app and a
+  /// Dart edit here. They are gathered rather than scattered so the move is
+  /// one deletion when it happens.
+  ///
+  /// The full fix: let a spec declare that its devices are driven through a
+  /// CONTROLLER rather than individually, and which discovered device is that
+  /// controller (a `managed_by:` naming a search target and a platform
+  /// pattern). Then Rust answers "is this camera driven elsewhere, and where
+  /// is elsewhere" from the catalogue, the same way it answers every other
+  /// identification question, and this block goes.
+  static const _unifiProtectPlatformPrefixes = [
+    'UNVR',
+    'UDM',
+    'UCKP',
+    'UCK-G2',
+  ];
+
+  /// Pictograms that mean "a camera, managed in Protect rather than here".
+  static const _unifiCameraPictograms = ['ip-camera', 'video-doorbell'];
+
   /// A UniFi camera or doorbell — recognized by the pictogram its transport
   /// derived from the platform string. Cameras are managed in UniFi Protect,
   /// not individually.
   static bool _isUnifiCamera(NetworkDevice device) =>
       device.answeredLanProtocols.contains('ubiquiti-discovery') &&
-      (device.pictogram == 'ip-camera' || device.pictogram == 'video-doorbell');
+      _unifiCameraPictograms.contains(device.pictogram);
 
   /// The UniFi Protect controller among the devices found this scan, if any —
   /// a UNVR, or a UDM/Cloud Key that runs Protect. Cameras point back to it.
@@ -514,10 +539,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     for (final d in _found.values) {
       final platform = (d.txt['platform'] ?? '').toUpperCase();
       if (d.pictogram == 'nvr' ||
-          platform.startsWith('UNVR') ||
-          platform.startsWith('UDM') ||
-          platform.startsWith('UCKP') ||
-          platform.startsWith('UCK-G2')) {
+          _unifiProtectPlatformPrefixes.any(platform.startsWith)) {
         return d;
       }
     }

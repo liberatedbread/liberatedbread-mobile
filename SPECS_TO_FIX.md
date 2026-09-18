@@ -900,3 +900,42 @@ needs no change: `rust/tests/websocket_control.rs` already enumerates
 While there: the prose example in `request_format` and the per-command bodies
 should agree on the `id` they use, so a reader is not left wondering whether
 12 means something.
+
+### S-08 — `payload_formats.V1Envelope` states its shape as prose, so no decoder can follow it
+
+`device-specs/devices/hue-bridge.yaml:344` declares the CLIP v1 outcome
+envelope with a `parse_rules:` list of six English sentences: which shape is an
+envelope, what a `success` element means, what an `error` element carries, and
+which three error types a client has to treat specially (101 keep polling, 1
+re-pair, 201 write `on` alongside `bri`). Every one of those is a decision a
+decoder has to make, and none of them is expressed in a form a decoder can
+read — so the rules are transcribed by hand into
+`lib/services/hub_http_client.dart` (`checkV1Envelope`, `parseV1Envelope`),
+which is the one piece of device knowledge in a transport class that otherwise
+only moves bytes (R-053).
+
+The ask: give the schema a way to state an outcome envelope — the container
+shape, where the error type and description live, and which types are
+retryable, terminal, or a documented precondition — so the envelope can be
+decoded from the spec rather than mirrored in a client. Hue is the only
+catalogue entry that needs it today, but "the HTTP status says nothing, read
+the outcome from the body" is a common REST shape and the next such device
+would otherwise be transcribed by hand too.
+
+### S-09 — a spec cannot say "these devices are driven through a controller, and here is the controller"
+
+`lib/screens/wifi_scan_screen.dart` holds a list of Ubiquiti platform prefixes
+(`UNVR`, `UDM`, `UCKP`, `UCK-G2`) and the pictograms that mean "camera", so the
+Wi-Fi tab can tell the user a camera it found is managed in UniFi Protect and
+point at the controller on the same network. Those are product facts about one
+vendor's hardware, sitting in a screen: a new Ubiquiti model is a spec refresh
+everywhere else in this app and a Dart edit here (R-086).
+
+The ask: a way for a spec to declare that its devices are driven through a
+controller rather than individually, and how to recognise that controller among
+discovered devices — something like a `managed_by:` block naming the
+controller's search target and a platform pattern. Rust could then answer "is
+this device driven elsewhere, and where is elsewhere" from the catalogue, the
+way it answers every other identification question, and the client would hold
+no vendor list at all. Ubiquiti is the case in hand; anything with a hub or an
+NVR has the same shape.

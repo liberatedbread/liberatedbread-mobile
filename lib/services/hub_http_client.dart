@@ -15,10 +15,19 @@ import 'spec_codec.dart' show HttpRequestDto;
 /// bridge, verifying its TLS certificate the way the spec says a Hue bridge
 /// must be verified, and hand the reply body back for the Rust codec to read.
 ///
-/// Deliberately knows nothing about any device beyond the spec's stated TLS
-/// shape. What to send and what a reply means live in the spec and are
-/// answered by the Rust codec; this class only moves bytes — the same
-/// division as SOAP and BLE.
+/// Moves bytes, and — for one format — reads them. What to send and what a
+/// reply MEANS live in the spec and are answered by the Rust codec, the same
+/// division as SOAP and BLE, with a single stated exception:
+/// [checkV1Envelope] below, which understands Hue's v1 outcome envelope.
+///
+/// R-053: that exception used to be denied by this comment, which claimed
+/// the class knew nothing device-specific. It is named here instead, because
+/// the reason it is here is not laziness: the spec declares the envelope
+/// under `payload_formats.V1Envelope` as `parse_rules`, six sentences of
+/// English, and a decoder cannot follow English. Until the schema can state
+/// the shape — the ask is recorded in SPECS_TO_FIX.md — the rules live in
+/// one named place with the spec's own wording beside them rather than
+/// scattered through the callers.
 ///
 /// TLS, per the spec's own TLS note: the bridge's certificate is a per-device
 /// leaf whose subject CN is the bridgeid (lowercase), issued by Signify's
