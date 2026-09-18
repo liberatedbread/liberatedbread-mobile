@@ -13,7 +13,6 @@
 // between `match_device_to_spec` and `CatalogueHandle::match_device`, is
 // caught. Requires the host-target Rust library; skipped without it.
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
-import 'package:collection/collection.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/hex.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
@@ -190,9 +189,8 @@ void main() {
       // folding on only one side is exactly the defect R-066 was.
       if (uuids.isEmpty) continue;
       final asRadioReportsThem = [for (final u in uuids) normalizeUuid(u)];
-      if (const ListEquality<String>().equals(asRadioReportsThem, uuids)) {
-        continue;
-      }
+      // Nothing to prove when the spec already writes them the short way.
+      if (asRadioReportsThem.join('|') == uuids.join('|')) continue;
       dialectsTried++;
       final inRadioDialect = await handled.matchDevice(
         deviceName: name,
