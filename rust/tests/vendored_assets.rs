@@ -3463,6 +3463,38 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
         "must match `_kasaProbeJson` in real_network_scan_service.dart"
     );
 
+    // What the catalogue-driven transport actually sends, spelled out: the
+    // probes that carry a payload, minus the five specs with a hand-written
+    // transport in real_network_scan_service.dart. Today that is the Milight
+    // bridge's two strings and nothing else — every other declared probe is
+    // `passive_ok` with no payload (Tuya, Synology) or has no payload at all
+    // (the Aqara hub, S-20). Pinned here rather than in Dart because this is
+    // where the data is: a spec that adds a probe should show up as a change
+    // to this list, which is the whole point of reading them as data.
+    let mut would_send: Vec<String> = probes
+        .iter()
+        .filter(|p| !p.probe.is_empty())
+        .filter(|p| {
+            !matches!(
+                p.spec_key.as_str(),
+                "tplink-kasa-smart-plug.yaml"
+                    | "mikrotik-routeros.yaml"
+                    | "ubiquiti-unifi-device.yaml"
+                    | "unifi-protect-camera.yaml"
+                    | "irobot-roomba.yaml"
+            )
+        })
+        .map(|p| format!("{}:{}", p.spec_key, p.port))
+        .collect();
+    would_send.sort();
+    assert_eq!(
+        would_send,
+        vec![
+            "limitlessled-milight-bridge.yaml:48899",
+            "limitlessled-milight-bridge.yaml:48899",
+        ]
+    );
+
     // And the probes for devices the app cannot yet find are present, which is
     // the point of reading them as data (SPECS_TO_FIX.md S-10).
     assert_eq!(
