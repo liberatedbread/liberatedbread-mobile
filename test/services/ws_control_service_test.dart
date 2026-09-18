@@ -1023,6 +1023,83 @@ void main() {
     expect(pointer.written, hasLength(1));
   });
 
+  // ── Putting values into a frame and a path (R-156) ───────────────────────
+
+  test(
+    'a credential with JSON punctuation still produces a valid frame',
+    () async {
+      // A client key is a value the device chose and the app stored verbatim.
+      // Pasted into a JSON template it only had to contain a quote or a
+      // backslash to produce a frame that is no longer JSON — the set answers
+      // with a parse error or silence, and the user is told pairing timed out.
+      final tv = ScriptedWsSocket();
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.5',
+        surface: lgSurface,
+        credential: r'ab"c\d',
+        connect: (url, headers) async {
+          scheduleMicrotask(
+            () => tv.send(
+              jsonEncode({
+                'payload': {'client-key': r'ab"c\d'},
+              }),
+            ),
+          );
+          return tv;
+        },
+      );
+      addTearDown(session.dispose);
+
+      await session.open();
+
+      final sent = jsonDecode(tv.written.single);
+      expect(
+        sent,
+        isA<Map<String, dynamic>>(),
+        reason: 'the frame has to still be JSON',
+      );
+      // …and the key arrived whole, not truncated at the quote.
+      expect(jsonEncode(sent), contains(r'ab\"c'));
+    },
+  );
+
+  test('a path placeholder is filled once, not re-scanned', () async {
+    // Chained replaceAll meant a credential that itself spelled a
+    // placeholder had the NEXT substitution run inside it.
+    final tv = ScriptedWsSocket();
+    final urls = <String>[];
+    final session = WsSession(
+      codec: codec,
+      specYaml: 'yaml',
+      host: '10.0.0.4',
+      surface: samsungSurface,
+      credential: '{client_name}',
+      connect: (url, headers) async {
+        urls.add(url);
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
+              'event': 'ms.channel.connect',
+              'data': {'token': 'ok'},
+            }),
+          ),
+        );
+        return tv;
+      },
+    );
+    addTearDown(session.dispose);
+
+    await session.open();
+
+    expect(
+      urls.single,
+      contains(Uri.encodeQueryComponent('{client_name}')),
+      reason: 'the stored credential goes out as itself',
+    );
+  });
+
   // ── What a session leaves behind ─────────────────────────────────────────
 
   test('a socket that connects after the timeout is closed, not abandoned', () {

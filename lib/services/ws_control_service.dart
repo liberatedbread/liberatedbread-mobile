@@ -364,20 +364,37 @@ class WsSession {
   /// was handled — left the name placeholder as literal braces on the wire, and
   /// filling ONLY `{token}` misses a spec whose path spells the credential name
   /// directly; so all three are substituted and pairing works either way.
+  /// R-156: one left-to-right pass, so a value that itself contains braces
+  /// cannot be re-scanned as a placeholder. Chained `replaceAll` calls meant
+  /// a credential spelled `{client_name}` — device-chosen, stored verbatim —
+  /// had this client's name substituted into it on the next line.
   String _fillPath(String path) {
-    final credential = _credential ?? '';
-    var filled = path;
-    final name = _surface.credentialName;
-    if (name != null) {
-      filled = filled.replaceAll(
-        '{$name}',
-        Uri.encodeQueryComponent(credential),
-      );
+    final credential = Uri.encodeQueryComponent(_credential ?? '');
+    final values = <String, String>{
+      ?_surface.credentialName: credential,
+      'token': credential,
+      'client_name': Uri.encodeQueryComponent(_clientName),
+    };
+    final filled = StringBuffer();
+    for (var i = 0; i < path.length;) {
+      if (path[i] != '{') {
+        filled.write(path[i++]);
+        continue;
+      }
+      final close = path.indexOf('}', i + 1);
+      if (close < 0) {
+        filled.write(path.substring(i));
+        break;
+      }
+      final key = path.substring(i + 1, close);
+      final value = values[key];
+      // An unknown placeholder is left exactly as written: it is not this
+      // client's to invent, and a literal brace pair reads better on the
+      // wire than a silently emptied parameter.
+      filled.write(value ?? path.substring(i, close + 1));
+      i = close + 1;
     }
-    filled = filled
-        .replaceAll('{token}', Uri.encodeQueryComponent(credential))
-        .replaceAll('{client_name}', Uri.encodeQueryComponent(_clientName));
-    return _dropEmptyQueryPairs(filled);
+    return _dropEmptyQueryPairs(filled.toString());
   }
 
   /// Remove query parameters whose value resolved empty — the first pairing,
@@ -432,9 +449,17 @@ class WsSession {
     }
   }
 
-  /// The registration frame, with the stored credential spliced in — or the
+  /// The registration frame, with the stored credential put in — or the
   /// placeholder removed entirely on a first pairing, which is what tells the
   /// device to raise its prompt.
+  ///
+  /// R-156: the credential is placed INTO THE DECODED DOCUMENT, not spliced
+  /// into the template's text. A client key is a value the device chose and
+  /// the app stored verbatim; pasted into a JSON template it only had to
+  /// contain a quote or a backslash to produce a frame that is no longer
+  /// valid JSON — a set answers that with a parse error or a silent drop, and
+  /// the user is told pairing timed out. Replacing the value after decoding
+  /// means jsonEncode does the escaping, which is its job.
   String _registerFrame() {
     final frame = _surface.registerFrame;
     if (frame == null) {
@@ -444,17 +469,42 @@ class WsSession {
       );
     }
     final credential = _credential;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(frame);
+    } on FormatException {
+      // A spec whose frame is not JSON at all: nothing to decode into, so
+      // fall back to the textual form rather than refusing to pair.
+      return credential == null || credential.isEmpty
+          ? frame
+          : frame.replaceAll('{credential}', credential);
+    }
+    if (decoded is! Map<String, dynamic>) return frame;
     if (credential != null && credential.isNotEmpty) {
-      return frame.replaceAll('{credential}', credential);
-    }
-    // No key yet: send the frame without the field rather than with an empty
-    // string, which some devices read as a key and reject.
-    final decoded = jsonDecode(frame);
-    if (decoded is Map<String, dynamic>) {
+      _fillCredentialPlaceholder(decoded, credential);
+    } else {
+      // No key yet: send the frame without the field rather than with an
+      // empty string, which some devices read as a key and reject.
       _stripCredentialPlaceholder(decoded);
-      return jsonEncode(decoded);
     }
-    return frame;
+    return jsonEncode(decoded);
+  }
+
+  static void _fillCredentialPlaceholder(
+    Map<String, dynamic> node,
+    String credential,
+  ) {
+    for (final key in node.keys.toList()) {
+      final value = node[key];
+      if (value == '{credential}') {
+        node[key] = credential;
+      } else if (value is String && value.contains('{credential}')) {
+        // A placeholder embedded in a longer string ("Bearer {credential}").
+        node[key] = value.replaceAll('{credential}', credential);
+      } else if (value is Map<String, dynamic>) {
+        _fillCredentialPlaceholder(value, credential);
+      }
+    }
   }
 
   static void _stripCredentialPlaceholder(Map<String, dynamic> node) {
