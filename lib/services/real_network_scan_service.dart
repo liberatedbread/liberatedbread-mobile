@@ -1779,6 +1779,16 @@ class RealNetworkScanService implements NetworkScanService {
       // Twice, like every other broadcast here: UDP is lossy and a dropped
       // probe means a bridge never heard from.
       var sent = false;
+      // Only a send to a BROADCAST destination is evidence about the port.
+      // A multicast group is refused on its own account — no entitlement, no
+      // route to that group — while 255.255.255.255 on the same socket still
+      // goes out, and aqara-hub is the ONLY probe on :10008 with the only
+      // multicast address in the catalogue (230.0.0.1). Letting its
+      // EHOSTUNREACH stand for the port would rethrow below, the caller would
+      // read it as `denied`, and a single `denied` beats every `heard` in
+      // [scanFailureFor] — so a scan that found devices on every other
+      // transport would still tell the user Local Network is off. A real
+      // denial fails the broadcast ports too, and those still report it.
       Object? sendError;
       for (var attempt = 0; attempt < 2; attempt++) {
         for (final probe in probes) {
@@ -1806,7 +1816,7 @@ class RealNetworkScanService implements NetworkScanService {
             socket.send(probe.probe, target, port);
             sent = true;
           } catch (e) {
-            sendError = e;
+            if (!target.isMulticast) sendError = e;
             Log.net.debug(
               '${probe.specKey}: probe to ${probe.broadcastAddress}:$port '
               'could not be sent: $e',

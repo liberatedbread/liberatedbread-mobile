@@ -115,10 +115,20 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   }) async {
     final commandName = action.commandName;
     if (commandName == null) return;
+    // [assume] is applied HERE, not on success, and rolled back to this
+    // snapshot if the write is refused. This setState is what rebuilds the
+    // card for the "sending" state, and it lands long before the write
+    // resolves: applying the value afterwards left every control that has no
+    // readable state characteristic drawing its fallback for the length of a
+    // BLE write — a fan slider at `min`, a select with no chip lit — and then
+    // jumping. The caller records the baseline this is measured against
+    // (`_assumedBaseline`) right before calling.
+    final priorAssumed = _assumed;
     setState(() {
       _sendingRole = action.role;
       _status = null;
       _failed = false;
+      if (assume != null) _assumed = assume;
     });
     try {
       final codec = ref.read(specCodecProvider);
@@ -141,7 +151,6 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         _sendingRole = null;
         _status = 'Sent';
         _failed = false;
-        if (assume != null) _assumed = assume;
       });
     } catch (e) {
       if (!mounted) return;
@@ -154,6 +163,18 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         _sendingRole = null;
         _status = text;
         _failed = true;
+        // Rolled back to what was on screen before this send. The optimistic
+        // value goes in above, BEFORE the write, so the control does not fall
+        // through to `min` (or to no chip at all) for the length of a BLE
+        // write; a device that refused the command is not at that value, and
+        // an entity whose spec declares no readable state characteristic has
+        // nothing that would ever correct it — the thumb would sit at a speed
+        // the fan is not running at for the life of the screen, under a red
+        // "did not accept that command". Only when this send is the one that
+        // put a value there: a send with no `assume` may have had [_assumed]
+        // cleared under it by a live value arriving mid-write, and restoring
+        // the snapshot would put that stale assumption back.
+        if (assume != null) _assumed = priorAssumed;
       });
       ScaffoldMessenger.maybeOf(
         context,
@@ -346,16 +367,14 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                 : (v) {
                     final param = percentage.userParams.firstOrNull;
                     _dragging = null;
-                    // Hand the released position straight to [_assumed], in
-                    // the same breath as the baseline it is measured against.
-                    // _send's first act is a synchronous setState, and that
-                    // rebuild lands before the write completes: with
-                    // _dragging already cleared and _assumed not yet set, a
-                    // fan whose spec declares no readable state characteristic
-                    // (value == null) fell through to `speed ?? min` and the
-                    // thumb slammed to the minimum for the length of the BLE
-                    // write before jumping back to where the finger left it.
-                    _assumed = v;
+                    // The baseline the released position is measured against,
+                    // recorded in the same breath as the `assume:` below that
+                    // _send applies before the write — with _dragging already
+                    // cleared and nothing assumed, a fan whose spec declares
+                    // no readable state characteristic (value == null) fell
+                    // through to `speed ?? min` and the thumb slammed to the
+                    // minimum for the length of the BLE write before jumping
+                    // back to where the finger left it.
                     _assumedBaseline = value?.decoded;
                     unawaited(
                       _send(
