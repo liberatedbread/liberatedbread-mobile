@@ -2435,6 +2435,7 @@ class RealNetworkScanService implements NetworkScanService {
     session.goveeSocket = recv;
     RawDatagramSocket? sender;
     var heard = false;
+    var sent = false;
     final seen = <String>{};
     try {
       try {
@@ -2447,7 +2448,17 @@ class RealNetworkScanService implements NetworkScanService {
         _setMulticastInterface(sender, session);
         final target = InternetAddress(_goveeMulticast);
         for (var attempt = 0; attempt < 2; attempt++) {
-          sender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
+          try {
+            sender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
+            sent = true;
+          } catch (e) {
+            // The same rule the other four multicast senders follow: a group
+            // this host cannot route is refused on its OWN account, not the
+            // network's, so it is logged rather than thrown at the
+            // transport's onError() (which would call it `denied`, and one
+            // `denied` beats every `heard` in [scanFailureFor]).
+            Log.net.debug('Govee probe send failed: $e');
+          }
           if (await session.sleepUnlessStopped(
             const Duration(milliseconds: 250),
           )) {
@@ -2455,8 +2466,16 @@ class RealNetworkScanService implements NetworkScanService {
           }
         }
       } catch (e) {
-        Log.net.debug('Govee probe send failed: $e');
+        // The sender socket itself could not be bound or configured.
+        Log.net.debug('Govee probe socket unavailable: $e');
       }
+      // Nothing went out, so nothing can come back: :4002 only ever carries a
+      // reply to the scan this transport just failed to send. Listening out
+      // the scan's whole window would spend the budget on nothing and return
+      // a `silent` vote the transport never earned — and [scanFailureFor]
+      // reasons over every outcome that is not `skipped`, so one bogus
+      // `silent` is enough to stop `probed.every(failed)` holding.
+      if (!sent) return TransportOutcome.skipped;
       final deadline = DateTime.now().add(timeout);
       await for (final event in recv.timeout(
         timeout,

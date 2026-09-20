@@ -99,10 +99,14 @@ for runner in scripts/run-ios-device-tests.sh scripts/run-android-device-tests.s
   else
     pass "$(basename "$runner"): picker status is not read through \`if !\`"
   fi
-  if grep -qE '\|\| pick_rc=\$\?' "$runner"; then
+  # Anchored to a real assignment, not just the string: both runners EXPLAIN
+  # the rule in a comment that contains `|| pick_rc=$?` verbatim, so a bare
+  # substring search passed on the prose alone and would have stayed green if
+  # the capture itself were reverted.
+  if grep -qE '^[A-Z_]+="\$\(pick_(ios|android)_device[^)]*\)" \|\| pick_rc=\$\?' "$runner"; then
     pass "$(basename "$runner"): picker status captured with || pick_rc=\$?"
   else
-    fail "$runner: no \`|| pick_rc=\$?\` — the picker's exit code is not captured"
+    fail "$runner: no \`VAR=\$(pick_..._device …) || pick_rc=\$?\` — the picker's exit code is not captured"
   fi
 done
 
