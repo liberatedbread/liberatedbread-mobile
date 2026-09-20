@@ -1848,7 +1848,21 @@ class RealNetworkScanService implements NetworkScanService {
       // caller has to classify (EHOSTUNREACH on a denied Local Network makes
       // every send fail, not one), so it travels rather than being logged
       // away above.
-      if (!sent && sendError != null) throw sendError;
+      if (!sent) {
+        if (sendError != null) throw sendError;
+        // Nothing left the socket and nothing said why in terms this port can
+        // answer for — every probe named an address that would not parse, or
+        // one that was refused on its own account. That is a port which never
+        // probed, so it reports `skipped` rather than `silent`: only probes
+        // with a payload reach this transport, so no reply can arrive on an
+        // ephemeral port nothing went out of, and waiting the scan's whole
+        // window for one spends the budget on nothing. `silent` would also be
+        // a vote it has not earned — [scanFailureFor] reasons only over the
+        // outcomes that are not `skipped`, and one bogus `silent` is enough to
+        // stop `probed.every(failed)` holding, which is how a network that is
+        // genuinely unavailable stops being reported as one.
+        return TransportOutcome.skipped;
+      }
 
       final deadline = DateTime.now().add(timeout);
       await for (final event in socket.timeout(
@@ -2328,14 +2342,33 @@ class RealNetworkScanService implements NetworkScanService {
     final seen = <String>{};
     try {
       final target = InternetAddress(_yeelightMulticast);
+      var sent = false;
       for (var attempt = 0; attempt < 2; attempt++) {
-        socket.send(utf8.encode(_yeelightProbe), target, _yeelightPort);
+        try {
+          socket.send(utf8.encode(_yeelightProbe), target, _yeelightPort);
+          sent = true;
+        } catch (e) {
+          // A group this host cannot route is refused on its OWN account,
+          // not the network's — the rule the catalogue probe already follows
+          // and Govee already wraps for. Reaching the transport's onError()
+          // would classify it `denied`, and one `denied` beats every `heard`
+          // in [scanFailureFor], so a scan that found devices on mDNS and
+          // SSDP would still tell the user Local Network is off. The
+          // _setMulticastInterface pinning above is what makes this
+          // reachable: before it, the send followed the OS default route.
+          Log.net.debug('Yeelight probe send failed: $e');
+        }
         if (await session.sleepUnlessStopped(
           const Duration(milliseconds: 250),
         )) {
           break;
         }
       }
+      // Nothing went out. This socket is ephemeral and joined no group, so
+      // no reply can arrive on it; listening out the scan's whole window
+      // would spend the budget on nothing and return a `silent` vote the
+      // transport never earned.
+      if (!sent) return TransportOutcome.skipped;
       final deadline = DateTime.now().add(timeout);
       await for (final event in socket.timeout(
         timeout,
@@ -2491,14 +2524,33 @@ class RealNetworkScanService implements NetworkScanService {
     final seen = <String>{};
     try {
       final target = InternetAddress(_knxMulticast);
+      var sent = false;
       for (var attempt = 0; attempt < 2; attempt++) {
-        socket.send(_knxProbe, target, _knxPort);
+        try {
+          socket.send(_knxProbe, target, _knxPort);
+          sent = true;
+        } catch (e) {
+          // A group this host cannot route is refused on its OWN account,
+          // not the network's — the rule the catalogue probe already follows
+          // and Govee already wraps for. Reaching the transport's onError()
+          // would classify it `denied`, and one `denied` beats every `heard`
+          // in [scanFailureFor], so a scan that found devices on mDNS and
+          // SSDP would still tell the user Local Network is off. The
+          // _setMulticastInterface pinning above is what makes this
+          // reachable: before it, the send followed the OS default route.
+          Log.net.debug('KNX probe send failed: $e');
+        }
         if (await session.sleepUnlessStopped(
           const Duration(milliseconds: 250),
         )) {
           break;
         }
       }
+      // Nothing went out. This socket is ephemeral and joined no group, so
+      // no reply can arrive on it; listening out the scan's whole window
+      // would spend the budget on nothing and return a `silent` vote the
+      // transport never earned.
+      if (!sent) return TransportOutcome.skipped;
       final deadline = DateTime.now().add(timeout);
       await for (final event in socket.timeout(
         timeout,

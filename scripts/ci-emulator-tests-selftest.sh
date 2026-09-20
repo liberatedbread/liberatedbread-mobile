@@ -16,8 +16,10 @@
 # process that ignores SIGTERM, and it can only pass if the escalation happens.
 #
 # Needs a GNU `timeout` (as `timeout` or `gtimeout`), which is what the script
-# under test calls. The Ubuntu runner has one; a stock macOS does not, so the
-# hang check SKIPS there rather than failing — the retry cases below still run.
+# under test calls. The Ubuntu runner has one; a stock macOS does not, so EVERY
+# case here — the hang check and the retry cases alike — SKIPS there rather
+# than failing, and the closing line says how many checks actually ran so a
+# run that asserted nothing cannot read as a run that passed.
 #
 # Runs in scripts/test.sh and CI's gate job; needs bash only.
 
