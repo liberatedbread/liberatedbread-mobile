@@ -26,8 +26,14 @@ set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
 
 status=0
-pass() { printf '  ok    %s\n' "$1"; }
-fail() { printf '  FAIL  %s\n' "$1" >&2; status=1; }
+# Counted, because every assertion in this file is behind a `command -v
+# timeout` gate and both else-arms only skip. On a stock macOS — which has
+# neither `timeout` nor `gtimeout`, and which is where scripts/test.sh tells a
+# maintainer to "mirror CI before you're done" — the whole file used to print
+# "all passed" having asserted precisely nothing.
+checks=0
+pass() { checks=$((checks + 1)); printf '  ok    %s\n' "$1"; }
+fail() { checks=$((checks + 1)); printf '  FAIL  %s\n' "$1" >&2; status=1; }
 skip() { printf '  skip  %s\n' "$1"; }
 
 BIN="$(mktemp -d)"
@@ -176,5 +182,11 @@ else
   skip "retry cases need a GNU timeout (install coreutils); CI has one"
 fi
 
-if [ "$status" -eq 0 ]; then echo "ci-emulator-tests selftest: all passed"; fi
+if [ "$status" -eq 0 ]; then
+  if [ "$checks" -eq 0 ]; then
+    echo "ci-emulator-tests selftest: 0 checks ran (no GNU timeout on this machine; install coreutils to exercise the retry logic)"
+  else
+    echo "ci-emulator-tests selftest: all $checks checks passed"
+  fi
+fi
 exit "$status"

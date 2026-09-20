@@ -346,6 +346,16 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                 : (v) {
                     final param = percentage.userParams.firstOrNull;
                     _dragging = null;
+                    // Hand the released position straight to [_assumed], in
+                    // the same breath as the baseline it is measured against.
+                    // _send's first act is a synchronous setState, and that
+                    // rebuild lands before the write completes: with
+                    // _dragging already cleared and _assumed not yet set, a
+                    // fan whose spec declares no readable state characteristic
+                    // (value == null) fell through to `speed ?? min` and the
+                    // thumb slammed to the minimum for the length of the BLE
+                    // write before jumping back to where the finger left it.
+                    _assumed = v;
                     _assumedBaseline = value?.decoded;
                     unawaited(
                       _send(

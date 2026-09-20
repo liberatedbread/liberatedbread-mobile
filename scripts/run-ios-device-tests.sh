@@ -129,6 +129,16 @@ case "$LAUNCHER" in
   xcodebuild|flutter) ;;
   *) err "--launcher must be xcodebuild or flutter (got '$LAUNCHER')."; exit 2 ;;
 esac
+# Everything after `--` is `flutter test` arguments, and only the flutter lane
+# has a `flutter test` to give them to. The xcodebuild lane never referenced
+# PASSTHROUGH, so `-- --plain-name "live BLE"` on the DEFAULT launcher was
+# parsed, stored and silently dropped: the full suite ran unfiltered and said
+# nothing. Refused rather than ignored.
+if (( ${#PASSTHROUGH[@]} > 0 )) && [[ "$LAUNCHER" != "flutter" ]]; then
+  err "arguments after -- are passed to \`flutter test\`, which only --launcher flutter runs."
+  err "Re-run with: --launcher flutter -- ${PASSTHROUGH[*]}"
+  exit 2
+fi
 
 # ── platform and tools ───────────────────────────────────────────────────────
 
@@ -153,12 +163,23 @@ fi
 # ── the phone ────────────────────────────────────────────────────────────────
 
 UDID=""
-if ! UDID="$(pick_ios_device "$DEVICE_ID")"; then
-  if [[ "$IF_PRESENT" == "true" ]]; then
+# `pick_rc=$?` MUST be read from a plain `|| pick_rc=$?`, never from inside
+# `if ! UDID="$(pick_ios_device …)"`: the `!` inverts the pipeline's status, so
+# `$?` in that branch is always 0 — which made `exit "$pick_rc"` exit 0 with no
+# phone attached, reporting a run that could not happen as a pass.
+pick_rc=0
+UDID="$(pick_ios_device "$DEVICE_ID")" || pick_rc=$?
+if (( pick_rc != 0 )); then
+  # Exit 2 only. The picker also exits 1 when `flutter devices --machine` could
+  # not be parsed — a broken or missing flutter, or one printing a banner ahead
+  # of the JSON — and that is a toolchain failure, not an absent phone.
+  # Swallowing it made an unattended --if-present run report success while
+  # nothing could have run at all.
+  if [[ "$IF_PRESENT" == "true" && "$pick_rc" -eq 2 ]]; then
     warn "No paired iPhone; nothing to run (--if-present)."
     exit 0
   fi
-  exit 2
+  exit "$pick_rc"
 fi
 log "iPhone: $UDID"
 
@@ -360,6 +381,8 @@ run_suite() {
   # Only the lines a reader acts on reach the terminal: what the suite
   # measured, each test's verdict, and anything that went wrong. The full
   # log is in $logfile and the per-test record in the .xcresult bundle.
+  local rc=0
+  {
   xcodebuild test \
       -workspace ios/Runner.xcworkspace \
       -scheme Runner \
@@ -375,9 +398,16 @@ run_suite() {
       | grep --line-buffered -E \
           '\[hardware\]|Test Case|Test Suite .*(passed|failed)|error:|\*\* TEST|Executed [0-9]+ test|xcodebuild: error|Failing tests|Testing failed|Unable to|Unlock .* to Continue|destination is not ready' \
       | grep --line-buffered -vE 'DVTDeveloperAccountManager|Xcode-Username' \
-      | sed -u -E 's/^.*Unlock (.*) to Continue.*$/UNLOCK THE PHONE: xcodebuild is waiting until \1 is unlocked (it carries on by itself once it is)./' \
-      || true
-  local rc="${PIPESTATUS[0]}"
+      | sed -u -E 's/^.*Unlock (.*) to Continue.*$/UNLOCK THE PHONE: xcodebuild is waiting until \1 is unlocked (it carries on by itself once it is)./'
+    rc="${PIPESTATUS[0]}"
+  } || true
+  # The `|| true` MUST stay outside the group and the read of PIPESTATUS MUST
+  # stay inside it. `cmd | … || true` runs `true`, which is itself a pipeline,
+  # and that overwrites PIPESTATUS with (0) before the next line can read it —
+  # so `rc` was always 0 and a failing xcodebuild run was reported as a pass.
+  # Only the `grep` below stood between a red hardware suite and "All device
+  # suites passed", and a failing XCTest run still prints `Test Case '-[…`, so
+  # it did not stand there at all.
   if ! grep -q "Test Case '-\[RunnerTests " "$logfile"; then
     if grep -q "Unlock .* to Continue" "$logfile"; then
       err "The phone stayed locked, so no test ran. Unlock it and run again; see $logfile"

@@ -470,13 +470,25 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           .specBleHandshake(specYaml: chosen.yaml);
       if (handshake.steps.isEmpty && handshake.described.isEmpty) return;
       if (!mounted || !_connected) return;
-      _handshakeSubs.addAll(
-        await runBleHandshake(
-          ble: _bleService,
-          deviceId: widget.device.id,
-          handshake: handshake,
-        ),
+      final subs = await runBleHandshake(
+        ble: _bleService,
+        deviceId: widget.device.id,
+        handshake: handshake,
       );
+      // Re-checked AFTER the await, not only before it. runBleHandshake awaits
+      // writes, reads and the spec's own `delayMs` sleeps (seconds, for
+      // SmartDawn), and dispose() has already drained and cleared
+      // _handshakeSubs by the time a user who backed out gets here. Adding to
+      // the list then is adding to a list nobody will drain again: the notify
+      // interest the handshake took out is never released, and the next
+      // connect stacks another set on top of it.
+      if (!mounted || !_connected) {
+        for (final sub in subs) {
+          unawaited(sub.cancel());
+        }
+        return;
+      }
+      _handshakeSubs.addAll(subs);
     } catch (e) {
       // Logged, not surfaced: the user's question is "do my controls work",
       // and the answer to a half-run handshake is found by trying one.
@@ -782,8 +794,25 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 if (_leaving) return;
                 _leaving = true;
                 final navigator = Navigator.of(context);
-                await _cleanupConnection();
-                if (!mounted || !navigator.canPop()) return;
+                try {
+                  await _cleanupConnection();
+                } catch (_) {
+                  // _cleanupConnection is best-effort; a teardown that threw
+                  // must still release the latch below rather than leave the
+                  // button dead.
+                }
+                // The latch guards a second tap DURING the teardown. On the
+                // paths that return WITHOUT popping — the screen outlived the
+                // disconnect, or there is nothing under this route — it was
+                // never cleared, so the Disconnect button stayed inert for the
+                // life of the screen with nothing to show for it. It stays set
+                // once the pop is committed: the screen is still mounted for
+                // the length of the transition, and a second tap there is the
+                // double-pop this latch exists to stop.
+                if (!mounted || !navigator.canPop()) {
+                  _leaving = false;
+                  return;
+                }
                 navigator.pop();
               },
             ),

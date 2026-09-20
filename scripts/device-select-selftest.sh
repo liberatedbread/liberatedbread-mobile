@@ -87,5 +87,24 @@ pick_android_device >/dev/null 2>&1; check_eq "Android: exit 2 when only an emul
 export STUB_DEVICES='not json'
 pick_ios_device >/dev/null 2>&1; check_eq "iOS: exit 1 on unparseable output" "1" "$?"
 
+# The runners have to PROPAGATE those two exit codes, and there is one way to
+# read them that silently cannot. `if ! VAR="$(pick_ios_device …)"; then` runs
+# the picker, but bash's `!` inverts the pipeline status, so `$?` inside that
+# branch is 0 no matter what the picker returned — `exit "$rc"` then exits 0
+# with no phone attached and an unattended run reports a suite that never ran
+# as a pass. The status has to come from a plain `|| pick_rc=$?` instead.
+for runner in scripts/run-ios-device-tests.sh scripts/run-android-device-tests.sh; do
+  if grep -qE '^\s*if ! [A-Z_]+="\$\(pick_(ios|android)_device' "$runner"; then
+    fail "$runner: reads the picker through \`if ! VAR=\$(…)\`, where \$? is always 0"
+  else
+    pass "$(basename "$runner"): picker status is not read through \`if !\`"
+  fi
+  if grep -qE '\|\| pick_rc=\$\?' "$runner"; then
+    pass "$(basename "$runner"): picker status captured with || pick_rc=\$?"
+  else
+    fail "$runner: no \`|| pick_rc=\$?\` — the picker's exit code is not captured"
+  fi
+done
+
 if [[ "$status" -eq 0 ]]; then echo "device-select selftest: all passed"; fi
 exit "$status"

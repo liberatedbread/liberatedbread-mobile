@@ -62,6 +62,13 @@ void main() {
         'utun0',
         'utun3',
         'pdp_ip0',
+        // Android cellular. Carriers hand these RFC1918 addresses, so
+        // isPrivateIpv4 accepts them and only the name keeps them out.
+        'rmnet_data0',
+        'v4-rmnet_data0',
+        'ccmni0',
+        'wwan0',
+        'clat4',
         'ppp0',
         'ipsec0',
         'tun0',
@@ -169,5 +176,30 @@ void main() {
       final addr = await primaryLanIpv4(lister: _listerOf([]));
       expect(addr, isNull);
     });
+
+    test(
+      'is not the Android cellular address, even enumerated first',
+      () async {
+        // The ordering is the point: a carrier's rmnet address is private, so
+        // isPrivateIpv4 accepts it, and whichever interface the OS lists first
+        // wins. Android enumerating cellular ahead of wlan0 would otherwise pin
+        // IP_MULTICAST_IF — and with it SSDP, the mDNS source capture,
+        // Yeelight, KNX and Govee — to a radio no LAN device can hear.
+        for (final cellular in [
+          'rmnet_data0',
+          'v4-rmnet_data0',
+          'ccmni0',
+          'wwan0',
+        ]) {
+          final addr = await primaryLanIpv4(
+            lister: _listerOf([
+              _FakeInterface(cellular, ['10.171.4.9']),
+              _FakeInterface('wlan0', ['192.168.1.5']),
+            ]),
+          );
+          expect(addr?.address, '192.168.1.5', reason: '$cellular must lose');
+        }
+      },
+    );
   });
 }

@@ -95,12 +95,19 @@ if [[ "$LIST_ONLY" == "true" ]]; then
 fi
 
 DEVICE=""
-if ! DEVICE="$(pick_android_device "$DEVICE_ID")"; then
-  if [[ "$IF_PRESENT" == "true" ]]; then
+# Read through `|| pick_rc=$?`, not `if ! DEVICE="$(…)"` — see the iOS runner:
+# the `!` inverts the status and `$?` in that branch is always 0.
+pick_rc=0
+DEVICE="$(pick_android_device "$DEVICE_ID")" || pick_rc=$?
+if (( pick_rc != 0 )); then
+  # Exit 2 only — see the iOS runner. Exit 1 is "flutter devices --machine
+  # could not be parsed", a broken toolchain rather than an absent phone, and
+  # --if-present must not report success for it.
+  if [[ "$IF_PRESENT" == "true" && "$pick_rc" -eq 2 ]]; then
     warn "No attached Android phone; nothing to run (--if-present)."
     exit 0
   fi
-  exit 2
+  exit "$pick_rc"
 fi
 log "Android phone: $DEVICE"
 

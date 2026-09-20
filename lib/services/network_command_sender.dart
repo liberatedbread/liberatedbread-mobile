@@ -947,6 +947,14 @@ class NetworkCommandSender {
         description.port,
         path,
         request,
+        // R-039: the description's URLBase resolves its relative controlURLs,
+        // and Wemo firmware really does publish LOCATION on one port and
+        // URLBase on another. Every other consumer of a SoapDeviceDescription
+        // passes it (adopt_service, group_runner, network_device_screen's
+        // state poll); without it here the screen READ live state from the
+        // URLBase port while every button press POSTed to the LOCATION port
+        // and came back 404, reported as the device refusing the command.
+        urlBase: description.urlBase,
       );
       final current = returned[readBack.field];
       // An empty element (`<time/>`) is a value the device did not state,
@@ -969,6 +977,12 @@ class NetworkCommandSender {
         'the device does not list ${request.service}',
       );
     }
-    await _soap.send(description.host, description.port, path, request);
+    await _soap.send(
+      description.host,
+      description.port,
+      path,
+      request,
+      urlBase: description.urlBase,
+    );
   }
 }

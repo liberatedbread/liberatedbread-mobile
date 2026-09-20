@@ -665,7 +665,14 @@ class SpecPackService {
           throw _PackNameCollision(manifest.name, stored.name);
         }
       } catch (e) {
-        if (e is StateError) rethrow;
+        // Only a manifest we could not READ is "corrupt: delete and replace".
+        // An answer this method deliberately raised — the unsafe-directory
+        // StateError above, or the name collision — has to travel: swallowing
+        // _PackNameCollision here let _persist carry on and recursively delete
+        // the OTHER pack's directory, which is exactly what it exists to
+        // prevent, and made the `on _PackNameCollision` handler in install()
+        // unreachable.
+        if (e is StateError || e is _PackNameCollision) rethrow;
         // Corrupt manifest: delete and replace.
       }
     }

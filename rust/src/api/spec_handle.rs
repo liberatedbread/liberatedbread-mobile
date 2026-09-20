@@ -474,6 +474,34 @@ device:
         catalogue
     }
 
+    /// A `probe_hex` carrying a multi-byte character used to abort the whole
+    /// catalogue walk, not the one spec: `decode_hex` sliced `&str[i..i + 2]`
+    /// by BYTE index, and "6\u{e9}9" puts a char boundary in the middle of the
+    /// first slice. The even-length guard does not catch it — the string is
+    /// four bytes. Spec packs install from arbitrary URLs, so one of them
+    /// could silently cost every catalogue UDP probe for as long as it stayed
+    /// installed, which is the opposite of what this function documents.
+    #[test]
+    fn decode_hex_refuses_non_ascii_instead_of_panicking() {
+        assert_eq!(decode_hex("6\u{e9}9"), None, "a char boundary mid-slice");
+        assert_eq!(decode_hex("69\u{a0}6f"), None, "a non-breaking space");
+        assert_eq!(decode_hex("\u{2028}\u{2028}"), None, "even bytes, no hex");
+    }
+
+    #[test]
+    fn decode_hex_still_decodes_what_a_spec_really_writes() {
+        assert_eq!(
+            decode_hex("69726f626f746d6373"),
+            Some(b"irobotmcs".to_vec()),
+            "the iRobot discovery probe, lower case"
+        );
+        assert_eq!(decode_hex("D0F2"), Some(vec![0xd0, 0xf2]), "upper case");
+        assert_eq!(decode_hex("  a1b2  "), Some(vec![0xa1, 0xb2]), "trimmed");
+        assert_eq!(decode_hex("abc"), None, "odd length");
+        assert_eq!(decode_hex(""), None, "empty");
+        assert_eq!(decode_hex("zz"), None, "not hex digits");
+    }
+
     #[test]
     fn load_spec_decodes_the_same_bytes_as_the_by_yaml_path() {
         let handle = load_spec(BULB_YAML.to_string()).unwrap();
@@ -744,8 +772,21 @@ fn decode_hex(hex: &str) -> Option<Vec<u8>> {
     if trimmed.is_empty() || trimmed.len() % 2 != 0 {
         return None;
     }
-    (0..trimmed.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&trimmed[i..i + 2], 16).ok())
+    // Over BYTES, not `&str[i..i + 2]`. Slicing a str by byte index panics
+    // when the index is not a char boundary, so a `probe_hex` carrying any
+    // multi-byte character that straddles an even offset — a non-breaking
+    // space between two digits is enough, and spec packs are installed from
+    // arbitrary URLs — aborted the whole `udp_broadcast_probes` walk instead
+    // of dropping the one spec, which is what this function's doc promises.
+    let bytes = trimmed.as_bytes();
+    if !bytes.is_ascii() {
+        return None;
+    }
+    bytes
+        .chunks_exact(2)
+        .map(|pair| {
+            let digits = std::str::from_utf8(pair).ok()?;
+            u8::from_str_radix(digits, 16).ok()
+        })
         .collect()
 }

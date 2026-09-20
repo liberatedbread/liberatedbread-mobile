@@ -203,6 +203,59 @@ void main() {
     );
 
     test(
+      'a pack whose name shares a directory slug is refused, not overwritten '
+      '(R-062)',
+      () async {
+        // 'My Pack' and 'My/Pack' both slug to 'my_pack'. The guard that
+        // catches this throws from inside a try whose catch used to rethrow
+        // StateError only, so the collision was swallowed as "corrupt
+        // manifest: delete and replace" — and _persist then deleted the OTHER
+        // pack's directory, recursively, to make room. What the user saw was
+        // "could not write the pack to storage" while their installed pack
+        // quietly went away.
+        Future<http.Response> handler(String name) async =>
+            http.Response(_manifestJson(name: name, specs: ['bulb.yaml']), 200);
+
+        final first = _service(tempDir, (request) async {
+          if (request.url.path.endsWith('pack.json')) {
+            return handler('My Pack');
+          }
+          return http.Response('device_name: First', 200);
+        });
+        expect(await first.install(_manifestUrl), isA<InstallOk>());
+
+        final second = _service(tempDir, (request) async {
+          if (request.url.path.endsWith('pack.json')) {
+            return handler('My/Pack');
+          }
+          return http.Response('device_name: Second', 200);
+        });
+        final result = await second.install(_manifestUrl);
+
+        expect(result, isA<InstallFailed>());
+        final failed = result as InstallFailed;
+        expect(failed.error.kind, SpecPackErrorKind.cacheIo);
+        expect(
+          failed.error.message,
+          contains('My Pack'),
+          reason: 'the message has to name the pack that is in the way',
+        );
+
+        // The pack that was already there is untouched: same name, same spec.
+        final dir = Directory('${tempDir.path}/spec_packs/my_pack');
+        expect(await dir.exists(), isTrue, reason: 'not deleted to make room');
+        final stored = jsonDecode(
+          await File('${dir.path}/manifest.json').readAsString(),
+        );
+        expect(stored['name'], 'My Pack');
+        expect(
+          await File('${dir.path}/specs/bulb.yaml').readAsString(),
+          'device_name: First',
+        );
+      },
+    );
+
+    test(
       'a residual on-disk name collision is annotated, not clobbered',
       () async {
         // 'a/b.yaml' and 'a_b.yaml' both sanitize to 'a_b.yaml'; the second is

@@ -1771,9 +1771,25 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     final device = BluetoothDevice.fromId(deviceId);
     var reported = device.mtuNow;
     if (reported <= 23 && isApple) {
-      reported = await device.mtu
-          .firstWhere((m) => m > 23)
-          .timeout(appleMtuSettle, onTimeout: () => device.mtuNow);
+      // Listened to by hand rather than `firstWhere(...).timeout(...)`:
+      // Future.timeout completes the future it returns but does NOT cancel
+      // the source, and `device.mtu` is fbp's long-lived onMtuChanged
+      // broadcast stream. A peripheral that never renegotiates never emits a
+      // value > 23, so every timed-out call left a listener attached for the
+      // life of the link — one per attach, and RabbitAirBleClient.attach
+      // calls this on every reconnect.
+      final settled = Completer<int>();
+      final sub = device.mtu.listen((m) {
+        if (m > 23 && !settled.isCompleted) settled.complete(m);
+      }, onError: (Object _) {});
+      try {
+        reported = await settled.future.timeout(
+          appleMtuSettle,
+          onTimeout: () => device.mtuNow,
+        );
+      } finally {
+        await sub.cancel();
+      }
     }
     // The one platform quirk in what "reported" means lives here, next to
     // the requestMtu call that owns the platform knowledge, so every caller

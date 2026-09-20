@@ -1357,6 +1357,16 @@ class RealNetworkScanService implements NetworkScanService {
               reusePort: reusePort,
               ttl: ttl,
             );
+            // F-014, the egress half. `interfacesFactory` below fixes which
+            // interfaces the package JOINS on, but package:multicast_dns sets
+            // IP_MULTICAST_IF only for IPv6, so an IPv4 query still leaves
+            // over whatever the OS calls primary — `pdp_ip0` on an iPhone
+            // whose Wi-Fi has no internet. Every other transport here pins
+            // the interface the same way; mDNS, the one that finds the most,
+            // was the one still sending over cellular.
+            if (socket.address.type == InternetAddressType.IPv4) {
+              _setMulticastInterface(socket, session);
+            }
             boundSockets.add(socket);
             return socket;
           },
@@ -1713,7 +1723,19 @@ class RealNetworkScanService implements NetworkScanService {
           // this whole transport is additive, and everything it finds is
           // something the app could not find at all before.
           Log.net.debug('catalogue probe port ${entry.key} failed: $e');
-          return TransportOutcome.skipped;
+          // ...but a refusal is not a failure to fold away. On iOS a denied
+          // (or still-prompting) Local Network permission surfaces as the
+          // EHOSTUNREACH SocketException from `socket.send()` to the
+          // broadcast address, and `skipped` is excluded from the scan's
+          // verdict — so this transport could never contribute the proof the
+          // "Local Network is off" screen is built on, and the outer onError
+          // never saw it either because this handler had consumed it.
+          return isLocalNetworkDenied(
+                e,
+                isApplePlatform: Platform.isIOS || Platform.isMacOS,
+              )
+              ? TransportOutcome.denied
+              : TransportOutcome.skipped;
         }),
     ]);
     // Heard beats denied beats silent: one port that answered proves the
@@ -2052,7 +2074,16 @@ class RealNetworkScanService implements NetworkScanService {
         reuseAddress: true,
         reusePort: true,
       );
-      session.tuyaPlainSocket = plain;
+      // R-027, and Tuya is the worst case for it: this transport sends no
+      // probe, so it has no sleepUnlessStopped to notice a stop with. A stop
+      // landing inside the bind above left the socket on a stopped session,
+      // so nothing closed it and the listen below parked until the scan's
+      // whole budget expired.
+      if (session.stoppedDuringBind(plain)) {
+        plain = null;
+      } else {
+        session.tuyaPlainSocket = plain;
+      }
     } catch (e) {
       Log.net.debug('Tuya :$_tuyaPortPlain bind failed: $e');
     }
@@ -2063,7 +2094,11 @@ class RealNetworkScanService implements NetworkScanService {
         reuseAddress: true,
         reusePort: true,
       );
-      session.tuyaEncryptedSocket = encrypted;
+      if (session.stoppedDuringBind(encrypted)) {
+        encrypted = null;
+      } else {
+        session.tuyaEncryptedSocket = encrypted;
+      }
     } catch (e) {
       Log.net.debug('Tuya :$_tuyaPortEncrypted bind failed: $e');
     }
@@ -2306,6 +2341,9 @@ class RealNetworkScanService implements NetworkScanService {
       Log.net.debug('Govee :$_goveeRecvPort bind failed: $e');
       return TransportOutcome.skipped;
     }
+    // R-027: a stop inside the bind above left this socket on a session that
+    // had already run stop(), so nothing ever closed :4002.
+    if (session.stoppedDuringBind(recv)) return TransportOutcome.skipped;
     session.goveeSocket = recv;
     RawDatagramSocket? sender;
     var heard = false;

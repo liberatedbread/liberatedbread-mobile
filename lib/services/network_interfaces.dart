@@ -41,6 +41,17 @@ typedef InterfaceLister =
 const List<String> tunnelInterfacePrefixes = [
   'utun', // macOS/iOS VPN and personal-hotspot tunnels
   'pdp_ip', // iOS cellular data
+  // Android cellular data, which carriers hand RFC1918 addresses — so
+  // isPrivateIpv4 accepts them and primaryLanIpv4 would return one whenever
+  // the OS enumerates it before wlan0. IP_MULTICAST_IF then pins SSDP, the
+  // mDNS source capture, Yeelight, KNX and Govee to the cellular interface,
+  // where no LAN device can hear them; without the name filter the OS default
+  // route at least carried them over Wi-Fi.
+  'rmnet', // rmnet_data0 and friends (Qualcomm)
+  'v4-rmnet', // 464XLAT clat interface over rmnet
+  'ccmni', // MediaTek cellular
+  'wwan', // generic mobile broadband
+  'clat', // 464XLAT translation interface
   'ppp', // point-to-point (legacy VPN, some cellular)
   'ipsec', // IPsec tunnels
   'tun', // OpenVPN/WireGuard on desktop
