@@ -182,14 +182,20 @@ void main() {
       () async {
         // The ordering is the point: a carrier's rmnet address is private, so
         // isPrivateIpv4 accepts it, and whichever interface the OS lists first
-        // wins. Android enumerating cellular ahead of wlan0 would otherwise pin
-        // IP_MULTICAST_IF — and with it SSDP, the mDNS source capture,
-        // Yeelight, KNX and Govee — to a radio no LAN device can hear.
+        // wins. Android enumerating cellular ahead of wlan0 would otherwise
+        // pin IP_MULTICAST_IF — and with it the mDNS client, the mDNS source
+        // capture, SSDP, the catalogue UDP probes, Yeelight, KNX and Govee —
+        // to a radio no LAN device can hear.
+        //
+        // Every name in [tunnelInterfacePrefixes]' Android group, so a prefix
+        // that only ever reaches the isLanCandidate test above cannot pass
+        // there and still win the egress pick here.
         for (final cellular in [
           'rmnet_data0',
           'v4-rmnet_data0',
           'ccmni0',
           'wwan0',
+          'clat4',
         ]) {
           final addr = await primaryLanIpv4(
             lister: _listerOf([

@@ -37,10 +37,12 @@ const _ssdpPort = 1900;
 const _lifxPort = 56700;
 
 /// The limited broadcast address. Named for what it is rather than for LIFX:
-/// five transports send to it, and the catalogue probe COMPARES against it to
-/// decide whether a refused send says anything about the port (a spec may name
-/// a multicast group or a subnet-directed broadcast, which is refused on its
-/// own account and must not become the whole scan's verdict).
+/// every broadcast transport here sends to it — LIFX, Kasa, Wiz, Ubiquiti,
+/// MikroTik, Roomba and the catalogue's own broadcast probes — and the
+/// catalogue probe COMPARES against it to decide whether a refused send says
+/// anything about the port (a spec may name a multicast group or a
+/// subnet-directed broadcast, which is refused on its own account and must not
+/// become the whole scan's verdict).
 const _limitedBroadcast = '255.255.255.255';
 const _lifxSearchTarget = 'lifx:udp';
 
@@ -111,10 +113,11 @@ String? lifxStateServiceMac(List<int> data) {
       .join(':');
 }
 
-/// TP-Link Kasa discovery: a directed broadcast of the XOR-encoded
-/// get_sysinfo to UDP 9999, which only devices speaking the tplink-smarthome
-/// protocol answer. The protocol token the answer identifies the device by.
-const _kasaBroadcast = '255.255.255.255';
+/// TP-Link Kasa discovery: a limited broadcast of the XOR-encoded get_sysinfo
+/// to UDP 9999, which only devices speaking the tplink-smarthome protocol
+/// answer. The protocol token the answer identifies the device by. The
+/// destination is [_limitedBroadcast], the one address every broadcast
+/// transport here shares.
 const _kasaPort = 9999;
 const _kasaProbeJson = '{"system":{"get_sysinfo":null}}';
 const _kasaProtocol = 'tplink-smarthome';
@@ -175,7 +178,6 @@ const _knxProbe = [
 /// reply parse both live in the Rust codec; this half owns the socket.
 ///
 /// koalazak/dorita980's work, like the rest of the Roomba path.
-const _roombaBroadcast = '255.255.255.255';
 const _roombaDiscoveryPort = 5678;
 const _roombaControlPort = 8883;
 const _roombaProtocol = 'irobot-mqtt';
@@ -2773,7 +2775,16 @@ class RealNetworkScanService implements NetworkScanService {
               '\r\n';
           socket.send(request.codeUnits, target, _ssdpPort);
         }
-        await Future<void>.delayed(const Duration(milliseconds: 250));
+        // Through the session, like every other transport here. A bare
+        // Future.delayed cannot notice a stop, so a stopped scan sat out the
+        // 250 ms and then sent a SECOND round of M-SEARCHes — R-027's
+        // "stopScan() is a lie" in the one transport that was left on a plain
+        // timer.
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
+          break;
+        }
       }
 
       final deadline = DateTime.now().add(timeout);
@@ -2933,7 +2944,7 @@ class RealNetworkScanService implements NetworkScanService {
     socket.broadcastEnabled = true;
     var heard = false;
     try {
-      final target = InternetAddress(_kasaBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Sent more than once: UDP, and a dropped probe is a plug never heard.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(probe, target, _kasaPort);
@@ -3065,7 +3076,7 @@ class RealNetworkScanService implements NetworkScanService {
     socket.broadcastEnabled = true;
     var heard = false;
     try {
-      final target = InternetAddress(_roombaBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Sent more than once: UDP, and a dropped probe is a robot never found.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(probe, target, _roombaDiscoveryPort);

@@ -43,10 +43,11 @@ const List<String> tunnelInterfacePrefixes = [
   'pdp_ip', // iOS cellular data
   // Android cellular data, which carriers hand RFC1918 addresses — so
   // isPrivateIpv4 accepts them and primaryLanIpv4 would return one whenever
-  // the OS enumerates it before wlan0. IP_MULTICAST_IF then pins SSDP, the
-  // mDNS source capture, Yeelight, KNX and Govee to the cellular interface,
-  // where no LAN device can hear them; without the name filter the OS default
-  // route at least carried them over Wi-Fi.
+  // the OS enumerates it before wlan0. IP_MULTICAST_IF then pins every
+  // multicast sender in the scan — the mDNS client and its raw source
+  // capture, SSDP, the catalogue's UDP probes, Yeelight, KNX and Govee — to
+  // the cellular interface, where no LAN device can hear them; without the
+  // name filter the OS default route at least carried them over Wi-Fi.
   'rmnet', // rmnet_data0 and friends (Qualcomm)
   'v4-rmnet', // 464XLAT clat interface over rmnet
   'ccmni', // MediaTek cellular
