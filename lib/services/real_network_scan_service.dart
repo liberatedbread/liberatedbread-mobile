@@ -1778,6 +1778,8 @@ class RealNetworkScanService implements NetworkScanService {
     try {
       // Twice, like every other broadcast here: UDP is lossy and a dropped
       // probe means a bridge never heard from.
+      var sent = false;
+      Object? sendError;
       for (var attempt = 0; attempt < 2; attempt++) {
         for (final probe in probes) {
           final InternetAddress target;
@@ -1791,7 +1793,25 @@ class RealNetworkScanService implements NetworkScanService {
             );
             continue;
           }
-          socket.send(probe.probe, target, port);
+          // A destination one probe cannot reach skips that probe, not the
+          // port, for the same reason the parse above does. The addresses
+          // here come from specs, including packs installed from arbitrary
+          // URLs, and one unreachable group (aqara-hub names 230.0.0.1, which
+          // a build without the multicast entitlement cannot send to) would
+          // otherwise abort the whole port AND be classified as a denial —
+          // and a single `denied` outcome beats every `heard` one in
+          // [scanFailureFor], so a scan that found devices would still tell
+          // the user their Local Network permission is off.
+          try {
+            socket.send(probe.probe, target, port);
+            sent = true;
+          } catch (e) {
+            sendError = e;
+            Log.net.debug(
+              '${probe.specKey}: probe to ${probe.broadcastAddress}:$port '
+              'could not be sent: $e',
+            );
+          }
         }
         if (await session.sleepUnlessStopped(
           const Duration(milliseconds: 250),
@@ -1799,6 +1819,11 @@ class RealNetworkScanService implements NetworkScanService {
           break;
         }
       }
+      // Nothing on this port could be sent at all: that is the refusal the
+      // caller has to classify (EHOSTUNREACH on a denied Local Network makes
+      // every send fail, not one), so it travels rather than being logged
+      // away above.
+      if (!sent && sendError != null) throw sendError;
 
       final deadline = DateTime.now().add(timeout);
       await for (final event in socket.timeout(

@@ -485,7 +485,15 @@ device:
     fn decode_hex_refuses_non_ascii_instead_of_panicking() {
         assert_eq!(decode_hex("6\u{e9}9"), None, "a char boundary mid-slice");
         assert_eq!(decode_hex("69\u{a0}6f"), None, "a non-breaking space");
-        assert_eq!(decode_hex("\u{2028}\u{2028}"), None, "even bytes, no hex");
+        // Not U+2028 or any other whitespace: `str::trim` strips those, so
+        // such a case exits at the is_empty guard and never reaches the
+        // ASCII check this test exists for. U+00FF is two bytes and is not
+        // whitespace, so "\u{ff}\u{ff}" is four bytes of genuine non-ASCII.
+        assert_eq!(
+            decode_hex("\u{ff}\u{ff}"),
+            None,
+            "even byte count, not ASCII"
+        );
     }
 
     #[test]
