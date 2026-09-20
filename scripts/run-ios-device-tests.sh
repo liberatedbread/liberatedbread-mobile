@@ -22,7 +22,7 @@
 #   ./scripts/run-ios-device-tests.sh --live-ble-name "SD-1234"  # also connect to that peripheral
 #   ./scripts/run-ios-device-tests.sh --live-ble-any             # ...or to the nearest connectable one
 #   ./scripts/run-ios-device-tests.sh --launcher flutter   # `flutter test -d`, see below
-#   ./scripts/run-ios-device-tests.sh -- --verbose    # pass extras to `flutter test`
+#   ./scripts/run-ios-device-tests.sh --launcher flutter -- --verbose  # extras for `flutter test`
 #
 # HOW THE SUITE REACHES THE PHONE
 #

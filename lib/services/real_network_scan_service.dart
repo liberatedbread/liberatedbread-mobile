@@ -1768,6 +1768,11 @@ class RealNetworkScanService implements NetworkScanService {
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.catalogueProbeSockets.add(socket);
     socket.broadcastEnabled = true;
+    // F-014, like every other transport here: a spec is free to name a
+    // multicast group rather than the broadcast address (aqara-hub declares
+    // 230.0.0.1), and a multicast datagram follows IP_MULTICAST_IF — which
+    // is cellular on an iPhone whose Wi-Fi has no internet — not the LAN.
+    _setMulticastInterface(socket, session);
     var heard = false;
     final seen = <String>{};
     try {

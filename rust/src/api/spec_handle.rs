@@ -500,6 +500,7 @@ device:
         assert_eq!(decode_hex("abc"), None, "odd length");
         assert_eq!(decode_hex(""), None, "empty");
         assert_eq!(decode_hex("zz"), None, "not hex digits");
+        assert_eq!(decode_hex("+1+2"), None, "a sign is not a hex digit");
     }
 
     #[test]
@@ -785,6 +786,12 @@ fn decode_hex(hex: &str) -> Option<Vec<u8>> {
     bytes
         .chunks_exact(2)
         .map(|pair| {
+            // Each byte checked as a hex DIGIT first: `u8::from_str_radix`
+            // accepts a leading sign, so "+1+2" would otherwise decode to
+            // 0x01 0x02 rather than being refused as the non-hex it is.
+            if !pair.iter().all(|b| b.is_ascii_hexdigit()) {
+                return None;
+            }
             let digits = std::str::from_utf8(pair).ok()?;
             u8::from_str_radix(digits, 16).ok()
         })
