@@ -304,7 +304,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // without the three writes the device is waiting for. Never fatal: a
       // handshake that fails is a device that may ignore its commands, and a
       // screen that refuses to open is a device that certainly does.
-      await _runSpecHandshake(services);
+      await _runSpecHandshake(services, generation);
       if (_superseded(generation)) return;
       if (!mounted) {
         await _cleanupConnection();
@@ -433,7 +433,10 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   /// the match because the handshake is the SPEC's, and the match is where
   /// the spec comes from — the same cached family entry the control panel
   /// reads, so it costs no extra FFI.
-  Future<void> _runSpecHandshake(List<BleDiscoveredService> services) async {
+  Future<void> _runSpecHandshake(
+    List<BleDiscoveredService> services,
+    int generation,
+  ) async {
     if (services.isEmpty) return;
     try {
       // Bounded, and both bounds answer the same way — no spec, no handshake,
@@ -469,7 +472,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           .read(specCodecProvider)
           .specBleHandshake(specYaml: chosen.yaml);
       if (handshake.steps.isEmpty && handshake.described.isEmpty) return;
-      if (!mounted || !_connected) return;
+      if (_superseded(generation) || !mounted || !_connected) return;
       final subs = await runBleHandshake(
         ble: _bleService,
         deviceId: widget.device.id,
@@ -482,7 +485,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // the list then is adding to a list nobody will drain again: the notify
       // interest the handshake took out is never released, and the next
       // connect stacks another set on top of it.
-      if (!mounted || !_connected) {
+      //
+      // [_superseded] for the same reason, and `_connected` cannot stand in
+      // for it: a Retry or a watcher reconnect during those sleeps drains
+      // _handshakeSubs in its own _cleanupConnection and then sets _connected
+      // back to true, so this attempt would hand the NEW link a set of
+      // subscriptions taken out on the old one.
+      if (_superseded(generation) || !mounted || !_connected) {
         for (final sub in subs) {
           unawaited(sub.cancel());
         }

@@ -35,7 +35,13 @@ const _ssdpPort = 1900;
 /// identity. The synthetic search target below is what a matched device is keyed
 /// on, mirrored by the spec's `identification.ssdp_search_targets`.
 const _lifxPort = 56700;
-const _lifxBroadcast = '255.255.255.255';
+
+/// The limited broadcast address. Named for what it is rather than for LIFX:
+/// five transports send to it, and the catalogue probe COMPARES against it to
+/// decide whether a refused send says anything about the port (a spec may name
+/// a multicast group or a subnet-directed broadcast, which is refused on its
+/// own account and must not become the whole scan's verdict).
+const _limitedBroadcast = '255.255.255.255';
 const _lifxSearchTarget = 'lifx:udp';
 
 /// mDNS multicast group and port, for the raw source-capture listener that
@@ -1779,16 +1785,18 @@ class RealNetworkScanService implements NetworkScanService {
       // Twice, like every other broadcast here: UDP is lossy and a dropped
       // probe means a bridge never heard from.
       var sent = false;
-      // Only a send to a BROADCAST destination is evidence about the port.
-      // A multicast group is refused on its own account — no entitlement, no
-      // route to that group — while 255.255.255.255 on the same socket still
-      // goes out, and aqara-hub is the ONLY probe on :10008 with the only
-      // multicast address in the catalogue (230.0.0.1). Letting its
-      // EHOSTUNREACH stand for the port would rethrow below, the caller would
-      // read it as `denied`, and a single `denied` beats every `heard` in
-      // [scanFailureFor] — so a scan that found devices on every other
-      // transport would still tell the user Local Network is off. A real
-      // denial fails the broadcast ports too, and those still report it.
+      // Only a send to the LIMITED BROADCAST address is evidence about the
+      // port. Any other destination a spec can name — a multicast group, a
+      // subnet-directed broadcast, a unicast literal — is refused on its own
+      // account (no entitlement, no route to that group or subnet) while
+      // 255.255.255.255 on the same socket still goes out, and aqara-hub is
+      // the ONLY probe on :10008 with the only non-broadcast address in the
+      // bundled catalogue (230.0.0.1). Letting its EHOSTUNREACH stand for the
+      // port would rethrow below, the caller would read it as `denied`, and a
+      // single `denied` beats every `heard` in [scanFailureFor] — so a scan
+      // that found devices on every other transport would still tell the user
+      // Local Network is off. A real denial fails the broadcast ports too,
+      // and those still report it.
       Object? sendError;
       for (var attempt = 0; attempt < 2; attempt++) {
         for (final probe in probes) {
@@ -1816,7 +1824,14 @@ class RealNetworkScanService implements NetworkScanService {
             socket.send(probe.probe, target, port);
             sent = true;
           } catch (e) {
-            if (!target.isMulticast) sendError = e;
+            // 255.255.255.255 and nothing else, per the rule above. A
+            // subnet-directed broadcast or a unicast literal is refused on
+            // its own account exactly as a multicast group is: a pack
+            // installed from a URL naming `192.168.99.255`, or a link-local
+            // address, gets EHOSTUNREACH on a network that is working
+            // perfectly, and treating that as the port's verdict would
+            // report the whole scan as `denied`.
+            if (target.address == _limitedBroadcast) sendError = e;
             Log.net.debug(
               '${probe.specKey}: probe to ${probe.broadcastAddress}:$port '
               'could not be sent: $e',
@@ -1913,7 +1928,7 @@ class RealNetworkScanService implements NetworkScanService {
     var heard = false;
     final seen = <String>{};
     try {
-      final target = InternetAddress(_lifxBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Twice: UDP is lossy and a dropped probe means a camera never heard from.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(_ubiquitiProbe, target, _ubiquitiPort);
@@ -2008,7 +2023,7 @@ class RealNetworkScanService implements NetworkScanService {
     var heard = false;
     final seen = <String>{};
     try {
-      final target = InternetAddress(_lifxBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Only the MNDP probe goes out here. iRobot shares this port but has
       // its own transport now (_runRoomba), which sends the spec's probe and
       // builds the richer record; sending it from both put two probes on the
@@ -2237,7 +2252,7 @@ class RealNetworkScanService implements NetworkScanService {
     var heard = false;
     final seen = <String>{};
     try {
-      final target = InternetAddress(_lifxBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(utf8.encode(_wizProbe), target, _wizPort);
         if (await session.sleepUnlessStopped(
@@ -2775,7 +2790,7 @@ class RealNetworkScanService implements NetworkScanService {
     var heard = false;
     try {
       final probe = lifxGetServiceProbe();
-      final target = InternetAddress(_lifxBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Sent more than once: UDP is lossy, and a dropped probe means a strip
       // that is simply never heard from.
       for (var attempt = 0; attempt < 2; attempt++) {
