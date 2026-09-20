@@ -207,5 +207,21 @@ void main() {
         }
       },
     );
+
+    test('is null when only cellular/tunnel interfaces are up', () async {
+      // [lanInterfaces] yields to the unfiltered list rather than return
+      // nothing, so a multicast JOIN still happens somewhere. The egress pick
+      // must NOT inherit that: answering with the cellular address pins
+      // IP_MULTICAST_IF to the one radio no LAN device can hear, which is
+      // strictly worse than leaving the OS to pick as it did before F-014.
+      for (final only in ['rmnet_data0', 'pdp_ip0', 'utun0']) {
+        final addr = await primaryLanIpv4(
+          lister: _listerOf([
+            _FakeInterface(only, ['10.171.4.9']),
+          ]),
+        );
+        expect(addr, isNull, reason: '$only is not an egress LAN interface');
+      }
+    });
   });
 }

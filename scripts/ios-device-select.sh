@@ -10,7 +10,14 @@
 #                                    or of the first one (USB before wireless)
 #                                    when no filter is given. Exit 2 when no
 #                                    physical iPhone is paired, with the
-#                                    reasons on stderr.
+#                                    reasons on stderr; exit 3 when a phone IS
+#                                    paired but none matches the filter. The
+#                                    two are different answers: --if-present
+#                                    means "skip if there is no phone", not
+#                                    "skip if the phone you named is absent",
+#                                    and reporting the second as the first
+#                                    told an unattended run that a suite it
+#                                    never ran had passed.
 #   list_ios_devices                 prints the paired iPhones, one per line.
 #
 # A phone is `targetPlatform == "ios"` AND `emulator == false`. A BOOTED
@@ -54,7 +61,7 @@ if want:
     if not matches:
         names = ", ".join(f"{d['name']} ({d['id']})" for d in iphones)
         sys.stderr.write(f"No iPhone matching {want!r}. Available: {names}\n")
-        sys.exit(2)
+        sys.exit(3)
     print(matches[0]["id"])
     sys.exit(0)
 

@@ -115,13 +115,23 @@ Future<List<NetworkInterface>> lanInterfaces(
 /// A private/RFC1918 address is preferred over any other routable one, so a
 /// VPN interface that slipped through the name filter with a public address
 /// does not win over the real LAN.
+///
+/// [lanInterfaces]' "yield to the unfiltered list rather than return nothing"
+/// fallback is deliberately NOT honoured here, and the filter is re-applied to
+/// whatever it hands back. That fallback exists so a multicast JOIN happens on
+/// a questionable interface rather than on none; egress selection is the
+/// opposite case — pinning IP_MULTICAST_IF to `rmnet_data0` or `utun0` is
+/// worse than not pinning at all, because it overrides the OS default route
+/// with the one interface the name filter exists to exclude. Null is the
+/// answer this doc promises for "none can be found", and it restores exactly
+/// the pre-F-014 behaviour: the OS picks.
 Future<InternetAddress?> primaryLanIpv4({
   InterfaceLister lister = NetworkInterface.list,
 }) async {
-  final interfaces = await lanInterfaces(
+  final interfaces = (await lanInterfaces(
     InternetAddressType.IPv4,
     lister: lister,
-  );
+  )).where((i) => isLanCandidate(i)).toList();
   InternetAddress? firstRoutable;
   for (final interface in interfaces) {
     for (final addr in interface.addresses) {

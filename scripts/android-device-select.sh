@@ -8,7 +8,10 @@
 #   pick_android_device [serial-or-name]  prints the device id of the matching
 #                                         phone, or the first one when no
 #                                         filter is given. Exit 2 when none is
-#                                         attached, with the reasons on stderr.
+#                                         attached, with the reasons on stderr;
+#                                         exit 3 when one IS attached but none
+#                                         matches the filter (see the iOS
+#                                         picker for why those differ).
 #   list_android_devices                  prints the attached phones.
 #
 # A phone is `targetPlatform` starting with "android" AND `emulator == false`;
@@ -43,7 +46,7 @@ if want:
     if not matches:
         names = ", ".join(f"{d['name']} ({d['id']})" for d in phones)
         sys.stderr.write(f"No Android phone matching {want!r}. Available: {names}\n")
-        sys.exit(2)
+        sys.exit(3)
     print(matches[0]["id"])
     sys.exit(0)
 

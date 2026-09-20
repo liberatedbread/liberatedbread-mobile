@@ -175,6 +175,9 @@ if (( pick_rc != 0 )); then
   # of the JSON — and that is a toolchain failure, not an absent phone.
   # Swallowing it made an unattended --if-present run report success while
   # nothing could have run at all.
+  # 2 only, never 3: exit 3 is "a phone is here, but not the one --device
+  # named", which is a mistake to report, not hardware to skip. Swallowing it
+  # said "no phone; nothing to run" with a phone plugged in and exited 0.
   if [[ "$IF_PRESENT" == "true" && "$pick_rc" -eq 2 ]]; then
     warn "No paired iPhone; nothing to run (--if-present)."
     exit 0

@@ -84,6 +84,16 @@ export STUB_DEVICES="$ONLY_SIMS"
 pick_ios_device >/dev/null 2>&1; check_eq "iOS: exit 2 when only simulators are up" "2" "$?"
 pick_android_device >/dev/null 2>&1; check_eq "Android: exit 2 when only an emulator is up" "2" "$?"
 
+# A NAMED device that is absent is not the same answer as no device at all:
+# the runners let --if-present swallow exit 2, so if these shared one code,
+# `--if-present --device HK16` with a different phone attached would print
+# "no phone; nothing to run" and exit 0 on a suite that never ran.
+export STUB_DEVICES="$MIXED"
+pick_ios_device "NotHere" >/dev/null 2>&1
+check_eq "iOS: exit 3 when the named phone is not the one attached" "3" "$?"
+pick_android_device "NotHere" >/dev/null 2>&1
+check_eq "Android: exit 3 when the named phone is not the one attached" "3" "$?"
+
 export STUB_DEVICES='not json'
 pick_ios_device >/dev/null 2>&1; check_eq "iOS: exit 1 on unparseable output" "1" "$?"
 

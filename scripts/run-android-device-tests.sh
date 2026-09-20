@@ -103,6 +103,9 @@ if (( pick_rc != 0 )); then
   # Exit 2 only — see the iOS runner. Exit 1 is "flutter devices --machine
   # could not be parsed", a broken toolchain rather than an absent phone, and
   # --if-present must not report success for it.
+  # 2 only, never 3: exit 3 is "a phone is here, but not the one --device
+  # named", which is a mistake to report, not hardware to skip. Swallowing it
+  # said "no phone; nothing to run" with a phone plugged in and exited 0.
   if [[ "$IF_PRESENT" == "true" && "$pick_rc" -eq 2 ]]; then
     warn "No attached Android phone; nothing to run (--if-present)."
     exit 0
