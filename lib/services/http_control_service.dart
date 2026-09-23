@@ -275,6 +275,12 @@ class HttpControlClient {
     // headers of their own; PUT is the Hue bridge's whole write surface and
     // the Frigidaires', admitted by Rust's SENDABLE_METHODS.
     if (method != 'GET') outgoing.body = request.body;
+    // The refusal read below is this request's, not an earlier one's: the
+    // record is written only when the certificate callback runs, and a
+    // failure that never reaches it (a device switched off, a broker
+    // rejecting at ServerHello) would otherwise report the last attempt's
+    // reason — "unlock the phone" for a device that is unreachable.
+    _trust?.clearRefusal(host);
     final http.Response response;
     try {
       response = await _bounded(client, outgoing, abort);

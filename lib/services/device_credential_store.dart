@@ -1,7 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import '../core/log.dart';
 import 'settings_store.dart';
-import 'package:liberated_bread_mobile/core/log.dart';
 
 /// The values a device's spec says a client must hold, kept per device and
 /// per name.

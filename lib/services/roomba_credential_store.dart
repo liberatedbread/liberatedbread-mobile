@@ -1,7 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import '../core/log.dart';
 import 'settings_store.dart';
-import 'package:liberated_bread_mobile/core/log.dart';
 
 /// What a robot's password handshake — or its owner's iRobot account — yielded.
 ///
@@ -165,6 +165,7 @@ class RoombaCredentialStore {
   Future<void> save(RoombaCredentials credentials) async {
     // Empty means "we do not have one" — a robot Home Assistant holds. Writing
     // it would leave an empty key that reads back as a password.
+    Log.registerSecret(credentials.password);
     await _writeIfPresent(credentials.blid, 'password', credentials.password);
     await _writeIfPresent(credentials.blid, 'name', credentials.name);
     await _writeIfPresent(credentials.blid, 'sku', credentials.sku);

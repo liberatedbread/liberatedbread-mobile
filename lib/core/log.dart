@@ -48,16 +48,6 @@ class LogRecord {
     this.stackTrace,
   });
 
-  /// The console rendering: `14:02:11.482 INFO  [ble] scan started`.
-  ///
-  /// Time-of-day (not a full date) because this is read live, next to the
-  /// action that produced it; milliseconds because BLE and flush timing is
-  /// exactly what you are squinting at.
-  ///
-  /// A single-line [error] is appended inline, keeping one event on one line —
-  /// which is what makes a console scannable. A multi-line error and any
-  /// [stackTrace] go to indented continuation lines instead, so the block still
-  /// reads as one event.
   /// This record with [secrets] replaced by [redactedText] in its message and
   /// in its error's text. The error becomes a String: the type is kept in the
   /// text, the object could not be.
@@ -73,6 +63,16 @@ class LogRecord {
     );
   }
 
+  /// The console rendering: `14:02:11.482 INFO  [ble] scan started`.
+  ///
+  /// Time-of-day (not a full date) because this is read live, next to the
+  /// action that produced it; milliseconds because BLE and flush timing is
+  /// exactly what you are squinting at.
+  ///
+  /// A single-line [error] is appended inline, keeping one event on one line —
+  /// which is what makes a console scannable. A multi-line error and any
+  /// [stackTrace] go to indented continuation lines instead, so the block still
+  /// reads as one event.
   String format() {
     final buffer = StringBuffer()
       ..write(formatLogTime(time))
@@ -448,10 +448,20 @@ class Log {
   /// load or save a credential; applied to every record at dispatch.
   static final Set<String> _secrets = {};
 
-  /// Register [secret] for redaction in every record from now on. Null and
-  /// empty values are ignored (an empty one would match at every position).
+  /// The shortest value that is registered. A credential shorter than this
+  /// — a four-digit PIN — is low-entropy enough that redacting its digits
+  /// out of every later timestamp, port and hex dump would cost more
+  /// diagnostics than it protects; the long ones (tokens, keys, passwords)
+  /// are what a log must never carry.
+  static const int minSecretLength = 8;
+
+  /// Register [secret] for redaction in every record from now on. Null,
+  /// empty and short values are ignored (an empty one would match at every
+  /// position; see [minSecretLength] for short).
   static void registerSecret(String? secret) {
-    if (secret != null && secret.isNotEmpty) _secrets.add(secret);
+    if (secret != null && secret.length >= minSecretLength) {
+      _secrets.add(secret);
+    }
   }
 
   @visibleForTesting

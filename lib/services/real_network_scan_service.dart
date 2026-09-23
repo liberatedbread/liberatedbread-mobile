@@ -1683,12 +1683,7 @@ class RealNetworkScanService implements NetworkScanService {
     }
   }
 
-  /// Point [socket] at the chosen Wi-Fi/LAN interface for outgoing multicast
-  /// (IP_MULTICAST_IF), so its probes leave over that interface rather than
-  /// whatever the OS has made primary — cellular, on an internet-less Wi-Fi
-  /// (F-014). Best-effort and guarded: when no interface was resolved, or the
-  /// option is refused, the OS default stands, exactly as before.
-  /// [send] now and once more after [gap] — UDP is lossy — unless the scan
+  /// [send] now and once more 250 ms later — UDP is lossy — unless the scan
   /// has stopped by then. The caller cancels the timer in its `finally`.
   ///
   /// The point is what does NOT happen in between: the receive loop starts
@@ -1704,6 +1699,11 @@ class RealNetworkScanService implements NetworkScanService {
     });
   }
 
+  /// Point [socket] at the chosen Wi-Fi/LAN interface for outgoing multicast
+  /// (IP_MULTICAST_IF), so its probes leave over that interface rather than
+  /// whatever the OS has made primary — cellular, on an internet-less Wi-Fi
+  /// (F-014). Best-effort and guarded: when no interface was resolved, or the
+  /// option is refused, the OS default stands, exactly as before.
   void _setMulticastInterface(RawDatagramSocket socket, _ScanSession session) {
     final addr = session.multicastInterfaceV4;
     if (addr == null) return;

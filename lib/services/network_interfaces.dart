@@ -108,13 +108,15 @@ Future<List<NetworkInterface>> lanInterfaces(
   return candidates.isEmpty ? all.toList() : candidates;
 }
 
-/// The address to send LAN discovery multicast/broadcast from: the first
-/// routable IPv4 of the first LAN interface, or null when none can be found
+/// The address to send LAN discovery multicast/broadcast from: the one LAN
+/// interface's routable IPv4, or null when there is none — or more than one —
 /// (in which case the caller leaves the OS to pick, as it did before).
 ///
 /// A private/RFC1918 address is preferred over any other routable one, so a
 /// VPN interface that slipped through the name filter with a public address
-/// does not win over the real LAN.
+/// does not win over the real LAN. Two interfaces with private addresses (a
+/// Mac on Wi-Fi with a USB-Ethernet lab switch) is a question enumeration
+/// order cannot answer, and the answer is null rather than a guess.
 ///
 /// Enumerates and filters for itself rather than going through
 /// [lanInterfaces], whose "yield to the unfiltered list rather than return

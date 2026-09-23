@@ -59,6 +59,16 @@ void main() {
       expect(text, contains('bad json'), reason: 'only the secret goes');
     });
 
+    test('a short secret is not registered: a PIN must not eat the log', () {
+      // '1234' registered once would turn every later timestamp, port and
+      // hex dump containing those digits into <redacted> for the life of the
+      // process. Below the minimum length nothing is registered.
+      Log.registerSecret('1234');
+      Log.app.info('port 1234 at 12:34:56');
+      expect(buffer.records.last.message, 'port 1234 at 12:34:56');
+      expect(Log.minSecretLength, greaterThanOrEqualTo(8));
+    });
+
     test('an empty or null secret registers nothing', () {
       Log.registerSecret(null);
       Log.registerSecret('');

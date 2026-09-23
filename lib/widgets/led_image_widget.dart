@@ -17,8 +17,8 @@ import '../providers/saved_designs_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/saved_designs_store.dart';
 import '../services/spec_codec.dart';
+import '../services/stored_upload_event_reader.dart';
 import 'led_designs.dart';
-import 'package:liberated_bread_mobile/services/stored_upload_event_reader.dart';
 
 /// The cids of the USER (diy==1) effects in an effect-list snapshot — the ones
 /// to remove so a freshly stored animation loop is the only thing the device

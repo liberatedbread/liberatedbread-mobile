@@ -675,25 +675,34 @@ void main() {
 
     test('a changed certificate names the only recovery there is', () async {
       final trust = TlsTrust(CertificatePinStore(InMemorySettingsStore()));
-      final client = HttpControlClient(
+      // The certificate is evaluated INSIDE the request, where the real
+      // badCertificate callback runs: send() clears the host's recorded
+      // refusal before it opens, so only what THIS handshake refuses is
+      // what the exception reports. Evaluating before send() modelled
+      // nothing the app does, and its record was cleared away.
+      late final HttpControlClient client;
+      client = HttpControlClient(
         trust: trust,
-        httpsClient: MockClient(
-          (request) async =>
-              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
-        ),
+        httpsClient: MockClient((request) async {
+          expect(
+            client.debugEvaluateCertificate(_FakeCert('real'), '10.0.0.9', 443),
+            isTrue,
+          );
+          expect(
+            client.debugEvaluateCertificate(
+              _FakeCert('other'),
+              '10.0.0.9',
+              443,
+            ),
+            isFalse,
+          );
+          throw const HandshakeException('CERTIFICATE_VERIFY_FAILED');
+        }),
       );
       await client.useTlsPolicy(
         host: '10.0.0.9',
         identity: 'envoy@10.0.0.9',
         policy: TlsPolicy.trustOnFirstUse,
-      );
-      expect(
-        client.debugEvaluateCertificate(_FakeCert('real'), '10.0.0.9', 443),
-        isTrue,
-      );
-      expect(
-        client.debugEvaluateCertificate(_FakeCert('other'), '10.0.0.9', 443),
-        isFalse,
       );
 
       final thrown = await client
@@ -710,25 +719,30 @@ void main() {
       // Nothing was ever pinned, so "remove it from Saved devices and add it
       // again" is advice for a different failure — and would not help.
       final trust = TlsTrust(CertificatePinStore(InMemorySettingsStore()));
-      final client = HttpControlClient(
+      // The certificate is evaluated INSIDE the request, where the real
+      // badCertificate callback runs: send() clears the host's recorded
+      // refusal before it opens, so only what THIS handshake refuses is
+      // what the exception reports. Evaluating before send() modelled
+      // nothing the app does, and its record was cleared away.
+      late final HttpControlClient client;
+      client = HttpControlClient(
         trust: trust,
-        httpsClient: MockClient(
-          (request) async =>
-              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
-        ),
+        httpsClient: MockClient((request) async {
+          expect(
+            client.debugEvaluateCertificate(
+              _FakeCert('unchained'),
+              '10.0.0.9',
+              443,
+            ),
+            isFalse,
+          );
+          throw const HandshakeException('CERTIFICATE_VERIFY_FAILED');
+        }),
       );
       await client.useTlsPolicy(
         host: '10.0.0.9',
         identity: 'envoy@10.0.0.9',
         policy: TlsPolicy.standard,
-      );
-      expect(
-        client.debugEvaluateCertificate(
-          _FakeCert('unchained'),
-          '10.0.0.9',
-          443,
-        ),
-        isFalse,
       );
 
       final thrown = await client
@@ -748,21 +762,30 @@ void main() {
       // The certificate may be perfectly fine; what failed is reading the pin
       // to compare it against, and re-pairing would throw the good pin away.
       final trust = TlsTrust(CertificatePinStore(_FailingStore()));
-      final client = HttpControlClient(
+      // The certificate is evaluated INSIDE the request, where the real
+      // badCertificate callback runs: send() clears the host's recorded
+      // refusal before it opens, so only what THIS handshake refuses is
+      // what the exception reports. Evaluating before send() modelled
+      // nothing the app does, and its record was cleared away.
+      late final HttpControlClient client;
+      client = HttpControlClient(
         trust: trust,
-        httpsClient: MockClient(
-          (request) async =>
-              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
-        ),
+        httpsClient: MockClient((request) async {
+          expect(
+            client.debugEvaluateCertificate(
+              _FakeCert('whatever'),
+              '10.0.0.9',
+              443,
+            ),
+            isFalse,
+          );
+          throw const HandshakeException('CERTIFICATE_VERIFY_FAILED');
+        }),
       );
       await client.useTlsPolicy(
         host: '10.0.0.9',
         identity: 'envoy@10.0.0.9',
         policy: TlsPolicy.trustOnFirstUse,
-      );
-      expect(
-        client.debugEvaluateCertificate(_FakeCert('whatever'), '10.0.0.9', 443),
-        isFalse,
       );
 
       final thrown = await client

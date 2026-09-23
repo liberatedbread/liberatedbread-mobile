@@ -28,6 +28,13 @@ import 'setup_instructions_screen.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
+/// Thrown by [runBleHandshake] when [abort] completed before the handshake
+/// did. Not a failure of the device or the spec: the link is gone (or the
+/// screen is), and the steps that had not run yet were not run.
+class BleHandshakeAborted implements Exception {
+  const BleHandshakeAborted();
+}
+
 /// Execute a spec's connect-time handshake, step by step, and hand back the
 /// notification subscriptions it opened.
 ///
@@ -50,13 +57,6 @@ enum _ScreenState { connecting, discovering, ready, error, disconnected }
 /// throw carries no list back, so anything this opened before it is cancelled
 /// here rather than left running with no owner.
 @visibleForTesting
-/// Thrown by [runBleHandshake] when [abort] completed before the handshake
-/// did. Not a failure of the device or the spec: the link is gone (or the
-/// screen is), and the steps that had not run yet were not run.
-class BleHandshakeAborted implements Exception {
-  const BleHandshakeAborted();
-}
-
 Future<List<StreamSubscription<List<int>>>> runBleHandshake({
   required BleService ble,
   required String deviceId,
@@ -418,17 +418,17 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     );
   }
 
-  /// Tear down the connection this screen owns: cancel the connection-state
-  /// subscription and, if we established a link, disconnect it. Idempotent via
-  /// the [_connected] guard so the unmount-cleanup and dispose() paths can't
-  /// double-disconnect. Shared by the unmounted, discovery-failure, retry, and
-  /// dispose paths so they all tear down identically.
   /// Cut a handshake in flight short; idempotent.
   void _abortHandshake() {
     final abort = _handshakeAbort;
     if (abort != null && !abort.isCompleted) abort.complete();
   }
 
+  /// Tear down the connection this screen owns: cancel the connection-state
+  /// subscription and, if we established a link, disconnect it. Idempotent via
+  /// the [_connected] guard so the unmount-cleanup and dispose() paths can't
+  /// double-disconnect. Shared by the unmounted, discovery-failure, retry, and
+  /// dispose paths so they all tear down identically.
   Future<void> _cleanupConnection() async {
     _abortHandshake();
     // Cancel is fire-and-forget: it synchronously stops delivery, and awaiting

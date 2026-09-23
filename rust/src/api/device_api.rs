@@ -5488,7 +5488,9 @@ pub fn decode_stored_upload_event(
 
 /// The same, over a WINDOW of notifications: fragments are reassembled by
 /// serial first ([`reassemble_notifications`]), then every completed packet
-/// is read. Events come back in packet order.
+/// is read. Events come back in SERIAL order (the reassembly groups by the
+/// 8-bit serial), which is arrival order unless the serial wraps inside the
+/// window.
 ///
 /// [`decode_stored_upload_event`] reads ONE notification, and a packet a
 /// 23-byte MTU splits in two never arrives in one: its first fragment stops

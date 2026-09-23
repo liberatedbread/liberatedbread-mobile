@@ -23,11 +23,27 @@ class StoredUploadEventReader {
 
   final List<List<int>> _window = [];
 
+  /// The feed in progress, if any. Feeds are run one at a time, in the order
+  /// the notifications arrived: a `listen` callback does not wait for the
+  /// previous one, and two feeds sharing the window would let the earlier
+  /// one's clear (on the event IT found) discard a first fragment the later
+  /// one had already appended — a fragmented M_UPLOAD_COMPLETE right behind
+  /// a progress packet lost again, which is the failure this reader exists
+  /// to end.
+  Future<void> _last = Future.value();
+
   StoredUploadEventReader({required this.codec, required this.specYaml});
 
   /// The event [notification] completes, or null if it completes none.
-  Future<StoredUploadEventDto?> feed(List<int> notification) async {
-    _window.add(List.of(notification));
+  Future<StoredUploadEventDto?> feed(List<int> notification) {
+    final copy = List.of(notification);
+    final turn = _last.then((_) => _feed(copy));
+    _last = turn.then((_) {}, onError: (Object _) {});
+    return turn;
+  }
+
+  Future<StoredUploadEventDto?> _feed(List<int> notification) async {
+    _window.add(notification);
     if (_window.length > windowSize) _window.removeAt(0);
     final events = await codec.decodeStoredUploadEvents(
       specYaml: specYaml,
