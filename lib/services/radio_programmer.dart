@@ -6,6 +6,7 @@
 import 'dart:typed_data';
 
 import '../core/error_text.dart';
+import '../models/radio_band_limits.dart';
 import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
 
@@ -160,5 +161,29 @@ abstract class RadioProgrammer {
     required String deviceId,
     required RadioProfile profile,
     required RadioCodeplug codeplug,
+  });
+}
+
+/// A programmer that can also set the transmit limits a radio stores.
+///
+/// Only the older serial family stores any, so this is a capability a
+/// programmer has or lacks rather than a method every programmer would have
+/// to refuse.
+abstract class BandLimitProgrammer implements RadioProgrammer {
+  /// The limits held in [codeplug], a copy just read from a [profile] radio.
+  ///
+  /// Asks the radio nothing: the limits are in the copy.
+  Future<RadioBandLimits> bandLimitsIn(
+    RadioCodeplug codeplug,
+    RadioProfile profile,
+  );
+
+  /// Put [limits] on the radio [base] was read from, change nothing else,
+  /// and read them back.
+  Stream<RadioProgressEvent> writeBandLimits({
+    required String deviceId,
+    required RadioProfile profile,
+    required RadioCodeplug base,
+    required RadioBandLimits limits,
   });
 }

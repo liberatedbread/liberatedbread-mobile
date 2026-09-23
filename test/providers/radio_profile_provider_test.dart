@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/providers/radio_profile_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
@@ -189,6 +190,77 @@ void main() {
     test('is false while anything is still loading', () {
       final container = _container(InMemorySettingsStore());
       expect(container.read(txUnlockEnabledProvider), isFalse);
+    });
+  });
+
+  test(
+      'turning the unlock on before the stored settings have loaded keeps '
+      'every other radio\'s', () async {
+    // The device screen turns it on without ever having watched it, so it
+    // can arrive while the stored map is still loading.
+    final store = InMemorySettingsStore({
+      TxUnlockNotifier.key: jsonEncode({bfF8hpProfile.id: true}),
+    });
+    final container = _container(store);
+    await container
+        .read(txUnlockProvider.notifier)
+        .setEnabled(uv5rProfile, true);
+
+    expect(jsonDecode(store.values[TxUnlockNotifier.key]!),
+        {bfF8hpProfile.id: true, uv5rProfile.id: true});
+  });
+
+  group('the limits a radio came with', () {
+    const stock = RadioBandLimits(
+      vhf: BandLimit(txEnabled: true, lowerMhz: 136, upperMhz: 174),
+      uhf: BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520),
+    );
+    final first =
+        OriginalBandLimits(limits: stock, readAt: DateTime.utc(2026, 9, 20));
+
+    test('are kept once, and the first reading stands', () async {
+      final store = InMemorySettingsStore();
+      final notifier =
+          _container(store).read(originalBandLimitsProvider.notifier);
+      expect(await notifier.recordIfAbsent(uv5rProfile, first), first);
+
+      // A radio read after it was widened holds widened limits; those are
+      // not the ones to go back to.
+      final later = OriginalBandLimits(
+        limits: RadioBandLimits.widenedFor(uv5rProfile)!,
+        readAt: DateTime.utc(2026, 9, 21),
+      );
+      expect(await notifier.recordIfAbsent(uv5rProfile, later), first);
+
+      final reloaded =
+          await _container(store).read(originalBandLimitsProvider.future);
+      expect(reloaded, {uv5rProfile.id: first});
+    });
+
+    test('are kept per model', () async {
+      final container = _container(InMemorySettingsStore());
+      await container
+          .read(originalBandLimitsProvider.notifier)
+          .recordIfAbsent(uv5rProfile, first);
+      final kept = container.read(originalBandLimitsProvider).value!;
+      expect(kept[uv5rProfile.id], first);
+      expect(kept[bfF8hpProfile.id], isNull);
+    });
+
+    test('a record that cannot be read is no record, not a guess', () async {
+      for (final raw in [
+        '{not json',
+        '[1, 2]',
+        jsonEncode({
+          uv5rProfile.id: {'vhf': 'wide'},
+        }),
+      ]) {
+        final store =
+            InMemorySettingsStore({OriginalBandLimitsNotifier.key: raw});
+        expect(await _container(store).read(originalBandLimitsProvider.future),
+            isEmpty,
+            reason: raw);
+      }
     });
   });
 }

@@ -8,6 +8,7 @@
 // layout, and a conversion kept inside one driver would be copied into the
 // other and then drift.
 
+import '../models/radio_band_limits.dart';
 import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
 import '../src/rust/api/radio_api.dart' as rust;
@@ -66,6 +67,33 @@ RadioChannel channelFromDto(rust.RadioChannelDto dto) {
     rxTone: tone(dto.rxTone),
     mode: dto.narrow ? ChannelMode.nfm : ChannelMode.fm,
     power: dto.lowPower ? PowerLevel.low : PowerLevel.high,
+  );
+}
+
+/// The app's band limits for the codec's.
+RadioBandLimits bandLimitsFromDto(rust.BandLimitsDto dto) {
+  BandLimit band(rust.BandLimitDto limit) => BandLimit(
+        txEnabled: limit.txEnabled,
+        lowerMhz: limit.lowerMhz,
+        upperMhz: limit.upperMhz,
+      );
+  return RadioBandLimits(vhf: band(dto.vhf), uhf: band(dto.uhf));
+}
+
+/// The codec's view of [limits].
+///
+/// No layout: the codec works it out from the image it is applied to, rather
+/// than trusting one that has crossed the boundary twice.
+rust.BandLimitsDto bandLimitsToDto(RadioBandLimits limits) {
+  rust.BandLimitDto band(BandLimit limit) => rust.BandLimitDto(
+        txEnabled: limit.txEnabled,
+        lowerMhz: limit.lowerMhz,
+        upperMhz: limit.upperMhz,
+      );
+  return rust.BandLimitsDto(
+    vhf: band(limits.vhf),
+    uhf: band(limits.uhf),
+    layout: '',
   );
 }
 

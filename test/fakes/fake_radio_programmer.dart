@@ -3,12 +3,19 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 
+/// Limits as a UV-5R commonly ships with them.
+const stockBandLimits = RadioBandLimits(
+  vhf: BandLimit(txEnabled: true, lowerMhz: 136, upperMhz: 174),
+  uhf: BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520),
+);
+
 /// A programmer that answers whatever a screen test needs.
-class FakeRadioProgrammer implements RadioProgrammer {
+class FakeRadioProgrammer implements BandLimitProgrammer {
   /// Thrown by whichever operation runs next.
   Object? error;
 
@@ -34,6 +41,15 @@ class FakeRadioProgrammer implements RadioProgrammer {
 
   /// Whether [supports] answers true.
   bool supported;
+
+  /// The transmit limits the radio holds, which a read reports.
+  RadioBandLimits bandLimits = stockBandLimits;
+
+  /// Every set of limits written, in order.
+  final List<RadioBandLimits> writtenLimits = [];
+
+  /// Thrown by a limit write only, after the read before it succeeded.
+  Object? limitWriteError;
 
   FakeRadioProgrammer({
     this.error,
@@ -112,6 +128,28 @@ class FakeRadioProgrammer implements RadioProgrammer {
     final failure = error;
     if (failure != null) throw failure;
     restored.add(codeplug);
+    yield* Stream.fromIterable(events);
+  }
+
+  @override
+  Future<RadioBandLimits> bandLimitsIn(
+    RadioCodeplug codeplug,
+    RadioProfile profile,
+  ) async =>
+      bandLimits;
+
+  @override
+  Stream<RadioProgressEvent> writeBandLimits({
+    required String deviceId,
+    required RadioProfile profile,
+    required RadioCodeplug base,
+    required RadioBandLimits limits,
+  }) async* {
+    deviceIds.add(deviceId);
+    final failure = error ?? limitWriteError;
+    if (failure != null) throw failure;
+    writtenLimits.add(limits);
+    bandLimits = limits;
     yield* Stream.fromIterable(events);
   }
 }

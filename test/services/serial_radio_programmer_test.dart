@@ -11,6 +11,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/radio_codec.dart';
@@ -294,6 +295,136 @@ void main() {
         throwsA(isA<RadioProtocolException>()),
       );
       expect(r.ports.openedAt.length, opens);
+    });
+  });
+
+  group('band limits', () {
+    const stock = RadioBandLimits(
+      vhf: BandLimit(txEnabled: true, lowerMhz: 136, upperMhz: 174),
+      uhf: BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520),
+    );
+    final widened = RadioBandLimits.widenedFor(uv5rProfile)!;
+
+    /// The two five-byte fields — enable flag, then lower and upper in
+    /// big-endian BCD — at [vhfAt] and [uhfAt] in the radio's memory.
+    void seed(EmulatedUv5rRadio radio,
+        {required int vhfAt, required int uhfAt}) {
+      radio.memory.setRange(vhfAt, vhfAt + 5, [0x01, 0x01, 0x36, 0x01, 0x74]);
+      radio.memory.setRange(uhfAt, uhfAt + 5, [0x01, 0x04, 0x00, 0x05, 0x20]);
+    }
+
+    test('are read from where the radio\'s firmware keeps them', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final newer = rig();
+      seed(newer.radio, vhfAt: 0x1FC0, uhfAt: 0x1FC5);
+      final fromNewer = await read(newer.programmer);
+      expect(
+          await newer.programmer.bandLimitsIn(fromNewer, uv5rProfile), stock);
+
+      // Firmware before BFB291 keeps them further along.
+      final older = rig(firmware: 'BFB290');
+      seed(older.radio, vhfAt: 0x1FCA, uhfAt: 0x1FDA);
+      final fromOlder = await read(older.programmer);
+      expect(
+          await older.programmer.bandLimitsIn(fromOlder, uv5rProfile), stock);
+    });
+
+    test(
+        'widening writes the block that holds them and nothing else, and '
+        'they read back', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final r = rig();
+      seed(r.radio, vhfAt: 0x1FC0, uhfAt: 0x1FC5);
+      final base = await read(r.programmer);
+      final events = await r.programmer
+          .writeBandLimits(
+            deviceId: EmulatedSerialPortService.cable.id,
+            profile: uv5rProfile,
+            base: base,
+            limits: widened,
+          )
+          .toList();
+
+      expect([for (final w in r.radio.writes) w.$1], [0x1FC0]);
+      expect(r.radio.memory.sublist(0x1FC0, 0x1FCA),
+          [0x01, 0x01, 0x30, 0x01, 0x79, 0x01, 0x04, 0x00, 0x05, 0x20]);
+      expect(events.last.stage, RadioProgressStage.done);
+
+      final after = await read(r.programmer);
+      expect(await r.programmer.bandLimitsIn(after, uv5rProfile), widened);
+    });
+
+    test('putting them back restores the bytes the radio had', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final r = rig(firmware: 'BFB290');
+      seed(r.radio, vhfAt: 0x1FCA, uhfAt: 0x1FDA);
+      // A UHF range narrower than the widened one, so both fields move.
+      r.radio.memory.setRange(0x1FDA, 0x1FDF, [0x01, 0x04, 0x20, 0x04, 0x50]);
+      final factory = r.radio.memory.sublist(0x1FC0, 0x1FE0);
+      final original = await r.programmer
+          .bandLimitsIn(await read(r.programmer), uv5rProfile);
+      expect(original.uhf.label, '420–450 MHz');
+
+      final base = await read(r.programmer);
+      await r.programmer
+          .writeBandLimits(
+            deviceId: EmulatedSerialPortService.cable.id,
+            profile: uv5rProfile,
+            base: base,
+            limits: widened,
+          )
+          .drain<void>();
+      // The older layout's two fields sit in two blocks.
+      expect([for (final w in r.radio.writes) w.$1], [0x1FC0, 0x1FD0]);
+
+      final widenedImage = await read(r.programmer);
+      await r.programmer
+          .writeBandLimits(
+            deviceId: EmulatedSerialPortService.cable.id,
+            profile: uv5rProfile,
+            base: widenedImage,
+            limits: original,
+          )
+          .drain<void>();
+      expect(r.radio.memory.sublist(0x1FC0, 0x1FE0), factory);
+    });
+
+    test('limits no field can hold are refused before the port opens',
+        () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final r = rig();
+      seed(r.radio, vhfAt: 0x1FC0, uhfAt: 0x1FC5);
+      final base = await read(r.programmer);
+      final opens = r.ports.openedAt.length;
+      const backwards = RadioBandLimits(
+        vhf: BandLimit(txEnabled: true, lowerMhz: 174, upperMhz: 136),
+        uhf: BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520),
+      );
+      await expectLater(
+        r.programmer
+            .writeBandLimits(
+              deviceId: EmulatedSerialPortService.cable.id,
+              profile: uv5rProfile,
+              base: base,
+              limits: backwards,
+            )
+            .drain<void>(),
+        throwsA(isA<RadioProtocolException>()
+            .having((e) => e.message, 'message', contains('Nothing was sent'))),
+      );
+      expect(r.ports.openedAt.length, opens);
+      expect(r.radio.writes, isEmpty);
+    });
+
+    test('limits that are not BCD are refused, not guessed at', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // Left as the emulator's test pattern, which is not BCD.
+      final r = rig();
+      final base = await read(r.programmer);
+      await expectLater(
+        r.programmer.bandLimitsIn(base, uv5rProfile),
+        throwsA(isA<RadioProtocolException>()),
+      );
     });
   });
 

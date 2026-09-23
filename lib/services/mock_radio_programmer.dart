@@ -6,6 +6,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import '../models/radio_band_limits.dart';
 import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
 import 'radio_programmer.dart';
@@ -15,7 +16,7 @@ import 'radio_programmer.dart';
 /// Holds an image in memory and walks the same stages the real driver does,
 /// so the screens can be built and tested without hardware -- and so demo
 /// mode shows a working flow rather than an error.
-class MockRadioProgrammer implements RadioProgrammer {
+class MockRadioProgrammer implements BandLimitProgrammer {
   /// How long each simulated stage takes. Zero in tests.
   final Duration stepDelay;
 
@@ -24,6 +25,14 @@ class MockRadioProgrammer implements RadioProgrammer {
 
   /// Every write the mock has accepted, so a test can assert what landed.
   final List<Uint8List> writes = [];
+
+  /// The transmit limits the mock radio holds: a UV-5R's, as commonly
+  /// shipped. Kept beside [image] rather than in it, since the image is
+  /// not laid out like any one radio's.
+  RadioBandLimits bandLimits = const RadioBandLimits(
+    vhf: BandLimit(txEnabled: true, lowerMhz: 136, upperMhz: 174),
+    uhf: BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520),
+  );
 
   MockRadioProgrammer({
     this.stepDelay = const Duration(milliseconds: 40),
@@ -98,6 +107,34 @@ class MockRadioProgrammer implements RadioProgrammer {
     yield const RadioProgressEvent(
       stage: RadioProgressStage.done,
       message: 'Restore complete.',
+      progress: 1,
+    );
+  }
+
+  /// What the mock radio holds now — which is what a copy just read from
+  /// it holds, the only kind of copy this is asked about.
+  @override
+  Future<RadioBandLimits> bandLimitsIn(
+    RadioCodeplug codeplug,
+    RadioProfile profile,
+  ) async =>
+      bandLimits;
+
+  @override
+  Stream<RadioProgressEvent> writeBandLimits({
+    required String deviceId,
+    required RadioProfile profile,
+    required RadioCodeplug base,
+    required RadioBandLimits limits,
+  }) async* {
+    yield* _stages(
+      RadioProgressStage.writing,
+      'Writing to the radio — do not turn it off…',
+    );
+    bandLimits = limits;
+    yield const RadioProgressEvent(
+      stage: RadioProgressStage.done,
+      message: 'Write complete.',
       progress: 1,
     );
   }

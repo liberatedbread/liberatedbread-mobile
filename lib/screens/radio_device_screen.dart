@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
 import '../models/channel_plan.dart';
+import '../models/radio_band_limits.dart';
 import '../models/radio_profile.dart';
 import '../models/radio_target.dart';
 import '../providers/channel_plan_provider.dart';
@@ -18,6 +19,7 @@ import '../providers/radio_programmer_provider.dart';
 import '../providers/saved_radio_provider.dart';
 import '../services/codeplug_backup_store.dart';
 import '../services/radio_programmer.dart';
+import '../widgets/tx_unlock_dialog.dart';
 import 'channel_plan_screen.dart';
 import 'radio_program_screen.dart';
 
@@ -25,7 +27,8 @@ import 'radio_program_screen.dart';
 ///
 /// The Radio tab is where plans are made; this is where a particular radio
 /// is dealt with: checking it answers, putting a plan on it, reading what is
-/// on it, and putting a backup back.
+/// on it, putting a backup back — and, for a radio that stores its own
+/// transmit limits, widening them and putting them back.
 class RadioDeviceScreen extends ConsumerStatefulWidget {
   final RadioTarget target;
 
@@ -237,6 +240,48 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         enabled: !_busy,
         onTap: () => _restore(profile),
       ),
+      ..._transmitLimits(profile),
+    ];
+  }
+
+  /// What can be done with the transmit limits [profile] stores, where it
+  /// stores any and this link can set them.
+  List<Widget> _transmitLimits(RadioProfile profile) {
+    // The profile first: a radio with no limits to set never needs its
+    // programmer built just to be asked.
+    final widened = RadioBandLimits.widenedFor(profile);
+    if (widened == null) return const [];
+    final programmer =
+        ref.watch(radioProgrammerForTransportProvider(_target.transport));
+    if (programmer is! BandLimitProgrammer || !programmer.supports(profile)) {
+      return const [];
+    }
+    final original =
+        ref.watch(originalBandLimitsProvider).valueOrNull?[profile.id];
+    return [
+      const Divider(height: 24),
+      ListTile(
+        leading: const Icon(Icons.lock_open_outlined),
+        title: const Text('Widen its transmit limits'),
+        subtitle: Text([
+          'To ${widened.label}. Backs the radio up first.',
+          if (!profile.txUnlock.verified)
+            'Not yet confirmed on a real radio: the backup is what to rely '
+                'on.',
+        ].join(' ')),
+        enabled: !_busy,
+        onTap: () => _widen(profile, widened),
+      ),
+      if (original != null)
+        ListTile(
+          leading: const Icon(Icons.lock_outline),
+          title: const Text('Put back its original transmit limits'),
+          subtitle: Text('${original.limits.label}: what a '
+              '${profile.displayName} held before this app first widened '
+              'one, read ${_when(original.readAt)}.'),
+          enabled: !_busy,
+          onTap: () => _putBack(profile, original),
+        ),
     ];
   }
 
@@ -431,6 +476,106 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
             .forEach(_onProgress);
         return 'Backup from ${_when(chosen.takenAt)} restored. What was on '
             'the radio before was saved as a backup first.';
+      },
+    );
+  }
+
+  Future<void> _widen(RadioProfile profile, RadioBandLimits widened) async {
+    // Asked every time, as the Radio tab's switch asks: the acknowledgement
+    // is about this radio and these ranges, not something agreed to once.
+    if (!await showTxUnlockDialog(context, profile) || !mounted) return;
+    final backups = ref.read(codeplugBackupStoreProvider);
+    final originals = ref.read(originalBandLimitsProvider.notifier);
+    final unlock = ref.read(txUnlockProvider.notifier);
+    await _session(
+      profile,
+      start: 'Reading the radio…',
+      body: (programmer) async {
+        final limits = programmer as BandLimitProgrammer;
+        final base = await _read(programmer, profile);
+        await backups.save(base);
+        final before = await limits.bandLimitsIn(base, profile);
+        if (before == widened) {
+          await unlock.setEnabled(profile, true);
+          return 'Its transmit limits are already ${widened.label}. '
+              'Nothing was written.';
+        }
+        // Kept before the write, so one that fails part way still leaves
+        // the way back.
+        await originals.recordIfAbsent(
+          profile,
+          OriginalBandLimits(limits: before, readAt: base.readAt),
+        );
+        await limits
+            .writeBandLimits(
+              deviceId: _target.id,
+              profile: profile,
+              base: base,
+              limits: widened,
+            )
+            .forEach(_onProgress);
+        // It transmits there now, so suggestions for it may say so.
+        await unlock.setEnabled(profile, true);
+        return 'Widened to ${widened.label}, and read back. It had '
+            '${before.label}. Suggestions for a ${profile.displayName} now '
+            'include the wider range.';
+      },
+    );
+  }
+
+  Future<void> _putBack(
+    RadioProfile profile,
+    OriginalBandLimits original,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Put back its transmit limits?'),
+        content: Text(
+          '${_target.displayName} will be set to ${original.limits.label}: '
+          'what a ${profile.displayName} held before this app first widened '
+          'one.\n\nThe radio is read and backed up first.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Put back'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final backups = ref.read(codeplugBackupStoreProvider);
+    final unlock = ref.read(txUnlockProvider.notifier);
+    await _session(
+      profile,
+      start: 'Reading the radio…',
+      body: (programmer) async {
+        final limits = programmer as BandLimitProgrammer;
+        final base = await _read(programmer, profile);
+        await backups.save(base);
+        final before = await limits.bandLimitsIn(base, profile);
+        if (before != original.limits) {
+          await limits
+              .writeBandLimits(
+                deviceId: _target.id,
+                profile: profile,
+                base: base,
+                limits: original.limits,
+              )
+              .forEach(_onProgress);
+        }
+        await unlock.setEnabled(profile, false);
+        return before == original.limits
+            ? 'Its transmit limits are already ${original.limits.label}. '
+                'Nothing was written.'
+            : 'Put back to ${original.limits.label}, and read back. '
+                'Suggestions for a ${profile.displayName} keep to its '
+                'factory range again.';
       },
     );
   }

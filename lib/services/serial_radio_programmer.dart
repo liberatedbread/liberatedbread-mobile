@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show listEquals;
 
 import '../core/log.dart';
+import '../models/radio_band_limits.dart';
 import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
 import '../models/radio_target.dart';
@@ -55,7 +56,7 @@ class SerialTiming {
 /// Every write sends only the blocks that changed from an image just read
 /// from this radio, checks first that the radio is the one that image came
 /// from, and reads every written block back afterwards.
-class SerialRadioProgrammer implements RadioProgrammer {
+class SerialRadioProgrammer implements BandLimitProgrammer {
   final SerialPortService _ports;
   final SerialTiming timing;
 
@@ -183,6 +184,59 @@ class SerialRadioProgrammer implements RadioProgrammer {
       return;
     }
     yield* _writeBlocks(deviceId, profile, base.image, updated, blocks);
+  }
+
+  @override
+  Future<RadioBandLimits> bandLimitsIn(
+    RadioCodeplug codeplug,
+    RadioProfile profile,
+  ) async {
+    if (!supports(profile)) throw const RadioUnsupportedException();
+    try {
+      return bandLimitsFromDto(await rust.uv5RReadBandLimits(
+        image: codeplug.image,
+        modelId: profile.id,
+      ));
+    } catch (error) {
+      Log.radio.warning('could not read band limits', error: error);
+      throw const RadioProtocolException(
+          'The transmit limits in what the radio sent back could not be '
+          'read. Nothing was changed.');
+    }
+  }
+
+  /// Band limits come down to a write like any other: the fields change in
+  /// a copy of [base], and [writeImage] sends the one or two blocks that
+  /// hold them — checking first that this is the radio [base] came from, and
+  /// reading them back after.
+  @override
+  Stream<RadioProgressEvent> writeBandLimits({
+    required String deviceId,
+    required RadioProfile profile,
+    required RadioCodeplug base,
+    required RadioBandLimits limits,
+  }) async* {
+    if (!supports(profile) || !profile.txUnlock.supported) {
+      throw const RadioUnsupportedException();
+    }
+    final Uint8List updated;
+    try {
+      updated = await rust.uv5RApplyBandLimits(
+        image: base.image,
+        limits: bandLimitsToDto(limits),
+        modelId: profile.id,
+      );
+    } catch (error) {
+      Log.radio.warning('refused band limits', error: error);
+      throw RadioProtocolException('${limits.label} is not something this '
+          'radio can hold. Nothing was sent to the radio.');
+    }
+    yield* writeImage(
+      deviceId: deviceId,
+      profile: profile,
+      base: base,
+      updated: updated,
+    );
   }
 
   @override

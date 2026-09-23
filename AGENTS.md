@@ -25,12 +25,14 @@ so a change that only touches one transport should still leave the other whole.
 
 **One deliberate exception: desktop serial ports live in Rust.** On Linux and
 macOS, `rust/src/serial.rs` (bridged by `rust/src/api/serial_api.rs`) opens,
-reads and writes ports through the `serialport` crate — the way to a port there without taking on a copyleft
-runtime library (libserialport, the usual Dart route, is LGPL-3.0; `serialport`
-is MPL-2.0). It is a transport and nothing more: the radio conversation stays
-in the Dart programmer, sending frames `radio_api` computes, exactly as over
-BLE. Android's serial path is Dart (`usb_serial`, over the USB host stack), and
-iOS has none. Don't move either "back" to match the rule above.
+reads and writes ports through the `serialport` crate — the way to a port there
+without an LGPL library. libserialport, the usual Dart route, is LGPL-3.0, with
+its obligation to let users relink the app against a modified copy;
+`serialport` is MPL-2.0, whose copyleft covers only its own files. It is a
+transport and nothing more: the radio conversation stays in the Dart
+programmer, sending frames `radio_api` computes, exactly as over BLE. Android's
+serial path is Dart (`usb_serial`, over the USB host stack), and iOS has none.
+Don't move either "back" to match the rule above.
 
 ## Setup
 

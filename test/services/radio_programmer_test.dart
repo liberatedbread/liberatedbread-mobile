@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/error_text.dart';
+import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/mock_radio_programmer.dart';
@@ -137,6 +138,30 @@ void main() {
 
       expect(mock.writes, hasLength(1));
       expect(mock.image[7], 0x42);
+    });
+
+    test('holds transmit limits, and keeps what is written to them', () async {
+      final mock = MockRadioProgrammer(stepDelay: Duration.zero);
+      final base = RadioCodeplug(
+        modelId: uv5rProfile.id,
+        image: Uint8List(0x10),
+        readAt: DateTime.now(),
+      );
+      final before = await mock.bandLimitsIn(base, uv5rProfile);
+      expect(before.label, 'VHF 136–174 MHz and UHF 400–520 MHz');
+
+      final widened = RadioBandLimits.widenedFor(uv5rProfile)!;
+      final events = await mock
+          .writeBandLimits(
+            deviceId: 'mock',
+            profile: uv5rProfile,
+            base: base,
+            limits: widened,
+          )
+          .toList();
+      expect(events.map((e) => e.stage), contains(RadioProgressStage.writing));
+      expect(events.last.stage, RadioProgressStage.done);
+      expect(await mock.bandLimitsIn(base, uv5rProfile), widened);
     });
 
     test('restores an image byte for byte', () async {

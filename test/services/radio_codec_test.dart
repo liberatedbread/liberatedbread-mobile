@@ -3,6 +3,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/radio_codec.dart';
@@ -109,6 +110,19 @@ void main() {
       expect(decoded.channels, isEmpty);
       expect(decoded.hadGaps, isFalse);
     });
+  });
+
+  test('band limits cross to the codec and back unchanged', () {
+    const limits = RadioBandLimits(
+      vhf: BandLimit(txEnabled: true, lowerMhz: 136, upperMhz: 174),
+      uhf: BandLimit(txEnabled: false, lowerMhz: 400, upperMhz: 520),
+    );
+    final dto = bandLimitsToDto(limits);
+    expect(dto.layout, isEmpty,
+        reason: 'the codec works the layout out from the image again');
+    expect(dto.vhf.lowerMhz, 136);
+    expect(dto.uhf.txEnabled, isFalse);
+    expect(bandLimitsFromDto(dto), limits);
   });
 
   group('CodeplugDecoder', () {

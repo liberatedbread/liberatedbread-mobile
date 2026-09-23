@@ -24,8 +24,10 @@
 //
 // Deliberately NOT here: a band-limit write. That is the one write that can
 // leave a radio out of spec without anyone noticing, and it should be made
-// by hand — from the app, after step 3's values have been checked against
-// CHIRP and against the target doc — not by a test.
+// by hand — from the radio's screen in the app ("Widen its transmit
+// limits", then "Put back its original transmit limits"), after step 3's
+// values have been checked against CHIRP and against the target doc — not
+// by a test.
 //
 // Guarded like the other live suites: the `live_radio` tag keeps it out of
 // every ordinary run, and it skips itself unless LB_LIVE_RADIO=1.
