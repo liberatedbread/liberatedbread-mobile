@@ -206,6 +206,59 @@ void main() {
       },
     );
 
+    test('a handshake that fails before the certificate does not report the '
+        "previous attempt's refusal", () async {
+      // Attempt one, keychain locked: the pin cannot be read and the
+      // refusal is recorded as pinUnreadable. The user unlocks and retries
+      // — against a broker that rejects at ServerHello, before any
+      // certificate arrives, so the callback never runs. refusalReason was
+      // read on ANY HandshakeException, and the record from attempt one was
+      // still there: "unlock the phone and try again", for a failure that
+      // unlocking cannot fix.
+      final trust = TlsTrust(CertificatePinStore(_LockedSettingsStore()));
+      final locked = await robot('robot');
+      final connect = pinnedTlsConnect(trust, identity: identity);
+      await expectLater(
+        connect(_host, locked.port, const Duration(seconds: 5)),
+        throwsA(
+          isA<MqttConnectionException>().having(
+            (e) => e.message,
+            'message',
+            mqttPinUnreadableMessage,
+          ),
+        ),
+      );
+
+      // A "broker" that refuses at ServerHello: it answers the ClientHello
+      // with a fatal handshake_failure alert — what a cipher-suite mismatch
+      // looks like on the wire — so the client throws HandshakeException with
+      // no certificate ever having reached the callback. (Dropping the socket
+      // instead is a read failure, which takes a different branch and never
+      // consults the reason at all.)
+      final notTls = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(notTls.close);
+      notTls.listen((socket) {
+        socket.listen((_) {
+          // TLS 1.2 alert record: level fatal (2), handshake_failure (40).
+          socket.add(const [0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28]);
+          socket.flush().then((_) => socket.destroy());
+        }, onError: (Object _) {});
+      });
+
+      await expectLater(
+        connect(_host, notTls.port, const Duration(seconds: 5)),
+        throwsA(
+          isA<MqttConnectionException>()
+              .having((e) => e.handshakeFailed, 'handshakeFailed', isTrue)
+              .having(
+                (e) => e.message,
+                'message',
+                isNot(mqttPinUnreadableMessage),
+              ),
+        ),
+      );
+    });
+
     test(
       'a changed certificate fails closed, says so, and keeps the pin',
       () async {

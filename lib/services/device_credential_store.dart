@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'settings_store.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 
 /// The values a device's spec says a client must hold, kept per device and
 /// per name.
@@ -82,11 +83,18 @@ class DeviceCredentialStore {
     // An empty string is not a credential: it renders a path with a blank
     // segment, which reaches the device as a request for somebody else's
     // resource rather than as a visible failure.
-    return (value == null || value.isEmpty) ? null : value;
+    if (value == null || value.isEmpty) return null;
+    // Registered so no record — a FormatException quoting a credential, a
+    // token-bearing URL in a ClientException — carries it to the buffer the
+    // Diagnostics screen exports.
+    Log.registerSecret(value);
+    return value;
   }
 
-  Future<void> save(String identity, String name, String value) =>
-      _store.write(_key(identity, name), value);
+  Future<void> save(String identity, String name, String value) {
+    Log.registerSecret(value);
+    return _store.write(_key(identity, name), value);
+  }
 
   Future<void> forgetOne(String identity, String name) =>
       _store.delete(_key(identity, name));

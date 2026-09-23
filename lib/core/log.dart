@@ -58,6 +58,21 @@ class LogRecord {
   /// which is what makes a console scannable. A multi-line error and any
   /// [stackTrace] go to indented continuation lines instead, so the block still
   /// reads as one event.
+  /// This record with [secrets] replaced by [redactedText] in its message and
+  /// in its error's text. The error becomes a String: the type is kept in the
+  /// text, the object could not be.
+  LogRecord redacted(Iterable<String> secrets) {
+    final errorText = error?.toString();
+    return LogRecord(
+      time: time,
+      level: level,
+      category: category,
+      message: redactAll(message, secrets),
+      error: errorText == null ? null : redactAll(errorText, secrets),
+      stackTrace: stackTrace,
+    );
+  }
+
   String format() {
     final buffer = StringBuffer()
       ..write(formatLogTime(time))
@@ -426,7 +441,24 @@ class Log {
     buffer?.clear();
   }
 
-  static void _dispatch(LogRecord record) {
+  /// Secrets that must never reach the buffer or the console, however they
+  /// arrive: a FormatException quoting the credential JSON it choked on, a
+  /// ClientException carrying a token-bearing URL, an uncaught error the
+  /// hooks in main.dart forward verbatim. Registered by the stores as they
+  /// load or save a credential; applied to every record at dispatch.
+  static final Set<String> _secrets = {};
+
+  /// Register [secret] for redaction in every record from now on. Null and
+  /// empty values are ignored (an empty one would match at every position).
+  static void registerSecret(String? secret) {
+    if (secret != null && secret.isNotEmpty) _secrets.add(secret);
+  }
+
+  @visibleForTesting
+  static void clearSecrets() => _secrets.clear();
+
+  static void _dispatch(LogRecord raw) {
+    final record = _secrets.isEmpty ? raw : raw.redacted(_secrets);
     buffer?.add(record);
     final installed = sink;
     if (installed != null) {

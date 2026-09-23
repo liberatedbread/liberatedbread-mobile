@@ -208,6 +208,40 @@ void main() {
       },
     );
 
+    test(
+      'is null on a multi-homed host: two LAN interfaces is no answer',
+      () async {
+        // A Mac on Wi-Fi with a USB-Ethernet lab switch: both private, both
+        // LAN. Pinning every multicast query to whichever the OS enumerated
+        // first made mDNS stop finding devices it used to find through the
+        // default route, and enumeration order is not a signal about where the
+        // devices are. The OS routes, as it did before F-014.
+        final addr = await primaryLanIpv4(
+          lister: _listerOf([
+            _FakeInterface('en0', ['192.168.1.5']),
+            _FakeInterface('en7', ['10.0.0.9']),
+          ]),
+        );
+        expect(addr, isNull);
+      },
+    );
+
+    test(
+      'a public-only second interface does not unpin the private one',
+      () async {
+        // The pin is about private LANs. One private interface beside a
+        // public-addressed one (a VPN that slipped the name filter) is still
+        // one answer.
+        final addr = await primaryLanIpv4(
+          lister: _listerOf([
+            _FakeInterface('en0', ['192.168.1.5']),
+            _FakeInterface('en5', ['203.0.113.7']),
+          ]),
+        );
+        expect(addr?.address, '192.168.1.5');
+      },
+    );
+
     test('is null when only cellular/tunnel interfaces are up', () async {
       // [lanInterfaces] yields to the unfiltered list rather than return
       // nothing, so a multicast JOIN still happens somewhere. The egress pick

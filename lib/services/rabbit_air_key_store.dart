@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'settings_store.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 
 /// The per-device user key a Rabbit Air purifier's LAN protocol encrypts
 /// under, remembered per device.
@@ -32,7 +33,11 @@ class RabbitAirKeyStore {
   static bool isValidUserKey(String key) =>
       RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(key.trim());
 
-  Future<String?> userKey(String deviceId) => _store.read(_key(deviceId));
+  Future<String?> userKey(String deviceId) async {
+    final key = await _store.read(_key(deviceId));
+    Log.registerSecret(key);
+    return key;
+  }
 
   Future<void> saveUserKey(String deviceId, String key) =>
       _store.write(_key(deviceId), key.trim().toLowerCase());

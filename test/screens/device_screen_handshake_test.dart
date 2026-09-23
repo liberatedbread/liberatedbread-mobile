@@ -253,6 +253,92 @@ void main() {
     expect(find.text('Connected'), findsOneWidget);
   });
 
+  testWidgets('a drop during the handshake stops the handshake', (
+    tester,
+  ) async {
+    // Three steps, each followed by a two-second sleep. The peripheral drops
+    // during the first sleep. The watcher records the drop — and the
+    // handshake must not go on: steps two and three used to write to the
+    // dead link anyway, each waiting out a BLE timeout, and the screen could
+    // not show what the watcher had known since the drop until the whole
+    // handshake had burned down. The abort lands at the next step boundary
+    // and releases what the handshake opened.
+    final connection = StreamController<BleConnectionState>();
+    addTearDown(connection.close);
+    final notify = StreamController<List<int>>.broadcast();
+    addTearDown(notify.close);
+    final ble = FakeBleService(
+      connectionStateStream: connection.stream,
+      notifyStream: notify.stream,
+      servicesToReturn: const [
+        BleDiscoveredService(
+          uuid: '0000ff20-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
+      ],
+    );
+    final codec = FakeSpecCodec(
+      spec: _spec,
+      handshake: BleHandshakeDto(
+        steps: [
+          _step(subscribe: true, write: const [1], delayMs: 2000),
+          _step(write: const [2], delayMs: 2000),
+          _step(write: const [3]),
+        ],
+        described: const [],
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble),
+          specCodecProvider.overrideWithValue(codec),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          matchedDeviceSpecProvider.overrideWith(
+            (ref, request) async =>
+                SpecMatchOutcome.auto(MatchedSpec(spec: _spec, yaml: 'yaml')),
+          ),
+        ],
+        child: MaterialApp(
+          home: DeviceScreen(
+            device: IoTDevice(
+              id: '01',
+              name: 'SpotLED',
+              rssi: -40,
+              isConnectable: true,
+              discoveredAt: DateTime(2026),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(ble.writes.map((w) => w.value).toList(), [
+      [1],
+    ]);
+
+    connection.add(BleConnectionState.disconnected);
+    await tester.pump();
+    // Long past every sleep the handshake had left.
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pumpAndSettle();
+
+    expect(
+      ble.writes.map((w) => w.value).toList(),
+      [
+        [1],
+      ],
+      reason: 'steps after the drop must not be written to a dead link',
+    );
+    expect(
+      ble.cancelledSubscriptions,
+      ['0000ff21-0000-1000-8000-00805f9b34fb'],
+      reason: 'what the handshake opened is released when it is cut short',
+    );
+    expect(find.text('Disconnected'), findsOneWidget);
+  });
+
   testWidgets('a drop during the handshake is not painted over as Connected', (
     tester,
   ) async {

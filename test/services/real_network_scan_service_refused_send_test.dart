@@ -211,6 +211,41 @@ void main() {
     },
   );
 
+  test(
+    'a refused destination is reported without sitting out the sends',
+    () async {
+      // dart:io closes the socket a microtask after the refused send. The old
+      // shape then slept 250 ms, sent again into the closed socket, and slept
+      // again before the receive loop read the refusal already on the stream:
+      // ~500 ms per refused destination doing nothing. The loop listens from
+      // the first send now and the second send comes from a timer.
+      final network = _Network(refuse: (a, p) => a.address == '230.0.0.1');
+
+      expect(await _verdict(network, apple: true), isNull);
+
+      // Observed on the socket, where it is unambiguous: the transport must
+      // subscribe BEFORE its second send goes out. The old shape subscribed
+      // only after both sends and both sleeps (listenedAt > sent[1].at); the
+      // new one listens from the first send and the timer carries the second.
+      final broadcast = network.sentTo('255.255.255.255', 10008).single;
+      expect(broadcast.sent, hasLength(2));
+      expect(broadcast.listenedAt, isNotNull);
+      expect(
+        broadcast.listenedAt!,
+        lessThan(broadcast.sent[1].at),
+        reason:
+            'listening began ${broadcast.listenedAt}, the second send went '
+            'out at ${broadcast.sent[1].at}: the receive loop waited on the '
+            'sends instead of starting with the first',
+      );
+      // And the refused destination's socket was listened to at once as well —
+      // the refusal on its stream is what ends its transport early.
+      final refused = network.sentTo('230.0.0.1', 10008).single;
+      expect(refused.listenedAt, isNotNull);
+      expect(refused.listenedAt!, lessThan(const Duration(milliseconds: 200)));
+    },
+  );
+
   test('a stop that lands during mDNS start ends the scan promptly', () async {
     // R-027 for the one transport that had no stoppedDuringBind. A stop
     // landing while MDnsClient.start() enumerated interfaces found

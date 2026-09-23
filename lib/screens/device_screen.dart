@@ -50,11 +50,27 @@ enum _ScreenState { connecting, discovering, ready, error, disconnected }
 /// throw carries no list back, so anything this opened before it is cancelled
 /// here rather than left running with no owner.
 @visibleForTesting
+/// Thrown by [runBleHandshake] when [abort] completed before the handshake
+/// did. Not a failure of the device or the spec: the link is gone (or the
+/// screen is), and the steps that had not run yet were not run.
+class BleHandshakeAborted implements Exception {
+  const BleHandshakeAborted();
+}
+
 Future<List<StreamSubscription<List<int>>>> runBleHandshake({
   required BleService ble,
   required String deviceId,
   required BleHandshakeDto handshake,
+  Future<void>? abort,
 }) async {
+  // Checked between steps and raced against each delay. A write or a read
+  // already in flight cannot be recalled, but the step after it is not
+  // started: a drop during step one of a SpotLED's three-write handshake
+  // used to leave steps two and three writing to a dead link, each waiting
+  // out a BLE timeout, before the screen could show what the watcher had
+  // known since the drop.
+  var aborted = false;
+  unawaited(abort?.then((_) => aborted = true));
   // Prose, not instructions: schlage's session resumption is a fresh SPAKE2
   // exchange per connect and no spec can hold its bytes. Said out loud rather
   // than silently skipped, because "the handshake ran" and "the executable
@@ -68,6 +84,7 @@ Future<List<StreamSubscription<List<int>>>> runBleHandshake({
   final opened = <StreamSubscription<List<int>>>[];
   try {
     for (final step in handshake.steps) {
+      if (aborted) throw const BleHandshakeAborted();
       final serviceUuid = step.serviceUuid;
       if (serviceUuid == null) {
         // No service declares the characteristic and the step named no owner,
@@ -115,7 +132,11 @@ Future<List<StreamSubscription<List<int>>>> runBleHandshake({
         );
       }
       if (step.delayMs > 0) {
-        await Future<void>.delayed(Duration(milliseconds: step.delayMs));
+        final delay = Future<void>.delayed(
+          Duration(milliseconds: step.delayMs),
+        );
+        await (abort == null ? delay : Future.any<void>([delay, abort]));
+        if (aborted) throw const BleHandshakeAborted();
       }
     }
   } catch (_) {
@@ -164,6 +185,10 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   /// they have to go when the link does, or the next connect stacks another
   /// set on top.
   final List<StreamSubscription<List<int>>> _handshakeSubs = [];
+
+  /// Completed to stop a handshake in flight: by the connection watcher when
+  /// the link drops, and by _cleanupConnection when the screen leaves.
+  Completer<void>? _handshakeAbort;
 
   /// The bounded wait for the spec match, and the deadline that bounds it.
   ///
@@ -398,7 +423,14 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   /// the [_connected] guard so the unmount-cleanup and dispose() paths can't
   /// double-disconnect. Shared by the unmounted, discovery-failure, retry, and
   /// dispose paths so they all tear down identically.
+  /// Cut a handshake in flight short; idempotent.
+  void _abortHandshake() {
+    final abort = _handshakeAbort;
+    if (abort != null && !abort.isCompleted) abort.complete();
+  }
+
   Future<void> _cleanupConnection() async {
+    _abortHandshake();
     // Cancel is fire-and-forget: it synchronously stops delivery, and awaiting
     // subscription teardown can stall inside the widget-test fake zone.
     unawaited(_connSub?.cancel());
@@ -480,11 +512,26 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           .specBleHandshake(specYaml: chosen.yaml);
       if (handshake.steps.isEmpty && handshake.described.isEmpty) return;
       if (_superseded(generation) || !mounted || !_connected) return;
-      final subs = await runBleHandshake(
-        ble: _bleService,
-        deviceId: widget.device.id,
-        handshake: handshake,
-      );
+      final abort = _handshakeAbort = Completer<void>();
+      final List<StreamSubscription<List<int>>> subs;
+      try {
+        subs = await runBleHandshake(
+          ble: _bleService,
+          deviceId: widget.device.id,
+          handshake: handshake,
+          abort: abort.future,
+        );
+      } on BleHandshakeAborted {
+        // The link dropped, or the screen left, mid-handshake: the executor
+        // has already released what it opened, and the watcher (or the
+        // teardown) already owns what happens next.
+        Log.ble.debug(
+          'the spec handshake for ${widget.device.id} was cut short',
+        );
+        return;
+      } finally {
+        if (identical(_handshakeAbort, abort)) _handshakeAbort = null;
+      }
       // Re-checked AFTER the await, not only before it. runBleHandshake awaits
       // writes, reads and the spec's own `delayMs` sleeps (seconds, for
       // SmartDawn), and dispose() has already drained and cleared
@@ -586,6 +633,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           (_state == _ScreenState.ready ||
               _state == _ScreenState.discovering)) {
         setState(() => _state = _ScreenState.disconnected);
+        // And stop a handshake in flight: what it has not written yet it must
+        // not write to a link that is gone.
+        _abortHandshake();
       }
     });
   }

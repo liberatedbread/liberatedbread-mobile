@@ -321,8 +321,9 @@ final specCatalogueProvider = FutureProvider<SpecCatalogue>((ref) async {
 /// Whether [error] is flutter_rust_bridge refusing a call because
 /// `RustLib.init()` has not run (or failed) — the one failure that is the
 /// same for every spec and worth reporting once.
-bool isBridgeUninitialised(Object error) =>
-    error.toString().contains('has not been initialized');
+// isBridgeUninitialised moved to services/spec_codec.dart: the codec is
+// where the bridge is met, and it is what turns the failure into an empty
+// catalogue now.
 
 /// Resolves the device spec(s) matching a connected device. Matching uses the
 /// device name prefix and the discovered service UUIDs (an [IoTDevice] does

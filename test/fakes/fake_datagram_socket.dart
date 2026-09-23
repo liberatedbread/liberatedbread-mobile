@@ -19,8 +19,14 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
-/// What one `send()` asked for, in the order the transport asked.
-typedef SentDatagram = ({List<int> data, InternetAddress address, int port});
+/// What one `send()` asked for, in the order the transport asked, and when
+/// (on [FakeDatagramSocket.clock]).
+typedef SentDatagram = ({
+  List<int> data,
+  InternetAddress address,
+  int port,
+  Duration at,
+});
 
 class FakeDatagramSocket extends Stream<RawSocketEvent>
     implements RawDatagramSocket {
@@ -46,6 +52,15 @@ class FakeDatagramSocket extends Stream<RawSocketEvent>
   final List<SentDatagram> sent = [];
   bool closed = false;
 
+  /// One clock for sends and the listen, so a test can say which came first.
+  final Stopwatch clock = Stopwatch()..start();
+
+  /// When the transport subscribed to this socket's stream, or null if it
+  /// never did. A transport that sleeps between its sends and only then
+  /// listens has this AFTER its second send; one that listens from the first
+  /// send has it before.
+  Duration? listenedAt;
+
   final StreamController<RawSocketEvent> _events = StreamController();
   final Queue<Datagram> _inbox = Queue();
 
@@ -62,19 +77,27 @@ class FakeDatagramSocket extends Stream<RawSocketEvent>
     Function? onError,
     void Function()? onDone,
     bool? cancelOnError,
-  }) => _events.stream.listen(
-    onData,
-    onError: onError,
-    onDone: onDone,
-    cancelOnError: cancelOnError,
-  );
+  }) {
+    listenedAt ??= clock.elapsed;
+    return _events.stream.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
 
   @override
   int send(List<int> buffer, InternetAddress address, int port) {
     // `if (isClosing || isClosed) return 0;` — a closed socket swallows the
     // send silently, which is what the second attempt after a refusal meets.
     if (closed) return 0;
-    sent.add((data: List.of(buffer), address: address, port: port));
+    sent.add((
+      data: List.of(buffer),
+      address: address,
+      port: port,
+      at: clock.elapsed,
+    ));
     if (refuse?.call(address, port) ?? false) {
       scheduleMicrotask(() {
         if (closed) return;

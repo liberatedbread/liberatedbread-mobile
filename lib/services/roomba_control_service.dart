@@ -158,6 +158,8 @@ Future<RoombaTlsSocket> roombaTlsConnect(
   required TlsTrust? trust,
   required String identity,
 }) async {
+  // See mqtt_session's connector: this handshake's reason, not the last one's.
+  trust?.clearRefusal(host);
   try {
     // Ownership transfers to the adapter, which every caller closes in a
     // `finally` (the password handshake) or in `close()` (the MQTT client).

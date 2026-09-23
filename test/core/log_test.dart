@@ -31,6 +31,42 @@ List<String> _captureConsole() {
 }
 
 void main() {
+  group('registered secrets', () {
+    late LogBuffer buffer;
+    setUp(() {
+      Log.reset();
+      // This file's other groups run without a buffer; these need one.
+      Log.buffer = buffer = LogBuffer();
+    });
+    tearDown(Log.clearSecrets);
+
+    test('are redacted from the message and the error, at dispatch', () {
+      // The Diagnostics screen exports Log.buffer verbatim, and main.dart's
+      // uncaught-error hooks forward every error's toString() into it: a
+      // FormatException quoting the credential JSON it choked on, a
+      // ClientException with a token in its URL. A secret the app holds is
+      // registered by the store that loaded it and cut out of every record
+      // from then on, wherever in the record it appears.
+      Log.registerSecret('hunter2-token');
+      Log.app.error(
+        'request failed for token hunter2-token',
+        error: const FormatException('bad json: {"token":"hunter2-token"}'),
+      );
+
+      final text = buffer.records.map((r) => r.format()).join('\n');
+      expect(text, isNot(contains('hunter2-token')));
+      expect(text, contains('<redacted>'));
+      expect(text, contains('bad json'), reason: 'only the secret goes');
+    });
+
+    test('an empty or null secret registers nothing', () {
+      Log.registerSecret(null);
+      Log.registerSecret('');
+      Log.app.info('plain');
+      expect(buffer.records.last.message, 'plain');
+    });
+  });
+
   // `Log.reset()` deliberately does NOT reset `defaultSink` — it is the thing
   // reset restores TO. So the tests below that install one have to put back
   // what the suite's own flutter_test_config set, or every test after them

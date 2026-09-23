@@ -211,6 +211,16 @@ class TlsTrust {
   /// that names the action the user can take.
   TlsRefusal? refusalReason(String host) => _refused[host];
 
+  /// Forget [host]'s recorded refusal, before a handshake begins.
+  ///
+  /// The record is written only when the certificate callback runs, and read
+  /// on ANY HandshakeException. A handshake that fails before the callback —
+  /// the broker rejecting at ServerHello over a cipher gap — used to report
+  /// the PREVIOUS attempt's reason: a locked keychain on attempt one, and on
+  /// the retry after unlocking, "unlock the phone and try again" for a
+  /// failure unlocking cannot fix. Every connector clears before it opens.
+  void clearRefusal(String host) => _refused.remove(host);
+
   /// Load [identity]'s pin so [evaluator] can answer synchronously. Call
   /// before opening the connection.
   ///

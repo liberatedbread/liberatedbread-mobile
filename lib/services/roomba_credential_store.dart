@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'settings_store.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 
 /// What a robot's password handshake — or its owner's iRobot account — yielded.
 ///
@@ -145,6 +146,7 @@ class RoombaCredentialStore {
   /// would make the recommended path the one that cannot be stored.
   Future<RoombaCredentials?> credentials(String blid) async {
     final password = await _store.read(_key(blid, 'password'));
+    Log.registerSecret(password);
     final haEntityId = await _store.read(_key(blid, 'ha_entity_id'));
     final hasPassword = password != null && password.isNotEmpty;
     final hasHaEntity = haEntityId != null && haEntityId.isNotEmpty;

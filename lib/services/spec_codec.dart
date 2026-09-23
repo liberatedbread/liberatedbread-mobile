@@ -1138,6 +1138,45 @@ class SpecMatch {
 /// composes the codec's own public calls rather than re-implementing
 /// anything, and `test/services/spec_catalogue_golden_test.dart` pins it
 /// against the real one over the whole vendored catalogue.
+/// The native core is not loaded: the whole catalogue answers "no spec", and
+/// says why once per spec.
+///
+/// What main() chose for a core that fails to load is to carry on without
+/// it — every scan and connect still works, no device matches a spec, the
+/// raw controls are what the user gets. An AsyncError from the catalogue
+/// provider took that away from every screen that watches it (the adopt
+/// screen showed "Could not read the device catalogue", BLE group members
+/// "Could not reach this device"). This is the same choice, at the
+/// catalogue: empty, with the reason attached to every key so the provider's
+/// one "native codec unavailable" line still has its count.
+class EmptySpecCatalogue implements SpecCatalogue {
+  @override
+  final List<CatalogueSpec> specs = const [];
+
+  @override
+  final List<SpecLoadFailureDto> failures;
+
+  EmptySpecCatalogue(this.failures);
+
+  @override
+  Future<List<SpecMatch>> matchDevice({
+    required String deviceName,
+    required List<String> serviceUuids,
+  }) async => const [];
+
+  @override
+  Future<DeviceSpecDto> specAt(int index) async =>
+      throw RangeError.index(index, specs, 'index', 'the catalogue is empty');
+
+  @override
+  Future<List<UdpProbeDto>> udpBroadcastProbes() async => const [];
+}
+
+/// Whether [error] is flutter_rust_bridge saying the native core was never
+/// initialised — the one failure that is not about any spec.
+bool isBridgeUninitialised(Object error) =>
+    error.toString().contains('has not been initialized');
+
 class FallbackSpecCatalogue implements SpecCatalogue {
   final SpecCodec _codec;
 

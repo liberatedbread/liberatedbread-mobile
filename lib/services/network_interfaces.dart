@@ -133,14 +133,36 @@ Future<InternetAddress?> primaryLanIpv4({
     includeLinkLocal: false,
     type: InternetAddressType.IPv4,
   )).where((i) => isLanCandidate(i));
-  InternetAddress? firstRoutable;
+  // One private address per interface, and one public one as the fallback.
+  // The pin is applied only when the answer is UNAMBIGUOUS: exactly one
+  // interface with a private address (a phone on Wi-Fi with cellular filtered
+  // out, which is the F-014 case). Two of them — a Mac on Wi-Fi with a
+  // USB-Ethernet lab switch, both private, both LAN — is a question
+  // enumeration order cannot answer, and pinning every multicast query to
+  // whichever the OS listed first made mDNS stop finding devices it used to
+  // find through the default route. Null there, and the OS routes as before
+  // F-014.
+  final private = <InternetAddress>[];
+  final public = <InternetAddress>[];
   for (final interface in interfaces) {
+    InternetAddress? privateHere;
+    InternetAddress? publicHere;
     for (final addr in interface.addresses) {
       if (addr.type != InternetAddressType.IPv4) continue;
       if (addr.isLoopback || addr.isLinkLocal) continue;
-      firstRoutable ??= addr;
-      if (isPrivateIpv4(addr.address)) return addr;
+      if (isPrivateIpv4(addr.address)) {
+        privateHere ??= addr;
+      } else {
+        publicHere ??= addr;
+      }
+    }
+    if (privateHere != null) {
+      private.add(privateHere);
+    } else if (publicHere != null) {
+      public.add(publicHere);
     }
   }
-  return firstRoutable;
+  if (private.length == 1) return private.single;
+  if (private.isEmpty && public.length == 1) return public.single;
+  return null;
 }

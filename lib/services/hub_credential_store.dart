@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'settings_store.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 
 /// What the link-button pairing issued for one bridge.
 class HubCredentials {
@@ -38,10 +39,9 @@ class HubCredentialStore {
   Future<HubCredentials?> credentials(String bridgeId) async {
     final username = await _store.read(_key(bridgeId, 'username'));
     if (username == null || username.isEmpty) return null;
-    return HubCredentials(
-      username: username,
-      clientKey: await _store.read(_key(bridgeId, 'clientkey')),
-    );
+    final clientKey = await _store.read(_key(bridgeId, 'clientkey'));
+    Log.registerSecret(clientKey);
+    return HubCredentials(username: username, clientKey: clientKey);
   }
 
   Future<void> saveCredentials(

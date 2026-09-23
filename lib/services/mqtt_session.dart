@@ -219,6 +219,9 @@ Future<MqttSocket> _translated(
   Future<MqttSocket> Function() open, {
   TlsTrust? trust,
 }) async {
+  // Whatever this handshake refuses, it records; whatever the last one
+  // refused must not be read as this one's reason.
+  trust?.clearRefusal(host);
   try {
     return await open();
   } on HandshakeException catch (e) {

@@ -1113,14 +1113,29 @@ class RustSpecCatalogue implements SpecCatalogue {
   /// way out nor the entry decode on the way back lands as one long
   /// synchronous block: the loader is warmed from `main()` while the first
   /// screen is building, and a burst there is a dropped frame.
-  static Future<RustSpecCatalogue> load(
+  static Future<SpecCatalogue> load(
     RealSpecCodec codec,
     Map<String, String> yamls, {
     void Function(int loaded, int total)? onProgress,
     int chunkSize = catalogueChunkSize,
   }) async {
     final entries = yamls.entries.toList();
-    final handle = await handles.newCatalogue();
+    final handles.CatalogueHandle handle;
+    try {
+      handle = await handles.newCatalogue();
+    } catch (e) {
+      // The first FFI call. A native library that failed to load throws here,
+      // before any spec is parsed, and used to reject the whole load: the
+      // provider went AsyncError and every screen watching it showed an
+      // error the user could do nothing about. The app carries on without
+      // the core instead, as main() decided it should, and the provider's
+      // per-key failures still carry the one reason.
+      if (!isBridgeUninitialised(e)) rethrow;
+      return EmptySpecCatalogue([
+        for (final key in yamls.keys)
+          SpecLoadFailureDto(key: key, message: '$e'),
+      ]);
+    }
     final failures = <SpecLoadFailureDto>[];
     for (var start = 0; start < entries.length; start += chunkSize) {
       final chunk = entries.skip(start).take(chunkSize).toList();

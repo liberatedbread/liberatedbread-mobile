@@ -1688,6 +1688,22 @@ class RealNetworkScanService implements NetworkScanService {
   /// whatever the OS has made primary — cellular, on an internet-less Wi-Fi
   /// (F-014). Best-effort and guarded: when no interface was resolved, or the
   /// option is refused, the OS default stands, exactly as before.
+  /// [send] now and once more after [gap] — UDP is lossy — unless the scan
+  /// has stopped by then. The caller cancels the timer in its `finally`.
+  ///
+  /// The point is what does NOT happen in between: the receive loop starts
+  /// immediately. The old shape sent, slept 250 ms, sent again, slept again,
+  /// and only then read the socket — so a destination dart:io refused (the
+  /// socket closes a microtask after the first send) sat through half a
+  /// second of sends into a closed socket before the refusal, already
+  /// buffered on the stream, was read and the transport reported `skipped`.
+  Timer _sendTwice(_ScanSession session, void Function() send) {
+    send();
+    return Timer(const Duration(milliseconds: 250), () {
+      if (!session.stopped) send();
+    });
+  }
+
   void _setMulticastInterface(RawDatagramSocket socket, _ScanSession session) {
     final addr = session.multicastInterfaceV4;
     if (addr == null) return;
@@ -1856,19 +1872,15 @@ class RealNetworkScanService implements NetworkScanService {
     _setMulticastInterface(socket, session);
     var heard = false;
     final seen = <String>{};
+    Timer? resend;
     try {
       // Twice, like every other broadcast here: UDP is lossy and a dropped
       // probe means a bridge never heard from.
-      for (var attempt = 0; attempt < 2; attempt++) {
+      resend = _sendTwice(session, () {
         for (final probe in probes) {
           socket.send(probe.probe, target, port);
         }
-        if (await session.sleepUnlessStopped(
-          const Duration(milliseconds: 250),
-        )) {
-          break;
-        }
-      }
+      });
 
       // A refusal that is evidence travels: the stream error propagates out
       // of the loop to [_runCatalogueProbes], which classifies it
@@ -1938,6 +1950,7 @@ class RealNetworkScanService implements NetworkScanService {
       if (heard) return TransportOutcome.heard;
       return refused ? TransportOutcome.skipped : TransportOutcome.silent;
     } finally {
+      resend?.cancel();
       socket.close();
       session.catalogueProbeSockets.remove(socket);
     }
@@ -2354,16 +2367,12 @@ class RealNetworkScanService implements NetworkScanService {
     _setMulticastInterface(socket, session);
     var heard = false;
     final seen = <String>{};
+    Timer? resend;
     try {
       final target = InternetAddress(_yeelightMulticast);
-      for (var attempt = 0; attempt < 2; attempt++) {
+      resend = _sendTwice(session, () {
         socket.send(utf8.encode(_yeelightProbe), target, _yeelightPort);
-        if (await session.sleepUnlessStopped(
-          const Duration(milliseconds: 250),
-        )) {
-          break;
-        }
-      }
+      });
       // A group this host cannot route is refused on its OWN account, not
       // the network's — the rule the catalogue probe follows. Reaching the
       // transport's onError() would classify it `denied`, and one `denied`
@@ -2416,6 +2425,7 @@ class RealNetworkScanService implements NetworkScanService {
       if (heard) return TransportOutcome.heard;
       return refused ? TransportOutcome.skipped : TransportOutcome.silent;
     } finally {
+      resend?.cancel();
       socket.close();
       session.yeelightSocket = null;
     }
@@ -2452,6 +2462,7 @@ class RealNetworkScanService implements NetworkScanService {
     var sent = false;
     var refused = false;
     final seen = <String>{};
+    Timer? resend;
     try {
       try {
         sender = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
@@ -2473,15 +2484,14 @@ class RealNetworkScanService implements NetworkScanService {
           },
         );
         final target = InternetAddress(_goveeMulticast);
-        for (var attempt = 0; attempt < 2; attempt++) {
-          sender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
-          sent = true;
-          if (await session.sleepUnlessStopped(
-            const Duration(milliseconds: 250),
-          )) {
-            break;
-          }
-        }
+        final probeSender = sender;
+        resend = _sendTwice(session, () {
+          probeSender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
+        });
+        sent = true;
+        // The refusal, if any, lands on the sender's stream a microtask
+        // after that first send; one turn of the loop is enough to see it.
+        await Future<void>.delayed(Duration.zero);
       } catch (e) {
         // The sender socket itself could not be bound or configured.
         Log.net.debug('Govee probe socket unavailable: $e');
@@ -2528,6 +2538,7 @@ class RealNetworkScanService implements NetworkScanService {
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
+      resend?.cancel();
       sender?.close();
       recv.close();
       session.goveeSocket = null;
@@ -2555,16 +2566,12 @@ class RealNetworkScanService implements NetworkScanService {
     _setMulticastInterface(socket, session);
     var heard = false;
     final seen = <String>{};
+    Timer? resend;
     try {
       final target = InternetAddress(_knxMulticast);
-      for (var attempt = 0; attempt < 2; attempt++) {
+      resend = _sendTwice(session, () {
         socket.send(_knxProbe, target, _knxPort);
-        if (await session.sleepUnlessStopped(
-          const Duration(milliseconds: 250),
-        )) {
-          break;
-        }
-      }
+      });
       // A group this host cannot route is refused on its OWN account, not
       // the network's — the rule the catalogue probe follows. Reaching the
       // transport's onError() would classify it `denied`, and one `denied`
@@ -2623,6 +2630,7 @@ class RealNetworkScanService implements NetworkScanService {
       if (heard) return TransportOutcome.heard;
       return refused ? TransportOutcome.skipped : TransportOutcome.silent;
     } finally {
+      resend?.cancel();
       socket.close();
       session.knxSocket = null;
     }
