@@ -243,6 +243,15 @@ class RadioProfile {
               programmingFamily == ProgrammingFamily.serialUv17Pro,
       };
 
+  /// The link this build programs this radio over, or null when it cannot.
+  /// Each family speaks over exactly one.
+  RadioTransport? get programmingTransport {
+    for (final transport in RadioTransport.values) {
+      if (programsOver(transport)) return transport;
+    }
+    return null;
+  }
+
   /// The transmit ranges in force for a suggestion run.
   ///
   /// [unlockEnabled] only widens anything when the profile actually supports
@@ -329,6 +338,8 @@ const RadioProfile uv5rProfile = RadioProfile(
   // CHIRP's uv5r driver writes 7-character names. Verify on hardware.
   nameLength: 7,
   programmingFamily: ProgrammingFamily.serialUv5r,
+  // A cable driver exists; nothing in it has been run against a radio.
+  programmerSupport: ProgrammerSupport.unverified,
   txUnlock: TxUnlock(
     supported: true,
     mechanism: TxUnlockMechanism.codeplugBandLimit,
@@ -350,6 +361,7 @@ const RadioProfile bfF8hpProfile = RadioProfile(
   channelCapacity: 128,
   nameLength: 7,
   programmingFamily: ProgrammingFamily.serialUv5r,
+  programmerSupport: ProgrammerSupport.unverified,
   txUnlock: TxUnlock(
     supported: true,
     mechanism: TxUnlockMechanism.codeplugBandLimit,
@@ -370,6 +382,7 @@ const RadioProfile ar152Profile = RadioProfile(
   channelCapacity: 128,
   nameLength: 7,
   programmingFamily: ProgrammingFamily.serialUv5r,
+  programmerSupport: ProgrammerSupport.unverified,
   txUnlock: TxUnlock(
     supported: true,
     mechanism: TxUnlockMechanism.codeplugBandLimit,
@@ -379,7 +392,12 @@ const RadioProfile ar152Profile = RadioProfile(
   ),
 );
 
-/// UV-5G: the GMRS-locked member of the UV-5R serial family.
+/// UV-5G: a GMRS radio built on the UV-5R.
+///
+/// Not programmable here. It answers an ident of its own, and the driver the
+/// UV-5R layout comes from deliberately refuses that ident: whatever its
+/// memory looks like, it is not a UV-5R's, and nothing here should write one
+/// as if it were. Plans and CHIRP export still work.
 const RadioProfile uv5gProfile = RadioProfile(
   id: 'uv-5g',
   displayName: 'Baofeng UV-5G (GMRS)',
@@ -390,15 +408,11 @@ const RadioProfile uv5gProfile = RadioProfile(
   nameLength: 7,
   programmingFamily: ProgrammingFamily.serialUv5r,
   txUnlock: TxUnlock(
-    supported: true,
-    mechanism: TxUnlockMechanism.gmrsUnlock,
-    expandedTxRanges: [
-      FreqRange(144000000, 148000000),
-      FreqRange(420000000, 450000000),
-    ],
-    notes: 'The GMRS restriction is a flag in the codeplug rather than a band '
-        'limit. Clearing it returns the radio to its dual-band behaviour — '
-        'which is a different licence, not a wider one.',
+    supported: false,
+    mechanism: TxUnlockMechanism.unsupported,
+    notes: 'This app does not know how this radio stores its GMRS '
+        'restriction: its memory is not laid out like a UV-5R\'s, so the '
+        'UV-5R\'s band-limit fields say nothing about it.',
   ),
 );
 

@@ -527,6 +527,26 @@ pub fn uv5r_changed_blocks(
     Ok(block_dtos(uv5r::changed_blocks(&base, &updated, layout)?))
 }
 
+/// The reads that check `changed` landed: whole blocks, each read once.
+pub fn uv5r_verify_plan(
+    changed: Vec<CodeplugBlockDto>,
+    drops_byte: bool,
+) -> anyhow::Result<Vec<CodeplugBlockDto>> {
+    let blocks = changed
+        .iter()
+        .map(|dto| {
+            uv5r::image_offset(dto.addr)
+                .map(|image_offset| uv5r::Block {
+                    addr: dto.addr,
+                    len: dto.len,
+                    image_offset,
+                })
+                .ok_or_else(|| anyhow::anyhow!("0x{:04X} is not in the image", dto.addr))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(block_dtos(uv5r::verify_plan(&blocks, drops_byte)))
+}
+
 /// Every block a full restore of `image` writes.
 pub fn uv5r_restore_plan(
     image: Vec<u8>,
@@ -673,6 +693,26 @@ mod tests {
             assert_eq!((limits.vhf.lower_mhz, limits.vhf.upper_mhz), (130, 180));
             assert_eq!((limits.uhf.lower_mhz, limits.uhf.upper_mhz), (400, 520));
         }
+    }
+
+    #[test]
+    fn uv5r_verify_plan_crosses_and_refuses_addresses_outside_the_image() {
+        let changed = vec![CodeplugBlockDto {
+            addr: 0x0010,
+            image_offset: 0x18,
+            len: 0x10,
+        }];
+        let plan = uv5r_verify_plan(changed, false).unwrap();
+        assert_eq!(
+            (plan[0].addr, plan[0].len, plan[0].image_offset),
+            (0x0000, 0x40, 8)
+        );
+        let outside = vec![CodeplugBlockDto {
+            addr: 0x1E80,
+            image_offset: 0,
+            len: 0x10,
+        }];
+        assert!(uv5r_verify_plan(outside, false).is_err());
     }
 
     #[test]

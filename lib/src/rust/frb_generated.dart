@@ -71,7 +71,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => -471166939;
+  int get rustContentHash => -102074574;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -852,6 +852,11 @@ abstract class RustLibApi extends BaseApi {
   Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RRestorePlan({
     required List<int> image,
     required String modelId,
+  });
+
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RVerifyPlan({
+    required List<CodeplugBlockDto> changed,
+    required bool dropsByte,
   });
 
   Future<Uint8List> crateApiRadioApiUv5RWriteCommand({
@@ -6631,6 +6636,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RVerifyPlan({
+    required List<CodeplugBlockDto> changed,
+    required bool dropsByte,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_codeplug_block_dto(changed, serializer);
+          sse_encode_bool(dropsByte, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 164,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_codeplug_block_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RVerifyPlanConstMeta,
+        argValues: [changed, dropsByte],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RVerifyPlanConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_verify_plan',
+        argNames: ['changed', 'dropsByte'],
+      );
+
+  @override
   Future<Uint8List> crateApiRadioApiUv5RWriteCommand({
     required int addr,
     required List<int> data,
@@ -6644,7 +6684,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 164,
+            funcId: 165,
             port: port_,
           );
         },
@@ -6677,7 +6717,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 165,
+            funcId: 166,
             port: port_,
           );
         },
@@ -6710,7 +6750,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 166,
+            funcId: 167,
             port: port_,
           );
         },

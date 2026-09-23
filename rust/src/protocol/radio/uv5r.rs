@@ -449,6 +449,38 @@ pub fn changed_blocks(
     Ok(changed)
 }
 
+/// The reads that check a write landed: one read-sized block around each
+/// changed block, each read once, in address order.
+///
+/// Read-sized means what a read of that address may safely be: 0x40 bytes on
+/// a 0x40 boundary, except the end of the aux block on a radio that drops a
+/// byte, which is read sixteen bytes at a time. Older radios cannot read the
+/// aux block in small pieces at all, which is why this is not simply "read
+/// back exactly what was written".
+pub fn verify_plan(changed: &[Block], drops_byte: bool) -> Vec<Block> {
+    let mut plan: Vec<Block> = Vec::new();
+    for block in changed {
+        let len = if drops_byte && block.addr >= DROP_PROBE_ADDR {
+            SMALL_READ_BLOCK_LEN
+        } else {
+            READ_BLOCK_LEN
+        };
+        let addr = block.addr - block.addr % len as u16;
+        if plan.iter().any(|b| b.addr == addr) {
+            continue;
+        }
+        if let Some(image_offset) = image_offset(addr) {
+            plan.push(Block {
+                addr,
+                len,
+                image_offset,
+            });
+        }
+    }
+    plan.sort_by_key(|block| block.addr);
+    plan
+}
+
 // ── Channels ────────────────────────────────────────────────────────────────
 
 fn check_image(image: &[u8]) -> Result<(), ProtocolError> {
@@ -1306,6 +1338,79 @@ mod tests {
         let mut other = base.clone();
         other[0] ^= 0x01;
         assert!(changed_blocks(&base, &other, LimitLayout::New).is_err());
+    }
+
+    #[test]
+    fn a_write_is_checked_by_reading_whole_blocks_back_once_each() {
+        let changed = [
+            Block {
+                addr: 0x0000,
+                len: 0x10,
+                image_offset: 8,
+            },
+            Block {
+                addr: 0x0010,
+                len: 0x10,
+                image_offset: 0x18,
+            },
+            Block {
+                addr: 0x1000,
+                len: 0x10,
+                image_offset: 0x1008,
+            },
+        ];
+        let plan = verify_plan(&changed, false);
+        assert_eq!(
+            plan.iter().map(|b| (b.addr, b.len)).collect::<Vec<_>>(),
+            [(0x0000, 0x40), (0x1000, 0x40)],
+            "both records share one read"
+        );
+        assert_eq!(plan[1].image_offset, image_offset(0x1000).unwrap());
+    }
+
+    #[test]
+    fn a_limit_write_is_checked_in_small_reads_on_a_radio_that_drops_a_byte() {
+        let changed = [Block {
+            addr: 0x1FC0,
+            len: 0x10,
+            image_offset: image_offset(0x1FC0).unwrap(),
+        }];
+        let small = verify_plan(&changed, true);
+        assert_eq!(
+            small.iter().map(|b| (b.addr, b.len)).collect::<Vec<_>>(),
+            [(0x1FC0, 0x10)]
+        );
+        let whole = verify_plan(&changed, false);
+        assert_eq!(
+            whole.iter().map(|b| (b.addr, b.len)).collect::<Vec<_>>(),
+            [(0x1FC0, 0x40)]
+        );
+
+        // Aux blocks earlier than the probe address are read whole either way.
+        let welcome = [Block {
+            addr: 0x1EE0,
+            len: 0x10,
+            image_offset: image_offset(0x1EE0).unwrap(),
+        }];
+        assert_eq!(verify_plan(&welcome, true)[0].addr, 0x1EC0);
+        assert_eq!(verify_plan(&welcome, true)[0].len, 0x40);
+    }
+
+    #[test]
+    fn every_block_a_restore_writes_is_read_back() {
+        for layout in [LimitLayout::Old, LimitLayout::New] {
+            let writes = restore_plan(layout);
+            let reads = verify_plan(&writes, false);
+            for write in &writes {
+                assert!(
+                    reads
+                        .iter()
+                        .any(|r| write.addr >= r.addr && write.addr < r.addr + r.len as u16),
+                    "{layout:?}: 0x{:04X} is never read back",
+                    write.addr
+                );
+            }
+        }
     }
 
     #[test]

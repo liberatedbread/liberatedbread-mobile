@@ -142,15 +142,19 @@ void main() {
       expect(find.text('Not yet confirmed on this model'), findsOneWidget);
     });
 
-    testWidgets('a cable radio says this build cannot program it yet',
-        (tester) async {
+    testWidgets(
+        'a cable radio opens on a cable model, and says what the check '
+        'will show', (tester) async {
       await _pump(
         tester,
         target: const RadioTarget(
             transport: RadioTransport.usb, id: '/dev/ttyUSB0', name: ''),
       );
-      expect(find.textContaining('over a USB cable yet'), findsOneWidget);
-      expect(find.text('Check it answers'), findsNothing);
+      // The Radio tab's Bluetooth radio is passed over for one a cable
+      // programs.
+      expect(find.text(uv5rProfile.displayName), findsOneWidget);
+      expect(find.textContaining('firmware it reports'), findsOneWidget);
+      expect(find.text('Check it answers'), findsOneWidget);
     });
 
     testWidgets('offers to make this the Radio tab\'s radio when it is not',

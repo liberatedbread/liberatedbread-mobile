@@ -1,15 +1,16 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:typed_data';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/models/radio_target.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/radio_programmer_provider.dart';
+import 'package:liberated_bread_mobile/providers/serial_port_provider.dart';
 import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart';
+import 'package:liberated_bread_mobile/services/mock_serial_port_service.dart';
 import 'package:liberated_bread_mobile/services/radio_codec.dart';
+import 'package:liberated_bread_mobile/services/serial_radio_programmer.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 
 import '../fakes/fake_ble_service.dart';
@@ -53,52 +54,30 @@ void main() {
       );
     });
 
-    test('a cable gets a programmer that refuses rather than misroutes',
-        () async {
+    test('a cable gets the cable driver, never the Bluetooth one', () {
       final container = ProviderContainer(overrides: [
         radioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
+        serialPortServiceProvider.overrideWithValue(MockSerialPortService()),
       ]);
       addTearDown(container.dispose);
       final cable = container
           .read(radioProgrammerForTransportProvider(RadioTransport.usb));
 
-      expect(cable, isNot(isA<FakeRadioProgrammer>()),
+      expect(cable, isA<SerialRadioProgrammer>(),
           reason: 'a port name must never reach the Bluetooth driver');
+      expect(cable.supports(uv5rProfile), isTrue);
       expect(cable.supports(uv5rMiniProfile), isFalse);
-      expect(cable.supports(uv5rProfile), isFalse);
-      await expectLater(
-        cable.identify(deviceId: '/dev/ttyUSB0', profile: uv5rProfile),
-        throwsA(isA<RadioUnsupportedException>()),
-      );
-      await expectLater(
-        cable
-            .readCodeplug(
-                deviceId: '/dev/ttyUSB0',
-                profile: uv5rProfile,
-                onResult: (_) {})
-            .drain<void>(),
-        throwsA(isA<RadioUnsupportedException>()),
-      );
-      await expectLater(
-        cable.writeChannels(
-          deviceId: '/dev/ttyUSB0',
-          profile: uv5rProfile,
-          base: RadioCodeplug(
-              modelId: 'uv5r', image: Uint8List(0), readAt: DateTime(2026)),
-          channels: const [],
-        ).drain<void>(),
-        throwsA(isA<RadioUnsupportedException>()),
-      );
-      await expectLater(
-        cable
-            .restoreCodeplug(
-              deviceId: '/dev/ttyUSB0',
-              profile: uv5rProfile,
-              codeplug: RadioCodeplug(
-                  modelId: 'uv5r', image: Uint8List(0), readAt: DateTime(2026)),
-            )
-            .drain<void>(),
-        throwsA(isA<RadioUnsupportedException>()),
+    });
+
+    test('the cable driver is overridable on its own', () {
+      final fake = FakeRadioProgrammer();
+      final container = ProviderContainer(overrides: [
+        serialRadioProgrammerProvider.overrideWithValue(fake),
+      ]);
+      addTearDown(container.dispose);
+      expect(
+        container.read(radioProgrammerForTransportProvider(RadioTransport.usb)),
+        same(fake),
       );
     });
   });

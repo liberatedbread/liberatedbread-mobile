@@ -84,12 +84,19 @@ void main() {
       }
     });
 
-    test('only the BLE family claims a programmer in this build', () {
+    test('every radio claiming a programmer has a driver for its family', () {
       for (final profile in radioProfiles) {
         if (!profile.isProgrammable) continue;
-        expect(profile.programmingFamily, ProgrammingFamily.bleUv17Pro,
+        final expected = switch (profile.programmingFamily) {
+          ProgrammingFamily.bleUv17Pro => RadioTransport.ble,
+          ProgrammingFamily.serialUv5r => RadioTransport.usb,
+          // No cable driver speaks the UV-17Pro protocol in this build.
+          ProgrammingFamily.serialUv17Pro => null,
+        };
+        expect(profile.programmingTransport, expected,
             reason: '${profile.id} claims programmer support, but this build '
                 'has no transport for its family');
+        expect(expected, isNotNull, reason: profile.id);
       }
     });
 
@@ -143,19 +150,22 @@ void main() {
       expect(uv5rProfile.canTransmit(140000000, unlockEnabled: true), isTrue);
     });
 
-    test('the radios this build can program are not the unlockable ones', () {
-      // Awkward, and worth stating rather than discovering. The band-limit
-      // fields live in the older UV-5R serial codeplug; the UV-17Pro family,
-      // which is what the Bluetooth driver speaks, has none. So the unlock is
-      // modelled for radios this build cannot yet write to, and the radios it
-      // can write to have nothing to unlock.
+    test('every radio with an unlock is one this build can write it to', () {
+      // Until the cable driver this was the other way round: the unlock was
+      // modelled for radios this build could not write to, and the radios it
+      // could write to had nothing to unlock. The band-limit fields live in
+      // the UV-5R serial codeplug, which the cable now reaches; the
+      // Bluetooth family still has none.
       for (final profile in radioProfiles) {
-        if (!profile.isProgrammable) continue;
+        if (!profile.txUnlock.supported) continue;
+        expect(profile.programsOver(RadioTransport.usb), isTrue,
+            reason: '${profile.id} offers an unlock no driver could write');
+      }
+      for (final profile in profilesProgrammableOver(RadioTransport.ble)) {
         expect(profile.txUnlock.supported, isFalse,
             reason: '${profile.id} claims an unlock its family does not have');
       }
       expect(uv5rProfile.txUnlock.supported, isTrue);
-      expect(uv5rProfile.isProgrammable, isFalse);
     });
 
     test('do not widen for a radio that cannot unlock, flag or no flag', () {
@@ -229,15 +239,38 @@ void main() {
       }
     });
 
+    test('the UV-5R family programs over a cable and only a cable', () {
+      for (final profile in [uv5rProfile, bfF8hpProfile, ar152Profile]) {
+        expect(profile.programsOver(RadioTransport.usb), isTrue,
+            reason: profile.id);
+        expect(profile.programsOver(RadioTransport.ble), isFalse,
+            reason: profile.id);
+        expect(profile.programmingTransport, RadioTransport.usb,
+            reason: profile.id);
+        expect(profile.programmerSupport, ProgrammerSupport.unverified,
+            reason: 'nothing in the cable driver has met a radio yet');
+      }
+      expect(uv5rMiniProfile.programmingTransport, RadioTransport.ble);
+    });
+
     test('a radio this build has no driver for programs over nothing', () {
-      // The cable families have no programmer yet, whatever their protocol.
-      for (final profile in [uv5rProfile, uv17rPlusProfile]) {
+      // The UV-5G's memory is not a UV-5R's; the UV-17R Plus's cable path is
+      // not built.
+      for (final profile in [uv5gProfile, uv17rPlusProfile]) {
+        expect(profile.programmingTransport, isNull, reason: profile.id);
         expect(profile.isProgrammable, isFalse, reason: profile.id);
         for (final transport in RadioTransport.values) {
           expect(profile.programsOver(transport), isFalse,
               reason: '${profile.id} over ${transport.name}');
         }
       }
+    });
+
+    test('the UV-5G claims no unlock this app cannot perform', () {
+      // It once described a "GMRS flag in the codeplug" — for a radio whose
+      // memory nothing here knows the layout of.
+      expect(uv5gProfile.txUnlock.supported, isFalse);
+      expect(uv5gProfile.txUnlock.notes, contains('does not know'));
     });
 
     test('profilesProgrammableOver agrees with programsOver, in order', () {

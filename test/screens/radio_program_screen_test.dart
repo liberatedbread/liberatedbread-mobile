@@ -12,9 +12,13 @@ import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/radio_programmer_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_radio_provider.dart';
+import 'package:liberated_bread_mobile/providers/serial_port_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_program_screen.dart';
 import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart';
+import 'package:liberated_bread_mobile/services/mock_serial_port_service.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
+import 'package:liberated_bread_mobile/services/serial_port_service.dart';
+import 'package:liberated_bread_mobile/services/unsupported_serial_port_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
@@ -280,4 +284,84 @@ void main() {
       expect(find.textContaining('written to Base radio'), findsOneWidget);
     });
   });
+
+  group('a cable radio', () {
+    Future<FakeRadioProgrammer> pumpCable(
+      WidgetTester tester, {
+      required SerialPortService ports,
+      FakeBleService? ble,
+    }) async {
+      final cable = FakeRadioProgrammer();
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble ?? FakeBleService()),
+          radioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
+          serialRadioProgrammerProvider.overrideWithValue(cable),
+          serialPortServiceProvider.overrideWithValue(ports),
+          codeplugBackupStoreProvider
+              .overrideWithValue(FakeCodeplugBackupStore()),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+        ],
+        child: MaterialApp(
+          home: RadioProgramScreen(plan: _plan(), profile: uv5rProfile),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return cable;
+    }
+
+    testWidgets('lists the cables plugged in, and does not scan the air',
+        (tester) async {
+      final ble = FakeBleService(devicesToEmit: [_radio(name: 'UV-5R Mini')]);
+      await pumpCable(tester, ports: MockSerialPortService(), ble: ble);
+
+      expect(find.text('Cables'), findsOneWidget);
+      expect(find.text('Demo programming cable'), findsOneWidget);
+      expect(find.text('Radios nearby'), findsNothing);
+      expect(find.text('UV-5R Mini'), findsNothing);
+      expect(find.textContaining('Pick the cable'), findsOneWidget);
+    });
+
+    testWidgets('writes through the cable driver, to the cable picked',
+        (tester) async {
+      final cable = await pumpCable(tester, ports: MockSerialPortService());
+
+      await tester.tap(find.text('Demo programming cable'));
+      await tester.pumpAndSettle();
+      await tester.tap(_dialogWrite);
+      await tester.pumpAndSettle();
+
+      expect(cable.written, hasLength(1));
+      expect(cable.deviceIds.toSet(), {MockSerialPortService.demoCable.id});
+    });
+
+    testWidgets('with no cable plugged in, says how to plug one in',
+        (tester) async {
+      await pumpCable(tester, ports: _NoPorts());
+      expect(find.textContaining('No cable found'), findsOneWidget);
+      expect(find.textContaining('USB-OTG'), findsOneWidget);
+    });
+
+    testWidgets('on a platform with no serial ports, says why', (tester) async {
+      await pumpCable(
+        tester,
+        ports: const UnsupportedSerialPortService(
+            UnsupportedSerialPortService.iosReason),
+      );
+      expect(find.textContaining('iPhone and iPad'), findsOneWidget);
+      expect(find.textContaining('No cable found'), findsNothing);
+    });
+  });
+}
+
+class _NoPorts implements SerialPortService {
+  @override
+  SerialAvailability get availability => const SerialAvailability.supported();
+
+  @override
+  Future<List<SerialPortInfo>> listPorts() async => const [];
+
+  @override
+  Future<SerialLink> open(SerialPortInfo port, {required int baudRate}) =>
+      Future.error(const SerialPortException('no ports'));
 }

@@ -178,8 +178,12 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
         child: Text(
-          'Pick the model printed on the radio. It cannot be asked: these '
-          'radios answer to one programming request between them.',
+          _target.transport == RadioTransport.usb
+              ? 'Pick the model printed on the radio. Checking it answers '
+                  'shows the firmware it reports.'
+              : 'Pick the model printed on the radio. It cannot be asked: '
+                  'these radios answer to one programming request between '
+                  'them.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ),

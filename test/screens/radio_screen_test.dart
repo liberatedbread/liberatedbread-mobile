@@ -91,6 +91,11 @@ void main() {
 
   testWidgets('the picker says what this build can do with each radio',
       (tester) async {
+    // Every row at once: the sheet's list is lazy, and the rows that export
+    // to CHIRP are at the bottom.
+    tester.view.physicalSize = const Size(1200, 3200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     await _pump(tester);
     await tester.tap(find.text(defaultRadioProfile.displayName));
     await tester.pumpAndSettle();
@@ -99,6 +104,8 @@ void main() {
     expect(find.textContaining('export to CHIRP'), findsWidgets);
     // The UV-32 is same-family inference, and says so before it is picked.
     expect(find.textContaining('unconfirmed on this model'), findsWidgets);
+    // And a cable radio says it is one.
+    expect(find.textContaining('programs over a USB cable'), findsWidgets);
   });
 
   testWidgets('picking a radio persists the choice', (tester) async {

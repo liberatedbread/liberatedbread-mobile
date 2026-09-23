@@ -118,16 +118,17 @@ class _RadioPicker extends ConsumerWidget {
 
   /// Says what this build can actually do with the radio, rather than letting
   /// someone find out by trying.
-  static String _capabilityLine(RadioProfile profile) =>
-      switch (profile.programmerSupport) {
-        ProgrammerSupport.verified =>
-          '${profile.channelCapacity} channels · programs over Bluetooth',
-        ProgrammerSupport.unverified =>
-          '${profile.channelCapacity} channels · Bluetooth programming '
-              'unconfirmed on this model',
-        ProgrammerSupport.none =>
-          '${profile.channelCapacity} channels · export to CHIRP',
-      };
+  static String _capabilityLine(RadioProfile profile) {
+    final channels = '${profile.channelCapacity} channels';
+    final over = profile.programmingTransport?.overPhrase;
+    if (over == null) return '$channels · export to CHIRP';
+    return switch (profile.programmerSupport) {
+      ProgrammerSupport.verified => '$channels · programs $over',
+      ProgrammerSupport.unverified =>
+        '$channels · programs $over, unconfirmed on this model',
+      ProgrammerSupport.none => '$channels · export to CHIRP',
+    };
+  }
 }
 
 class _TxUnlockTile extends ConsumerWidget {

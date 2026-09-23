@@ -87,7 +87,8 @@ void main() {
 
     test('supports whatever this build can program', () {
       expect(programmer.supports(uv5rMiniProfile), isTrue);
-      expect(programmer.supports(uv5rProfile), isFalse);
+      expect(programmer.supports(uv5rProfile), isTrue);
+      expect(programmer.supports(uv5gProfile), isFalse);
     });
 
     test('walks the same stages the real driver does', () async {

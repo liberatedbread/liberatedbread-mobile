@@ -17,9 +17,11 @@ import '../models/radio_target.dart';
 import '../providers/ble_provider.dart';
 import '../providers/radio_programmer_provider.dart';
 import '../providers/saved_radio_provider.dart';
+import '../providers/serial_port_provider.dart';
 import '../services/codeplug_backup_store.dart';
 import '../services/radio_programmer.dart';
 import '../services/radio_recognition.dart';
+import '../services/serial_port_service.dart';
 
 /// The backup store. Overridden in tests with a temp directory.
 final codeplugBackupStoreProvider = Provider<CodeplugBackupStore>(
@@ -28,7 +30,8 @@ final codeplugBackupStoreProvider = Provider<CodeplugBackupStore>(
 
 /// Find the radio, then read it, back it up, and write the plan.
 ///
-/// Opened from a plan, it scans for radios nearby. Opened from a radio's own
+/// Opened from a plan, it looks for the radio the way that radio is reached:
+/// a Bluetooth scan, or the cables plugged in. Opened from a radio's own
 /// screen, it is handed [target] and goes straight to that radio.
 class RadioProgramScreen extends ConsumerStatefulWidget {
   final ChannelPlan plan;
@@ -54,6 +57,11 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
   bool _scanning = false;
   String? _scanError;
 
+  /// The cables plugged in, for a radio programmed over one. Null while
+  /// they are being listed.
+  List<SerialPortInfo>? _ports;
+  String? _portsError;
+
   /// Set while a session is running; nothing else may start one.
   RadioProgressEvent? _progress;
   String? _sessionError;
@@ -63,8 +71,17 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.target == null) unawaited(_startScan());
+    if (widget.target != null) return;
+    if (_overCable) {
+      unawaited(_listPorts());
+    } else {
+      unawaited(_startScan());
+    }
   }
+
+  /// This plan's radio is reached through a cable, not over the air.
+  bool get _overCable =>
+      widget.profile.programmingTransport == RadioTransport.usb;
 
   @override
   void dispose() {
@@ -126,6 +143,8 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
                         child: const Text('Write'),
                       ),
               )
+            else if (_overCable)
+              ..._cableSection()
             else ...[
               _scanHeader(),
               if (_scanError case final String error)
@@ -175,7 +194,7 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
             Text(
               'The radio is read first and that copy is saved, so whatever is '
               'on it now can be put back. '
-              '${widget.target == null ? 'Pick your radio below to start.' : 'Press Write to start.'}',
+              '${widget.target != null ? 'Press Write to start.' : _overCable ? 'Pick the cable below to start.' : 'Pick your radio below to start.'}',
             ),
             if (widget.profile.programmerSupport ==
                 ProgrammerSupport.unverified)
@@ -201,6 +220,101 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
           ],
         ),
       );
+
+  List<Widget> _cableSection() {
+    final ports = _ports;
+    String bridgeLine(SerialPortInfo port) => [
+          port.name,
+          if (port.bridge != null && port.bridge!.name != port.displayName)
+            port.bridge!.name,
+        ].join(' · ');
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text('Cables',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+            ),
+            if (ports == null)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              TextButton(
+                onPressed: _busy ? null : _listPorts,
+                child: const Text('Look again'),
+              ),
+          ],
+        ),
+      ),
+      if (_portsError case final String error)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(error,
+              style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ),
+      if (ports != null && ports.isEmpty && _portsError == null)
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text(
+            'No cable found. Plug the programming cable into the radio and '
+            'into this device — on a phone, through a USB-OTG adapter — then '
+            'look again.',
+          ),
+        ),
+      for (final port in ports ?? const <SerialPortInfo>[])
+        ListTile(
+          leading: const Icon(Icons.usb),
+          title: Text(port.displayName),
+          subtitle: Text(bridgeLine(port)),
+          trailing: _busy ? null : const Icon(Icons.chevron_right),
+          onTap: _busy
+              ? null
+              : () => _program(RadioTarget(
+                    transport: RadioTransport.usb,
+                    id: port.id,
+                    name: port.displayName,
+                  )),
+        ),
+    ];
+  }
+
+  Future<void> _listPorts() async {
+    final service = ref.read(serialPortServiceProvider);
+    setState(() {
+      _ports = null;
+      _portsError = null;
+    });
+    final availability = service.availability;
+    if (!availability.supported) {
+      setState(() {
+        _ports = const [];
+        _portsError = availability.reason;
+      });
+      return;
+    }
+    try {
+      final ports = await service.listPorts();
+      if (mounted) setState(() => _ports = ports);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _ports = const [];
+        _portsError = friendlyErrorText(
+          error,
+          fallback: 'Could not list the cables plugged in.',
+          context: 'serial port list',
+        );
+      });
+    }
+  }
 
   Widget _scanHeader() => Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),

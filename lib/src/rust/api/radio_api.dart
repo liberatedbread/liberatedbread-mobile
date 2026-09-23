@@ -231,6 +231,15 @@ Future<List<CodeplugBlockDto>> uv5RChangedBlocks({
   modelId: modelId,
 );
 
+/// The reads that check `changed` landed: whole blocks, each read once.
+Future<List<CodeplugBlockDto>> uv5RVerifyPlan({
+  required List<CodeplugBlockDto> changed,
+  required bool dropsByte,
+}) => RustLib.instance.api.crateApiRadioApiUv5RVerifyPlan(
+  changed: changed,
+  dropsByte: dropsByte,
+);
+
 /// Every block a full restore of `image` writes.
 Future<List<CodeplugBlockDto>> uv5RRestorePlan({
   required List<int> image,
