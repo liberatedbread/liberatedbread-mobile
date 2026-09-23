@@ -5486,6 +5486,39 @@ pub fn decode_stored_upload_event(
     }))
 }
 
+/// The same, over a WINDOW of notifications: fragments are reassembled by
+/// serial first ([`reassemble_notifications`]), then every completed packet
+/// is read. Events come back in packet order.
+///
+/// [`decode_stored_upload_event`] reads ONE notification, and a packet a
+/// 23-byte MTU splits in two never arrives in one: its first fragment stops
+/// short of the SimpleMessage, the parser hands back `None` rather than a
+/// verdict it invented, and nothing downstream reassembled — so on an
+/// unnegotiated link the M_UPLOAD_COMPLETE the device did send was never
+/// decoded, the completer never fired, and every save timed out as
+/// "unconfirmed". The caller keeps the recent notifications and asks this.
+pub fn decode_stored_upload_events(
+    spec_yaml: String,
+    notifications: Vec<Vec<u8>>,
+) -> anyhow::Result<Vec<StoredUploadEventDto>> {
+    use crate::protocol::daniao::FRAG_HEADER_LEN;
+    use crate::protocol::daniao_upload::reassemble_notifications;
+    let mut out = Vec::new();
+    for frame in reassemble_notifications(&notifications) {
+        // A reassembled frame is the DNX payload with every fragment header
+        // stripped; the single-notification parser expects one in front, so
+        // it is handed a synthetic single-fragment header (total 1,
+        // remaining 0).
+        let mut packet = vec![0u8; FRAG_HEADER_LEN];
+        packet[1] = 1;
+        packet.extend_from_slice(&frame);
+        if let Some(event) = decode_stored_upload_event(spec_yaml.clone(), packet)? {
+            out.push(event);
+        }
+    }
+    Ok(out)
+}
+
 /// Encode the play-by-cid command for RE-triggering a previously stored item
 /// — the replay path, no upload involved. `sequence` is a per-connection
 /// rolling counter (Dart owns it); a distinct value each press keeps two

@@ -1060,6 +1060,25 @@ Future<StoredUploadEventDto?> decodeStoredUploadEvent({
   bytes: bytes,
 );
 
+/// The same, over a WINDOW of notifications: fragments are reassembled by
+/// serial first ([`reassemble_notifications`]), then every completed packet
+/// is read. Events come back in packet order.
+///
+/// [`decode_stored_upload_event`] reads ONE notification, and a packet a
+/// 23-byte MTU splits in two never arrives in one: its first fragment stops
+/// short of the SimpleMessage, the parser hands back `None` rather than a
+/// verdict it invented, and nothing downstream reassembled — so on an
+/// unnegotiated link the M_UPLOAD_COMPLETE the device did send was never
+/// decoded, the completer never fired, and every save timed out as
+/// "unconfirmed". The caller keeps the recent notifications and asks this.
+Future<List<StoredUploadEventDto>> decodeStoredUploadEvents({
+  required String specYaml,
+  required List<Uint8List> notifications,
+}) => RustLib.instance.api.crateApiDeviceApiDecodeStoredUploadEvents(
+  specYaml: specYaml,
+  notifications: notifications,
+);
+
 /// Encode the play-by-cid command for RE-triggering a previously stored item
 /// — the replay path, no upload involved. `sequence` is a per-connection
 /// rolling counter (Dart owns it); a distinct value each press keeps two

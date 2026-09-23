@@ -255,6 +255,37 @@ fn assemble_plan(
         None => None,
     };
 
+    // `max_write` shrank the DATA frames above. The START packet (the header
+    // plus the upload_request protobuf) and the play write are single,
+    // unsplittable packets the frame size does not touch, and on the 20-byte
+    // budget Dart falls back to when the MTU read fails — every iPhone that
+    // has not finished negotiating — the very first write already exceeded
+    // it. The save then died at the first write with the plugin's error, or
+    // sat through the "unconfirmed" timeout. Refused here instead, with the
+    // one thing the user can do.
+    if let Some(budget) = max_write {
+        let over = transfer
+            .writes
+            .first()
+            .filter(|w| w.bytes.len() > budget)
+            .map(|w| ("the upload's START packet", w.bytes.len()))
+            .or_else(|| {
+                play_write
+                    .as_ref()
+                    .filter(|w| w.bytes.len() > budget)
+                    .map(|w| ("the play command", w.bytes.len()))
+            });
+        if let Some((what, len)) = over {
+            return Err(ProtocolError::ImageUploadUnsupported {
+                reason: format!(
+                    "{what} is {len} bytes and this link accepts writes of at most \
+                     {budget}: the MTU has not been negotiated. Reconnect to the \
+                     device and try again"
+                ),
+            });
+        }
+    }
+
     Ok(StoredUploadPlan {
         service_uuid,
         upload_writes: transfer.writes,
@@ -773,9 +804,18 @@ services:
         // A budget larger than the spec frame changes nothing.
         let roomy = encode_stored_image(&spec(), Some(4096), &program(&rgb), 0).unwrap();
         assert_eq!(roomy.upload_writes.len(), unbounded.upload_writes.len());
-        // An absurd budget still produces packets rather than a panic.
-        let tiny = encode_stored_image(&spec(), Some(3), &program(&rgb), 0).unwrap();
-        assert!(!tiny.upload_writes.is_empty());
+        // An absurd budget is a typed refusal, never a panic and never a plan
+        // whose first write the link cannot carry: the START packet is a
+        // single unsplittable packet, and a budget below it used to produce
+        // DATA frames of a few bytes behind a START the plugin would refuse
+        // on the first write.
+        let Err(tiny) = encode_stored_image(&spec(), Some(3), &program(&rgb), 0) else {
+            panic!("a 3-byte budget cannot carry the START packet");
+        };
+        assert!(
+            matches!(tiny, ProtocolError::ImageUploadUnsupported { ref reason } if reason.contains("START packet")),
+            "{tiny:?}"
+        );
     }
 
     #[test]

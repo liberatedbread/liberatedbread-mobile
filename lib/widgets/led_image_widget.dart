@@ -18,6 +18,7 @@ import '../providers/spec_codec_provider.dart';
 import '../services/saved_designs_store.dart';
 import '../services/spec_codec.dart';
 import 'led_designs.dart';
+import 'package:liberated_bread_mobile/services/stored_upload_event_reader.dart';
 
 /// The cids of the USER (diy==1) effects in an effect-list snapshot — the ones
 /// to remove so a freshly stored animation loop is the only thing the device
@@ -1485,15 +1486,17 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         final plan = plans[i];
         // Attach the verdict listener BEFORE the writes so a fast completion
         // cannot slip past between the last packet and the subscribe.
+        // Through a reader that keeps a window: a 23-byte MTU splits the
+        // device's M_UPLOAD_COMPLETE in two, and read one notification at a
+        // time it was never decoded.
+        final reader = StoredUploadEventReader(
+          codec: codec,
+          specYaml: specYaml,
+        );
         final Future<bool> confirmed = notify == null
             ? Future.value(false)
             : notify
-                  .asyncMap(
-                    (b) => codec.decodeStoredUploadEvent(
-                      specYaml: specYaml,
-                      bytes: b,
-                    ),
-                  )
+                  .asyncMap(reader.feed)
                   .where((e) => e != null)
                   .cast<StoredUploadEventDto>()
                   .firstWhere(
@@ -1659,13 +1662,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 
     final ble = ref.read(bleServiceProvider);
     final verdict = Completer<StoredUploadEventDto>();
+    final reader = StoredUploadEventReader(codec: codec, specYaml: specYaml);
     final sub = ble
         .subscribeCharacteristic(widget.deviceId, plan.serviceUuid, respChar)
         .listen((bytes) async {
-          final event = await codec.decodeStoredUploadEvent(
-            specYaml: specYaml,
-            bytes: bytes,
-          );
+          final event = await reader.feed(bytes);
           if (event == null || verdict.isCompleted) return;
           switch (event.kind) {
             case StoredUploadEventKind.complete:

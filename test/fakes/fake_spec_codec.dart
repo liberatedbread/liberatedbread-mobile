@@ -1313,6 +1313,17 @@ class FakeSpecCodec implements SpecCodec {
   /// Every notification [decodeStoredUploadEvent] was asked about.
   final List<List<int>> decodeUploadEventCalls = [];
 
+  /// One notification at a time, like the single-decode: the fake does not
+  /// fragment, so a window is its notifications' events in order.
+  @override
+  Future<List<StoredUploadEventDto>> decodeStoredUploadEvents({
+    required String specYaml,
+    required List<List<int>> notifications,
+  }) async => [
+    for (final n in notifications)
+      ?await decodeStoredUploadEvent(specYaml: specYaml, bytes: n),
+  ];
+
   @override
   Future<StoredUploadEventDto?> decodeStoredUploadEvent({
     required String specYaml,

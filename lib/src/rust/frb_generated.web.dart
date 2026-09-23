@@ -478,6 +478,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<StoredUploadEventDto> dco_decode_list_stored_upload_event_dto(
+    dynamic raw,
+  );
+
+  @protected
   List<TroubleshootingDto> dco_decode_list_troubleshooting_dto(dynamic raw);
 
   @protected
@@ -1404,6 +1409,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<StateTopicFallbackDto> sse_decode_list_state_topic_fallback_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<StoredUploadEventDto> sse_decode_list_stored_upload_event_dto(
     SseDeserializer deserializer,
   );
 
@@ -2595,6 +2605,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_state_topic_fallback_dto(
     List<StateTopicFallbackDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_stored_upload_event_dto(
+    List<StoredUploadEventDto> self,
     SseSerializer serializer,
   );
 

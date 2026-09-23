@@ -17,7 +17,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-use liberated_bread_core::api::device_api::{encode_stored_image, encode_stored_text};
+use liberated_bread_core::api::device_api::{
+    decode_stored_upload_event, decode_stored_upload_events, encode_stored_image,
+    encode_stored_text,
+};
 use liberated_bread_core::protocol::daniao_store::{MAX_LAYER_DIM, MAX_TEXT_WIDTH};
 
 fn spec_yaml() -> String {
@@ -183,4 +186,88 @@ fn a_stored_name_the_header_cannot_hold_is_refused_at_the_ffi() {
     // And a name past the whole buffer is an error too, not a slice panic
     // crossing the FFI as a PanicException.
     assert!(store("n".repeat(5000)).is_err());
+}
+
+/// An M_UPLOAD_COMPLETE the device sends, as a 23-byte MTU delivers it: two
+/// notifications behind [serial][total][remaining][tag] headers, 16 DNX bytes
+/// each. The SimpleMessage (i1 = 0, i3 = 0: success) lands entirely in the
+/// second.
+fn fragmented_upload_complete() -> Vec<Vec<u8>> {
+    let mut dnx = vec![0xF1, 0x01, 0x00, 0x07, 0x00, 0x00, 0x0B, 0x76]; // mt 2934
+    dnx.extend_from_slice(&[0; 12]); // up to DNX offset 20
+    dnx.extend_from_slice(&[0x08, 0x00, 0x18, 0x00]); // SimpleMessage
+    let chunks: Vec<&[u8]> = dnx.chunks(16).collect();
+    let total = chunks.len() as u8;
+    assert_eq!(total, 2, "the fixture must actually fragment");
+    chunks
+        .iter()
+        .enumerate()
+        .map(|(i, chunk)| {
+            let mut frag = vec![0x21, total, total - 1 - i as u8, 0x00];
+            frag.extend_from_slice(chunk);
+            frag
+        })
+        .collect()
+}
+
+#[test]
+fn a_fragmented_upload_complete_is_decoded_from_the_window() {
+    let fragments = fragmented_upload_complete();
+    // One notification at a time — what the app used to do — sees nothing:
+    // the first fragment stops short of the SimpleMessage.
+    assert!(
+        decode_stored_upload_event(spec_yaml(), fragments[0].clone())
+            .unwrap()
+            .is_none(),
+        "a first fragment is not a verdict"
+    );
+    // The window reassembles first.
+    let events = decode_stored_upload_events(spec_yaml(), fragments.clone()).unwrap();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        events[0].kind,
+        liberated_bread_core::api::device_api::StoredUploadEventKind::Complete
+    ));
+    // And a window with only the first fragment is still nothing.
+    let events = decode_stored_upload_events(spec_yaml(), vec![fragments[0].clone()]).unwrap();
+    assert!(events.is_empty());
+}
+
+#[test]
+fn a_write_budget_below_the_start_packet_is_refused_up_front() {
+    // 20 bytes: what Dart falls back to when the MTU read fails. The START
+    // packet alone is header + protobuf, well past it; the save used to die on
+    // that first write instead of saying why.
+    let err = encode_stored_text(
+        spec_yaml(),
+        Some(20),
+        16,
+        8,
+        vec![1; 16 * 8],
+        "marquee".to_string(),
+        905001,
+        5,
+        "left".to_string(),
+        3,
+        0,
+    )
+    .expect_err("a 20-byte budget cannot carry the START packet");
+    let text = err.to_string();
+    assert!(text.contains("START packet"), "{text}");
+    assert!(text.contains("MTU"), "{text}");
+    // A budget the START packet fits is the normal path.
+    assert!(encode_stored_text(
+        spec_yaml(),
+        Some(100),
+        16,
+        8,
+        vec![1; 16 * 8],
+        "marquee".to_string(),
+        905001,
+        5,
+        "left".to_string(),
+        3,
+        0,
+    )
+    .is_ok());
 }

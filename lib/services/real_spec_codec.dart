@@ -836,6 +836,15 @@ class RealSpecCodec implements SpecCodec {
   );
 
   @override
+  Future<List<StoredUploadEventDto>> decodeStoredUploadEvents({
+    required String specYaml,
+    required List<List<int>> notifications,
+  }) => rust.decodeStoredUploadEvents(
+    specYaml: specYaml,
+    notifications: [for (final n in notifications) Uint8List.fromList(n)],
+  );
+
+  @override
   Future<StoredUploadEventDto?> decodeStoredUploadEvent({
     required String specYaml,
     required List<int> bytes,

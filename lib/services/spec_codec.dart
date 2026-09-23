@@ -754,6 +754,16 @@ abstract class SpecCodec {
     required List<int> bytes,
   });
 
+  /// The same over a WINDOW of recent notifications: fragments are
+  /// reassembled by serial before anything is read, so a packet a 23-byte
+  /// MTU splits in two is decoded once both halves are in. Events come back
+  /// in packet order; [StoredUploadEventReader] is the caller that keeps the
+  /// window.
+  Future<List<StoredUploadEventDto>> decodeStoredUploadEvents({
+    required String specYaml,
+    required List<List<int>> notifications,
+  });
+
   /// The play-by-cid write that RE-triggers an already stored design — the
   /// replay list's whole wire footprint.
   Future<StoredPlayDto> encodeStoredPlay({
