@@ -23,10 +23,12 @@ final networkScanServiceProvider = Provider<NetworkScanService>((ref) {
     codec: ref.read(specCodecProvider),
     // The catalogue's own UDP probes, for the devices with no hand-written
     // transport. Read lazily, per scan: the catalogue loads asynchronously
-    // while the first screen builds, and a scan that starts before it is
-    // ready should run its other transports rather than wait. A catalogue
-    // that is not loaded yet answers with no probes and the scan is one
-    // transport lighter, which is what it was before this existed.
+    // while the first screen builds, so a scan that starts before it is
+    // ready waits for it here — the other transports run meanwhile, and the
+    // scan service races this against its own stop so a stopped scan does
+    // not wait on the load. A catalogue that fails to load answers with no
+    // probes and the scan is one transport lighter, which is what it was
+    // before this existed.
     probeSource: () async {
       try {
         final catalogue = await ref.read(specCatalogueProvider.future);

@@ -1700,37 +1700,60 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final source = probeSource;
     if (source == null) return TransportOutcome.skipped;
-    final probes = (await source())
+    // Raced against the stop. The source is the catalogue load when a scan
+    // starts before the first screen has finished building it, and nothing
+    // in that load looks at this session: without the race a stopScan()
+    // during it could not end the scan stream, because Future.wait in
+    // startScan waits for this transport and this transport was waiting for
+    // the catalogue.
+    final loaded = await Future.any<List<UdpProbeDto>?>([
+      source(),
+      session.whenStopped.then((_) => null),
+    ]);
+    if (loaded == null) return TransportOutcome.skipped;
+    final probes = loaded
         .where(
           (p) => p.probe.isNotEmpty && !_probesWithTheirOwnTransport(p.specKey),
         )
         .toList();
     if (probes.isEmpty) return TransportOutcome.skipped;
 
-    // One socket per port, not per probe: the Milight bridge declares two
-    // probes on 48899 because its firmwares answer different strings, and two
-    // sockets on one port is a bind clash on Android for no gain.
-    final byPort = <int, List<UdpProbeDto>>{};
+    // One socket per DESTINATION (address and port), not per probe and not
+    // per port. The Milight bridge declares two probes to the same broadcast
+    // on 48899 because its firmwares answer different strings, and both
+    // belong on one socket so a reply gets every probe's parse. Two probes
+    // that share a port but not an address must NOT share one: a send dart:io
+    // cannot complete closes the socket it was attempted on, so the one
+    // unreachable group in the bundled catalogue (aqara-hub's 230.0.0.1)
+    // would take the port's broadcast probes and their replies down with it.
+    // Each socket binds an ephemeral port, so there is no clash to avoid.
+    final byDestination = <({String address, int port}), List<UdpProbeDto>>{};
     for (final probe in probes) {
-      (byPort[probe.port] ??= []).add(probe);
+      final destination = (address: probe.broadcastAddress, port: probe.port);
+      (byDestination[destination] ??= []).add(probe);
     }
     Log.net.debug(
-      'catalogue probes: ${probes.length} on ports ${byPort.keys.join(', ')}',
+      'catalogue probes: ${probes.length} to '
+      '${byDestination.keys.map((d) => '${d.address}:${d.port}').join(', ')}',
     );
 
     final outcomes = await Future.wait([
-      for (final entry in byPort.entries)
+      for (final entry in byDestination.entries)
         _runCatalogueProbePort(
           session,
           emit,
           timeout,
-          entry.key,
+          entry.key.address,
+          entry.key.port,
           entry.value,
         ).catchError((Object e) {
-          // One vendor port failing must not take the others, nor the scan:
+          // One destination failing must not take the others, nor the scan:
           // this whole transport is additive, and everything it finds is
           // something the app could not find at all before.
-          Log.net.debug('catalogue probe port ${entry.key} failed: $e');
+          Log.net.debug(
+            'catalogue probe to ${entry.key.address}:${entry.key.port} '
+            'failed: $e',
+          );
           // ...but a refusal is not a failure to fold away. On iOS a denied
           // (or still-prompting) Local Network permission surfaces as the
           // EHOSTUNREACH SocketException from `socket.send()` to the
@@ -1760,14 +1783,45 @@ class RealNetworkScanService implements NetworkScanService {
         : TransportOutcome.skipped;
   }
 
-  /// Run the probes that share one port, on one socket.
+  /// Run the probes that share one destination, on one socket.
+  ///
+  /// Only a send to the LIMITED BROADCAST address is evidence about the
+  /// network. Any other destination a spec can name — a multicast group, a
+  /// subnet-directed broadcast, a unicast literal — is refused on its own
+  /// account (no entitlement, no route to that group or subnet) while
+  /// 255.255.255.255 from another socket still goes out. aqara-hub's
+  /// 230.0.0.1 is the only such address in the bundled catalogue, and packs
+  /// install from arbitrary URLs. Letting that refusal stand for the scan
+  /// would read as `denied` to the caller, and a single `denied` beats every
+  /// `heard` in [scanFailureFor] — so a scan that found devices on every
+  /// other transport would still tell the user Local Network is off. A real
+  /// denial fails the broadcast destinations too, and those still report it.
+  ///
+  /// The refusal is met on the socket's STREAM, not at send():
+  /// `RawDatagramSocket.send` never throws — dart:io returns 0 and, a
+  /// microtask later, delivers the SocketException on the stream and closes
+  /// the socket. A try/catch around the call catches nothing.
   Future<TransportOutcome> _runCatalogueProbePort(
     _ScanSession session,
     void Function(NetworkDevice) emit,
     Duration timeout,
+    String address,
     int port,
     List<UdpProbeDto> probes,
   ) async {
+    final InternetAddress target;
+    try {
+      target = InternetAddress(address);
+    } on ArgumentError {
+      // A spec naming an address that is not one: this destination never
+      // probed and has no vote; the others are unaffected.
+      Log.net.debug(
+        '${probes.map((p) => p.specKey).join(', ')}: "$address" is not an '
+        'address',
+      );
+      return TransportOutcome.skipped;
+    }
+    final isEvidence = target.address == _limitedBroadcast;
     final socket = await RawDatagramSocket.bind(
       InternetAddress.anyIPv4,
       0,
@@ -1786,59 +1840,9 @@ class RealNetworkScanService implements NetworkScanService {
     try {
       // Twice, like every other broadcast here: UDP is lossy and a dropped
       // probe means a bridge never heard from.
-      var sent = false;
-      // Only a send to the LIMITED BROADCAST address is evidence about the
-      // port. Any other destination a spec can name — a multicast group, a
-      // subnet-directed broadcast, a unicast literal — is refused on its own
-      // account (no entitlement, no route to that group or subnet) while
-      // 255.255.255.255 on the same socket still goes out, and aqara-hub is
-      // the ONLY probe on :10008 with the only non-broadcast address in the
-      // bundled catalogue (230.0.0.1). Letting its EHOSTUNREACH stand for the
-      // port would rethrow below, the caller would read it as `denied`, and a
-      // single `denied` beats every `heard` in [scanFailureFor] — so a scan
-      // that found devices on every other transport would still tell the user
-      // Local Network is off. A real denial fails the broadcast ports too,
-      // and those still report it.
-      Object? sendError;
       for (var attempt = 0; attempt < 2; attempt++) {
         for (final probe in probes) {
-          final InternetAddress target;
-          try {
-            target = InternetAddress(probe.broadcastAddress);
-          } on ArgumentError {
-            // A spec naming an address that is not one: skip that probe
-            // rather than the port.
-            Log.net.debug(
-              '${probe.specKey}: "${probe.broadcastAddress}" is not an address',
-            );
-            continue;
-          }
-          // A destination one probe cannot reach skips that probe, not the
-          // port, for the same reason the parse above does. The addresses
-          // here come from specs, including packs installed from arbitrary
-          // URLs, and one unreachable group (aqara-hub names 230.0.0.1, which
-          // a build without the multicast entitlement cannot send to) would
-          // otherwise abort the whole port AND be classified as a denial —
-          // and a single `denied` outcome beats every `heard` one in
-          // [scanFailureFor], so a scan that found devices would still tell
-          // the user their Local Network permission is off.
-          try {
-            socket.send(probe.probe, target, port);
-            sent = true;
-          } catch (e) {
-            // 255.255.255.255 and nothing else, per the rule above. A
-            // subnet-directed broadcast or a unicast literal is refused on
-            // its own account exactly as a multicast group is: a pack
-            // installed from a URL naming `192.168.99.255`, or a link-local
-            // address, gets EHOSTUNREACH on a network that is working
-            // perfectly, and treating that as the port's verdict would
-            // report the whole scan as `denied`.
-            if (target.address == _limitedBroadcast) sendError = e;
-            Log.net.debug(
-              '${probe.specKey}: probe to ${probe.broadcastAddress}:$port '
-              'could not be sent: $e',
-            );
-          }
+          socket.send(probe.probe, target, port);
         }
         if (await session.sleepUnlessStopped(
           const Duration(milliseconds: 250),
@@ -1846,31 +1850,28 @@ class RealNetworkScanService implements NetworkScanService {
           break;
         }
       }
-      // Nothing on this port could be sent at all: that is the refusal the
-      // caller has to classify (EHOSTUNREACH on a denied Local Network makes
-      // every send fail, not one), so it travels rather than being logged
-      // away above.
-      if (!sent) {
-        if (sendError != null) throw sendError;
-        // Nothing left the socket and nothing said why in terms this port can
-        // answer for — every probe named an address that would not parse, or
-        // one that was refused on its own account. That is a port which never
-        // probed, so it reports `skipped` rather than `silent`: only probes
-        // with a payload reach this transport, so no reply can arrive on an
-        // ephemeral port nothing went out of, and waiting the scan's whole
-        // window for one spends the budget on nothing. `silent` would also be
-        // a vote it has not earned — [scanFailureFor] reasons only over the
-        // outcomes that are not `skipped`, and one bogus `silent` is enough to
-        // stop `probed.every(failed)` holding, which is how a network that is
-        // genuinely unavailable stops being reported as one.
-        return TransportOutcome.skipped;
-      }
 
+      // A refusal that is evidence travels: the stream error propagates out
+      // of the loop to [_runCatalogueProbes], which classifies it
+      // (EHOSTUNREACH to the broadcast address on Apple is `denied`). One
+      // that is not is handled here: the socket is already closed under it,
+      // so nothing can arrive, and the destination reports `skipped` rather
+      // than `silent` — [scanFailureFor] reasons only over the outcomes that
+      // are not `skipped`, and one bogus `silent` is enough to stop
+      // `probed.every(failed)` holding, which is how a network that is
+      // genuinely unavailable stops being reported as one.
+      var refused = false;
       final deadline = DateTime.now().add(timeout);
-      await for (final event in socket.timeout(
-        timeout,
-        onTimeout: (sink) => sink.close(),
-      )) {
+      await for (final event
+          in socket
+              .timeout(timeout, onTimeout: (sink) => sink.close())
+              .handleError((Object e) {
+                refused = true;
+                Log.net.debug(
+                  'catalogue probe to $address:$port refused on its own '
+                  'account: $e',
+                );
+              }, test: (e) => e is SocketException && !isEvidence)) {
         if (session.stopped || DateTime.now().isAfter(deadline)) break;
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
@@ -1915,7 +1916,8 @@ class RealNetworkScanService implements NetworkScanService {
           ),
         );
       }
-      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+      if (heard) return TransportOutcome.heard;
+      return refused ? TransportOutcome.skipped : TransportOutcome.silent;
     } finally {
       socket.close();
       session.catalogueProbeSockets.remove(socket);
@@ -2158,6 +2160,9 @@ class RealNetworkScanService implements NetworkScanService {
     } catch (e) {
       Log.net.debug('Tuya :$_tuyaPortPlain bind failed: $e');
     }
+    // A stop the first bind already met is not a reason to take the second
+    // port only to close it again.
+    if (session.stopped) return TransportOutcome.skipped;
     try {
       encrypted = await bindDatagramSocket(
         InternetAddress.anyIPv4,
@@ -2344,38 +2349,37 @@ class RealNetworkScanService implements NetworkScanService {
     final seen = <String>{};
     try {
       final target = InternetAddress(_yeelightMulticast);
-      var sent = false;
       for (var attempt = 0; attempt < 2; attempt++) {
-        try {
-          socket.send(utf8.encode(_yeelightProbe), target, _yeelightPort);
-          sent = true;
-        } catch (e) {
-          // A group this host cannot route is refused on its OWN account,
-          // not the network's — the rule the catalogue probe already follows
-          // and Govee already wraps for. Reaching the transport's onError()
-          // would classify it `denied`, and one `denied` beats every `heard`
-          // in [scanFailureFor], so a scan that found devices on mDNS and
-          // SSDP would still tell the user Local Network is off. The
-          // _setMulticastInterface pinning above is what makes this
-          // reachable: before it, the send followed the OS default route.
-          Log.net.debug('Yeelight probe send failed: $e');
-        }
+        socket.send(utf8.encode(_yeelightProbe), target, _yeelightPort);
         if (await session.sleepUnlessStopped(
           const Duration(milliseconds: 250),
         )) {
           break;
         }
       }
-      // Nothing went out. This socket is ephemeral and joined no group, so
-      // no reply can arrive on it; listening out the scan's whole window
-      // would spend the budget on nothing and return a `silent` vote the
-      // transport never earned.
-      if (!sent) return TransportOutcome.skipped;
+      // A group this host cannot route is refused on its OWN account, not
+      // the network's — the rule the catalogue probe follows. Reaching the
+      // transport's onError() would classify it `denied`, and one `denied`
+      // beats every `heard` in [scanFailureFor], so a scan that found
+      // devices on mDNS and SSDP would still tell the user Local Network is
+      // off. The _setMulticastInterface pinning above is what makes this
+      // reachable: before it, the send followed the OS default route.
+      //
+      // The refusal is met HERE, not at send(): dart:io never throws from
+      // RawDatagramSocket.send — it returns 0 and, a microtask later,
+      // delivers the SocketException on the socket's stream and closes the
+      // socket. The stream then ends at once, nothing can arrive on it, and
+      // the outcome is `skipped` rather than a `silent` vote the transport
+      // never earned.
+      var refused = false;
       final deadline = DateTime.now().add(timeout);
-      await for (final event in socket.timeout(
-        timeout,
-        onTimeout: (sink) => sink.close(),
-      )) {
+      await for (final event
+          in socket
+              .timeout(timeout, onTimeout: (sink) => sink.close())
+              .handleError((Object e) {
+                refused = true;
+                Log.net.debug('Yeelight probe refused on its own account: $e');
+              }, test: (e) => e is SocketException)) {
         if (session.stopped || DateTime.now().isAfter(deadline)) break;
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
@@ -2402,7 +2406,8 @@ class RealNetworkScanService implements NetworkScanService {
           ),
         );
       }
-      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+      if (heard) return TransportOutcome.heard;
+      return refused ? TransportOutcome.skipped : TransportOutcome.silent;
     } finally {
       socket.close();
       session.yeelightSocket = null;
@@ -2438,6 +2443,7 @@ class RealNetworkScanService implements NetworkScanService {
     RawDatagramSocket? sender;
     var heard = false;
     var sent = false;
+    var refused = false;
     final seen = <String>{};
     try {
       try {
@@ -2448,19 +2454,25 @@ class RealNetworkScanService implements NetworkScanService {
         );
         sender.broadcastEnabled = true;
         _setMulticastInterface(sender, session);
+        // The same rule the other multicast senders follow: a group this
+        // host cannot route is refused on its OWN account, not the
+        // network's, so it must not reach the transport's onError() (which
+        // would call it `denied`, and one `denied` beats every `heard` in
+        // [scanFailureFor]). dart:io never throws from send(): it returns 0
+        // and delivers the SocketException on the SENDER's stream a
+        // microtask later — a stream nothing else here reads, since the
+        // replies come in on :4002 — so it is listened to for that alone.
+        sender.listen(
+          null,
+          onError: (Object e) {
+            refused = true;
+            Log.net.debug('Govee probe refused on its own account: $e');
+          },
+        );
         final target = InternetAddress(_goveeMulticast);
         for (var attempt = 0; attempt < 2; attempt++) {
-          try {
-            sender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
-            sent = true;
-          } catch (e) {
-            // The same rule the other four multicast senders follow: a group
-            // this host cannot route is refused on its OWN account, not the
-            // network's, so it is logged rather than thrown at the
-            // transport's onError() (which would call it `denied`, and one
-            // `denied` beats every `heard` in [scanFailureFor]).
-            Log.net.debug('Govee probe send failed: $e');
-          }
+          sender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
+          sent = true;
           if (await session.sleepUnlessStopped(
             const Duration(milliseconds: 250),
           )) {
@@ -2471,13 +2483,14 @@ class RealNetworkScanService implements NetworkScanService {
         // The sender socket itself could not be bound or configured.
         Log.net.debug('Govee probe socket unavailable: $e');
       }
-      // Nothing went out, so nothing can come back: :4002 only ever carries a
-      // reply to the scan this transport just failed to send. Listening out
-      // the scan's whole window would spend the budget on nothing and return
-      // a `silent` vote the transport never earned — and [scanFailureFor]
-      // reasons over every outcome that is not `skipped`, so one bogus
-      // `silent` is enough to stop `probed.every(failed)` holding.
-      if (!sent) return TransportOutcome.skipped;
+      // Nothing went out — no sender socket, or the group refused it — so
+      // nothing can come back: :4002 only ever carries a reply to the scan
+      // this transport just failed to send. Listening out the scan's whole
+      // window would spend the budget on nothing and return a `silent` vote
+      // the transport never earned — and [scanFailureFor] reasons over every
+      // outcome that is not `skipped`, so one bogus `silent` is enough to
+      // stop `probed.every(failed)` holding.
+      if (!sent || refused) return TransportOutcome.skipped;
       final deadline = DateTime.now().add(timeout);
       await for (final event in recv.timeout(
         timeout,
@@ -2545,38 +2558,37 @@ class RealNetworkScanService implements NetworkScanService {
     final seen = <String>{};
     try {
       final target = InternetAddress(_knxMulticast);
-      var sent = false;
       for (var attempt = 0; attempt < 2; attempt++) {
-        try {
-          socket.send(_knxProbe, target, _knxPort);
-          sent = true;
-        } catch (e) {
-          // A group this host cannot route is refused on its OWN account,
-          // not the network's — the rule the catalogue probe already follows
-          // and Govee already wraps for. Reaching the transport's onError()
-          // would classify it `denied`, and one `denied` beats every `heard`
-          // in [scanFailureFor], so a scan that found devices on mDNS and
-          // SSDP would still tell the user Local Network is off. The
-          // _setMulticastInterface pinning above is what makes this
-          // reachable: before it, the send followed the OS default route.
-          Log.net.debug('KNX probe send failed: $e');
-        }
+        socket.send(_knxProbe, target, _knxPort);
         if (await session.sleepUnlessStopped(
           const Duration(milliseconds: 250),
         )) {
           break;
         }
       }
-      // Nothing went out. This socket is ephemeral and joined no group, so
-      // no reply can arrive on it; listening out the scan's whole window
-      // would spend the budget on nothing and return a `silent` vote the
-      // transport never earned.
-      if (!sent) return TransportOutcome.skipped;
+      // A group this host cannot route is refused on its OWN account, not
+      // the network's — the rule the catalogue probe follows. Reaching the
+      // transport's onError() would classify it `denied`, and one `denied`
+      // beats every `heard` in [scanFailureFor], so a scan that found
+      // devices on mDNS and SSDP would still tell the user Local Network is
+      // off. The _setMulticastInterface pinning above is what makes this
+      // reachable: before it, the send followed the OS default route.
+      //
+      // The refusal is met HERE, not at send(): dart:io never throws from
+      // RawDatagramSocket.send — it returns 0 and, a microtask later,
+      // delivers the SocketException on the socket's stream and closes the
+      // socket. The stream then ends at once, nothing can arrive on it, and
+      // the outcome is `skipped` rather than a `silent` vote the transport
+      // never earned.
+      var refused = false;
       final deadline = DateTime.now().add(timeout);
-      await for (final event in socket.timeout(
-        timeout,
-        onTimeout: (sink) => sink.close(),
-      )) {
+      await for (final event
+          in socket
+              .timeout(timeout, onTimeout: (sink) => sink.close())
+              .handleError((Object e) {
+                refused = true;
+                Log.net.debug('KNX probe refused on its own account: $e');
+              }, test: (e) => e is SocketException)) {
         if (session.stopped || DateTime.now().isAfter(deadline)) break;
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
@@ -2609,7 +2621,8 @@ class RealNetworkScanService implements NetworkScanService {
           ),
         );
       }
-      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+      if (heard) return TransportOutcome.heard;
+      return refused ? TransportOutcome.skipped : TransportOutcome.silent;
     } finally {
       socket.close();
       session.knxSocket = null;

@@ -116,22 +116,23 @@ Future<List<NetworkInterface>> lanInterfaces(
 /// VPN interface that slipped through the name filter with a public address
 /// does not win over the real LAN.
 ///
-/// [lanInterfaces]' "yield to the unfiltered list rather than return nothing"
-/// fallback is deliberately NOT honoured here, and the filter is re-applied to
-/// whatever it hands back. That fallback exists so a multicast JOIN happens on
-/// a questionable interface rather than on none; egress selection is the
-/// opposite case — pinning IP_MULTICAST_IF to `rmnet_data0` or `utun0` is
-/// worse than not pinning at all, because it overrides the OS default route
-/// with the one interface the name filter exists to exclude. Null is the
-/// answer this doc promises for "none can be found", and it restores exactly
-/// the pre-F-014 behaviour: the OS picks.
+/// Enumerates and filters for itself rather than going through
+/// [lanInterfaces], whose "yield to the unfiltered list rather than return
+/// nothing" fallback is deliberately NOT wanted here. That fallback exists so
+/// a multicast JOIN happens on a questionable interface rather than on none;
+/// egress selection is the opposite case — pinning IP_MULTICAST_IF to
+/// `rmnet_data0` or `utun0` is worse than not pinning at all, because it
+/// overrides the OS default route with the one interface the name filter
+/// exists to exclude. Null is the answer this doc promises for "none can be
+/// found", and it restores exactly the pre-F-014 behaviour: the OS picks.
 Future<InternetAddress?> primaryLanIpv4({
   InterfaceLister lister = NetworkInterface.list,
 }) async {
-  final interfaces = (await lanInterfaces(
-    InternetAddressType.IPv4,
-    lister: lister,
-  )).where((i) => isLanCandidate(i)).toList();
+  final interfaces = (await lister(
+    includeLoopback: false,
+    includeLinkLocal: false,
+    type: InternetAddressType.IPv4,
+  )).where((i) => isLanCandidate(i));
   InternetAddress? firstRoutable;
   for (final interface in interfaces) {
     for (final addr in interface.addresses) {
