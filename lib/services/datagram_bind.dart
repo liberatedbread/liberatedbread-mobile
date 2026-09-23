@@ -2,6 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:io';
 
+/// The shape of [bindDatagramSocket] — and of package:multicast_dns's
+/// `RawDatagramSocketFactory` — so the scan service can be handed a binder
+/// that returns a socket behaving like a refused one, without a network.
+/// That case is the one dart:io makes easy to get wrong: `send()` never
+/// throws, the SocketException arrives on the stream, and only a fake that
+/// puts it there can prove a transport meets it where it lands.
+typedef DatagramBinder =
+    Future<RawDatagramSocket> Function(
+      dynamic host,
+      int port, {
+      bool reuseAddress,
+      bool reusePort,
+      int ttl,
+    });
+
 /// Bind a UDP datagram socket, tolerating platforms that reject SO_REUSEPORT.
 ///
 /// Desktop Linux and macOS support SO_REUSEPORT and need it so several listeners
@@ -20,21 +35,6 @@ import 'dart:io';
 /// on mobile, so dropping SO_REUSEPORT there costs nothing. `reuseAddress` is
 /// honoured unchanged: it is supported everywhere and is the option that lets a
 /// bind coexist with a well-behaved holder of the port.
-/// The shape of [bindDatagramSocket] — and of package:multicast_dns's
-/// `RawDatagramSocketFactory` — so the scan service can be handed a binder
-/// that returns a socket behaving like a refused one, without a network.
-/// That case is the one dart:io makes easy to get wrong: `send()` never
-/// throws, the SocketException arrives on the stream, and only a fake that
-/// puts it there can prove a transport meets it where it lands.
-typedef DatagramBinder =
-    Future<RawDatagramSocket> Function(
-      dynamic host,
-      int port, {
-      bool reuseAddress,
-      bool reusePort,
-      int ttl,
-    });
-
 Future<RawDatagramSocket> bindDatagramSocket(
   dynamic host,
   int port, {

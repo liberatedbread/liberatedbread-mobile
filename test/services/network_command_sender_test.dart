@@ -585,6 +585,27 @@ void main() {
     );
   });
 
+  test('an HTTP send in flight when close() lands is refused too', () async {
+    // The gate at the top of sendHttpRequest covers a send that STARTS after
+    // close(). This one started before: it is parked on its session attempt
+    // when the screen disposes, resumes with `_tlsReady` still null after
+    // close() has done its one forgetHost, and — without the second gate —
+    // registers the host's TLS policy with nobody left to release it.
+    final s = sender(ssdpTargets: const [], capabilities: null);
+    // The expectation is attached BEFORE the close: the refusal lands while
+    // close() is still awaiting its own teardown, and a future nobody is
+    // listening to by then reports its error as unhandled instead.
+    final refused = expectLater(
+      s.sendHttpRequest(
+        const HttpRequestDto(method: 'POST', path: '/keypress/Home', body: ''),
+      ),
+      throwsStateError,
+    );
+    await s.close();
+
+    await refused;
+  });
+
   group('the mqtt transport', () {
     late _ScriptedBroker broker;
     late FakeSpecCodec mqttCodec;

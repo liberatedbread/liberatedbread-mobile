@@ -86,13 +86,11 @@ impl LoadedSpec {
         // answered CharacteristicNotFound for the same bytes — the module
         // doc's "an answer cannot depend on which door the caller came
         // through", broken by the door added to make decoding cheap.
-        if let Some(uuid) = service_uuid.as_deref() {
-            if !crate::protocol::dispatch::declares_service(&self.spec, uuid) {
-                if let Some(profile) = crate::protocol::profiles::lookup(uuid) {
-                    let proto = profile.create_protocol();
-                    return decode_with_protocol(&*proto, &char_uuid, &bytes);
-                }
-            }
+        if let Some(proto) = service_uuid
+            .as_deref()
+            .and_then(|uuid| crate::protocol::dispatch::standard_profile_for(&self.spec, uuid))
+        {
+            return decode_with_protocol(&*proto, &char_uuid, &bytes);
         }
         let proto =
             crate::protocol::generic::GenericProtocol::scoped(self.spec.clone(), service_uuid);

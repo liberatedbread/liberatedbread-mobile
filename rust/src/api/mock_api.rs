@@ -219,13 +219,25 @@ services:
     /// the comment carries the rest.
     #[test]
     fn concurrent_reads_stay_per_device() {
+        // The same lock every test above takes: MOCK_STATES is one
+        // process-wide map, cargo runs tests on parallel threads, and one of
+        // them calling mock_reset() between the writes below and the reads
+        // that follow is a `[0, 0, 0, 0]` default read back as "device-1 read
+        // another device's state". Five of five suite runs, without this.
+        let _guard = exclusive_state();
         // Each device is given its OWN value first. Reading defaults, as this
         // test once did, cannot tell eight states from one: generate_defaults
         // is deterministic, so "all eight equal results[0]" held with a single
         // shared state and with no lock at all.
+        // Ids no other test touches: MOCK_STATES is one process-wide map and
+        // cargo runs tests on parallel threads.
         const CHAR: &str = "0000fff3-0000-1000-8000-00805f9b34fb";
         for i in 0..8u8 {
-            mock_write_characteristic(format!("device-{i}"), CHAR.into(), vec![0xA0 + i, i]);
+            mock_write_characteristic(
+                format!("concurrent-reads-{i}"),
+                CHAR.into(),
+                vec![0xA0 + i, i],
+            );
         }
         let handles: Vec<_> = (0..8u8)
             .map(|i| {
@@ -233,7 +245,7 @@ services:
                     (
                         i,
                         mock_read_characteristic(
-                            format!("device-{i}"),
+                            format!("concurrent-reads-{i}"),
                             CHAR.into(),
                             TEST_YAML.into(),
                         ),

@@ -132,6 +132,13 @@ case "$LAUNCHER" in
   xcodebuild|flutter) ;;
   *) err "--launcher must be xcodebuild or flutter (got '$LAUNCHER')."; exit 2 ;;
 esac
+# The wipe opt-in only reaches keychain_accessibility_test.dart through the
+# --all aggregate. Passed alone it defined nothing and said nothing, and an
+# operator who typed it on purpose was left believing the suite had run.
+if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" && "$RUN_ALL" != "true" ]]; then
+  err "--allow-keychain-wipe does nothing without --all: keychain_accessibility_test.dart runs only in the mock-mode aggregate."
+  exit 2
+fi
 # Everything after `--` is `flutter test` arguments, and only the flutter lane
 # has a `flutter test` to give them to. The xcodebuild lane never referenced
 # PASSTHROUGH, so `-- --plain-name "live BLE"` on the DEFAULT launcher was

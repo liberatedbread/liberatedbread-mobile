@@ -151,14 +151,16 @@ void main() {
         'by handle ${afterSync ~/ runs} us sync/call',
       );
 
-      // Relative, not a wall-clock number: an absolute microsecond budget in
-      // the ordinary unit lane went red on a busy runner with no code change
-      // and would stay green after a regression smaller than its margin.
-      // The by-value path is measured in the same process moments earlier,
-      // so a fifth of it is a bound that moves with the host.
+      // Relative AND floored: a fifth of the by-value path measured in the
+      // same process moments earlier, so the bound grows with a busy host
+      // rather than going red on one with no code change — but never below
+      // the 2 ms the absolute budget always meant, because a fast host that
+      // measures the by-value path under 10 µs would otherwise demand a 0 µs
+      // call (the floor of 1 this had first collapsed to failed CI on this
+      // very Mac).
       expect(
         afterSync ~/ runs,
-        lessThan(max(1, beforeSync ~/ runs ~/ 5)),
+        lessThan(max(2000, beforeSync ~/ runs ~/ 5)),
         reason: 'a match is back to marshalling the catalogue',
       );
     },
@@ -265,7 +267,7 @@ void main() {
 
     expect(
       afterSync ~/ runs,
-      lessThan(max(1, beforeSync ~/ runs ~/ 5)),
+      lessThan(max(2000, beforeSync ~/ runs ~/ 5)),
       reason: 'a decode is back to re-encoding the spec',
     );
   });

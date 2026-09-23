@@ -316,6 +316,11 @@ jobs:
       # is meant to survive.
       - name: Self-test the iOS retry logic
         run: ./scripts/ci-ios-tests-selftest.sh
+      # The device runner's wall-clock bound on `xcodebuild test`: that perl's
+      # alarm survives the exec and kills a hang, and that the runner uses it.
+      # scripts/test.sh runs this too; it is here so the mirror stays a mirror.
+      - name: Self-test the iOS device-runner timeout
+        run: ./scripts/run-ios-device-tests-selftest.sh
       # The bundle verifier itself, driven against stub nm/PlistBuddy binaries.
       # It only ever runs on the 10x-billed macOS job, against an artifact that
       # takes ten minutes to build, so its own bugs used to surface as a red run

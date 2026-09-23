@@ -767,6 +767,13 @@ class NetworkCommandSender {
         if (!session.isClosed) break;
       }
     }
+    // Asked AGAIN, because the session attempt above is an await a close()
+    // can land inside. The gate at the top only covers a send that STARTS
+    // after close(); one already in flight — the keypress whose ECP2 open
+    // the screen's dispose interrupted — resumed here with `_tlsReady` still
+    // null, close() had already done its one forgetHost, and the `??=` below
+    // registered a policy nothing would ever release.
+    if (_closed) throw StateError('NetworkCommandSender is closed');
     // The device's own TLS policy, before the first handshake. Once per
     // sender: the pin has to be in the client's hand synchronously when
     // `badCertificateCallback` fires, and reading the store on every send

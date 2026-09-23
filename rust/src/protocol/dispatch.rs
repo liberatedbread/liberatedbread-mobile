@@ -116,12 +116,8 @@ pub fn select_protocol(
         // Hand the Arc straight through: GenericProtocol shares the cached
         // spec, so this is a refcount bump, not a deep clone per FFI call.
         let spec = parse_or_cached(yaml)?;
-        if let Some(uuid) = service_uuid {
-            if !declares_service(&spec, uuid) {
-                if let Some(profile) = profiles::lookup(uuid) {
-                    return Ok(profile.create_protocol());
-                }
-            }
+        if let Some(proto) = service_uuid.and_then(|uuid| standard_profile_for(&spec, uuid)) {
+            return Ok(proto);
         }
         return Ok(Box::new(GenericProtocol::new(spec)));
     }
@@ -133,13 +129,32 @@ pub fn select_protocol(
     Err(ProtocolError::NoProtocolForRequest)
 }
 
+/// The built-in profile that answers for `service_uuid` when `spec` is silent
+/// about it, or None when the spec declares the service (its own definition
+/// wins) or no profile exists for it.
+///
+/// The one place the fallthrough rule lives. Both doors — [`select_protocol`]
+/// by YAML and `LoadedSpec::decode_value` by handle — call this, because the
+/// two once held separate copies of the rule and the by-handle one was
+/// missing: the first decode of a Battery notify answered 55 % and every
+/// later one CharacteristicNotFound, for the same bytes.
+pub(crate) fn standard_profile_for(
+    spec: &DeviceSpec,
+    service_uuid: &str,
+) -> Option<Box<dyn DeviceProtocol>> {
+    if declares_service(spec, service_uuid) {
+        return None;
+    }
+    profiles::lookup(service_uuid).map(|profile| profile.create_protocol())
+}
+
 /// Whether `spec` has anything to say about `service_uuid`.
 ///
 /// Compared in the profiles module's normalized short form, so a spec writing
 /// the full 128-bit UUID and a caller passing `180f` are the same service —
 /// the mismatch that would otherwise make this fallthrough fire on a spec that
 /// HAD overridden the profile.
-pub(crate) fn declares_service(spec: &DeviceSpec, service_uuid: &str) -> bool {
+fn declares_service(spec: &DeviceSpec, service_uuid: &str) -> bool {
     let wanted = profiles::normalize_uuid(service_uuid);
     spec.services
         .iter()
