@@ -153,18 +153,43 @@ void main() {
       expect(decoded.hadGaps, isFalse);
     });
 
-    test('says plainly when a family cannot be read yet', () async {
-      await expectLater(
-        const CodeplugDecoder().decode(
-          RadioCodeplug(
-            modelId: uv5rProfile.id,
-            image: Uint8List(0x1808),
-            readAt: DateTime(2026, 9, 1),
+    test('a cable radio decodes through its own codec', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // A blank UV-5R image: ident, empty slots and names, a firmware string.
+      final blank = Uint8List(await rust.uv5RImageLen());
+      blank.setRange(0, 8, [0xAA, 0x30, 0x76, 0x04, 0x00, 0x05, 0x20, 0xDD]);
+      blank.fillRange(8, 8 + 0x800, 0xFF);
+      blank.fillRange(8 + 0x1000, 8 + 0x1800, 0xFF);
+      blank.fillRange(8 + 0x1830, 8 + 0x1830 + 14, 0xFF);
+      blank.setRange(8 + 0x1830, 8 + 0x1836, 'BFB297'.codeUnits);
+      final image = await rust.uv5REncodeChannels(
+        image: blank,
+        channels: [
+          channelToDto(
+            const RadioChannel(
+              name: 'W1AW',
+              rxFreqHz: 146940000,
+              txFreqHz: 146340000,
+              txTone: ToneSetting.ctcss(1000),
+            ),
+            slot: 1,
           ),
-          uv5rProfile,
-        ),
-        throwsA(isA<RadioUnsupportedException>()),
+        ],
+        modelId: uv5rProfile.id,
       );
+
+      final decoded = await const CodeplugDecoder().decode(
+        RadioCodeplug(
+          modelId: uv5rProfile.id,
+          image: image,
+          readAt: DateTime(2026, 9, 1),
+        ),
+        uv5rProfile,
+      );
+
+      expect(decoded.channels.single.name, 'W1AW');
+      expect(decoded.channels.single.txFreqHz, 146340000);
+      expect(decoded.channels.single.txTone, const ToneSetting.ctcss(1000));
     });
   });
 }

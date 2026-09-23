@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:usb_serial/usb_serial.dart';
 
 import '../core/log.dart';
+import '../core/usb_bridges.dart';
 import 'byte_inbox.dart';
 import 'serial_port_service.dart';
 
@@ -22,36 +23,40 @@ import 'serial_port_service.dart';
 /// Permission is per device and asked for by the system, the first time a
 /// cable is opened after it is plugged in. There is nothing to declare for
 /// it in the manifest, and nothing to ask for up front.
+///
+/// Ports are listed under ids that outlive a replug; see [_identify].
 class AndroidUsbSerialService implements SerialPortService {
   @override
   SerialAvailability get availability => const SerialAvailability.supported();
 
   @override
-  Future<List<SerialPortInfo>> listPorts() async {
-    final devices = await UsbSerial.listDevices();
-    return [
-      for (final device in devices)
-        if (device.deviceId != null)
+  Future<List<SerialPortInfo>> listPorts() async => [
+        for (final (id, device) in _identify(await UsbSerial.listDevices()))
           SerialPortInfo(
-            id: '${device.deviceId}',
+            id: id,
             name: device.deviceName,
             vendorId: device.vid,
             productId: device.pid,
             manufacturer: device.manufacturerName,
             product: device.productName,
           ),
-    ];
-  }
+      ];
 
   @override
   Future<SerialLink> open(SerialPortInfo port, {required int baudRate}) async {
-    final deviceId = int.tryParse(port.id);
-    if (deviceId == null) {
-      throw SerialPortException('"${port.name}" is not a USB device.');
+    UsbDevice? device;
+    for (final (id, candidate) in _identify(await UsbSerial.listDevices())) {
+      if (id == port.id) device = candidate;
+    }
+    if (device == null) {
+      // Not by name: a driver that opens by id alone passes the id as the
+      // name, and "usb:1a86:7523" means nothing to anyone.
+      throw const SerialPortException(
+          'The cable is not plugged in. Plug it in, then try again.');
     }
     // Raises the system's permission dialog when the app has not been
     // granted this device yet, and answers null if the person says no.
-    final usb = await UsbSerial.createFromDeviceId(deviceId);
+    final usb = await UsbSerial.createFromDeviceId(device.deviceId);
     if (usb == null) {
       throw const SerialPortException(
           'The cable could not be used. If Android asked for permission, '
@@ -76,6 +81,46 @@ class AndroidUsbSerialService implements SerialPortService {
     await usb.setRTS(true);
     return _AndroidLink(usb);
   }
+}
+
+/// Each device that can be opened, with the id its port is listed under.
+///
+/// Not Android's device id: Android numbers a device afresh each time it is
+/// plugged in, so a radio saved through a cable would be lost the next time
+/// the cable went in. The id is what the cable says it is — vendor and
+/// product — which is the same every time. Not its serial number either,
+/// which Android only reveals once the app has been allowed the device: the
+/// id would change the moment the first session was granted.
+///
+/// Two identical cables plugged in at once share that id, and are told apart
+/// by where each is plugged in. That part does not survive a replug, and
+/// cannot: nothing else about two identical cables differs.
+List<(String, UsbDevice)> _identify(List<UsbDevice> devices) {
+  String own(UsbDevice device) {
+    final vid = device.vid;
+    final pid = device.pid;
+    return vid == null || pid == null
+        ? 'usb:${device.deviceName}'
+        : 'usb:${usbIdLabel(vid, pid)}';
+  }
+
+  final openable = [
+    for (final device in devices)
+      if (device.deviceId != null) device,
+  ];
+  final shared = <String, int>{};
+  for (final device in openable) {
+    shared.update(own(device), (n) => n + 1, ifAbsent: () => 1);
+  }
+  return [
+    for (final device in openable)
+      (
+        shared[own(device)]! > 1
+            ? '${own(device)}@${device.deviceName}'
+            : own(device),
+        device,
+      ),
+  ];
 }
 
 class _AndroidLink implements SerialLink {

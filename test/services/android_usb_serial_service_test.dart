@@ -19,9 +19,24 @@ const _portChannelName = 'usb_serial/port0';
 const _port = MethodChannel(_portChannelName);
 const _portStream = EventChannel('$_portChannelName/stream');
 
+/// A CH340 cable as the plugin lists it, under Android's number for it.
+Map<String, Object?> _ch340({int deviceId = 1003, int bus = 3}) => {
+      'deviceName': '/dev/bus/usb/001/00$bus',
+      'vid': 0x1A86,
+      'pid': 0x7523,
+      'productName': 'USB Serial',
+      'manufacturerName': 'QinHeng',
+      'deviceId': deviceId,
+      'serialNumber': null,
+      'interfaceCount': 1,
+    };
+
 class _FakePlugin {
-  List<Map<String, Object?>> devices = [];
+  List<Map<String, Object?>> devices = [_ch340()];
   bool grant = true;
+
+  /// The Android device numbers opened, in order.
+  final List<Object?> created = [];
   bool openSucceeds = true;
   final List<MethodCall> portCalls = [];
   final List<Uint8List> written = [];
@@ -35,6 +50,7 @@ class _FakePlugin {
         case 'listDevices':
           return devices;
         case 'create':
+          created.add((call.arguments as Map)['deviceId']);
           return grant ? _portChannelName : null;
       }
       return null;
@@ -81,7 +97,7 @@ void main() {
   tearDown(() => plugin.uninstall());
 
   const cable = SerialPortInfo(
-    id: '1003',
+    id: 'usb:1a86:7523',
     name: '/dev/bus/usb/001/003',
     vendorId: 0x1A86,
     productId: 0x7523,
@@ -93,16 +109,7 @@ void main() {
 
   test('lists each plugged-in device as a port', () async {
     plugin.devices = [
-      {
-        'deviceName': '/dev/bus/usb/001/003',
-        'vid': 0x1A86,
-        'pid': 0x7523,
-        'productName': 'USB Serial',
-        'manufacturerName': 'QinHeng',
-        'deviceId': 1003,
-        'serialNumber': null,
-        'interfaceCount': 1,
-      },
+      _ch340(),
       // A device the platform gave no id cannot be opened, so is not listed.
       {
         'deviceName': '/dev/bus/usb/001/004',
@@ -114,10 +121,39 @@ void main() {
 
     final ports = await service.listPorts();
     expect(ports, hasLength(1));
-    expect(ports.single.id, '1003');
+    expect(ports.single.id, 'usb:1a86:7523');
+    expect(ports.single.name, '/dev/bus/usb/001/003');
     expect(ports.single.displayName, 'USB Serial');
     expect(ports.single.manufacturer, 'QinHeng');
     expect(ports.single.bridge?.name, 'WCH CH340');
+  });
+
+  test('a cable keeps its id when it is plugged in again', () async {
+    // Android numbers a device afresh on every plug-in. A radio saved
+    // through this cable must still be found the next time.
+    final before = await service.listPorts();
+    plugin.devices = [_ch340(deviceId: 1007, bus: 7)];
+    final after = await service.listPorts();
+    expect(after.single.id, before.single.id);
+
+    final link = await service.open(before.single, baudRate: 9600);
+    expect(plugin.created, [1007],
+        reason: 'opened by the number Android gives it now');
+    await link.close();
+  });
+
+  test('two identical cables are told apart by where they are plugged in',
+      () async {
+    plugin.devices = [
+      _ch340(deviceId: 1003, bus: 3),
+      _ch340(deviceId: 1004, bus: 4),
+    ];
+    final ports = await service.listPorts();
+    expect(ports.map((p) => p.id).toSet(), hasLength(2));
+
+    final link = await service.open(ports.last, baudRate: 9600);
+    expect(plugin.created, [1004]);
+    await link.close();
   });
 
   test('opens at the rate asked, 8N1, with DTR and RTS raised', () async {
@@ -153,13 +189,14 @@ void main() {
     );
   });
 
-  test('a port that is not a USB device id is refused before anything',
-      () async {
+  test('a cable no longer plugged in is refused before anything', () async {
+    plugin.devices = [];
     await expectLater(
-      service.open(const SerialPortInfo(id: '/dev/ttyUSB0', name: 'x'),
-          baudRate: 9600),
-      throwsA(isA<SerialPortException>()),
+      service.open(cable, baudRate: 9600),
+      throwsA(isA<SerialPortException>()
+          .having((e) => e.message, 'message', contains('not plugged in'))),
     );
+    expect(plugin.created, isEmpty);
     expect(plugin.portCalls, isEmpty);
   });
 

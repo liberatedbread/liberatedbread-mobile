@@ -118,8 +118,10 @@ class CodeplugDecoder {
           modelId: profile.id,
         ));
       case ProgrammingFamily.serialUv5r:
-        throw const RadioUnsupportedException(
-            'Reading channels from this radio is not supported yet.');
+        return decodedFromDtos(await rust.uv5RDecodeChannels(
+          image: codeplug.image,
+          modelId: profile.id,
+        ));
     }
   }
 }

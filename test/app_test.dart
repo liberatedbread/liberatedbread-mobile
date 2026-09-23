@@ -9,11 +9,14 @@ import 'package:liberated_bread_mobile/app.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/serial_port_provider.dart';
 import 'package:liberated_bread_mobile/screens/groups_screen.dart';
 import 'package:liberated_bread_mobile/screens/home_shell.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/screens/terms_screen.dart';
+import 'package:liberated_bread_mobile/screens/usb_scan_screen.dart';
+import 'package:liberated_bread_mobile/services/serial_port_service.dart';
 
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -97,6 +100,8 @@ void main() {
     expect(find.text('Saved'), findsOneWidget);
     expect(find.text('Groups'), findsOneWidget);
     expect(find.text('Wi-Fi'), findsOneWidget);
+    expect(find.text('USB'), findsOneWidget);
+    expect(find.text('Radio'), findsOneWidget);
   });
 
   testWidgets('every Hero tag in the shell is unique', (tester) async {
@@ -208,4 +213,45 @@ void main() {
     expect(find.byType(GroupsScreen), findsOneWidget);
     expect(find.text('No groups yet'), findsOneWidget);
   });
+
+  testWidgets('the USB tab looks for cables only once it is opened',
+      (tester) async {
+    final ports = _CountingPorts();
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(FakeBleService()),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        serialPortServiceProvider.overrideWithValue(ports),
+      ],
+      child: const LiberatedBreadApp(),
+    ));
+    await tester.pump();
+    expect(ports.listings, 0,
+        reason: 'a tab nobody has opened has no reason to touch USB');
+
+    await tester.tap(find.text('USB'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(UsbScanScreen), findsOneWidget);
+    expect(ports.listings, 1);
+    expect(find.text('No cable plugged in'), findsOneWidget);
+  });
+}
+
+/// No cables, and a count of how often anyone looked.
+class _CountingPorts implements SerialPortService {
+  int listings = 0;
+
+  @override
+  SerialAvailability get availability => const SerialAvailability.supported();
+
+  @override
+  Future<List<SerialPortInfo>> listPorts() async {
+    listings++;
+    return const [];
+  }
+
+  @override
+  Future<SerialLink> open(SerialPortInfo port, {required int baudRate}) =>
+      Future.error(const SerialPortException('no cable'));
 }
