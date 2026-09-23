@@ -1055,11 +1055,14 @@ jobs:
     # Merging costs granularity — a flaky test also reddens the build smoke —
     # which is the deliberate trade for roughly halving the macOS spend.
     #
-    # Lowered from 75: the simulator now boots concurrently with the build and
-    # the integration tests run as a single device cycle (see the aggregate
-    # entrypoint below), so even a fully cold-cache run fits comfortably. The
-    # test step carries its own tighter timeout below.
-    timeout-minutes: 60
+    # The sum of the step ceilings below (5 + 25 + 25 + 34 = 89), with a
+    # little over. It was 60 while there was one iOS build in this job; the
+    # device (aarch64-apple-ios, release, AOT) build added on ios-self-fix
+    # brought its own 25-minute step and nobody raised the job's — so a cold
+    # rust-cache plus a double simulator failure was cancelled mid test-step
+    # and reported as a cancellation rather than the underlying failure. The
+    # test step still carries its own tighter timeout below.
+    timeout-minutes: 90
     needs: [analyze, rust]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1358,9 +1361,9 @@ jobs:
       #
       # Sized for the worst case the script can reach: two attempts of
       # (IOS_SIMULATOR_BOOT_TIMEOUT + IOS_SIMULATOR_ATTEMPT_TIMEOUT) = 32m, with
-      # headroom, and comfortably inside the job's 60 alongside the ~8 minutes
-      # the rest of this job takes. It is a ceiling on a double failure, not a
-      # budget anything normally spends — the step runs in about three minutes.
+      # headroom. It is a ceiling on a double failure, not a budget anything
+      # normally spends — the step runs in about three minutes. The job's own
+      # ceiling above is the sum of every step's, this one included.
       - name: Run integration tests on the simulator (mock mode)
         timeout-minutes: 34
         env:

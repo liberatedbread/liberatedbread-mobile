@@ -162,8 +162,11 @@ Actions macOS runner.
 4. Nothing to edit in `ios/ExportOptions-adhoc.plist`. It ships with
    `YOUR_TEAM_ID` and `Liberated Bread Ad Hoc` placeholders, and the workflow
    substitutes `IOS_TEAM_ID` and `IOS_PROFILE_NAME` into its own workspace copy
-   at build time — so no team ID or personal profile name is ever committed.
-   Set both secrets rather than editing the file. If `IOS_PROFILE_NAME` is
+   at build time. One team ID IS committed, though: `ios/Runner.xcodeproj`
+   sets `DEVELOPMENT_TEAM = GQ358PSWM3` on every configuration, and with the
+   team in the project flutter_tools skips certificate-based detection — so
+   `IOS_TEAM_ID` must be `GQ358PSWM3`, or you edit the pbxproj to your own
+   team before building. Set both secrets rather than editing the plist. If `IOS_PROFILE_NAME` is
    unset, `-exportArchive` fails with *"No profile matching 'Liberated Bread
    Ad Hoc' found"* unless your profile happens to carry that exact name. The
    bundle ID (`ca.pigscanfly.liberatedbread`) is the one value that is genuinely

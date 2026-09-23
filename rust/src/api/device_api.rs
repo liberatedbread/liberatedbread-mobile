@@ -523,10 +523,13 @@ pub struct ParameterDto {
     /// `allowed` (+ `labels`), and the `values` raw→label code table nine
     /// BLE parameters write instead. A consumer sees a choice either way.
     pub allowed: Option<Vec<i64>>,
-    /// Human-readable labels for `allowed`, paired 1:1 by index. Always the
-    /// same length as `allowed` when both are present: a value the spec
-    /// labelled nowhere is labelled with its own raw number rather than left
-    /// to be paired off by position. Absent only when `allowed` is.
+    /// Human-readable labels for `allowed`, paired 1:1 by index — and
+    /// present ONLY when every allowed value has one. A spec that labels
+    /// some values and not others ships `allowed` and no `labels` at all,
+    /// so the consumer renders every choice as its number rather than
+    /// pairing a short list off by position (all or nothing; see the `From`
+    /// impl, and `mismatched_labels_are_dropped_at_dto_boundary_but_allowed_kept`
+    /// in rust/tests/spec_tolerance.rs). Absent whenever `allowed` is.
     pub labels: Option<Vec<String>>,
     /// What this parameter means, in the spec's own words — the sentence a
     /// control surface can show beside a knob whose name is `flag` or `mcu`.

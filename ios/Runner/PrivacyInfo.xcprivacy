@@ -51,8 +51,11 @@
 
   ios/Runner/AppDelegate.swift itself still uses none. If the Rust core ever
   grows real file I/O, or a new dependency pulls in another required-reason
-  category, re-run `nm -u` on the release framework and extend this list —
-  test/platform/ios_privacy_manifest_test.dart is what fails if you don't.
+  category, re-run `nm -u` on the release framework and extend this list.
+  Nothing automated catches a NEW category: test/platform/
+  ios_privacy_manifest_test.dart pins that the FileTimestamp entry declared
+  here stays declared, it does not inspect the binary — the first thing that
+  notices an undeclared category is App Store Connect, at upload.
 
   This file IS a member of the "Runner" target's Copy Bundle Resources build
   phase — wired directly in ios/Runner.xcodeproj/project.pbxproj (search that

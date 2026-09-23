@@ -59,7 +59,7 @@ dev_dependencies:
   fake_async: ^1.3.1
   # Test-only: the live-hardware smoke (test/live/) registers the Linux BlueZ
   # backend by hand, because a test VM has no app startup to do it. Pinned to
-  # the exact version flutter_blue_plus 1.35.4 resolves anyway, so this adds
+  # the exact version flutter_blue_plus 1.36.8 resolves anyway, so this adds
   # no new code — it only makes the transitive dependency importable.
   flutter_blue_plus_linux: 7.0.3
   # Test-only, and pinned exactly like flutter_blue_plus above because it is

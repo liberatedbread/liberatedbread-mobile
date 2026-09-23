@@ -4,12 +4,15 @@ First iOS submission for **Liberated Bread** — `ca.pigscanfly.liberatedbread`,
 version `0.1.0+1`. App ID owner: **Pigs Can Fly Labs LLC — Team ID
 `GQ358PSWM3`** (the `ca.pigscanfly.*` bundle belongs to this org team).
 
-> ⚠️ **Team mismatch to fix:** the Mac's current signing cert is the *individual*
-> "Holden Karau" team (`B6SUD26678`). Since the App ID is registered under the
-> LLC (`GQ358PSWM3`), your **Distribution cert and App Store provisioning profile
-> must be issued under the LLC team**, and `ExportOptions-appstore.plist` uses
-> `GQ358PSWM3`. (If you actually intend to ship under the individual team
-> instead, switch the App ID + plist back to `B6SUD26678`.)
+> ✅ **Development identity and multicast grant: done** (2026-09-16). The Mac's
+> Xcode-managed development profile is issued to Pigs Can Fly Labs LLC
+> (`GQ358PSWM3`) and carries `com.apple.developer.networking.multicast`, which
+> only exists once Apple has granted the capability — so Step 1 is granted and
+> the project commits `DEVELOPMENT_TEAM = GQ358PSWM3` on every configuration.
+> **Still needed: an Apple Distribution certificate under `GQ358PSWM3`**
+> (Step 2). `ExportOptions-appstore.plist` already names that team. (An older
+> version of this note said the Mac only had a cert on the individual team
+> `B6SUD26678`; that stopped being true when the LLC account was signed in.)
 
 Timeline: ~1 month, so this follows **Path A** — file the slow Apple approval
 first, stage everything else, submit once it lands. Everything under "Ready in
@@ -17,8 +20,8 @@ the repo" is committed and validated (incl. a real iOS build + app run on the Ma
 Mini). Everything under the numbered steps needs your Apple account / App Store
 Connect / a Mac.
 
-Work the numbered steps roughly in order; **Step 1 is the long pole — do it
-today** because Apple's grant can take days.
+Work the numbered steps roughly in order. Step 1's grant has landed, so the
+long pole is now Step 2 (a Distribution certificate under the LLC team).
 
 ---
 
@@ -26,7 +29,7 @@ today** because Apple's grant can take days.
 
 - **Export-compliance key** — `ios/Runner/Info.plist` declares
   `ITSAppUsesNonExemptEncryption = true` (you chose: uses encryption, claim the
-  mass-market exemption; see Step 7).
+  mass-market exemption; see Step 6).
 - **Privacy manifest ships** — `PrivacyInfo.xcprivacy` is wired into the Runner
   target (Copy Bundle Resources) and was confirmed inside the built `.app`.
 - **App Store ExportOptions** — `ios/ExportOptions-appstore.plist`
@@ -104,7 +107,7 @@ screen off.
 
 ---
 
-## Step 1 — File the multicast entitlement request  ⏳ *(do first; grant takes days)*
+## Step 1 — File the multicast entitlement request  ✅ *(granted — the development profile carries the entitlement)*
 
 The app's Wi-Fi discovery (mDNS + SSDP) needs `com.apple.developer.networking.multicast`.
 It's declared in `ios/Runner/Runner.entitlements`, but Apple grants it by manual
@@ -153,7 +156,13 @@ The Mac is already staged: Flutter 3.44.8 is at `~/flutter-3.44.8`. Build from a
 clean checkout of this branch:
 ```sh
 export PATH="$HOME/.cargo/bin:$HOME/flutter-3.44.8/bin:/opt/homebrew/bin:$PATH"
-git clone -b unfuck git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb && cd ~/lb
+git clone -b main git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb && cd ~/lb
+# Preflight: the privacy manifest MUST declare the Rust core's file-timestamp
+# APIs or App Store Connect rejects the upload (ITMS-91053). `unfuck`, which
+# this line used to clone, predates that declaration AND the committed
+# DEVELOPMENT_TEAM; following the runbook verbatim reproduced the rejection it
+# says is fixed. Until the branch carrying the fix is on main, clone that one.
+grep -q NSPrivacyAccessedAPICategoryFileTimestamp ios/Runner/PrivacyInfo.xcprivacy || { echo "privacy manifest lacks the FileTimestamp declaration — wrong branch"; exit 1; }
 flutter pub get
 flutter build ipa --release --build-number=$(date +%Y%m%d%H%M) \
   --export-options-plist=ios/ExportOptions-appstore.plist
