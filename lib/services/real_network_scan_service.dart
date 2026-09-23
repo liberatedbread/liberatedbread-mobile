@@ -1082,13 +1082,30 @@ class RealNetworkScanService implements NetworkScanService {
   /// unchanged. Null means the catalogue-driven transport is skipped.
   final UdpProbeSource? probeSource;
 
+  /// Binds every UDP socket this service opens. Injectable so a test can hand
+  /// out a socket that behaves like a REFUSED one — a send that returns 0 and
+  /// delivers its SocketException on the stream a microtask later, closing the
+  /// socket — which is what dart:io does and what five commits on this repo
+  /// assumed it did not. The default is the real bind.
+  final DatagramBinder binder;
+
+  /// Whether a refused send is read the way Apple's Local Network gate makes
+  /// it read. Injectable so the `denied` verdict is testable on the Linux CI
+  /// host, not only on a Mac; the default is the platform.
+  final bool isApplePlatform;
+
   RealNetworkScanService({
     MulticastLock? multicastLock,
     this.codec,
     this.probeSource,
     InterfaceLister? interfaceLister,
+    DatagramBinder? binder,
+    bool? isApplePlatform,
   }) : multicastLock = multicastLock ?? MulticastLock(),
-       interfaceLister = interfaceLister ?? NetworkInterface.list;
+       interfaceLister = interfaceLister ?? NetworkInterface.list,
+       binder = binder ?? bindDatagramSocket,
+       isApplePlatform =
+           isApplePlatform ?? (Platform.isIOS || Platform.isMacOS);
 
   /// The scan currently entitled to the lock, or null between scans.
   ///
@@ -1158,7 +1175,7 @@ class RealNetworkScanService implements NetworkScanService {
         // A denial is only real when a transport observed EHOSTUNREACH; any
         // other throw is a plain failure. Shared so every transport maps its
         // error the same way (F-001).
-        final apple = Platform.isIOS || Platform.isMacOS;
+        final apple = isApplePlatform;
         TransportOutcome onError(String name, Object e) {
           if (isLocalNetworkDenied(e, isApplePlatform: apple)) {
             Log.net.warning(
@@ -1288,7 +1305,7 @@ class RealNetworkScanService implements NetworkScanService {
 
         final failure = scanFailureFor(
           outcomes: outcomes,
-          isApplePlatform: Platform.isIOS || Platform.isMacOS,
+          isApplePlatform: isApplePlatform,
         );
         if (failure != null) controller.addError(failure);
         // What a reader needs when a scan comes back empty, which is the only
@@ -1358,7 +1375,7 @@ class RealNetworkScanService implements NetworkScanService {
             bool reusePort = false,
             int ttl = 1,
           }) async {
-            final socket = await bindDatagramSocket(
+            final socket = await binder(
               host,
               port,
               reuseAddress: reuseAddress,
@@ -1398,10 +1415,7 @@ class RealNetworkScanService implements NetworkScanService {
         } catch (_) {}
       }
       Log.net.warning('mDNS start failed', error: e);
-      return isLocalNetworkDenied(
-            e,
-            isApplePlatform: Platform.isIOS || Platform.isMacOS,
-          )
+      return isLocalNetworkDenied(e, isApplePlatform: isApplePlatform)
           ? TransportOutcome.denied
           : TransportOutcome.failed;
     }
@@ -1522,10 +1536,7 @@ class RealNetworkScanService implements NetworkScanService {
       // reaches us and this is not a denial; otherwise EHOSTUNREACH on Apple
       // is the local-network gate (F-013/F-001).
       if (heard) return TransportOutcome.heard;
-      return isLocalNetworkDenied(
-            result!,
-            isApplePlatform: Platform.isIOS || Platform.isMacOS,
-          )
+      return isLocalNetworkDenied(result!, isApplePlatform: isApplePlatform)
           ? TransportOutcome.denied
           : TransportOutcome.failed;
     } finally {
@@ -1569,7 +1580,7 @@ class RealNetworkScanService implements NetworkScanService {
 
     final RawDatagramSocket socket;
     try {
-      socket = await RawDatagramSocket.bind(
+      socket = await binder(
         InternetAddress.anyIPv4,
         _mdnsPort,
         reuseAddress: true,
@@ -1756,15 +1767,12 @@ class RealNetworkScanService implements NetworkScanService {
           );
           // ...but a refusal is not a failure to fold away. On iOS a denied
           // (or still-prompting) Local Network permission surfaces as the
-          // EHOSTUNREACH SocketException from `socket.send()` to the
-          // broadcast address, and `skipped` is excluded from the scan's
+          // EHOSTUNREACH SocketException a send to the broadcast address
+          // leaves on the socket's stream, and `skipped` is excluded from the scan's
           // verdict — so this transport could never contribute the proof the
           // "Local Network is off" screen is built on, and the outer onError
           // never saw it either because this handler had consumed it.
-          return isLocalNetworkDenied(
-                e,
-                isApplePlatform: Platform.isIOS || Platform.isMacOS,
-              )
+          return isLocalNetworkDenied(e, isApplePlatform: isApplePlatform)
               ? TransportOutcome.denied
               : TransportOutcome.skipped;
         }),
@@ -1822,11 +1830,7 @@ class RealNetworkScanService implements NetworkScanService {
       return TransportOutcome.skipped;
     }
     final isEvidence = target.address == _limitedBroadcast;
-    final socket = await RawDatagramSocket.bind(
-      InternetAddress.anyIPv4,
-      0,
-      reuseAddress: true,
-    );
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.catalogueProbeSockets.add(socket);
     socket.broadcastEnabled = true;
@@ -1935,11 +1939,7 @@ class RealNetworkScanService implements NetworkScanService {
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
-    final socket = await RawDatagramSocket.bind(
-      InternetAddress.anyIPv4,
-      0,
-      reuseAddress: true,
-    );
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.ubiquitiSocket = socket;
     socket.broadcastEnabled = true;
@@ -2023,7 +2023,7 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(
+      socket = await binder(
         InternetAddress.anyIPv4,
         _mikrotikPort,
         reuseAddress: true,
@@ -2141,7 +2141,7 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     RawDatagramSocket? plain, encrypted;
     try {
-      plain = await bindDatagramSocket(
+      plain = await binder(
         InternetAddress.anyIPv4,
         _tuyaPortPlain,
         reuseAddress: true,
@@ -2164,7 +2164,7 @@ class RealNetworkScanService implements NetworkScanService {
     // port only to close it again.
     if (session.stopped) return TransportOutcome.skipped;
     try {
-      encrypted = await bindDatagramSocket(
+      encrypted = await binder(
         InternetAddress.anyIPv4,
         _tuyaPortEncrypted,
         reuseAddress: true,
@@ -2258,11 +2258,7 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(
-        InternetAddress.anyIPv4,
-        0,
-        reuseAddress: true,
-      );
+      socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     } catch (e) {
       Log.net.debug('Wiz bind failed: $e');
       return TransportOutcome.skipped;
@@ -2332,11 +2328,7 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(
-        InternetAddress.anyIPv4,
-        0,
-        reuseAddress: true,
-      );
+      socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     } catch (e) {
       Log.net.debug('Yeelight bind failed: $e');
       return TransportOutcome.skipped;
@@ -2426,7 +2418,7 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket recv;
     try {
-      recv = await bindDatagramSocket(
+      recv = await binder(
         InternetAddress.anyIPv4,
         _goveeRecvPort,
         reuseAddress: true,
@@ -2447,11 +2439,7 @@ class RealNetworkScanService implements NetworkScanService {
     final seen = <String>{};
     try {
       try {
-        sender = await bindDatagramSocket(
-          InternetAddress.anyIPv4,
-          0,
-          reuseAddress: true,
-        );
+        sender = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
         sender.broadcastEnabled = true;
         _setMulticastInterface(sender, session);
         // The same rule the other multicast senders follow: a group this
@@ -2542,11 +2530,7 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(
-        InternetAddress.anyIPv4,
-        0,
-        reuseAddress: true,
-      );
+      socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     } catch (e) {
       Log.net.debug('KNX bind failed: $e');
       return TransportOutcome.skipped;
@@ -2753,11 +2737,7 @@ class RealNetworkScanService implements NetworkScanService {
     Duration timeout,
     List<String> extraSearchTargets,
   ) async {
-    final socket = await RawDatagramSocket.bind(
-      InternetAddress.anyIPv4,
-      0,
-      reuseAddress: true,
-    );
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.ssdpSocket = socket;
     socket.broadcastEnabled = true;
@@ -2874,11 +2854,7 @@ class RealNetworkScanService implements NetworkScanService {
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
-    final socket = await RawDatagramSocket.bind(
-      InternetAddress.anyIPv4,
-      0,
-      reuseAddress: true,
-    );
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.lifxSocket = socket;
     socket.broadcastEnabled = true;
@@ -2947,11 +2923,7 @@ class RealNetworkScanService implements NetworkScanService {
     SpecCodec codec,
   ) async {
     final probe = await codec.kasaEncryptDatagram(json: _kasaProbeJson);
-    final socket = await RawDatagramSocket.bind(
-      InternetAddress.anyIPv4,
-      0,
-      reuseAddress: true,
-    );
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.kasaSocket = socket;
     socket.broadcastEnabled = true;
@@ -3079,11 +3051,7 @@ class RealNetworkScanService implements NetworkScanService {
     SpecCodec codec,
   ) async {
     final probe = await codec.roombaDiscoveryProbe();
-    final socket = await RawDatagramSocket.bind(
-      InternetAddress.anyIPv4,
-      0,
-      reuseAddress: true,
-    );
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.roombaSocket = socket;
     socket.broadcastEnabled = true;
