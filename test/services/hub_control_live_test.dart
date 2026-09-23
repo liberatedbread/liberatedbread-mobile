@@ -78,6 +78,16 @@ class _VirtualBridge {
       'scripts/net_virtual_device.py',
       '--scenario',
       scenario.path,
+      // Advertised at loopback, ON PURPOSE. The responder's default is this
+      // host's outbound address — the same address every real service on
+      // this Mac advertises — and the scan coalesces sightings by host, so
+      // AirPlay (7000), SMB (445) and SSH (22) merged into the virtual
+      // bridge's row and its `port` came back as whichever answered: this
+      // test failed one run in three on a populated LAN. At 127.0.0.1 the
+      // bridge is alone at its address, and the scan keeps loopback for
+      // exactly this rig (lanInterfaces(includeLoopback: true)).
+      '--address',
+      '127.0.0.1',
       '--ready-file',
       ready.path,
       '--link-file',

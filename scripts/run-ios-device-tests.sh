@@ -401,17 +401,26 @@ run_suite() {
   # and the Dart binding's default timeout is Timeout.none. So a hung Dart
   # test (a connect that never completes, RustLib.init stuck) hung
   # `xcodebuild test` forever, no .xcresult, and an unattended run never
-  # came back. This is the bound the script owns: perl's alarm on the
-  # xcodebuild process itself — every Mac has perl, none has GNU timeout —
-  # which exits 142 when it fires.
-  local suite_bound="${LB_SUITE_TIMEOUT:-1800}"
+  # came back. This is the bound the script owns: scripts/bounded-run.pl —
+  # every Mac has perl, none has GNU timeout — which sends xcodebuild SIGTERM
+  # when it fires (so the on-device host and the CoreDevice tunnel it spawned
+  # are torn down and the .xcresult finishes writing), SIGKILL ten seconds
+  # later if it is still there, and exits 142 either way. A bare alarm on the
+  # process used to kill it outright and orphan the app on the phone: the
+  # next run on the same UDID found the device busy.
+  #
+  # The bound also covers xcodebuild's own build-and-install phase, and a
+  # cold Profile build of the Rust core plus Flutter on a Mac mini can take
+  # most of half an hour on its own — so the default is an hour, and a
+  # LEGITIMATELY long first run is not killed as a hang.
+  local suite_bound="${LB_SUITE_TIMEOUT:-3600}"
   log "xcodebuild test -scheme Runner -destination id=$UDID (log: $logfile)"
   # Only the lines a reader acts on reach the terminal: what the suite
   # measured, each test's verdict, and anything that went wrong. The full
   # log is in $logfile and the per-test record in the .xcresult bundle.
   local rc=0
   {
-  perl -e 'alarm shift; exec @ARGV' "$suite_bound" xcodebuild test \
+  perl scripts/bounded-run.pl "$suite_bound" xcodebuild test \
       -workspace ios/Runner.xcworkspace \
       -scheme Runner \
       -configuration Profile \
@@ -430,7 +439,7 @@ run_suite() {
     rc="${PIPESTATUS[0]}"
   } || true
   if (( rc == 142 )); then
-    err "xcodebuild test exceeded ${suite_bound}s (LB_SUITE_TIMEOUT) and was killed: a test on the phone never completed. See $logfile"
+    err "xcodebuild test exceeded ${suite_bound}s (LB_SUITE_TIMEOUT) and was stopped: a test on the phone never completed. See $logfile"
     return 1
   fi
   # The `|| true` MUST stay outside the group and the read of PIPESTATUS MUST
