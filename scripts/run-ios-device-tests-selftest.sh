@@ -33,7 +33,9 @@ check_eq() { # label expected actual
   if [[ "$2" == "$3" ]]; then pass "$1"; else fail "$1: expected '$2', got '$3'"; fi
 }
 
-bounded() { perl scripts/bounded-run.pl "$@"; }
+# Two seconds of grace here, not the runner's ten: the escalation is what is
+# under test, not xcodebuild's teardown time.
+bounded() { LB_BOUNDED_GRACE=2 perl scripts/bounded-run.pl "$@"; }
 
 # A command's own exit code passes through the bound untouched, both ways.
 bounded 5 sh -c 'exit 7'
@@ -50,7 +52,10 @@ bounded 1 sleep 30
 rc=$?
 elapsed=$((SECONDS - start))
 check_eq "a hung command is killed when the bound fires (exit 142)" "142" "$rc"
-if (( elapsed <= 5 )); then
+# Generous ceilings, on purpose: this runs in the mirror's selftest leg beside
+# rustc and eight coverage-instrumented Dart isolates, and $SECONDS has a
+# granularity of a second. What is asserted is "promptly", not "to the second".
+if (( elapsed <= 8 )); then
   pass "...and within the bound (${elapsed}s for a 1s bound)"
 else
   fail "the kill took ${elapsed}s for a 1s bound"
@@ -58,7 +63,7 @@ fi
 
 # The bound is a TERM first, so the command can clean up, then a KILL. A
 # child that traps TERM and leaves a note gets to; one that ignores TERM is
-# killed anyway, ten seconds later. Both still read as 142 to the runner.
+# killed anyway, after the grace period. Both still read as 142 to the runner.
 note="$(mktemp)"
 rm -f "$note"
 start=$SECONDS
@@ -72,15 +77,15 @@ bounded 1 bash -c "trap '' TERM; sleep 60"
 rc=$?
 elapsed=$((SECONDS - start))
 check_eq "a command that ignores TERM is killed (142)" "142" "$rc"
-if (( elapsed <= 16 )); then pass "...within the grace period (${elapsed}s)"; else fail "the KILL took ${elapsed}s after a 1s bound + 10s grace"; fi
+if (( elapsed <= 10 )); then pass "...within the grace period (${elapsed}s)"; else fail "the KILL took ${elapsed}s after a 1s bound + 2s grace"; fi
 
 # And the runner uses exactly this, on `xcodebuild test`, and treats the stop
 # as a failure rather than as whatever grep made of the truncated log.
 runner=scripts/run-ios-device-tests.sh
-if grep -qE "^[[:space:]]*perl scripts/bounded-run\.pl \"\\\$suite_bound\" xcodebuild test" "$runner"; then
-  pass "run-ios-device-tests.sh runs xcodebuild test under bounded-run.pl"
+if grep -qE "^[[:space:]]*LB_BOUNDED_GRACE=10 perl scripts/bounded-run\.pl \"\\\$suite_bound\" xcodebuild test" "$runner"; then
+  pass "run-ios-device-tests.sh runs xcodebuild test under bounded-run.pl, grace pinned"
 else
-  fail "$runner: xcodebuild test is not run under \`perl scripts/bounded-run.pl \"\$suite_bound\"\`"
+  fail "$runner: xcodebuild test is not run under \`LB_BOUNDED_GRACE=10 perl scripts/bounded-run.pl \"\$suite_bound\"\` (the grace must be pinned, not inherited)"
 fi
 if grep -qE '^[[:space:]]*if \(\( rc == 142 \)\); then' "$runner"; then
   pass "...and reports the kill as a failed suite"

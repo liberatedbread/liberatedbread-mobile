@@ -407,7 +407,10 @@ run_suite() {
   # are torn down and the .xcresult finishes writing), SIGKILL ten seconds
   # later if it is still there, and exits 142 either way. A bare alarm on the
   # process used to kill it outright and orphan the app on the phone: the
-  # next run on the same UDID found the device busy.
+  # next run on the same UDID found the device busy. The grace is pinned on
+  # the command line, not inherited: an LB_BOUNDED_GRACE left exported from
+  # poking the selftest (which uses two seconds) would otherwise KILL
+  # xcodebuild before the on-device host was torn down.
   #
   # The bound also covers xcodebuild's own build-and-install phase, and a
   # cold Profile build of the Rust core plus Flutter on a Mac mini can take
@@ -420,7 +423,7 @@ run_suite() {
   # log is in $logfile and the per-test record in the .xcresult bundle.
   local rc=0
   {
-  perl scripts/bounded-run.pl "$suite_bound" xcodebuild test \
+  LB_BOUNDED_GRACE=10 perl scripts/bounded-run.pl "$suite_bound" xcodebuild test \
       -workspace ios/Runner.xcworkspace \
       -scheme Runner \
       -configuration Profile \

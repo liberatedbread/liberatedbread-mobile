@@ -21,7 +21,11 @@ use strict;
 use warnings;
 use POSIX qw(setsid WNOHANG);
 
-my $GRACE = 10;
+# Seconds between TERM and KILL. Ten is what xcodebuild needs to tear down an
+# on-device host; the selftest sets LB_BOUNDED_GRACE=2 so proving the
+# escalation does not cost the mirror ten seconds of sleep.
+my $GRACE = $ENV{LB_BOUNDED_GRACE} // 10;
+$GRACE = 10 unless $GRACE =~ /^\d+$/;
 
 my ($seconds, @command) = @ARGV;
 die "usage: bounded-run.pl SECONDS COMMAND [ARGS...]\n"
