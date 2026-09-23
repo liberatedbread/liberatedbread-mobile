@@ -404,12 +404,18 @@ void _catalogueProbeTransportTests() {
       0,
     );
     final heard = <String>[];
+    // The SOURCE port of each probe: two probes from one socket share it,
+    // and one-socket-per-probe — the Android bind-clash regression this test
+    // names — does not. Without this, the test only ever checked that both
+    // strings arrived, which per-probe sockets also deliver.
+    final fromPorts = <int>{};
     bridge.listen((event) {
       if (event != RawSocketEvent.read) return;
       final datagram = bridge.receive();
       if (datagram == null) return;
       final asked = utf8.decode(datagram.data, allowMalformed: true);
       heard.add(asked);
+      fromPorts.add(datagram.port);
       if (asked != 'HF-A11ASSISTHREAD') return;
       bridge.send(
         utf8.encode('127.0.0.1,34EAE7AABBCC,HF-LPB130'),
@@ -438,7 +444,14 @@ void _catalogueProbeTransportTests() {
     expect(
       heard,
       containsAll(<String>['HF-A11ASSISTHREAD', 'Link_Wi-Fi']),
-      reason: 'both declared probes go out, on the one shared socket',
+      reason: 'both declared probes go out',
+    );
+    expect(
+      fromPorts,
+      hasLength(1),
+      reason:
+          'on the one shared socket: two source ports means two sockets, '
+          'which is the per-probe bind this test exists to catch',
     );
     // Matched on the identity the fake bridge answered with, not on "has a
     // mac": the other transports are running on the same wire, and whatever

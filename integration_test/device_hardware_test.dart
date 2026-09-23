@@ -244,7 +244,13 @@ void main() {
         'Bluetooth permission alert is up, answer it now',
       );
       final state = await FlutterBluePlus.adapterState
-          .where((s) => s != BluetoothAdapterState.unknown)
+          // Settled states only, judged by the SAME predicate the service
+          // uses: iOS maps CBManagerStateResetting to turningOn, which
+          // RealBleService.scan() waits out and then scans normally — so a
+          // radio resetting at this instant used to fail the suite for
+          // correct behaviour ("adapter state is turningOn but scan()
+          // completed").
+          .where((s) => !isAdapterStateSettling(s))
           .first
           .timeout(
             const Duration(seconds: 60),

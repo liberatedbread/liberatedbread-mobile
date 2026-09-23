@@ -21,6 +21,7 @@
 // are the tripwire.
 //
 // Requires the host-target Rust library; skipped without it.
+import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -150,9 +151,14 @@ void main() {
         'by handle ${afterSync ~/ runs} us sync/call',
       );
 
+      // Relative, not a wall-clock number: an absolute microsecond budget in
+      // the ordinary unit lane went red on a busy runner with no code change
+      // and would stay green after a regression smaller than its margin.
+      // The by-value path is measured in the same process moments earlier,
+      // so a fifth of it is a bound that moves with the host.
       expect(
         afterSync ~/ runs,
-        lessThan(2000),
+        lessThan(max(1, beforeSync ~/ runs ~/ 5)),
         reason: 'a match is back to marshalling the catalogue',
       );
     },
@@ -259,7 +265,7 @@ void main() {
 
     expect(
       afterSync ~/ runs,
-      lessThan(2000),
+      lessThan(max(1, beforeSync ~/ runs ~/ 5)),
       reason: 'a decode is back to re-encoding the spec',
     );
   });

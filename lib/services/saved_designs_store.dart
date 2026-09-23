@@ -204,6 +204,24 @@ class SavedDesignsStore {
     await _prefs.remove('$_keyPrefix$deviceId');
   }
 
+  /// Replace the whole list for [deviceId] with [designs], in ONE write.
+  ///
+  /// The way to drop some entries and keep the rest. Doing it as clear()
+  /// followed by one save() per survivor left the list missing survivors —
+  /// designs still on the device — whenever a save after the clear threw,
+  /// and the throw then surfaced from the upload as "Could not save to the
+  /// device". One setString either lands or does not; there is no partial.
+  Future<void> replaceAll(String deviceId, List<SavedDesign> designs) async {
+    if (designs.isEmpty) {
+      await _prefs.remove('$_keyPrefix$deviceId');
+      return;
+    }
+    await _prefs.setString(
+      '$_keyPrefix$deviceId',
+      jsonEncode(designs.map((d) => d.toJson()).toList()),
+    );
+  }
+
   /// Insert or update [design], newest-first. An entry with the same cid OR
   /// the same content is replaced — the same device slot under a new name is
   /// one entry, not two.

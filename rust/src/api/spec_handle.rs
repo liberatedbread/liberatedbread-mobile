@@ -78,6 +78,22 @@ impl LoadedSpec {
         char_uuid: String,
         bytes: Vec<u8>,
     ) -> anyhow::Result<Vec<DecodedValueDto>> {
+        // The door-independence dispatch::select_protocol keeps for the
+        // by-YAML path, kept here too: a standard service the spec does not
+        // declare (Battery, Device Information) is answered by its SIG
+        // profile. Without this the FIRST decode of a notify, which goes by
+        // YAML, answered 55 %, and every later one, which goes by handle,
+        // answered CharacteristicNotFound for the same bytes — the module
+        // doc's "an answer cannot depend on which door the caller came
+        // through", broken by the door added to make decoding cheap.
+        if let Some(uuid) = service_uuid.as_deref() {
+            if !crate::protocol::dispatch::declares_service(&self.spec, uuid) {
+                if let Some(profile) = crate::protocol::profiles::lookup(uuid) {
+                    let proto = profile.create_protocol();
+                    return decode_with_protocol(&*proto, &char_uuid, &bytes);
+                }
+            }
+        }
         let proto =
             crate::protocol::generic::GenericProtocol::scoped(self.spec.clone(), service_uuid);
         decode_with_protocol(&proto, &char_uuid, &bytes)
@@ -481,6 +497,21 @@ device:
     /// four bytes. Spec packs install from arbitrary URLs, so one of them
     /// could silently cost every catalogue UDP probe for as long as it stayed
     /// installed, which is the opposite of what this function documents.
+    /// The handle answers the way the by-YAML door does for a standard
+    /// service the spec omits — dispatch's
+    /// `a_standard_service_the_spec_omits_falls_through_to_its_profile`, from
+    /// the other door. BULB_YAML declares only ffe0; 180f is the SIG Battery
+    /// service, and 2a19 its level.
+    #[test]
+    fn a_standard_service_the_spec_omits_falls_through_by_handle_too() {
+        let handle = load_spec(BULB_YAML.to_string()).unwrap();
+        let decoded = handle
+            .decode_value(Some("180f".into()), "2a19".into(), vec![55])
+            .expect("battery decodes through the SIG profile, as by YAML");
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].uint_value, Some(55));
+    }
+
     #[test]
     fn decode_hex_refuses_non_ascii_instead_of_panicking() {
         assert_eq!(decode_hex("6\u{e9}9"), None, "a char boundary mid-slice");

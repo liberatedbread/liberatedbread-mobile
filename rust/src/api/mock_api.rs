@@ -219,22 +219,36 @@ services:
     /// the comment carries the rest.
     #[test]
     fn concurrent_reads_stay_per_device() {
-        let handles: Vec<_> = (0..8)
+        // Each device is given its OWN value first. Reading defaults, as this
+        // test once did, cannot tell eight states from one: generate_defaults
+        // is deterministic, so "all eight equal results[0]" held with a single
+        // shared state and with no lock at all.
+        const CHAR: &str = "0000fff3-0000-1000-8000-00805f9b34fb";
+        for i in 0..8u8 {
+            mock_write_characteristic(format!("device-{i}"), CHAR.into(), vec![0xA0 + i, i]);
+        }
+        let handles: Vec<_> = (0..8u8)
             .map(|i| {
                 std::thread::spawn(move || {
-                    mock_read_characteristic(
-                        format!("device-{i}"),
-                        "0000fff3-0000-1000-8000-00805f9b34fb".into(),
-                        TEST_YAML.into(),
+                    (
+                        i,
+                        mock_read_characteristic(
+                            format!("device-{i}"),
+                            CHAR.into(),
+                            TEST_YAML.into(),
+                        ),
                     )
                 })
             })
             .collect();
         let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         assert_eq!(results.len(), 8);
-        for bytes in &results {
-            assert_eq!(bytes, &results[0], "every device reads its own state");
-            assert!(!bytes.is_empty());
+        for (i, bytes) in &results {
+            assert_eq!(
+                bytes,
+                &vec![0xA0 + i, *i],
+                "device-{i} read another device's state (or a default) under contention"
+            );
         }
     }
 }

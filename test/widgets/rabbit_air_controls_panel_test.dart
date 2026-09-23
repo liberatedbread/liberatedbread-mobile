@@ -98,6 +98,29 @@ const _entity = NetworkEntityDto(
   ],
 );
 
+/// A number entity, which the panel draws with an edit button that opens the
+/// Set dialog — the one place a TextEditingController was disposed while the
+/// dialog's closing animation was still building its TextField.
+const _numberEntity = NetworkEntityDto(
+  isInstanced: false,
+  name: 'Fan',
+  platform: 'number',
+  stateCommand: _stateCommand,
+  valueField: 'speed',
+  options: [],
+  actions: [
+    NetworkActionDto(
+      credentials: [],
+      instanceParams: [],
+      role: 'set_value',
+      transport: 'udp',
+      commandName: 'set_value',
+      userParams: [],
+      readBack: [],
+    ),
+  ],
+);
+
 FakeSpecCodec _codec() => FakeSpecCodec(
   networkReading: (name, returned) => const NetworkReadingDto(
     kind: NetworkReadingKind.onOff,
@@ -131,6 +154,51 @@ Future<void> _pumpPanel(
 }
 
 void main() {
+  testWidgets('the Set dialog outlives its own pop animation', (tester) async {
+    // _editNumber disposed its TextEditingController the moment showDialog
+    // returned, while the dialog's TextField was still in the tree for the
+    // exit animation: a focused field schedules a caret frame that touches
+    // the disposed controller — a notifyListeners assertion in debug, a
+    // use-after-dispose in release. The sibling _promptRabbitAirKey documents
+    // exactly why it does NOT dispose; this one did anyway.
+    final transport = _FakeTransport();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [specCodecProvider.overrideWithValue(_codec())],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RabbitAirControlsPanel(
+                specYaml: 'y',
+                entities: const [_numberEntity],
+                transport: transport,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Set Fan'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '3');
+    await tester.tap(find.text('Send'));
+    // Frame by frame through the pop transition: this is where the disposed
+    // controller was touched, and pumpAndSettle would skip past the frames
+    // that matter.
+    for (var i = 0; i < 24; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'frame $i of the pop touched the dialog controller',
+      );
+    }
+    await tester.pumpAndSettle();
+    expect(transport.sent, isNotEmpty, reason: 'the value was still sent');
+  });
+
   testWidgets('a refused command says the purifier did not take it', (
     tester,
   ) async {

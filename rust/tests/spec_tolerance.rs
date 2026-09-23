@@ -229,6 +229,40 @@ fn admore_allowed_and_labels_surface_in_dto() {
 /// mispair. Labels without any `allowed` are dropped for the same reason.
 /// The parser itself still preserves both blocks (tolerance), so this also
 /// pins that the drop happens exactly at the DTO boundary.
+/// One malformed handshake step used to fail the whole spec's parse and drop
+/// the device from the catalogue. The schema lets `write` carry any integer,
+/// and packs install from arbitrary URLs.
+#[test]
+fn a_malformed_initialization_step_drops_the_step_not_the_device() {
+    const YAML: &str = r#"
+device:
+  name: "Handshake"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+initialization:
+  - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+    write: [0, 256]
+  - write: [7]
+  - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+    write: [1]
+services:
+  - uuid: "0000ff20-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000ff21-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+"#;
+    let spec = parse_device_spec(YAML).expect("a bad step must not fail the spec");
+    assert_eq!(
+        spec.initialization.len(),
+        1,
+        "256 is not a byte and a step with no characteristic addresses nothing; the one that parses stays"
+    );
+    assert_eq!(spec.initialization[0].write.as_deref(), Some(&[1u8][..]));
+}
+
 #[test]
 fn mismatched_labels_are_dropped_at_dto_boundary_but_allowed_kept() {
     use liberated_bread_core::api::device_api::load_device_spec;

@@ -568,6 +568,23 @@ void main() {
   // The session is the device's, not the request's — a broker serving one
   // client at a time is held out by a client that reconnects per keypress.
 
+  test('an HTTP send that starts after close() is refused', () async {
+    // Every other path here — MQTT, WS, ECP2 — had this gate. sendHttpRequest
+    // did not, so a poll or a group-run continuation already past its await
+    // when the screen disposed registered the host's TLS policy again
+    // through `_tlsReady ??=` after close() had done its one forgetHost —
+    // a per-host registration nothing releases, for the life of the process.
+    final s = sender();
+    await s.close();
+
+    await expectLater(
+      s.sendHttpRequest(
+        const HttpRequestDto(method: 'POST', path: '/keypress/Home', body: ''),
+      ),
+      throwsStateError,
+    );
+  });
+
   group('the mqtt transport', () {
     late _ScriptedBroker broker;
     late FakeSpecCodec mqttCodec;

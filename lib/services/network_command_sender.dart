@@ -738,6 +738,13 @@ class NetworkCommandSender {
   /// path: [openSignedSession] returns null and this is a plain send on the
   /// discovered port.
   Future<String> sendHttpRequest(HttpRequestDto request) async {
+    // The gate every other path here has. A send that starts after close()
+    // — a poll or a group-run continuation already past its await when the
+    // screen disposed — re-registered the host's TLS policy through
+    // `_tlsReady ??=` below after close() had done its one forgetHost,
+    // leaving a registration nothing releases: the per-host leak the R-037
+    // release in close() exists to prevent.
+    if (_closed) throw StateError('NetworkCommandSender is closed');
     // At most two tries over the session: the one that finds it dead, and
     // one over its replacement.
     for (var attempt = 0; attempt < 2; attempt++) {

@@ -53,7 +53,7 @@ pub struct DeviceSpec {
     /// spec wants run after connecting and before any normal command.
     /// Promoted out of [`Self::extensions`], where it sat unexecuted, because
     /// a consumer now runs it: see [`crate::spec::initialization::handshake`].
-    #[serde(default)]
+    #[serde(default, deserialize_with = "tolerant_initialization")]
     pub initialization: Vec<InitializationStep>,
     /// Top-level `commands:` — named invocations for a device with no GATT
     /// characteristic to hang a command on.
@@ -1878,7 +1878,7 @@ pub struct Service {
     /// `initialization`. Typed rather than swept into [`Self::extensions`]
     /// because it is executed: see
     /// [`crate::spec::initialization::handshake`].
-    #[serde(default)]
+    #[serde(default, deserialize_with = "tolerant_initialization")]
     pub initialization: Vec<InitializationStep>,
     /// Unknown keys, kept verbatim so the doc comment above is true — the
     /// struct claimed a sweep it did not have, which is how
@@ -1900,6 +1900,32 @@ pub struct Service {
 /// fresh per session and cannot be written from a spec. Those are counted and
 /// reported rather than executed or silently dropped — see
 /// [`crate::spec::initialization::Handshake`].
+/// `initialization:` read one step at a time: a step that does not parse is
+/// dropped, and the rest — and the device — stay.
+///
+/// Every other advisory block on a spec is read this way (`udp_broadcast`,
+/// `local_name`, `mdns`: `filter_map(..ok())`), and this one was not. The
+/// schema lets `write` carry any integer, so a pack installed from a URL that
+/// writes `[0, 256]`, or says `delay_ms: -1`, or omits `characteristic`, used
+/// to fail the whole spec's parse and make the device unmatchable, although
+/// every command and format in it was fine. A step lost here is a step the
+/// handshake will not run — the device may ignore its first command, which
+/// is what an un-handshaken device did before any of this existed — not a
+/// device the catalogue has never heard of.
+fn tolerant_initialization<'de, D>(deserializer: D) -> Result<Vec<InitializationStep>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_yaml::Value::deserialize(deserializer)?;
+    Ok(match raw {
+        serde_yaml::Value::Sequence(steps) => steps
+            .into_iter()
+            .filter_map(|v| serde_yaml::from_value(v).ok())
+            .collect(),
+        _ => Vec::new(),
+    })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct InitializationStep {
     /// The GATT characteristic this step acts on, as the spec spells it

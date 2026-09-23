@@ -594,7 +594,12 @@ class RabbitAirControlsPanelState
         ],
       ),
     );
-    controller.dispose();
+    // NOT disposed here, for the reason _promptRabbitAirKey above gives: the
+    // dialog's pop animation still builds the TextField for a few frames
+    // after showDialog returns, and a focused field schedules a caret frame
+    // that touches the controller — disposed, that is a notifyListeners
+    // assertion in debug and a use-after-dispose in release. Dialog-scoped;
+    // collected with the tree.
     if (entered == null || entered.isEmpty || !mounted) return;
     final value = double.tryParse(entered);
     if (value == null ||

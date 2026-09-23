@@ -293,6 +293,33 @@ void main() {
     );
   });
 
+  test('the hardware suite judges the adapter the way the service does', () {
+    // integration_test/device_hardware_test.dart takes the first adapter
+    // state that is not `unknown` and, for any state but `on`, demands that
+    // scan() fail. But `turningOn` — which flutter_blue_plus_darwin maps
+    // CBManagerStateResetting to — is a state RealBleService.scan() waits
+    // OUT and then scans normally, so a radio resetting at that instant
+    // failed the suite for correct behaviour. The suite must use the
+    // service's own predicate for "settled". Comment-stripped: prose about
+    // the predicate must not satisfy this.
+    final suite = stripCommentsKeepingStrings(
+      readRepoFile(
+        '$_dir/device_hardware_test.dart',
+        consequence: 'the Bluetooth case cannot be checked for the filter',
+      ),
+    );
+    expect(
+      suite,
+      contains('.where((s) => !isAdapterStateSettling(s))'),
+      reason: 'the same predicate the service scans on',
+    );
+    expect(
+      suite,
+      isNot(contains('s != BluetoothAdapterState.unknown')),
+      reason: 'the old filter let turningOn through as a settled state',
+    );
+  });
+
   test('no host-only suite is imported by the aggregate', () {
     for (final name in suites) {
       final tag = hostOnlyTagOf(name);

@@ -139,7 +139,7 @@ pub fn select_protocol(
 /// the full 128-bit UUID and a caller passing `180f` are the same service —
 /// the mismatch that would otherwise make this fallthrough fire on a spec that
 /// HAD overridden the profile.
-fn declares_service(spec: &DeviceSpec, service_uuid: &str) -> bool {
+pub(crate) fn declares_service(spec: &DeviceSpec, service_uuid: &str) -> bool {
     let wanted = profiles::normalize_uuid(service_uuid);
     spec.services
         .iter()

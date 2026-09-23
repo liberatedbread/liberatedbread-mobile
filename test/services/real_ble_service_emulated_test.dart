@@ -306,6 +306,36 @@ void main() {
       );
     });
 
+    test('a changed manufacturer payload is a new sighting', () async {
+      // IoTDevice.hasSameIdentity learned to compare manufacturer bytes — a
+      // panel re-advertising 32x8 where it said 16x16 — but the coalescer
+      // here, which is what decides whether a sighting is EMITTED, still
+      // compared everything but the bytes: same rssi, name and uuids inside
+      // the heartbeat, and the new dimensions never reached the LED editor.
+      final panel = EmulatedPeripheral.bulb(id: _bulbId)
+        ..manufacturerData = {
+          0x1234: [16, 16],
+        };
+      ble.add(panel);
+
+      final seen = await runScan(
+        during: () async {
+          panel.manufacturerData = {
+            0x1234: [32, 8],
+          };
+          panel.advertise();
+        },
+      );
+
+      final sightings = seen.where((d) => d.id == _bulbId).toList();
+      expect(
+        sightings.length,
+        greaterThanOrEqualTo(2),
+        reason: 'the re-advertisement with new bytes must be emitted',
+      );
+      expect(sightings.last.manufacturerData[0x1234], [32, 8]);
+    });
+
     test('surfaces a platform scan failure on the stream', () async {
       ble.scanError = const EmulatedGattError(
         2,

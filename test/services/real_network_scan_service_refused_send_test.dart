@@ -88,8 +88,12 @@ UdpProbeDto _probe({
   stableKeys: const [],
 );
 
-// The two shapes a spec can name. aqara-hub really declares the group; the
-// broadcast one is on a port nothing else in the file uses, so refusing it
+// The two shapes a spec can name, on the SAME port. aqara-hub really declares
+// the group; the broadcast probe is put on aqara's port on purpose, because
+// the grouping under test is by destination and not by port — with the two on
+// different ports, a regression back to one-socket-per-port lands them on two
+// sockets anyway and the refusal costs nothing it can be seen costing. 10008
+// is a port nothing else in the file sends to, so refusing an address on it
 // refuses the catalogue's send and no other transport's.
 final _aqara = _probe(
   specKey: 'aqara-hub.yaml',
@@ -99,7 +103,7 @@ final _aqara = _probe(
 final _milight = _probe(
   specKey: 'limitlessled-milight-bridge.yaml',
   address: '255.255.255.255',
-  port: 47777,
+  port: 10008,
 );
 
 Future<Object?> _verdict(_Network network, {required bool apple}) async {
@@ -134,18 +138,28 @@ void main() {
 
     expect(await _verdict(network, apple: true), isNull);
 
-    // The refusal cost aqara's socket and nothing else: the broadcast probe
-    // on its own socket still went out. Grouped by port instead of by
-    // destination, one refusal closed the socket carrying both.
-    expect(network.sentTo('230.0.0.1', 10008).single.closed, isTrue);
-    expect(network.sentTo('255.255.255.255', 47777), isNotEmpty);
+    // The refusal cost aqara's socket and nothing else. `closed` cannot say
+    // so — every socket is closed when the scan ends — but the SEND COUNT
+    // can: the refused socket records the one send dart:io refused (the
+    // second attempt meets a closed socket and records nothing), while the
+    // broadcast probe, on its own socket, records both attempts. Grouped by
+    // port instead of by destination, the two share one socket, aqara's
+    // refusal closes it, and the broadcast probe is never recorded at all.
+    expect(network.sentTo('230.0.0.1', 10008).single.sent, hasLength(1));
+    final broadcast = network.sentTo('255.255.255.255', 10008).toList();
+    expect(broadcast, hasLength(1), reason: 'its own socket');
+    expect(
+      broadcast.single.sent,
+      hasLength(2),
+      reason: 'both attempts went out, untouched by the refusal',
+    );
   });
 
   test(
     'a refused broadcast probe on Apple is a denied Local Network',
     () async {
       final network = _Network(
-        refuse: (a, p) => _is(a, p, '255.255.255.255', 47777),
+        refuse: (a, p) => _is(a, p, '255.255.255.255', 10008),
       );
 
       expect(
@@ -162,7 +176,7 @@ void main() {
     'the same refusal off Apple is an empty network, not a denial',
     () async {
       final network = _Network(
-        refuse: (a, p) => _is(a, p, '255.255.255.255', 47777),
+        refuse: (a, p) => _is(a, p, '255.255.255.255', 10008),
       );
 
       expect(await _verdict(network, apple: false), isNull);

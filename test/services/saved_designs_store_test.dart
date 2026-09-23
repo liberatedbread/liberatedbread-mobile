@@ -15,6 +15,46 @@ void main() {
     prefs = await SharedPreferences.getInstance();
   });
 
+  test('replaceAll keeps exactly the survivors, in one write', () async {
+    // Forgetting the designs a loop wiped off the device used to be clear()
+    // and then one save() per survivor; a throw between them left survivors
+    // — designs still on the device — gone from the list. replaceAll is one
+    // setString, so the list is either the old one or the new one.
+    final store = SavedDesignsStore(prefs);
+    SavedDesign design(int cid, DateTime at) => SavedDesign(
+      name: 'd$cid',
+      cid: cid,
+      kind: 'picture',
+      contentHash: 'h$cid',
+      savedAt: at,
+      frameCids: [cid],
+      frameSlots: const [1],
+      frames: const [],
+    );
+    await store.save('AA:BB', design(1, DateTime(2026, 1, 1)));
+    await store.save('AA:BB', design(2, DateTime(2026, 1, 2)));
+    await store.save('AA:BB', design(3, DateTime(2026, 1, 3)));
+
+    await store.replaceAll('AA:BB', [
+      design(1, DateTime(2026, 1, 1)),
+      design(3, DateTime(2026, 1, 3)),
+    ]);
+
+    expect(store.load('AA:BB').map((d) => d.cid), [
+      3,
+      1,
+    ], reason: 'newest first');
+    expect(
+      prefs.getKeys().where((k) => k.contains('AA:BB')),
+      hasLength(1),
+      reason: 'one key, one write',
+    );
+
+    await store.replaceAll('AA:BB', const []);
+    expect(store.load('AA:BB'), isEmpty);
+    expect(prefs.getKeys().where((k) => k.contains('AA:BB')), isEmpty);
+  });
+
   test(
     'an animation round-trips its frame pixels so replay can re-upload',
     () async {

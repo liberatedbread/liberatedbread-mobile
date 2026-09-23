@@ -244,6 +244,11 @@ class EmulatedPeripheral {
   /// is out of range or already connected elsewhere does.
   EmulatedGattError? connectError;
 
+  /// Manufacturer payloads in the advertisement, by company id. Mutable so a
+  /// test can re-advertise a changed payload — a pixel panel announcing new
+  /// dimensions — and see whether the scan emits the change.
+  Map<int, List<int>> manufacturerData = const {};
+
   /// Whether the SYSTEM no longer holds a peripheral object for this id —
   /// CoreBluetooth's `retrievePeripheralsWithIdentifiers:` answering with
   /// nothing.
@@ -469,7 +474,7 @@ class EmulatedPeripheral {
     connectable: connectable,
     txPowerLevel: null,
     appearance: null,
-    manufacturerData: const {},
+    manufacturerData: manufacturerData,
     serviceData: const {},
     serviceUuids: [for (final s in services) Guid(s.uuid)],
     rssi: rssi,

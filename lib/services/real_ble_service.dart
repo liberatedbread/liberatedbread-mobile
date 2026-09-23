@@ -327,6 +327,7 @@ class ScanResultCoalescer {
         prev.name == name &&
         listEquals(prev.serviceUuids, serviceUuids) &&
         listEquals(prev.companyIds, companyIds) &&
+        sameManufacturerData(prev.manufacturerData, manufacturerData) &&
         at.difference(prev.lastSeen) < scanHeartbeat) {
       return null;
     }

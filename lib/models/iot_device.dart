@@ -92,13 +92,22 @@ class IoTDevice {
       listEquals(other.companyIds, companyIds) &&
       _sameManufacturerData(other.manufacturerData);
 
-  bool _sameManufacturerData(Map<int, List<int>> other) {
-    if (other.length != manufacturerData.length) return false;
-    for (final entry in manufacturerData.entries) {
-      final theirs = other[entry.key];
-      if (theirs == null && !other.containsKey(entry.key)) return false;
-      if (!listEquals(theirs, entry.value)) return false;
-    }
-    return true;
+  bool _sameManufacturerData(Map<int, List<int>> other) =>
+      sameManufacturerData(manufacturerData, other);
+}
+
+/// Whether two advertisements carry the same manufacturer payloads: the same
+/// company ids, each with the same bytes. Shared by [IoTDevice.hasSameIdentity]
+/// and the scan coalescer in RealBleService, which must not drift apart — the
+/// model learned to see a panel re-advertise its dimensions (32x8 where it
+/// said 16x16) while the coalescer, which is what actually decides whether a
+/// sighting is emitted, still compared everything but the bytes.
+bool sameManufacturerData(Map<int, List<int>> a, Map<int, List<int>> b) {
+  if (a.length != b.length) return false;
+  for (final entry in a.entries) {
+    final theirs = b[entry.key];
+    if (theirs == null && !b.containsKey(entry.key)) return false;
+    if (!listEquals(theirs, entry.value)) return false;
   }
+  return true;
 }

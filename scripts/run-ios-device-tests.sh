@@ -237,6 +237,14 @@ PLIST
 }
 
 MULTICAST_ENTITLED=true
+# What the tree looked like BEFORE anything below touches it, so the check at
+# the end reports only what the BUILD changed — not edits the developer had in
+# progress, and not the entitlements file the strip case rewrites (and the
+# restore puts back): snapshotting after the strip made every auto/strip run
+# end with a false "the build changed tracked files" naming Runner.entitlements,
+# training the reader to ignore the one check meant to catch real drift.
+TREE_BEFORE="$(git status --porcelain -- ios macos .gitignore pubspec.lock)"
+
 case "$MULTICAST_MODE" in
   keep)  log "Keeping $ENTITLEMENTS as committed (--keep-multicast)." ;;
   strip) strip_entitlements; MULTICAST_ENTITLED=false ;;
@@ -258,10 +266,6 @@ if [[ ! -d ".dart_tool" ]]; then
 fi
 
 # ── run ──────────────────────────────────────────────────────────────────────
-
-# What the tree looked like BEFORE the build, so the check at the end reports
-# only what the build changed — not edits the developer had in progress.
-TREE_BEFORE="$(git status --porcelain -- ios macos .gitignore pubspec.lock)"
 
 DEFINES=(
   --dart-define=LB_HARDWARE=true

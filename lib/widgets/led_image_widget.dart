@@ -1898,12 +1898,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       '${widget.deviceId} forgetting ${dropped.length} stored design(s) the '
       'loop wiped off the device: ${dropped.join(', ')}',
     );
-    await store.clear(widget.deviceId);
-    // `load` orders by savedAt, so re-saving oldest-first keeps the list as
-    // it was minus the dropped entries.
-    for (final d in survivors.reversed) {
-      await store.save(widget.deviceId, d);
-    }
+    // One write. clear() and then a save() per survivor could throw between
+    // the two and leave survivors — designs still on the device — gone from
+    // the list; `load` orders by savedAt, so the stored order is immaterial.
+    await store.replaceAll(widget.deviceId, survivors);
     if (mounted) setState(() {}); // the replay strip loses the entries
   }
 
