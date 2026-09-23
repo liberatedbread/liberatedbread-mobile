@@ -7,6 +7,7 @@ pub mod codec;
 pub mod error;
 pub mod mock;
 pub mod protocol;
+pub mod serial;
 pub mod spec;
 
 #[cfg(test)]

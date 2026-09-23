@@ -13,11 +13,24 @@ transports from one catalogue of YAML device specs:
 - **Wi-Fi/LAN** — discovery over mDNS/DNS-SD and SSDP/UPnP, control over HTTP
   and SOAP.
 
+It also programs handheld radios, which are not spec-driven: each radio family
+has its own codec in `rust/src/protocol/radio/`, reached over the radio's own
+Bluetooth or a **USB serial** programming cable.
+
 Flutter owns the UI, transports, and permissions; the Rust core
 (`rust/src/`, wired via `flutter_rust_bridge`) owns all protocol logic — spec
 parsing, byte codecs, BLE profiles, and rendering the HTTP/SOAP requests that
 drive Wi-Fi devices. Both transports run through the same spec-driven pipeline,
 so a change that only touches one transport should still leave the other whole.
+
+**One deliberate exception: desktop serial ports live in Rust.** On Linux and
+macOS, `rust/src/serial.rs` (bridged by `rust/src/api/serial_api.rs`) opens,
+reads and writes ports through the `serialport` crate — the way to a port there without taking on a copyleft
+runtime library (libserialport, the usual Dart route, is LGPL-3.0; `serialport`
+is MPL-2.0). It is a transport and nothing more: the radio conversation stays
+in the Dart programmer, sending frames `radio_api` computes, exactly as over
+BLE. Android's serial path is Dart (`usb_serial`, over the USB host stack), and
+iOS has none. Don't move either "back" to match the rule above.
 
 ## Setup
 
@@ -89,6 +102,8 @@ optional here — they're a feature.
 - **Keep both transports in mind.** BLE lives in `*ble_service.dart` /
   `rust/src/protocol/profiles/`; Wi-Fi lives in `*network_scan_service.dart`,
   `*_control_service.dart` (HTTP/SOAP), and `rust/src/protocol/{http,soap}.rs`.
+  Radios live in `rust/src/protocol/radio/` (codecs), `*radio_programmer.dart`
+  (sessions) and `*serial_port_service.dart` (cables).
 - Bundled specs are discovered from the subtree's `device-specs/index.json`,
   not a list in Dart: adding a device is a spec refresh, never a Dart edit.
   `rust/tests/vendored_assets.rs` fails if `device_spec_provider.dart` names a

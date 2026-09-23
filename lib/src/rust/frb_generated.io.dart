@@ -8,6 +8,7 @@
 import 'api/device_api.dart';
 import 'api/mock_api.dart';
 import 'api/radio_api.dart';
+import 'api/serial_api.dart';
 import 'api/spec_handle.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -481,6 +482,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
 
   @protected
+  List<SerialPortInfoDto> dco_decode_list_serial_port_info_dto(dynamic raw);
+
+  @protected
   List<ServiceDto> dco_decode_list_service_dto(dynamic raw);
 
   @protected
@@ -786,6 +790,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SecurityAdvisoryDto dco_decode_security_advisory_dto(dynamic raw);
+
+  @protected
+  SerialPortInfoDto dco_decode_serial_port_info_dto(dynamic raw);
+
+  @protected
+  SerialReadDto dco_decode_serial_read_dto(dynamic raw);
 
   @protected
   ServiceDto dco_decode_service_dto(dynamic raw);
@@ -1467,6 +1477,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer);
 
   @protected
+  List<SerialPortInfoDto> sse_decode_list_serial_port_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<ServiceDto> sse_decode_list_service_dto(SseDeserializer deserializer);
 
   @protected
@@ -1856,6 +1871,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SecurityAdvisoryDto sse_decode_security_advisory_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  SerialPortInfoDto sse_decode_serial_port_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SerialReadDto sse_decode_serial_read_dto(SseDeserializer deserializer);
 
   @protected
   ServiceDto sse_decode_service_dto(SseDeserializer deserializer);
@@ -2730,6 +2753,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_serial_port_info_dto(
+    List<SerialPortInfoDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_service_dto(
     List<ServiceDto> self,
     SseSerializer serializer,
@@ -3235,6 +3264,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     SecurityAdvisoryDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_serial_port_info_dto(
+    SerialPortInfoDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_serial_read_dto(SerialReadDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_service_dto(ServiceDto self, SseSerializer serializer);

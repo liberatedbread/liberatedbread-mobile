@@ -11,6 +11,7 @@ import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
 import '../src/rust/api/radio_api.dart' as rust;
 import 'ble_service.dart';
+import 'byte_inbox.dart';
 import 'radio_codec.dart';
 import 'radio_programmer.dart';
 
@@ -223,7 +224,9 @@ class BaofengBleProgrammer implements RadioProgrammer {
       connected = true;
       await _ble.discoverServices(deviceId).timeout(stepTimeout);
 
-      final inbox = _Inbox();
+      // A 0x44-byte reply arrives as three notifications at the minimum
+      // MTU; the inbox reassembles them.
+      final inbox = ByteInbox();
       notifications = _ble
           .subscribeCharacteristic(
             deviceId,
@@ -262,58 +265,31 @@ class BaofengBleProgrammer implements RadioProgrammer {
   }
 }
 
-/// Reassembles notifications into whole replies.
-///
-/// A 0x44-byte read reply arrives as three notifications at the BLE minimum
-/// MTU, so "wait for N bytes" is the only workable read: there is no framing
-/// inside the tunnel and no terminator to look for.
-class _Inbox {
-  final List<int> _buffer = [];
-  Completer<void>? _waiter;
-
-  void add(List<int> chunk) {
-    _buffer.addAll(chunk);
-    final waiter = _waiter;
-    if (waiter != null && !waiter.isCompleted) waiter.complete();
-  }
-
-  /// Take exactly [count] bytes, waiting for them to arrive.
-  Future<List<int>> take(int count, Duration timeout) async {
-    final deadline = DateTime.now().add(timeout);
-    while (_buffer.length < count) {
-      final remaining = deadline.difference(DateTime.now());
-      if (remaining <= Duration.zero) {
-        throw const RadioTimeoutException();
-      }
-      final waiter = Completer<void>();
-      _waiter = waiter;
-      await waiter.future.timeout(
-        remaining,
-        onTimeout: () => throw const RadioTimeoutException(),
-      );
-      _waiter = null;
-    }
-    final out = _buffer.sublist(0, count);
-    _buffer.removeRange(0, count);
-    return out;
-  }
-
-  /// Drop anything left over, so one command's tail cannot be read as the
-  /// next command's reply.
-  void clear() => _buffer.clear();
-}
-
 /// One connected conversation with a radio.
 class _RadioSession {
   final BleService ble;
   final String deviceId;
-  final _Inbox inbox;
+  final ByteInbox inbox;
 
   _RadioSession({
     required this.ble,
     required this.deviceId,
     required this.inbox,
   });
+
+  /// A reply of exactly [count] bytes.
+  ///
+  /// The timeout is translated here, not by the session's catch: a timeout
+  /// in a block read happens inside the session's body stream, and an
+  /// `async*` function forwards an inner stream's errors as events rather
+  /// than throwing them where it could catch them.
+  Future<List<int>> _take(int count) async {
+    try {
+      return await inbox.take(count, BaofengBleProgrammer.stepTimeout);
+    } on TimeoutException {
+      throw const RadioTimeoutException();
+    }
+  }
 
   Future<void> _send(List<int> bytes) => ble
       .writeCharacteristic(
@@ -330,7 +306,7 @@ class _RadioSession {
     final magic = await rust.radioIdentMagic(modelId: modelId);
     await _send(magic);
 
-    final ack = await inbox.take(1, BaofengBleProgrammer.stepTimeout);
+    final ack = await _take(1);
     if (!await rust.radioIsAck(reply: ack)) {
       throw const RadioProtocolException(
           'The radio did not accept the programming request. Make sure it is '
@@ -343,23 +319,20 @@ class _RadioSession {
       // The reply is read and discarded: what matters is that the radio
       // answered with the right number of bytes, which is how the two ends
       // stay in step.
-      await inbox.take(
-        step.expectedReplyLen,
-        BaofengBleProgrammer.stepTimeout,
-      );
+      await _take(step.expectedReplyLen);
     }
   }
 
   Future<List<int>> readBlock(int addr, int len) async {
     await _send(await rust.radioReadCommand(addr: addr, len: len));
     final expected = await rust.radioExpectedReplyLen(len: len);
-    final reply = await inbox.take(expected, BaofengBleProgrammer.stepTimeout);
+    final reply = await _take(expected);
     return rust.radioParseReadReply(reply: reply, addr: addr, len: len);
   }
 
   Future<void> writeBlock(int addr, List<int> data) async {
     await _send(await rust.radioWriteCommand(addr: addr, data: data));
-    final ack = await inbox.take(1, BaofengBleProgrammer.stepTimeout);
+    final ack = await _take(1);
     if (!await rust.radioIsAck(reply: ack)) {
       throw RadioProtocolException(
           'The radio refused a write at 0x${addr.toRadixString(16)}. It may '
