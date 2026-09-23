@@ -10,6 +10,8 @@
 // channel capacity refuses a channel the radio would have taken, which the
 // user sees and can report. Too large a one silently overruns the codeplug.
 
+import 'radio_target.dart';
+
 /// An inclusive frequency span, in Hz.
 class FreqRange {
   final int lowHz;
@@ -226,6 +228,20 @@ class RadioProfile {
 
   /// Whether this build can read and write this radio directly.
   bool get isProgrammable => programmerSupport != ProgrammerSupport.none;
+
+  /// Whether this build can program this radio over [transport].
+  ///
+  /// Follows from the protocol family: the UV-17Pro protocol runs over the
+  /// radio's own Bluetooth on the models that have it, and both serial
+  /// families over a cable.
+  bool programsOver(RadioTransport transport) =>
+      isProgrammable &&
+      switch (transport) {
+        RadioTransport.ble => programmingFamily == ProgrammingFamily.bleUv17Pro,
+        RadioTransport.usb =>
+          programmingFamily == ProgrammingFamily.serialUv5r ||
+              programmingFamily == ProgrammingFamily.serialUv17Pro,
+      };
 
   /// The transmit ranges in force for a suggestion run.
   ///
@@ -490,3 +506,9 @@ RadioProfile? radioProfileById(String? id) {
 /// What the app selects until the user chooses: the radio it can actually
 /// program.
 const RadioProfile defaultRadioProfile = uv5rMiniProfile;
+
+/// Every radio this build can program over [transport], in catalogue order.
+List<RadioProfile> profilesProgrammableOver(RadioTransport transport) => [
+      for (final profile in radioProfiles)
+        if (profile.programsOver(transport)) profile,
+    ];

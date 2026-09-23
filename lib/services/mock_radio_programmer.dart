@@ -38,6 +38,16 @@ class MockRadioProgrammer implements RadioProgrammer {
   bool supports(RadioProfile profile) => profile.isProgrammable;
 
   @override
+  Future<RadioIdentity> identify({
+    required String deviceId,
+    required RadioProfile profile,
+  }) async {
+    await _stages(RadioProgressStage.identifying, 'Waking the radio…')
+        .drain<void>();
+    return RadioIdentity(profile: profile);
+  }
+
+  @override
   Stream<RadioProgressEvent> readCodeplug({
     required String deviceId,
     required RadioProfile profile,

@@ -11,6 +11,7 @@ import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
 import '../src/rust/api/radio_api.dart' as rust;
 import 'ble_service.dart';
+import 'radio_codec.dart';
 import 'radio_programmer.dart';
 
 /// The HM-10-style GATT UART these radios expose.
@@ -57,6 +58,18 @@ class BaofengBleProgrammer implements RadioProgrammer {
   bool supports(RadioProfile profile) =>
       profile.programmingFamily == ProgrammingFamily.bleUv17Pro &&
       profile.isProgrammable;
+
+  @override
+  Future<RadioIdentity> identify({
+    required String deviceId,
+    required RadioProfile profile,
+  }) async {
+    // The session is the whole of it: connecting, the ident and the
+    // handshake all happen before a body runs, and the disconnect after.
+    await _session(deviceId, profile, (_) => const Stream.empty())
+        .drain<void>();
+    return RadioIdentity(profile: profile);
+  }
 
   @override
   Stream<RadioProgressEvent> readCodeplug({
@@ -122,7 +135,7 @@ class BaofengBleProgrammer implements RadioProgrammer {
       image: base.image,
       channels: [
         for (var i = 0; i < channels.length; i++)
-          _toDto(channels[i], slot: i + 1),
+          channelToDto(channels[i], slot: i + 1),
       ],
       modelId: profile.id,
     );
@@ -246,33 +259,6 @@ class BaofengBleProgrammer implements RadioProgrammer {
         }
       }
     }
-  }
-
-  static rust.RadioChannelDto _toDto(RadioChannel channel,
-      {required int slot}) {
-    rust.ToneDto tone(ToneSetting setting) => rust.ToneDto(
-          mode: switch (setting.mode) {
-            ToneMode.none => 'none',
-            ToneMode.ctcss => 'ctcss',
-            ToneMode.dcs => 'dcs',
-          },
-          ctcssTenthHz: setting.ctcssTenthHz,
-          dcsCode: setting.dcsCode,
-          dcsInverted: setting.dcsInverted,
-        );
-
-    return rust.RadioChannelDto(
-      slot: slot,
-      name: channel.name,
-      rxFreqHz: channel.rxFreqHz,
-      txFreqHz: channel.txFreqHz,
-      rxOnly: channel.rxOnly,
-      txTone: tone(channel.txTone),
-      rxTone: tone(channel.rxTone),
-      narrow: channel.mode == ChannelMode.nfm,
-      lowPower: channel.power == PowerLevel.low,
-      skip: false,
-    );
   }
 }
 

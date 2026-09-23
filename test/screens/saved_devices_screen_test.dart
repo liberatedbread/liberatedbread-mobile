@@ -12,6 +12,8 @@ import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/screens/roomba_transport_screen.dart';
+import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
+import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 import 'package:liberated_bread_mobile/services/panel_resolution_cache.dart';
@@ -34,6 +36,10 @@ Widget _wrap() => ProviderScope(
     // real store behind them is the keychain plugin, whose platform
     // channel never answers in a widget test — the forget would hang.
     settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+    // The radio screen a saved radio opens reads the Radio tab's model.
+    prefsSettingsStoreProvider.overrideWith(
+      (ref) async => InMemorySettingsStore(),
+    ),
   ],
   child: const MaterialApp(home: SavedDevicesScreen()),
 );
@@ -334,6 +340,57 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('How to reach this robot'), findsNothing);
+    });
+  });
+
+  group('radios', () {
+    Future<void> seedRadios(String json) async {
+      SharedPreferences.setMockInitialValues({'saved_radios_v1': json});
+      _prefs = await SharedPreferences.getInstance();
+    }
+
+    const oneRadio = '[{"transport":"ble","id":"AA:BB","name":"Base radio",'
+        '"lastSeen":"2026-09-01T12:00:00.000","radioProfileId":"uv-5r-mini"}]';
+
+    testWidgets('a saved radio is listed with its model and its link',
+        (tester) async {
+      await seedRadios(oneRadio);
+      await tester.pumpWidget(_wrap());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Radios'), findsOneWidget);
+      expect(find.text('Base radio'), findsOneWidget);
+      expect(find.text('Baofeng UV-5R Mini'), findsOneWidget);
+      expect(find.text('Bluetooth · AA:BB'), findsOneWidget);
+      expect(find.text('No saved devices yet'), findsNothing);
+    });
+
+    testWidgets('opening one goes to the radio screen, on its model',
+        (tester) async {
+      await seedRadios(oneRadio);
+      await tester.pumpWidget(_wrap());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Base radio'));
+      await tester.pumpAndSettle();
+
+      final screen =
+          tester.widget<RadioDeviceScreen>(find.byType(RadioDeviceScreen));
+      expect(screen.target.id, 'AA:BB');
+      expect(screen.initialProfile?.id, 'uv-5r-mini');
+    });
+
+    testWidgets('forgetting one removes it and says so', (tester) async {
+      await seedRadios(oneRadio);
+      await tester.pumpWidget(_wrap());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Forget Base radio'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Base radio'), findsNothing);
+      expect(find.text('Removed Base radio'), findsOneWidget);
+      expect(find.text('No saved devices yet'), findsOneWidget);
     });
   });
 }

@@ -83,6 +83,33 @@ void main() {
     );
   });
 
+  test('identify runs the ident and handshake, reads nothing, and lets go',
+      () async {
+    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+    final emulated = await radio();
+
+    final identity = await programmer.identify(
+        deviceId: _deviceId, profile: uv5rMiniProfile);
+
+    expect(identity.profile, uv5rMiniProfile);
+    expect(identity.reported, isNull,
+        reason: 'this family acknowledges; it does not name itself');
+    // The magic and the three handshake steps, and not one block read.
+    expect(emulated.commands, hasLength(4));
+    expect(emulated.commands.first, hasLength(16));
+    expect(emulated.commands.any((c) => c.isNotEmpty && c[0] == 0x52), isFalse);
+    expect(emulated.peripheral.isConnected, isFalse);
+  });
+
+  test('identify refuses a model it cannot drive', () async {
+    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+    await radio();
+    await expectLater(
+      programmer.identify(deviceId: _deviceId, profile: uv5rProfile),
+      throwsA(isA<RadioUnsupportedException>()),
+    );
+  });
+
   test('reads a whole codeplug back byte for byte', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');
     final emulated = await radio();

@@ -61,8 +61,29 @@ void main() {
     expect(event.message, isNotEmpty);
   });
 
+  group('RadioIdentity', () {
+    test('claims only the family when the radio reported nothing', () {
+      const identity = RadioIdentity(profile: uv5rMiniProfile);
+      expect(identity.summary, contains('confirms the family'));
+      expect(identity.summary, contains(uv5rMiniProfile.displayName));
+    });
+
+    test('repeats what the radio said when it said something', () {
+      const identity =
+          RadioIdentity(profile: uv5rProfile, reported: 'BFB297 firmware');
+      expect(identity.summary, 'The radio answered: BFB297 firmware.');
+    });
+  });
+
   group('MockRadioProgrammer', () {
     final programmer = MockRadioProgrammer(stepDelay: Duration.zero);
+
+    test('answers an identify as the model it was asked about', () async {
+      final identity =
+          await programmer.identify(deviceId: 'mock', profile: uv5gMiniProfile);
+      expect(identity.profile, uv5gMiniProfile);
+      expect(identity.reported, isNull);
+    });
 
     test('supports whatever this build can program', () {
       expect(programmer.supports(uv5rMiniProfile), isTrue);
@@ -138,6 +159,23 @@ void main() {
   });
 
   group('FakeRadioProgrammer', () {
+    test('identifies, reports, and records where it was aimed', () async {
+      final fake = FakeRadioProgrammer()..reported = 'hello';
+      final identity =
+          await fake.identify(deviceId: 'radio-1', profile: uv5rMiniProfile);
+      expect(identity.reported, 'hello');
+      expect(fake.identifyCalls, 1);
+      expect(fake.deviceIds, ['radio-1']);
+    });
+
+    test('an identify fails on command', () async {
+      final fake = FakeRadioProgrammer(error: const RadioTimeoutException());
+      await expectLater(
+        fake.identify(deviceId: 'radio-1', profile: uv5rMiniProfile),
+        throwsA(isA<RadioTimeoutException>()),
+      );
+    });
+
     test('records reads, writes and restores', () async {
       final fake = FakeRadioProgrammer();
       await fake

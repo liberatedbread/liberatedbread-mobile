@@ -90,6 +90,28 @@ class RadioCodeplug {
   int get length => image.length;
 }
 
+/// What a radio said when asked to start a programming session.
+class RadioIdentity {
+  /// The model the session was asked for — and answered.
+  final RadioProfile profile;
+
+  /// Anything the radio reported beyond acknowledging, verbatim: a variant
+  /// or firmware string. Null when it reported nothing, which is the
+  /// UV-17Pro family's normal answer: it accepts a request and names nothing.
+  final String? reported;
+
+  const RadioIdentity({required this.profile, this.reported});
+
+  /// One line for the screen, claiming no more than the radio said.
+  String get summary {
+    final said = reported;
+    if (said != null) return 'The radio answered: $said.';
+    return 'The radio answered, and accepted a ${profile.displayName} '
+        'programming session. Radios in this family share one request, so '
+        'that confirms the family rather than the exact model.';
+  }
+}
+
 /// Reads and writes a radio.
 ///
 /// An interface so the screens can be driven by a mock with no hardware, and
@@ -98,6 +120,16 @@ class RadioCodeplug {
 abstract class RadioProgrammer {
   /// Whether this programmer can drive [profile].
   bool supports(RadioProfile profile);
+
+  /// Connect, ask the radio to start a session as a [profile], and let go.
+  ///
+  /// Nothing on the radio changes. It is the cheapest proof that the link
+  /// works and the model is right, and the moment a radio counts as having
+  /// answered.
+  Future<RadioIdentity> identify({
+    required String deviceId,
+    required RadioProfile profile,
+  });
 
   /// Read the radio's whole memory.
   ///

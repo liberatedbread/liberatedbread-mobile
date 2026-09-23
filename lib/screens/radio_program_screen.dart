@@ -13,26 +13,35 @@ import '../core/error_text.dart';
 import '../models/channel_plan.dart';
 import '../models/iot_device.dart';
 import '../models/radio_profile.dart';
+import '../models/radio_target.dart';
 import '../providers/ble_provider.dart';
 import '../providers/radio_programmer_provider.dart';
-import '../services/baofeng_ble_programmer.dart';
+import '../providers/saved_radio_provider.dart';
 import '../services/codeplug_backup_store.dart';
 import '../services/radio_programmer.dart';
+import '../services/radio_recognition.dart';
 
 /// The backup store. Overridden in tests with a temp directory.
 final codeplugBackupStoreProvider = Provider<CodeplugBackupStore>(
   (ref) => CodeplugBackupStore(dirResolver: getApplicationDocumentsDirectory),
 );
 
-/// Scan for the radio, then read it, back it up, and write the plan.
+/// Find the radio, then read it, back it up, and write the plan.
+///
+/// Opened from a plan, it scans for radios nearby. Opened from a radio's own
+/// screen, it is handed [target] and goes straight to that radio.
 class RadioProgramScreen extends ConsumerStatefulWidget {
   final ChannelPlan plan;
   final RadioProfile profile;
+
+  /// The radio to write to, when the caller already knows it. Null scans.
+  final RadioTarget? target;
 
   const RadioProgramScreen({
     super.key,
     required this.plan,
     required this.profile,
+    this.target,
   });
 
   @override
@@ -54,7 +63,7 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(_startScan());
+    if (widget.target == null) unawaited(_startScan());
   }
 
   @override
@@ -69,53 +78,88 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
   Widget build(BuildContext context) {
     final radios = _found.values.toList()
       ..sort((a, b) => b.rssi.compareTo(a.rssi));
+    final target = widget.target;
 
-    return Scaffold(
-      appBar: AppBar(title: Text('Program ${widget.profile.displayName}')),
-      body: ListView(
-        children: [
-          _intro(),
-          if (_sessionError case final String error)
-            ListTile(
-              leading: Icon(Icons.error_outline,
-                  color: Theme.of(context).colorScheme.error),
-              title: Text(error),
-            ),
-          if (_outcome case final String outcome)
-            ListTile(
-              leading: const Icon(Icons.check_circle_outline),
-              title: Text(outcome),
-              subtitle: _lastBackup == null
-                  ? null
-                  : Text('Backup saved as ${_lastBackup!.displayName}'),
-            ),
-          if (_progress case final RadioProgressEvent event)
-            _progressTile(event),
-          const Divider(height: 24),
-          _scanHeader(),
-          if (_scanError case final String error)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(error,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ),
-          if (radios.isEmpty && !_scanning)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'No radios found yet. Turn the radio on, and make sure its '
-                'Bluetooth is enabled in its own menu.',
+    // Leaving mid-write would not stop the write — it carries on behind the
+    // popped route — but it would hide it, and a radio switched off because
+    // the screen looked idle is the one outcome worth designing against.
+    return PopScope(
+      canPop: !_busy,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Wait for the radio to finish — do not turn it off '
+              'or unplug it.'),
+        ));
+      },
+      child: Scaffold(
+        appBar: AppBar(title: Text('Program ${widget.profile.displayName}')),
+        body: ListView(
+          children: [
+            _intro(),
+            if (_sessionError case final String error)
+              ListTile(
+                leading: Icon(Icons.error_outline,
+                    color: Theme.of(context).colorScheme.error),
+                title: Text(error),
               ),
-            ),
-          for (final radio in radios)
-            ListTile(
-              leading: const Icon(Icons.radio_outlined),
-              title: Text(radio.name.isEmpty ? radio.id : radio.name),
-              subtitle: Text('${radio.id} · ${radio.rssi} dBm'),
-              trailing: _busy ? null : const Icon(Icons.chevron_right),
-              onTap: _busy ? null : () => _program(radio),
-            ),
-        ],
+            if (_outcome case final String outcome)
+              ListTile(
+                leading: const Icon(Icons.check_circle_outline),
+                title: Text(outcome),
+                subtitle: _lastBackup == null
+                    ? null
+                    : Text('Backup saved as ${_lastBackup!.displayName}'),
+              ),
+            if (_progress case final RadioProgressEvent event)
+              _progressTile(event),
+            const Divider(height: 24),
+            if (target != null)
+              ListTile(
+                leading: const Icon(Icons.settings_input_antenna),
+                title: Text(target.displayName),
+                subtitle: Text(target.transport.label),
+                trailing: _busy
+                    ? null
+                    : FilledButton(
+                        onPressed: () => _program(target),
+                        child: const Text('Write'),
+                      ),
+              )
+            else ...[
+              _scanHeader(),
+              if (_scanError case final String error)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(error,
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error)),
+                ),
+              if (radios.isEmpty && !_scanning)
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'No radios found yet. Turn the radio on, and make sure its '
+                    'Bluetooth is enabled in its own menu.',
+                  ),
+                ),
+              for (final radio in radios)
+                ListTile(
+                  leading: const Icon(Icons.radio_outlined),
+                  title: Text(radio.name.isEmpty ? radio.id : radio.name),
+                  subtitle: Text('${radio.id} · ${radio.rssi} dBm'),
+                  trailing: _busy ? null : const Icon(Icons.chevron_right),
+                  onTap: _busy
+                      ? null
+                      : () => _program(RadioTarget(
+                            transport: RadioTransport.ble,
+                            id: radio.id,
+                            name: radio.name,
+                          )),
+                ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -128,9 +172,10 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
             Text('${widget.plan.name} · '
                 '${widget.plan.length} channels'),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'The radio is read first and that copy is saved, so whatever is '
-              'on it now can be put back. Pick your radio below to start.',
+              'on it now can be put back. '
+              '${widget.target == null ? 'Pick your radio below to start.' : 'Press Write to start.'}',
             ),
             if (widget.profile.programmerSupport ==
                 ProgrammerSupport.unverified)
@@ -183,10 +228,11 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
         ),
       );
 
-  /// Scan, keeping only what looks like one of these radios.
+  /// Scan, keeping only what might be one of these radios.
   ///
-  /// The filter is by advertised service and name, and it is a hint rather
-  /// than an identity — what settles which radio this is, is the ident
+  /// [mightBeRadio] is the loose test — the UART service alone qualifies —
+  /// because this screen is already looking for a radio. It is a hint rather
+  /// than an identity: what settles which radio this is, is the ident
   /// exchange once connected.
   Future<void> _startScan() async {
     await _scan?.cancel();
@@ -199,7 +245,12 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
     final ble = ref.read(bleServiceProvider);
     _scan = ble.scan(timeout: const Duration(seconds: 12)).listen(
       (device) {
-        if (!_looksLikeARadio(device)) return;
+        if (!mightBeRadio(
+          name: device.name,
+          serviceUuids: device.serviceUuids,
+        )) {
+          return;
+        }
         setState(() => _found[device.id] = device);
       },
       onError: (Object error) {
@@ -219,19 +270,12 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
     );
   }
 
-  static bool _looksLikeARadio(IoTDevice device) {
-    final name = device.name.toLowerCase();
-    if (device.serviceUuids
-        .any((uuid) => uuid.toLowerCase() == baofengUartService)) {
-      return true;
-    }
-    return baofengAdvertisedNamePrefixes.any(name.contains);
-  }
-
   /// Read, back up, write.
-  Future<void> _program(IoTDevice radio) async {
-    final programmer = ref.read(radioProgrammerProvider);
+  Future<void> _program(RadioTarget radio) async {
+    final programmer =
+        ref.read(radioProgrammerForTransportProvider(radio.transport));
     final backups = ref.read(codeplugBackupStoreProvider);
+    final savedRadios = ref.read(savedRadiosProvider.notifier);
     final messenger = ScaffoldMessenger.of(context);
 
     if (!programmer.supports(widget.profile)) {
@@ -270,6 +314,14 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
       final base = current;
       if (base == null) throw const RadioProtocolException();
 
+      // A full read is the radio answering, which is what saves it — the same
+      // save-on-connect rule as every other device list.
+      await savedRadios.touch(
+        target: radio,
+        seenAt: DateTime.now(),
+        radioProfileId: widget.profile.id,
+      );
+
       // Saved before a single byte goes back, which is the whole point.
       final backup = await backups.save(base);
       if (mounted) setState(() => _lastBackup = backup);
@@ -287,7 +339,7 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
       setState(() {
         _progress = null;
         _outcome = '${widget.plan.length} channels written to '
-            '${radio.name.isEmpty ? radio.id : radio.name}.';
+            '${radio.displayName}.';
       });
     } catch (error) {
       if (!mounted) return;
@@ -307,8 +359,8 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
     if (mounted) setState(() => _progress = event);
   }
 
-  Future<bool> _confirm(IoTDevice radio) async {
-    final name = radio.name.isEmpty ? radio.id : radio.name;
+  Future<bool> _confirm(RadioTarget radio) async {
+    final name = radio.displayName;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -317,8 +369,9 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
           'This replaces the ${widget.profile.channelCapacity} memory '
           'channels on the radio with the ${widget.plan.length} in '
           '"${widget.plan.name}". Its other settings are left alone.\n\n'
-          'A copy of what is on the radio now is saved first, and can be '
-          'restored from the Radio tab.',
+          'A copy of what is on the radio now is saved first. To put it '
+          'back, open the radio under Saved devices and choose Restore a '
+          'backup.',
         ),
         actions: [
           TextButton(

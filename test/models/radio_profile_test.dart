@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
+import 'package:liberated_bread_mobile/models/radio_target.dart';
 
 void main() {
   group('FreqRange', () {
@@ -216,5 +217,37 @@ void main() {
     expect(a.hashCode, b.hashCode);
     expect(a, isNot(TxUnlock.unsupported));
     expect(a.toJson()['ranges'], hasLength(1));
+  });
+
+  group('programsOver', () {
+    test('the Bluetooth radios program over Bluetooth and only Bluetooth', () {
+      for (final profile in [uv5rMiniProfile, uv5gMiniProfile, uv32Profile]) {
+        expect(profile.programsOver(RadioTransport.ble), isTrue,
+            reason: profile.id);
+        expect(profile.programsOver(RadioTransport.usb), isFalse,
+            reason: profile.id);
+      }
+    });
+
+    test('a radio this build has no driver for programs over nothing', () {
+      // The cable families have no programmer yet, whatever their protocol.
+      for (final profile in [uv5rProfile, uv17rPlusProfile]) {
+        expect(profile.isProgrammable, isFalse, reason: profile.id);
+        for (final transport in RadioTransport.values) {
+          expect(profile.programsOver(transport), isFalse,
+              reason: '${profile.id} over ${transport.name}');
+        }
+      }
+    });
+
+    test('profilesProgrammableOver agrees with programsOver, in order', () {
+      for (final transport in RadioTransport.values) {
+        expect(profilesProgrammableOver(transport), [
+          for (final profile in radioProfiles)
+            if (profile.programsOver(transport)) profile,
+        ]);
+      }
+      expect(profilesProgrammableOver(RadioTransport.ble), isNotEmpty);
+    });
   });
 }

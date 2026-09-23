@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/device_category.dart';
 import '../core/error_text.dart';
 import '../models/iot_device.dart';
+import '../models/radio_profile.dart';
+import '../models/radio_target.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_group_provider.dart';
@@ -15,15 +17,18 @@ import '../providers/panel_resolution_cache_provider.dart';
 import '../providers/saved_designs_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/saved_network_device_provider.dart';
+import '../providers/saved_radio_provider.dart';
 import '../providers/spec_choice_provider.dart';
 import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
 import '../services/roomba_control_service.dart' show roombaProtocolHandler;
 import '../services/roomba_credential_store.dart';
 import '../services/saved_network_device_store.dart';
+import '../services/saved_radio_store.dart';
 import '../widgets/device_list_tile.dart';
 import 'device_screen.dart';
 import 'network_controls_launcher.dart';
+import 'radio_device_screen.dart';
 import 'roomba_transport_screen.dart';
 
 /// The devices the user has already paired with.
@@ -210,10 +215,37 @@ class SavedDevicesScreen extends ConsumerWidget {
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }
 
+  /// Reopen a saved radio's screen.
+  ///
+  /// A Bluetooth radio stops the scan first, for the same reason
+  /// [_reconnect] does. A cable radio has no scan to stop.
+  Future<void> _openRadio(
+      BuildContext context, WidgetRef ref, SavedRadio radio) async {
+    final navigator = Navigator.of(context);
+    if (radio.transport == RadioTransport.ble) {
+      await ref.read(bleServiceProvider).stopScan().catchError((Object _) {});
+    }
+    await navigator.push(MaterialPageRoute<void>(
+      builder: (_) => RadioDeviceScreen(
+        target: radio.target,
+        initialProfile: radioProfileById(radio.radioProfileId),
+      ),
+    ));
+  }
+
+  Future<void> _forgetRadio(
+      BuildContext context, WidgetRef ref, SavedRadio radio) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await ref.read(savedRadiosProvider.notifier).remove(radio.target);
+    messenger.showSnackBar(
+        SnackBar(content: Text('Removed ${radio.target.displayName}')));
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final saved = ref.watch(savedDevicesProvider);
     final savedNetwork = ref.watch(savedNetworkDevicesProvider);
+    final savedRadios = ref.watch(savedRadiosProvider);
     final registry = ref.watch(numberRegistryProvider);
     final scheme = Theme.of(context).colorScheme;
 
@@ -221,7 +253,7 @@ class SavedDevicesScreen extends ConsumerWidget {
       backgroundColor: scheme.surface,
       appBar: AppBar(title: const Text('Saved devices')),
       body: SafeArea(
-        child: saved.isEmpty && savedNetwork.isEmpty
+        child: saved.isEmpty && savedNetwork.isEmpty && savedRadios.isEmpty
             ? const _EmptyState()
             : ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
@@ -257,6 +289,24 @@ class SavedDevicesScreen extends ConsumerWidget {
                         onOpen: (controls) =>
                             _openNetwork(context, ref, device, controls),
                         onForget: () => _forgetNetwork(context, ref, device),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                  if (savedRadios.isNotEmpty) ...[
+                    SectionHeader(label: 'Radios', count: savedRadios.length),
+                    const SizedBox(height: 12),
+                    for (final radio in savedRadios) ...[
+                      DeviceListTile(
+                        title: radio.target.displayName,
+                        subtitle: radioProfileById(radio.radioProfileId)
+                                ?.displayName ??
+                            'Radio',
+                        detail: relativeTime(radio.lastSeen),
+                        icon: Icons.settings_input_antenna,
+                        description: '${radio.transport.label} · ${radio.id}',
+                        onTap: () => _openRadio(context, ref, radio),
+                        onForget: () => _forgetRadio(context, ref, radio),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -412,8 +462,8 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Connect to a device from the Nearby tab and it will show up '
-              'here, ready to reconnect without scanning again.',
+              'Connect to a device or a radio from the Nearby tab and it '
+              'will show up here, ready to reconnect without scanning again.',
               textAlign: TextAlign.center,
               style: text.bodyMedium?.copyWith(
                 color: scheme.onSurfaceVariant,

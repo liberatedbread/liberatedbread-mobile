@@ -13,11 +13,13 @@ import '../core/error_text.dart';
 import '../core/find_device.dart' show signalBars;
 import '../core/value_format.dart' show shortAge;
 import '../models/iot_device.dart';
+import '../models/radio_target.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
+import '../services/radio_recognition.dart';
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/black_hat_icon.dart';
 import '../widgets/device_list_tile.dart';
@@ -26,6 +28,7 @@ import 'device_screen.dart';
 import 'about_screen.dart';
 import 'diagnostics_screen.dart';
 import 'ha_settings_screen.dart';
+import 'radio_device_screen.dart';
 import 'security_warning_screen.dart';
 import 'spec_pack_settings_screen.dart';
 
@@ -517,14 +520,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// Stop the active scan, then navigate to the device screen (which owns the
   /// connect). Stopping first keeps the native scan from running behind the
   /// pushed route, which otherwise makes connections flaky.
-  Future<void> _connect(IoTDevice device) async {
+  Future<void> _connect(IoTDevice device) =>
+      _openWithScanStopped(DeviceScreen(device: device));
+
+  /// A radio opens the radio's own screen rather than the GATT explorer: the
+  /// explorer would show one serial characteristic and nothing to do with it.
+  Future<void> _openRadio(IoTDevice device, RadioSighting sighting) =>
+      _openWithScanStopped(RadioDeviceScreen(
+        target: RadioTarget(
+          transport: RadioTransport.ble,
+          id: device.id,
+          name: device.name,
+        ),
+        initialProfile: sighting.nameSuggests,
+      ));
+
+  Future<void> _openWithScanStopped(Widget screen) async {
     // Re-entry guard, and [_onDeviceScreen] is exactly the right flag for it:
-    // it is set for the whole time a device screen is open or being opened,
-    // and cleared in the finally below. The stop underneath is a platform
-    // round trip, so a second tap landing during it — an impatient
+    // it is set for the whole time a device or radio screen is open or being
+    // opened, and cleared in the finally below. The stop underneath is a
+    // platform round trip, so a second tap landing during it — an impatient
     // double-tap on a row that has not visibly reacted yet — used to push a
-    // SECOND DeviceScreen for the same peripheral, each with its own connect,
-    // over the top of the first.
+    // SECOND screen for the same peripheral, each with its own connect, over
+    // the top of the first.
     if (_onDeviceScreen) return;
     _onDeviceScreen = true;
     await _stopScan(byUser: false);
@@ -535,7 +553,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     try {
       await Navigator.push(
         context,
-        MaterialPageRoute<void>(builder: (_) => DeviceScreen(device: device)),
+        MaterialPageRoute<void>(builder: (_) => screen),
       );
     } finally {
       _onDeviceScreen = false;
@@ -749,6 +767,37 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     );
   }
 
+  /// One row in the Radios group.
+  ///
+  /// Recognised by name rather than matched against a spec, so it carries no
+  /// catalogue guess; the badge is a claim only when the advertised service
+  /// agrees with the name.
+  Widget _radioCard(IoTDevice device, RadioSighting sighting, DateTime now) {
+    final stale = DeviceManager.isStale(device, now);
+    final age = shortAge(device.ageAt(now));
+    return DeviceListTile(
+      title: device.name.isNotEmpty ? device.name : device.id,
+      subtitle: stale
+          ? 'Not seen for $age'
+          : (device.isConnectable
+              ? _signalLabel(device.rssi)
+              : 'Not connectable'),
+      detail: stale ? 'last ${device.rssi} dBm' : '${device.rssi} dBm',
+      rssi: device.rssi,
+      stale: stale,
+      staleReason: 'No advertisement for $age — the radio may be out of '
+          'range, switched off, or have its Bluetooth turned off',
+      icon: Icons.settings_input_antenna,
+      badge: 'Radio',
+      badgeIsClaim: sighting.advertisesUart,
+      description: sighting.advertisesUart
+          ? 'Programs over Bluetooth'
+          : 'Named like a radio, but not advertising its programming service',
+      enabled: device.isConnectable,
+      onTap: device.isConnectable ? () => _openRadio(device, sighting) : null,
+    );
+  }
+
   /// The scan badge for a security-warning row — short, and worded by severity.
   String _warningBadge(ScanGuess guess) => switch (guess.advisory!.severity) {
     'malicious' => 'Possible skimmer',
@@ -778,13 +827,38 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     // One instant for the whole pass, so every row is classified against the
     // same clock and the ordering below agrees with the badges above it.
     final now = DateTime.now();
+    // Radios come out first, and out of the catalogue's ranking: they are
+    // recognised by name, not matched against a spec, so a guess has nothing
+    // to add. The ranking function orders them with no guesses at all, which
+    // leaves exactly its freshness-then-signal tie-break.
+    final sightings = <String, RadioSighting>{};
+    final others = <IoTDevice>[];
+    for (final device in found) {
+      final sighting = recogniseRadio(
+        name: device.name,
+        serviceUuids: device.serviceUuids,
+      );
+      if (sighting == null) {
+        others.add(device);
+      } else {
+        sightings[device.id] = sighting;
+      }
+    }
+    final radios = rankScannedDevices(
+      [
+        for (final device in found)
+          if (sightings.containsKey(device.id)) device
+      ],
+      (_) => null,
+      isStale: (device) => DeviceManager.isStale(device, now),
+    ).other;
     // Each device gets its own matching future, keyed on its identity rather
     // than its id — an rssi tick reuses the cached result instead of asking
     // again. A guess that has not resolved yet reads as "no guess", so a row
     // appears immediately and gains its badge a frame later rather than the
     // whole list waiting on the catalogue.
     final ranked = rankScannedDevices(
-      found,
+      others,
       (device) =>
           ref.watch(scanGuessProvider(ScanIdentity.of(device))).valueOrNull,
       isStale: (device) => DeviceManager.isStale(device, now),
@@ -877,6 +951,15 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           ),
         ],
         if (found.isNotEmpty) ...[
+          if (radios.isNotEmpty) ...[
+            const SizedBox(height: 36),
+            SectionHeader(label: 'Radios', count: radios.length),
+            const SizedBox(height: 12),
+            for (final entry in radios) ...[
+              _radioCard(entry.device, sightings[entry.device.id]!, now),
+              const SizedBox(height: 10),
+            ],
+          ],
           if (ranked.likelySupported.isNotEmpty) ...[
             const SizedBox(height: 36),
             SectionHeader(
@@ -892,9 +975,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           if (ranked.other.isNotEmpty) ...[
             const SizedBox(height: 36),
             SectionHeader(
-              // Only worth distinguishing from the group above when there IS
+              // Only worth distinguishing from the groups above when there IS
               // a group above; otherwise this is simply everything found.
-              label: ranked.likelySupported.isEmpty ? 'Found' : 'Other devices',
+              label: ranked.likelySupported.isEmpty && radios.isEmpty
+                  ? 'Found'
+                  : 'Other devices',
               count: ranked.other.length,
             ),
             const SizedBox(height: 12),

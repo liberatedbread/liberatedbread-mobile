@@ -1,7 +1,5 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,15 +7,21 @@ import 'package:liberated_bread_mobile/models/channel_plan.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
+import 'package:liberated_bread_mobile/models/radio_target.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/radio_programmer_provider.dart';
+import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
+import 'package:liberated_bread_mobile/providers/saved_radio_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_program_screen.dart';
 import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart';
-import 'package:liberated_bread_mobile/services/codeplug_backup_store.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
+import '../fakes/fake_codeplug_backup_store.dart';
 import '../fakes/fake_radio_programmer.dart';
+
+late SharedPreferences _prefs;
 
 IoTDevice _radio({
   String id = 'AA:BB:CC:DD:EE:99',
@@ -44,44 +48,9 @@ ChannelPlan _plan() => ChannelPlan(
       modifiedAt: DateTime.utc(2026, 8),
     );
 
-/// A backup store that keeps everything in memory.
-///
-/// `testWidgets` runs its body inside a fake-async zone where real file I/O
-/// never completes -- a disk write in a screen test is not a slow test, it is
-/// a hang. The store's own suite covers the filesystem; what this screen test
-/// is for is whether the backup happens before the write.
-class _FakeBackupStore implements CodeplugBackupStore {
-  final List<RadioCodeplug> saved = [];
-
-  @override
-  Future<CodeplugBackup> save(RadioCodeplug codeplug) async {
-    saved.add(codeplug);
-    return CodeplugBackup(
-      file: File('/in-memory/${codeplug.modelId}_1.bin'),
-      modelId: codeplug.modelId,
-      takenAt: codeplug.readAt,
-      length: codeplug.length,
-    );
-  }
-
-  @override
-  Future<List<CodeplugBackup>> list() async => [
-        for (final codeplug in saved)
-          CodeplugBackup(
-            file: File('/in-memory/${codeplug.modelId}_1.bin'),
-            modelId: codeplug.modelId,
-            takenAt: codeplug.readAt,
-            length: codeplug.length,
-          ),
-      ];
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
 class _Harness {
   final FakeRadioProgrammer programmer;
-  final _FakeBackupStore backups;
+  final FakeCodeplugBackupStore backups;
 
   _Harness(this.programmer, this.backups);
 }
@@ -90,9 +59,11 @@ Future<_Harness> _pump(
   WidgetTester tester, {
   List<IoTDevice> devices = const [],
   FakeRadioProgrammer? programmer,
+  RadioProfile profile = uv5rMiniProfile,
+  RadioTarget? target,
 }) async {
   final prog = programmer ?? FakeRadioProgrammer();
-  final backups = _FakeBackupStore();
+  final backups = FakeCodeplugBackupStore();
 
   await tester.pumpWidget(ProviderScope(
     overrides: [
@@ -100,16 +71,32 @@ Future<_Harness> _pump(
           .overrideWithValue(FakeBleService(devicesToEmit: devices)),
       radioProgrammerProvider.overrideWithValue(prog),
       codeplugBackupStoreProvider.overrideWithValue(backups),
+      sharedPreferencesProvider.overrideWithValue(_prefs),
     ],
     child: MaterialApp(
-      home: RadioProgramScreen(plan: _plan(), profile: uv5rMiniProfile),
+      home: RadioProgramScreen(
+        plan: _plan(),
+        profile: profile,
+        target: target,
+      ),
     ),
   ));
   await tester.pumpAndSettle();
   return _Harness(prog, backups);
 }
 
+/// The confirm dialog's Write, as opposed to the target row's.
+Finder get _dialogWrite => find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.widgetWithText(FilledButton, 'Write'),
+    );
+
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    _prefs = await SharedPreferences.getInstance();
+  });
+
   testWidgets('says what will happen before anything does', (tester) async {
     await _pump(tester);
     expect(find.textContaining('Local repeaters'), findsOneWidget);
@@ -149,6 +136,10 @@ void main() {
 
     expect(find.textContaining('Write to UV-5R Mini?'), findsOneWidget);
     expect(find.textContaining('saved first'), findsOneWidget);
+    // It once promised a restore "from the Radio tab", which had none. The
+    // restore lives on the radio's own screen, and the dialog says so.
+    expect(find.textContaining('Restore a backup'), findsOneWidget);
+    expect(find.textContaining('Radio tab'), findsNothing);
 
     await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
     await tester.pumpAndSettle();
@@ -162,7 +153,7 @@ void main() {
 
     await tester.tap(find.text('UV-5R Mini'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+    await tester.tap(_dialogWrite);
     await tester.pumpAndSettle();
 
     expect(harness.programmer.readCalls, 1);
@@ -188,7 +179,7 @@ void main() {
 
     await tester.tap(find.text('UV-5R Mini'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+    await tester.tap(_dialogWrite);
     await tester.pumpAndSettle();
 
     expect(find.textContaining('stopped responding'), findsWidgets);
@@ -213,21 +204,80 @@ void main() {
   });
 
   testWidgets('an unconfirmed model says so before it is used', (tester) async {
-    final backups = _FakeBackupStore();
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        radioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
-        codeplugBackupStoreProvider.overrideWithValue(backups),
-      ],
-      child: MaterialApp(
-        home: RadioProgramScreen(plan: _plan(), profile: uv32Profile),
-      ),
-    ));
-    await tester.pumpAndSettle();
+    await _pump(tester, profile: uv32Profile);
 
     expect(uv32Profile.programmerSupport, ProgrammerSupport.unverified);
     expect(find.textContaining('not been confirmed on this exact model'),
         findsOneWidget);
+  });
+
+  testWidgets('a radio that answers is saved, with the model it was used as',
+      (tester) async {
+    await _pump(tester, devices: [_radio()]);
+
+    await tester.tap(find.text('UV-5R Mini'));
+    await tester.pumpAndSettle();
+    await tester.tap(_dialogWrite);
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(RadioProgramScreen)));
+    final saved = container.read(savedRadiosProvider).single;
+    expect(saved.transport, RadioTransport.ble);
+    expect(saved.id, 'AA:BB:CC:DD:EE:99');
+    expect(saved.radioProfileId, uv5rMiniProfile.id);
+  });
+
+  testWidgets('a failed session does not save the radio', (tester) async {
+    await _pump(
+      tester,
+      devices: [_radio()],
+      programmer: FakeRadioProgrammer(error: const RadioTimeoutException()),
+    );
+
+    await tester.tap(find.text('UV-5R Mini'));
+    await tester.pumpAndSettle();
+    await tester.tap(_dialogWrite);
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(RadioProgramScreen)));
+    expect(container.read(savedRadiosProvider), isEmpty);
+  });
+
+  group('handed a radio', () {
+    const target = RadioTarget(
+      transport: RadioTransport.ble,
+      id: 'AA:BB:CC:DD:EE:01',
+      name: 'Base radio',
+    );
+
+    testWidgets('does not scan, and offers only that radio', (tester) async {
+      await _pump(
+        tester,
+        target: target,
+        // Were it scanning, this one would be listed.
+        devices: [_radio(name: 'UV-5R Mini')],
+      );
+
+      expect(find.text('Base radio'), findsOneWidget);
+      expect(find.text('UV-5R Mini'), findsNothing);
+      expect(find.text('Radios nearby'), findsNothing);
+      expect(find.textContaining('Press Write'), findsOneWidget);
+    });
+
+    testWidgets('writes to exactly that radio', (tester) async {
+      final harness = await _pump(tester, target: target);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Write to Base radio?'), findsOneWidget);
+      await tester.tap(_dialogWrite);
+      await tester.pumpAndSettle();
+
+      expect(harness.programmer.written, hasLength(1));
+      expect(harness.programmer.deviceIds.toSet(), {target.id});
+      expect(find.textContaining('written to Base radio'), findsOneWidget);
+    });
   });
 }
