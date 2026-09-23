@@ -27,6 +27,8 @@
 
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show debugPrint;
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -76,14 +78,44 @@ void main() {
             'exist there.'
       : null;
 
+  /// Why this suite refuses a physical iPhone unless told otherwise.
+  ///
+  /// The fresh-install case below drives SecureSettingsStore.reconcileInstall,
+  /// whose sweep is `deleteAll` with NO accessibility constraint: every
+  /// keychain item under this bundle id. The Simulator's keychain is
+  /// disposable. A phone's is not — the keychain outlives the app (F-008), so
+  /// on the phone its operator has used the shipping app on, "every item
+  /// under ca.pigscanfly.liberatedbread" is their credentials, and the Terms
+  /// gate is re-raised on top. `run-ios-device-tests.sh --all` used to run
+  /// this on the paired phone with no warning. The runner now opts in with
+  /// --allow-keychain-wipe, which sets LB_KEYCHAIN_WIPE_OK; Android keeps
+  /// running it as before (an emulator or a debug-keystore app, not a
+  /// keychain that outlives the install).
+  final onAPhone =
+      !Platform.isIOS ||
+          Platform.environment['SIMULATOR_DEVICE_NAME'] != null ||
+          const bool.fromEnvironment('LB_KEYCHAIN_WIPE_OK')
+      ? null
+      : 'refusing a physical iPhone: the fresh-install case wipes every '
+            'keychain item under this bundle id — the shipping app\'s '
+            'credentials, which outlive the app. Run the device runner with '
+            '--allow-keychain-wipe on a phone whose credentials are disposable.';
+
+  /// The reason this suite is skipped here, or null to run it. testWidgets'
+  /// `skip:` is a bool, so the reason itself is printed once below.
+  final skipReason = notOnMacOs ?? onAPhone;
+  if (skipReason != null) {
+    debugPrint('keychain_accessibility_test: $skipReason');
+  }
+
   setUp(() async {
-    if (notOnMacOs != null) return;
+    if (skipReason != null) return;
     await legacy.delete(key: legacyKey);
     await legacy.write(key: legacyKey, value: legacyValue);
   });
 
   tearDown(() async {
-    if (notOnMacOs != null) return;
+    if (skipReason != null) return;
     await legacy.delete(key: legacyKey);
   });
 
@@ -102,12 +134,12 @@ void main() {
             'single-key reads still work.',
       );
     },
-    skip: notOnMacOs != null,
+    skip: skipReason != null,
   );
 
   testWidgets('read sees it too', (tester) async {
     expect(await SecureSettingsStore().read(legacyKey), legacyValue);
-  }, skip: notOnMacOs != null);
+  }, skip: skipReason != null);
 
   testWidgets('the fresh-install wipe actually clears it', (tester) async {
     // Reaches the wipe through reconcileInstall — the same call main() makes
@@ -148,5 +180,5 @@ void main() {
       prefs.containsKey(SecureSettingsStore.freshInstallMarkerKey),
       isTrue,
     );
-  }, skip: notOnMacOs != null);
+  }, skip: skipReason != null);
 }

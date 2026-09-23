@@ -310,6 +310,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         await _cleanupConnection();
         return;
       }
+      // A drop the watcher recorded DURING the handshake — a spec's delayMs
+      // sleeps run for seconds — stays on screen. _watchConnection flips
+      // _state to disconnected on the event and nothing after this point would
+      // ever flip it back, so painting `ready` over it showed "Connected · N
+      // services" and live controls on a dead link, with no way to reconnect
+      // and every control failing one by one.
+      if (_state == _ScreenState.disconnected || !_connected) return;
       setState(() {
         _services = services;
         _state = _ScreenState.ready;

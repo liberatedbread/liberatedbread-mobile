@@ -15,6 +15,7 @@
 # Usage:
 #   ./scripts/run-ios-device-tests.sh                 # hardware suite, first paired iPhone
 #   ./scripts/run-ios-device-tests.sh --all           # ...then ci_all_test.dart in mock mode
+#   ./scripts/run-ios-device-tests.sh --all --allow-keychain-wipe  # ...including the keychain suite, which WIPES this phone's app keychain
 #   ./scripts/run-ios-device-tests.sh --device HK16   # a specific UDID or name
 #   ./scripts/run-ios-device-tests.sh --list          # paired iPhones, then exit
 #   ./scripts/run-ios-device-tests.sh --if-present    # exit 0 (not 2) when no iPhone is paired
@@ -90,6 +91,7 @@ usage() {
 DEVICE_ID=""
 LIST_ONLY=false
 RUN_ALL=false
+ALLOW_KEYCHAIN_WIPE=false
 IF_PRESENT=false
 EXPECT_LAN=false
 LIVE_BLE_NAME=""
@@ -106,6 +108,7 @@ while (( $# > 0 )); do
       DEVICE_ID="$2"; shift 2 ;;
     --list)              LIST_ONLY=true; shift ;;
     --all)               RUN_ALL=true; shift ;;
+    --allow-keychain-wipe) ALLOW_KEYCHAIN_WIPE=true; shift ;;
     --if-present)        IF_PRESENT=true; shift ;;
     --expect-lan-devices) EXPECT_LAN=true; shift ;;
     --live-ble-name)
@@ -433,7 +436,19 @@ fi
 
 if [[ "$RUN_ALL" == "true" ]]; then
   log "CI aggregate in mock mode: integration_test/ci_all_test.dart"
-  if ! run_suite integration_test/ci_all_test.dart --dart-define=LIBERATED_BREAD_MOCK=true; then
+  # keychain_accessibility_test.dart's fresh-install case runs the store's
+  # sweep — deleteAll, no accessibility constraint — against THIS phone's
+  # keychain, which outlives the app: on a phone the operator has used the
+  # shipping app on, that is their credentials. The suite refuses a physical
+  # iPhone unless LB_KEYCHAIN_WIPE_OK is defined, and only this flag defines it.
+  wipe_define=()
+  if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" ]]; then
+    warn "--allow-keychain-wipe: keychain_accessibility_test.dart WILL DELETE every keychain item under ca.pigscanfly.liberatedbread on this phone."
+    wipe_define=(--dart-define=LB_KEYCHAIN_WIPE_OK=true)
+  else
+    log "keychain_accessibility_test.dart will skip on the phone (its fresh-install case wipes the app's keychain); pass --allow-keychain-wipe on a phone whose credentials are disposable."
+  fi
+  if ! run_suite integration_test/ci_all_test.dart --dart-define=LIBERATED_BREAD_MOCK=true "${wipe_define[@]+"${wipe_define[@]}"}"; then
     err "Mock-mode aggregate failed on the device."
     status=1
   fi

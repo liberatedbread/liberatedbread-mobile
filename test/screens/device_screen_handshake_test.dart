@@ -27,6 +27,7 @@ import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -250,6 +251,82 @@ void main() {
     ]);
     // And the prose step, which nothing can execute, did not stop the rest.
     expect(find.text('Connected'), findsOneWidget);
+  });
+
+  testWidgets('a drop during the handshake is not painted over as Connected', (
+    tester,
+  ) async {
+    // The handshake awaits writes, reads and the spec's own delayMs sleeps —
+    // seconds, for SmartDawn — and the connection watcher records a drop
+    // that lands in that window as `disconnected`. The ready setState after
+    // the handshake then overwrote it: "Connected · N services" and live
+    // controls on a dead link, no reconnect affordance, every control
+    // failing one by one.
+    final connection = StreamController<BleConnectionState>();
+    addTearDown(connection.close);
+    final ble = FakeBleService(
+      connectionStateStream: connection.stream,
+      servicesToReturn: const [
+        BleDiscoveredService(
+          uuid: '0000ff20-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
+      ],
+    );
+    final codec = FakeSpecCodec(
+      spec: _spec,
+      handshake: BleHandshakeDto(
+        steps: [
+          _step(write: const [0x00, 0x00, 0x00, 0x01], delayMs: 2000),
+        ],
+        described: const [],
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble),
+          specCodecProvider.overrideWithValue(codec),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          matchedDeviceSpecProvider.overrideWith(
+            (ref, request) async =>
+                SpecMatchOutcome.auto(MatchedSpec(spec: _spec, yaml: 'yaml')),
+          ),
+        ],
+        child: MaterialApp(
+          home: DeviceScreen(
+            device: IoTDevice(
+              id: '01',
+              name: 'SpotLED',
+              rssi: -40,
+              isConnectable: true,
+              discoveredAt: DateTime(2026),
+            ),
+          ),
+        ),
+      ),
+    );
+    // Into the handshake: the write is out, the 2 s delay is sleeping.
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(ble.writes, hasLength(1), reason: 'the handshake is under way');
+    expect(find.text('Connected'), findsNothing);
+
+    // The peripheral drops mid-sleep.
+    connection.add(BleConnectionState.disconnected);
+    await tester.pump();
+    expect(find.text('Disconnected'), findsOneWidget);
+
+    // The handshake's sleep ends and the connect path resumes.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Disconnected'),
+      findsOneWidget,
+      reason: 'the drop the watcher recorded must survive the handshake ending',
+    );
+    expect(find.text('Connected'), findsNothing);
   });
 
   testWidgets('a spec that declares no handshake still opens the screen', (

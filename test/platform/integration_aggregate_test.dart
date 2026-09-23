@@ -250,6 +250,49 @@ void main() {
     );
   });
 
+  test('the keychain suite refuses a physical iPhone unless opted in', () {
+    // keychain_accessibility_test.dart's fresh-install case runs the store's
+    // sweep — deleteAll, no accessibility constraint — against the keychain
+    // of whatever runs it, and a phone's keychain outlives the app. The
+    // aggregate imports that suite, and `run-ios-device-tests.sh --all` used
+    // to run the aggregate on the paired phone with no warning: every
+    // credential the shipping app held there, gone. The suite now refuses a
+    // physical iPhone unless the runner defines LB_KEYCHAIN_WIPE_OK, and only
+    // --allow-keychain-wipe defines it. Comment-stripped, so prose cannot
+    // satisfy any of this.
+    final suite = stripCommentsKeepingStrings(
+      readRepoFile(
+        '$_dir/keychain_accessibility_test.dart',
+        consequence: 'the wipe guard cannot be checked, so a phone may run it',
+      ),
+    );
+    expect(
+      suite,
+      contains("Platform.environment['SIMULATOR_DEVICE_NAME']"),
+      reason: 'the Simulator is the one place the wipe is harmless',
+    );
+    expect(
+      suite,
+      contains("bool.fromEnvironment('LB_KEYCHAIN_WIPE_OK')"),
+      reason: 'a phone runs it only when the runner says so',
+    );
+    final runner = readRepoFile(
+      'scripts/run-ios-device-tests.sh',
+      consequence: 'the opt-in flag cannot be checked',
+    );
+    expect(runner, contains('--allow-keychain-wipe'));
+    expect(
+      runner,
+      contains('--dart-define=LB_KEYCHAIN_WIPE_OK=true'),
+      reason: 'the define exists in exactly one place, behind the flag',
+    );
+    expect(
+      RegExp(r'LB_KEYCHAIN_WIPE_OK=true').allMatches(runner).length,
+      1,
+      reason: 'a second site handing out the define would bypass the flag',
+    );
+  });
+
   test('no host-only suite is imported by the aggregate', () {
     for (final name in suites) {
       final tag = hostOnlyTagOf(name);
