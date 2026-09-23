@@ -8,7 +8,7 @@
 //! The framing, the memory layout and the byte-substitution table below are
 //! facts about Baofeng's hardware, established from CHIRP's publicly
 //! published drivers (`chirp/drivers/baofeng_uv17Pro.py` and
-//! `baofeng_common.py`). Facts are not copyrightable and are used freely;
+//! `baofeng_common.py` for the newer family, `uv5r.py` for the older one). Facts are not copyrightable and are used freely;
 //! CHIRP's implementation is GPL-3.0 and this crate is Apache-2.0, so
 //! **nothing here is a copy or a line-by-line translation of that code** --
 //! every routine is written from the format.
@@ -24,3 +24,4 @@
 pub mod codeplug;
 pub mod models;
 pub mod uv17pro;
+pub mod uv5r;

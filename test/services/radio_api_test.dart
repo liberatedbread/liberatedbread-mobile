@@ -7,6 +7,8 @@
 // suite is for is the boundary itself: that the generated bindings carry the
 // same bytes back that went in, and that Dart sees the same model table Rust
 // has -- which is the thing that goes wrong silently after a codegen run.
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart';
@@ -200,5 +202,83 @@ void main() {
       () => radioDecodeChannels(image: [1, 2, 3], modelId: 'uv-5r-mini'),
       throwsA(anything),
     );
+  });
+
+  group('the UV-5R family', () {
+    /// A blank image: ident, empty slots, a firmware string.
+    Future<Uint8List> blankImage(String firmware) async {
+      final image = Uint8List(await uv5RImageLen());
+      image.setRange(0, 8, [0xAA, 0x30, 0x76, 0x04, 0x00, 0x05, 0x20, 0xDD]);
+      for (var slot = 0; slot < 128; slot++) {
+        image.fillRange(8 + slot * 16, 8 + slot * 16 + 16, 0xFF);
+        final name = 8 + 0x1000 + slot * 16;
+        image.fillRange(name, name + 16, 0xFF);
+      }
+      // Radio 0x1EF0 sits at 8 + 0x1800 + (0x1EF0 - 0x1EC0) in the image.
+      const firmwareAt = 8 + 0x1800 + 0x30;
+      image.fillRange(firmwareAt, firmwareAt + 14, 0xFF);
+      image.setRange(
+          firmwareAt, firmwareAt + firmware.length, firmware.codeUnits);
+      return image;
+    }
+
+    test('Dart sees the models the Dart profiles expect', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final ids = [for (final m in await uv5RModels()) m.id];
+      for (final id in ids) {
+        expect(radioProfileById(id), isNotNull, reason: id);
+        expect(radioProfileById(id)!.programmingFamily,
+            ProgrammingFamily.serialUv5r,
+            reason: id);
+      }
+      expect(ids, isNot(contains('uv-5g')),
+          reason: 'its memory is not laid out like a UV-5R');
+    });
+
+    test('channels survive the boundary both ways', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final written = await uv5REncodeChannels(
+        image: await blankImage('BFB297'),
+        channels: [channel('W1AW')],
+        modelId: 'uv5r',
+      );
+      final read = await uv5RDecodeChannels(image: written, modelId: 'uv5r');
+      expect(read.single.name, 'W1AW');
+      expect(read.single.rxFreqHz, 146940000);
+      expect(read.single.txFreqHz, 146340000);
+      expect(read.single.txTone.ctcssTenthHz, 1000);
+    });
+
+    test('a write sends only the blocks that changed', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final base = await blankImage('BFB297');
+      final updated = await uv5REncodeChannels(
+          image: base, channels: [channel('W1AW')], modelId: 'uv5r');
+      final blocks = await uv5RChangedBlocks(
+          base: base, updated: updated, modelId: 'uv5r');
+      expect([for (final b in blocks) b.addr], [0x0000, 0x1000]);
+    });
+
+    test('band limits cross with their layout', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final applied = await uv5RApplyBandLimits(
+        image: await blankImage('BFB290'),
+        limits: const BandLimitsDto(
+          vhf: BandLimitDto(txEnabled: true, lowerMhz: 136, upperMhz: 174),
+          uhf: BandLimitDto(txEnabled: false, lowerMhz: 400, upperMhz: 520),
+          layout: '',
+        ),
+        modelId: 'uv5r',
+      );
+      final limits = await uv5RReadBandLimits(image: applied, modelId: 'uv5r');
+      expect(limits.layout, 'old');
+      expect(limits.vhf.lowerMhz, 136);
+      expect(limits.uhf.txEnabled, isFalse);
+    });
+
+    test('a radio this family does not cover is refused', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      await expectLater(uv5RIdentMagics(modelId: 'uv-5g'), throwsA(anything));
+    });
   });
 }

@@ -93,6 +93,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  BandLimitDto dco_decode_band_limit_dto(dynamic raw);
+
+  @protected
+  BandLimitsDto dco_decode_band_limits_dto(dynamic raw);
+
+  @protected
   BleHandshakeDto dco_decode_ble_handshake_dto(dynamic raw);
 
   @protected
@@ -105,6 +111,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   bool dco_decode_bool(dynamic raw);
+
+  @protected
+  BandLimitsDto dco_decode_box_autoadd_band_limits_dto(dynamic raw);
 
   @protected
   bool dco_decode_box_autoadd_bool(dynamic raw);
@@ -453,6 +462,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<RadioModelDto> dco_decode_list_radio_model_dto(dynamic raw);
 
   @protected
+  List<ReadRequestDto> dco_decode_list_read_request_dto(dynamic raw);
+
+  @protected
   List<(String, double)> dco_decode_list_record_string_f_64(dynamic raw);
 
   @protected
@@ -515,6 +527,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<UdpProbeDto> dco_decode_list_udp_probe_dto(dynamic raw);
+
+  @protected
+  List<Uv5rModelDto> dco_decode_list_uv_5_r_model_dto(dynamic raw);
 
   @protected
   List<WebSocketChannelDto> dco_decode_list_web_socket_channel_dto(dynamic raw);
@@ -737,6 +752,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RadioModelDto dco_decode_radio_model_dto(dynamic raw);
 
   @protected
+  ReadRequestDto dco_decode_read_request_dto(dynamic raw);
+
+  @protected
   (String, double) dco_decode_record_string_f_64(dynamic raw);
 
   @protected
@@ -856,6 +874,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BigInt dco_decode_usize(dynamic raw);
 
   @protected
+  Uv5rModelDto dco_decode_uv_5_r_model_dto(dynamic raw);
+
+  @protected
+  Uv5rProbeDto dco_decode_uv_5_r_probe_dto(dynamic raw);
+
+  @protected
   WebSocketChannelDto dco_decode_web_socket_channel_dto(dynamic raw);
 
   @protected
@@ -941,6 +965,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  BandLimitDto sse_decode_band_limit_dto(SseDeserializer deserializer);
+
+  @protected
+  BandLimitsDto sse_decode_band_limits_dto(SseDeserializer deserializer);
+
+  @protected
   BleHandshakeDto sse_decode_ble_handshake_dto(SseDeserializer deserializer);
 
   @protected
@@ -955,6 +985,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  BandLimitsDto sse_decode_box_autoadd_band_limits_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   bool sse_decode_box_autoadd_bool(SseDeserializer deserializer);
@@ -1405,6 +1440,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<ReadRequestDto> sse_decode_list_read_request_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<(String, double)> sse_decode_list_record_string_f_64(
     SseDeserializer deserializer,
   );
@@ -1491,6 +1531,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<UdpProbeDto> sse_decode_list_udp_probe_dto(SseDeserializer deserializer);
+
+  @protected
+  List<Uv5rModelDto> sse_decode_list_uv_5_r_model_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<WebSocketChannelDto> sse_decode_list_web_socket_channel_dto(
@@ -1767,6 +1812,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RadioModelDto sse_decode_radio_model_dto(SseDeserializer deserializer);
 
   @protected
+  ReadRequestDto sse_decode_read_request_dto(SseDeserializer deserializer);
+
+  @protected
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
 
   @protected
@@ -1912,6 +1960,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BigInt sse_decode_usize(SseDeserializer deserializer);
 
   @protected
+  Uv5rModelDto sse_decode_uv_5_r_model_dto(SseDeserializer deserializer);
+
+  @protected
+  Uv5rProbeDto sse_decode_uv_5_r_probe_dto(SseDeserializer deserializer);
+
+  @protected
   WebSocketChannelDto sse_decode_web_socket_channel_dto(
     SseDeserializer deserializer,
   );
@@ -2021,6 +2075,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_band_limit_dto(BandLimitDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_band_limits_dto(BandLimitsDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_ble_handshake_dto(
     BleHandshakeDto self,
     SseSerializer serializer,
@@ -2040,6 +2100,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_band_limits_dto(
+    BandLimitsDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_bool(bool self, SseSerializer serializer);
@@ -2630,6 +2696,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_read_request_dto(
+    List<ReadRequestDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_record_string_f_64(
     List<(String, double)> self,
     SseSerializer serializer,
@@ -2740,6 +2812,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_udp_probe_dto(
     List<UdpProbeDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_uv_5_r_model_dto(
+    List<Uv5rModelDto> self,
     SseSerializer serializer,
   );
 
@@ -3095,6 +3173,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_radio_model_dto(RadioModelDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_read_request_dto(
+    ReadRequestDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_record_string_f_64(
     (String, double) self,
     SseSerializer serializer,
@@ -3282,6 +3366,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_usize(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_uv_5_r_model_dto(Uv5rModelDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_uv_5_r_probe_dto(Uv5rProbeDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_web_socket_channel_dto(

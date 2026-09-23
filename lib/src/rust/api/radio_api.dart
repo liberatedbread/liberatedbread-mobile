@@ -8,8 +8,8 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `from_channel`, `from_tone`, `model_or_error`, `none`, `to_channel`, `to_tone`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `block_dtos`, `from_channel`, `from_limit`, `from_tone`, `model_or_error`, `none`, `to_channel`, `to_limit`, `to_tone`, `uv5r_model_or_error`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Every radio this codec can program.
 Future<List<RadioModelDto>> radioModels() =>
@@ -119,6 +119,201 @@ Future<bool> radioImageIsComplete({
   imageLen: imageLen,
   modelId: modelId,
 );
+
+/// Every radio of the family this codec programs.
+Future<List<Uv5rModelDto>> uv5RModels() =>
+    RustLib.instance.api.crateApiRadioApiUv5RModels();
+
+/// The ident magics to try for this radio, in order.
+Future<List<Uint8List>> uv5RIdentMagics({required String modelId}) =>
+    RustLib.instance.api.crateApiRadioApiUv5RIdentMagics(modelId: modelId);
+
+Future<int> uv5RBaudRate() =>
+    RustLib.instance.api.crateApiRadioApiUv5RBaudRate();
+
+/// The byte that asks an acknowledged radio for its ident.
+Future<int> uv5RIdentRequest() =>
+    RustLib.instance.api.crateApiRadioApiUv5RIdentRequest();
+
+/// Whether the ident read so far is all of it.
+Future<bool> uv5RIdentReplyComplete({required List<int> reply}) =>
+    RustLib.instance.api.crateApiRadioApiUv5RIdentReplyComplete(reply: reply);
+
+/// The eight-byte ident, from however the radio sent it.
+Future<Uint8List> uv5RParseIdent({required List<int> reply}) =>
+    RustLib.instance.api.crateApiRadioApiUv5RParseIdent(reply: reply);
+
+/// The reads made right after the ident, before the image is read.
+///
+/// The first is the session's first command, answered without a leading
+/// acknowledgement; every later answer has one.
+Future<List<ReadRequestDto>> uv5RProbeReads() =>
+    RustLib.instance.api.crateApiRadioApiUv5RProbeReads();
+
+/// What the second and third probe reads say.
+Future<Uv5rProbeDto> uv5RParseProbe({
+  required List<int> firmwareBlock,
+  required List<int> dropBlock,
+}) => RustLib.instance.api.crateApiRadioApiUv5RParseProbe(
+  firmwareBlock: firmwareBlock,
+  dropBlock: dropBlock,
+);
+
+/// Every read of the image after the probe, in image order. The session's
+/// eight ident bytes come first in the image; these fill the rest.
+Future<List<CodeplugBlockDto>> uv5RReadPlan({required bool dropsByte}) =>
+    RustLib.instance.api.crateApiRadioApiUv5RReadPlan(dropsByte: dropsByte);
+
+Future<int> uv5RImageLen() =>
+    RustLib.instance.api.crateApiRadioApiUv5RImageLen();
+
+Future<Uint8List> uv5RReadCommand({required int addr, required int len}) =>
+    RustLib.instance.api.crateApiRadioApiUv5RReadCommand(addr: addr, len: len);
+
+/// How many bytes a read's answer is, not counting its leading ack.
+Future<int> uv5RReadReplyLen({required int len}) =>
+    RustLib.instance.api.crateApiRadioApiUv5RReadReplyLen(len: len);
+
+Future<Uint8List> uv5RParseReadReply({
+  required List<int> reply,
+  required int addr,
+  required int len,
+}) => RustLib.instance.api.crateApiRadioApiUv5RParseReadReply(
+  reply: reply,
+  addr: addr,
+  len: len,
+);
+
+Future<Uint8List> uv5RWriteCommand({
+  required int addr,
+  required List<int> data,
+}) => RustLib.instance.api.crateApiRadioApiUv5RWriteCommand(
+  addr: addr,
+  data: data,
+);
+
+/// The firmware string an image carries.
+Future<String> uv5RFirmware({required List<int> image}) =>
+    RustLib.instance.api.crateApiRadioApiUv5RFirmware(image: image);
+
+/// The channels in an image. Empty slots are omitted; each channel carries
+/// the slot it came from.
+Future<List<RadioChannelDto>> uv5RDecodeChannels({
+  required List<int> image,
+  required String modelId,
+}) => RustLib.instance.api.crateApiRadioApiUv5RDecodeChannels(
+  image: image,
+  modelId: modelId,
+);
+
+/// A copy of `image` with `channels` from slot 1 up and every later slot
+/// cleared, keeping what the app does not model.
+Future<Uint8List> uv5REncodeChannels({
+  required List<int> image,
+  required List<RadioChannelDto> channels,
+  required String modelId,
+}) => RustLib.instance.api.crateApiRadioApiUv5REncodeChannels(
+  image: image,
+  channels: channels,
+  modelId: modelId,
+);
+
+/// The blocks to write to turn the radio from `base` into `updated`: only
+/// those that differ, and an error if any of them is somewhere this app never
+/// writes.
+Future<List<CodeplugBlockDto>> uv5RChangedBlocks({
+  required List<int> base,
+  required List<int> updated,
+  required String modelId,
+}) => RustLib.instance.api.crateApiRadioApiUv5RChangedBlocks(
+  base: base,
+  updated: updated,
+  modelId: modelId,
+);
+
+/// Every block a full restore of `image` writes.
+Future<List<CodeplugBlockDto>> uv5RRestorePlan({
+  required List<int> image,
+  required String modelId,
+}) => RustLib.instance.api.crateApiRadioApiUv5RRestorePlan(
+  image: image,
+  modelId: modelId,
+);
+
+/// The transmit limits an image holds, read from whichever layout the
+/// radio's firmware uses.
+Future<BandLimitsDto> uv5RReadBandLimits({
+  required List<int> image,
+  required String modelId,
+}) => RustLib.instance.api.crateApiRadioApiUv5RReadBandLimits(
+  image: image,
+  modelId: modelId,
+);
+
+/// A copy of `image` with `limits` written, and nothing else changed.
+Future<Uint8List> uv5RApplyBandLimits({
+  required List<int> image,
+  required BandLimitsDto limits,
+  required String modelId,
+}) => RustLib.instance.api.crateApiRadioApiUv5RApplyBandLimits(
+  image: image,
+  limits: limits,
+  modelId: modelId,
+);
+
+/// One band's transmit limits, in whole megahertz.
+class BandLimitDto {
+  final bool txEnabled;
+  final int lowerMhz;
+  final int upperMhz;
+
+  const BandLimitDto({
+    required this.txEnabled,
+    required this.lowerMhz,
+    required this.upperMhz,
+  });
+
+  @override
+  int get hashCode =>
+      txEnabled.hashCode ^ lowerMhz.hashCode ^ upperMhz.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BandLimitDto &&
+          runtimeType == other.runtimeType &&
+          txEnabled == other.txEnabled &&
+          lowerMhz == other.lowerMhz &&
+          upperMhz == other.upperMhz;
+}
+
+/// Both bands' transmit limits, and which layout they were read from.
+class BandLimitsDto {
+  final BandLimitDto vhf;
+  final BandLimitDto uhf;
+
+  /// "old" or "new" -- informational; writes work it out again from the
+  /// image rather than trusting a value that crossed the boundary.
+  final String layout;
+
+  const BandLimitsDto({
+    required this.vhf,
+    required this.uhf,
+    required this.layout,
+  });
+
+  @override
+  int get hashCode => vhf.hashCode ^ uhf.hashCode ^ layout.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BandLimitsDto &&
+          runtimeType == other.runtimeType &&
+          vhf == other.vhf &&
+          uhf == other.uhf &&
+          layout == other.layout;
+}
 
 /// One block of a read or a write.
 class CodeplugBlockDto {
@@ -272,6 +467,25 @@ class RadioModelDto {
           nameLen == other.nameLen;
 }
 
+/// A read that is not part of the image: made, checked, and set aside.
+class ReadRequestDto {
+  final int addr;
+  final int len;
+
+  const ReadRequestDto({required this.addr, required this.len});
+
+  @override
+  int get hashCode => addr.hashCode ^ len.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReadRequestDto &&
+          runtimeType == other.runtimeType &&
+          addr == other.addr &&
+          len == other.len;
+}
+
 /// How a channel squelches, flattened for the boundary.
 ///
 /// A tagged struct rather than a Rust enum with payloads: FRB renders those
@@ -309,4 +523,52 @@ class ToneDto {
           ctcssTenthHz == other.ctcssTenthHz &&
           dcsCode == other.dcsCode &&
           dcsInverted == other.dcsInverted;
+}
+
+/// A radio of the older serial family.
+class Uv5rModelDto {
+  final String id;
+  final String displayName;
+
+  /// Ident magics, tried in order until one is acknowledged.
+  final List<Uint8List> idents;
+
+  const Uv5rModelDto({
+    required this.id,
+    required this.displayName,
+    required this.idents,
+  });
+
+  @override
+  int get hashCode => id.hashCode ^ displayName.hashCode ^ idents.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Uv5rModelDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          displayName == other.displayName &&
+          idents == other.idents;
+}
+
+/// What the reads after the ident found out about the radio.
+class Uv5rProbeDto {
+  final String firmware;
+
+  /// Read the end of the aux block sixteen bytes at a time.
+  final bool dropsByte;
+
+  const Uv5rProbeDto({required this.firmware, required this.dropsByte});
+
+  @override
+  int get hashCode => firmware.hashCode ^ dropsByte.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Uv5rProbeDto &&
+          runtimeType == other.runtimeType &&
+          firmware == other.firmware &&
+          dropsByte == other.dropsByte;
 }
