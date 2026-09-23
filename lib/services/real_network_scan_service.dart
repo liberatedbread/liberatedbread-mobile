@@ -1420,6 +1420,17 @@ class RealNetworkScanService implements NetworkScanService {
           : TransportOutcome.failed;
     }
     session.mdns = client;
+    // R-027 for this transport. A stopScan() that lands while start() is
+    // binding and joining finds `session.mdns` still null, so it stops
+    // nothing; every UDP transport asks stoppedDuringBind right after its
+    // bind, and this was the one that did not — the lookup below then ran
+    // out its full phase on a quiet link with :5353 held, which on Android's
+    // exclusive binds is the NEXT scan's mDNS failing to bind.
+    if (session.stopped) {
+      client.stop();
+      session.mdns = null;
+      return TransportOutcome.skipped;
+    }
     var heard = false;
     // A direct-query resolution can be the only thing that hears anything (its
     // service type is deaf to the meta-query), so it has to be able to flip
@@ -1525,9 +1536,13 @@ class RealNetworkScanService implements NetworkScanService {
         // `heard` is necessarily true by then.
         return heard;
       }();
+      // ...and raced against the stop as well: `lookup` checks the flag
+      // only per received record, so on a quiet link a stop during the
+      // enumeration phase was not seen until the phase timed out.
       final result = await Future.any<Object?>([
         enumeration,
         streamError.future,
+        session.whenStopped.then((_) => heard),
       ]);
       if (result is bool) {
         return result ? TransportOutcome.heard : TransportOutcome.silent;

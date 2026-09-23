@@ -127,6 +127,11 @@ fi
 log "ci-ios-tests.sh self-test"
 ./scripts/ci-ios-tests-selftest.sh
 
+# The device runner's wall-clock bound on `xcodebuild test`: that its perl
+# alarm survives the exec and kills a hang, and that the runner uses it.
+log "run-ios-device-tests selftest"
+./scripts/run-ios-device-tests-selftest.sh
+
 # The bundle-verifier's own selftest, exactly as CI's gate runs it. It was
 # CI-only, which is how the gate went red on a commit this script had
 # blessed — the one gap this mirror exists to close.

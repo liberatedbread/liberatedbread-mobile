@@ -20,6 +20,7 @@
 //
 // Every case makes SSDP hear a device first, because that is the condition
 // under which a false `denied` is visible at all.
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -195,6 +196,49 @@ void main() {
       }
     },
   );
+
+  test('a stop that lands during mDNS start ends the scan promptly', () async {
+    // R-027 for the one transport that had no stoppedDuringBind. A stop
+    // landing while MDnsClient.start() enumerated interfaces found
+    // session.mdns still null and stopped nothing; the lookup then ran out
+    // its whole phase — half the scan window — on a quiet link, the
+    // app-facing stream stayed open, and :5353 stayed bound. The lister is
+    // slow on purpose, and completes [inStart] only on the mDNS call (the
+    // one that asks for loopback), so the stop lands inside that window.
+    final network = _Network(refuse: (a, p) => false);
+    final inStart = Completer<void>();
+    final service = RealNetworkScanService(
+      multicastLock: MulticastLock(isSupported: false),
+      interfaceLister:
+          ({
+            bool includeLoopback = false,
+            bool includeLinkLocal = false,
+            InternetAddressType type = InternetAddressType.any,
+          }) async {
+            if (includeLoopback && !inStart.isCompleted) inStart.complete();
+            await Future<void>.delayed(const Duration(milliseconds: 300));
+            return [];
+          },
+      probeSource: () async => [],
+      binder: network.bind,
+      isApplePlatform: false,
+    );
+
+    final clock = Stopwatch()..start();
+    final scan = service
+        .scan(timeout: const Duration(seconds: 20))
+        .drain<void>();
+    await inStart.future;
+    await service.stopScan();
+    await scan.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => fail(
+        'the scan stream was still open 3 s after stopScan(): a phase is '
+        '10 s here, and that is what a stop during start used to wait',
+      ),
+    );
+    expect(clock.elapsed, lessThan(const Duration(seconds: 3)));
+  });
 
   test(
     'nothing refused, nothing denied — the fixture is not the verdict',

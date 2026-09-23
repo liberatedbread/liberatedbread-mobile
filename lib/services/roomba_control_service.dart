@@ -127,6 +127,16 @@ const roombaCertificateChangedMessage =
     'password. If you did not, something else may be answering at its '
     'address.';
 
+/// The pin could not be READ, which is not the robot's doing and not a
+/// reset: the password was withheld because the policy would not trust on
+/// first contact over a pin it could not see. "Remove it and adopt it again"
+/// here would throw away a correct pin and the stored password for a locked
+/// keychain.
+const roombaPinUnreadableMessage =
+    'The saved security fingerprint for this robot could not be read, so the '
+    'password was not sent. Unlock the phone (or reopen the app) and try '
+    'again — there is nothing wrong with the robot, and nothing to reset.';
+
 /// The default connector: real TLS to a real robot, pinned on first sight.
 ///
 /// The robot's certificate is self-signed with no chain to anything, so
@@ -162,11 +172,22 @@ Future<RoombaTlsSocket> roombaTlsConnect(
   } on HandshakeException catch (e) {
     // A pin this app refused fails the handshake exactly the way the cipher
     // gap does, and `onBadCertificate` cannot say which. The policy can.
-    if (trust?.refused(host) ?? false) {
-      throw const RoombaConnectionException(
-        roombaCertificateChangedMessage,
-        certificateChanged: true,
-      );
+    // The reason, not the bool — see mqtt_session's connector. A pin the
+    // store could not read is a refusal too, and the "factory reset" advice
+    // below it is exactly wrong for it.
+    switch (trust?.refusalReason(host)) {
+      case TlsRefusal.certificateChanged:
+        throw const RoombaConnectionException(
+          roombaCertificateChangedMessage,
+          certificateChanged: true,
+        );
+      case TlsRefusal.pinUnreadable:
+        throw const RoombaConnectionException(roombaPinUnreadableMessage);
+      case TlsRefusal.unverifiableChain:
+      case null:
+        // A robot is pinned on first sight, never chain-validated; anything
+        // else is the cipher gap below.
+        break;
     }
     throw RoombaConnectionException(
       'The TLS handshake with $host failed. Older Roomba firmware only offers '

@@ -112,6 +112,24 @@ const mqttCertificateChangedMessage =
     'devices and add it again. If you did not, something else may be '
     'answering at its address.';
 
+/// What an UNREADABLE pin reads as. Not a changed certificate: the store the
+/// pin lives in could not be read — a keychain still locked after a cold
+/// start — so the policy refused rather than trust on first contact and
+/// overwrite a pin it could not see. Sending the user to remove and re-add
+/// the device for this erases a correct pin, and on a Roomba a password.
+const mqttPinUnreadableMessage =
+    'The saved security fingerprint for this device could not be read, so '
+    'the app would not guess. Unlock the phone (or reopen the app) and try '
+    'again — there is nothing wrong with the device.';
+
+/// What a chain the platform cannot verify reads as, for a profile that asks
+/// for standard validation. Nothing was pinned and nothing changed.
+const mqttUntrustedChainMessage =
+    "This device's security certificate could not be verified. Nothing "
+    'about it has changed — it simply is not signed by an authority this '
+    'phone trusts. Check that you are on the same network as the device, '
+    'with no proxy or sign-in page in between.';
+
 /// Open the TLS socket to an appliance's broker — the ONE place it happens.
 ///
 /// [trust] decides the certificate for [identity] when both are given: the
@@ -207,12 +225,31 @@ Future<MqttSocket> _translated(
     // `onBadCertificate` returns a bool and the exception carries no reason,
     // so a pin the policy refused arrives looking exactly like a cipher gap.
     // The policy remembers, and is asked first.
-    if (trust?.refused(host) ?? false) {
-      throw const MqttConnectionException(
-        mqttCertificateChangedMessage,
-        handshakeFailed: true,
-        certificateChanged: true,
-      );
+    // The REASON, not the bool. A pin the store could not read is refused
+    // too, and from here it looks exactly like a changed certificate. The
+    // HTTP path moved to refusalReason on this branch; this one did not, so
+    // a locked keychain told the user to remove the device and add it again
+    // — a factory-reset instruction for a transient storage failure, which,
+    // followed, erases a correct pin.
+    switch (trust?.refusalReason(host)) {
+      case TlsRefusal.certificateChanged:
+        throw const MqttConnectionException(
+          mqttCertificateChangedMessage,
+          handshakeFailed: true,
+          certificateChanged: true,
+        );
+      case TlsRefusal.pinUnreadable:
+        throw const MqttConnectionException(
+          mqttPinUnreadableMessage,
+          handshakeFailed: true,
+        );
+      case TlsRefusal.unverifiableChain:
+        throw const MqttConnectionException(
+          mqttUntrustedChainMessage,
+          handshakeFailed: true,
+        );
+      case null:
+        break;
     }
     throw MqttConnectionException(
       'The TLS handshake with $host:$port failed ($e).',

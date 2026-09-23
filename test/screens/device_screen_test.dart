@@ -532,7 +532,7 @@ void main() {
       // listing the screen was pushed from instead of parking on the reconnect
       // state. Mounted behind a pushable route — the way scan_screen and
       // saved_devices_screen actually open it — so the pop has somewhere to land.
-      final fake = FakeBleService(
+      final fake = _GatedDisconnectFakeBleService(
         servicesToReturn: const [
           BleDiscoveredService(
             uuid: '0000180f-0000-1000-8000-00805f9b34fb',
@@ -548,6 +548,12 @@ void main() {
             numberRegistryProvider.overrideWith((ref) async => _registry),
           ],
           child: MaterialApp(
+            // Three routes deep ON PURPOSE. With the device screen pushed
+            // straight over the root, Navigator.canPop() alone refuses the
+            // second pop and the latch under test is never what saves the
+            // listing — which is how this test stayed green with the latch
+            // deleted. Here the listing sits over a home route, so a second
+            // pop has somewhere to go.
             home: Builder(
               builder: (context) => Scaffold(
                 body: Center(
@@ -555,10 +561,22 @@ void main() {
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute<void>(
-                        builder: (_) => DeviceScreen(device: _device),
+                        builder: (context) => Scaffold(
+                          body: Center(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) => DeviceScreen(device: _device),
+                                ),
+                              ),
+                              child: const Text('The listing'),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                    child: const Text('The listing'),
+                    child: const Text('Home'),
                   ),
                 ),
               ),
@@ -567,6 +585,8 @@ void main() {
         ),
       );
 
+      await tester.tap(find.text('Home'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('The listing'));
       await tester.pumpAndSettle();
       expect(find.text('Battery Service'), findsOneWidget);
@@ -574,16 +594,30 @@ void main() {
       // Two taps before the first one's teardown finishes: the second used to
       // pop again after the screen was gone, taking the listing (the root
       // route) with it and leaving an empty Navigator.
+      // The first tap starts a teardown the fake HOLDS, so the route is still
+      // up and pointer-live when the second tap arrives. The old version let
+      // the fake's disconnect complete in a microtask: after `pump()` the
+      // route was already animating out under IgnorePointer, the second tap
+      // hit nothing, and the assertions held with the `_leaving` latch
+      // deleted — the double-pop regression shipped green.
       await tester.tap(find.text('Disconnect'));
       await tester.pump();
-      await tester.tap(find.text('Disconnect'), warnIfMissed: false);
+      expect(find.byType(DeviceScreen), findsOneWidget);
+      await tester.tap(find.text('Disconnect'));
+      await tester.pump();
+      fake.release();
       await tester.pumpAndSettle();
 
       // The link was actually dropped (exactly once), and we are back on the
       // listing route rather than a "Device disconnected" dead end.
       expect(fake.disconnectedIds, ['01']);
       expect(find.byType(DeviceScreen), findsNothing);
-      expect(find.text('The listing'), findsOneWidget);
+      expect(
+        find.text('The listing'),
+        findsOneWidget,
+        reason: 'a second pop takes the listing with it',
+      );
+      expect(find.text('Home'), findsNothing);
     },
   );
 
@@ -1202,4 +1236,24 @@ class _QuietProvisionService extends RabbitAirProvisionService {
     required String passphrase,
     required int security,
   }) async {}
+}
+
+/// A [FakeBleService] whose [disconnect] waits for [release], so a test can
+/// land a second tap while the first teardown is still in flight — the only
+/// window in which the screen's `_leaving` latch has anything to do.
+class _GatedDisconnectFakeBleService extends FakeBleService {
+  Completer<void>? _gate = Completer<void>();
+
+  _GatedDisconnectFakeBleService({super.servicesToReturn});
+
+  void release() {
+    _gate?.complete();
+    _gate = null;
+  }
+
+  @override
+  Future<void> disconnect(String deviceId) async {
+    await _gate?.future;
+    return super.disconnect(deviceId);
+  }
 }

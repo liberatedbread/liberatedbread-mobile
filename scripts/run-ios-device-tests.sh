@@ -383,13 +383,24 @@ run_suite() {
 
   local bundle="$LOG_DIR/$name-$stamp.xcresult"
   local allowance; allowance="$(timeout_seconds "$TEST_TIMEOUT")"
+  # The allowance below bounds only XCTest's synthesized pass/fail methods.
+  # INTEGRATION_TEST_IOS_RUNNER runs the WHOLE Dart suite inside
+  # +testInvocations — test enumeration, before any XCTest method exists —
+  # with FLTIntegrationTestRunner spinning the runloop until results arrive,
+  # and the Dart binding's default timeout is Timeout.none. So a hung Dart
+  # test (a connect that never completes, RustLib.init stuck) hung
+  # `xcodebuild test` forever, no .xcresult, and an unattended run never
+  # came back. This is the bound the script owns: perl's alarm on the
+  # xcodebuild process itself — every Mac has perl, none has GNU timeout —
+  # which exits 142 when it fires.
+  local suite_bound="${LB_SUITE_TIMEOUT:-1800}"
   log "xcodebuild test -scheme Runner -destination id=$UDID (log: $logfile)"
   # Only the lines a reader acts on reach the terminal: what the suite
   # measured, each test's verdict, and anything that went wrong. The full
   # log is in $logfile and the per-test record in the .xcresult bundle.
   local rc=0
   {
-  xcodebuild test \
+  perl -e 'alarm shift; exec @ARGV' "$suite_bound" xcodebuild test \
       -workspace ios/Runner.xcworkspace \
       -scheme Runner \
       -configuration Profile \
@@ -407,6 +418,10 @@ run_suite() {
       | sed -u -E 's/^.*Unlock (.*) to Continue.*$/UNLOCK THE PHONE: xcodebuild is waiting until \1 is unlocked (it carries on by itself once it is)./'
     rc="${PIPESTATUS[0]}"
   } || true
+  if (( rc == 142 )); then
+    err "xcodebuild test exceeded ${suite_bound}s (LB_SUITE_TIMEOUT) and was killed: a test on the phone never completed. See $logfile"
+    return 1
+  fi
   # The `|| true` MUST stay outside the group and the read of PIPESTATUS MUST
   # stay inside it. `cmd | … || true` runs `true`, which is itself a pipeline,
   # and that overwrites PIPESTATUS with (0) before the next line can read it —

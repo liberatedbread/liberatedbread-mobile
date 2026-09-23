@@ -107,6 +107,15 @@ class _FakeRobot {
   Future<void> close() => _server.close();
 }
 
+/// A settings store whose reads throw — the keychain still locked after a
+/// cold start, as CertificatePinStore sees it. prepare() records the identity
+/// as unreadable and the evaluator refuses rather than trust on first contact.
+class _LockedSettingsStore extends InMemorySettingsStore {
+  @override
+  Future<String?> read(String key) async =>
+      throw StateError('keychain locked: $key');
+}
+
 void main() {
   late InMemorySettingsStore settings;
   late FakeSpecCodec codec;
@@ -164,6 +173,36 @@ void main() {
         await socket.close();
 
         expect(settings.values[pinKey], _expectedPin('robot'));
+      },
+    );
+
+    test(
+      'a pin the store cannot read is refused as UNREADABLE, not as changed',
+      () async {
+        // The keychain still locked after a cold start: prepare() records the
+        // identity as unreadable, the evaluator refuses rather than trust on
+        // first contact over a pin it cannot see, and the handshake then
+        // fails exactly the way a changed certificate does. The connector
+        // used to branch on the bool and send the user to remove the device
+        // and add it again — which, followed, erases a correct pin.
+        final server = await robot('robot');
+        final trust = TlsTrust(CertificatePinStore(_LockedSettingsStore()));
+        final connect = pinnedTlsConnect(trust, identity: identity);
+
+        await expectLater(
+          connect(_host, server.port, const Duration(seconds: 5)),
+          throwsA(
+            isA<MqttConnectionException>()
+                .having(
+                  (e) => e.certificateChanged,
+                  'certificateChanged',
+                  isFalse,
+                )
+                .having((e) => e.handshakeFailed, 'handshakeFailed', isTrue)
+                .having((e) => e.message, 'message', mqttPinUnreadableMessage),
+          ),
+        );
+        expect(server.received, isEmpty, reason: 'nothing crossed the socket');
       },
     );
 
@@ -337,6 +376,38 @@ void main() {
 
       expect(settings.values[pinKey], _expectedPin('robot'));
       expect(server.received, isNotEmpty);
+    });
+
+    test('a pin the store cannot read withholds the password without blaming '
+        'the robot', () async {
+      // Same refusal as the MQTT case above, in the connector that owns the
+      // robot's wording: "factory-reset it, remove it and adopt it again"
+      // for a locked keychain would throw away a correct pin AND the
+      // stored password.
+      final server = await robot('robot');
+      final locked = RoombaMqttClient(
+        codec: codec,
+        trust: TlsTrust(CertificatePinStore(_LockedSettingsStore())),
+      );
+      addTearDown(locked.dispose);
+
+      await expectLater(
+        locked.connect(_host, credentials, port: server.port),
+        throwsA(
+          isA<RoombaConnectionException>()
+              .having(
+                (e) => e.certificateChanged,
+                'certificateChanged',
+                isFalse,
+              )
+              .having((e) => e.message, 'message', roombaPinUnreadableMessage),
+        ),
+      );
+      expect(
+        server.received,
+        isEmpty,
+        reason: 'the password must not have crossed the socket',
+      );
     });
 
     test('the same certificate reconnects against the stored pin', () async {
