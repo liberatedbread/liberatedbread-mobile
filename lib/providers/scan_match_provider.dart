@@ -153,21 +153,62 @@ class ScanGuess {
   /// and reporting the first of them badged every one of those devices
   /// "Possibly Enphase Energy" — the same confident lie [namesAProduct] exists
   /// to prevent, one rung further down.
+  ///
+  /// A tie at the top two tiers keeps whatever the tied specs DO agree on
+  /// instead of collapsing to "Supported device": three Govee light specs
+  /// sharing a service UUID are still a "Govee light", and five vendors'
+  /// strips answering one generic protocol are still a "Supported light". The
+  /// matcher knew that much, and a badge that says less than it knows makes
+  /// every tied row on the list read the same.
   String get label {
     // A recognise-only device is named, never claimed as "supported": we know
     // what it is, we just do not drive it. Fall back to the manufacturer, then
-    // a bare "Recognized device", when the exact product is contested.
+    // the kind, then a bare "Recognized device", when the exact product is
+    // contested.
     if (isIdentifyOnly) {
       if (namesAProduct) return deviceName;
-      return manufacturerAgreed ? manufacturer : 'Recognized device';
+      if (manufacturerAgreed) return manufacturer;
+      final kind = _kind;
+      return kind == null ? 'Recognized device' : 'Recognized $kind';
     }
     return switch (confidence) {
-      MatchConfidence.strong => namesAProduct ? deviceName : 'Supported device',
+      MatchConfidence.strong => namesAProduct ? deviceName : _tiedLabel(),
       MatchConfidence.likely =>
-        namesAProduct ? 'Likely $deviceName' : 'Likely supported',
+        namesAProduct ? 'Likely $deviceName' : _tiedLabel(likely: true),
       MatchConfidence.possible =>
         manufacturerAgreed ? 'Possibly $manufacturer' : 'Possibly supported',
     };
+  }
+
+  /// The label for a Strong or Likely match that could not name one product,
+  /// from what the tied specs agree on: the maker, the kind, both, or neither.
+  String _tiedLabel({bool likely = false}) {
+    final kind = _kind;
+    final hedge = likely ? 'Likely ' : '';
+    if (manufacturerAgreed) {
+      if (kind != null) return '$hedge$manufacturer $kind';
+      return likely ? 'Likely $manufacturer' : '$manufacturer device';
+    }
+    final supported = likely ? 'Likely supported' : 'Supported';
+    return kind == null
+        ? (likely ? supported : 'Supported device')
+        : '$supported $kind';
+  }
+
+  /// [category] as a noun for the middle of a label — "light", "TV" — or null
+  /// when the tied specs did not agree on one, or when the class says nothing
+  /// a person would call the device ("Device", "Protocol reference").
+  String? get _kind {
+    final c = category;
+    if (c == null ||
+        c == DeviceCategory.other ||
+        c == DeviceCategory.reference ||
+        c == DeviceCategory.warning) {
+      return null;
+    }
+    // An initialism stays upper-case: "Supported TV", not "Supported tv".
+    final noun = c.label;
+    return noun == noun.toUpperCase() ? noun : noun.toLowerCase();
   }
 }
 

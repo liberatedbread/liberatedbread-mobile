@@ -24,6 +24,7 @@ import '../providers/scan_match_provider.dart';
 import '../services/network_scan_service.dart';
 import '../services/number_registry.dart';
 import '../services/spec_codec.dart';
+import '../widgets/ad_banner_bar.dart';
 import '../widgets/adopt_device_card.dart';
 import '../widgets/device_list_tile.dart';
 import 'adopt_device_screen.dart';
@@ -316,10 +317,28 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 const SizedBox(height: 10),
               ],
             ],
+            // Recognised but not driven here: an office printer, a NAS, the
+            // router. Its own section so a printer this app can print to (up
+            // in the supported one) never looks like the same kind of row as
+            // one it can only name — the difference is the whole question
+            // someone scanning for a printer is asking.
+            if (ranked.recognized.isNotEmpty) ...[
+              const SizedBox(height: 36),
+              SectionHeader(
+                label: 'Recognized, not controlled here',
+                count: ranked.recognized.length,
+              ),
+              const SizedBox(height: 12),
+              for (final entry in ranked.recognized) ...[
+                _tile(entry, registry),
+                const SizedBox(height: 10),
+              ],
+            ],
             if (ranked.other.isNotEmpty) ...[
               const SizedBox(height: 36),
               SectionHeader(
-                label: ranked.likelySupported.isEmpty
+                label:
+                    ranked.likelySupported.isEmpty && ranked.recognized.isEmpty
                     ? 'Found'
                     : 'Other devices',
                 count: ranked.other.length,
@@ -333,6 +352,11 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
           ],
         ),
       ),
+      // The same house-ad bar the Nearby tab docks. It is the global
+      // promotion, not a device-targeted one: this list is many devices at
+      // once, and picking one row's banner would be advertising at a guess.
+      // Zero height when there is nothing to show, like it is there.
+      bottomNavigationBar: const AdBannerBar(),
       floatingActionButton: FloatingActionButton.extended(
         // See the note on ScanScreen's FAB: both live in HomeShell's
         // IndexedStack at the same time, so the tags have to differ.
@@ -398,6 +422,10 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
         ? 'power-strip'
         : null;
     final scheme = Theme.of(context).colorScheme;
+    // Whether the tap goes to the device's own admin page — the same decision
+    // onTap makes below, held once so the row's description can say so.
+    final opensAdmin =
+        controls == null && !_isUnifiCamera(device) && guess?.adminUrl != null;
     return DeviceListTile(
       title: device.displayName,
       subtitle: _transportLabel(device),
@@ -426,7 +454,13 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       // something. A badge reading "Supported device" or "Possibly supported"
       // has told the user nothing about which one — the vendor and the service
       // type underneath it are precisely what distinguishes this row.
-      description: entry.guess?.namesAProduct == true
+      //
+      // A device this app does not drive says what the tap does instead: the
+      // badge already names it, and "opens its web page" is the one thing left
+      // for the row to tell someone deciding whether to tap.
+      description: opensAdmin
+          ? 'Opens its own web page'
+          : guess?.namesAProduct == true
           ? null
           : _describe(device, vendor),
       onTap: controls != null
@@ -479,7 +513,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 // A recognize-only device we can't drive but whose spec knows
                 // where its admin page lives (a NAS's DSM, a printer's web UI):
                 // the tap opens that, the one useful action here.
-                : (guess?.adminUrl != null
+                : (opensAdmin
                       ? () => _openAdmin(guess!, device)
                       : () => _showDetails(device, vendor))),
     );

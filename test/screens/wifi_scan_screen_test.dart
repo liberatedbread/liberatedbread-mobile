@@ -8,8 +8,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
+import 'package:liberated_bread_mobile/models/ad_banner.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
+import 'package:liberated_bread_mobile/providers/ad_banner_provider.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart'
     show urlOpenerProvider;
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
@@ -17,9 +21,11 @@ import 'package:liberated_bread_mobile/providers/network_scan_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_description_provider.dart';
 import 'package:liberated_bread_mobile/screens/wifi_scan_screen.dart';
+import 'package:liberated_bread_mobile/services/ad_banner_service.dart';
 import 'package:liberated_bread_mobile/services/number_registry.dart';
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/ad_banner_bar.dart';
 
 import '../fakes/fake_spec_codec.dart';
 
@@ -83,12 +89,15 @@ ScanMatch _match(
   MatchConfidence confidence, {
   String? category = 'hub',
   String? adminUrl,
+  String? integration,
+  String deviceName = 'Hue Bridge',
 }) => ScanMatch(
   specIndex: 0,
-  deviceName: 'Hue Bridge',
+  deviceName: deviceName,
   manufacturer: 'Signify',
   category: category,
   adminUrl: adminUrl,
+  integration: integration,
   confidence: confidence,
   matchedByNamePrefix: false,
   matchedServiceUuids: const [],
@@ -253,6 +262,98 @@ void main() {
     expect(find.textContaining('Could not open'), findsOneWidget);
   });
 
+  testWidgets('a printer it can only name is filed apart from the rest', (
+    tester,
+  ) async {
+    // An office printer is recognised (identify_only) but not driven; a
+    // Hue bridge is driven. They must not share a section, and the office
+    // printer's row says what a tap does — open its own web page — since
+    // printing to it is not on offer here.
+    final service = _FakeNetworkScanService(
+      devices: [
+        _device(
+          host: '192.168.1.50',
+          name: 'Office LaserJet',
+          serviceTypes: const ['_ipp._tcp.local'],
+        ),
+        _device(
+          host: '192.168.1.40',
+          name: 'Philips Hue',
+          serviceTypes: const ['_hue._tcp.local'],
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      _wrap(
+        service,
+        matchFor: (device) => device.serviceTypes.contains('_ipp._tcp.local')
+            ? [
+                _match(
+                  MatchConfidence.likely,
+                  category: 'printer',
+                  adminUrl: 'http://{address}/',
+                  integration: 'identify_only',
+                  deviceName: 'Network Printer',
+                ),
+              ]
+            : [_match(MatchConfidence.strong)],
+      ),
+    );
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    // The list is lazy, and the recognised section is its last.
+    await tester.scrollUntilVisible(find.text('Opens its own web page'), 100);
+    expect(find.text('Recognized, not controlled here'), findsOneWidget);
+    expect(find.text('Other devices'), findsNothing);
+    expect(find.text('Opens its own web page'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Likely supported'),
+      -100,
+      maxScrolls: 50,
+    );
+    expect(find.text('Likely supported'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Office LaserJet'), 100);
+
+    final supported = tester.getTopLeft(find.text('Philips Hue')).dy;
+    final recognizedHeader = tester
+        .getTopLeft(find.text('Recognized, not controlled here'))
+        .dy;
+    final printer = tester.getTopLeft(find.text('Office LaserJet')).dy;
+    expect(supported, lessThan(recognizedHeader));
+    expect(recognizedHeader, lessThan(printer));
+  });
+
+  testWidgets('the house ad docks under the Wi-Fi tab too', (tester) async {
+    // It was only ever mounted under the Nearby tab, so the Wi-Fi tab — the
+    // one people land on to find printers and TVs — never showed it.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          networkScanServiceProvider.overrideWithValue(
+            _FakeNetworkScanService(),
+          ),
+          numberRegistryProvider.overrideWith((ref) async => _registry),
+          deviceSpecsProvider.overrideWith((ref) => {'hue.yaml': 'yaml'}),
+          specCodecProvider.overrideWithValue(FakeSpecCodec(spec: _spec)),
+          // Fails fast, so the bundled banner is what shows.
+          adBannerServiceProvider.overrideWithValue(
+            AdBannerService(
+              client: MockClient((_) async => http.Response('', 500)),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: WifiScanScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AdBannerBar), findsOneWidget);
+    expect(find.text('AD'), findsOneWidget);
+    expect(find.text(AdBanner.fallback.message), findsOneWidget);
+  });
+
   testWidgets('a port-only match is a hint, not a claim', (tester) async {
     final service = _FakeNetworkScanService(
       devices: [_device(name: 'Mystery Box')],
@@ -311,6 +412,9 @@ void main() {
     // The exception's own hedged wording is on screen as the subhead.
     expect(find.textContaining('If Local Network'), findsOneWidget);
     expect(find.text('Scan again'), findsOneWidget);
+    // The list is lazy and the ad bar docks under it, so the hint below
+    // 'Scan again' is built only once scrolled to.
+    await tester.scrollUntilVisible(find.text('Open settings'), 100);
     // 'Open settings' is a secondary text button, no longer a headline pill.
     expect(find.widgetWithText(TextButton, 'Open settings'), findsOneWidget);
     expect(find.widgetWithText(ElevatedButton, 'Open settings'), findsNothing);

@@ -168,14 +168,42 @@ typedef RankedNetworkDevice = Ranked<NetworkDevice>;
 /// Split network devices, breaking ties by display name: there is no signal
 /// strength here, and a stable order matters more — mDNS and SSDP answer at
 /// wildly different speeds, and rows must not shuffle under a finger.
-({List<RankedNetworkDevice> likelySupported, List<RankedNetworkDevice> other})
+///
+/// Three groups rather than the BLE tab's two. A LAN is full of things the
+/// catalogue recognises and this app does not drive — office printers, a NAS,
+/// the router — and filing them with the anonymous hosts made "a printer this
+/// app can print to" and "a printer it can only name" look like the same kind
+/// of row, a section apart from nothing. `recognized` is those: an
+/// `identify_only` match the catalogue is sure of. (The BLE tab keeps two
+/// groups because its identify-only specs are, today, all security warnings,
+/// which must not be tucked into a quieter section.)
+({
+  List<RankedNetworkDevice> likelySupported,
+  List<RankedNetworkDevice> recognized,
+  List<RankedNetworkDevice> other,
+})
 rankNetworkDevices(
   List<NetworkDevice> devices,
   ScanGuess? Function(NetworkDevice device) guessFor,
-) => rankDevices(
-  devices,
-  guessFor,
-  (a, b) => a.device.displayName.toLowerCase().compareTo(
-    b.device.displayName.toLowerCase(),
-  ),
-);
+) {
+  final ranked = rankDevices(
+    devices,
+    guessFor,
+    (a, b) => a.device.displayName.toLowerCase().compareTo(
+      b.device.displayName.toLowerCase(),
+    ),
+  );
+  bool isRecognized(RankedNetworkDevice r) {
+    final guess = r.guess;
+    return guess != null &&
+        guess.isIdentifyOnly &&
+        !guess.isSecurityWarning &&
+        guess.confidence != MatchConfidence.possible;
+  }
+
+  return (
+    likelySupported: ranked.likelySupported,
+    recognized: ranked.other.where(isRecognized).toList(),
+    other: ranked.other.where((r) => !isRecognized(r)).toList(),
+  );
+}
