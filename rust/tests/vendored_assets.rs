@@ -2783,9 +2783,14 @@ fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
     // scan's `ssdp:all` search collects exactly those STs from every Sonos,
     // smart TV and NAS on the link — each of which came back a Strong Bose
     // tied with a Strong Hisense, or a Strong Squeezebox.
+    // DIAL is the same story for TVs: every smart TV and streaming stick
+    // answers it, and before it was marked shared a Chromecast came back a
+    // Strong "Sony Bravia" on the strength of it alone.
     for class in [
         "urn:schemas-upnp-org:device:MediaRenderer:1",
         "urn:schemas-upnp-org:device:MediaServer:1",
+        "urn:dial-multiscreen-org:service:dial:1",
+        "urn:dial-multiscreen-org:device:dial:1",
     ] {
         let dlna = NetworkDeviceDto {
             name: String::new(),
@@ -2825,6 +2830,85 @@ fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
     assert!(
         !named.is_empty(),
         "a narrowed shared type must still name its device"
+    );
+}
+
+/// A Roku TV is a Roku, not a three-way tie between TV makers.
+///
+/// A TCL Roku answers its own `roku:ecp` and, like every TV, both DIAL search
+/// targets. sony-bravia claims the DIAL service form and vizio-smartcast the
+/// device form, so all three came back Strong and the scan list could only say
+/// "Supported device" — the matcher knew exactly what it was looking at and
+/// then threw it away in the tie. The Sony and the Vizio each still match on
+/// their own vendor axis, which is pinned here too so the fix cannot cost them
+/// their identity.
+#[test]
+fn a_roku_tv_is_named_by_ecp_not_tied_with_every_dial_tv() {
+    use liberated_bread_core::api::device_api::{
+        load_device_spec, match_network_device, MatchConfidence, NetworkDeviceDto, SpecIdentityDto,
+    };
+
+    let identities: Vec<SpecIdentityDto> = vendored_yaml_paths()
+        .into_iter()
+        .filter_map(|path| load_device_spec(fs::read_to_string(path).ok()?).ok())
+        .map(|spec| SpecIdentityDto::from(&spec))
+        .collect();
+    let host = |ssdp: &[&str], mdns: &[&str]| NetworkDeviceDto {
+        name: "TCL Roku TV".into(),
+        hostname: None,
+        service_types: mdns.iter().map(|t| t.to_string()).collect(),
+        ssdp_targets: ssdp.iter().map(|t| t.to_string()).collect(),
+        answered_lan_protocols: Vec::new(),
+        txt: Default::default(),
+        port: Some(8060),
+        mac: None,
+    };
+    let strong = |device: NetworkDeviceDto| -> Vec<String> {
+        match_network_device(identities.clone(), device)
+            .into_iter()
+            .filter(|m| m.confidence == MatchConfidence::Strong)
+            .map(|m| m.device_name)
+            .collect()
+    };
+
+    let roku = strong(host(
+        &[
+            "roku:ecp",
+            "urn:dial-multiscreen-org:service:dial:1",
+            "urn:dial-multiscreen-org:device:dial:1",
+            "upnp:rootdevice",
+        ],
+        &["_airplay._tcp.local.", "_raop._tcp.local."],
+    ));
+    assert_eq!(
+        roku.len(),
+        1,
+        "a Roku TV must have one Strong match, got {roku:?}"
+    );
+    assert!(
+        roku[0].contains("Roku"),
+        "a Roku TV must be named as a Roku, got {roku:?}"
+    );
+
+    let sony = strong(host(
+        &[
+            "urn:schemas-sony-com:service:ScalarWebAPI:1",
+            "urn:dial-multiscreen-org:service:dial:1",
+        ],
+        &[],
+    ));
+    assert!(
+        sony.len() == 1 && sony[0].contains("Sony"),
+        "a Bravia still matches on ScalarWebAPI, got {sony:?}"
+    );
+
+    let vizio = strong(host(
+        &["urn:dial-multiscreen-org:device:dial:1"],
+        &["_viziocast._tcp.local."],
+    ));
+    assert!(
+        vizio.len() == 1 && vizio[0].contains("Vizio"),
+        "a Vizio still matches on `_viziocast._tcp`, got {vizio:?}"
     );
 }
 

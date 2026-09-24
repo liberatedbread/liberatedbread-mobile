@@ -4657,6 +4657,18 @@ fn is_shared_service_type(normalized: &str) -> bool {
             // `normalize_service_type` stem, which folds case.
             | "urn:schemas-upnp-org:device:mediarenderer:1"
             | "urn:schemas-upnp-org:device:mediaserver:1"
+            // DIAL, the second-screen launch protocol. Every smart TV and
+            // streaming stick answers it — Roku, Fire TV, Chromecast, Sony,
+            // Vizio, Samsung, LG — so it says "a TV-shaped thing" and never
+            // which one. sony-bravia declares the service form and
+            // vizio-smartcast the device form, and before this entry a TCL
+            // Roku came back a Strong Roku tied with a Strong Sony and a
+            // Strong Vizio (badged "Supported device"), while a Chromecast,
+            // which matches nothing else, came back a confident "Sony
+            // Bravia". Both specs keep a vendor axis of their own
+            // (ScalarWebAPI, `_viziocast._tcp`).
+            | "urn:dial-multiscreen-org:service:dial:1"
+            | "urn:dial-multiscreen-org:device:dial:1"
             // Whole-ecosystem DNS-SD types. HomeKit and AirPlay in particular
             // cover hundreds of unrelated products.
             | "_hap._tcp"
