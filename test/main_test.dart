@@ -84,10 +84,26 @@ void main() {
 
   tearDown(Log.reset);
 
+  /// Boot the real entrypoint — inside [WidgetTester.runAsync], not in the
+  /// test body directly.
+  ///
+  /// main() awaits RustLib.init(), and since the core gained a `#[frb(init)]`
+  /// initializer that call awaits a reply from Rust, delivered on a receive
+  /// port. A testWidgets body runs in a fake-async zone: the reply arrives —
+  /// as a real event — but its continuation is queued on the zone's
+  /// microtask queue, which only pump() drains, and nothing is pumping while
+  /// main() is awaited. The test hung for the full ten minutes on every host
+  /// where a release library was present for init() to load, and passed on
+  /// any host where it was not (init() then fails fast, and main() catches
+  /// it). runAsync is the escape hatch for exactly this: real asynchronous
+  /// work inside a widget test. Each caller still pumps the frame runApp
+  /// scheduled.
+  Future<void> boot(WidgetTester tester) => tester.runAsync(entrypoint.main);
+
   testWidgets('main() boots the app all the way to the home shell', (
     tester,
   ) async {
-    await entrypoint.main();
+    await boot(tester);
     await tester.pump();
 
     expect(find.byType(LiberatedBreadApp), findsOneWidget);
@@ -112,7 +128,7 @@ void main() {
       AppConstants.termsAcceptedKey: AppConstants.termsVersion,
     });
 
-    await entrypoint.main();
+    await boot(tester);
     await tester.pump();
 
     final container = ProviderScope.containerOf(
@@ -134,11 +150,11 @@ void main() {
     // a real shape of the failure and the only one reachable in a host test:
     // the alternative (no native library on disk) is not something a test can
     // arrange for a process that may already have loaded one.
-    await entrypoint.main();
+    await boot(tester);
     await tester.pump();
 
     logs.clear();
-    await entrypoint.main();
+    await boot(tester);
     await tester.pump();
 
     expect(
@@ -177,7 +193,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         AppConstants.termsAcceptedKey: AppConstants.termsVersion,
       });
-      await entrypoint.main();
+      await boot(tester);
       await tester.pump();
 
       expect(
@@ -203,7 +219,7 @@ void main() {
       tester,
     ) async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      await entrypoint.main();
+      await boot(tester);
       await tester.pump();
       expect(
         secureStorageCalls.where((c) => c == 'deleteAll'),
@@ -216,7 +232,7 @@ void main() {
 
       // Second boot, same preferences the first one left behind.
       secureStorageCalls.clear();
-      await entrypoint.main();
+      await boot(tester);
       await tester.pump();
       expect(
         secureStorageCalls,
