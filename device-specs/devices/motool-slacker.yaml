@@ -195,3 +195,14 @@ helpful_urls:
     kind: "vendor_support"
     description: >
       Vendor page; the full PDF user guide and video guides are distributed through Motool's own service app rather than as a public download.
+
+remaining_unknowns:
+  - >
+    The Suspension Sag entity has no format block because the wire format of
+    the FFE1 serial stream is not known: the app is a Flutter build whose
+    Dart code is ahead-of-time compiled, so the command and reply bytes were
+    not recoverable statically, and no capture or third-party client of the
+    Slacker exists to derive them from. What is known from the user guides is
+    the value range (up to 920 mm on V5, 199 mm on V4) and that the device
+    reports in mm or percent of travel. An HCI snoop of one app session
+    would settle the layout.

@@ -75,16 +75,21 @@ device:
     # names the protocol, as with `tplink-smarthome`; a consumer that
     # completed the discovery exchange tags the device with it.
     lan_protocols:
-      - "yeelight-lan"
+      - "yeelight-ssdp"
     default_port: 55443
     ssdp_search_targets:
       - "wifi_bulb"
-    # Community-observed on cube-family devices as
-    # `yeelink-light-<model>-0x<did>` (Cube Lite: yeelink.light.clt6pro /
-    # clt4). The modular cube's exact model string is UNCONFIRMED (open
-    # question 1) — treat a _miio._udp match as a hint, not an
-    # identification, until hardware capture fills it in.
-    mdns_service_type: "_miio._udp.local."
+    # No `mdns_service_type`, deliberately. Cube-family devices are reported
+    # to announce `_miio._udp.local.` as `yeelink-light-<model>-0x<did>`,
+    # but the modular cube's <model> string is UNCONFIRMED (open question
+    # 1), the miIO announcement's TXT carries no key this spec could narrow
+    # on without that string, and the schema's mdns method matches on
+    # service type + TXT only — not on the instance name. An unnarrowed
+    # claim on a type every miIO vacuum and purifier shares made those
+    # devices show up as a cube. The platform claim stays with
+    # xiaomi-miio.yaml (`platform_fallback`); restore a narrowed claim here
+    # once a capture pins the model. The 1982 probe below is the
+    # identification.
 
   discovery:
     # The primary discovery is the SSDP-like M-SEARCH documented in
@@ -95,20 +100,40 @@ device:
     # Location is a yeelight://<ip>:55443 control URL, so the exchange is
     # documented in the protocol block rather than forced into that shape.
     methods:
-      - type: "mdns"
-        mdns:
-          service_type: "_miio._udp.local."
+      # The M-SEARCH exchange from yeelight_lan_protocol.discovery, in the
+      # shape a consumer executes: a datagram to the multicast group on
+      # port 1982, replies as HTTP-style header lines. The probe is the
+      # ASCII of the request_template below.
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 1982
+          multicast_group: "239.255.255.250"
+          probe_hex: "4d2d534541524348202a20485454502f312e310d0a484f53543a203233392e3235352e3235352e3235303a313938320d0a4d414e3a2022737364703a646973636f766572220d0a53543a20776966695f62756c620d0a0d0a"
+          response_format: "http"
+          # What makes this the cube and not every Yeelight: the plain bulbs
+          # answer the same probe (yeelight-wifi is the platform fallback),
+          # but only a matrix-capable unit lists set_segment_rgb in the
+          # reply's `support` header.
+          response_match:
+            - source: "header:support"
+              match: "contains"
+              value: "set_segment_rgb"
+              description: "Community-reported for the cube family; not read back by this project."
           identity_mapping:
             stable_keys:
-              - source: "hostname"
+              - source: "header:id"
             display:
-              source: "name"
+              source: "header:name"
         notes: >
-          Community-reported for the cube family: instance/hostname of the
-          form `yeelink-light-<model>-0x<did>`, where <did> is the stable
-          device id. The modular cube's exact <model> string is unconfirmed;
-          the announcement suggests (but does not prove) the lamp also
-          answers miio on UDP 54321 — token extraction path unknown.
+          A consumer that completed this exchange tags the device
+          `yeelight-ssdp` (identification.lan_protocols). The reply's
+          `model` header is the variant, and `support` lists the methods the
+          unit answers — set_segment_rgb / update_leds in that list is how a
+          matrix-capable cube is told from a bulb. The `_miio._udp.local.`
+          announcement community reports for the cube family is NOT claimed
+          here: without the confirmed model string it cannot be narrowed,
+          and the miIO platform spec is the honest match for it
+          (identification comment).
     identity:
       stable_keys: ["id"]
       display: "name"
@@ -737,3 +762,9 @@ helpful_urls:
     kind: "vendor_support"
     description: >
       Vendor FAQ giving the five-power-cycle reset and the visual confirmation for colour and white fixtures.
+
+remaining_unknowns:
+  - >
+    Whether every cube firmware lists set_segment_rgb in the M-SEARCH reply's
+    `support` header (the discovery `response_match`), and the cube's exact
+    `model` header string, which would be a stronger discriminator.

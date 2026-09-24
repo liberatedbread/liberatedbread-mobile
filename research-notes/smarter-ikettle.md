@@ -3,9 +3,11 @@
 ## What it is
 Smarter Applications Ltd (London) sold the iKettle (1.0 Wi-Fi 2014, 2.0 2015,
 3rd gen 2017 FCC id 2AKC5-SMKET01) and Smarter Coffee machines (1st and 2nd gen).
-Two generations of connectivity:
+Three generations of connectivity:
 
-- **iKettle 1.0/2.0, Smarter Coffee 1** — Wi-Fi with a **fully local LAN binary
+- **iKettle 1.0** — Wi-Fi with an older local **text** protocol on TCP port
+  2000 (not covered by the smarter-ikettle spec).
+- **iKettle 2.0, Smarter Coffee 1** — Wi-Fi with a **fully local LAN binary
   protocol** (UDP discovery + TCP control, port 2081). Legacy app "Smarter"
   (`am.smarter.smarterandroid`, desc: "Control Smarter Coffee 1 and the
   iKettle 2.0 from anywhere via your smartphone").

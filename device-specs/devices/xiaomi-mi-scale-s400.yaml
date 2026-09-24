@@ -116,7 +116,7 @@ device:
     service_uuids:
       - "0000fe95-0000-1000-8000-00805f9b34fb"
     local_name_prefix: "XMTZC"
-    discovery_notes: >
+    notes: >
       MiBeacon service 0xFE95 in advertisements is the reliable tell
       (product IDs 0x30D9/0x3BD5/0x48CF = MJTZC01YM); measurement data
       arrives as Service Data for 0x181B. Name prefixes vary by
@@ -406,3 +406,16 @@ entities:
       sends, so the sensor could only ever read unavailable. It is declared so
       the name and platform are settled, and so the gap is visible; a consumer
       should either decode the advertisement itself or not render this at all.
+
+remaining_unknowns:
+  - >
+    Weight, Impedance and Impedance Low have no format block and cannot be
+    given one: the CMTP stream is AES-CCM encrypted per session (keys derived
+    during the login exchange), split across several notifications, and the
+    decrypted plaintext is comma-separated ASCII rather than fixed binary
+    fields. Decoding needs the session cipher, a frame reassembler and a CSV
+    parser (weight_x10 at CSV index 3, stable flag at 4, impedance x10 in the
+    last two fields of the 32-field final record), none of which the format
+    vocabulary can express. The entities keep their names so the surface is
+    settled; a consumer either implements the CMTP decode (xiaomi-s400-live,
+    openScale's S400 handler) or reads the MiBeacon advertisement instead.

@@ -83,10 +83,6 @@ device:
         The TV's API port speaks HTTPS with a self-signed certificate; pin
         the leaf on first contact rather than validating a chain that ends
         nowhere.
-    identity_keys:
-      primary: "serial"
-      secondary: "udn"
-      display: "friendly_name"
 
   discovery:
     methods:
@@ -152,6 +148,15 @@ device:
           pairs for control. Pair with the TV already ON — pyvizio's
           README notes the set can "forget" the PIN if it was off when
           pairing started.
+        issues_credentials:
+          auth_token:
+            command: "pair_confirm"
+            reply_path: "ITEM.AUTH_TOKEN"
+            notes: >
+              The bearer token every authenticated command's
+              `credential:auth_token` parameter names; sent as the AUTH
+              header. Store it keyed by the set's serial. Deleting the
+              client under Settings > System > Mobile Devices revokes it.
         steps:
           - action: "Complete the on-screen first-run setup (network, terms) with the remote."
             actor: "user"
@@ -160,7 +165,7 @@ device:
             actor: "client"
             request:
               protocol: "http"
-              action: "PUT /pairing/start"
+              action: "PUT /pairing/start (pair_start)"
             expect: "JSON response ITEM carries PAIRING_REQ_TOKEN and CHALLENGE_TYPE."
           - action: "Read the PIN from the TV screen and hand it to the client."
             actor: "user"
@@ -168,7 +173,7 @@ device:
             actor: "client"
             request:
               protocol: "http"
-              action: "PUT /pairing/pair"
+              action: "PUT /pairing/pair (pair_confirm)"
             expect: >
               STATUS.RESULT == "success" and ITEM.AUTH_TOKEN present;
               store the token. PAIRING_DENIED means the PIN was wrong,
@@ -260,11 +265,12 @@ protocol_details:
       TV certificate), (2) PUT requests with a JSON body and Content-Type:
       application/json, (3) an AUTH header on every request after pairing,
       (4) for settings writes, a read-modify-write carrying the current
-      HASHVAL back. Every `commands` entry below therefore states the real
-      method and arguments but is NOT sendable by the reference app as-is;
-      a consumer must implement the transport described here first. The
-      unauthenticated GETs (Device Info, Serial Number, Version, ESN) are
-      the exception — only the TLS step gates them.
+      HASHVAL back. (2), (3) and (4) are now DECLARED per command -- a
+      literal `body`, `headers` with the Content-Type and `AUTH:
+      "{auth_token}"`, and a `source: state:...` parameter for HASHVAL --
+      so a consumer that renders those keys has everything but (1). The
+      unauthenticated GETs (Device Info, Serial Number, Version, ESN) need
+      only the TLS step.
     tls:
       description: >
         HTTPS only, on both ports; plain HTTP gets no answer. The TV serves
@@ -577,11 +583,13 @@ http_endpoints:
 
 # One invocation per remote key, as roku-ecp.yaml does — a button entity has
 # nothing to fill a blank with, so each key is its own command with the
-# (CODESET, CODE) pair already chosen. The arguments render into the KEYLIST
-# entry of a Key Command body per smartcast_common.key_commands; every entry
-# is an instance of the Key Command endpoint and shares its transport gap
-# (HTTPS + PUT + JSON body + AUTH header — not sendable by the reference app
-# today).
+# (CODESET, CODE) pair already chosen. The body is the literal Key Command
+# document (smartcast_common.key_commands) -- a `body` template rather than
+# flat `arguments`, because the wire shape nests the entry under KEYLIST --
+# and every authenticated command carries `headers` (Content-Type on PUTs,
+# AUTH from the stored auth_token) and the `auth_token` credential
+# parameter. What remains for a consumer is HTTPS with verification off
+# (smartcast_common.tls).
 #
 # Verification is "reported" throughout: the table is pyvizio's const.py key
 # map cross-checked against the exiva write-up and Home Assistant's command
@@ -594,9 +602,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 11, CODE: 1, ACTION: "KEYPRESS"}
-    example_body: |
-      {"KEYLIST": [{"CODESET": 11, "CODE": 1, "ACTION": "KEYPRESS"}]}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":11,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":11,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_power_off:
     description: "Power the TV off."
@@ -604,7 +619,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 11, CODE: 0, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":11,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":11,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_power_toggle:
     description: "Toggle power."
@@ -612,7 +636,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 11, CODE: 2, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":11,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":11,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
 
   # -- Navigation (codeset 4) and D-pad (codeset 3).
@@ -622,7 +655,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 4, CODE: 0, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":4,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":4,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_smartcast:
     description: "Open the SmartCast home screen."
@@ -630,7 +672,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 4, CODE: 3, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":4,"CODE":3,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":4,"CODE":3,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_cc_toggle:
     description: "Toggle closed captions."
@@ -638,7 +689,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 4, CODE: 4, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":4,"CODE":4,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":4,"CODE":4,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_info:
     description: "Show info for the current channel or input."
@@ -646,7 +706,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 4, CODE: 6, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":4,"CODE":6,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":4,"CODE":6,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_menu:
     description: "Open the on-screen menu."
@@ -654,7 +723,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 4, CODE: 8, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":4,"CODE":8,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":4,"CODE":8,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_home:
     description: "Home key (codeset 4, code 15 as pyvizio maps it)."
@@ -662,7 +740,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 4, CODE: 15, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":4,"CODE":15,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":4,"CODE":15,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_exit:
     description: "Exit the current menu (colour codeset)."
@@ -670,7 +757,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 9, CODE: 0, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":9,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":9,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_up:
     description: "D-pad up."
@@ -678,7 +774,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 3, CODE: 8, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":3,"CODE":8,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":3,"CODE":8,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_down:
     description: "D-pad down."
@@ -686,7 +791,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 3, CODE: 0, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":3,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":3,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_left:
     description: "D-pad left."
@@ -694,7 +808,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 3, CODE: 1, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":3,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":3,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_right:
     description: "D-pad right."
@@ -702,7 +825,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 3, CODE: 7, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":3,"CODE":7,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":3,"CODE":7,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_ok:
     description: "OK — select the focused item."
@@ -710,7 +842,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 3, CODE: 2, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":3,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":3,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
 
   # -- Playback transport (codeset 2).
@@ -720,7 +861,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 2, CODE: 1, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":2,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":2,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_pause:
     description: "Pause playback."
@@ -728,7 +878,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 2, CODE: 2, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":2,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":2,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_play:
     description: "Resume playback."
@@ -736,7 +895,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 2, CODE: 3, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":2,"CODE":3,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":2,"CODE":3,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_seek_fwd:
     description: "Fast-forward."
@@ -744,7 +912,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 2, CODE: 0, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":2,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":2,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
 
   # -- Volume (codeset 5).
@@ -754,7 +931,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 5, CODE: 0, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":5,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":5,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_volume_up:
     description: "Volume up one step."
@@ -762,7 +948,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 5, CODE: 1, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":5,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":5,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_mute_toggle:
     description: "Mute toggle. The discrete on/off pairs below exist but openHAB notes some sets only honour the toggle."
@@ -770,7 +965,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 5, CODE: 4, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":5,"CODE":4,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":5,"CODE":4,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_mute_on:
     description: "Mute on (may only work as a toggle on some sets)."
@@ -778,7 +982,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 5, CODE: 3, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":5,"CODE":3,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":5,"CODE":3,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_mute_off:
     description: "Mute off (may only work as a toggle on some sets)."
@@ -786,7 +999,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 5, CODE: 2, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":5,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":5,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
 
   # -- Channel (codeset 8) and digit entry (codeset 0, ASCII). Tuner-less
@@ -797,7 +1019,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 8, CODE: 1, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":8,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":8,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_channel_down:
     description: "Previous channel (tuner input)."
@@ -805,7 +1036,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 8, CODE: 0, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":8,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":8,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_channel_prev:
     description: "Jump to the previously watched channel."
@@ -813,7 +1053,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 8, CODE: 2, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":8,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":8,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_0:
     description: "Channel digit 0 (ASCII codeset; rejected on tuner-less models)."
@@ -821,7 +1070,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 48, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":48,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":48,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_1:
     description: "Channel digit 1."
@@ -829,7 +1087,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 49, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":49,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":49,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_2:
     description: "Channel digit 2."
@@ -837,7 +1104,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 50, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":50,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":50,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_3:
     description: "Channel digit 3."
@@ -845,7 +1121,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 51, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":51,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":51,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_4:
     description: "Channel digit 4."
@@ -853,7 +1138,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 52, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":52,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":52,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_5:
     description: "Channel digit 5."
@@ -861,7 +1155,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 53, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":53,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":53,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_6:
     description: "Channel digit 6."
@@ -869,7 +1172,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 54, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":54,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":54,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_7:
     description: "Channel digit 7."
@@ -877,7 +1189,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 55, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":55,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":55,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_8:
     description: "Channel digit 8."
@@ -885,7 +1206,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 56, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":56,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":56,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_digit_9:
     description: "Channel digit 9."
@@ -893,7 +1223,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 0, CODE: 57, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":0,"CODE":57,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":0,"CODE":57,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
 
   # -- Input and picture (codesets 7 and 6).
@@ -903,7 +1242,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 7, CODE: 1, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":7,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":7,"CODE":1,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_picture_mode:
     description: "Cycle picture mode."
@@ -911,7 +1259,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 6, CODE: 0, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":6,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":6,"CODE":0,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   press_picture_size:
     description: "Cycle picture size / wide mode."
@@ -919,7 +1276,16 @@ commands:
     method: "PUT"
     path: "/key_command/"
     action: "Key Command"
-    arguments: {CODESET: 6, CODE: 2, ACTION: "KEYPRESS"}
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    body: '{"KEYLIST":[{"CODESET":6,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    example_body: '{"KEYLIST":[{"CODESET":6,"CODE":2,"ACTION":"KEYPRESS"}]}'
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
 
   # -- The two commands that take a caller value.
@@ -933,10 +1299,16 @@ commands:
     method: "PUT"
     path: "/app/launch"
     action: "Launch App"
-    arguments:
-      APP_ID: "{app_id}"
-      NAME_SPACE: "{name_space}"
-      MESSAGE: "{message}"
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
+    # The wire body nests the triple under VALUE, so it is a literal template
+    # rather than flat `arguments`. MESSAGE is null for the catalogue apps
+    # this command covers; the few cast-backed apps that need a JSON payload
+    # there are outside what a fixed template can render (smartcast_common.apps).
+    body: '{"VALUE": {"APP_ID": "{app_id}", "NAME_SPACE": {name_space}, "MESSAGE": null}}'
+    example_body: '{"VALUE": {"APP_ID": "4", "NAME_SPACE": 2, "MESSAGE": null}}'
+    example_notes: "Worked case: Prime Video (APP_ID \"4\", NAME_SPACE 2)."
     parameters:
       app_id:
         type: "string"
@@ -946,9 +1318,10 @@ commands:
         type: "integer"
         required: true
         description: "Catalogue NAME_SPACE; 2 and 4 are treated as equivalent by clients."
-      message:
+      auth_token:
         type: "string"
-        description: "Optional launch message (usually null; some cast-backed apps need a JSON payload here)."
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
   set_input:
     description: >
@@ -960,25 +1333,205 @@ commands:
     method: "PUT"
     path: "/menu_native/dynamic/tv_settings/devices/current_input"
     action: "Set Input"
+    headers:
+      Content-Type: "application/json"
+      AUTH: "{auth_token}"
     arguments:
       REQUEST: "MODIFY"
       VALUE: "{input_name}"
       HASHVAL: "{hashval}"
+    example_body: '{"REQUEST": "MODIFY", "VALUE": "HDMI-1", "HASHVAL": 1384176329}'
+    example_notes: "Worked case: switch to HDMI-1 with the HASHVAL a fresh get_current_input returned."
     parameters:
       input_name:
         type: "string"
         required: true
-        description: "An ITEMS[x].NAME from the Input List read, e.g. \"HDMI-1\"."
+        description: "An ITEMS[x].NAME from the Input List read (get_input_list), e.g. \"HDMI-1\"."
       hashval:
         type: "integer"
-        source: "state:Current Input.HASHVAL"
-        description: "Optimistic-concurrency token; read it from Current Input immediately before writing."
+        source: "state:get_current_input.ITEMS[0].HASHVAL"
+        description: "Optimistic-concurrency token; read it with get_current_input immediately before writing."
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
     verification: "reported"
 
-# The remote as controls. Every entry rides the Key Command transport, so
-# every one of them inherits smartcast_common.transport_gap: none is sendable
-# by the reference app until it grows HTTPS-with-unverified-TLS, PUT with a
-# JSON body, and the AUTH header. Order mirrors a Vizio remote: power, then
+
+  # -- Pairing (unauthenticated; Content-Type only). pair_start shows the
+  #    PIN on screen, pair_confirm trades it for the AUTH_TOKEN every other
+  #    command sources as `credential:auth_token` -- the setup method's
+  #    `issues_credentials` names pair_confirm and ITEM.AUTH_TOKEN so a
+  #    consumer runs the flow rather than asking a person for a token.
+  pair_start:
+    description: "Begin pairing: the TV shows a 4-digit PIN. Keep DEVICE_ID for pair_confirm/pair_cancel; the reply's ITEM carries PAIRING_REQ_TOKEN and CHALLENGE_TYPE, which pair_confirm reads back."
+    transport: "http"
+    method: "PUT"
+    path: "/pairing/start"
+    action: "Begin Pairing"
+    headers:
+      Content-Type: "application/json"
+    body: '{"DEVICE_ID": "{device_id}", "DEVICE_NAME": "{device_name}"}'
+    example_body: '{"DEVICE_ID": "liberatedbread-01", "DEVICE_NAME": "Liberated Bread"}'
+    parameters:
+      device_id:
+        type: "string"
+        default: "liberatedbread-01"
+        description: "Client-chosen identifier; the same value must be sent on pair_confirm and pair_cancel."
+      device_name:
+        type: "string"
+        default: "Liberated Bread"
+        description: "Name the TV lists under Settings > System > Mobile Devices."
+    returns:
+      - name: "ITEM.PAIRING_REQ_TOKEN"
+        type: "integer"
+      - name: "ITEM.CHALLENGE_TYPE"
+        type: "integer"
+      - name: "STATUS.RESULT"
+        type: "string"
+        description: "SUCCESS, BLOCKED (a pairing is already in progress) or MAX_CHALLENGES_EXCEEDED."
+    verification: "reported"
+  pair_confirm:
+    description: "Finish pairing: submit the on-screen PIN. On success ITEM.AUTH_TOKEN is the bearer credential to store; PAIRING_DENIED means the wrong PIN, VALUE_OUT_OF_RANGE a malformed one."
+    transport: "http"
+    method: "PUT"
+    path: "/pairing/pair"
+    action: "Finish Pairing"
+    headers:
+      Content-Type: "application/json"
+    body: '{"DEVICE_ID": "{device_id}", "CHALLENGE_TYPE": {challenge_type}, "RESPONSE_VALUE": "{pin}", "PAIRING_REQ_TOKEN": {pairing_req_token}}'
+    example_body: '{"DEVICE_ID": "liberatedbread-01", "CHALLENGE_TYPE": 1, "RESPONSE_VALUE": "1234", "PAIRING_REQ_TOKEN": 654321}'
+    example_notes: "Worked case: PIN 1234 against the token pair_start's example returned."
+    parameters:
+      device_id:
+        type: "string"
+        default: "liberatedbread-01"
+        description: "The DEVICE_ID sent on pair_start."
+      pin:
+        type: "string"
+        required: true
+        description: "The 4-digit PIN shown on the TV, as a string."
+      challenge_type:
+        type: "integer"
+        source: "state:pair_start.ITEM.CHALLENGE_TYPE"
+        description: "Echoed from pair_start's reply."
+      pairing_req_token:
+        type: "integer"
+        source: "state:pair_start.ITEM.PAIRING_REQ_TOKEN"
+        description: "Echoed from pair_start's reply."
+    returns:
+      - name: "ITEM.AUTH_TOKEN"
+        type: "string"
+        description: "Store as the `auth_token` credential; every authenticated command sends it as the AUTH header."
+    verification: "reported"
+  pair_cancel:
+    description: "Abort an in-progress pairing. RESPONSE_VALUE is the fixed \"1111\" the exiva write-up documents for cancellation."
+    transport: "http"
+    method: "PUT"
+    path: "/pairing/cancel"
+    action: "Cancel Pairing"
+    headers:
+      Content-Type: "application/json"
+    body: '{"DEVICE_ID": "{device_id}", "CHALLENGE_TYPE": {challenge_type}, "RESPONSE_VALUE": "1111", "PAIRING_REQ_TOKEN": {pairing_req_token}}'
+    example_body: '{"DEVICE_ID": "liberatedbread-01", "CHALLENGE_TYPE": 1, "RESPONSE_VALUE": "1111", "PAIRING_REQ_TOKEN": 654321}'
+    parameters:
+      device_id:
+        type: "string"
+        default: "liberatedbread-01"
+        description: "The DEVICE_ID sent on pair_start."
+      challenge_type:
+        type: "integer"
+        source: "state:pair_start.ITEM.CHALLENGE_TYPE"
+        description: "Echoed from pair_start's reply."
+      pairing_req_token:
+        type: "integer"
+        source: "state:pair_start.ITEM.PAIRING_REQ_TOKEN"
+        description: "Echoed from pair_start's reply."
+    verification: "reported"
+
+  # -- State reads (authenticated GETs). Declared as commands so the AUTH
+  #    header has somewhere to live; the entities' `state_command` names
+  #    them and `state_path` says where in the STATUS-enveloped reply the
+  #    value is. No body on a GET.
+  get_power_mode:
+    description: "Power state: ITEMS[0].VALUE is 1 (on) or 0 (standby). Unreachable rather than wrong while the set is fully asleep (smartcast_common.power)."
+    transport: "http"
+    method: "GET"
+    path: "/state/device/power_mode"
+    action: "Power Mode"
+    headers:
+      AUTH: "{auth_token}"
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
+    returns:
+      - name: "ITEMS[0].VALUE"
+        type: "integer"
+        description: "1 = on, 0 = standby."
+    verification: "reported"
+  get_current_input:
+    description: "Active input: ITEMS[0].VALUE is the input NAME (\"HDMI-1\"; \"SMARTCAST\"/\"CAST\" while an app is foreground) and ITEMS[0].HASHVAL the token set_input must echo."
+    transport: "http"
+    method: "GET"
+    path: "/menu_native/dynamic/tv_settings/devices/current_input"
+    action: "Current Input"
+    headers:
+      AUTH: "{auth_token}"
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
+    returns:
+      - name: "ITEMS[0].VALUE"
+        type: "string"
+      - name: "ITEMS[0].HASHVAL"
+        type: "integer"
+        description: "Concurrency token for set_input; read fresh before every write."
+    verification: "reported"
+  get_input_list:
+    description: "Every physical/logical input: ITEMS[x].NAME is the VALUE set_input sends; the Input select's option list."
+    transport: "http"
+    method: "GET"
+    path: "/menu_native/dynamic/tv_settings/devices/name_input"
+    action: "Input List"
+    headers:
+      AUTH: "{auth_token}"
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
+    returns:
+      - name: "ITEMS[].NAME"
+        type: "string"
+    verification: "reported"
+  get_current_app:
+    description: "Foreground app: ITEM.VALUE is {APP_ID, NAME_SPACE, MESSAGE}, empty when nothing is running; NAME_SPACE 0 is a cast session. Naming it needs the external catalogue (smartcast_common.apps)."
+    transport: "http"
+    method: "GET"
+    path: "/app/current"
+    action: "Current App"
+    headers:
+      AUTH: "{auth_token}"
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+        description: "The AUTH_TOKEN pair_confirm issued (ITEM.AUTH_TOKEN), sent as the AUTH header on every authenticated request."
+    returns:
+      - name: "ITEM.VALUE.APP_ID"
+        type: "string"
+      - name: "ITEM.VALUE.NAME_SPACE"
+        type: "integer"
+    verification: "reported"
+
+# The remote as controls. Every key command declares its literal KEYLIST
+# body, the Content-Type and the AUTH header (from the stored auth_token),
+# so what a consumer needs beyond this file is HTTPS with verification off
+# (smartcast_common.tls). Order mirrors a Vizio remote: power, then
 # SmartCast/navigation, D-pad, transport, volume, channel, inputs.
 entities:
   # The stateful Power control (spec-evolution P13): the discrete codeset-11
@@ -993,7 +1546,10 @@ entities:
       turn_on: "press_power_on"
       turn_off: "press_power_off"
       toggle: "press_power_toggle"
-    state_topic: "/state/device/power_mode"
+    state_command: "get_power_mode"
+    state_path: "ITEMS[0].VALUE"
+    state_mapping:
+      on_value: 1
     notes: >
       ITEMS[0].VALUE: 1 = on, 0 = standby. Authenticated, and unreachable
       rather than wrong while the set is fully asleep (smartcast_common.power)
@@ -1132,7 +1688,8 @@ entities:
   - platform: "select"
     name: "Input"
     icon: "mdi:video-input-hdmi"
-    state_topic: "/menu_native/dynamic/tv_settings/devices/current_input"
+    state_command: "get_current_input"
+    state_path: "ITEMS[0].VALUE"
     commands:
       select_option: "set_input"
     notes: >
@@ -1142,18 +1699,22 @@ entities:
       listed input is current. Selecting sends set_input, whose HASHVAL
       must come from a fresh Current Input read.
 
-  # State surfaces. All three require the AUTH header and answer the
-  # STATUS-enveloped JSON smartcast_common describes; the topic alone
-  # identifies the reading, per the state_topic contract.
+  # State surfaces. All three need the AUTH header, which a bare
+  # `state_topic` path cannot carry -- so each names the authenticated GET
+  # command that fetches it, and `state_path` picks the value out of the
+  # STATUS-enveloped JSON smartcast_common describes.
   - platform: "sensor"
     name: "Power Mode"
-    state_topic: "/state/device/power_mode"
+    state_command: "get_power_mode"
+    state_path: "ITEMS[0].VALUE"
     notes: "ITEMS[0].VALUE: 1 = on, 0 = standby. Unreachable while fully asleep."
   - platform: "sensor"
     name: "Current Input"
-    state_topic: "/menu_native/dynamic/tv_settings/devices/current_input"
+    state_command: "get_current_input"
+    state_path: "ITEMS[0].VALUE"
     notes: "ITEMS[0].VALUE is the input name; SMARTCAST/CAST while an app runs."
   - platform: "sensor"
     name: "Current App"
-    state_topic: "/app/current"
+    state_command: "get_current_app"
+    state_path: "ITEM.VALUE"
     notes: "ITEM.VALUE is {APP_ID, NAME_SPACE, MESSAGE}; empty VALUE means no app running. Mapping to a name needs the external app catalogue."

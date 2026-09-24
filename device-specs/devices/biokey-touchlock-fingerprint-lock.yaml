@@ -1,6 +1,8 @@
 # BIO-key TouchLock BT family — Device Spec (BLE fingerprint/keyless locks)
 # Reverse-engineered by static analysis of the OEM Android app that drives
-# this lock family (facts re-checked against a second read, 2026-08).
+# this lock family (facts re-checked against a second read, 2026-08), now
+# corroborated by an over-the-air capture of the vendor app driving one unit
+# (2026-08-30 — see `evidence.artifacts`).
 #
 # What each area of the app contributed:
 #   scan/connect layer   (GATT UUIDs, write type, bond/unbond)
@@ -9,10 +11,13 @@
 #   name matcher         (advertised-name patterns)
 #   crypto/status helper (time-derived password, status byte)
 #   error enum           (response error codes)
-#
-# Nothing here has been replayed against a lock; no over-the-air capture
-# exists. Every byte-level fact is read out of the app, and the lock-side
-# details flagged in `remaining_unknowns` need hardware.
+# What the capture added:
+#   bonding is enforced and is legacy Just Works; command framing/checksum
+#   verified on the wire; RegisterAdmin / ChangeFactoryPassword / GetMac
+#   observed with success responses; ~1 Hz unsolicited status notify;
+#   the decompile-derived "status bit 4 = registered" reading contradicted.
+# Unlock (TimeStamp + OpenLock) has still never been observed: the vendor
+# app crashed before sending it in the captured session.
 
 device:
   name: "BIO-key TouchLock BT family"
@@ -21,11 +26,15 @@ device:
   testing:
     status: untested
     notes: >
-      No hardware unit and no over-the-air capture. All protocol facts come
-      from static analysis of the official Android app; UUIDs, opcodes,
-      frame layout, checksum and name patterns were re-checked against a
-      second read on 2026-08. Lock-side behaviour (status-byte polarity,
-      bond enforcement, advert layout) is unverified.
+      Static analysis of the official Android app (UUIDs, opcodes, frame
+      layout, checksum and name patterns re-checked against a second read,
+      2026-08) PLUS one over-the-air capture of the vendor app driving a
+      unit (2026-08-30). The capture confirms bonding enforcement, the
+      command frame and checksum, and the enrollment/factory-password/
+      GetMac exchanges — but the vendor app crashed before ever sending
+      TimeStamp/OpenLock, so unlock itself is unobserved, and nothing here
+      has been replayed from this spec by a third-party client yet.
+      Status-byte polarity and the battery scale remain open.
   category: "lock"
   type: "ble_padlock_family"
   protocol: "ble"
@@ -113,20 +122,18 @@ device:
     manufacturer_data:
       description: >
         The lock broadcasts manufacturer-specific data whose first entry's
-        payload is a single status byte, with the same bit layout as the
-        notify status byte: bit 7 lock state (polarity UNCONFIRMED — for
-        bike-name devices the app forces "locked" in its UI), bit 4
-        registered flag (1 = an admin is enrolled; the app forgets a known
-        lock that reports 0), bits 2..0 battery level 0-7 (mapping to a
-        percentage unverified). A passive observer can therefore track lock
-        state and battery without ever connecting.
+        payload is a single status byte, with the same layout as the notify
+        status byte (see the 67ac8801 characteristic's `status_byte` field).
+        A passive observer can therefore track lock state and battery
+        without ever connecting.
 
         The Bluetooth SIG company ID in the header is NOT recoverable from
         the app code (it reads the first SparseArray key, whatever it is),
-        and the exact AD structure around the status byte is unverified —
-        both need one capture. Until then, do not filter on company ID. For
-        reference, the vendor app scans unfiltered, with a 2 s batch report
-        delay inside a 10 s window.
+        and the 2026-08-30 capture contains no advertising reports, so the
+        company ID and the exact AD structure around the status byte are
+        still unconfirmed — do not filter on company ID until one is
+        observed. For reference, the vendor app scans unfiltered, with a
+        2 s batch report delay inside a 10 s window.
     # Note: whether 67ac8800-... is advertised in the scan response or only
     # present after connection is unverified; the app scans UNFILTERED and
     # selects candidates by name pattern plus presence of the manufacturer-
@@ -150,23 +157,29 @@ device:
       stable_keys: ["address"]
       display: "local_name"
       notes: >
-        The app keys locks by their MAC address. Whether the address is
-        public or random-static is unverified (no capture); if a unit turns
-        out to rotate its address, key on the manufacturer-data status byte
-        stream instead and re-resolve the address by scanning.
+        The app keys locks by their MAC address. The one captured unit uses a
+        public address (OUI F4:04:4C, Valence) that stayed constant across
+        sessions; whether the whole family is public-addressed is unknown —
+        if a unit turns out to rotate its address, key on the
+        manufacturer-data status byte stream instead and re-resolve the
+        address by scanning.
     static_ip_required: false
 
   setup:
     required: true
-    confidence: medium
+    confidence: high
     notes: >
       No network provisioning exists (there is no radio but BLE), but the
       lock must be ENROLLED before it will open: an unregistered lock
       accepts RegisterAdmin (0x80), which installs an 8-byte admin ID and
-      the first time-based password. A factory-fresh (or factory-reset) lock
-      advertises its unregistered state in the status byte (bit 4 = 0).
-      Confidence is medium: the full exchange is read out of the vendor
-      app and re-checked, but has not been run against hardware here.
+      the first time-based password. The full enrollment exchange — bond,
+      notifications on, RegisterAdmin, success response — is observed in
+      the 2026-08-30 capture, hence high confidence; it has not yet been
+      run by a third-party client. Which status-byte pattern advertises the
+      unregistered state is unconfirmed (the decompile-derived "bit 4 = 0"
+      reading is contradicted by the capture; see the 67ac8801
+      characteristic's `status_byte` field): an already-enrolled lock
+      answers RegisterAdmin with error 05, which is the reliable signal.
     methods:
       - type: ble_provisioning
         verified: false
@@ -174,29 +187,31 @@ device:
           Admin enrollment over GATT: bond, enable notifications, then send
           RegisterAdmin with a fresh time-derived admin ID and password.
           Entirely lock<->client; no server is involved at any point.
+          Observed end-to-end in the 2026-08-30 capture (verified: false
+          stays — that flag is for a flow executed from THIS spec).
         ble:
           pairing_required: true
           pin_source: >
-            No PIN — Android createBond() is invoked (via reflection) and
-            the lock apparently accepts Just Works bonding; error code 0x07
-            (UnBondDevice) implies the lock refuses commands from unbonded
-            centrals. Whether bonding is strictly required before writes is
-            unverified — the app handles every pairing variant. Note the app
+            No PIN — the capture confirms legacy Just Works pairing: the
+            lock's first packet after connect is an SMP security request,
+            its IO capability is NoInputNoOutput, bonding flags are set,
+            and LTK/IRK/CSRK are distributed both ways. No GATT service
+            discovery completes before the bond exists. Note the vendor app
             deliberately UNPAIRS on disconnect (Android 7+), so bonds are
             transient in the official flow.
         steps:
           - action: "Scan unfiltered; select candidates by advertised name pattern and the presence of a manufacturer-data status byte."
             actor: client
-          - action: "Connect and bond (Just Works). The lock may reject unbonded centrals with error 0x07."
+          - action: "Connect and bond (Just Works, no PIN). The lock initiates security immediately on connect and refuses commands from unbonded centrals with error 0x07."
             actor: client
           - action: "Discover services and enable notifications on 67ac8801-a0eb-11e6-80f5-76304dec7eb7 (CCCD 0x2902)."
             actor: client
-            expect: "The app waits ~1.2 s after service discovery before sending its first command; mirror that delay."
-          - action: "Check the status byte: bit 4 = 0 means unregistered."
+            expect: "The app waits ~1.2 s after service discovery before sending its first command; mirror that delay. Once notifications are on, the lock pushes an unsolicited UpdateStatus (0xff) frame about once per second for the whole connection."
+          - action: "If the lock is factory-fresh it accepts RegisterAdmin; an already-enrolled lock answers error 05 (already registered). Do not gate this on the advertised status byte — which bit pattern marks 'unregistered' is unconfirmed."
             actor: client
           - action: "Send RegisterAdmin (0x80): payload A = fresh 8-byte admin ID (the app derives it from the current time, colon-joined hex), payload B = current time-based password (see `protocol_details.command_protocol.crypto`)."
             actor: client
-            expect: "Notify response: opcode echo 80, error code 00 (success). The lock now reports registered (status bit 4 = 1)."
+            expect: "Notify response: opcode echo 80, error code 00 (success) — observed in the capture."
           - action: "Cache the admin ID and current password locally — they are the only credentials, and there is no recovery path other than factory reset."
             actor: client
     factory_reset:
@@ -207,8 +222,9 @@ device:
         clearing the admin ID, all enrolled users and the rolling password;
         every client must re-enroll afterwards. No physical reset procedure
         is documented in the app — reset is a BLE command, gated by the
-        factory password. Confidence low: read from the app, never executed;
-        on a lock, a botched reset flow can leave the owner locked out.
+        factory password. Confidence low: the reset itself was never sent in
+        the capture (only the factory-PASSWORD change, 0x8c/0x8d, was), and
+        on a lock a botched reset flow can leave the owner locked out.
       procedures:
         - name: "FactoryInit BLE command (0x8f)"
           steps:
@@ -216,15 +232,17 @@ device:
               actor: client
             - action: "Send FactoryInit (0x8f): payload A = the 8-byte admin ID, payload B = the 8-character factory password, one hex-digit character per byte."
               actor: client
-              expect: "Notify response: opcode echo 8f, error code 00; the status byte's registered bit clears."
+              expect: "Notify response: opcode echo 8f, error code 00; the lock returns to the unregistered state."
               notes: >
                 The app's own dialog hints the default factory password is
                 00000000 (eight zero characters -> bytes 0x00 x8). A changed
                 factory password can only be replaced via
                 ChangeFactoryPasswordRequest (0x8c) + ChangeFactoryInitPasswordData
-                (0x8d) while the old one is known. If both the admin
-                credentials and a changed factory password are lost, no
-                software recovery path is known.
+                (0x8d) while the old one is known — that pair is observed in
+                the capture, with the 0x8d frame carrying the old password
+                as eight 0x00 bytes. If both the admin credentials and a
+                changed factory password are lost, no software recovery
+                path is known.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -252,7 +270,7 @@ device:
 
   pairing:
     required: true
-    confidence: "low"
+    confidence: "high"
     security_mode: "just_works"
     bonding: "required"
     exclusivity:
@@ -273,15 +291,17 @@ device:
     enter_pairing_mode:
       required: false
     notes: >
-      Error code 0x07 is literally named for an unbonded device, which is the
-      strongest evidence that the lock refuses commands from centrals it has
-      not bonded with — but whether bonding is strictly required before every
-      write is unverified, because the app handles every pairing variant and
-      so never has to find out. No PIN is involved: the OS bond is Just Works
-      and the lock's own password is a time-derived value in the command
-      frames. Treat the bond as the only real barrier, and a weak one: the
-      password scheme is predictable to anyone who has watched one exchange
-      and knows roughly what time it is.
+      Capture-confirmed (2026-08-30): bonding is enforced and there is no
+      PIN. The lock's first L2CAP packet after connect is an SMP security
+      request; pairing is legacy Just Works (the lock's IO capability is
+      NoInputNoOutput), bonding flags are set, and LTK/IRK/CSRK are
+      distributed in both directions. ATT service discovery only happens
+      after pairing completes — a central that never bonds (the failure
+      seen with an unpairing client) discovers zero services and the lock
+      drops the link. Error code 0x07 (unbonded device) is the
+      protocol-level refusal that matches. Treat the bond as the only real
+      barrier, and a weak one: the password scheme is predictable to anyone
+      who has watched one exchange and knows roughly what time it is.
 cloud:
   required: false
   vendor_service: "None — no cloud service exists for this product"
@@ -308,7 +328,7 @@ local_access:
   not_covered:
     - "firmware update — no OTA mechanism exists in the app or (apparently) the product"
     - "remote access — the product has no network interface at all; any remote control means a local BLE bridge (e.g. an ESPHome bluetooth_proxy host) within radio range"
-    - "lock-side confirmation of everything here — no capture exists (see remaining_unknowns)"
+    - "unlock replayed from this spec by a third-party client — the capture confirms enrollment and password maintenance but the vendor app crashed before OpenLock (see remaining_unknowns)"
 
 services:
   - uuid: "67ac8800-a0eb-11e6-80f5-76304dec7eb7"
@@ -321,30 +341,185 @@ services:
       actual scan is unfiltered (empty ScanFilter, batch mode) — 0x1801 is
       not known to be on the lock and is not listed as a service here. The
       standard Battery Service (0x180F / 0x2A19) appears in the bundled
-      Nordic BleManager library but is apparently unused by the app flow —
+      Nordic BLE library but is apparently unused by the app flow —
       battery comes from the status byte instead.
+
+      Handle map from the capture: notify characteristic value at 0x000e
+      (its CCCD at 0x000f), write characteristic value at 0x0011; the whole
+      GATT database spans handles 0x0001-0x0024. The default MTU of 23
+      suffices — the 20-byte frame is exactly one ATT write, which is why
+      the frame is 20 bytes.
     characteristics:
       - uuid: "67ac8801-a0eb-11e6-80f5-76304dec7eb7"
         name: "Command response / status (lock -> client)"
         type: "status"
         description: >
-          Notify. Responses are parsed as a hex string: chars 0-1 echoed
-          opcode, chars 2-3 error code, chars 4-5 status byte. Error codes:
-          00 success, 01 invalid command, 02 checksum error, 03 incorrect
-          password, 04 invalid user ID, 05 already registered, 06 user
-          record full, 07 unbonded device. The lock also emits unsolicited
-          status notifications headed by opcode ff (UpdateStatus). Enable
-          via CCCD 0x2902 immediately after service discovery.
+          Notify. Every observed frame is 5 bytes: [0] echoed opcode,
+          [1] error code, [2] status byte, [3] small flag/counter (00 or 01
+          in the capture), [4] checksum. Error codes: 00 success, 01
+          invalid command, 02 checksum error, 03 incorrect password, 04
+          invalid user ID, 05 already registered, 06 user record full, 07
+          unbonded device. Two frame families share this characteristic:
+          command responses (echoed opcode) and the unsolicited UpdateStatus
+          (opcode ff), which the lock pushes about once per second for the
+          entire connection once notifications are enabled. Enable via CCCD
+          0x2902 immediately after service discovery.
         properties: ["notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "opcode"
+            type: "uint8"
+          - offset: 1
+            length: 1
+            name: "error_code"
+            type: "uint8"
+          - offset: 2
+            length: 1
+            name: "status_byte"
+            type: "uint8"
+            notes: >
+              Bit layout from the decompile: bit 7 lock state, bit 4
+              registered flag, bits 2..0 battery level 0-7. The capture
+              PARTIALLY CONTRADICTS this: the observed sequence was 0x13
+              (session start, lock already enrolled) -> 0x03 (immediately
+              after a successful RegisterAdmin — bit 4 CLEARED by
+              registration, the opposite of the app's own reading) -> 0x01
+              (later in the same session). Treat bit 7 = lock state
+              (polarity still unconfirmed) and bits 2..0 = battery 0-7 as
+              the working model, and the bit 4 claim as disputed. The
+              observed low bits changed 3 -> 1 within minutes, which is a
+              fast drop for a battery — possibly a real discharge event,
+              possibly not a plain battery field. One controlled
+              lock/unlock + vendor-app battery reading will settle all
+              three.
+          - offset: 3
+            length: 1
+            name: "frame_flag"
+            type: "uint8"
+            notes: "00 or 01 in the capture; excluded from the response checksum — see protocol_details.command_protocol.responses."
+          - offset: 4
+            length: 1
+            name: "checksum"
+            type: "uint8"
       - uuid: "67ac8802-a0eb-11e6-80f5-76304dec7eb7"
         name: "Command write (client -> lock)"
         type: "command"
         description: >
-          Write-without-response. Every command is exactly 20 bytes:
-          [0] opcode, [1] 0x00, [2..9] payload A, [10..17] payload B,
-          [18] 0x00, [19] checksum = (0x5A - sum(bytes[0..18])) & 0xFF.
-          See `protocol_details.command_protocol.commands` for the opcode table.
+          Write-without-response (Write Command, handle 0x0011). Every
+          command is exactly 20 bytes: [0] opcode, [1] 0x00, [2..9]
+          payload A, [10..17] payload B, [18] 0x00, [19] checksum =
+          (0x5A - sum(bytes[0..18])) & 0xFF — capture-verified on a
+          RegisterAdmin frame. See `protocol_details.command_protocol.commands`
+          for the full opcode table; the `commands` below are the subset
+          rendered as controls. TimeStamp (0x01) is NOT among them: its
+          payload is the current wall-clock time, which the declarative
+          template cannot express — see protocol_details for its layout.
         properties: ["write_without_response"]
+        commands:
+          open_lock:
+            description: >
+              Unlock. Payload A: the stored 8-byte unlock password. Payload
+              B: the password that replaces it on success — the vendor app
+              rotates it to a fresh time-derived value every unlock (see
+              protocol_details.command_protocol.crypto); binding it to the
+              SAME credential here means no rotation, which the pending
+              hardware check must confirm the lock accepts. The vendor flow
+              sends TimeStamp (0x01) first and retries once with the
+              previous password on error 03.
+            template: [0x00, 0x00, "{stored_password}", "{new_password}", 0x00, "{checksum}"]
+            fixed_length: 20
+            verification: "reported"
+            parameters:
+              stored_password:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                source: "credential:unlock_password"
+                description: >
+                  The lock's current 8-byte unlock password, raw bytes.
+                  Installed at enrollment and rotated by every successful
+                  unlock in the vendor flow. If the vendor app was used
+                  before, this is whatever password it last rotated to —
+                  the vendor flow's fallback is the previous one.
+              new_password:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                source: "credential:unlock_password"
+                description: >
+                  The password that becomes stored on success. Bound to the
+                  same credential as stored_password (no rotation) until
+                  time-derived rotation is implemented.
+              checksum:
+                type: "uint8"
+                auto: "subtract_checksum"
+                checksum_start: 0
+                checksum_xor: 0x5A
+                notes: "(0x5A - sum(bytes[0..18])) & 0xFF — a subtract-from-seed, NOT the sum+XOR idiom `auto: checksum` encodes."
+          register_admin:
+            description: >
+              Enroll the primary admin on an unregistered lock (error 05 if
+              one is already enrolled). Payload A: the 8-byte admin ID the
+              CLIENT invents. Payload B: the first password. Both must be
+              stored locally — there is no recovery path but factory reset.
+            template: [0x80, 0x00, "{admin_id}", "{admin_password}", 0x00, "{checksum}"]
+            fixed_length: 20
+            verification: "confirmed"
+            parameters:
+              admin_id:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                source: "credential:admin_id"
+                description: "The 8-byte admin ID this client uses on the lock. Any value works (the vendor app derives it from the current time); only uniqueness per lock matters."
+              admin_password:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                source: "credential:admin_password"
+                description: "The admin's initial 8-byte password (the vendor flow uses the current time-derived password)."
+              checksum:
+                type: "uint8"
+                auto: "subtract_checksum"
+                checksum_start: 0
+                checksum_xor: 0x5A
+          factory_init:
+            description: >
+              Factory reset over BLE. Payload A: admin ID. Payload B: the
+              8-character factory password, one hex-digit character per
+              byte (default hinted as 00000000 -> eight 0x00 bytes). Clears
+              admin and all users; every client must re-enroll afterwards.
+            template: [0x8f, 0x00, "{admin_id}", "{factory_password}", 0x00, "{checksum}"]
+            fixed_length: 20
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Wipes every enrolled credential on the lock; all clients must re-enroll afterwards. Mistyping the factory password just returns error 03, but a successful reset on a lock you cannot physically reach to re-enroll leaves it unusable remotely."
+            parameters:
+              admin_id:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                source: "credential:admin_id"
+                description: "The 8-byte admin ID enrolled on the lock."
+              factory_password:
+                type: "bytes"
+                min_length: 8
+                max_length: 8
+                source: "credential:factory_password"
+                description: "The 8-character factory password, one hex-digit character per byte (default hinted as 00000000 -> eight 0x00 bytes)."
+              checksum:
+                type: "uint8"
+                auto: "subtract_checksum"
+                checksum_start: 0
+                checksum_xor: 0x5A
+          find_lock:
+            description: >
+              Locate the lock (presumably audible/visual on the device —
+              modality unconfirmed). Fixed payload pattern; the trailing
+              checksum byte 0xC6 is the frame rule applied to the pattern.
+            value: [0xcc, 0x00, 0x22, 0x44, 0x66, 0x88, 0x88, 0x66, 0x44, 0x22, 0x11, 0x33, 0x55, 0x77, 0x77, 0x55, 0x33, 0x11, 0x00, 0xc6]
+            verification: "reported"
 
 # The device's own command protocol: framing, checksum and opcode table.
 # Namespaced like every other bespoke block -- and NOT called `protocol`,
@@ -356,8 +531,10 @@ protocol_details:
       byte_order: "big-endian (single-byte fields; no multi-byte integers in any command)"
       checksum: >
         byte[19] = (0x5A - sum(bytes[0..18])) & 0xFF — additive checksum with
-        a 0x5A seed, confirmed in the app's checksum helper. The same computation
-        is applied to every command frame regardless of opcode.
+        a 0x5A seed, confirmed in the app's checksum helper AND verified
+        against the capture (a RegisterAdmin frame's checksum byte
+        reproduces exactly). The same computation is applied to every
+        command frame regardless of opcode.
       notes: >
         Fixed 20-byte command frame: [0] opcode, [1] 0x00, [2..9] payload A
         (8 bytes), [10..17] payload B (8 bytes), [18] 0x00, [19] checksum.
@@ -373,9 +550,11 @@ protocol_details:
       rolling_password: >
         The 'time-based password' is the current timestamp formatted
         yy-MM-dd-HH-mm-ss-SSSS, split into eight two-digit decimal groups,
-        each group written as one byte parsed as hexadecimal (Utils.
-        getPasswordByTime). Example: 26-08-18-19-05-23-84-62 becomes bytes
-        0x26 0x08 0x18 0x19 0x05 0x23 0x84 0x62. On a successful OpenLock the
+        each group written as one byte parsed as hexadecimal. Example:
+        26-08-18-19-05-23-84-62 becomes bytes
+        0x26 0x08 0x18 0x19 0x05 0x23 0x84 0x62. Capture-confirmed: the
+        RegisterAdmin frame's password bytes equal the capture session's
+        wall-clock time to the second. On a successful OpenLock the
         new time-based password carried in payload B becomes the stored
         password; the previous one is kept as a one-shot fallback (retried
         once on error 03, then the app aborts). The scheme is trivially
@@ -392,19 +571,28 @@ protocol_details:
       description: >
         Unlock session as implemented by the app's connection and main
         screens: scan -> connect -> bond -> discover services -> enable
-        notifications on 67ac8801 (then a ~1.2 s pause). If the status byte
-        shows unregistered, send RegisterAdmin (0x80). To open: send TimeStamp
+        notifications on 67ac8801 (then a ~1.2 s pause). If the lock is
+        unregistered, send RegisterAdmin (0x80). To open: send TimeStamp
         (0x01) to sync the lock RTC — success here is required before the app
         will proceed — then OpenLock (0x00) carrying the stored password in
         payload A and the new time-based password in payload B. On success the
         new password replaces the stored one. An optional app-level PIN
         (default 33333333) or phone fingerprint gates the unlock button —
-        phone-side UI only, NOT part of the BLE protocol.
+        phone-side UI only, NOT part of the BLE protocol. NOTE: in the
+        2026-08-30 capture the vendor app crashed after changing the factory
+        password and never reached the TimeStamp/OpenLock exchange, so it
+        remains unobserved on the wire.
       verification: "reported"
-      verification_note: "Reconstructed from the vendor app's command dispatch; not replayed against a lock."
+      verification_note: "Reconstructed from the vendor app's command dispatch; the unlock half has never been observed on the wire (the captured session crashed before it)."
 
     responses:
-      layout: "hex string: chars 0-1 opcode echo, 2-3 error code, 4-5 status byte"
+      layout: >
+        5-byte frames on the notify characteristic: [0] echoed opcode,
+        [1] error code, [2] status byte, [3] frame flag (00 or 01 in the
+        capture), [4] checksum. The checksum does NOT follow the command
+        rule verbatim: every observed response fits
+        chk = (0x5A - sum(bytes[0..2])) & 0xFF, i.e. byte 3 is excluded —
+        treat that as observed behaviour to re-check, not as proven layout.
       error_codes:
         "00": "success"
         "01": "invalid command"
@@ -414,8 +602,8 @@ protocol_details:
         "05": "already registered"
         "06": "user record full"
         "07": "unbonded device"
-      verification: "reported"
-      verification_note: "The error-code enum is confirmed in the app; per-opcode response nuances (GetMac 0xad is special-cased in the notify handler) are not fully mapped."
+      verification: "confirmed"
+      verification_note: "Frame layout, error echo and the GetMac special case all observed in the 2026-08-30 capture: the GetMac (0xad) reply carries the requesting central's own BD_ADDR byte-reversed. GetUserInfo (0x82) was never dispatched; its response layout is still unknown."
 
     commands:
       open_lock:
@@ -448,8 +636,10 @@ protocol_details:
         description: >
           Enroll the first/primary admin on an unregistered lock. Payload A:
           8-byte admin ID (client-generated, time-derived in the app).
-          Payload B: the new time-based password.
-        verification: "reported"
+          Payload B: the new time-based password. Observed in the capture
+          with a success response; its password bytes equal the session's
+          wall-clock time.
+        verification: "confirmed"
       remove_user:
         id: 129
         hex: "0x81"
@@ -469,15 +659,15 @@ protocol_details:
         hex: "0x8c"
         name: "ChangeFactoryPasswordRequest"
         direction: "client_to_device"
-        description: "First half of changing the factory password. Payload A: admin ID. Payload B: admin ID again."
-        verification: "reported"
+        description: "First half of changing the factory password. Payload A: admin ID. Payload B: admin ID again. Observed in the capture with a success response."
+        verification: "confirmed"
       change_factory_password_data:
         id: 141
         hex: "0x8d"
         name: "ChangeFactoryInitPasswordData"
         direction: "client_to_device"
-        description: "Second half of changing the factory password. Payload A: old factory password. Payload B: new factory password."
-        verification: "reported"
+        description: "Second half of changing the factory password. Payload A: old factory password. Payload B: new factory password. Observed in the capture with a success response."
+        verification: "confirmed"
         advanced: true
         advanced_reason: "Changes the password that gates factory reset. If the new value is lost and admin credentials are also lost, no software recovery path is known. Record the new password before sending."
       factory_init:
@@ -512,8 +702,12 @@ protocol_details:
         hex: "0xad"
         name: "GetMac"
         direction: "client_to_device"
-        description: "Defined in the app's command builder and special-cased in the notify handler, but never dispatched by its UI — response layout unverified."
-        verification: "hypothesis"
+        description: >
+          Observed in the capture (the app dispatches it right after
+          RegisterAdmin): the reply echoes opcode ad with error 00 and
+          carries the requesting CENTRAL's own BD_ADDR byte-reversed in
+          the frame body — not the lock's address, despite the name.
+        verification: "confirmed"
       find_lock:
         id: 204
         hex: "0xcc"
@@ -529,18 +723,60 @@ protocol_details:
         hex: "0xff"
         name: "UpdateStatus"
         direction: "device_to_client"
-        description: "Header of the lock's unsolicited status notification (not a command the client sends)."
-        verification: "reported"
+        description: >
+          Header of the lock's unsolicited status notification (not a
+          command the client sends). Pushed about once per second for the
+          entire connection once notifications are enabled — observed
+          throughout the capture.
+        verification: "confirmed"
 
     remaining_unknowns:
-      - "Bluetooth SIG company ID of the manufacturer-data advertisement and the exact AD layout around the status byte (needs one capture)"
-      - "Status-byte polarity (bit 7: 1 = locked or unlocked?) and the battery 0-7 to percentage mapping"
-      - "Whether bonding is strictly enforced before writes, and which pairing method the lock proposes (error 0x07 implies enforcement)"
-      - "GetMac (0xad) and GetUserInfo (0x82) response layouts (never dispatched in the app UI)"
+      - "Bluetooth SIG company ID of the manufacturer-data advertisement and the exact AD layout around the status byte (the 2026-08-30 capture contains no advertising reports)"
+      - "Status-byte polarity (bit 7: 1 = locked or unlocked?), the battery 0-7 to percentage mapping, and the meaning of the observed 0x13 -> 0x03 -> 0x01 transitions that contradict the decompile's 'bit 4 = registered' reading"
+      - "Response-frame checksum rule: observed responses fit chk = (0x5A - sum(bytes[0..2])) & 0xFF with byte 3 excluded — confirm whether byte 3 is a flag outside the checksum or the rule differs"
+      - "GetUserInfo (0x82) response layout (never dispatched in the app UI or the capture)"
       - "Whether OEM siblings (Joi_Lock etc.) run identical firmware — likely (same app) but never captured"
       - "Lock RTC tolerance to clock skew (TimeStamp must succeed before unlock)"
       - "A caller-less 14-byte peripheral-write command — dead code or factory-use"
       - "Whether 67ac8800 is advertised in scan responses or only visible after connection"
+      - "Whether the lock accepts OpenLock payload B equal to payload A (no rotation); the vendor flow always rotates"
+
+entities:
+  - platform: "button"
+    name: "Unlock"
+    icon: "mdi:lock-open-variant"
+    commands:
+      press: "open_lock"
+    notes: >
+      Momentary: the protocol has an OpenLock command but no Lock command
+      (the lock re-engages itself), so this is a press, not a toggle.
+      Requires the unlock_password credential; the vendor flow syncs the
+      lock RTC (TimeStamp 0x01) before opening — whether the lock insists
+      on that ordering is part of the pending hardware check.
+  - platform: "binary_sensor"
+    name: "Lock State"
+    device_class: "lock"
+    state_characteristic: "67ac8801-a0eb-11e6-80f5-76304dec7eb7"
+    notes: >
+      Bit 7 of the `status_byte` field on the notify characteristic
+      (multiplexed frames: use only frames whose `opcode` field is 0xff).
+      Polarity UNCONFIRMED — which value means locked is part of the
+      pending hardware check; bit-level extraction is not expressible in
+      the characteristic's `format`, so a consumer decodes per the
+      `status_byte` field's notes.
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    state_characteristic: "67ac8801-a0eb-11e6-80f5-76304dec7eb7"
+    unit: "raw 0-7"
+    notes: >
+      Bits 2..0 of the `status_byte` field (0xff frames only), as a RAW
+      0-7 level — the percentage mapping is unverified (n/7 is the
+      candidate), and an observed 3 -> 1 drop within one session means the
+      field may not be a plain battery gauge. Same bit-extraction caveat
+      as Lock State. The same byte is broadcast in advertisement
+      manufacturer data, so a passive listener can track it without
+      connecting.
 
 helpful_urls:
   - title: "TouchLock BT companion app on Google Play"
@@ -572,6 +808,25 @@ evidence:
         its crypto helper, and the response codes from its error enum. Its
         settings screen is also where the absence of any upgrade/OTA path was
         confirmed.
+    - type: "live_capture"
+      artifact: "Android HCI snoop (bugreport btsnoop_hci.log) of the vendor app driving one padlock unit, 2026-08-30, ~15 minute session"
+      sha256: "e9d63c6dd33fb817bd22011ce44a11b0e3cf98d5763e9379942d0f65fdadef3b"
+      obtained_via: "owner's phone, 2026-08; the log stays uncommitted — it contains the owner's identifiers and credentials, only derived facts appear here"
+      description: >
+        First over-the-air capture for this family. Confirms: bonding is
+        enforced (an SMP security request precedes all GATT traffic;
+        legacy Just Works, lock IO NoInputNoOutput, full LTK/IRK/CSRK
+        distribution); the 20-byte command frame and 0x5A-seed checksum
+        (the RegisterAdmin frame verifies, and its time-derived password
+        bytes equal the session's wall-clock time); RegisterAdmin (0x80),
+        ChangeFactoryPassword (0x8c/0x8d) and GetMac (0xad) dispatched with
+        success responses; an unsolicited UpdateStatus (0xff) notification
+        at ~1 Hz for the whole connection; the GATT handle map (notify
+        0x000e, CCCD 0x000f, write 0x0011). Also shows the vendor app
+        crashing before ever sending TimeStamp/OpenLock — unlock remains
+        unverified on hardware — and a status-byte sequence (0x13 -> 0x03
+        -> 0x01) that contradicts the decompile-derived 'bit 4 =
+        registered' reading.
     - type: "fcc_filing"
       url: "https://fcc.report/FCC-ID/2AIKJBL"
       description: "FCC ID 2AIKJ-BL, grantee BIO-KEY: TouchLock BT padlocks BL0509 (XS), BL1209 (XL), BS1609 (TSA)"

@@ -4,7 +4,7 @@
 #
 # UUIDs and GATT profile extracted from ThermoGauge.Core.dll via
 # ECMA-335 metadata parser + IL disassembler (static analysis).
-# All 10 UUIDs authoritatively mapped to field names in Model::.ctor.
+# All 10 UUIDs mapped to their roles from the app's device-model constructor.
 # All 4 data formats decoded from IL bytecode.
 #
 # Source: com.gyde.thermogauge.apk (Xamarin.Forms, built 2020-04-23)
@@ -39,7 +39,7 @@ device:
     TEMP READ FORMAT: 1 byte, unsigned. Display: ceil((raw/2+85)/5)*5.
       Units: inferred °F (raw=0→85, raw=142≈156, raw=255≈215).
       TempControl mode active when 60 <= raw < 142 (~115-155°F) AND
-      heat outputs > 0 (Model::get_IsTempControl).
+      heat outputs > 0 (the app's temperature-control-mode predicate).
 
     BATTERY: 1 byte, 0-100%, standard SIG Battery Level (0x2A19).
 
@@ -71,8 +71,8 @@ device:
       needed in the app.
 
     BATTERY SAVER: level <=20% triggers heat clamp to max 20 (7.4V only,
-      12V exempt). IL set_BatteryLevel: `ldc.i4.s 20; bgt.s end` — the
-      equality case clamps too. >=40% deactivates saver.
+      12V exempt). The app's battery-level setter compares with "greater
+      than 20", so exactly 20% clamps too. >=40% deactivates saver.
 
     SHARED OEM MODULE: the Snooz white-noise machine ships the identical
       custom service 729f0608-… with the same chars 90759319-… (write)
@@ -93,9 +93,9 @@ device:
     notify support vs poll-only, firmware heat clamping above 100.
 
   identification:
-    local_name_contains:
-      - "Gerbing"
-      - "Gyde"
+    # No name key here on purpose: the app's scan filter is a case-sensitive
+    # SUBSTRING test for "Gerbing" or "Gyde", and identification has no
+    # contains form -- the discovery matcher below carries it.
     service_uuids:
       - "ab06bd90-cc16-11e4-8830-0800200c9a66"
       - "729f0608-496a-47fe-a124-3a62aaa3fbc0"
@@ -189,8 +189,8 @@ services:
           Custom characteristic under standard DIS. 1 byte: high nibble =
           number of heat output channels, low nibble = number of temperature
           sensor inputs. e.g., 0x21 = 2 outputs, 1 input. Drives single/
-          dual-channel UI. Nibbles A-F silently fail to parse (app uses
-          int.TryParse per character from X2 format).
+          dual-channel UI. Nibbles A-F silently fail to parse (the app
+          parses each hex digit as a decimal integer).
 
   - uuid: "ab06bd90-cc16-11e4-8830-0800200c9a66"
     name: "Temperature Service"
@@ -251,6 +251,14 @@ services:
           Standard SIG Battery Level. 1 unsigned byte, 0-100%.
           Read usage proven statically; notify unconfirmed (property
           bits are per-product firmware — see device notes).
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "The SIG-defined layout; reported from the app's read path, not read back here."
 
   - uuid: "729f0608-496a-47fe-a124-3a62aaa3fbc0"
     name: "Heat Control Service"
@@ -366,6 +374,8 @@ entities:
     device_class: "battery"
     unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_percent"
 
 helpful_urls:
   - title: "Home Assistant: snooz integration manifest"

@@ -149,10 +149,6 @@ device:
           unit in both the AirPlay `deviceid` TXT record and the node field of
           the SSDP UDN.
     default_port: 80
-    identity_keys:
-      primary: "udn"
-      secondary: "deviceid"
-      display: "friendly_name"
 
   discovery:
     methods:

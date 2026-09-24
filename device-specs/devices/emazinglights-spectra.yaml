@@ -20,9 +20,12 @@ device:
     device type "PhotoHub"), which relays commands to the gloves over a
     proprietary 2.4 GHz link. A replacement client only needs the hub's BLE
     interface; the hub-to-glove RF link is out of scope (and out of reach of a
-    phone). The hub is built on a Qualcomm CSR101x-family chip — its OTA
-    service UUIDs are the documented Qualcomm CSR (uEnergy) firmware-update
-    family.
+    phone). The hub is attributed to a Qualcomm CSR101x-family chip: its OTA
+    service UUIDs belong to a family one published survey (Sivakumaran et
+    al., see helpful_urls) assigns to Qualcomm CSR (uEnergy) firmware
+    update. That paper is the only source; the CSR OTAU service in
+    Qualcomm's public material is 00001016-d102-11e1-9b23-00025b00a5a5,
+    which this hub does not list. Treat the chip attribution as MEDIUM.
 
     ORPHAN STATUS: the app is delisted from Google Play, and the firmware
     manifest endpoint the app polls for OTA updates
@@ -92,8 +95,8 @@ device:
     B66DAC3C-... (value parsed as a hex integer: high byte = major, low byte
     = minor). The OTA flow computes a CRC32 of the image zero-padded to a
     16-byte multiple, then writes a 12-byte "new image" header
-    [CRC32 LE 4B][image length LE 4B][00 10 01 08], sends syncStarted(start)
-    on the command channel, and streams the image in 16-byte blocks over the
+    [CRC32 LE 4B][image length LE 4B][00 10 01 08], sends sync_started
+    (phase 1) on the command channel, and streams the image in 16-byte blocks over the
     CSR OTA characteristics, with a 10 s stall watchdog. Firmware binaries
     were hosted under the now-dead facemeltcrew.com root path; the manifest
     JSON schema was {"firmware":[{"deviceType":"PhotoHub","versionNum":N,
@@ -409,6 +412,8 @@ services:
             description: >
               Opcode 0x0A: bracket a sync/OTA session — index 1 = start,
               2 = end. Sent around the OTA image stream. HIGH.
+            advanced: true
+            advanced_reason: "Phase 1 opens the hub's OTA session: the app sends it after the new-image header and before streaming the image. Also brackets ordinary sync sessions, but a stray start or end can leave a firmware transfer half-open; no image is obtainable to finish one."
             template: [0x55, 0x0A, "{phase}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
             parameters:
               phase:
@@ -453,8 +458,11 @@ services:
     name: "OTA Firmware Upgrade Service (Qualcomm CSR)"
     notes: >
       The XXXXXXX0-8506-11E3-BAA7-0800200C9A66 UUID family with these
-      prefixes is the documented Qualcomm CSR (uEnergy, CSR101x) OTA
-      firmware-update service, which identifies the hub's chip family.
+      prefixes is attributed to the Qualcomm CSR (uEnergy, CSR101x) OTA
+      firmware-update service by one published survey (Sivakumaran et al.);
+      no Qualcomm document confirming it was found, so the chip-family
+      inference is MEDIUM. This is the update path: a generic client lists
+      it read-only.
       OTA flow (from the app's firmware updater): CRC32 of the image
       zero-padded to a 16-byte multiple; write the 12-byte new-image header
       [CRC32 LE 4B][image length LE 4B][00 10 01 08]; send sync_started
@@ -470,7 +478,7 @@ services:
         notes: >
           Receives the 12-byte new-image header
           [CRC32 LE 4B][image length LE 4B][00 10 01 08] before streaming.
-          HIGH (CSR OTA family + app updater agree).
+          HIGH from the app updater (the CSR attribution is MEDIUM).
       - uuid: "2691aa80-8508-11e3-baa7-0800200c9a66"
         name: "OTA New Image Content"
         properties: ["write"]
@@ -481,6 +489,45 @@ services:
         notes: >
           Device-driven flow control for the block stream (CSR OTA expected
           sequence number). Property set MEDIUM — verify against hardware.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["csr_ota"]
+      transport: "ble"
+      image:
+        signing: "unsigned"
+        algorithm: "crc_only"
+        source: "vendor_cloud"
+        format: "Raw image, CRC32 over the image zero-padded to a 16-byte multiple, announced by a 12-byte header [CRC32 LE 4B][image length LE 4B][00 10 01 08]."
+        notes: >
+          Binaries were served under http://www.facemeltcrew.com/ root
+          (manifest {"firmware":[{"deviceType":"PhotoHub","versionNum":N,
+          "filename":"..."}]}, binary at rootpath+filename). The domain no
+          longer resolves (verified 2026-08-25): no vendor image is
+          obtainable. Nothing in the app signs the image; the CRC32 is the
+          only check seen.
+      enter:
+        how: "command"
+        command: "sync_started"
+        notes: >
+          Write the new-image header to OTA New Image (210f99f0), then
+          sync_started phase 1 on the command characteristic, then stream.
+          The running hub receives the image; no reboot into a separate
+          bootloader is seen in the app.
+      dfu_mode:
+        notes: "Not established; the hub stays connected throughout the app's flow."
+      services: ["8a97f7c0-8506-11e3-baa7-0800200c9a66"]
+      recovery:
+        interrupted: "unknown"
+        notes: "The app aborts after a 10 s stall; what the hub does then is not established."
+      verification: "reported"
+      notes: >
+        From the app's firmware updater; not exercised on hardware. Stream
+        the image in 16-byte blocks to OTA New Image Content (2691aa80),
+        paced by OTA Expected Sequence Number (2bdc5760), then sync_started
+        phase 2. Mechanism csr_ota rests on the UUID attribution above
+        (MEDIUM); the flow itself is HIGH from the app.
 
 entities:
   - platform: "light"

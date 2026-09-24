@@ -17,7 +17,8 @@ device:
     The measurement payload is 3 bytes at frame offset 6 — [PR bpm, SpO2 %,
     PI x10] — so frames are ~9 bytes, not 20 (the app never requests an MTU
     above the 23-byte ATT default).
-    Data parsing via chignon package (BroadcastCommand, BroadcastData, DataPacket).
+    The app parses notifications in a separate packet-decoding layer
+    (command, broadcast-data and packet classes).
 
     Expected measurements: SpO2%, pulse rate (BPM), perfusion index (%).
 
@@ -34,7 +35,7 @@ device:
     Nordic DFU, with OTA command characteristic
     0000ff03-0000-1000-8000-00805f9b34fb and ISP command characteristic
     6e40ff03-b5a3-f393-e0a9-e50e24dcca9e referenced in its BLE service.
-    A Dallas/Maxim CRC8 (dscrc_table) exists in its utilities, most likely
+    A Dallas/Maxim CRC8 lookup table exists in its utilities, most likely
     used for DFU/packet integrity; no public firmware images could be
     obtained.
 
@@ -90,8 +91,8 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        Not established on the F7 itself. The app's CommandManager does
-        contain a resetBand command (opcode 0xFF, frame AB 00 03 FF FF 80),
+        Not established on the F7 itself. The app's command builder does
+        contain a band-reset command (opcode 0xFF, frame AB 00 03 FF FF 80),
         but it belongs to the shared Wearfit band-family command set and its
         effect on the oximeter is unverified; the device stores no credential
         or binding that a reset would clear, so a reset may not exist at all.
@@ -168,6 +169,16 @@ services:
               [PR bpm, SpO2 %, PI x10]. Hardware-tested via OximeterF7Bridge;
               the vendor app's command builder emits identical bytes.
             value: [0xAB, 0x00, 0x03, 0xFF, 0x30, 0x80]
+          enter_bootloader:
+            description: >
+              Opcode 0x25 in the host-to-device frame: reboot into the
+              firmware-update bootloader. App-derived from the command table,
+              not verified on F7 hardware. The bytes assume 0x25 takes no
+              argument, like the measurement poll (0x30) and band reset
+              (0xFF) that share the frame; the length byte grows if it does.
+            value: [0xAB, 0x00, 0x03, 0xFF, 0x25, 0x80]
+            advanced: true
+            advanced_reason: "Reboots the oximeter into its Nordic DFU bootloader. The vendor firmware service is dead and no image is public, so there is nothing to flash; the unit stops measuring until the bootloader times out or it is power-cycled, and neither has been checked."
       - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
         name: "UART TX"
         notes: >
@@ -194,6 +205,44 @@ services:
       - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
         name: "Smart Bracelet Measurement"
         properties: ["write", "notify"]
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The app fetched images from a vendor firmware API that no longer
+          responds (verified 2026-07-30); no public image could be obtained.
+      enter:
+        how: "command"
+        command: "enter_bootloader"
+        notes: >
+          Opcode 0x25 on UART RX. Opcode 0x28 in the same table reads the
+          bootloader's MAC address, which suggests the bootloader advertises
+          at an address the app needs to be told rather than the device's
+          own; the reply format is not recovered.
+      dfu_mode:
+        notes: >
+          Not established. If the bootloader is a stock Nordic one it
+          advertises "DfuTarg" (stack default, not observed here); the 0x28
+          query above is how the vendor app links it back to the oximeter.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        App-derived, not hardware-verified. The app flashed via a Nordic DFU
+        library; which generation (legacy 1530 or Secure fe59) is not
+        recorded, hence mechanism unknown. It also references an OTA command
+        characteristic 0000ff03-0000-1000-8000-00805f9b34fb and an ISP
+        command characteristic 6e40ff03-b5a3-f393-e0a9-e50e24dcca9e whose
+        parent services and roles are not recovered; neither is in the
+        services list, since the hardware-tested bridge saw only the Nordic
+        UART service. A Dallas/Maxim CRC8 table in the app is the likely
+        packet-integrity check.
 
 helpful_urls:
   - title: "OximeterF7Bridge"

@@ -462,9 +462,34 @@ services:
       - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
         name: "Temperature"
         properties: ["read", "notify"]
+        notes: >
+          SIG Temperature characteristic as the pvvx custom firmware exposes
+          it: int16 little-endian in 0.01 degrees C. HARDWARE: a read of this
+          characteristic on a v5.8 unit matched the value the same unit was
+          advertising (see device.testing), so the layout is confirmed.
+        format:
+          - offset: 0
+            length: 2
+            name: "temperature"
+            type: "int16"
+            scale: 0.01
+            unit: "C"
+            device_class: "temperature"
       - uuid: "00002a6f-0000-1000-8000-00805f9b34fb"
         name: "Humidity"
         properties: ["read", "notify"]
+        notes: >
+          SIG Humidity characteristic: uint16 little-endian in 0.01 percent
+          relative humidity. Confirmed the same way as 2a6e — the GATT read
+          agreed with the advertised humidity on the tested unit.
+        format:
+          - offset: 0
+            length: 2
+            name: "humidity"
+            type: "uint16"
+            scale: 0.01
+            unit: "%"
+            device_class: "humidity"
 
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information Service"
@@ -491,6 +516,55 @@ services:
       - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
         name: "Battery Level"
         properties: ["read"]
+        notes: >
+          SIG Battery Level: one unsigned byte, 0-100 percent. The custom
+          firmware also enables notify on it (pvvx/ATC_MiThermometer,
+          app_att.c) even though only read was exercised here.
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["telink_ota"]
+      transport: "ble"
+      image:
+        signing: "unsigned"
+        source: "public_url"
+        notes: >
+          pvvx custom firmware and the original stock images are both
+          available through https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html
+          (source at github.com/pvvx/ATC_MiThermometer), which is what makes
+          the change reversible. Unsigned in the sense that matters: the
+          custom build installs, so nothing verifies a vendor signature.
+          Stock firmware 2.1.1_0159 gates the OTA session instead — Mi Home
+          registration and an extracted Mi token/bindkey first (ATC_MiThermometer
+          issue #602).
+      enter:
+        how: "in_place"
+        notes: >
+          The Telink stack default: the running firmware receives the image
+          and reboots into it at the end (firmware-update.md). The flasher
+          runs 'Do Activation' before flashing on stock firmware.
+      recovery:
+        interrupted: "keeps_old_image"
+        notes: >
+          The Telink stack default (the new image goes to the other flash
+          bank and the boot flag switches only on success), not checked on a
+          unit here. Keep the battery above 40 % for a reliable flash.
+      verification: "reported"
+      notes: >
+        From the pvvx/ATC_MiThermometer project and its TelinkMiFlasher page;
+        the flash itself was not exercised by this project (the tested unit
+        already ran v5.8). The Telink OTA service UUID the flasher uses is in
+        registries/dfu-signatures.tsv; it is not recorded in this spec's
+        GATT table, so it is not listed under `services`. After flashing the
+        device advertises as "ATC_XXXXXX".
 
 entities:
   - platform: "sensor"
@@ -498,16 +572,22 @@ entities:
     device_class: "temperature"
     unit: "C"
     state_characteristic: "00002a6e-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "temperature"
   - platform: "sensor"
     name: "Humidity"
     device_class: "humidity"
     unit: "%"
     state_characteristic: "00002a6f-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "humidity"
   - platform: "sensor"
     name: "Battery"
     device_class: "battery"
     unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_level"
 
 helpful_urls:
   - url: "https://www.home-assistant.io/integrations/xiaomi_ble/"

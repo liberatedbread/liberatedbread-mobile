@@ -96,12 +96,18 @@ device:
     the OTA path (control protocol above is the same):
       * Lenze ST17H66 (most common; .hex16 Intel HEX images): dedicated OTA
         GATT service 5833ff01-... documented below, including the MAC+1
-        re-advertise trick. Flash addresses seen in code: 0x11000000-0x1107FFFF.
+        re-advertise trick. The ST17H66 is a PhyPlus-derived part and
+        5833ff01 is the PhyPlus SHB OTA service (inkbird-ibs-th documents
+        the same UUID). Flash addresses seen in code: 0x11000000-0x1107FFFF.
         Per-partition integrity is CRC16/MODBUS (reflected poly 0xA001, init 0).
       * ESP32 (raw .bin images, path prefix "ESP32/" on the OTA bucket):
-        Nordic-buttonless-DFU-style service 1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0,
-        write f7bf3564-fb6d-4e53-88a4-5e37e0326063 (app writes 0x03 then 0x00
+        service 1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0, write
+        f7bf3564-fb6d-4e53-88a4-5e37e0326063 (app writes 0x03 then 0x00
         then raw image chunks), characteristic 984227f3-34fc-4045-a5d0-2c581f81a153.
+        These are the Silicon Labs Gecko OTA UUIDs (AN1086: OTA service,
+        ota_control, ota_data), reused by the ESP32 firmware; they are not
+        Nordic DFU and not Hello-Fairy-specific. The write sequence differs
+        from AN1086's (which starts with 0x00 and ends with 0x03).
       * Bluetrum (.fot images, the majority of files in the public manifest):
         OTA mechanism not present in the analyzed app code paths read so far;
         unmapped.
@@ -150,8 +156,11 @@ device:
       display: "local_name"
     static_ip_required: false
     notes: >
-      The vendor app's scanner keeps a device only when the advertised name
-      contains "Hello Fairy"; devices currently in OTA mode are exempted and
+      The vendor app's scanner (unfiltered at the radio) keeps a device
+      only when the advertised name contains "Hello Fairy"; that name is
+      the one signal every board shares — the ESP32 board advertises a
+      per-unit variant of the control UUID instead of the stock one (see
+      the ESP32 variant). Devices currently in OTA mode are exempted and
       matched by MAC instead (ST17H66 OTA mode re-advertises at MAC+1, so a
       scanner that also accepts address = known MAC +/- 1 can spot a device
       stuck mid-OTA).
@@ -235,14 +244,36 @@ device:
         trick; firmware images are Intel HEX (.hex16/.hexe16) keyed by model
         string in the public OTA manifest (OTAModel 1).
     - model: "ESP32-based"
+      # Name only. The ESP32 firmware advertises neither the stock control
+      # UUID nor 1d14d6ee (the generic Silicon Labs Gecko OTA service, which
+      # it serves in its GATT table but never advertises), so neither can
+      # stand here. What it does advertise is a per-unit UUID; see notes.
       identification:
         local_name_prefix: "Hello Fairy"
-        service_uuids:
-          - "49535343-fe7d-4ae5-8fa9-9fafd205e455"
-          - "1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0"
       notes: >
-        Same control protocol; OTA uses Nordic-buttonless-DFU-style UUIDs and
-        raw .bin images (OTAModel 2).
+        Same control protocol; OTA uses the Silicon Labs Gecko OTA service
+        UUIDs (1d14d6ee-..., reused on ESP32 hardware, GATT only) and raw
+        .bin images (OTAModel 2). What it advertises, read from the two
+        ESP32 images in the public OTA manifest (an ESP32-S3 ESP-IDF
+        Bluedroid build that sets raw advertising data): the advertising
+        packet is flags 0x06 plus a complete 128-bit service UUID list
+        holding one UUID, the control UUID with its middle six bytes
+        replaced at boot by the Bluetooth MAC —
+        49535343-M6M5-M4M3-M2M1-9fafd205e455 for MAC M1:M2:M3:M4:M5:M6 —
+        so it never equals 49535343-fe7d-4ae5-8fa9-9fafd205e455 and differs
+        per unit. The GATT service is still the stock UUID. The name is in
+        the scan response only: "Hello Fairy-" plus the last two MAC octets
+        as four hex digits, padded with four trailing spaces to 20 bytes
+        (the GAP device name is the same without the padding, uppercase; a
+        test image in the manifest uses "Hello Fairy-Dev-"), next to
+        manufacturer data under
+        company id 1284 (PHYPLUS Inc, copied from the ST17H66 layout; an
+        SoC vendor's id, so not an identifier) whose last byte changes at
+        runtime. A passive scan therefore sees no name; the vendor app scans
+        actively and keeps any result whose name contains "Hello Fairy".
+        The chip is told apart only after connecting, by the GetDeviceInfo
+        model string the manifest maps to OTAModel 2 (BESL30, 900Join).
+        Firmware-derived, not yet seen on-air.
     - model: "Bluetrum-based"
       identification:
         local_name_prefix: "Hello Fairy"
@@ -602,9 +633,11 @@ services:
 
   # ST17H66 OTA mode — the device reboots into a dedicated OTA identity.
   - uuid: "5833ff01-9b8b-5191-6142-22a4536ef123"
-    name: "Lenze ST17H66 OTA Service"
+    name: "ST17H66 (PhyPlus SHB) OTA Service"
     notes: >
-      Firmware update channel for ST17H66-based units (the common case).
+      Firmware update channel for ST17H66-based units (the common case). The
+      UUID is the PhyPlus SHB OTA service (same as inkbird-ibs-th); the
+      ST17H66 is PhyPlus-derived.
       Firmware images are PUBLIC Intel HEX (.hex16/.hexe16) files listed in
       the manifest at
       https://hellofairyota.s3.amazonaws.com/hello_fairy_ota_pro.json keyed by
@@ -655,6 +688,96 @@ services:
         name: "OTA Data"
         properties: ["write"]
         notes: "Firmware data blocks. Per-partition integrity is CRC16/MODBUS announced in the partition header on ...ff02."
+
+  # ESP32 variant OTA — Silicon Labs Gecko OTA UUIDs on ESP32 hardware.
+  - uuid: "1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0"
+    name: "Silicon Labs OTA Service (ESP32 variant)"
+    notes: >
+      The firmware update path on ESP32-based units, listed so a GATT
+      explorer recognises it and keeps it read-only. GATT only: the ESP32
+      firmware's raw advertising data does not carry it, so it is no scan
+      signal. The UUID is the
+      Silicon Labs Gecko OTA service (AN1086), reused by this firmware. From
+      the app: it writes 0x03 then 0x00 to f7bf3564-fb6d-4e53-88a4-5e37e0326063
+      (ota_control in AN1086) and then raw image chunks;
+      984227f3-34fc-4045-a5d0-2c581f81a153 (ota_data in AN1086) is also
+      referenced. Characteristic properties were not recovered, so no
+      characteristics are declared.
+
+features:
+  # One entry per board: the update stack follows the chip, and the vendor
+  # app picks its updater from the OTAModel field of the public manifest
+  # (1 = ST17H66, 2 = ESP32), keyed by the GetDeviceInfo model string.
+  # Manifest: https://hellofairyota.s3.amazonaws.com/hello_fairy_ota_pro.json
+  # (fields model/version/OTAModel/url/content). No signature on any board.
+  - type: "firmware_update"
+    variants: ["ST17H66-based (Lenze)"]
+    dfu:
+      mechanisms: ["phyplus_ota"]
+      transport: "ble"
+      image:
+        signing: "unsigned"
+        algorithm: "crc_only"
+        source: "public_url"
+        format: "Intel HEX (.hex16/.hexe16, record types 00/01/04), flashed per partition."
+        notes: "Integrity is per-partition CRC16/MODBUS."
+      enter:
+        how: "command"
+        command: "ota_enter"
+        notes: "ota_enter ([0x01, 0x02] to 5833ff02) on the normal device."
+      dfu_mode:
+        service_uuids: ["5833ff01-9b8b-5191-6142-22a4536ef123"]
+        address_offset: 1
+        notes: >
+          The device reboots and re-advertises at MAC+1 offering 5833ff01;
+          the vendor app matches OTA-mode devices by address, not name (it
+          exempts them from its "Hello Fairy" name filter). The OTA-mode
+          name is not established. A scanner that sees 5833ff01 at a known
+          Hello Fairy address + 1 has found that unit stuck mid-update.
+      services: ["5833ff01-9b8b-5191-6142-22a4536ef123"]
+      recovery:
+        interrupted: "stays_in_bootloader"
+        notes: >
+          The MAC+1 OTA identity persists, and the vendor app resumes through
+          it, but a partial flash still needs a completed reflash. Per-stage
+          transfer timeouts are 3-5 s (app side).
+      verification: "reported"
+      notes: "App-derived (the app's OTA state machine), not run on hardware. The full flow is in the 5833ff01 service notes."
+  - type: "firmware_update"
+    variants: ["ESP32-based"]
+    dfu:
+      mechanisms: ["custom"]
+      transport: "ble"
+      image:
+        signing: "unsigned"
+        source: "public_url"
+        format: "Raw .bin."
+      enter:
+        how: "in_place"
+        notes: >
+          0x03 then 0x00 to f7bf3564 on the running device; no separate
+          update mode is described.
+      services: ["1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        ESP32 firmware serving the Silicon Labs Gecko OTA UUIDs with its own
+        write sequence. silabs_ota would imply AN1086's AppLoader reboot,
+        which nothing here shows, hence custom. App-derived, not run on
+        hardware.
+  - type: "firmware_update"
+    variants: ["Bluetrum-based"]
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "public_url"
+        format: ".fot"
+      enter:
+        how: "unknown"
+      verification: "hypothesis"
+      notes: "Images are in the public manifest; the OTA transport is not mapped."
 
 entities:
   - platform: "light"

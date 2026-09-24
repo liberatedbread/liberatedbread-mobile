@@ -45,6 +45,26 @@ device:
   # missing piece is entirely on the consumer side.
   integration: "identify_only"
   admin_url: "https://{address}/"
+  managed_by:
+    spec: "ubiquiti-unifi-device"
+    discovery:
+      # UDMPRO, not UDM: the base Dream Machine does not host Protect, and a
+      # family-wide prefix would send the user to a console with no cameras.
+      platform_prefixes: ["UNVR", "UDMPRO", "UCKP"]
+    notes: >
+      A Protect camera is adopted to, configured in, and streamed from a
+      UniFi Protect host -- the UNVR, a Dream Machine console (UDM-Pro/SE)
+      or a Cloud Key Gen2 Plus -- which the same UDP-10001 sweep finds as a
+      separate device: ubiquiti-unifi-device.yaml's platform table names it
+      by the prefix of its 0x0c platform string. The UDMPRO spelling (which
+      also covers the SE and Pro Max) comes from community tools and has not
+      been read back here, and the Dream Router, which can host Protect on
+      its microSD card, is left out until its spelling is known. The camera still answers
+      the discovery probe itself (platform "UVC ..."), so it is found on its
+      own; everything after that -- RTSP enable, the stream token, the
+      stream -- goes through the host. Which host holds which camera is not
+      in the probe reply; a consumer reads it from the host's Protect
+      bootstrap (see camera.stream_discovery) or asks the user.
   notes: >
     UniFi Protect cameras (UVC G3/G4/G5/G6 family, AI series, and the G4/G5
     Doorbell) are adopted to a UniFi Protect NVR (a UNVR, UDM-Pro, or Cloud Key
@@ -85,10 +105,6 @@ device:
       - "74:AC:B9"
       - "E0:63:DA"
       - "78:45:58"
-    identity_keys:
-      primary: "mac"
-      secondary: "hostname"
-      display: "hostname"
 
   discovery:
     methods:

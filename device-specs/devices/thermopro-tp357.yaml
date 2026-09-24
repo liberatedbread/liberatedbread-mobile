@@ -286,6 +286,15 @@ services:
           XX unknown (0x2C common; suspected battery, formula unconfirmed).
           Example: c2 00 00 ef 00 28 2c -> 23.9 °C, 40 %.
 
+  - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+    name: "Nordic Secure DFU Service"
+    notes: >
+      The firmware-update path, not a data service. Known from the TP357S
+      GATT table in pytp357s PROTOCOL.md (the 0xFE59 service beside the data
+      service), not from any update run; whether the 6-byte models carry it
+      is not established. Characteristic layout not recorded. See
+      features[type: firmware_update].
+
 ble:
   connection_sequence:
     description: >
@@ -301,6 +310,38 @@ advertising:
   local_name:
     match: "prefix"
     values: ["TP35", "TP39"]
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+        notes: >
+          Exposing 0xFE59 in normal operation suggests buttonless entry
+          through the stack's own characteristic, but its characteristics
+          were not enumerated, so that is an inference.
+      dfu_mode:
+        notes: >
+          Not observed. A stock nRF5 SDK bootloader advertises "DfuTarg"
+          and, without bond sharing, at the device address +1; nothing
+          confirms either here, so a unit stuck in its bootloader would not
+          be recognised from this spec.
+      services: ["0000fe59-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        Rests only on the 0000fe59-0000-1000-8000-00805f9b34fb service in the
+        TP357S GATT table (pytp357s); no vendor update has been observed and
+        no image source is known. The data service uses the Telink SDK's
+        00010203-0405-0607-0809-0a0b0c0d19xx UUID family, so the SoC is not
+        obviously a Nordic part and the 0xFE59 service may be a vendor
+        reimplementation of the Secure DFU protocol.
 
 entities:
   - platform: "sensor"

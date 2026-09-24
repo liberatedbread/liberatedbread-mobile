@@ -64,6 +64,11 @@ device:
     default_port: 55443
     ssdp_search_targets:
       - "wifi_bulb"
+    # A device that ANSWERED the port-1982 search (discovery method 2) is
+    # tagged with this token by the consumer that ran it; the ST above is
+    # the same fact seen from the M-SEARCH side.
+    lan_protocols:
+      - "yeelight-ssdp"
 
   discovery:
     methods:
@@ -73,6 +78,9 @@ device:
           multicast_port: 1982
           search_targets:
             - "wifi_bulb"
+          # Every Yeelight LAN light answers this probe. This spec is the
+          # catch-all; yeelight-cube-lamp narrows on the reply's `support`.
+          platform_fallback: true
           response_mapping:
             location:
               url: "Location"
@@ -98,6 +106,27 @@ device:
           Yeelight's simplified SSDP runs on 239.255.255.250:1982 (not 1900).
           The response headers carry id (stable), model (mono/color/stripe/
           ceiling/bslamp), fw_ver, the supported-method list and current state.
+      # The same exchange in the shape a consumer that speaks plain UDP
+      # executes: the M-SEARCH datagram above as bytes, to the multicast
+      # group on 1982, replies read as HTTP-style header lines. Either
+      # method finds the same devices; this one exists so a scanner
+      # without an SSDP stack still can.
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 1982
+          multicast_group: "239.255.255.250"
+          probe_hex: "4d2d534541524348202a20485454502f312e310d0a484f53543a203233392e3235352e3235352e3235303a313938320d0a4d414e3a2022737364703a646973636f766572220d0a53543a20776966695f62756c620d0a0d0a"
+          response_format: "http"
+          identity_mapping:
+            stable_keys:
+              - source: "header:id"
+            display:
+              source: "header:name"
+        notes: >
+          probe_hex is the ASCII of the ssdp method's request template
+          (M-SEARCH, HOST 239.255.255.250:1982, MAN "ssdp:discover", ST
+          wifi_bulb, CRLF line endings, blank line). A consumer that
+          completed it tags the device `yeelight-ssdp`.
     identity:
       stable_keys: ["id"]
       display: "name"

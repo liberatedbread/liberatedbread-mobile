@@ -324,7 +324,7 @@ services:
             parameters:
               hours: { type: "uint8", min: 0, max: 23 }
               minutes: { type: "uint8", min: 0, max: 59 }
-              timer_type: { type: "uint8", values: { "0": "switch-on timer", "1": "switch-off timer" } }
+              timer_type: { type: "uint8", allowed: [0, 1], labels: ["switch-on timer", "switch-off timer"] }
               days: { type: "uint8" }
 
       - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
@@ -336,6 +336,36 @@ services:
           reply to INFO, cmd 0x84). Exact payload semantics are NOT fully
           mapped — capture live traffic before relying on readback.
           Confidence: framing MEDIUM, payload layout LOW.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: "No firmware file or firmware URL exists in the app."
+      enter:
+        how: "unknown"
+        notes: >
+          The app's opcode map names READY_UPDATE (cmd 0x43) in the E1
+          family, but its parameter bytes and effect are not traced, so it
+          is not declared as a command here. A client must not send an E1
+          frame with cmd 0x43 speculatively.
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        Static analysis only; no update has been observed. There is no DFU
+        service: device.notes has any update riding the ordinary control
+        characteristic 0xFFF3 (0000fff3-0000-1000-8000-00805f9b34fb) as
+        READY_UPDATE 0x43 followed by data opcodes 0x52-0x54 in 500-byte
+        packets. Those three opcodes also appear in the opcode map as the
+        static/dynamic/DIY image-display commands, so whether this path
+        carries firmware at all, or only pixel images, is unresolved. The
+        control service 0xFFF0 is not listed under `services`: it carries
+        every ordinary command too.
 
 entities:
   - platform: "light"

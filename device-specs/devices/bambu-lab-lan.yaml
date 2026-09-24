@@ -154,6 +154,14 @@ device:
         transports. Onboarding is via the touchscreen; the passphrase is entered
         there, not over a link this spec documents.
 
+# The broker's socket, declared so a consumer picks its connector from the
+# spec rather than inferring TLS from the port number. One value for every
+# generation: every documented X1/P1/A1 firmware serves mqtts on 8883 with
+# a self-signed certificate (OpenBambuAPI mqtt.md; the HA integration
+# connects with verification off), and nothing serves plaintext 1883.
+mqtt:
+  transport_security: "tls"
+
 mqtt_topics:
   - topic: "device/{serial}/request"
     name: "Command topic"

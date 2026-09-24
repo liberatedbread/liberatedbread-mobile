@@ -1006,18 +1006,18 @@ services:
   # === TI OAD Firmware Update Service ===
   - uuid: "f000ffc0-0451-4000-b000-000000000000"
     name: "TI OAD Firmware Update Service"
-    notes: "Texas Instruments Over-the-Air Download service for firmware updates. Available on most models."
+    notes: "Texas Instruments Over-the-Air Download service for firmware updates. Available on most models. The update path: a generic client lists it read-only (see features[firmware_update])."
     characteristics:
       - uuid: "f000ffc2-0451-4000-b000-000000000000"
         name: "OAD Image Block Request"
         properties: ["write"]
         notes: "Write firmware image blocks."
       - uuid: "f000ffc1-0451-4000-b000-000000000000"
-        name: "OAD Image Notify"
+        name: "OAD Image Identify"
         properties: ["notify"]
-        notes: "Notification channel for OAD status."
+        notes: "TI OAD Image Identify: the image header is offered here before any block is sent, and the device answers on it. (Previously mislabelled 'Image Notify'; TI's OAD service documentation names ffc1 Image Identify.)"
       - uuid: "f000ffc5-0451-4000-b000-000000000000"
-        name: "OAD Image Control"
+        name: "OAD Extended Control"
         properties: ["write", "notify"]
         notes: "Control OAD transfer (start, abort, commit)."
       - uuid: "f000ffc3-0451-4000-b000-000000000000"
@@ -1263,11 +1263,49 @@ protocol_details:
 # hardware exposing BOTH interfaces — the Mini documents the SIG
 # characteristics alongside its packet — and taking the first resolved
 # binding then reads the source the vendor's own tooling trusts.
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["ti_oad"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+        notes: >
+          The OAD service is served by the running application in normal
+          operation, so no vendor command is needed to reach it. Whether the
+          image is received in place (TI off-chip OAD) or the device reboots
+          into a resident OAD image (on-chip) is not established. The
+          griffin_read_external_flash_image_version command reports a
+          separate external-flash image version, which suggests off-chip OAD
+          (the running app writes the new image to external flash and the
+          old one survives), but that is an inference.
+      dfu_mode:
+        notes: >
+          Not established. TI OAD has no standard update-mode name; with
+          off-chip OAD the device keeps its identity throughout.
+      services: ["f000ffc0-0451-4000-b000-000000000000"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        App-derived (static analysis of the vendor app); no update was
+        driven and the service was not exercised in either HCI capture. Characteristic roles
+        follow TI's OAD service documentation (ffc1 Image Identify, ffc2
+        Image Block, ffc5 Extended Control; ffc3 Image Count is deprecated
+        in BLE5-Stack).
+
 entities:
   - platform: "sensor"
     name: "Radon 24h Average"
     icon: "mdi:radioactive"
     unit: "Bq/m³"
+    bands:
+      - {level: "good", below: 100}
+      - {level: "fair", above: 100, below: 150}
+      - {level: "poor", above: 150}
     state_characteristic: "b42e01aa-ade7-11e4-89d3-123b93f75cba"
     variants: ["Wave (Gen 1)"]
     notes: >
@@ -1276,12 +1314,30 @@ entities:
       hardware — the vendor app reads Plus radon from the combined packet,
       which the Wave Plus entity below now binds.
 
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: radon yellow/red
+      100/150 Bq/m³); the device reports its own thresholds, so a consumer
+      that can read them back should prefer the live values. Whether a
+      reading exactly at a threshold is yellow or red was not recorded; the
+      bands take the threshold as the first value of the worse level.
+
   - platform: "sensor"
     name: "Radon Long-Term Average"
     icon: "mdi:radioactive"
     unit: "Bq/m³"
+    bands:
+      - {level: "good", below: 100}
+      - {level: "fair", above: 100, below: 150}
+      - {level: "poor", above: 150}
     state_characteristic: "b42e0a4c-ade7-11e4-89d3-123b93f75cba"
     variants: ["Wave (Gen 1)"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: radon yellow/red
+      100/150 Bq/m³); the device reports its own thresholds, so a consumer
+      that can read them back should prefer the live values. Whether a
+      reading exactly at a threshold is yellow or red was not recorded; the
+      bands take the threshold as the first value of the worse level.
 
   - platform: "sensor"
     name: "Radon 1h Average"
@@ -1300,65 +1356,143 @@ entities:
     name: "Radon 24h Average"
     icon: "mdi:radioactive"
     unit: "Bq/m³"
+    bands:
+      - {level: "good", below: 100}
+      - {level: "fair", above: 100, below: 150}
+      - {level: "poor", above: 150}
     state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "radon_24h_avg"
     variants: ["Wave (Gen 2)"]
-    notes: "Capture-verified field of the Wave Gen 2 combined packet."
+    notes: >
+      Capture-verified field of the Wave Gen 2 combined packet.
+
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: radon yellow/red
+      100/150 Bq/m³); the device reports its own thresholds, so a consumer
+      that can read them back should prefer the live values. Whether a
+      reading exactly at a threshold is yellow or red was not recorded; the
+      bands take the threshold as the first value of the worse level.
 
   - platform: "sensor"
     name: "Radon Long-Term Average"
     icon: "mdi:radioactive"
     unit: "Bq/m³"
+    bands:
+      - {level: "good", below: 100}
+      - {level: "fair", above: 100, below: 150}
+      - {level: "poor", above: 150}
     state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "radon_longterm_avg"
     variants: ["Wave (Gen 2)"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: radon yellow/red
+      100/150 Bq/m³); the device reports its own thresholds, so a consumer
+      that can read them back should prefer the live values. Whether a
+      reading exactly at a threshold is yellow or red was not recorded; the
+      bands take the threshold as the first value of the worse level.
 
   - platform: "sensor"
     name: "Radon 24h Average"
     icon: "mdi:radioactive"
     unit: "Bq/m³"
+    bands:
+      - {level: "good", below: 100}
+      - {level: "fair", above: 100, below: 150}
+      - {level: "poor", above: 150}
     state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "radon_24h_avg"
     variants: ["Wave Plus"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: radon yellow/red
+      100/150 Bq/m³); the device reports its own thresholds, so a consumer
+      that can read them back should prefer the live values. Whether a
+      reading exactly at a threshold is yellow or red was not recorded; the
+      bands take the threshold as the first value of the worse level.
 
   - platform: "sensor"
     name: "Radon Long-Term Average"
     icon: "mdi:radioactive"
     unit: "Bq/m³"
+    bands:
+      - {level: "good", below: 100}
+      - {level: "fair", above: 100, below: 150}
+      - {level: "poor", above: 150}
     state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "radon_longterm_avg"
     variants: ["Wave Plus"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: radon yellow/red
+      100/150 Bq/m³); the device reports its own thresholds, so a consumer
+      that can read them back should prefer the live values. Whether a
+      reading exactly at a threshold is yellow or red was not recorded; the
+      bands take the threshold as the first value of the worse level.
 
   - platform: "sensor"
     name: "CO₂"
     device_class: "carbon_dioxide"
     unit: "ppm"
+    bands:
+      - {level: "good", below: 800}
+      - {level: "fair", above: 800, below: 1000}
+      - {level: "poor", above: 1000}
     state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "co2"
     variants: ["Wave Plus"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: CO₂ yellow/red 800/1000
+      ppm); the device reports its own thresholds, so a consumer that can
+      read them back should prefer the live values. Whether a reading
+      exactly at a threshold is yellow or red was not recorded; the bands
+      take the threshold as the first value of the worse level.
 
   - platform: "sensor"
     name: "VOC"
     device_class: "volatile_organic_compounds_parts"
     unit: "ppb"
+    bands:
+      - {level: "good", below: 250}
+      - {level: "fair", above: 250, below: 2000}
+      - {level: "poor", above: 2000}
     state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "voc"
     variants: ["Wave Plus"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: VOC yellow/red 250/2000
+      ppb); the device reports its own thresholds, so a consumer that can
+      read them back should prefer the live values. Whether a reading
+      exactly at a threshold is yellow or red was not recorded; the bands
+      take the threshold as the first value of the worse level.
 
   - platform: "sensor"
     name: "VOC"
     device_class: "volatile_organic_compounds_parts"
     unit: "ppb"
+    bands:
+      - {level: "good", below: 250}
+      - {level: "fair", above: 250, below: 2000}
+      - {level: "poor", above: 2000}
     state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "voc"
     variants: ["Wave Mini"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: VOC yellow/red 250/2000
+      ppb); the device reports its own thresholds, so a consumer that can
+      read them back should prefer the live values. Whether a reading
+      exactly at a threshold is yellow or red was not recorded; the bands
+      take the threshold as the first value of the worse level.
 
   - platform: "sensor"
     name: "Temperature"
@@ -1414,6 +1548,12 @@ entities:
     name: "Humidity"
     device_class: "humidity"
     unit: "%"
+    bands:
+      - {level: "poor", below: 25}
+      - {level: "fair", above: 25, below: 30}
+      - {level: "good", above: 30, below: 60}
+      - {level: "fair", above: 60, below: 70}
+      - {level: "poor", above: 70}
     state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "humidity"
@@ -1423,33 +1563,83 @@ entities:
       packet's 0.5 %RH per count). Ordered before the SIG characteristic —
       see the comment above the entities block.
 
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: humidity lower
+      red/yellow 25/30, upper yellow/red 60/70 %RH); the device reports its
+      own thresholds, so a consumer that can read them back should prefer
+      the live values. Whether a reading exactly at a threshold is yellow or
+      red was not recorded; the bands take the threshold as the first value
+      of the worse level.
+
   - platform: "sensor"
     name: "Humidity"
     device_class: "humidity"
     unit: "%"
+    bands:
+      - {level: "poor", below: 25}
+      - {level: "fair", above: 25, below: 30}
+      - {level: "good", above: 30, below: 60}
+      - {level: "fair", above: 60, below: 70}
+      - {level: "poor", above: 70}
     state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "humidity"
     variants: ["Wave Plus"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: humidity lower
+      red/yellow 25/30, upper yellow/red 60/70 %RH); the device reports its
+      own thresholds, so a consumer that can read them back should prefer
+      the live values. Whether a reading exactly at a threshold is yellow or
+      red was not recorded; the bands take the threshold as the first value
+      of the worse level.
 
   - platform: "sensor"
     name: "Humidity"
     device_class: "humidity"
     unit: "%"
+    bands:
+      - {level: "poor", below: 25}
+      - {level: "fair", above: 25, below: 30}
+      - {level: "good", above: 30, below: 60}
+      - {level: "fair", above: 60, below: 70}
+      - {level: "poor", above: 70}
     state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
     state_mapping:
       value: "humidity"
     variants: ["Wave Mini"]
+    notes: >
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: humidity lower
+      red/yellow 25/30, upper yellow/red 60/70 %RH); the device reports its
+      own thresholds, so a consumer that can read them back should prefer
+      the live values. Whether a reading exactly at a threshold is yellow or
+      red was not recorded; the bands take the threshold as the first value
+      of the worse level.
 
   - platform: "sensor"
     name: "Humidity"
     device_class: "humidity"
     unit: "%"
+    bands:
+      - {level: "poor", below: 25}
+      - {level: "fair", above: 25, below: 30}
+      - {level: "good", above: 30, below: 60}
+      - {level: "fair", above: 60, below: 70}
+      - {level: "poor", above: 70}
     state_characteristic: "00002a6f-0000-1000-8000-00805f9b34fb"
     variants: ["Wave (Gen 1)", "View Plus"]
     notes: >
       SIG-characteristic binding, scoped to the models with no decodable
       combined packet — same reasoning as the temperature entity above.
+
+      Bands are Airthings' shipped defaults as read back from a Wave Gen 2's
+      UI-settings GET (commands.griffin_ui_settings: humidity lower
+      red/yellow 25/30, upper yellow/red 60/70 %RH); the device reports its
+      own thresholds, so a consumer that can read them back should prefer
+      the live values. Whether a reading exactly at a threshold is yellow or
+      red was not recorded; the bands take the threshold as the first value
+      of the worse level.
 
   - platform: "sensor"
     name: "Pressure"

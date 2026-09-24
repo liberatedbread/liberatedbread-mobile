@@ -265,6 +265,24 @@ services:
             description: "Get device basic info: battery%, firmware version, mode."
             value: [0x57, 0x02]
             verification: "reported"
+          enter_ota:
+            description: >
+              Reboot into the firmware-update bootloader (command nibble 0x4,
+              no payload). This is the vendor app's shared entry step for every
+              BLE update stack (Nordic, Realtek, Freqchip). The device comes
+              back at its address + 1 (see the firmware_update features). A
+              password-protected device takes the password-framed form of
+              command 0x4, and an encrypted-protocol device (the Smart Lock)
+              takes the encrypted form. Only the plain frame is given here.
+              App-derived, not hardware-tested.
+            value: [0x57, 0x04]
+            advanced: true
+            advanced_reason: >
+              Takes the device out of service until an image is uploaded or
+              its bootloader times out. A Bot or Curtain stops responding, and a
+              Smart Lock stops locking or unlocking from the app. Send it only
+              as the first step of a firmware update you can complete.
+            verification: "reported"
           set_bot_mode:
             description: >
               Set Bot mode. Payload: [strength (always 100=0x64)][mode].
@@ -347,31 +365,40 @@ services:
   - uuid: "00001530-1212-efde-1523-785feabcd123"
     name: "Legacy DFU Service (Nordic)"
     notes: >
-      App-confirmed UUID, not hardware-tested. Classic
-      Nordic buttonless DFU service used for firmware updates on older
-      devices. Characteristic layout not extracted; standard Nordic DFU
-      (control point + packet) is a reasonable probe order but unverified here.
+      App-confirmed UUID, not hardware-tested. Nordic legacy DFU. The vendor
+      server's Nordic images for the Bot and Meter are legacy DFU packages
+      (dfu_version 0.5, 14-byte CRC16 init packet). The app detects Nordic
+      hardware when this UUID or cba20d00-… is among the device's advertised
+      UUIDs. Characteristic layout not extracted; the app's bundled Nordic
+      DFU library owns it (standard control point + packet).
 
   - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
     name: "Secure DFU Service (Nordic)"
     notes: >
-      App-confirmed UUID, not hardware-tested. Nordic
-      Secure DFU service for newer firmware updates. Characteristic layout
-      not extracted.
+      App-confirmed UUID, not hardware-tested. Nordic Secure DFU. The vendor
+      server's Nordic images for the Curtain, Smart Lock, Contact Sensor and
+      Motion Sensor are Secure DFU packages with ECDSA P-256 signed init
+      packets. Characteristic layout not extracted; the app's bundled Nordic
+      DFU library owns it.
 
   - uuid: "0000d0ff-3c17-d293-8e48-14fe2e4da212"
-    name: "SwitchBot OTA Service"
+    name: "Realtek OTA Service"
     notes: >
-      App-confirmed UUID, not hardware-tested.
-      Vendor-specific OTA service UUID carried in the app's BLE constants.
-      Characteristic layout not extracted.
+      App-confirmed UUID, not hardware-tested. The vendor app hands this UUID
+      to its bundled Realtek DFU SDK as the OTA service. It is the update path
+      for Realtek RTL8762C hardware (see the firmware_update features).
+      Characteristic layout not extracted; the SDK owns it. foreo-peach-2.yaml
+      carries the same UUID, where it is an unused legacy Telink service.
 
   - uuid: "02f00000-0000-0000-0000-00000000fe00"
-    name: "SwitchBot Frequency-OTA Service"
+    name: "Freqchip OTA Service (Frequency-OTA)"
     notes: >
-      App-confirmed, not hardware-tested: alternate OTA transport the app
-      uses when the main service is absent, writing to ...ff01 and notifying
-      on ...ff02.
+      App-confirmed, not hardware-tested. It is the OTA transport of the app's
+      Freqchip updaters, used on Freqchip hardware (see the firmware_update
+      features): write to ...ff01, notify on ...ff02. The app calls it
+      "Frequency-OTA"; it is the Freqchip OTA
+      profile (govee-rgbic-light.yaml carries the same 02f00000-…-fe00 /
+      …ff01 pair on its Freqchip hardware generation).
     characteristics:
       - uuid: "02f00000-0000-0000-0000-00000000ff01"
         name: "Frequency-OTA TX (Client → Device)"
@@ -397,6 +424,246 @@ services:
           appear only inside unrelated bundled SDKs
           (Nordic/Realtek/Telink/Tuya), not in the vendor's own code.
           Do not rely on this characteristic; treat it as a fallback to probe.
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: >
+              The SIG-defined layout, declared so a consumer that does find
+              the characteristic can decode it. It says nothing about whether
+              a given SwitchBot exposes it — see the characteristic notes.
+
+features:
+  # How the vendor app picks an update stack. The choice is per unit, not
+  # per model: one model has shipped on several SoCs. The app's chipset
+  # selector checks, in order:
+  #   1. device type + hardware version. Bot, Meter, Meter Plus, Meter Pro,
+  #      Meter Pro CO2, Contact and Motion: hw 60-79 -> Freqchip,
+  #      hw 20-60 -> Realtek (60 goes to Freqchip). Curtain and Smart Lock:
+  #      hw 20-60 -> Realtek. Curtain 3: always Realtek.
+  #   2. otherwise, the UUIDs the unit advertises: 00001530-… or cba20d00-…
+  #      -> Nordic; 00021530-1212-efde-1523-785feabcd123 or cda20d00-… ->
+  #      Realtek; 00031530-… -> Telink; 00041530-… -> Freqchip; none -> Nordic.
+  # (A React Native device page can override the choice with a
+  # server-supplied mode string.) Which Nordic protocol a unit speaks, legacy
+  # or Secure, is decided by the Nordic DFU library from the bootloader's
+  # GATT. The per-model stack sets below are the stacks the selector can
+  # reach that ALSO have images on the vendor's firmware server. The server
+  # names images per chipset (…_app_V<n>.zip Nordic, …_rtl_app_… Realtek,
+  # …_freq_app_… Freqchip).
+  #
+  # Every BLE stack is entered the same way: the app sends enter_ota
+  # (0x57 0x04) on the command channel, then scans for the bootloader at
+  # the unit's address + 1. It increments the last byte only, so FF wraps to
+  # 00 with no carry. The app finds the bootloader by address, so its
+  # advertised name is not established.
+  - type: "firmware_update"
+    variants: ["Bot (WoHand)", "Meter / MeterTH (WoSensorTH)"]
+    dfu:
+      mechanisms: ["nordic_legacy_dfu", "realtek_ota", "freqchip_ota"]
+      transport: "ble"
+      services:
+        - "00001530-1212-efde-1523-785feabcd123"
+        - "0000d0ff-3c17-d293-8e48-14fe2e4da212"
+        - "02f00000-0000-0000-0000-00000000fe00"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Per chipset. Nordic: legacy DFU zip (manifest dfu_version 0.5, .bin, 14-byte .dat). Realtek: RTL8762C OTA image (\"GM\" header). Freqchip: raw .bin."
+        notes: >
+          The Nordic images are unsigned. Their init packet is a 14-byte
+          legacy packet with a CRC16 and all-FF device type, revision and
+          application version. Signing of the Realtek and Freqchip images is
+          not established.
+      enter:
+        how: "command"
+        command: "enter_ota"
+      dfu_mode:
+        address_offset: 1
+        notes: "Bootloader at the unit's address + 1 (last byte only). The name is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Stack choice per unit follows the selector above. A unit with
+        hardware version 60-79 takes Freqchip, 20-59 takes Realtek, and any
+        other takes the stack its advertised UUIDs name, normally Nordic
+        (legacy DFU). The vendor server has all three image kinds for the
+        Bot, and Nordic, Realtek and Freqchip images for the Meter. From
+        static analysis of the vendor app and the vendor's published images,
+        not run on hardware.
+  - type: "firmware_update"
+    variants: ["Meter Plus"]
+    dfu:
+      mechanisms: ["realtek_ota", "freqchip_ota"]
+      transport: "ble"
+      services:
+        - "0000d0ff-3c17-d293-8e48-14fe2e4da212"
+        - "02f00000-0000-0000-0000-00000000fe00"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Per chipset. Realtek: RTL8762C OTA image (\"GM\" header). Freqchip: raw .bin."
+      enter:
+        how: "command"
+        command: "enter_ota"
+      dfu_mode:
+        address_offset: 1
+        notes: "Bootloader at the unit's address + 1 (last byte only). The name is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Hardware version 60-79 takes Freqchip and 20-59 takes Realtek. The
+        vendor server has only Realtek and Freqchip images for the Meter
+        Plus, no Nordic ones. From static analysis of the vendor app and the
+        vendor's published images, not run on hardware.
+  - type: "firmware_update"
+    variants: ["Meter Pro", "Meter Pro CO2"]
+    dfu:
+      mechanisms: ["freqchip_ota"]
+      transport: "ble"
+      services: ["02f00000-0000-0000-0000-00000000fe00"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Raw Freqchip .bin."
+      enter:
+        how: "command"
+        command: "enter_ota"
+      dfu_mode:
+        address_offset: 1
+        notes: "Bootloader at the unit's address + 1 (last byte only). The name is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        The app's selector would route hardware version 20-59 to Realtek,
+        but the vendor server has only Freqchip images for both models (its
+        Meter Pro and Meter Pro CO2 directories), so Freqchip is the one
+        stack with anything to deliver. From static analysis of the vendor
+        app and the vendor's published image list, not run on hardware.
+  - type: "firmware_update"
+    variants: ["Motion Sensor", "Contact Sensor"]
+    dfu:
+      mechanisms: ["nordic_secure_dfu", "freqchip_ota"]
+      transport: "ble"
+      services:
+        - "0000fe59-0000-1000-8000-00805f9b34fb"
+        - "02f00000-0000-0000-0000-00000000fe00"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Per chipset. Nordic: Secure DFU zip (.bin + 140-byte protobuf .dat). Freqchip: raw .bin."
+        notes: >
+          The Nordic init packets are signed commands with an ECDSA P-256
+          signature (signature type 0, 64 bytes), so a Secure DFU bootloader
+          checks them against the vendor key. Signing of the Freqchip images
+          is not established.
+      enter:
+        how: "command"
+        command: "enter_ota"
+      dfu_mode:
+        address_offset: 1
+        notes: "Bootloader at the unit's address + 1 (last byte only), which is also what a Secure DFU bootloader without bond sharing does. The name is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Hardware version 60-79 takes Freqchip, and any other takes the stack
+        its advertised UUIDs name, normally Nordic Secure DFU. The selector
+        would route 20-59 to Realtek, but the vendor server has no Realtek
+        images for these two models. Nordic and Freqchip images exist for
+        both. From static analysis of the vendor app and the vendor's
+        published images, not run on hardware.
+  - type: "firmware_update"
+    variants: ["Curtain (WoCurtain)", "Smart Lock"]
+    dfu:
+      mechanisms: ["nordic_secure_dfu", "realtek_ota"]
+      transport: "ble"
+      services:
+        - "0000fe59-0000-1000-8000-00805f9b34fb"
+        - "0000d0ff-3c17-d293-8e48-14fe2e4da212"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Per chipset. Nordic: Secure DFU zip (.bin + 140-byte protobuf .dat). Realtek: RTL8762C OTA image (\"GM\" header)."
+        notes: >
+          The Nordic init packets are ECDSA P-256 signed. Signing of the
+          Realtek images is not established.
+      enter:
+        how: "command"
+        command: "enter_ota"
+        notes: "The Smart Lock is one of the app's encrypted-protocol types, so it takes enter_ota in the encrypted framing."
+      dfu_mode:
+        address_offset: 1
+        notes: "Bootloader at the unit's address + 1 (last byte only). The name is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Hardware version 20-60 takes Realtek, and any other takes the stack
+        its advertised UUIDs name, normally Nordic Secure DFU. The vendor
+        server has Nordic and Realtek images for both models. From static
+        analysis of the vendor app and the vendor's published images, not
+        run on hardware.
+  - type: "firmware_update"
+    variants: ["Curtain 3"]
+    dfu:
+      mechanisms: ["realtek_ota"]
+      transport: "ble"
+      services: ["0000d0ff-3c17-d293-8e48-14fe2e4da212"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "Realtek RTL8762C OTA image (\"GM\" header)."
+      enter:
+        how: "command"
+        command: "enter_ota"
+      dfu_mode:
+        address_offset: 1
+        notes: "Bootloader at the unit's address + 1 (last byte only). The name is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        The app's selector returns Realtek for this device type
+        unconditionally, and the vendor server has only Realtek images for
+        it. From static analysis of the vendor app and the vendor's published
+        images, not run on hardware.
+  - type: "firmware_update"
+    variants: ["Color Bulb", "LED Strip Light", "Plug Mini", "Humidifier"]
+    dfu:
+      mechanisms: ["vendor_cloud"]
+      transport: "cloud"
+      image:
+        signing: "unknown"
+        source: "device_pulls"
+        format: "ESP32-family image (the Color Bulb's is an ESP-IDF ESP32-C3 image)."
+      enter:
+        how: "unknown"
+        notes: >
+          The app has a generic Wi-Fi update step. It sends [0x57, 0x0F, 0x0A,
+          0x01, <target version>] on the command channel and polls with
+          [0x57, 0x0F, 0x0B]; the unit then downloads the image itself.
+          Which of these four models use that step, rather than a
+          model-specific one (the app has a separate Plug update step), is
+          not traced.
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        These are Wi-Fi products. Evidence that they update over Wi-Fi and
+        not through a BLE bootloader: the app explicitly skips the BLE
+        update check for the Humidifier. The vendor server has no
+        chipset-suffixed BLE images for any of the four, only plain Wi-Fi
+        images. Public Plug Mini research shows it fetching its image over
+        HTTP from the vendor server. The BLE path is not ruled out for the
+        Bulb and Strip. The app's selector would fall back to Nordic for
+        them if a BLE image were ever listed.
 
 entities:
   - platform: "switch"
@@ -418,6 +685,14 @@ entities:
     device_class: "battery"
     unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_level"
+    notes: >
+      Bound to the standard Battery Level characteristic, which most SwitchBot
+      firmware does not expose (see that characteristic's notes); the
+      reliable battery source is service-data byte 2 of the advertisement,
+      which has no characteristic to bind. Expect this tile to read
+      unavailable on most units.
 
 helpful_urls:
   - title: "Home Assistant SwitchBot integration"

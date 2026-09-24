@@ -8,6 +8,185 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Firmware update, declared.** `features[type: firmware_update]` now
+  requires a `dfu` block covering the update stack(s) (closed enum:
+  Nordic Secure/legacy DFU, MCUboot SMP, TI OAD, Telink, Silicon Labs,
+  Espressif, JieLi and others). It also states image signing and source, how
+  the device enters update mode (and which `advanced` command or HTTP
+  endpoint does it), how the device appears in update mode (name, service,
+  address offset, SoftAP, advert flag), which GATT services belong to the
+  update path, and what an interrupted update leaves behind. A consumer
+  checks `dfu_mode` before identification, so a bootloader is shown as
+  "this product, mid-update" instead of an unknown device or a controllable
+  one. `registries/dfu-signatures.tsv` holds each stack's UUIDs and default
+  bootloader names, so any bootloader is recognisable. The new page
+  `docs/protocols/firmware-update.md` gives the per-stack behaviour with
+  sources. `http_endpoints` entries can now be `advanced` (WLED `/update`,
+  Rachio `/fwupdate`). A `features` entry can be scoped to some `variants`,
+  so a family whose boards update differently (hello-fairy) states each
+  board's path. The DFU-capable specs in the catalogue declare the
+  block, and DFU-entry opcodes that lived only in prose are now `advanced`
+  commands.
+
+- **Alternative credentials, bit fields, frame selection, per-unit scales
+  and narrowed UDP probes** (PR #61 review). Root `auth_schemes` plus a
+  command's `auth` list let one command accept either of two credentials.
+  Sony Bravia's 56 commands take the PSK or the PIN-pairing cookie, and PIN
+  pairing is now an executable `act_register`. `issues_credentials` gains
+  `reply_cookie` (a Set-Cookie token) and `user_entered` (a value the user
+  types in). BLE `format` fields gain `mask`, characteristics gain
+  `format_match`, and the number-semantics block gains `unit_scales`:
+  Hotwired's battery gauge and CC-only status decode are declared, and
+  the Mi Scale's lb/jin readings scale correctly. `udp_broadcast` gains
+  `response_match` and `platform_fallback`, and `ssdp` gains
+  `platform_fallback`: the Yeelight cube no longer ties with every
+  Yeelight bulb.
+
+- **`headers` on a network command, and a literal `body` for HTTP.** A
+  command can now say which request headers it sends, with the same `{name}`
+  substitution as `body` and `path` — so a bearer credential (`AUTH:
+  "{auth_token}"`, `X-Auth-PSK: "{psk}"`) rides from a `credential:`
+  parameter instead of living in prose. Vizio SmartCast's 49 commands and
+  Sony Bravia's 56 declare theirs; Vizio's key presses became literal
+  `KEYLIST` bodies, its pairing became `pair_start`/`pair_confirm` with
+  `issues_credentials`, and its three bare state paths became authenticated
+  `get_*` commands. Sony's JSON-RPC state reads are `commands` entries with
+  their POST body. The schema now requires `path`+`method` on `transport:
+  http`, `body` on `tcp-json`, drops `ble` from the network transport enum,
+  and gives network parameters the BLE `auto`/`checksum_start`/`checksum_xor`
+  vocabulary (magic-home's `sum_checksum` was a spelling nothing knew).
+  `state_command` is defined as a NAME that must resolve to a `commands`
+  key, an `http_endpoints` name or a characteristic command, and a test
+  enforces it; another diffs every literal `body` against its
+  `example_body`, and lg-webos gained an `example_body` on all 32 commands.
+
+- **Discovery beyond mDNS and SSDP, declared.** `udp_broadcast` gains
+  `multicast_group` and `listen_port` (Govee sends to 4001 and hears replies
+  on 4002; Yeelight probes a multicast group on 1982) and a documented
+  `tlv:`/`json:`/`header:` dialect for `identity_mapping.source`; the Govee
+  RGBIC and both Yeelight specs declare their probes and the `govee-lan` /
+  `yeelight-ssdp` `lan_protocols` tokens. A new `ws_discovery` method
+  carries the WS-Discovery Probe ONVIF devices actually answer, with
+  `onvif.yaml` as its `platform_fallback`; the dead
+  `urn:schemas-onvif-org:service:Media` SSDP target is gone from all four
+  camera specs, and the three vendor ones identify by their IEEE MAC blocks
+  (`medium`, with the working shown). `identification.ssdp_match` narrows a
+  shared search target on the description document the way `mdns_txt_match`
+  narrows a service type (Hisense: `manufacturer == Hisense`). Logitech
+  Harmony's four unsendable http commands became a `websocket` block with
+  the hbus frame and seven commands transcribed from aioharmony;
+  yeelight-cube-lamp no longer claims `_miio._udp` unnarrowed; Bambu Lab
+  declares `mqtt.transport_security: tls`.
+
+- **`registries/shared-service-types.tsv`** — the mDNS types and SSDP
+  targets that prove nothing on their own (`_hap`, `_http`, `_googlecast`,
+  `upnp:rootdevice`, `MediaRenderer:1`, `_matter`, `_meshcop`, ...), one row
+  with a reason each, so a consumer's "never promote on this alone" list is
+  a registry refresh rather than a code change. Tested by
+  `scripts/test_registries.py`; documented in `registries/README.md`.
+
+- **The printer/display family's wire contracts are declared, not described.**
+  Twelve of GAPS.md's "mobile handlers' schema asks" were places where a
+  handler hard-coded bytes the spec only narrated. `cat-printer` and
+  `cat-printer-mxw01` now carry `commands:` on their control characteristics
+  (opcode set, lattice markers, the A3/BE/A9 payload bytes, `set_energy` with
+  its endianness stated, `draw_bitmap` as a 48-byte row); `fichero-d11-printer`
+  declares its ten `10 FF` opcodes, wake-up, `GS v 0` raster and form feed once
+  and shares the block between its two write characteristics by YAML anchor;
+  `idotmatrix` moves the 4096-byte framing onto 0xFA02 — where the app writes —
+  and declares `upload_image_chunk`/`upload_gif_chunk` with the header's
+  display-time and material-type bytes as defaulted parameters;
+  `bluetooth-led-name-badge` turns `write_badge_data` into the 64-byte header
+  template with the nine-entry mode table as `allowed`/`labels`;
+  `magic-display` gives DATS's `link_flag` its two values and labels. Every
+  byte is `verification: reported`, from the open-source clients each spec
+  names.
+
+- **`auto: crc8`** — CRC-8 poly 0x07, init 0x00, no reflection, no final xor
+  (CRC-8/SMBUS), over the same `checksum_start` span as the other roles. The
+  cat printers put it after the payload only (`checksum_start: 6`). A whole
+  algorithm as one enum value, for the reason `crc16_modbus` is.
+
+- **`framing.scheme: length_prefixed_le16`** — a two-byte little-endian
+  length of the logical packet, then the packet, split into `max_chunk_size`
+  writes. Registered beside `daniao_fragment` so `rabbit-air-purifier` can
+  declare its GATT channel as an ordinary `services[].characteristics[]`
+  entry (`properties: [write, indicate]`) instead of keeping the UUIDs in
+  `protocol_details` where nothing parsed them.
+
+- **`role` on a BLE characteristic** — `command | bulk | stream | notify`,
+  optional, for a service with more than one writable characteristic. Magic
+  Display's bulk channel was being picked by the string "WRITE2" in `name`.
+
+- **More fields on the `image_upload` feature, and a `raster_print` marker.**
+  `max_palette_colors` (absent = no constraint; 2 on the seven 1-bit devices,
+  so an editor stops applying one codec's 16-colour ceiling to all of them),
+  `max_payload_bytes` (the badge's 8192-byte flash), `print_density` and
+  `paper_type` (`allowed`/`labels`/`default`/`command`, on the Fichero),
+  `print_geometry` and `media[]` (Brother's head geometry and the DK roll
+  table, promoted out of `protocol_details` and extended to every roll
+  brother_ql lists for the model). `features[].type: raster_print` says the
+  upload IS the device — a raster printer resolves no entities and a consumer
+  keeps it anyway; declared beside `image_upload`, never instead of it, on the
+  five raster printers.
+
+- **A role binding may fix arguments: `entities[].commands.<role>` is a name
+  or `{command, values}`.** A role could name a command and nothing else, so
+  a device whose verbs are one opcode plus a selector byte could not express
+  itself — FTMS stops and pauses with the same `stop_or_pause` write, told
+  apart by its `control` byte, and the two bytes lived in a consumer's widget
+  (S-13). The object form binds the command and the literal; `values` keys
+  must be parameters the command declares. String bindings are untouched.
+  `ftms-fitness-machine-service` carries the worked example; the UREVO UR
+  class gained the button entities its `ur_*` verbs lacked.
+
+- **`entities[].bands` — the vendor's own verdict thresholds** (S-19). The
+  mobile consumer banded every radon, CO₂, VOC and humidity reading with one
+  vendor's shipped defaults. The key states them per entity, in the entity's
+  unit, as `{level: good|fair|poor, above?, below?}` with a two-sided form for
+  humidity's good-in-the-middle shape. `airthings-wave-family` declares the
+  100/150 Bq/m³, 800/1000 ppm, 250/2000 ppb and 25/30/60/70 %RH defaults its
+  own UI-settings command reads back.
+
+- **`device.managed_by` and `identification.platform_prefixes`** (S-09). A
+  spec can now say its devices are driven through a controller — which spec
+  documents it and how to recognise it among scan results — and a spec that
+  covers a product line behind one discovery protocol can carry the
+  platform-string → pictogram table (with a per-row `spec` hand-off and
+  `verification`) that the consumer held as a Dart list. `unifi-protect-camera`
+  points at `ubiquiti-unifi-device`, which now lists seventeen Ubiquiti
+  platform prefixes with their evidence; pytest checks both references resolve.
+
+- **`payload_formats.<name>.envelope` — an outcome envelope as data** (S-08).
+  "HTTP 200, read the verdict from the body" was six prose parse rules on the
+  Hue bridge, transcribed by hand into a transport class. The block declares
+  the container, the success/error keys, where the error type and text live,
+  and classifies error types as `retry` / `repair` / `precondition` /
+  `terminal`. `hue-bridge` carries its 101 / 1 / 201 rules that way; the prose
+  stays beside it.
+
+- **`initialization` steps declare `subscribe`, `when`, `description` and
+  `notes`, and the step object is closed.** Six specs already used the first
+  three and nothing said what a consumer should do with them: `subscribe:
+  true` is an operation (SmartDawn opens both notify channels before anything
+  is sent), a step with only `description` is a handshake a client must
+  implement itself (Schlage's per-session SPAKE2), and `when:
+  before_each_command` states as data what KingSmith's MC-21 demands — its
+  ODM pre-amble before EVERY control-point write, not once per connection.
+  The array's description now says which steps are executable and which are
+  documentation.
+
+- **`device.identification` is closed, and declares `notes`,
+  `zigbee_model_id`, `zigbee_manufacturer_names` and `zwave_manufacturer_id`.**
+  Three specs kept their advertised names under `advertisement_names`,
+  `local_name` and `local_name_contains` — keys no scanner reads — and
+  validated while matching nothing (R-221). Forty more carried an
+  `identity_keys` duplicate of `discovery.identity`. The stray keys are gone
+  (names renamed to `local_names`, a substring test moved to the discovery
+  matcher, prose to `notes`, catalogue material to `protocol_details`), the
+  near-miss test names the key that was meant, and the two Zigbee/Z-Wave
+  identification signals that were real are declared rather than swept.
+
 - **`personal_care` joins the `device.category` closed vocabulary** (additive,
   minor). The first IPL hair-removal specs (FOREO Peach 2, Braun Silk-expert
   Pro 5, Silk'n Infinity) landed on a vocabulary with no grooming/cosmetic
@@ -45,7 +224,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   second is the half that issues credentials. Stages do not nest, carry no
   `role`, and a method has `steps` or `stages`, never both.
 
+- **`device_class` on a BLE characteristic's `format` fields** (additive). A
+  spec could say what class a *control* is (`entities[].device_class`) but
+  not what class a *reading* is, so the one consumer that registers readings
+  with a home-automation platform was deciding between `battery`, `humidity`
+  and `temperature` by grepping the field's name for `batt`, `humid` and
+  `temp`. The key now lives on the field too, and both places `$ref` one
+  `$defs/device_class` definition so the two are spelled alike; a test checks
+  that a field and the entity bound to it agree. Stated on the fields the
+  next bullet adds and on nothing else yet.
+
+- **`format:` blocks for the sensor readings that had none.** Seventeen BLE
+  specs declared `sensor`/`binary_sensor` entities on characteristics that
+  carried no `format`, so a binding-only consumer listed the tiles and could
+  never fill them. Eleven of those now decode: the SIG Battery Level,
+  Temperature and Humidity characteristics (LYWSD03MMC, iTag, Gerbing,
+  SwitchBot, TTLock), the Concept2 PM5 status frames from the vendor-published
+  interface definition, the Onewheel big-endian shorts from pOneWheel, the
+  iBBQ probe stream and battery reply, the Mi Scale v1 weight frame and v2
+  body-composition frame, the iTag button event, the Hotwired `CC` status
+  report, and the Niimbot D110 heartbeat. The other six — Astral, Chef iQ,
+  Fardriver, Motool, Spider Farmer, and the S400's encrypted CSV — are
+  framed, multiplexed or encrypted streams one flat offset table cannot
+  describe; each now says so in `remaining_unknowns`, with the offsets that
+  ARE known, rather than carrying a binding that can never resolve.
+
 ### Changed
+
+- **A BLE command declares `value` or `template`, never both** (schema
+  `not: {required: [value, template]}`). xkglow-chrome's `set_rgb_color`
+  carried a fixed red beside a parameterised template; the encoder sent the
+  constant, the zone/RGB controls did nothing, and the light lost its
+  `set_color` role (R-141/R-214). The command is now the template with `zone`
+  defaulting to zone 1, and the light's `turn_on`/`turn_off` bind separate
+  fixed `turn_on_white`/`turn_off_black` commands.
+
+- **`discovery.methods[].ble.manufacturer_data.pattern` is measured after the
+  company-id bytes**, and its description says so; `mask` must match the
+  pattern's length and `masked` compares `payload & mask == pattern & mask`.
+  Nine matchers disagreed about the origin (S-06): the four company-id-21076
+  "TR" specs — ideal-led, magic-display, shining-glasses, shining-mask — had
+  repeated the id inside the pattern and are now `0061`/`0027`/`0041`/`004e`,
+  which is the only thing that tells them apart. A convention test catches a
+  pattern that begins with its own company id.
+
+- **A BLE command parameter's enumeration is `allowed` + `labels`; `values`
+  is rejected there.** Nine parameters in elk-bledom-led-strip, lotuslamp-x
+  and wl-smartled-pixel-strips wrote the decode-side `values: {0: off, 1:
+  on}` table that reaches the block through `number_semantics` (S-04); a
+  consumer implementing the declared vocabulary drew a 0–255 slider over a
+  two-position switch.
+
+- **UUID fields are lower-case throughout the catalogue** — 154 `uuid` /
+  `characteristic` / `service_uuids` values in eight specs (bosch-ebike,
+  braun, kwikset-kevo, nuki, oral-b-io, safetech, thermopro, xkglow)
+  re-spelt, hyperice-hypervolt-plus's handshake characteristic among them
+  (S-03) — and a convention test pins it.
+
+- **The three LOY SPACE / popled.cn specs no longer tie three ways on every
+  `YS*` scan** (R-223). All three vendor apps filter on the same `["YS",
+  "TL"]` prefixes and service 0xFFF0 and nothing on the air tells the
+  products apart, so autobaba-led-backpack is the family fallback and claims
+  the BLE signals; nyan-bt-image-controller and led-space state the tie in
+  `remaining_unknowns` and claim none (led-space's discovery is now its real
+  path, the UDP 9090 dev_info probe). divoom-pixoo's identification is
+  `local_name_prefixes` plus `default_port: 9000`, with the setup-time BLE
+  advertisement as a `ble_scan` discovery method instead of `none` (R-220).
 
 - **Setup methods are ordered for a reader working down the list**, not by
   when they were written: the recommended route and its alternatives easiest
@@ -58,6 +302,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `scripts/test_device_specs.py` enforces the mechanical parts of the rule.
 
 ### Fixed
+
+- **Wrong bytes and wrong matchers found while checking the review.**
+  - iKettle's `boil`/`stop` bodies were decimal command IDs written as
+    hex (`21`/`22`, which are other real commands). They are now
+    `15`/`16`, every ID is spelled "0x15 (21)", the 2.0 gets its own
+    hard reset and a `reset_wifi` command, and the 3rd-generation base
+    reset is labelled as such.
+  - Shining Mask's scan pattern is `004a`, not `004e`.
+  - led-helmet-display's "name prefix" was an OTA project number; it is
+    now identified by its `54 52 00 74` manufacturer data, not by
+    JieLi's generic `ae00`.
+  - hello-fairy's ESP32 variant no longer identifies on a GATT-only
+    Silicon Labs UUID.
+  - m6's `…dcca9d` UART UUIDs are confirmed from the firmware (not a
+    typo), and it identifies by name and manufacturer data rather than a
+    service it never advertises.
+  - Nuki's Opener, Smart Door, Door Sensor, Keypad and 5th-generation
+    Smart Lock are separate top-level GATT services from the official
+    APIs. The "Keypad" and "Door Sensor" UUIDs were other products'.
+    Paired locks and Openers are found by their iBeacon.
+  - ThermoPro's update applies to the TP980 only.
+  - SwitchBot's update stacks are mapped per model group, with an
+    `enter_ota` command.
+
+- **PR #61 review and follow-ups.** Nuki's keyturner GATT is now three
+  top-level services (Initialization, Pairing, Keyturner). The pairing and
+  command services used to be listed as characteristics of the
+  initialization service. Hotwired no longer claims 0xFFB0 as an advertised
+  identification signal. UniFi Protect's host prefix is `UDMPRO`, not
+  `UDM`, because the base Dream Machine does not host Protect. Vevor
+  VT256's SSID identity key, lost with `identity_keys`, is back as
+  `discovery.identity`. AdMore's `enter_dfu` is `advanced`. Every 128-bit
+  UUID in the specs and docs is lowercase, and a test keeps it that way.
 
 - **mopeka-pro-check-ble: two procedures that were not factory resets.** The
   block said `applicable: unknown` and `effect: no documented factory reset`

@@ -37,7 +37,6 @@ device:
     # Flat here, like Wemo's, so a client watching the air for adoptable
     # hardware reads one key per spec.
     ssid_prefix: "LIFX"
-    ssid_examples: ["LIFX Z 04A3C1", "LIFX Bulb"]
     default_port: 56700
     # Synthetic search target for the LIFX LAN protocol. A device does not
     # answer this over SSDP; a client emits it after a UDP GetService broadcast
@@ -46,9 +45,6 @@ device:
     # sighting earns. This is the strong signal the Matter caveat needs, since
     # Matter-firmware units drop _hap._tcp entirely.
     ssdp_search_targets: ["lifx:udp"]
-    identity_keys:
-      primary: "mac"
-      display: "name"
 
   discovery:
     methods:

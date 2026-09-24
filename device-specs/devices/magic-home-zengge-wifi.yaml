@@ -202,12 +202,12 @@ commands:
   turn_on:
     description: "Power on. Frame: 71 23 0F <checksum>."
     transport: "tcp-json"
-    body: "71 23 0F 0F"
+    body: "71 23 0F A3"
     verification: "reported"
   turn_off:
     description: "Power off. Frame: 71 24 0F <checksum>."
     transport: "tcp-json"
-    body: "71 24 0F 04"
+    body: "71 24 0F A4"
     verification: "reported"
   set_color:
     description: >
@@ -231,8 +231,12 @@ commands:
         description: "White channel 0-255 (0 for RGB-only fixtures)."
       checksum:
         type: "uint8"
-        auto: "sum_checksum"
-        description: "(sum of preceding bytes) & 0xFF; encoder-filled."
+        # Additive sum over the WHOLE frame -- the 0x31 opcode is covered
+        # (protocol_details: "last byte = (sum of all preceding bytes) &
+        # 0xFF"), so the span starts at byte 0, not the schema's default 1.
+        auto: "checksum"
+        checksum_start: 0
+        description: "(sum of all preceding bytes, from the 0x31 opcode) & 0xFF; encoder-filled. Check: 31 FF 00 00 00 F0 0F -> 0x2F."
     verification: "reported"
   query_state:
     description: "Query power/colour state. Frame: 81 8A 8B <checksum>. Reply begins 0x81 (modern) or 0x66 (original)."

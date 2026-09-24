@@ -95,14 +95,13 @@ device:
     # so matching on it would claim each of them might be a WLED controller.
     # _wled._tcp is the vendor-specific one, and it is the one that identifies.
     # The discovery block below still documents both.
-    hostname_pattern: "wled-XXXXXX"
-    hostname_notes: >
-      Default mDNS name is "wled-" plus the last six hex characters of the
-      MAC, set in wled00/wled.cpp when the configured name is still the
-      compile-time default. Users can and do change it, so it is a hint for
-      display, never an identity key.
     ssid_prefix: "WLED-AP"
     default_port: 80
+    notes: >
+      Default mDNS hostname matches wled-XXXXXX: "wled-" plus the last six
+      hex characters of the MAC, set in wled00/wled.cpp when the configured
+      name is still the compile-time default. Users can and do change it, so
+      it is a hint for display, never an identity key.
 
   discovery:
     methods:
@@ -560,14 +559,22 @@ http_endpoints:
       compatibility and still the easiest thing to fire from a shell script or
       a button macro. New clients should use the JSON API; this one is
       documented because devices and integrations in the wild still speak it.
-  - method: "GET"
+  - method: "POST"
     path: "/update"
     name: "OTA firmware update"
     description: >
-      ArduinoOTA-style web upload for firmware replacement. Gated by the OTA
-      lock passphrase when that is enabled in Security settings. Listed for
-      completeness — the ability to replace the firmware is the freedom that
-      makes the rest of this spec unnecessary in the first place.
+      Firmware replacement over HTTP: the .bin is POSTed to /update as a
+      multipart form upload (a GET on the same path serves the upload page).
+      Distinct from the UDP ArduinoOTA listener. Gated by the OTA lock passphrase when
+      that is enabled in Security settings. Listed for completeness — the
+      ability to replace the firmware is the freedom that makes the rest of
+      this spec unnecessary in the first place.
+    advanced: true
+    advanced_reason: >
+      Replaces the controller's firmware. A build for the wrong chip or board
+      can leave it unreachable over the network until it is reflashed over
+      USB. Export /presets.json first: it is the backup of what a reflash can
+      lose.
 
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
@@ -839,6 +846,42 @@ commands:
   # is not documented anywhere in this spec — the /json/state request_body
   # fields cover on/bri/transition/ps/seg/v only. Writing one would be a guess
   # at a colour format, so the gap is left visible instead.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["http_upload"]
+      transport: "http"
+      endpoint: "OTA firmware update"
+      image:
+        signing: "unsigned"
+        source: "public_url"
+        format: "Raw application .bin for the controller's chip (ESP32 or ESP8266 build), as published with each WLED release."
+        notes: >
+          Releases are published at https://github.com/wled/WLED/releases,
+          and forks (WLED SR, MoonModules) publish their own. Nothing checks
+          a signature: the OTA lock passphrase is the only gate, so with the
+          lock off anything that reaches port 80 can replace the firmware.
+      enter:
+        how: "in_place"
+        notes: >
+          The running firmware takes the upload itself and reboots into the
+          new image when it completes. GET /update serves the upload form,
+          and the form posts the file back to /update as a multipart upload
+          (wled00/wled_server.cpp).
+      recovery:
+        interrupted: "keeps_old_image"
+        notes: >
+          Platform default, not verified on a unit here: the ESP32 update
+          library writes to the non-running OTA slot and switches only on
+          success, and the ESP8266 updater stages the image in free flash
+          before copying it. A controller that will not boot is reflashed
+          over USB serial.
+      verification: "reported"
+      notes: >
+        WLED builds can also carry an ArduinoOTA listener (UDP), which this
+        spec does not document, so espressif_ota is not listed. Not
+        exercised by this project.
 
 entities:
   - platform: "light"

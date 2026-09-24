@@ -58,8 +58,22 @@ device:
 
   identification:
     default_port: 80
-    ssdp_search_targets:
-      - "urn:schemas-onvif-org:service:Media"
+    # No SSDP target: ONVIF devices announce nothing over SSDP (the
+    # `urn:schemas-onvif-org:service:Media` target this used to claim is a
+    # WSDL-namespace-shaped string no device answers an M-SEARCH for).
+    # Discovery is WS-Discovery on UDP 3702, which onvif.yaml declares as
+    # the platform catch-all; what THIS device volunteers on its own is its
+    # vendor's MAC block, which ranks a candidate but never identifies it.
+    mac_prefixes:
+      - prefix: "3C:EF:8C"
+        confidence: "medium"
+        notes: "Dahua's own IEEE MA-L block (registries/ieee-oui.tsv: Zhejiang Dahua Technology Co., Ltd.); Amcrest units are Dahua OEM hardware and ship on Dahua blocks. Covers Dahua's whole catalogue -- cameras, NVRs, DVRs, intercoms -- so it ranks a device as 'something Dahua built', never as this spec."
+      - prefix: "4C:11:BF"
+        confidence: "medium"
+        notes: "Dahua's own IEEE MA-L block (registries/ieee-oui.tsv: Zhejiang Dahua Technology Co., Ltd.); Amcrest units are Dahua OEM hardware and ship on Dahua blocks. Covers Dahua's whole catalogue -- cameras, NVRs, DVRs, intercoms -- so it ranks a device as 'something Dahua built', never as this spec."
+      - prefix: "A0:BD:1D"
+        confidence: "medium"
+        notes: "Dahua's own IEEE MA-L block (registries/ieee-oui.tsv: Zhejiang Dahua Technology Co., Ltd.); Amcrest units are Dahua OEM hardware and ship on Dahua blocks. Covers Dahua's whole catalogue -- cameras, NVRs, DVRs, intercoms -- so it ranks a device as 'something Dahua built', never as this spec."
 
   discovery:
     methods:

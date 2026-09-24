@@ -61,7 +61,7 @@ device:
       4. Read SETTING → triggers read of CONTROLLER_CONFIG
       5. Read CONTROLLER_CONFIG → device ready
 
-    SCAN FILTER: Advertised service UUID 458A7133-0000-4E37-A4A4-5D8492586977.
+    SCAN FILTER: Advertised service UUID 458a7133-0000-4e37-a4a4-5d8492586977.
     Device name from BLE advertisement.
 
     PRODUCT LINE: XKchrome is the vendor's 3rd-gen controller line (XKalpha
@@ -78,14 +78,14 @@ device:
 
   identification:
     service_uuids:
-      - "458A7133-0000-4E37-A4A4-5D8492586977"
+      - "458a7133-0000-4e37-a4a4-5d8492586977"
 
   discovery:
     methods:
       - type: "ble_scan"
         ble:
           service_uuids:
-            - "458A7133-0000-4E37-A4A4-5D8492586977"
+            - "458a7133-0000-4e37-a4a4-5d8492586977"
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -104,14 +104,14 @@ device:
         verified: false
         description: >
           Scan for BLE advertisement with service UUID
-          458A7133-0000-4E37-A4A4-5D8492586977. Connect, discover services,
+          458a7133-0000-4e37-a4a4-5d8492586977. Connect, discover services,
           run chained initialization reads to detect zone count and type.
           Write 6-byte colour/mono commands to ZONE_COMMAND for lighting
           control. Write animation sequences for effects.
         ble:
           pairing_required: false
         steps:
-          - action: "Scan for BLE advertisements with service UUID 458A7133-0000-4E37-A4A4-5D8492586977."
+          - action: "Scan for BLE advertisements with service UUID 458a7133-0000-4e37-a4a4-5d8492586977."
             actor: "client"
             request:
               protocol: "ble_gatt"
@@ -161,7 +161,7 @@ services:
         notes: >
           Human-readable controller name. UTF-8 string. Read triggers the
           initialization chain: on receive, app reads ZONE_1_NAME. Also
-          writable — EditDeviceInfo renames the controller through the
+          writable — the app's device-settings editor renames the controller through the
           app's write chain.
 
       - uuid: "458a7133-0006-4e37-a4a4-5d8492586977"
@@ -170,7 +170,7 @@ services:
         notes: >
           Human-readable name for zone 1. UTF-8 string. On receive, app
           reads ZONE_2_NAME (if multi-zone) or SETTING. Also writable —
-          EditDeviceInfo renames zones (after a zone-1 rename, firmware
+          the app's device-settings editor renames zones (after a zone-1 rename, firmware
           revisions with (fwRev & 0x0F) == 8 trigger a chained settings
           write).
 
@@ -179,7 +179,7 @@ services:
         properties: ["read", "notify", "write"]
         notes: >
           Human-readable name for zone 2. UTF-8 string. On receive, app
-          reads SETTING. Also writable — EditDeviceInfo renames zones.
+          reads SETTING. Also writable — the app's device-settings editor renames zones.
 
       - uuid: "458a7133-0003-4e37-a4a4-5d8492586977"
         name: "Settings"
@@ -189,7 +189,7 @@ services:
           Byte 0: brake enabled (0=disabled, non-zero=enabled).
           Byte 1: auto-off enabled (0=disabled, non-zero=enabled).
           On receive, app reads CONTROLLER_CONFIG. Also writable —
-          EditDeviceInfo writes settings as 7-byte frames containing a
+          the app's device-settings editor writes settings as 7-byte frames containing a
           0x2C byte.
         format:
           - offset: 0
@@ -233,7 +233,7 @@ services:
         properties: ["write", "write_without_response"]
         notes: >
           Command write characteristic. All writes use WRITE_TYPE_NO_RESPONSE
-          (setWriteType(1)). Receives colour, mono, animation, and stop commands.
+          (write without response). Receives colour, mono, animation, and stop commands.
           The same 0009 transport also carries the app's music-sync streaming
           (SendMusicMultiColor/SendMusicSingleColor payload managers),
           smart-sensor pattern writes (SetSmartSensorPattern, gated on
@@ -243,15 +243,22 @@ services:
           further decoded here.
         commands:
           set_rgb_color:
-            description: "Set solid RGB colour for a zone."
+            description: >
+              Set solid RGB colour for a zone. `zone` is the 0-based zone
+              index (0x00 = zone 1) and defaults to zone 1, so a colour picker
+              bound to this command drives zone 1; a multi-zone install sends
+              one write per zone. A previous revision also carried a fixed
+              `value` (zone 1, pure red) beside this template; the two
+              envelopes contradicted each other and the fixed one won, which is
+              why the on/off commands below are separate fixed commands.
             verification: "reported"
-            value: [0x00, 0x00, 0x04, 0xFF, 0x00, 0x00]
             template: [0x00, "{zone}", 0x04, "{red}", "{green}", "{blue}"]
             parameters:
               zone:
                 type: "uint8"
                 min: 0
                 max: 255
+                default: 0
               red:
                 type: "uint8"
                 min: 0
@@ -265,6 +272,29 @@ services:
                 min: 0
                 max: 255
 
+          turn_on_white:
+            description: >
+              Turn zone 1 on at full white: the colour write
+              [0x00, zone 0x00, 0x04, 0xFF, 0xFF, 0xFF]. The controller has no
+              separate power opcode in the traced app code — "on" is a colour
+              write and "off" is black — so this is the fixed form of
+              set_rgb_color that a light entity's turn_on role can send with no
+              user input. Zone 0x00 is zone 1, not a broadcast; the spec has
+              found no all-zones address.
+            verification: "reported"
+            value: [0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF]
+
+          turn_off_black:
+            description: >
+              Turn zone 1 off by writing black: [0x00, 0x00, 0x04, 0x00, 0x00,
+              0x00]. Hypothesis by construction — the colour write format is
+              reported from the app, but no dedicated off command was traced
+              and writing all-zero channels as "off" has not been confirmed on
+              hardware. On a mono zone the same frame via set_mono_brightness
+              with brightness 0 is the equivalent.
+            verification: "hypothesis"
+            value: [0x00, 0x00, 0x04, 0x00, 0x00, 0x00]
+
           set_mono_brightness:
             description: "Set mono (single-channel) brightness for a zone. Writes the same value to all three colour positions."
             verification: "reported"
@@ -274,6 +304,7 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
+                default: 0
               brightness:
                 type: "uint8"
                 min: 0
@@ -288,9 +319,10 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
+                default: 0
 
           set_default_brightness:
-            description: "Set default brightness configuration (10-byte system command). Observed in setBrightnessDefault: writes [0x00, 0x03, 0x06, 0x06, 0x81, 0x9E, 0x06, 0x00, 0xFF, 0x00]."
+            description: "Set default brightness configuration (10-byte system command). Observed in the app's default-brightness writer: writes [0x00, 0x03, 0x06, 0x06, 0x81, 0x9E, 0x06, 0x00, 0xFF, 0x00]."
             verification: "reported"
             value: [0x00, 0x03, 0x06, 0x06, 0x81, 0x9E, 0x06, 0x00, 0xFF, 0x00]
 
@@ -312,6 +344,7 @@ services:
                 max: 255
               chunk_data:
                 type: "bytes"
+                max_length: 19
 
       - uuid: "458a7133-0005-4e37-a4a4-5d8492586977"
         name: "Time Characteristic"
@@ -332,7 +365,8 @@ entities:
     features: ["brightness", "color", "effect"]
     state_characteristic: "458a7133-0001-4e37-a4a4-5d8492586977"
     commands:
-      turn_on: "set_rgb_color"
+      turn_on: "turn_on_white"
+      turn_off: "turn_off_black"
       set_color: "set_rgb_color"
       set_brightness: "set_mono_brightness"
       set_effect: "write_animation"

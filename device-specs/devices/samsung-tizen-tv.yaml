@@ -59,10 +59,6 @@ device:
     # it with a txt manufacturer=samsung* filter, which is a ranking hint,
     # not an identification. The SSDP targets above are the signal.
     default_port: 8001
-    identity_keys:
-      primary: "udn"
-      secondary: "duid"
-      display: "friendlyName"
 
   discovery:
     methods:

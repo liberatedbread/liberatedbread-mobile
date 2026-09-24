@@ -96,7 +96,7 @@ the model string the device reports. On the common ST17H66-based units the
 update runs over a dedicated OTA service (`5833ff01-…`): writing `[01 02]`
 reboots the device into an OTA identity that re-advertises at **MAC+1**, then
 partitions (CRC16/MODBUS-checked) are streamed and a final `[04]` reboots into
-the new firmware. ESP32 SKUs use a Nordic-DFU-style service; Bluetrum (.fot)
+the new firmware. ESP32 SKUs use the Silicon Labs Gecko OTA service UUIDs (`1d14d6ee-…`, GATT only, never advertised); Bluetrum (.fot)
 SKUs are not yet mapped. Flashing firmware is an advanced operation — only use
 the image matching your model string.
 

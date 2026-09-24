@@ -17,11 +17,11 @@ device:
     notes: >
       Ubiquiti device discovery verified live 2026-08-14: a broadcast probe to
       255.255.255.255:10001 (v1 probe 01 00 00 00, v2 02 08 00 00) drew TLV
-      replies from a large real fleet, decoded per the type table — access
-      points bridged into Protect (platform "UFP-UAP-B", hosts "downstairs",
-      "UpstairsU6LR", "BedroomAP"), an EdgeSwitch 10X ("livingroom-switch",
-      model "EdgeSwitch 10X"), a UniFi NAS Pro ("UNASPRO"/"HCBackup"), a UNVR
-      ("UNVR-home") and a Cloud Key Gen2+ ("UCKP"/"cloudkey"). Each carried
+      replies from a large real fleet, decoded per the type table — three
+      access points bridged into Protect (platform "UFP-UAP-B"), an
+      EdgeSwitch 10X (model "EdgeSwitch 10X"), a UniFi NAS Pro ("UNASPRO"),
+      a UNVR and a Cloud Key Gen2+ ("UCKP"); hostnames were the user-set
+      names and are omitted here. Each carried
       platform (0x0c), hostname (0x0b), firmware (0x03) and MAC+IP (0x02),
       confirming the 1-byte-type / 2-byte-length-BE TLV framing and the field
       mapping. Identify-only: the app shows a pictogram and links to the
@@ -69,6 +69,90 @@ device:
     lan_protocols:
       - "ubiquiti-discovery"
     default_port: 10001
+    # The platform table: one UDP-10001 sweep finds the whole fleet, and the
+    # 0x0c platform string is what tells an NVR from an access point. Match
+    # by prefix, longest prefix wins. `confirmed` rows were read in live
+    # replies during the 2026-08-14 sweep (device.testing.notes and the
+    # camera spec's); `reported` rows are the prefixes this spec's own
+    # pictogram note and unifi-protect-camera.yaml name from Ubiquiti's
+    # public product naming; `hypothesis` rows are public product codes
+    # whose exact 0x0c spelling nobody here has read back yet. The three
+    # Protect hosts (UNVR, UDMPRO, UCKP) are what unifi-protect-camera.yaml's
+    # managed_by points at; the base UDM is deliberately not one of them.
+    platform_prefixes:
+      - prefix: "UVC"
+        pictogram: "ip-camera"
+        spec: "unifi-protect-camera"
+        description: "UniFi Protect cameras (UVC G3/G4/G5/G6, AI series) and the G4/G5 Doorbell; the string reads e.g. 'UVC G4 Pro'. Handled by the camera spec."
+        verification: "confirmed"
+      - prefix: "UFP-UAP"
+        pictogram: "wifi-ap"
+        description: "A UniFi access point bridged into Protect ('UFP-UAP-B')."
+        verification: "confirmed"
+      - prefix: "UAP"
+        pictogram: "wifi-ap"
+        description: "UAP-series access points (UAP-AC-Lite/LR/Pro, nanoHD)."
+        verification: "reported"
+      - prefix: "U6"
+        pictogram: "wifi-ap"
+        description: "U6-series Wi-Fi 6 access points."
+        verification: "reported"
+      - prefix: "U7"
+        pictogram: "wifi-ap"
+        description: "U7-series Wi-Fi 7 access points."
+        verification: "reported"
+      - prefix: "USW"
+        pictogram: "network-switch"
+        description: "UniFi switches (USW-Lite, USW-Pro, USW-Flex)."
+        verification: "reported"
+      - prefix: "US"
+        pictogram: "network-switch"
+        description: "Earlier UniFi switch naming (US-8, US-24). USW above wins on the longer match; the glyph is the same."
+        verification: "reported"
+      - prefix: "ES"
+        pictogram: "network-switch"
+        description: "EdgeSwitch ('ES-10X')."
+        verification: "confirmed"
+      - prefix: "UDMPRO"
+        pictogram: "cloud-key"
+        description: "Dream Machine Pro, and by prefix the SE and Pro Max ('UDMPROSE', 'UDMPROMAX'): the Dream Machines that host UniFi Protect. Wins over UDM below on the longer match. Spelling from community discovery output, not read back here."
+        verification: "hypothesis"
+      - prefix: "UDM"
+        pictogram: "cloud-key"
+        description: "Dream Machine consoles, for any spelling UDMPRO above does not catch -- the base UDM, which does not host UniFi Protect."
+        verification: "reported"
+      - prefix: "UDR"
+        pictogram: "cloud-key"
+        description: "Dream Router. Public product code; platform spelling unread."
+        verification: "hypothesis"
+      - prefix: "UCKP"
+        pictogram: "cloud-key"
+        description: "Cloud Key Gen2 Plus, which hosts UniFi Protect."
+        verification: "confirmed"
+      - prefix: "UCK"
+        pictogram: "cloud-key"
+        description: "Cloud Key Gen1 and Gen2 ('UCK-G2'). UCKP above wins on the longer match."
+        verification: "reported"
+      - prefix: "UNVR"
+        pictogram: "nvr"
+        description: "UniFi Protect NVR (UNVR, UNVR-Pro)."
+        verification: "confirmed"
+      - prefix: "UNAS"
+        pictogram: "nas"
+        description: "UniFi NAS ('UNASPRO')."
+        verification: "confirmed"
+      - prefix: "UXG"
+        pictogram: "router"
+        description: "UniFi Next-Gen Gateways (UXG-Lite, UXG-Pro)."
+        verification: "reported"
+      - prefix: "UCG"
+        pictogram: "router"
+        description: "UniFi Cloud Gateways (UCG-Ultra, UCG-Max). Public product code; platform spelling unread."
+        verification: "hypothesis"
+      - prefix: "UGW"
+        pictogram: "router"
+        description: "UniFi gateways reporting as UGW (the Security Gateway family)."
+        verification: "reported"
     mac_prefixes:
       - "24:5A:4C"
       - "68:D7:9A"
@@ -80,10 +164,6 @@ device:
       - "1C:6A:1B"
       - "D0:21:F9"
       - "74:83:C2"
-    identity_keys:
-      primary: "mac"
-      secondary: "hostname"
-      display: "hostname"
 
   discovery:
     methods:

@@ -72,10 +72,6 @@ device:
   identification:
     mdns_service_type: "_androidtvremote2._tcp.local."
     default_port: 6466
-    identity_keys:
-      primary: "hostname"
-      secondary: "model"
-      display: "name"
 
   discovery:
     methods:

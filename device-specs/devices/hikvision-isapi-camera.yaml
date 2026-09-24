@@ -54,8 +54,22 @@ device:
 
   identification:
     default_port: 80
-    ssdp_search_targets:
-      - "urn:schemas-onvif-org:service:Media"
+    # No SSDP target: ONVIF devices announce nothing over SSDP (the
+    # `urn:schemas-onvif-org:service:Media` target this used to claim is a
+    # WSDL-namespace-shaped string no device answers an M-SEARCH for).
+    # Discovery is WS-Discovery on UDP 3702, which onvif.yaml declares as
+    # the platform catch-all; what THIS device volunteers on its own is its
+    # vendor's MAC block, which ranks a candidate but never identifies it.
+    mac_prefixes:
+      - prefix: "28:57:BE"
+        confidence: "medium"
+        notes: "Hikvision's own IEEE MA-L block (registries/ieee-oui.tsv: Hangzhou Hikvision Digital Technology Co.,Ltd.). Covers the whole Hikvision catalogue -- cameras, NVRs, DVRs, access control, and the HiLook/HiWatch sub-brands -- so it ranks a device as 'something Hikvision built', never as this spec."
+      - prefix: "44:19:B6"
+        confidence: "medium"
+        notes: "Hikvision's own IEEE MA-L block (registries/ieee-oui.tsv: Hangzhou Hikvision Digital Technology Co.,Ltd.). Covers the whole Hikvision catalogue -- cameras, NVRs, DVRs, access control, and the HiLook/HiWatch sub-brands -- so it ranks a device as 'something Hikvision built', never as this spec."
+      - prefix: "C0:56:E3"
+        confidence: "medium"
+        notes: "Hikvision's own IEEE MA-L block (registries/ieee-oui.tsv: Hangzhou Hikvision Digital Technology Co.,Ltd.). Covers the whole Hikvision catalogue -- cameras, NVRs, DVRs, access control, and the HiLook/HiWatch sub-brands -- so it ranks a device as 'something Hikvision built', never as this spec."
 
   discovery:
     methods:

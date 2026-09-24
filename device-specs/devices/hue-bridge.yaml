@@ -105,11 +105,6 @@ device:
     # probe), but Signify has announced HTTP retirement on the gen-2 bridge,
     # and mDNS advertises 443 on current firmware — prefer the advertised
     # port and HTTPS/CLIP v2 for new clients.
-    identity_keys:
-      primary: "bridgeid"
-      secondary: "mac"
-      tertiary: "udn"
-      display: "name"
 
   discovery:
     # Third method (no schema fit): N-UPnP cloud discovery at
@@ -348,7 +343,9 @@ payload_formats:
       answer HTTP 200 with a JSON ARRAY of outcome objects — one element per
       attribute touched, each either a success or an error — never a bare
       object. The HTTP status code says nothing; a client reads outcomes
-      from the envelope.
+      from the envelope. The `envelope` block below is the decodable form
+      of the parse_rules: container, success/error keys, and which error
+      types are a retry, a re-pair, or a documented precondition.
     parse_rules:
       - "Parse the body as JSON. An array is an outcome envelope, one element per attribute or request; a bare object is a successful GET reply."
       - "An element {\"success\": {…}} acknowledges one attribute write (key = attribute path, value = accepted value); {\"error\": {…}} carries integer `type`, string `address`, string `description`."
@@ -357,6 +354,35 @@ payload_formats:
       - "error.type 201 (parameter not modifiable) is the answer to writing bri while the light is off — carry \"on\": true in the same write, as light_set_brightness does."
       - "A mixed envelope is possible: a write touching two attributes can succeed on one and error on the other, so check every element."
     example: '[{"error":{"type":101,"address":"","description":"link button not pressed"}}]'
+    # The six parse_rules above, as data a decoder can follow. The prose
+    # stays as the readable form; this block is the executable one.
+    envelope:
+      container: "array"
+      success_key: "success"
+      error_key: "error"
+      error_type_path: "type"
+      error_description_path: "description"
+      error_types:
+        "101":
+          class: "retry"
+          description: "link button not pressed"
+          remedy: >
+            create_user's keep-polling signal, not a failure: send the same
+            request every couple of seconds through the ~30 s window until
+            the envelope turns into a success element.
+        "1":
+          class: "repair"
+          description: "unauthorized user"
+          remedy: >
+            The stored username no longer exists on the bridge (whitelist
+            entry deleted, or the bridge was reset). Retrying cannot succeed;
+            surface re-pairing through the link-button flow.
+        "201":
+          class: "precondition"
+          description: "parameter not modifiable"
+          remedy: >
+            The answer to writing bri while the light is off. Carry "on":
+            true in the same write, as light_set_brightness does.
 
 commands:
   create_user:

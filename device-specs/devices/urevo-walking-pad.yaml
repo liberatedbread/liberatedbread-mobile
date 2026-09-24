@@ -564,6 +564,34 @@ entities:
     variants: ["FT"]
     commands:
       press: "ft_stop"
+  # UR class. The five ur_* verbs were bound to nothing, so a consumer that
+  # renders from entities had to carry their names as a fallback list.
+  # Speed is deliberately not bound: ur_set_speed_and_slope takes device
+  # step counts whose absolute step is still TBD (see the command), so a
+  # km/h number entity would send the wrong bytes.
+  - platform: "button"
+    name: "Prepare"
+    key: "start"
+    variants: ["UR"]
+    commands:
+      press: "ur_training_prepared"
+  - platform: "button"
+    name: "Stop"
+    key: "stop"
+    variants: ["UR"]
+    commands:
+      press: "ur_training_stop"
+  - platform: "button"
+    name: "Pause"
+    key: "pause"
+    variants: ["UR"]
+    commands:
+      press: "ur_training_pause"
+  - platform: "button"
+    name: "Resume"
+    variants: ["UR"]
+    commands:
+      press: "ur_training_continue"
 
 helpful_urls:
   - url: "https://www.urevosports.com/"

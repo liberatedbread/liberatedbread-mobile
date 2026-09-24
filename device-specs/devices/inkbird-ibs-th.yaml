@@ -332,6 +332,42 @@ advertising:
   service_uuids:
     - "0000fff0-0000-1000-8000-00805f9b34fb"
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["phyplus_ota"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The app POSTs {bleDeviceName, bleVersion} as JSON to
+          https://api-inkbird.com/api/bleDevice/firmware; the response
+          carries the image's download URL. Image format and signing are not
+          established.
+      enter:
+        how: "unknown"
+        notes: >
+          How the sensor is put into the PhyPlus OTA mode is not recorded
+          (no vendor command on 0000fff0 is known to do it).
+      dfu_mode:
+        local_names: ["PPlusOTA"]
+        notes: >
+          In OTA mode the sensor answers as "PPlusOTA" and serves the PhyPlus
+          SLB service 0000feb3-0000-1000-8000-00805f9b34fb (write 0000fed5 /
+          0000fed7, notify 0000fed8) or the SHB service
+          5833ff01-9b8b-5191-6142-22a4536ef123. Whether those UUIDs are
+          advertised, and the update-mode address, are not recorded.
+          "PPlusOTA" is the generic PhyPlus OTA name, so it says "a PhyPlus
+          part in OTA mode", not "an Inkbird sensor" — tie it to this spec
+          only in context (the user just started an update on an sps/tps
+          sensor). It does not collide with the normal "sps"/"tps" names.
+          The same 5833ff01 service is what hello-fairy's ST17H66 serves.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: "App-derived (the Engbird app's update path); not run against hardware."
+
 entities:
   - platform: "sensor"
     name: "Temperature"

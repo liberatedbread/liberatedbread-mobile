@@ -76,9 +76,6 @@ device:
     mdns_service_type: "_slimprotocol._tcp.local."
     ssdp_search_targets:
       - "urn:schemas-upnp-org:device:MediaServer:1"
-    identity_keys:
-      primary: "mac"
-      display: "name"
 
   discovery:
     methods:

@@ -213,9 +213,6 @@ device:
     # is :80 when the build includes it, which many do not — see
     # WHAT identify_only MEANS in device.notes.
     default_port: 6053
-    identity_keys:
-      primary: "mac"
-      display: "friendly_name"
 
   discovery:
     methods:
@@ -411,6 +408,45 @@ local_access:
     - "Drive any entity the firmware exposes as controllable"
     - "Subscribe to live state changes without polling"
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["espressif_ota", "http_upload"]
+      transport: ["tcp", "http"]
+      endpoint: "Web OTA Upload"
+      image:
+        signing: "unsigned"
+        source: "user_supplied"
+        format: "The ESPHome build's firmware .bin for this board."
+        notes: >
+          The owner compiles the image from their own YAML config; there is no
+          vendor image. ESPHome does not sign images; a board whose builder
+          enabled the chip's secure boot is the exception, and a node cannot
+          tell a client that. The optional OTA password authenticates the
+          uploader, not the image.
+      enter:
+        how: "in_place"
+        notes: >
+          The running firmware receives the image itself: over HTTP at the
+          web_server's /update when the web OTA platform is in the build, or
+          over ESPHome's own OTA platform (the dashboard/CLI path; TCP 3232 on
+          ESP32, 8266 on ESP8266 by upstream default). No bootloader entry.
+      dfu_mode:
+        notes: "There is no separate update mode; the node keeps its name and address."
+      recovery:
+        interrupted: "keeps_old_image"
+        notes: >
+          ESP-IDF stack default on ESP32: the image goes to the non-running OTA
+          slot, so an interrupted upload keeps the running firmware. Not
+          established for the RP2040, nRF52 and LibreTiny targets. A bad image
+          that boots but loses the network is recovered over USB (esptool or
+          the web installer), as the reflash procedure above says.
+      verification: "reported"
+      notes: >
+        From upstream ESPHome documentation and source, not exercised by this
+        project. Which paths exist depends entirely on the node's build: a
+        node with neither OTA platform can only be updated over USB.
+
 http_endpoints:
   # ESPHome web_server, port 80 by default, present only when the build
   # includes `web_server:`. Paths use the entity-NAME form current firmware
@@ -463,6 +499,21 @@ http_endpoints:
     description: >
       The four-segment form, POST only: a GET against it is an error, because
       the fourth segment is always an action.
+  - method: "POST"
+    path: "/update"
+    name: "Web OTA Upload"
+    description: >
+      Firmware upload (multipart form POST of a compiled .bin), present only
+      when the build enables the web_server OTA platform. From upstream's
+      web_server_base OTA handler; not exercised by this project. Unless the
+      builder added `web_server: auth:`, anyone who can reach the node can
+      flash it — upstream's own warning.
+    advanced: true
+    advanced_reason: >
+      Replaces the node's firmware, and with it the node's whole config. A
+      build for the wrong board, or one without working Wi-Fi settings, leaves
+      the node off the network until it is reflashed over USB. Keep the YAML
+      config the current image was built from.
 
 commands:
   # A generic invocation per common domain. Unlike a product spec, nothing here

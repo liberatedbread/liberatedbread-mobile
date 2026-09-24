@@ -109,14 +109,17 @@ device:
           manufacturer_data:
             company_id: 21076
             match: "prefix"
-            pattern: "54520061"
+            pattern: "0061"
             description: >
-              Manufacturer-data (AD type 0xFF) payload starts with
-              0x54 0x52 0x00 0x61 ("TR" + 0x0061; company_id 21076 = 0x5254 is
-              the "TR" prefix little-endian). A scan-response filter in the
-              vendor app matches the same prefix followed by 0x14. Adv field
-              layout: byte 6 = device group id, byte 7 = vendor/device id,
-              bytes 11-12 = lamp count (uint16 LE).
+              The manufacturer-data AD structure (type 0xFF) begins
+              0x54 0x52 0x00 0x61: the first two bytes are the company id
+              21076 (0x5254, "TR" read as ASCII in wire order), which
+              `company_id` matches, and `pattern` is what follows them —
+              0x00 0x61 is the product family id. A scan-response filter in
+              the vendor app matches the same four bytes followed by 0x14.
+              Offsets below count from the start of the AD structure
+              (company-id bytes included): byte 6 = device group id, byte 7 =
+              vendor/device id, bytes 11-12 = lamp count (uint16 LE).
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -564,6 +567,52 @@ local_access:
     - "firmware OTA (JieLi .ufw) from app-bundled or cloud-fetched images"
   not_covered:
     - "schedule/timer (SCHD), music mode (MIC), camera capture (CAMERA) — payload layouts undecoded"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["jieli_ota"]
+      transport: "ble"
+      services: ["0000ae00-0000-1000-8000-00805f9b34fb"]
+      image:
+        signing: "unknown"
+        source: "bundled_in_app"
+        format: "JieLi .ufw container, one image per product type."
+        notes: >
+          About 14 product-keyed .ufw images ship in the vendor app's assets;
+          the app also asks POST api.e-toys.cn/api/getFirmwareInfo (see
+          cloud.endpoints) for a newer one and falls back to the bundled set.
+          Selection keys off productType / vendorId / pid parsed from the TR
+          advertisement. Whether the bootloader checks a signature is not
+          established.
+      enter:
+        how: "stack_characteristic"
+        notes: >
+          JieLi's own RCSP update request on 0000ae01 (write) /
+          0000ae02 (notify), driven by the JieLi jl_bt_ota SDK; it is not
+          part of the AES command channel on 0xFFF0, and the RCSP bytes are
+          not recorded in this spec. Whether this part is single-backup
+          (reboots into a loader, reconnect needed) or dual-backup (updates
+          in place) is not established.
+      dfu_mode:
+        notes: >
+          No update-mode name or advertisement is recorded. After an OTA the
+          device may reconnect with its BLE address minus 1 in the
+          least-significant byte (the vendor app carries a workaround for
+          it); whether that is the loader's address or the post-update
+          application's is not established, so address_offset is not set.
+          Rescan rather than reusing the old address.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Not established. 8none1/idealLED's author bricked a light set by
+          sending out-of-family bytes during development (not via OTA), so
+          treat any write outside the documented commands as a brick risk.
+      verification: "reported"
+      notes: >
+        App-derived (single source, MEDIUM confidence per device.notes), not
+        run against hardware by this repo. The app bundles JieLi's native
+        auth library alongside the OTA SDK.
 
 entities:
   - platform: "light"

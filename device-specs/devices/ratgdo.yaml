@@ -152,9 +152,6 @@ device:
           v2board_esp8266_d1_mini_lite — so the prefix matches the family and
           nothing else on the platform.
     default_port: 80
-    identity_keys:
-      primary: "mac"
-      display: "friendly_name"
 
   discovery:
     methods:

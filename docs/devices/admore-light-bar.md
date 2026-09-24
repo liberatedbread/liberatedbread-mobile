@@ -60,9 +60,9 @@ different device types.
 
 | UUID | Name | Properties | Description |
 |------|------|------------|-------------|
-| `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` | NUS Service | — | Primary UART service |
-| `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | NUS RX | write, write-no-response | App writes commands here |
-| `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | NUS TX | notify | Device sends responses here |
+| `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | NUS Service | — | Primary UART service |
+| `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | NUS RX | write, write-no-response | App writes commands here |
+| `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | NUS TX | notify | Device sends responses here |
 | `00002902-0000-1000-8000-00805f9b34fb` | CCCD | read, write | Enable/disable TX notifications |
 
 #### Additional NUS Services (other device types)
@@ -399,7 +399,7 @@ The app supports AdMore Armband turn signal accessories:
 
 | Property | Value |
 |----------|-------|
-| NUS Service UUID | `6E400001-B5A3-F393-E0A9-E50E24DCCAAE` |
+| NUS Service UUID | `6e400001-b5a3-f393-e0a9-e50e24dccaae` |
 | Types | `LEFT`, `RIGHT`, `UNDEFINED` (`ArmbandType` enum) |
 | Provisioning Command | `ARMBAND_SIDE` |
 | Routing (Left) | `SRC_CMD_APP_ARML` → `DST_CMD_APP_ARML` |

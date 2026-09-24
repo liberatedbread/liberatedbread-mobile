@@ -109,10 +109,6 @@ device:
     # only. The TV does speak mDNS for unrelated features (AirPlay on 2018+
     # models), but nothing there identifies a webOS TV as controllable.
     default_port: 3000
-    identity_keys:
-      primary: "udn"
-      secondary: "serial"
-      display: "friendly_name"
 
   discovery:
     methods:
@@ -338,7 +334,7 @@ protocol_details:
         pushing type "response" frames on the same id until "unsubscribe".
         In `commands` below, `action` is the uri (minus the ssap:// prefix's
         scheme — it is spelled in full anyway) and `arguments` is the payload.
-      example: '{"id": 12, "type": "request", "uri": "ssap://audio/volumeUp", "payload": {}}'
+      example: '{"id":12,"type":"request","uri":"ssap://audio/volumeUp","payload":{}}'
     response_format:
       description: >
         Success: {"id": <same>, "type": "response", "payload": {"returnValue":
@@ -525,14 +521,17 @@ commands:
   power_off:
     description: "Standby. The socket dies with the TV; don't wait for the reply."
     action: "ssap://system/turnOff"
+    example_body: '{"id":12,"type":"request","uri":"ssap://system/turnOff","payload":{}}'
     verification: "reported"
   screen_off:
     description: "Blank the panel but keep the TV running (audio keeps playing). webOS 4+; older sets used the removed com.webos.service.tv.power/turnOffScreen."
     action: "ssap://com.webos.service.tvpower/power/turnOffScreen"
+    example_body: '{"id":12,"type":"request","uri":"ssap://com.webos.service.tvpower/power/turnOffScreen","payload":{}}'
     verification: "reported"
   screen_on:
     description: "Undo screen_off. webOS 4+, same caveat."
     action: "ssap://com.webos.service.tvpower/power/turnOnScreen"
+    example_body: '{"id":12,"type":"request","uri":"ssap://com.webos.service.tvpower/power/turnOnScreen","payload":{}}'
     verification: "reported"
 
   # The pointer socket's own address comes from the main one. Declared as a
@@ -541,6 +540,7 @@ commands:
   get_pointer_socket:
     description: "Ask for the remote-button socket's address; the reply's payload.socketPath is a second WebSocket URL on the same ports."
     action: "ssap://com.webos.service.networkinput/getPointerInputSocket"
+    example_body: '{"id":12,"type":"request","uri":"ssap://com.webos.service.networkinput/getPointerInputSocket","payload":{}}'
     verification: "reported"
 
   # -- Navigation (pointer socket).
@@ -548,46 +548,55 @@ commands:
     description: "Back one screen."
     action: "BACK"
     channel: "pointer"
+    example_body: "type:button\nname:BACK\n\n"
     verification: "reported"
   press_home:
     description: "Home / launcher."
     action: "HOME"
     channel: "pointer"
+    example_body: "type:button\nname:HOME\n\n"
     verification: "reported"
   press_exit:
     description: "Exit — leave the current app/overlay."
     action: "EXIT"
     channel: "pointer"
+    example_body: "type:button\nname:EXIT\n\n"
     verification: "reported"
   press_up:
     description: "D-pad up."
     action: "UP"
     channel: "pointer"
+    example_body: "type:button\nname:UP\n\n"
     verification: "reported"
   press_down:
     description: "D-pad down."
     action: "DOWN"
     channel: "pointer"
+    example_body: "type:button\nname:DOWN\n\n"
     verification: "reported"
   press_left:
     description: "D-pad left."
     action: "LEFT"
     channel: "pointer"
+    example_body: "type:button\nname:LEFT\n\n"
     verification: "reported"
   press_right:
     description: "D-pad right."
     action: "RIGHT"
     channel: "pointer"
+    example_body: "type:button\nname:RIGHT\n\n"
     verification: "reported"
   press_ok:
     description: "OK — activate the focused item. The wire name is ENTER; there is no separate OK."
     action: "ENTER"
     channel: "pointer"
+    example_body: "type:button\nname:ENTER\n\n"
     verification: "reported"
   press_info:
     description: "Info — details for the focused item/channel."
     action: "INFO"
     channel: "pointer"
+    example_body: "type:button\nname:INFO\n\n"
     verification: "reported"
   # Digit buttons exist too: the name is the digit itself ("0".."9"), same
   # frame — documented once in webos_common.input_channel rather than as
@@ -597,22 +606,27 @@ commands:
   media_play:
     description: "Play."
     action: "ssap://media.controls/play"
+    example_body: '{"id":12,"type":"request","uri":"ssap://media.controls/play","payload":{}}'
     verification: "reported"
   media_pause:
     description: "Pause."
     action: "ssap://media.controls/pause"
+    example_body: '{"id":12,"type":"request","uri":"ssap://media.controls/pause","payload":{}}'
     verification: "reported"
   media_stop:
     description: "Stop."
     action: "ssap://media.controls/stop"
+    example_body: '{"id":12,"type":"request","uri":"ssap://media.controls/stop","payload":{}}'
     verification: "reported"
   media_rewind:
     description: "Rewind."
     action: "ssap://media.controls/rewind"
+    example_body: '{"id":12,"type":"request","uri":"ssap://media.controls/rewind","payload":{}}'
     verification: "reported"
   media_fast_forward:
     description: "Fast-forward."
     action: "ssap://media.controls/fastForward"
+    example_body: '{"id":12,"type":"request","uri":"ssap://media.controls/fastForward","payload":{}}'
     verification: "reported"
 
   # -- Volume (SSAP). Absolute set only works against the internal speakers
@@ -620,10 +634,12 @@ commands:
   volume_up:
     description: "Volume up one step."
     action: "ssap://audio/volumeUp"
+    example_body: '{"id":12,"type":"request","uri":"ssap://audio/volumeUp","payload":{}}'
     verification: "reported"
   volume_down:
     description: "Volume down one step."
     action: "ssap://audio/volumeDown"
+    example_body: '{"id":12,"type":"request","uri":"ssap://audio/volumeDown","payload":{}}'
     verification: "reported"
   set_volume:
     description: "Set absolute volume (internal speakers only)."
@@ -637,28 +653,34 @@ commands:
         min: 0
         max: 100
         description: "Percent of the TV's volume scale."
+    example_body: '{"id":12,"type":"request","uri":"ssap://audio/setVolume","payload":{"volume":25}}'
+    example_notes: 'Worked case with 25 filled in; the frame otherwise renders exactly as declared (id 12, as in webos_common.request_format).'
     verification: "reported"
   mute_on:
     description: "Mute. setMute takes an explicit bool, so on and off are separate commands; a toggle reads ssap://audio/getStatus first."
     action: "ssap://audio/setMute"
     arguments:
       mute: true
+    example_body: '{"id":12,"type":"request","uri":"ssap://audio/setMute","payload":{"mute":true}}'
     verification: "reported"
   mute_off:
     description: "Unmute."
     action: "ssap://audio/setMute"
     arguments:
       mute: false
+    example_body: '{"id":12,"type":"request","uri":"ssap://audio/setMute","payload":{"mute":false}}'
     verification: "reported"
 
   # -- Live TV (tuner input active).
   channel_up:
     description: "Next channel in the current channel list."
     action: "ssap://tv/channelUp"
+    example_body: '{"id":12,"type":"request","uri":"ssap://tv/channelUp","payload":{}}'
     verification: "reported"
   channel_down:
     description: "Previous channel."
     action: "ssap://tv/channelDown"
+    example_body: '{"id":12,"type":"request","uri":"ssap://tv/channelDown","payload":{}}'
     verification: "reported"
   open_channel:
     description: "Tune a channel by id. Ids come from ssap://tv/getChannelList; the current channel from ssap://tv/getCurrentChannel."
@@ -670,6 +692,8 @@ commands:
         type: "string"
         required: true
         description: "channelId from the channel list — opaque, not the channel number."
+    example_body: '{"id":12,"type":"request","uri":"ssap://tv/openChannel","payload":{"channelId":"1_18_2_0_0_2007_0"}}'
+    example_notes: 'Worked case with "1_18_2_0_0_2007_0" filled in; the frame otherwise renders exactly as declared (id 12, as in webos_common.request_format).'
     verification: "reported"
 
   # -- Inputs. The external-input list is ssap://tv/getExternalInputList
@@ -686,6 +710,8 @@ commands:
         type: "string"
         required: true
         description: "appId from getExternalInputList, e.g. \"com.webos.app.hdmi1\"."
+    example_body: '{"id":12,"type":"request","uri":"ssap://tv/switchInput","payload":{"inputId":"com.webos.app.hdmi1"}}'
+    example_notes: 'Worked case with "com.webos.app.hdmi1" filled in; the frame otherwise renders exactly as declared (id 12, as in webos_common.request_format).'
     verification: "reported"
 
   # -- Apps. listLaunchPoints is the launcher-visible list; listApps adds
@@ -700,6 +726,8 @@ commands:
         type: "string"
         required: true
         description: "id from listLaunchPoints/listApps, e.g. \"netflix\", \"youtube.leanback.v4\", \"com.webos.app.livetv\"."
+    example_body: '{"id":12,"type":"request","uri":"ssap://system.launcher/launch","payload":{"id":"netflix"}}'
+    example_notes: 'Worked case with "netflix" filled in; the frame otherwise renders exactly as declared (id 12, as in webos_common.request_format).'
     verification: "reported"
   close_app:
     description: "Close a running app by id."
@@ -711,6 +739,8 @@ commands:
         type: "string"
         required: true
         description: "id of a running app."
+    example_body: '{"id":12,"type":"request","uri":"ssap://system.launcher/close","payload":{"id":"netflix"}}'
+    example_notes: 'Worked case with "netflix" filled in; the frame otherwise renders exactly as declared (id 12, as in webos_common.request_format).'
     verification: "reported"
 
   # -- Notifications.
@@ -724,6 +754,8 @@ commands:
         type: "string"
         required: true
         description: "The toast text."
+    example_body: '{"id":12,"type":"request","uri":"ssap://system.notifications/createToast","payload":{"message":"Hello from Liberated Bread"}}'
+    example_notes: 'Worked case with "Hello from Liberated Bread" filled in; the frame otherwise renders exactly as declared (id 12, as in webos_common.request_format).'
     verification: "reported"
 
   # -- Text input into focused fields (e.g. a search box): SSAP, not the
@@ -738,10 +770,13 @@ commands:
         type: "string"
         required: true
         description: "UTF-8 text to insert."
+    example_body: '{"id":12,"type":"request","uri":"ssap://com.webos.service.ime/insertText","payload":{"text":"hello"}}'
+    example_notes: 'Worked case with "hello" filled in; the frame otherwise renders exactly as declared (id 12, as in webos_common.request_format).'
     verification: "reported"
   send_enter_key:
     description: "Commit/dismiss the on-screen keyboard."
     action: "ssap://com.webos.service.ime/sendEnterKey"
+    example_body: '{"id":12,"type":"request","uri":"ssap://com.webos.service.ime/sendEnterKey","payload":{}}'
     verification: "reported"
 
 # The remote, as controls. Declaration order is layout order — power, then

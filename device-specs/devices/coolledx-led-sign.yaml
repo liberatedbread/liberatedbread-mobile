@@ -365,6 +365,36 @@ services:
               absent on this family.
             value: [0x15]
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "ble"
+      image:
+        signing: "signed"
+        algorithm: "unknown"
+        source: "bundled_in_app"
+        notes: >
+          The app bundles a CoolLEDU OTA image (assets/coolledu.bin); it stays
+          in the app. Update blobs are reported signed, so a replacement
+          client could deliver the vendor's images but not build its own. The
+          signature scheme is not established.
+      enter:
+        how: "unknown"
+        notes: "The advanced protocol's OTA commands are not mapped, so no entry command is declared."
+      dfu_mode:
+        notes: "Not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Applies to the ADVANCED-protocol variants only (reported limited on
+        CoolLEDM, comprehensive on CoolLEDU/UX); no OTA path is known for
+        CoolLEDX or the other basic-protocol signs this spec maps. The update
+        rides the advanced protocol, whose command table this spec does not
+        map, so the mechanism is `custom` until it is. Sniffing an app-driven
+        update is the known way to learn it.
+
 entities:
   - platform: "light"
     name: "LED Sign"

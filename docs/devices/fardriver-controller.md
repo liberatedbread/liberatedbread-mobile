@@ -57,14 +57,14 @@ OpenGreenIoT exists to remove.
 
 | UUID | Name | Description |
 |------|------|-------------|
-| `0000FFE0-0000-1000-8000-00805f9b34fb` | BLE Bridge Service | HM-10-style serial bridge service |
+| `0000ffe0-0000-1000-8000-00805f9b34fb` | BLE Bridge Service | HM-10-style serial bridge service |
 
 ### Characteristics
 
 | UUID | Name | Properties | Description |
 |------|------|------------|-------------|
-| `0000FFEC-0000-1000-8000-00805f9b34fb` | Telemetry Notify | Notify | Free-running 16-byte status frames |
-| `0000FFE1-0000-1000-8000-00805f9b34fb` | Serial Data | Read, Write, Write Without Response, Notify | Bidirectional serial channel on HM-10-style modules |
+| `0000ffec-0000-1000-8000-00805f9b34fb` | Telemetry Notify | Notify | Free-running 16-byte status frames |
+| `0000ffe1-0000-1000-8000-00805f9b34fb` | Serial Data | Read, Write, Write Without Response, Notify | Bidirectional serial channel on HM-10-style modules |
 
 ### Discovery
 

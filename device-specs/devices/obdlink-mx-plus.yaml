@@ -26,9 +26,9 @@ device:
     exposes a BLE GATT serial pipe — vendor spec sheet lists "Class 1.5
     Bluetooth v3.0, Profiles: SPP, iAP2" and the FRPM documents MX+ BLE
     output. The vendor app carries both a Classic driver and a BLE driver and
-    treats the MX+ as dual-mode (BluetoothLEDevice.IsDualMode,
-    DualModeRequiresClassicBluetoothException in the app's OCTech.OBD2
-    assembly).
+    treats the MX+ as dual-mode (a dual-mode flag on its BLE device model,
+    and an error it raises when an operation needs the Classic link, both
+    in the app's OCTech.OBD2 assembly).
 
     The MX+ is one of only three wireless OBDLink adapters (MX, MX+, EX) that
     reach Ford MS-CAN (J1962 pins 3/11) and GM SW-CAN / GMLAN single-wire CAN
@@ -44,7 +44,7 @@ device:
     live adapter. 2026-08-13 confirmation pass: the managed-assembly claims
     relied on below (FFF0/FFF1/FFF2 GATT UUIDs, the api.obdlink.com firmware
     endpoints with Stable/Beta branches, the bootloader upload/recovery
-    classes, the dual-mode and pairing-mode strings, and the ST command
+    code, the dual-mode and pairing-mode strings, and the ST command
     literals) were all re-verified present in the recovered OCTech.OBD2.dll,
     OCTech.OBDLink.dll and OBDLink.dll — app-confirmed, not hardware-tested.
 
@@ -69,7 +69,7 @@ device:
           BLE is the secondary link: the Classic side advertises as
           "OBDLink MX+" (SPP, UUID 00001101) and is primary per the vendor
           spec sheet. The app falls back to Classic when an operation
-          requires it (DualModeRequiresClassicBluetoothException).
+          requires it (it raises a dedicated needs-Classic error).
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -85,14 +85,10 @@ device:
       vendor's own description is "Innovative 'Connect' button — requires
       physical access to enable Bluetooth pairing" with "secure 128-bit data
       encryption". The app ships a setup wizard with a dedicated
-      press-the-pair-button step (OBDFusion.Pages.Setup.OBDLink.
-      SetupWizardPressPairButtonPage, _press_pair_button.gif animation —
-      both confirmed in the recovered OBDLink.dll app assembly) and
-      exposes an adapter-side pairing mode setting, Auto or Manual
-      (OCTech.OBD2.Communications.OBDLinkMXPPairingMode, with user-facing
-      OBDLinkAutoPairingModeDescriptionText /
-      OBDLinkManualPairingModeDescriptionText strings — confirmed in the
-      recovered managed DLLs). One app error string shows the Classic-first
+      press-the-pair-button page and animation (confirmed in the recovered
+      OBDLink.dll app assembly) and exposes an MX+ adapter-side pairing mode
+      setting, Auto or Manual, each with its own user-facing description
+      (confirmed in the recovered managed DLLs). One app error string shows the Classic-first
       reality on Android (confirmed in OCTech.OBD2.dll): "A compatible
       OBDLink MX+ device was not found in the list of connected Bluetooth
       devices. You must pair your OBDLink MX+ in Bluetooth Settings before
@@ -154,26 +150,9 @@ device:
         physical button is the proof of possession; an adapter in pairing
         mode in a public place is pairable by anyone nearby within the
         window.
-    # Firmware maintenance (not a schema block of its own):
-    # the vendor app performs in-app firmware updates over the existing
-    # Classic or BLE serial link — there is no separate BLE OTA/DFU GATT
-    # service in the app. Firmware files ("v5" container format, class
-    # OBDLinkFirmwareFilev5 with ValidateFile/ReadHeader) are downloaded from
-    # https://api.obdlink.com/devices and /devices/{0}/{1} (manifest per
-    # device code, Stable/Beta branch — enum OBDLinkFirmwareBranch —,
-    # optional private code via /private/{0}), then uploaded
-    # to the adapter bootloader (OCTech.OBD2.OBDLink.Firmware.*:
-    # BootloaderCommunicator, StartUploadCommand/SendChunkCommand in chunks,
-    # FirmwareImageDescriptor with a dedicated Validation image type used to
-    # verify the flash). InvalidFirmwareImageException and DeviceID gating
-    # (enum DeviceID lists OBDLinkMX_1150/1151, OBDLinkLX, OBDLinkCX, ...)
-    # show image validation happens client-side before upload. A recovery
-    # path exists (OBDLinkFirmwareRecoveryUtility; recovery strings tell the
-    # user to power cycle the device and retry the firmware load). Latest
-    # MX+ firmware reported in the wild: 5.12.x.
-    # 2026-08-13: every class, endpoint and enum named above re-verified in
-    # the recovered OCTech.OBDLink.dll / OCTech.OBD2.dll — app-confirmed,
-    # not hardware-tested.
+    # Firmware maintenance: see features[type: firmware_update].dfu. The
+    # vendor app updates over the existing Classic or BLE serial link;
+    # there is no separate BLE OTA/DFU GATT service in the app.
 
   pairing:
     required: false
@@ -182,19 +161,62 @@ device:
     bonding: "none"
     enter_pairing_mode:
       required: false
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "OBDLink 'v5' firmware file: a header the app reads and validates, then the image."
+        notes: >
+          The app fetches a per-device-code manifest from
+          https://api.obdlink.com/devices and files from /devices/{0}/{1},
+          on a Stable or Beta branch, with an optional private code via
+          /private/{0}. Validation is known only on the client side: the app
+          rejects a file whose header or device-ID gating does not match the
+          adapter (its device-ID table lists the MX with codes 1150/1151, the
+          LX and the CX, among others) before uploading. Whether the
+          bootloader itself verifies a signature is not established.
+      enter:
+        how: "unknown"
+        notes: >
+          The app hands the adapter to its bootloader over the ordinary
+          serial link and then uploads in chunks (a start-upload command,
+          then chunk commands), finishing with a validation image type that
+          checks the flash. The ST command STNFWv appears in the
+          firmware-update path. The byte-level entry and upload framing are
+          not recovered, so no command is declared here.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          An interrupted upload sends the user down the app's recovery path:
+          its strings say to power-cycle the adapter and retry the firmware
+          load from the device list. Whether the adapter waits in its
+          bootloader meanwhile or keeps the old image is not established.
+      verification: "reported"
+      notes: >
+        App-confirmed (managed assemblies of OBDLink 7.4.0 re-verified
+        2026-08-13), not hardware-tested. The update is in-band over the
+        serial pipe, over Classic SPP or over the BLE service 0xFFF0
+        (0000fff0-0000-1000-8000-00805f9b34fb); there is no dedicated
+        OTA/DFU GATT service, and the serial pipe carries every ordinary
+        command too, so it is not listed under `services`. `vendor_ble`
+        names the BLE path; the Classic SPP path is the same vendor
+        bootloader protocol. Latest MX+ firmware reported in the wild:
+        5.12.x.
+
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "Serial Pipe (BLE)"
     notes: >
       GATT family A of the generic adapter spec — the same service the
       OBDLink CX exposes. All three UUIDs appear as string literals in the
-      vendor app (OCTech.OBD2.dll #US heap) beside
-      ServiceAndCharacteristicPairs.DefaultServiceUUID /
-      DefaultCharacteristicRxUUID / DefaultCharacteristicTxUUID (the SPP
-      UUID 00001101 sits in the same heap), and the app enables
-      notifications via the standard CCCD (0x2902 —
-      GetClientCharacteristicConfigurationDescriptor / GattDescriptorUuids
-      in OCTech.OBD2.dll) with a Notify / Indicate fallback (log literal
+      vendor app (OCTech.OBD2.dll #US heap) as its default service, RX and
+      TX characteristic UUIDs (the SPP UUID 00001101 sits in the same
+      heap), and the app enables notifications via the standard CCCD
+      (0x2902, in OCTech.OBD2.dll) with a Notify / Indicate fallback (log literal
       "RXCharacteristic has Indicate property"). UUIDs, CCCD
       handling and fallback all re-verified in the recovered managed DLLs
       2026-08-13 — app-confirmed, not hardware-tested. Not yet observed
@@ -254,7 +276,7 @@ obd:
       - >
         Dual-mode split is firmware- and host-dependent: vendor documentation
         leads with Classic v3.0 (SPP/iAP2), and the app can demand Classic
-        for some operations (DualModeRequiresClassicBluetoothException). A
+        for some operations (it raises a dedicated needs-Classic error). A
         BLE-only client should treat Classic-only functions as unreachable
         until the capture plan confirms what the BLE GATT pipe carries.
       - >

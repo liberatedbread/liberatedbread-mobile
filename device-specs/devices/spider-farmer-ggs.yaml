@@ -129,7 +129,11 @@ device:
     individual scheduling payloads as LOW.
 
   identification:
-    local_name: "SF-GGS-CB"
+    # The controller advertises exactly "SF-GGS-CB" (no serial suffix); the
+    # discovery matcher below uses the "SF-GGS-" family prefix, which also
+    # catches the PS5/PS10 power strips and LC light controller.
+    local_names:
+      - "SF-GGS-CB"
     service_uuids:
       - "000000ff-0000-1000-8000-00805f9b34fb"
 
@@ -260,13 +264,21 @@ entities:
     command_characteristic: "0000ff02-0000-1000-8000-00805f9b34fb"
   - platform: "sensor"
     name: "Temperature"
+    device_class: "temperature"
     state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"
+    notes: >
+      `data.sensor.temp` of the reassembled getDevSta JSON. No format block
+      is possible — the value is a JSON number inside a framed, fragmented
+      (and on FW 3.14+ encrypted) text stream; see remaining_unknowns.
   - platform: "sensor"
     name: "Humidity"
+    device_class: "humidity"
     state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"
+    notes: "`data.sensor.humi` of the getDevSta JSON; same caveat as Temperature."
   - platform: "sensor"
     name: "VPD"
     state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"
+    notes: "`data.sensor.vpd` of the getDevSta JSON; same caveat as Temperature."
   - platform: "fan"
     name: "Fan"
     features: ["speed"]
@@ -288,3 +300,20 @@ helpful_urls:
     kind: "vendor_support"
     description: >
       Vendor index for the rest of the range.
+
+remaining_unknowns:
+  - >
+    Temperature, Humidity and VPD have no format block and cannot be given
+    one: the readings are JSON numbers (`data.sensor.temp` / `humi` / `vpd`
+    of the getDevSta reply) inside a text payload that is split across
+    notifications behind a 20-byte 0xAAAA0003 frame header, and encrypted
+    with AES-CBC on controller firmware 3.14 and later. Decoding needs
+    frame reassembly, (on new firmware) a key nobody has published, and a
+    JSON path — the format vocabulary has fixed byte offsets only. The
+    entities keep their names so the surface is settled; a consumer on
+    FW <= 3.2 reassembles the JSON itself.
+  - >
+    The units of the three JSON fields are not pinned down here: community
+    clients show temp as the controller's display unit (C or F, following a
+    device setting) and humi as percent, and vpd in kPa, none of which has
+    been confirmed against a unit by this project.

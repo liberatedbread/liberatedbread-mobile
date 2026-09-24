@@ -56,8 +56,8 @@ device:
 
     All commands and responses are 20-byte fixed frames, zero-padded: byte 0
     = command ID, byte 1 = key, bytes 2..19 = key-specific payload (max 18
-    bytes; DeviceBaseCommand in the app zero-fills the frame and copies the
-    payload starting at byte 2). Normal commands are written to 00000af6 and
+    bytes; the app's base command builder zero-fills the frame and copies
+    the payload starting at byte 2). Normal commands are written to 00000af6 and
     answered on 00000af7; health-data sync (command ID 0x08) runs over the
     parallel channel 00000af1 (write) / 00000af2 (notify) — the app routes
     any frame whose command ID is 0x08 to the health channel.
@@ -248,9 +248,9 @@ services:
     notes: >
       Single vendor service carrying the whole protocol. Layout confirmed on
       a real ID107 HR by g7smy.co.uk (af6, af7+CCCD, af2+CCCD, af1 in that
-      characteristic order) and in the app's BleGattAttributes
-      (SERVICE_UUID=af0, WRITE_UUID_NORMAL=af6, NOTIFY_UUID_NORMAL=af7,
-      WRITE_UUID_HEALTH=af1, NOTIFY_UUID_HEALTH=af2). Frame format: 20-byte
+      characteristic order) and in the app's UUID table (service af0,
+      normal write af6, normal notify af7, health write af1, health notify
+      af2). Frame format: 20-byte
       fixed frames, zero-padded; byte 0 = command ID, byte 1 = key,
       bytes 2..19 = payload.
     characteristics:
@@ -258,7 +258,7 @@ services:
         name: "Normal Write (command channel)"
         properties: ["write", "write_without_response"]
         notes: >
-          Command write characteristic (app's WRITE_UUID_NORMAL). All
+          Command write characteristic (the app's normal-channel write). All
           commands except health sync (cmd 0x08) are written here. Command
           IDs: firmware update 0x01, get-info 0x02, settings 0x03,
           bind/unbind 0x04, notify 0x05, app control 0x06, BLE control 0x07,
@@ -378,13 +378,28 @@ services:
               profile, stored health history and bind state. The payload
               beyond the key byte is undocumented; what exactly is cleared
               is unknown. Recover by re-binding from the client afterwards.
+          enter_firmware_update:
+            description: >
+              Firmware update, command ID 0x01: the app sends it to hand the
+              band to the Nordic legacy DFU bootloader before the transfer.
+              The key byte and payload were NOT established — this entry
+              documents the command ID only; do not send guessed bytes.
+            command_id: 0x01
+            verification: "hypothesis"
+            fixed_length: 20
+            advanced: true
+            advanced_reason: >
+              Reboots the band into its firmware-update bootloader, where it
+              shows none of its normal service and waits for an image. Only
+              the vendor app has ever supplied one, and how the band returns
+              to normal without an image is not established.
 
       - uuid: "00000af7-0000-1000-8000-00805f9b34fb"
         name: "Normal Notify (response channel)"
         properties: ["notify"]
         notes: >
-          Responses and band-initiated events for the af6 channel (app's
-          NOTIFY_UUID_NORMAL; CCCD 00002902). Same 20-byte frame format:
+          Responses and band-initiated events for the af6 channel (the app's
+          normal-channel notify; CCCD 00002902). Same 20-byte frame format:
           byte 0 echoes the command ID, byte 1 the key; success/failure
           status lives in the payload (e.g. bind ack byte 2 = 0x00 success;
           the app maps outcomes to bind-success 0x12 / unbind-success 0x14
@@ -394,7 +409,7 @@ services:
         name: "Health Write (health-sync command channel)"
         properties: ["write", "write_without_response"]
         notes: >
-          Health-data sync channel, write side (app's WRITE_UUID_HEALTH).
+          Health-data sync channel, write side (the app's health-channel write).
           The app routes every frame with command ID 0x08 here. Keys: sync
           request 0x01, sync success 0x02, data records sports-today 0x03 /
           sleep-today 0x04 / sports-history 0x05 / sleep-history 0x06 /
@@ -408,14 +423,15 @@ services:
         name: "Health Notify (health-sync response channel)"
         properties: ["notify"]
         notes: >
-          Health-data sync channel, notify side (app's NOTIFY_UUID_HEALTH;
+          Health-data sync channel, notify side (the app's health-channel notify;
           CCCD 00002902). Carries the paged history records during sync.
 
   - uuid: "00001530-1212-efde-1523-785feabcd123"
     name: "Nordic Legacy DFU Service"
     notes: >
       Nordic legacy buttonless Device Firmware Update, used by the app for
-      OTA (command ID 0x01 "ware update" hands off to it; the app bundles
+      OTA (command ID 0x01 "firmware update" hands off to it, see the
+      enter_firmware_update command; the app bundles
       no.nordicsemi.android.dfu and declares its DfuService, and the UUID
       set 1530/1531/1532/1534 is what that library implements). Consistent
       with the nRF51822 hardware generation of the ID107-class bands.
@@ -432,6 +448,44 @@ services:
       - uuid: "00001534-1212-efde-1523-785feabcd123"
         name: "DFU Version"
         properties: ["read"]
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_legacy_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          Where the app's images come from is not established. A stock legacy
+          (nRF5 SDK 11 and earlier) bootloader takes unsigned images with a
+          CRC-16 in the init packet; whether this one is stock is not known.
+      enter:
+        how: "command"
+        command: "enter_firmware_update"
+        notes: >
+          The vendor command 0x01 on af6, not the stack's own 1531 [0x01,
+          0x04] buttonless write: the running band does not serve the DFU
+          service at all (third-party on-wire capture), so the stack entry
+          is unavailable until the band is already in its bootloader. Only
+          the command ID is known.
+      dfu_mode:
+        notes: >
+          In the bootloader the band serves the legacy DFU service
+          00001530-… (control 1531, packet 1532, version 1534; see
+          services). Its advertised name and address are not established; a
+          stock legacy bootloader advertises "DfuTarg", and whether it moves
+          address depends on the SDK version. Nothing here yet binds such an
+          advert back to this band.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        App-derived (the app bundles Nordic's open-source DFU library and
+        its legacy UUID set), not hardware-verified. dfu.services is omitted
+        because the DFU service is absent from the normally running band's
+        GATT table.
 
 helpful_urls:
   - title: "Bluetooth Low Energy on the Raspberry Pi (ID107 HR on-wire GATT capture)"

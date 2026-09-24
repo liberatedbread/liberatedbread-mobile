@@ -1,0 +1,22 @@
+type	kind	reason
+_airplay._tcp.local.	mdns	Every AirPlay receiver: Apple TVs, many TVs and speakers.
+_companion-link._tcp.local.	mdns	Apple's companion-link service; Apple TVs, HomePods, Macs.
+_device-info._tcp.local.	mdns	Apple/Avahi device-info record; carries a model string but names no product.
+_googlecast._tcp.local.	mdns	Every Cast receiver: Chromecasts, Android TVs, speakers, some VIDAA sets.
+_hap._tcp.local.	mdns	Every HomeKit accessory; the platform, not a product.
+_http._tcp.local.	mdns	Every web server that registers itself: printers, NAS, cameras, routers.
+_https._tcp.local.	mdns	Same as _http, over TLS.
+_ipp._tcp.local.	mdns	Every IPP printer.
+_ipps._tcp.local.	mdns	Every IPP-over-TLS printer.
+_matter._tcp.local.	mdns	Every commissioned Matter node; the fabric announces it, not the product.
+_meshcop._udp.local.	mdns	Every Thread border router (MeshCoP); a platform, not a product.
+_pdl-datastream._tcp.local.	mdns	Every raw-port-9100 printer.
+_printer._tcp.local.	mdns	Every LPD printer.
+_raop._tcp.local.	mdns	AirPlay audio (RAOP); every AirPlay speaker and TV.
+_services._dns-sd._udp.local.	mdns	The DNS-SD service enumeration meta-type; not a service at all.
+_workstation._tcp.local.	mdns	Avahi's default workstation announcement; every Linux desktop.
+ssdp:all	ssdp	The wildcard search target; every SSDP responder answers.
+upnp:rootdevice	ssdp	Every UPnP root device on the link answers it: routers, printers, NAS, TVs.
+urn:schemas-upnp-org:device:Basic:1	ssdp	The generic UPnP device type; Hue bridges, cameras and many others.
+urn:schemas-upnp-org:device:MediaRenderer:1	ssdp	Every DLNA renderer -- Samsung, Philips, Hisense, LG sets alike; narrow with identification.ssdp_match.
+urn:schemas-upnp-org:device:MediaServer:1	ssdp	Every DLNA media server: NAS, PCs, some routers.

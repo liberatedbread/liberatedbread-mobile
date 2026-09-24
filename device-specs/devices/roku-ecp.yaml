@@ -59,10 +59,6 @@ device:
     # advertised 7250. Consumers had been expressing this as a Roku
     # branch of their own; it is a fact about the device.
     advertised_port_unreliable: true
-    identity_keys:
-      primary: "serial"
-      secondary: "device_id"
-      display: "user_device_name"
 
   discovery:
     methods:
@@ -400,7 +396,9 @@ protocol_details:
         client id, shipped in the APK (the client-id challenge strategy):
         the UUID 95E610D0-7C29-44EF-FB0F-97F1FCE4C297 with every hex nibble
         n replaced by (24 - n) & 15, i.e.
-        F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1. A successful answer gets
+        F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1 (uppercase, and the case is
+        significant: this string is hashed, not parsed as a UUID). A
+        successful answer gets
         {"response": "authenticate", "status": "200"} and the session then
         accepts the full vocabulary — in Limited mode included. Client-id is
         also the app's own fallback: when a jwt answer fails, the app

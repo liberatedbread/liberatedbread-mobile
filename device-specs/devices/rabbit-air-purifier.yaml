@@ -126,10 +126,6 @@ device:
       # 366048ae-… in a scan result identifies a Rabbit Air purifier.
       - "366048ae-9f36-43cf-8004-010c0c9fa52e"
       - "53ef7d7d-c244-42bd-9064-a1569a521ca9"
-    identity_keys:
-      primary: "thing_id"
-      secondary: "mac"
-      display: "name"
 
   discovery:
     methods:
@@ -469,6 +465,45 @@ cloud:
 
 protocol_handler: "rabbit_air_lan"
 
+# The purifier's one GATT channel, declared where a consumer reads
+# characteristics from. Both the cleartext setup conversation (setup.methods
+# ble_provisioning) and the post-setup ENCRYPTED command set ride it, framed
+# as `framing` says; protocol_details.rabbit_air_ble keeps the narrative and
+# the hardware notes, and points here. Hardware-verified 2026-08-15 (MinusA2
+# gen2): properties byte 0x28 = write + indicate, MTU 515, 510-byte chunks.
+services:
+  - uuid: "366048ae-9f36-43cf-8004-010c0c9fa52e"
+    name: "Rabbit Air command service"
+    notes: >
+      Advertised in setup mode (name RabbitAirSetup) and after provisioning
+      (GAP name RabbitAir; the advertisement then carries only this UUID).
+      One characteristic carries both directions. No pairing or bonding.
+    characteristics:
+      - uuid: "53ef7d7d-c244-42bd-9064-a1569a521ca9"
+        name: "Command (write + indicate)"
+        properties: ["write", "indicate"]
+        role: "command"
+        framing:
+          scheme: "length_prefixed_le16"
+          length_prefix: true
+          max_chunk_size: 510
+        notes: >
+          The client WRITES requests (write with response) and subscribes to
+          INDICATIONS on this same characteristic for replies — ATT Handle
+          Value Indications, which the client's stack must confirm; the CCCD
+          reads 0x0002 on a fresh connection but write it anyway. Every
+          logical packet is one JSON envelope of the LAN protocol — cleartext
+          {id, cmd, data} during setup, the AES-128-CBC datagram (ciphertext
+          || IV) under the user key afterwards — prefixed with its uint16
+          LITTLE-endian length and split into writes of (negotiated MTU - 5)
+          bytes: the app requests MTU 515, hence 510 (its pre-negotiation
+          default is 512). Replies arrive the same way; reassemble on the
+          first two bytes. A keyed unit answers no cleartext write and
+          intermittently rejects one with ATT error 0x87. The envelope
+          construction and cipher are rabbit_air_protocol's; the
+          hardware-observed GATT handles and the setup conversation are in
+          protocol_details.rabbit_air_ble.
+
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:
@@ -736,6 +771,7 @@ protocol_details:
       writes with ATT application error 0x87 (intermittent, load-dependent)
       and never answers them.
     gatt:
+      note: "The declared `services` block at the top level is authoritative for the service/characteristic UUIDs, properties and framing (scheme length_prefixed_le16, max_chunk_size 510); this block keeps the hardware narrative."
       service_uuid: "366048ae-9f36-43cf-8004-010c0c9fa52e"
       command_characteristic: "53ef7d7d-c244-42bd-9064-a1569a521ca9"
       operations: "Single characteristic for both directions: the client WRITES requests (write-WITH-response) and subscribes to INDICATIONS (not notifications — properties 0x28, hardware-verified) for responses; the client must send ATT confirmations. No BLE pairing/bonding."

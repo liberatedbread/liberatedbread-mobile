@@ -541,6 +541,34 @@ services:
               scene: { type: "uint8", min: 1, max: 9 }
             verification: reported
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The app asks https://app.ledhue.com/spiot/device/check-update, which
+          returns the .bin download URL (pattern not recovered). No images are
+          committed here.
+      enter:
+        how: "unknown"
+        notes: >
+          The OTA runs over the ordinary command channel; its opcodes and
+          framing were not recovered, so no entry command is declared.
+      dfu_mode:
+        notes: "How the controller appears while updating is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From static analysis of the app (no Nordic DFU service and no
+        chip-vendor OTA library in it), not hardware-verified. dfu.services is
+        omitted because the update shares the command service with ordinary
+        control.
+
 entities:
   - platform: "light"
     name: "LED Output"

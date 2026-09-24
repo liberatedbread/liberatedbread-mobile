@@ -62,7 +62,11 @@ device:
   identification:
     default_port: 4000
     mdns_service_type: "_http._tcp.local."
-    hostname_pattern: "Lightify-XXXXXXXX"
+    notes: >
+      Default DHCP/mDNS hostname is "Lightify-" followed by eight hex
+      characters (the gateway serial), so a hostname of that shape
+      corroborates the _http._tcp match; users can rename it, so it is a hint,
+      not an identity key.
 
   discovery:
     methods:

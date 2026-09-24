@@ -47,12 +47,16 @@ device:
     cannot build valid new ones.
   identification:
     local_name_prefix: "AdMore Light Bar"
-    local_name_dfu: "AdMore Light Bar DFU"
-    local_name_armband: "AdMore Armband"
-    local_name_armband_left: "AdMore Armband Left"
-    local_name_armband_right: "AdMore Armband Right"
     service_uuids:
       - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    notes: >
+      In DFU mode the bar advertises as "AdMore Light Bar DFU", which the
+      prefix still catches; features[firmware_update].dfu.dfu_mode declares
+      that name so a consumer checks it first. The same app also scans for the sibling products
+      "AdMore Armband", "AdMore Armband Left" and "AdMore Armband Right" --
+      different hardware, not covered by this spec, and deliberately not
+      listed as names of it.
+
   discovery:
     methods:
       - type: "ble_scan"
@@ -632,6 +636,8 @@ services:
           enter_dfu:
             description: "Enter firmware update mode"
             setting_id: "ENTER_DFU"
+            advanced: true
+            advanced_reason: "Reboots the bar into its Nordic Secure DFU bootloader (it re-advertises as \"AdMore Light Bar DFU\"). It stops working as a light until a signed vendor image is flashed. The Nordic SDK bootloader normally drops back to a valid app after an inactivity timeout, but that has not been checked on this unit."
           override_hazard:
             description: "Activate hazard flasher"
             setting_id: "OVERRIDE_HAZARD"
@@ -692,6 +698,42 @@ services:
       - uuid: "6e400003-b5a3-f393-e0a9-e50e24dccace"
         name: "NUS TX"
         properties: ["notify"]
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "signed"
+        algorithm: "ecdsa_p256"
+        source: "bundled_in_app"
+        format: "nrfutil Secure DFU zip: manifest.json, lightbar_nrf52.bin and a 141-byte .dat init packet carrying the signature and SHA-256 image hash."
+        notes: >
+          The app ships a debug package; where release images come from is
+          not established. Signed means a replacement client can deliver the
+          vendor's images but cannot build new ones.
+      enter:
+        how: "command"
+        command: "enter_dfu"
+        notes: "The protobuf ENTER_DFU setting (e_CONFIG 4), not the stack's buttonless characteristic."
+      dfu_mode:
+        local_names: ["AdMore Light Bar DFU"]
+        notes: >
+          The bootloader's address is not established. A stock nRF5 SDK
+          bootloader without bond sharing would advertise at address+1.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The nRF5 SDK bootloader's defaults (dual-bank, 120 s inactivity
+          timeout back to a valid app) are likely for an nRF52832 with a
+          49 KB application, but none has been checked on this unit.
+      verification: "reported"
+      notes: >
+        App-derived (the app drives the update through the open-source
+        flutter nordic_dfu plugin), not hardware-verified. SoC nRF52832 with
+        SoftDevice S132 v7.x, from the init packet's hw_version 52 and FWID
+        0xCB and the image's vector table; see device.notes.
 
 entities:
   - platform: "light"

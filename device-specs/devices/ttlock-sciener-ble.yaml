@@ -33,7 +33,9 @@ device:
     GATT: command writes on characteristic 0000fff2 (write-without-response),
     status notifications on 0000fff4; battery is the standard 0x2A19 under 0x180F.
     (A Nordic legacy DFU service 00001530-1212-efde-1523-785feabcd123 is also
-    present for OTA — deliberately not documented here: bricking risk.)
+    present for OTA. Only its presence is recorded, in
+    features[type: firmware_update], so a generic client knows to keep out of
+    it; the update procedure is deliberately not documented: bricking risk.)
 
     FRAME: [12-byte header][16-32 byte data][3-byte tail]. Header bytes 0-1 are
     the fixed magic 7F 5A; byte 2 protocol type, byte 3 sub-version, byte 4
@@ -218,6 +220,36 @@ device:
       Bluetooth settings. The cloud is needed once, for key and passcode
       issuance; a client holding the per-lock key unlocks over BLE offline
       afterwards, which is the whole reason this device is documented.
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_legacy_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: "A stock legacy Nordic bootloader takes unsigned images with a CRC-16 init packet; whether Sciener changed that is not established."
+      enter:
+        how: "unknown"
+        notes: >
+          Not documented on purpose. The stack's buttonless entry (01 04 on
+          the legacy control point) is in firmware-update.md; nothing here
+          says whether this firmware honours it.
+      dfu_mode:
+        notes: >
+          Not observed. A stock legacy bootloader advertises "DfuTarg", and
+          whether it moves address depends on the SDK version, so nothing
+          yet binds a DfuTarg advert back to a TTLock lock.
+      services: ["00001530-1212-efde-1523-785feabcd123"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Service presence from the community reverse engineering; the vendor's
+        closed SDK also exposes a DFU feature. A replacement client should
+        recognise the service and leave it alone: a failed update on a lock
+        can strand the door.
+
 services:
   - uuid: "00001910-0000-1000-8000-00805f9b34fb"
     name: "TTLock command service (0x1910)"
@@ -227,8 +259,9 @@ services:
       Characteristics resolved by UUID: write 0000fff2
       (write-without-response), notify 0000fff4. All packets are
       [12B header (magic 7F 5A ...)][data][CRC-8/MAXIM][CRLF]; data is
-      AES/CBC/PKCS5 with IV = key. A Nordic DFU service (00001530-1212-efde-...)
-      is also present for OTA and is intentionally not documented (bricking risk).
+      AES/CBC/PKCS5 with IV = key. A Nordic legacy DFU service
+      (00001530-1212-efde-1523-785feabcd123) is also present for OTA; see its
+      own entry below.
     characteristics:
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Command write"
@@ -242,6 +275,25 @@ services:
         name: "Battery Level (standard)"
         properties: ["read"]
         notes: "Standard SIG Battery Level (uint8 %) under service 0x180F."
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: >
+              The SIG-defined layout; not read back from a lock by this
+              project (reported, not confirmed).
+
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Nordic Legacy DFU Service"
+    notes: >
+      The firmware-update path, not a control surface: list it read-only and
+      never write to it. Present on the lock per the community reverse
+      engineering (Fusseldieb/ttlock-reverse-engineering); its
+      characteristics and the update procedure are intentionally not
+      documented here (bricking risk). See features[type: firmware_update].
 
 entities:
   - platform: "sensor"
@@ -249,6 +301,8 @@ entities:
     device_class: "battery"
     unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_level"
     notes: "Standard battery-level characteristic."
 
 helpful_urls:

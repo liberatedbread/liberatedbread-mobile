@@ -151,6 +151,12 @@ features:
   - type: "image_upload"
     format: "1bit-bitmap"
     max_height: 16
+    # One LED is on or off: two colours.
+    max_palette_colors: 2
+    # The badge's message flash is 8192 bytes for header AND bitmaps
+    # together; the ls32 client refuses to write more because doing so
+    # damages the display. Bounds the whole transfer, not one 16-byte write.
+    max_payload_bytes: 8192
 
 services:
   - uuid: "0000fee0-0000-1000-8000-00805f9b34fb"
@@ -171,25 +177,106 @@ services:
         commands:
           write_badge_data:
             description: >
-              Write badge payload in 16-byte chunks. First 4 chunks are the 64-byte
-              header; subsequent chunks are stripe-major bitmap pixel data
-              (8-column stripes x `height` rows, one row of 8 px per byte, MSB
-              = leftmost pixel).
-              64-byte header layout (LedDataUtil.get64):
-              Bytes 0-3: Magic "wang" = 0x77 0x61 0x6E 0x67.
-              Byte 4: reserved (0x00).
-              Byte 5: brightness (0x00=100%, 0x10=75%, 0x20=50%, 0x40=25%) -- reads as
-              0x00 (100%) in the captured get64 trace, per the FOSSASIA badgemagic layout.
-              Byte 6: flash bits (bit N = slot N blinks).
-              Byte 7: marquee bits (bit N = slot N marquee/animated border).
-              Bytes 8-15: mode+speed per slot, one byte each
-              (upper nibble = speed-1, lower nibble = mode-1).
-              Bytes 16-31: message length per slot (uint16 big-endian / MSB-first,
-              8 slots; Elektor sniff of the vendor app sends 00 07 for length 7).
-              Bytes 32-37: reserved (zeros).
-              Bytes 38-43: date (year, month, day, hour, minute, second).
-              Bytes 44-62: reserved (zeros). Byte 63: 0x00.
-            value: [0x77, 0x61, 0x6E, 0x67]
+              The badge's one write: a 64-byte header followed by the
+              stripe-major bitmap, sent as a stream of 16-byte acknowledged
+              chunks (framing.max_chunk_size), 300 ms before the first data
+              chunk and 25 ms between chunks. The template IS the 64-byte
+              header with slot 1 parameterised and slots 2-8 empty, then the
+              bitmap bytes; a multi-slot upload fills bytes 9-15 and 18-31
+              the same way for its other slots. Header layout: bytes 0-3
+              magic "wang"; 4 reserved 0; 5 brightness; 6 flash bits (bit N
+              = slot N blinks); 7 marquee bits (bit N = slot N gets the
+              animated border); 8-15 one speed+mode byte per slot, upper
+              nibble speed 0-7 (slowest-fastest; the app shows it as 1-8),
+              lower nibble mode; 16-31 per-slot message length, uint16
+              BIG-endian, in 8-pixel-wide stripes (= characters for text;
+              Elektor's sniff of the vendor app sends 00 07 for "Welcome");
+              32-37 zero; 38-43 date year&0xFF, month, day, hour, minute,
+              second; 44-62 zero; 63 zero. Bitmap: the message split into
+              8-column stripes of `height` bytes (11/12/16), one byte per
+              row, MSB = leftmost pixel, 1 = LED on. Sources: the Elektor
+              Jan/Feb 2023 article (decompile + sniff of the same vendor
+              app), fossasia/badgemagic-firmware BadgeBLE.md, Nilhcem's and
+              Doridian's converters, fossasia/led-name-badge-ls32.
+              The one thing the vocabulary cannot say: speed and mode share
+              byte 8, so `mode` here is the low nibble with the speed nibble
+              at 0 (slowest); a handler composing (speed << 4) | mode takes
+              the mode table from this parameter and the speed range from
+              this note.
+            verification: "reported"
+            template: [0x77, 0x61, 0x6E, 0x67, 0x00, "{brightness}", "{flash}", "{marquee}", "{mode}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{length}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{year}", "{month}", "{day}", "{hour}", "{minute}", "{second}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{bitmap}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                allowed: [0, 16, 32, 64]
+                labels: ["100%", "75%", "50%", "25%"]
+                default: 0
+                description: "Byte 5. The vendor app always writes 0x00; the ls32 client exercises the other three (0x10/0x20/0x40)."
+              flash:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Byte 6: bit N set = slot N blinks."
+              marquee:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Byte 7: bit N set = slot N shows the animated border."
+              mode:
+                type: "uint8"
+                allowed: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+                labels: ["scroll left", "scroll right", "scroll up", "scroll down", "fixed", "animation", "snowflake / drop-down", "picture / curtain", "laser"]
+                default: 4
+                description: "Byte 8, slot 1's animation (low nibble); the speed nibble is 0 in this template. Table from BadgeBLE.md and ls32's --mode help; Elektor's sniff: speed 8 + scroll right = 0x71."
+              length:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 65535
+                description: "Bytes 16-17: slot 1's message length in 8-pixel stripes = len(bitmap) / height. BIG-endian (Elektor sniff 00 07; Nilhcem, FOSSASIA, Doridian and BadgeBLE.md agree)."
+              year:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 0
+                description: "Byte 38: year & 0xFF. Every known client sends the current time; whether the badge cares is unverified (see remaining_unknowns)."
+              month:
+                type: "uint8"
+                min: 0
+                max: 12
+                default: 0
+                description: "Byte 39."
+              day:
+                type: "uint8"
+                min: 0
+                max: 31
+                default: 0
+                description: "Byte 40."
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+                default: 0
+                description: "Byte 41."
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+                default: 0
+                description: "Byte 42."
+              second:
+                type: "uint8"
+                min: 0
+                max: 59
+                default: 0
+                description: "Byte 43."
+              bitmap:
+                type: "bytes"
+                min_length: 11
+                max_length: 8128
+                description: "Stripe-major bitmap: `length` stripes of `height` bytes each, MSB = leftmost pixel, 1 = on; zero-padded by the sender to a 16-byte chunk boundary. 8128 = the 8192-byte flash minus the header."
 
   - uuid: "0000fee7-0000-1000-8000-00805f9b34fb"
     name: "Badge Secondary Service"
@@ -223,6 +310,11 @@ entities:
       nothing and drew nothing, while reading as though a text control existed.
       Brightness stays in `features` because the header does carry it — the
       uploader sets it, not a slider on this entity.
+
+remaining_unknowns:
+  - "Whether the badge rejects or misbehaves on a zero date (bytes 38-43) is untested — every known client sends the current time, so the `default: 0` on those parameters is a filler value nobody has exercised."
+  - "The speed nibble (byte 8 bits 4-7) cannot be declared as its own parameter because it shares a byte with `mode`; the template pins it at 0 (slowest)."
+  - "Timing (3 s ack timeout, 300 ms first-chunk delay, 25 ms inter-chunk) is app-derived; Nilhcem/FOSSASIA use 100 ms between chunks and also work."
 
 helpful_urls:
   - title: "LED name badge with multiple functions user manual (PDF)"

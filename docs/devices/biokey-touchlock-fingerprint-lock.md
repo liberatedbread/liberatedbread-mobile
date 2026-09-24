@@ -9,9 +9,11 @@
 
 The TouchLock BT family is a line of Bluetooth Low Energy keyless locks —
 padlocks (XS/XL), a TSA luggage lock, a bike lock and a U-lock — sold by
-BIO-key from about 2017 and now discontinued. Everything about them was
-recovered by decompiling the official Android app (TouchLock BT v2.2.1,
-`com.champion.lock`, jadx output; sha256 in the spec's `sources`).
+BIO-key from about 2017 and now discontinued. The protocol was recovered by
+decompiling the official Android app (TouchLock BT v2.2.1,
+`com.champion.lock`, jadx output; sha256 in the spec's `sources`), and the
+key parts are now confirmed by an over-the-air capture of that app driving
+a real lock (2026-08-30 — see the spec's `evidence`).
 
 Two facts make this family unusually rescue-friendly:
 
@@ -41,8 +43,8 @@ exist and are **not** covered here.
 ## Initial Setup
 
 There is no network to join — "setup" is BLE enrollment, required before the
-lock will open. Facts below are read from the decompiled app, re-checked
-against the jadx output, and not yet replayed against hardware.
+lock will open. The enrollment exchange below was observed end-to-end in the
+2026-08-30 capture; it has not yet been replayed by a third-party client.
 
 | Property | Value |
 |----------|-------|
@@ -50,17 +52,19 @@ against the jadx output, and not yet replayed against hardware.
 | Method | `ble_provisioning` |
 | Advertised names | `TSA_BT`, `TSA_PLUS`, `XL_BT`, `XL_PLUS`, `Ble_Lock`, `Bike_BT`, `Bike_Pr`, `Joi_Lock`, `U_Lock`, `ULockPr` (fallback: any name containing `LOCK`) |
 | Passphrase protection | not_applicable (no WiFi; BLE bonding is Just Works) |
-| Confidence | medium (decompile-derived, not hardware-run) |
+| Confidence | high (enrollment observed on hardware in the capture) |
 
 Enrollment flow:
 
 1. Scan unfiltered; match the name patterns above plus the presence of a
    manufacturer-data status byte.
-2. Connect, bond (no PIN), discover services, enable notifications on
-   `67ac8801-…`, wait ~1.2 s.
-3. If the status byte's registered bit (bit 4) is clear, send
-   **RegisterAdmin (0x80)** with a fresh client-generated 8-byte admin ID
-   and the current time-based password.
+2. Connect, bond (no PIN — the lock initiates security immediately and no
+   GATT discovery completes before the bond exists), discover services,
+   enable notifications on `67ac8801-…`, wait ~1.2 s.
+3. Send **RegisterAdmin (0x80)** with a fresh client-generated 8-byte admin
+   ID and the current time-based password. An already-enrolled lock answers
+   error `05` — that, not any status-byte bit, is the reliable "already
+   registered" signal.
 4. Store the admin ID and password locally — they are the only credentials.
 
 **Factory reset**: a BLE command, not a button. **FactoryInit (0x8f)**
@@ -101,31 +105,42 @@ Every command is exactly 20 bytes, written to `67ac8802-…`:
 | 18 | 1 | 0x00 |
 | 19 | 1 | Checksum = `(0x5A − sum(bytes[0..18])) & 0xFF` |
 
-**Response** (notify, parsed as a hex string):
+**Response** (notify): every observed frame is 5 bytes:
 
-| Chars | Description |
-|-------|-------------|
-| 0–1 | Echoed opcode |
-| 2–3 | Error code: `00` ok, `01` invalid command, `02` checksum, `03` wrong password, `04` invalid user ID, `05` already registered, `06` user record full, `07` unbonded device |
-| 4–5 | Status byte |
+| Byte | Description |
+|------|-------------|
+| 0 | Echoed opcode |
+| 1 | Error code: `00` ok, `01` invalid command, `02` checksum, `03` wrong password, `04` invalid user ID, `05` already registered, `06` user record full, `07` unbonded device |
+| 2 | Status byte |
+| 3 | Frame flag (`00`/`01` in the capture; excluded from the checksum) |
+| 4 | Checksum — observed responses fit `(0x5A − sum(bytes[0..2])) & 0xFF` |
 
-Status byte: bit 7 = lock state (polarity unconfirmed), bit 4 = registered
-flag, bits 2–0 = battery 0–7. The same byte is broadcast in manufacturer
+Status byte (working model, partially disputed): bit 7 = lock state
+(polarity unconfirmed), bits 2–0 = battery 0–7. The decompile said bit 4 =
+registered flag, but the capture contradicts it: the observed sequence was
+`0x13` → `0x03` (bit 4 *cleared* by a successful RegisterAdmin) → `0x01`,
+and the low bits dropping 3 → 1 within minutes is suspiciously fast for a
+battery gauge. One controlled lock/unlock with a battery reading will
+settle the layout. The same byte is broadcast in manufacturer
 advertisement data while disconnected — state and battery can be tracked
 passively.
 
 Opcode table: `00` OpenLock · `01` TimeStamp (RTC sync, must precede
-unlock) · `80` RegisterAdmin · `81` RemoveUser · `82` GetUserInfo (unused) ·
-`8c`/`8d` change factory password · `8f` FactoryInit · `90`/`91` user
-registration · `ad` GetMac (unused) · `cc` FindLock (fixed payload
+unlock) · `80` RegisterAdmin ✓ · `81` RemoveUser · `82` GetUserInfo (unused) ·
+`8c`/`8d` change factory password ✓ · `8f` FactoryInit · `90`/`91` user
+registration · `ad` GetMac ✓ (reply carries the *client's* own BT address,
+byte-reversed) · `cc` FindLock (fixed payload
 `22 44 66 88 88 66 44 22` / `11 33 55 77 77 55 33 11`) · `ff` UpdateStatus
-(unsolicited, device→client).
+(unsolicited, device→client, ~1 Hz for the whole connection).
+✓ = observed on the wire in the capture. OpenLock/TimeStamp were never
+observed — the vendor app crashed before sending them.
 
 The "rolling password" is the current timestamp `yy-MM-dd-HH-mm-ss-SSSS`
 split into eight two-digit decimal groups, each written as one hex-parsed
-byte. Unlock = send TimeStamp, then OpenLock with the stored password in
-payload A and the new time-based password in payload B; on success the new
-password becomes the stored one.
+byte — capture-confirmed (a RegisterAdmin frame's password bytes equal the
+session's wall-clock time). Unlock = send TimeStamp, then OpenLock with the
+stored password in payload A and the new time-based password in payload B;
+on success the new password becomes the stored one.
 
 ## Cloud Dependency & Home Assistant Guidance
 
@@ -143,17 +158,22 @@ For Home Assistant:
   connection.
 - Track state and battery passively from the advertisement status byte —
   no connection needed. The manufacturer-data company ID is still unknown
-  (needs one capture), so identify adverts by name pattern until then.
-- Expect bonding (Just Works, no PIN); the lock appears to reject unbonded
-  writers with error `07`. The official app deliberately unpairs on
-  disconnect — an integration that keeps a persistent bond is in
-  uncharted-but-plausible territory.
+  (the capture contains no advertising reports), so identify adverts by
+  name pattern until then.
+- Bonding is mandatory and confirmed: the lock sends an SMP security
+  request as its first packet, pairing is legacy Just Works (no PIN), and
+  no GATT service discovery completes before the bond exists — a client
+  that never pairs discovers zero services and gets dropped. The lock
+  refuses unbonded writers with error `07`. The official app deliberately
+  unpairs on disconnect — an integration that keeps a persistent bond is
+  in uncharted-but-plausible territory.
 - Honor the app's pacing: ~1.2 s pause after enabling notifications, and
-  always sync the RTC (TimeStamp) before OpenLock.
+  always sync the RTC (TimeStamp) before OpenLock. Once notifications are
+  on, expect an unsolicited `ff` status frame about once per second.
 
 ## Tools Used
 
-- [ ] Wireshark / nRF Connect — no capture exists yet
+- [x] Wireshark / tshark — Android HCI snoop of the vendor app driving one lock (2026-08-30)
 - [x] jadx decompile of `com.champion.lock` v2.2.1
 
 ## References
@@ -167,3 +187,4 @@ For Home Assistant:
 ## Contributors
 
 - Automated research agent — APK acquisition, decompile, initial RE dossier (2026-08)
+- Owner capture + analysis — HCI snoop of a vendor-app session; bonding, framing, enrollment and status-notify confirmations (2026-08)

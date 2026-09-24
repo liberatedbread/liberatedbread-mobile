@@ -90,10 +90,6 @@ device:
       - "urn:schemas-sony-com:service:ScalarWebAPI:1"
       - "urn:dial-multiscreen-org:service:dial:1"
     default_port: 80
-    identity_keys:
-      primary: "serial"
-      secondary: "mac_addr"
-      display: "name"
 
   discovery:
     methods:
@@ -204,6 +200,21 @@ device:
             description: >
               Enable IP control and choose authentication. The client cannot do
               any of this remotely — that is the point of the setting.
+            # One of the two, per the route the user picks; auth_schemes
+            # says how each rides a request.
+            issues_credentials:
+              psk:
+                user_entered: true
+                notes: >
+                  The pre-shared key the user sets under Remote device
+                  settings > IP control > Pre-Shared Key, typed into the
+                  client as the same string.
+              auth_cookie:
+                command: "act_register"
+                reply_cookie: "auth"
+                notes: >
+                  Issued by the second act_register call, carrying the PIN
+                  shown on screen. Store it keyed by the TV's serial.
             steps:
               - action: >
                   On the TV: Settings > Network & Internet > Remote device
@@ -218,12 +229,11 @@ device:
                   more reliable one.
                 actor: "user"
               - action: >
-                  OR use PIN pairing: the client POSTs actRegister to
-                  /sony/accessControl with HTTP Basic auth (empty username,
-                  password "0000") to make the TV display a PIN, then repeats
-                  the call with the shown PIN as the Basic-auth password; the
-                  TV answers 200 with an auth cookie the client sends on every
-                  later request. See bravia_common.authentication.
+                  OR use PIN pairing: the client sends act_register with its
+                  default pin "0000" to make the TV display a PIN, then repeats
+                  it with the shown PIN; the TV answers 200 with an auth cookie
+                  the client sends on every later request. See
+                  bravia_common.authentication.
                 actor: "client"
                 expect: "actRegister returns 200 and a Set-Cookie: auth=... header."
               - action: "Confirm the REST API is reachable and authenticated."
@@ -701,6 +711,28 @@ http_endpoints:
       example: |
         {"method": "actRegister", "params": [{"clientid": "OpenGreenIoT:8f4a2c10-0000-4000-8000-000000000000", "nickname": "OpenGreenIoT Remote", "level": "private"}, [{"value": "yes", "function": "WOL"}]], "id": 1, "version": "1.0"}
 
+# The two credentials a Bravia accepts on every /sony/* request
+# (bravia_common.authentication). Which one a client holds depends on the
+# route its user took in device.setup; every command below accepts both.
+auth_schemes:
+  psk:
+    type: "header"
+    credential: "psk"
+    headers:
+      X-Auth-PSK: "{psk}"
+    description: "Pre-shared key, set on the TV and typed into the client. No handshake, no expiry."
+  pin_cookie:
+    type: "header"
+    credential: "auth_cookie"
+    headers:
+      Cookie: "auth={auth_cookie}"
+    description: "The auth cookie act_register issues after PIN pairing."
+  pin_basic:
+    type: "http_basic"
+    username: ""
+    password: "{pin}"
+    description: "act_register's own authentication: Basic auth with an empty username and the PIN as the password."
+
 # One command per remote key, in the shape entities can bind: a `press` role
 # needs a command with no caller-supplied blanks, so each key is its own
 # command with the code already in its arguments. Every command here is an
@@ -717,11 +749,45 @@ http_endpoints:
 # daily by pybravia/Home Assistant, but not replayed against hardware by
 # this project.
 #
-# TRANSPORT GAP: transport "soap" is honest about the envelope but the
-# reference app's transports today send no X-Auth-PSK header and no cookie —
-# until it grows a per-device auth header slot, these commands are
-# documentation, not yet executable by the app.
+# AUTHENTICATION: every command carries `auth: [psk, pin_cookie]` -- the
+# two schemes in `auth_schemes` below. A client sends whichever one it
+# holds a credential for: the pre-shared key as X-Auth-PSK, or the cookie a
+# PIN pairing (act_register) issued. A TV with authentication set to "None"
+# ignores both.
+#
+# The JSON-RPC state reads (get_power_status and friends, at the end of
+# this block) are the http half: POST /sony/<service> with a JSON body and
+# the same header. The entities' `state_command` names them.
 commands:
+  # -- PIN pairing. Call once with the default pin "0000": the TV answers
+  #    401/403 and shows a PIN on screen. Call again with that PIN: the TV
+  #    answers 200 and Set-Cookie: auth=<token> (device.setup
+  #    issues_credentials.auth_cookie). A clientid that is already registered
+  #    makes the TV refuse to show a new PIN.
+  act_register:
+    description: "actRegister: PIN pairing. The first call makes the TV display a PIN; the second, carrying that PIN, is answered with the auth cookie."
+    transport: "http"
+    method: "POST"
+    path: "/sony/accessControl"
+    action: "Register Client"
+    headers:
+      Content-Type: "application/json"
+    auth: ["pin_basic"]
+    body: '{"method": "actRegister", "params": [{"clientid": "{client_id}", "nickname": "{nickname}", "level": "private"}, [{"value": "yes", "function": "WOL"}]], "id": 1, "version": "1.0"}'
+    example_body: '{"method": "actRegister", "params": [{"clientid": "OpenGreenIoT:8f4a2c10-0000-4000-8000-000000000000", "nickname": "OpenGreenIoT Remote", "level": "private"}, [{"value": "yes", "function": "WOL"}]], "id": 1, "version": "1.0"}'
+    parameters:
+      pin:
+        type: "string"
+        default: "0000"
+        description: "\"0000\" on the first call, which makes the TV display a PIN. On the second call, the 4-digit PIN shown on the TV."
+      client_id:
+        type: "string"
+        description: "A stable id this client picks and reuses, conventionally \"<name>:<uuid>\". Re-registering with the same id is refused until it is removed on the TV."
+      nickname:
+        type: "string"
+        description: "The name the TV lists this client under in its registered-device menu."
+    verification: "reported"
+
   # -- Power. "Power" on Sony's table is the toggle; consumer sets also
   #    expose discrete PowerOn/PowerOff codes (pybravia ships PowerOn for
   #    its wake path). All three wake only from network standby
@@ -733,6 +799,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAVAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_power_on:
     description: "Discrete power-on — pybravia's CODE_POWER_ON; on Sony's consumer key lists, not in the pro table."
@@ -741,6 +808,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAuAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_power_off:
     description: "Discrete power-off/standby — community table; not in the pro table."
@@ -749,6 +817,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAvAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Navigation.
@@ -759,6 +828,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAABgAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_back:
     description: "Back/return one screen ('Back' on Sony's table; community tables spell it 'Return')."
@@ -767,6 +837,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAjAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_exit:
     description: "Exit — community table; not in the pro table."
@@ -775,6 +846,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAABjAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_up:
     description: "D-pad up — Sony's published table."
@@ -783,6 +855,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAB0Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_down:
     description: "D-pad down — Sony's published table."
@@ -791,6 +864,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAB1Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_left:
     description: "D-pad left — Sony's published table. The widely-copied community table spells Left differently (AAAAAQAAAAEAAAB2Aw==); trust getRemoteControllerInfo where they disagree."
@@ -799,6 +873,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAA0Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_right:
     description: "D-pad right — Sony's published table. Community tables spell it AAAAAQAAAAEAAAB3Aw==; same caveat as Left."
@@ -807,6 +882,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAzAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_confirm:
     description: "OK/enter — 'Confirm' on Sony's table."
@@ -815,6 +891,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAABlAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_options:
     description: "Options/context menu for the focused item — Sony's published table."
@@ -823,6 +900,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAA2Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_display:
     description: "Display the info overlay — Sony's published table."
@@ -831,6 +909,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAA6Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_help:
     description: "Help screen — Sony's published table."
@@ -839,6 +918,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAMQAAABNAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_sync_menu:
     description: "Sync Menu (BRAVIA Sync device menu) — Sony's published table."
@@ -847,6 +927,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABYAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Number keys.
@@ -857,6 +938,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAJAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num1:
     description: "Digit 1 — Sony's published table."
@@ -865,6 +947,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAAAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num2:
     description: "Digit 2 — Sony's published table."
@@ -873,6 +956,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAABAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num3:
     description: "Digit 3 — Sony's published table."
@@ -881,6 +965,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAACAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num4:
     description: "Digit 4 — Sony's published table."
@@ -889,6 +974,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAADAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num5:
     description: "Digit 5 — Sony's published table."
@@ -896,7 +982,8 @@ commands:
     service: "urn:schemas-sony-com:service:IRCC:1"
     action: "X_SendIRCC"
     arguments:
-      IRCCCode: "AAAAAQAAAAEAAAAFAw=="
+      IRCCCode: "AAAAAQAAAAEAAAAEAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num6:
     description: "Digit 6 — Sony's published table."
@@ -905,6 +992,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAFAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num7:
     description: "Digit 7 — Sony's published table."
@@ -913,6 +1001,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAGAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num8:
     description: "Digit 8 — Sony's published table."
@@ -921,6 +1010,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAHAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_num9:
     description: "Digit 9 — Sony's published table."
@@ -929,6 +1019,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAIAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_dot:
     description: "The '.', separator for digital sub-channels — 'Dot(.)' on Sony's table."
@@ -937,6 +1028,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAdAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Playback transport.
@@ -947,6 +1039,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAaAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_pause:
     description: "Pause — Sony's published table."
@@ -955,6 +1048,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAZAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_stop:
     description: "Stop — Sony's published table."
@@ -963,6 +1057,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAYAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_rewind:
     description: "Rewind — community table ('Forward'/'Rewind' pair); not in the pro table."
@@ -971,6 +1066,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAbAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_forward:
     description: "Fast-forward — community table; not in the pro table."
@@ -979,6 +1075,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAcAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_prev:
     description: "Previous track/chapter — Sony's published table (community tables spell Prev differently; same caveat as Left)."
@@ -987,6 +1084,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAA8Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_next:
     description: "Next track/chapter — Sony's published table."
@@ -995,6 +1093,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAA9Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_flash_plus:
     description: "Flash+ (step forward during pause) — Sony's published table."
@@ -1003,6 +1102,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAB4Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_flash_minus:
     description: "Flash- (step back during pause) — Sony's published table."
@@ -1011,6 +1111,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAB5Aw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Volume and channel.
@@ -1021,6 +1122,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAASAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_volume_down:
     description: "Volume down one step — Sony's published table."
@@ -1029,6 +1131,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAATAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_mute:
     description: "Mute toggle — Sony's published table."
@@ -1037,6 +1140,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAUAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_audio:
     description: "Audio track/language selection — Sony's published table."
@@ -1045,6 +1149,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAXAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_channel_up:
     description: "Next tuner channel — Sony's published table."
@@ -1053,6 +1158,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAQAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_channel_down:
     description: "Previous tuner channel — Sony's published table."
@@ -1061,6 +1167,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAARAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_epg:
     description: "Electronic programme guide — community table ('EPG'); not in the pro table."
@@ -1069,6 +1176,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAKQAAABbAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_cc:
     description: "Closed captions/subtitles — 'CC' on Sony's table."
@@ -1077,6 +1185,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAoAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Colour keys.
@@ -1087,6 +1196,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAlAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_green:
     description: "Green colour key — Sony's published table."
@@ -1095,6 +1205,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAmAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_yellow:
     description: "Yellow colour key — Sony's published table."
@@ -1103,6 +1214,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAnAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_blue:
     description: "Blue colour key — Sony's published table."
@@ -1111,6 +1223,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAAJcAAAAkAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
 
   # -- Inputs. The key-based path; the REST path is Play Content with an
@@ -1122,6 +1235,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAQAAAAEAAAAlAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_hdmi1:
     description: "Switch to HDMI 1 — Sony's published table."
@@ -1130,6 +1244,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABaAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_hdmi2:
     description: "Switch to HDMI 2 — Sony's published table."
@@ -1138,6 +1253,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABbAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_hdmi3:
     description: "Switch to HDMI 3 — Sony's published table."
@@ -1146,6 +1262,7 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABcAw=="
+    auth: ["psk", "pin_cookie"]
     verification: "reported"
   press_hdmi4:
     description: "Switch to HDMI 4 — Sony's published table."
@@ -1154,6 +1271,83 @@ commands:
     action: "X_SendIRCC"
     arguments:
       IRCCCode: "AAAAAgAAABoAAABdAw=="
+    auth: ["psk", "pin_cookie"]
+    verification: "reported"
+
+  # -- JSON-RPC reads and writes (bravia_common.rest). One POST per method:
+  #    path is the service, `body` the JSON-RPC document, and `action` the
+  #    http_endpoints entry that documents the reply. `id` is pinned to 1 in
+  #    every body, matching the endpoint examples; a client may substitute
+  #    its own correlation id.
+  get_system_information:
+    description: "getSystemInformation: identity — product, model, serial, macAddr, name, generation, cid. The spec's identification read; result[0] is the object."
+    transport: "http"
+    method: "POST"
+    path: "/sony/system"
+    action: "System Information"
+    headers:
+      Content-Type: "application/json"
+    auth: ["psk", "pin_cookie"]
+    body: '{"method": "getSystemInformation", "params": [], "id": 1, "version": "1.0"}'
+    example_body: '{"method": "getSystemInformation", "params": [], "id": 1, "version": "1.0"}'
+    returns:
+      - name: "result[0].model"
+        type: "string"
+      - name: "result[0].macAddr"
+        type: "string"
+        description: "The MAC Wake-on-LAN needs (bravia_common.power_on)."
+    verification: "reported"
+  get_power_status:
+    description: "getPowerStatus: result[0].status is 'active' when the set is on, 'standby' otherwise. The Power switch's and Power Status sensor's state read; a 'not power-on' error on any OTHER call is the same reading saying standby."
+    transport: "http"
+    method: "POST"
+    path: "/sony/system"
+    action: "Power Status"
+    headers:
+      Content-Type: "application/json"
+    auth: ["psk", "pin_cookie"]
+    body: '{"method": "getPowerStatus", "params": [], "id": 1, "version": "1.0"}'
+    example_body: '{"method": "getPowerStatus", "params": [], "id": 1, "version": "1.0"}'
+    returns:
+      - name: "result[0].status"
+        type: "string"
+        description: "'active' | 'standby'."
+    verification: "reported"
+  get_volume_information:
+    description: "getVolumeInformation: result[0] is a list of per-target objects {target, volume, mute, minVolume, maxVolume}; the 'speaker' entry is the Volume sensor's reading. authLevel none in Sony's reference, so it may answer before pairing on some sets."
+    transport: "http"
+    method: "POST"
+    path: "/sony/audio"
+    action: "Volume Information"
+    headers:
+      Content-Type: "application/json"
+    auth: ["psk", "pin_cookie"]
+    body: '{"method": "getVolumeInformation", "params": [], "id": 1, "version": "1.0"}'
+    example_body: '{"method": "getVolumeInformation", "params": [], "id": 1, "version": "1.0"}'
+    returns:
+      - name: "result[0][].volume"
+        type: "integer"
+        description: "0-maxVolume for the target named alongside it."
+      - name: "result[0][].mute"
+        type: "boolean"
+    verification: "reported"
+  get_playing_content_info:
+    description: "getPlayingContentInfo: what is on — result[0].uri/source/title for an input, programme details for the tuner. Blind to content inside Android apps (documented limitation)."
+    transport: "http"
+    method: "POST"
+    path: "/sony/avContent"
+    action: "Playing Content Info"
+    headers:
+      Content-Type: "application/json"
+    auth: ["psk", "pin_cookie"]
+    body: '{"method": "getPlayingContentInfo", "params": [], "id": 1, "version": "1.0"}'
+    example_body: '{"method": "getPlayingContentInfo", "params": [], "id": 1, "version": "1.0"}'
+    returns:
+      - name: "result[0].title"
+        type: "string"
+      - name: "result[0].uri"
+        type: "string"
+        description: "e.g. extInput:hdmi?port=2 — the value Play Content takes."
     verification: "reported"
 
 # The remote, as controls. Declaration order is layout order — power, then
@@ -1162,11 +1356,10 @@ commands:
 # bind the REST surface and carry the transport gap in their notes.
 entities:
   # The stateful Power control (spec-evolution P13). Commands go over IRCC
-  # SOAP, which the reference app can send today; the state read is the same
-  # getPowerStatus RPC as the Power Status sensor below and shares its
-  # transport gap (JSON body POST + auth header). result[0].status is
-  # 'active' when on — and a 'not power-on' error on any other call is a
-  # verified standby signal, not a failure (rest.description).
+  # SOAP; the state read is the get_power_status JSON-RPC command, the same
+  # one the Power Status sensor below names. result[0].status is 'active'
+  # when on — and a 'not power-on' error on any other call is a verified
+  # standby signal, not a failure (rest.description).
   - platform: "switch"
     name: "Power"
     key: "power"
@@ -1176,8 +1369,10 @@ entities:
       turn_off: "press_power_off"
       toggle: "press_power"
     state_endpoint: "/sony/system"
-    state_command: "getPowerStatus"
+    state_command: "get_power_status"
     state_path: "result[0].status"
+    state_mapping:
+      on_value: "active"
     notes: >
       Discrete on/off are consumer-set IRCC codes; the toggle is the one key
       every set carries. Prefer turn_off for a bulk send — the toggle needs
@@ -1436,27 +1631,28 @@ entities:
     commands:
       press: "press_hdmi4"
 
-  # State surfaces. state_endpoint + state_command name the RPC the reading
-  # comes from, in the shape the schema defines for one-path-POST APIs.
-  # TRANSPORT GAP: fetching any of these needs a JSON body POST plus the
-  # auth header — not yet sendable by the reference app; they are declared
-  # so the contract exists when the transport lands.
+  # State surfaces. `state_command` names the JSON-RPC command (in
+  # `commands`) that fetches the reading — a POST of that command's `body`
+  # to its `path` with the X-Auth-PSK header; `state_endpoint` restates the
+  # path for readers and `state_path` says where in the reply to look.
   - platform: "sensor"
     name: "Power Status"
     state_endpoint: "/sony/system"
-    state_command: "getPowerStatus"
+    state_command: "get_power_status"
+    state_path: "result[0].status"
     notes: "Result path: result[0].status — 'active', 'standby', ... A 'not power-on' error on other calls is this reading saying standby."
   - platform: "sensor"
     name: "Now Playing"
     icon: "mdi:television-play"
     state_endpoint: "/sony/avContent"
-    state_command: "getPlayingContentInfo"
+    state_command: "get_playing_content_info"
+    state_path: "result[0].title"
     notes: "Result path: result[0].title (with .uri/.source for detail). Blind to content inside Android apps — documented limitation, not a parsing bug."
   - platform: "sensor"
     name: "Volume"
     icon: "mdi:volume-high"
     state_endpoint: "/sony/audio"
-    state_command: "getVolumeInformation"
+    state_command: "get_volume_information"
     notes: "Result path: result[0][target 'speaker'].volume, 0-100 per maxVolume. authLevel none on Sony's pro reference, so this one may read even before pairing on some models."
 
   # The app launcher. Same idea as Roku's Channel select: options are

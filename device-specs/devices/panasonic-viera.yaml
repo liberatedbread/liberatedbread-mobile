@@ -85,10 +85,6 @@ device:
     # No mdns_service_type: nothing in the community sources shows these sets
     # announcing a uniquely identifying mDNS service.
     default_port: 55000
-    identity_keys:
-      primary: "udn"
-      secondary: "model_number"
-      display: "friendly_name"
 
   discovery:
     methods:

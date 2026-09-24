@@ -227,6 +227,60 @@ services:
           Probe-disconnect sentinel: 65526 (0xFFF6, i.e. int16 -10 — pybq,
           matching cloudbbq's -10 check); the advertisement path uses
           0xFFFF instead (inkbird-ble). Treat values as signed.
+          The layout below is what cloudbbq (app.js: a signed 16-bit LE read
+          per probe, divided by 10, Celsius) and pybq implement; reported,
+          not read back by this project. A notification is only as long as
+          the unit has probes — two probes give 4 bytes — so the fields for
+          probes the unit lacks are simply absent, not zero.
+        format:
+          - offset: 0
+            length: 2
+            name: "probe_1_temp"
+            type: "int16"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+            notes: "-10 (raw 0xFFF6) means the probe is unplugged."
+          - offset: 2
+            length: 2
+            name: "probe_2_temp"
+            type: "int16"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+            notes: "Same sentinel as probe 1."
+          - offset: 4
+            length: 2
+            name: "probe_3_temp"
+            type: "int16"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+            notes: "Present on 4- and 6-probe units only."
+          - offset: 6
+            length: 2
+            name: "probe_4_temp"
+            type: "int16"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+            notes: "Present on 4- and 6-probe units only."
+          - offset: 8
+            length: 2
+            name: "probe_5_temp"
+            type: "int16"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+            notes: "6-probe units only."
+          - offset: 10
+            length: 2
+            name: "probe_6_temp"
+            type: "int16"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+            notes: "6-probe units only."
 
       - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
         name: "SettingsResult"
@@ -238,6 +292,37 @@ services:
           uucidl gist, 6580 per pybq; approximate). The device also
           echoes the SilenceAlarm message here when the alarm is
           silenced via the device button.
+          FRAME SELECTION: this characteristic carries every settings reply,
+          not only the battery one, and the layout below describes the
+          battery reply alone. Check byte 0 == 0x24 before trusting the
+          voltage fields; any other first byte is a different reply (the
+          silence-alarm echo, for one) and the offsets do not apply. The
+          reading is a gauge ratio, not a voltage in any known unit: battery
+          percent = battery_voltage_raw / battery_max_raw × 100, with
+          battery_max_raw replaced by roughly 6550 when the device reports 0
+          (uucidl gist, pybq). Reported.
+        format:
+          - offset: 0
+            length: 1
+            name: "reply_type"
+            type: "uint8"
+            values:
+              0x24: "battery_reply"
+            notes: "Only 0x24 is described here; other replies share the characteristic."
+          - offset: 1
+            length: 2
+            name: "battery_voltage_raw"
+            type: "uint16"
+            device_class: "battery"
+            notes: >
+              Current battery reading in the device's own gauge units (the
+              open-source clients treat it as millivolt-like but none states
+              the unit). Divide by battery_max_raw for a fraction.
+          - offset: 3
+            length: 2
+            name: "battery_max_raw"
+            type: "uint16"
+            notes: "Full-scale value for battery_voltage_raw; 0 means use the ~6550 default."
 
       - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
         name: "HistoryData"
@@ -247,10 +332,29 @@ services:
 entities:
   - platform: "sensor"
     name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
     state_characteristic: "0000fff4-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "probe_1_temp"
+    notes: >
+      Probe 1. The other probes are further fields of the same
+      characteristic (probe_2_temp .. probe_6_temp); a consumer that wants
+      one tile per probe reads them from the format block.
   - platform: "sensor"
     name: "Battery"
+    device_class: "battery"
     state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_voltage_raw"
+    commands:
+      poll: "request_battery"
+    notes: >
+      Raw gauge value, not a percent: the reply carries the reading and its
+      full-scale value as two fields and the percent is their ratio, which
+      the entity vocabulary cannot express (see remaining_unknowns). No unit
+      is claimed for the raw value. The reply only arrives after the battery
+      request is written to 0xFFF5.
   - platform: "button"
     name: "Silence Alarm"
     commands:
@@ -276,3 +380,17 @@ helpful_urls:
     kind: "vendor_support"
     description: >
       Vendor's own manual page, kept current.
+
+remaining_unknowns:
+  - >
+    Battery percent is a ratio of two fields of the 0xFFF1 battery reply
+    (battery_voltage_raw / battery_max_raw), and the entity vocabulary has
+    no way to say "divide this field by that one" — so the Battery entity
+    binds the raw reading and a consumer that wants a percent must do the
+    division itself. The unit of the raw value (the open-source clients treat
+    it as millivolt-like, full scale about 6550) has not been established.
+  - >
+    0xFFF1 multiplexes every settings reply on one characteristic and the
+    format block describes only the 0x24 battery reply; a consumer must
+    check the first byte before decoding, because the schema has no
+    frame-selector to say so for it.

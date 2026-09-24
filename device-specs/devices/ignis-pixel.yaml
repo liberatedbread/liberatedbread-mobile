@@ -101,9 +101,10 @@ device:
     MSG_DATA_DBL pixel blocks), and OTA firmware update.
 
     OTA OVER BLE (sequence HIGH, block layout MEDIUM): enter bootloader
-    (ID_MESS_GO_BURN) → erase (ID_MESS_FIRMWARE_ERASE) → stream firmware as
-    MSG_DATA_BL blocks, each CRC32-protected, addressed by file offset →
-    return to the main application (ID_MESS_GOTO_MAIN). Firmware images come
+    (ota_go_burn) → erase the application region (ota_firmware_erase) →
+    stream firmware as data blocks, each CRC32-protected, addressed by file
+    offset (ota_data_bl) → return to the main application (ota_goto_main);
+    see features[firmware_update]. Firmware images come
     as a header/data pair internally. Firmware version is a packed uint32,
     e.g. 0x03002100 = v3.0.33. Whether .fw files are obfuscated is an OPEN
     item — check a downloaded header before writing a flasher.
@@ -347,22 +348,22 @@ services:
             description: "Upload an image/timeline to the prop (ID_MSG_WRITE_IMAGE, pixel data as MSG_DATA_ONE / MSG_DATA_DBL blocks with R/G/B uint32 channels and a gamma step; per-block CRC32; erase via ID_MSG_ERASE_IMAGE). Exact block layout and write pacing (page-write timeouts exist on-device) are OPEN — map before implementing."
             verification: "hypothesis"
           ota_go_burn:
-            description: "OTA step 1: reboot into the bootloader (ID_MESS_GO_BURN)."
+            description: "OTA step 1: reboot into the bootloader (the app's go-to-bootloader request)."
             verification: "hypothesis"
             advanced: true
-            advanced_reason: "Drops the prop into its bootloader; the main firmware stops running until the OTA sequence completes or GOTO_MAIN is sent. A failed or abandoned flash can leave the prop needing a desktop-utility reflash. Have the correct model's .fw file ready first."
+            advanced_reason: "Drops the prop into its bootloader; the main firmware stops running until the OTA sequence completes or ota_goto_main is sent. A failed or abandoned flash can leave the prop needing a desktop-utility reflash (USB, with the model's release .fw from the public update server). Have the correct model's .fw file ready first."
           ota_firmware_erase:
-            description: "OTA step 2: erase the application flash region (ID_MESS_FIRMWARE_ERASE)."
+            description: "OTA step 2: erase the application flash region (the app's firmware-erase request)."
             verification: "hypothesis"
             advanced: true
-            advanced_reason: "Erases the prop's main firmware. Until new firmware is written and GOTO_MAIN succeeds the prop will not run normally; recovery is the desktop Ignis Pixel Utility with the model's release .fw from the public update server."
+            advanced_reason: "Erases the prop's main firmware. Until new firmware is written and ota_goto_main succeeds the prop will not run normally; recovery is the desktop Ignis Pixel Utility with the model's release .fw from the public update server."
           ota_data_bl:
-            description: "OTA step 3: write one firmware block (ID_MSG_DATA_BL / MSG_DATA_BL), addressed by file offset with a per-block CRC32. Repeat for the whole image; firmware arrives as a header/data pair internally."
+            description: "OTA step 3: write one firmware data block (the bootloader data-block message), addressed by file offset with a per-block CRC32. Repeat for the whole image; firmware arrives as a header/data pair internally."
             verification: "hypothesis"
             advanced: true
             advanced_reason: "Writes raw firmware to flash. Writing an image built for a different FW_DevType can brick the prop until recovered with the desktop utility; verify the Update.xml Type attribute against the device's reported FW_DevType first."
           ota_goto_main:
-            description: "OTA step 4: leave the bootloader and start the main application (ID_MESS_GOTO_MAIN)."
+            description: "OTA step 4: leave the bootloader and start the main application (the app's return-to-main request)."
             verification: "hypothesis"
             advanced: true
             advanced_reason: "Boots whatever is currently in application flash. Only send after the full image was written and every block CRC was accepted; otherwise the prop stays in the bootloader."
@@ -386,6 +387,59 @@ services:
           the header are only partially mapped (MSG_HW_INFO field list is in
           device.notes); MSG_PC_CMD_EX carries ArgA-D/AckCodeA-D fields whose
           exact widths are OPEN.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        source: "public_url"
+        format: "Vendor .fw file (header/data pair internally); legacy V1/V2 images are .cr files."
+        notes: >
+          Published on plain HTTPS: the catalog
+          https://software-upload.ignispixel.com/Update/Update.xml maps each
+          device Type (hex, equal to the FW_DevType the prop reports) to Ver,
+          MinVer and FileName; release images sit under
+          /Update/Firmware/V3/Release/ and hash.md5 lists an md5 for every
+          file. Whether .fw files are obfuscated, and whether the bootloader
+          checks anything beyond the per-block CRC32, is open. Each block
+          carries a CRC32 (init 0).
+      enter:
+        how: "command"
+        command: "ota_go_burn"
+        notes: >
+          The framed go-to-bootloader request on the Nordic UART RX
+          characteristic. Its opcode byte, like every command in this spec,
+          is not yet extracted, so the command is symbolic until the opcode
+          map lands.
+      dfu_mode:
+        notes: >
+          The bootloader runs on the STM32 main MCU and stays active until
+          ota_goto_main. What the nRF52832 bridge advertises meanwhile is not
+          recorded; the normal advertisement itself is only the shared Nordic
+          UART Service UUID.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          ota_goto_main before the full image is written leaves the prop in
+          its bootloader, and a prop whose flash was erased does not run
+          until an image is written. The documented recovery for a prop that
+          no longer boots is the vendor's public desktop Ignis Pixel Utility,
+          which flashes the model's release .fw over USB and speaks the same
+          bootloader protocol (see helpful_urls and
+          device.setup.factory_reset). Whether a BLE retry works from the
+          stuck state is not established.
+      verification: "hypothesis"
+      notes: >
+        Sequence (HIGH, from the app's native library): ota_go_burn, then
+        ota_firmware_erase, then ota_data_bl for each block (addressed by
+        file offset, per-block CRC32), then ota_goto_main. Check the image's
+        Update.xml Type against the prop's reported FW_DevType before
+        writing. Opcodes and the data-block layout are open, and no hardware
+        has been driven, so nothing here is more than a hypothesis.
 
 entities:
   - platform: "light"

@@ -57,9 +57,6 @@ device:
     hostname and the display name is the advertised instance name.
   identification:
     mdns_service_type: "_adb-tls-connect._tcp.local."
-    identity_keys:
-      primary: "hostname"
-      display: "name"
 
   discovery:
     methods:

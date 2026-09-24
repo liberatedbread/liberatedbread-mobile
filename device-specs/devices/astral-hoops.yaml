@@ -22,9 +22,9 @@ device:
 
     TRANSPORT: Microchip/ISSC Transparent UART BLE module (the well-known
     public ISSC UUIDs, not vendor-specific). One GATT service
-    49535343-FE7D-4AE5-8FA9-9FAFD205E455 with TX (phone -> device, write)
-    49535343-1E4D-4BD9-BA61-23C647249616 and RX (device -> phone, notify)
-    49535343-8841-43F4-A8D4-ECBE34729BB3. Transparent UART: plain bytes both
+    49535343-fe7d-4ae5-8fa9-9fafd205e455 with TX (phone -> device, write)
+    49535343-1e4d-4bd9-ba61-23c647249616 and RX (device -> phone, notify)
+    49535343-8841-43f4-a8d4-ecbe34729bb3. Transparent UART: plain bytes both
     ways, no BLE-level framing. The app never requests an MTU; in the bulk
     paths (image upload, OTA) it manually splits payloads into 16-byte GATT
     writes with ~10 ms between writes. A replacement client should do the
@@ -216,25 +216,59 @@ features:
       height. At the GATT layer the app splits all of the above into 16-byte
       writes with ~10 ms spacing (no MTU negotiation).
   - type: "firmware_update"
-    notes: >
-      Phone-based OTA over the BLE UART into a custom SAM D21 bootloader;
-      firmware images are public unauthenticated HTTPS downloads
-      (https://astralhoops.com/images/a5.ver + af5.bin; beta: a5beta.ver +
-      af5beta.bin). Sequence: compare '#GV' version against a5.ver; download
-      af5.bin (raw flash image for offset 0x2000); send '#B' then 'MCURESET'
-      (expect "BL"), wait ~1 s, send {0x80,0x80,'#'} then 'N#' (expect
-      {10,13}); verify CPUID/DID with the bootloader 'w' read command; erase
-      from 0x2000 ('X00002000#', expect "X\r\n"); program per 4-byte word /
-      2-byte halfword / 1-byte with W20/O20/H20 commands staged to RAM
-      0x5000 and committed per 0x1000-byte page with 'Y' commands (each
-      expects "Y\r\n"); finish with the AIRCR SYSRESETREQ write
-      'WE000ED0C,05FA0004#' and 'MCUDONE'. A 54-byte Thumb helper stub is
-      first written to RAM at 0x20004000 and jumped to — it performs the
-      actual flash writes. An alternate XMODEM-CRC16 block path exists
-      (SOH, block#, ~block#, 128 data bytes, CRC16/XMODEM poly 0x1021 init
-      0 over the data field; per-block ACK 0x06 / CAN 0x18; a 20-byte
-      variant carries 15 data bytes) but appears legacy — the main updater
-      uses the word-writer. MEDIUM confidence; not yet replayed on hardware.
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unsigned"
+        source: "public_url"
+        format: "Raw SAM D21 flash image for offset 0x2000 (~72 KB); the 8 KB bootloader at 0x0000-0x1FFF is not part of it."
+        notes: >
+          Public, unauthenticated HTTPS downloads: release
+          https://astralhoops.com/images/a5.ver (dotted version) +
+          https://astralhoops.com/images/af5.bin; beta a5beta.ver +
+          af5beta.bin at the same path. The bootloader checks no signature;
+          the updater's only guard is reading the chip's CPUID and Device ID
+          first.
+      enter:
+        how: "command"
+        command: "bootloader_enter"
+        notes: >
+          '#B' (bootloader_enter) then 'MCURESET' (bootloader_mcureset); the
+          device answers "BL". Wait ~1 s, then send {0x80,0x80,'#'} and 'N#'
+          (expect {10,13}) before the first bootloader command.
+      dfu_mode:
+        notes: >
+          The bootloader answers over the same BLE link and ISSC UART
+          characteristics, in its own '#'-terminated ASCII command language.
+          Whether the module re-advertises, or under what name, is not
+          established.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          bootloader_erase_app erases from 0x2000 only, so the 8 KB
+          bootloader survives any failed update; whether the prop then waits
+          in the bootloader for a retry, and for how long, is not
+          established.
+      verification: "reported"
+      notes: >
+        Custom SAM D21 bootloader driven over the ISSC Transparent UART, read
+        from the vendor app's updater and not yet replayed on hardware
+        (MEDIUM confidence). Sequence: compare '#GV' version against a5.ver;
+        download af5.bin; enter as above; verify CPUID/DID with
+        bootloader_read_word; erase from 0x2000 (bootloader_erase_app,
+        'X00002000#', expect "X\r\n"); program per 4-byte word / 2-byte
+        halfword / 1-byte with W20/H20/O20 commands (bootloader_write_word)
+        staged to RAM 0x5000 and committed per 0x1000-byte page with 'Y'
+        commands (each expects "Y\r\n"); finish with the AIRCR SYSRESETREQ
+        write 'WE000ED0C,05FA0004#' (bootloader_reset) and 'MCUDONE'
+        (bootloader_mcudone). A 54-byte Thumb helper stub is first written
+        to RAM at 0x20004000 and jumped to; it performs the actual flash
+        writes. An alternate XMODEM-CRC16 block path exists (SOH, block#,
+        ~block#, 128 data bytes, CRC16/XMODEM poly 0x1021 init 0 over the
+        data field; per-block ACK 0x06 / CAN 0x18; a 20-byte variant carries
+        15 data bytes) but appears legacy: the main updater uses the
+        word-writer.
 
 services:
   # ISSC Transparent UART — ASCII command protocol
@@ -554,3 +588,16 @@ helpful_urls:
     kind: "manual"
     description: >
       The remote-control Classic variant.
+
+remaining_unknowns:
+  - >
+    The Battery Level entity has no format block and cannot have one as the
+    schema stands: the RX characteristic is a stream of ASCII records
+    (`&L<n>` for battery, `&B<n>` for brightness, `&M ...` for mode, `OK`
+    acknowledgements, ...) that share one characteristic and are told apart
+    by their first two characters, and the value is a decimal digit in text
+    rather than a binary field. A flat offset table would read byte 2 of
+    whichever record arrived last. What a consumer needs is a record
+    selector (first byte `&`, second byte `L`) plus an ASCII-integer field
+    type, neither of which the format vocabulary has, so the entity keeps its
+    prose description and reads unavailable in a binding-only consumer.

@@ -62,20 +62,29 @@ asks, not protocol unknowns: the bytes are established downstream and work;
 what is missing is a machine-readable home for them so a generic consumer
 gets what this app had to special-case. Twelve asks across five handlers:
 
-| Handler | Schema ask |
-|---------|-----------|
-| cdbwsoft_ecb | `link_flag` vocabulary is undeclared — the handler carries the values inline. |
-| cdbwsoft_ecb | WRITE2 and WRITE3 are distinguishable only by command name; wants a declared `channel_tag` to switch on. |
-| cat_printer | Command set is in prose only — there is no `commands:` block to bind. |
-| cat_printer | Energy byte order is unstated. |
-| cat_printer | Payload values are unstated. |
-| fichero_d11 | Command set is in prose, not a `commands:` block. |
-| fichero_d11 | Density vocabulary is not a field. |
-| fichero_d11 | Paper-type vocabulary is not a field. |
-| idotmatrix | The 4096-byte chunk payload is described in prose only. |
-| idotmatrix | Static-image header values (time/delay + speed) are unstated. |
-| ledbadge_bitmap | Slot-mode enumeration is not in the YAML. |
-| ledbadge_bitmap | The 8192-byte flash ceiling is not declared. |
+All twelve were closed on 2026-09-17 by declaring the facts (the specs and
+schema now carry them; the handlers can resolve by key):
+
+| Handler | Schema ask | Now declared as |
+|---------|-----------|-----------------|
+| cdbwsoft_ecb | `link_flag` vocabulary is undeclared — the handler carries the values inline. | `data_transfer_start.parameters.link_flag` `allowed: [0, 1]` with labels (magic-display). |
+| cdbwsoft_ecb | WRITE2 and WRITE3 are distinguishable only by command name; wants a declared `channel_tag` to switch on. | `role: bulk` on WRITE2, `role: stream` on WRITE3, `role: command` on WRITE1 — a new optional characteristic key. |
+| cat_printer | Command set is in prose only — there is no `commands:` block to bind. | `commands:` on 0xAE01 (cat-printer) and on 0xAE01/0xAE03 (cat-printer-mxw01), CRC via `auto: crc8`. |
+| cat_printer | Energy byte order is unstated. | `set_energy.parameters.energy.endianness: little` (NaitLee; rbaron's big-endian noted in remaining_unknowns). |
+| cat_printer | Payload values are unstated. | A3 → 0x00, BE → 0x01, A9 → 0x00, A4 → 50, precomputed in each command's `value`. |
+| fichero_d11 | Command set is in prose, not a `commands:` block. | `commands:` on 0xFF02, aliased onto 0x2AF1. |
+| fichero_d11 | Density vocabulary is not a field. | `features[image_upload].print_density` and `set_density.parameters.density` (`allowed`/`labels`). |
+| fichero_d11 | Paper-type vocabulary is not a field. | `features[image_upload].paper_type` and `set_paper_type.parameters.paper_type`. |
+| idotmatrix | The 4096-byte chunk payload is described in prose only. | `framing.max_chunk_size: 4096` on 0xFA02, and `upload_image_chunk`/`upload_gif_chunk` templates. |
+| idotmatrix | Static-image header values (time/delay + speed) are unstated. | `display_seconds` and `material_type` parameters with defaults (0/12 image, 5/13 GIF). |
+| ledbadge_bitmap | Slot-mode enumeration is not in the YAML. | `write_badge_data.parameters.mode` `allowed: [0..8]` with labels. |
+| ledbadge_bitmap | The 8192-byte flash ceiling is not declared. | `features[image_upload].max_payload_bytes: 8192`. |
+
+Still open from the same wave: a payload-length `auto` role (the cat
+printer's variable-length 0xBF RLE row), nibble-packed parameters (the
+badge's speed nibble shares a byte with `mode`), and a raw-byte-stream
+transport arm for top-level `commands` (Brother's raster opcodes stay
+`payload_hex` prose).
 
 ## Validation: 204/204 passing (203 device specs + 1 example)
 

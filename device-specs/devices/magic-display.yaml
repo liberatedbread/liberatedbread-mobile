@@ -29,7 +29,7 @@ device:
     Supports multiple display sizes: 5x36, 12x48, 14x56, 16x64 (reported via STYPE response).
     Monochrome 1-bit-per-pixel bitmap encoding (threshold: any RGB channel >= 128 = ON).
     Device identification by manufacturer-specific adv data: {0x54, 0x52, 0x00, 0x27}
-    ("TR" + 0x0027; BROADCAST_AiTURE_PRODUCT in the app's BLE config).
+    ("TR" + 0x0027; the product-broadcast constant in the app's BLE config).
     No pairing required. Shares an OEM BLE codebase with Shining Glasses.
     A secondary Texas Instruments profile (service 0xFFF0 / char 0xFFF1) is also
     supported for TI-based hardware variants.
@@ -43,9 +43,9 @@ device:
     34522a5b7a6e492c08090a9d8d2a23f8, identical to the public iDeal LED
     family key. App-derived, not yet verified against hardware.
 
-    Enrich-branch evidence: the app's Java AES wrapper exposes cipher /
-    invCipher / keyExpansion / keyExpansionDefault backed by that native
-    library; its protocol layer encrypts every command before write and
+    Enrich-branch evidence: the app's Java AES wrapper exposes encrypt,
+    decrypt and key-expansion (custom and default key) entry points backed
+    by that native library; its protocol layer encrypts every command before write and
     decrypts notifications. Bulk pixel/image upload uses DATS on WRITE1, waits for DATSOK,
     sends data chunks on WRITE2, then sends DATCP and waits for DATCPOK.
     CORRECTION (2026-08-14, verified against the vendor app — supersedes the
@@ -89,8 +89,15 @@ device:
           manufacturer_data:
             company_id: 21076
             match: "prefix"
-            pattern: "54520027"
-            description: "Manufacturer-specific advertising data starts with 0x54 0x52 0x00 0x27."
+            pattern: "0027"
+            description: >
+              The manufacturer-data AD structure (type 0xFF) starts
+              0x54 0x52 0x00 0x27. The first two bytes are the company id
+              21076 (0x5254, "TR" in wire order), matched by `company_id`;
+              `pattern` is the two bytes after them, 0x00 0x27, the product
+              id that separates this display from the other "TR" products
+              (shining-glasses 0x0041, shining-mask 0x004A, ideal-led
+              0x0061). App-derived; no public capture confirms it.
     identity:
       stable_keys: ["address"]
       display: "service_uuid"
@@ -165,6 +172,44 @@ features:
     format: "1bit-bitmap"
     max_width: 64
     max_height: 16
+    # 1 bit per pixel: the palette is on/off. Stated so an editor does not
+    # quantize to some other device's 16-colour ceiling.
+    max_palette_colors: 2
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["quintic_ota"]
+      transport: "ble"
+      services: ["0000fee8-0000-1000-8000-00805f9b34fb"]
+      image:
+        signing: "unknown"
+        encrypted: false
+        source: "bundled_in_app"
+        format: "Raw Quintic OTA .bin, about 39 KB (TR1805R03-9/-10, TR1806R06-2/-3 _OTA.bin in the app's assets)."
+        notes: >
+          The app's cloud check (app/lastOtaUpdate) answers data: null for
+          this app, so the four bundled images are the only source. The OTA
+          path writes raw, without the AES-128-ECB wrapping the command
+          channel uses. Whether the loader checks more than the data-verify
+          step is not established.
+      enter:
+        how: "in_place"
+        notes: >
+          The app's updater starts straight on the OTA write characteristic
+          (013784cf-…): meta data (cmd 0x01), the image in 256-byte packets
+          (cmd 0x02), data-verify (0x03), then execute-new-code (0x04); the
+          device answers each with a result status byte on 003784cf-….
+          No vendor command on the FEE9 control service precedes it.
+          Whether the chip reboots before 0x04 is not recorded.
+      dfu_mode:
+        notes: "No update-mode name, address or advertisement is recorded."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From the app's BLE constants and OTA updater; not run against
+        hardware. The Quintic chipset is not family-wide (sibling Shining
+        Glasses hardware is Panchip-based), so another Magic Display
+        variant may use a different stack.
 
 services:
   - uuid: "0000fee9-0000-1000-8000-00805f9b34fb"
@@ -173,6 +218,7 @@ services:
       - uuid: "d44bc439-abfd-45a2-b575-925416129600"
         name: "Command (WRITE1)"
         properties: ["write"]
+        role: "command"
         encryption:
           algorithm: "aes-128-ecb"
           key_derivation: "static"
@@ -255,7 +301,7 @@ services:
             description: "Invert/flip display"
             value: [0x05, 0x45, 0x56, 0x45, 0x52, 0x54]
           set_mode_flash:
-            description: "Flash mode; interval in ms, big-endian 16-bit (Agreement.getFlashingScreenCommand)."
+            description: "Flash mode; interval in ms, big-endian 16-bit."
             template: [0x07, 0x4D, 0x4F, 0x44, 0x45, 0x02, "{interval_hi}", "{interval_lo}"]
             parameters:
               interval_hi:
@@ -286,13 +332,13 @@ services:
                 min: 0
                 max: 255
           torch_on:
-            description: "Torch/flashlight on (LIGHTON; distinct from LIGHT brightness — Agreement.getFlashLight)."
+            description: "Torch/flashlight on (LIGHTON; distinct from LIGHT brightness)."
             value: [0x07, 0x4C, 0x49, 0x47, 0x48, 0x54, 0x4F, 0x4E]
           torch_off:
             description: "Torch/flashlight off (LIGHTOFF)."
             value: [0x08, 0x4C, 0x49, 0x47, 0x48, 0x54, 0x4F, 0x46, 0x46]
           select_animation:
-            description: "Select built-in animation frame (ANIM n — Agreement.getImageCommand)."
+            description: "Select built-in animation frame (ANIM n)."
             template: [0x05, 0x41, 0x4E, 0x49, 0x4D, "{index}"]
             parameters:
               index:
@@ -300,7 +346,7 @@ services:
                 min: 0
                 max: 255
           call_notification:
-            description: "Phone-call notification passthrough (CALL status time — Agreement.getCallPhone)."
+            description: "Phone-call notification passthrough (CALL status time)."
             template: [0x06, 0x43, 0x41, 0x4C, 0x4C, "{status}", "{time}"]
             parameters:
               status:
@@ -312,7 +358,7 @@ services:
                 min: 0
                 max: 255
           set_schedule:
-            description: "Timer auto on/off schedule (SCHD enable hour minute — Agreement.getTimerLightSwitch). Response to STSC uses prefix 'SBHD'."
+            description: "Timer auto on/off schedule (SCHD enable hour minute). Response to STSC uses prefix 'SBHD'."
             template: [0x07, 0x53, 0x43, 0x48, 0x44, "{enable}", "{hour}", "{minute}"]
             parameters:
               enable:
@@ -328,10 +374,10 @@ services:
                 min: 0
                 max: 59
           read_schedule:
-            description: "Read back the timer schedule (STSC — Agreement.readTimerLight)."
+            description: "Read back the timer schedule (STSC)."
             value: [0x04, 0x53, 0x54, 0x53, 0x43]
           diy_sync_mode:
-            description: "DIY sync-draw mode (SMVEW): 1 = enter, 0 = exit, 2 = save-and-exit (Agreement.getEnterDiyCommand/getExitDiyCommand/getExitDiyAndSaveCommand)."
+            description: "DIY sync-draw mode (SMVEW): 1 = enter, 0 = exit, 2 = save-and-exit."
             template: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, "{mode}"]
             parameters:
               mode:
@@ -348,21 +394,39 @@ services:
             description: "Address this unit as the second of a daisy chain (LEDSECOND)."
             value: [0x09, 0x4C, 0x45, 0x44, 0x53, 0x45, 0x43, 0x4F, 0x4E, 0x44]
           data_transfer_start:
-            description: "Start bulk data transfer. hi/lo = big-endian 16-bit data length."
+            description: >
+              Start bulk data transfer (DATS). hi/lo = big-endian 16-bit
+              length of the data that will follow on WRITE2 (role: bulk).
+              The device answers DATSOK on the notify characteristic; the
+              app only starts writing data after it. The trailing byte is
+              the linked-display flag — the app sets it from its
+              "LED link" setting, which is on when two displays are
+              daisy-chained (the N-suffixed STYPE sizes: 5X36N, 12X48N)
+              and off for a single unit.
+            verification: "reported"
             template: [0x08, 0x44, 0x41, 0x54, 0x53, "{len_hi}", "{len_lo}", 0x00, "{link_flag}"]
             parameters:
               len_hi:
                 type: "uint8"
                 min: 0
                 max: 255
+                description: "High byte of the big-endian 16-bit data length."
               len_lo:
                 type: "uint8"
                 min: 0
                 max: 255
+                description: "Low byte of the big-endian 16-bit data length."
               link_flag:
                 type: "uint8"
-                min: 0
-                max: 1
+                allowed: [0, 1]
+                labels: ["single display", "linked pair (daisy-chained N-size display)"]
+                default: 0
+                description: >
+                  0 = one display; 1 = the data is for a linked pair of
+                  displays (the app's LED-link setting, used with the
+                  N-suffixed STYPE sizes). Read from the vendor app's image,
+                  text and DIY upload builders, which all pick between the
+                  same two DATS frames on that one boolean.
           data_transfer_complete:
             description: "Signal bulk data transfer complete"
             value: [0x05, 0x44, 0x41, 0x54, 0x43, 0x50]
@@ -373,7 +437,7 @@ services:
               animation upload is a plain DATS/DATSOK → data → DATCP/DATCPOK
               transfer on WRITE2 with 50 ms pacing (vs 60 ms for stills). The
               multi-frame transaction is sibling-only
-              (shining-glasses DiyMutiAgreement + hardware captures): send
+              (the shining-glasses app's multi-frame upload code + hardware captures): send
               "MANY <frameCount> <profile>" (profile 01 = stable/fast, 02/03
               slower), wait for MANYOK, upload each frame via the normal
               DATS/data/DATCP sequence, then send MANCPOK and wait for the
@@ -383,10 +447,15 @@ services:
       - uuid: "d44bc439-abfd-45a2-b575-925416129601"
         name: "Notification"
         properties: ["notify"]
+        role: "notify"
 
       - uuid: "d44bc439-abfd-45a2-b575-92541612960a"
         name: "Bulk Data (WRITE2)"
         properties: ["write"]
+        # The channel an image_upload streams on between data_transfer_start
+        # and data_transfer_complete — declared as a role so a consumer picks
+        # it by contract, not by the "WRITE2" in the name.
+        role: "bulk"
         encryption:
           algorithm: "aes-128-ecb"
           key_derivation: "static"
@@ -407,6 +476,9 @@ services:
       - uuid: "d44bc439-abfd-45a2-b575-92541612960b"
         name: "Auxiliary (WRITE3)"
         properties: ["write"]
+        # Live data outside any DATS/DATCP session: DIY sync-draw pixels and
+        # music-visualizer level frames. Not the upload channel.
+        role: "stream"
         encryption:
           algorithm: "aes-128-ecb"
           key_derivation: "static"
@@ -446,9 +518,9 @@ services:
         notes: >
           Standard Quintic OTA: host sends meta data (cmd 0x01), then the
           firmware image in 256-byte packets (cmd 0x02), then data-verify
-          (0x03) and execution-new-code (0x04); the device reports an
-          OtaResult status byte on the notify characteristic (per the app's
-          OTA updater). OTA writes are NOT AES-encrypted — the OTA path
+          (0x03) and execution-new-code (0x04); the device reports a result
+          status byte on the notify characteristic (per the app's OTA
+          updater). OTA writes are NOT AES-encrypted — the OTA path
           writes raw. Four firmware images are bundled in the app assets
           (TR1805R03-9/-10, TR1806R06-2/-3 OTA bins, ~39 KB each).
       - uuid: "003784cf-f7e3-55b4-6c4c-9fd140100a16"

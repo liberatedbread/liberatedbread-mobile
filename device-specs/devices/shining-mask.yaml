@@ -73,13 +73,36 @@ device:
           manufacturer_data:
             company_id: 21076
             match: "prefix"
-            pattern: "5452004e"
+            pattern: "004a"
             description: >
-              Manufacturer-specific advertising data starts with
-              0x54 0x52 0x00 0x4E. This is the official app's only scan
-              filter (BleConfig.matchProduct matches these four bytes at the
-              start of the manufacturer-data AD structure; the app never
-              matches on local name). App-derived, not hardware-verified.
+              The manufacturer-data AD structure (type 0xFF) starts
+              0x54 0x52 0x00 0x4A, and those four bytes are the official
+              app's only scan filter (it never matches on local name). The
+              first two are the company id 21076 (0x5254, "TR" in wire
+              order), matched by `company_id`; `pattern` is the two bytes
+              after them, 0x00 0x4A, the product id that separates the mask
+              from the other "TR" products (shining-glasses 0x0041, ideal-led
+              0x0061, magic-display 0x0027). The fourth byte was earlier
+              recorded as 0x4E. The v1.2.6 app's bytecode array literal
+              holds 0x4A (decimal 74). The decompiler printed it as an
+              unrelated library constant name whose value is 74, and that
+              name is what hid the true byte. App-derived, not
+              hardware-verified.
+          notes: >
+            The "TR" 00 74 marker (pattern "0074") is not a Shining Mask
+            signal. It is the scan gate of the separate "Shining Display"
+            app (see led-helmet-display.yaml). That app carries none of this
+            protocol: no fff0 service, no d44bc439 characteristics, no AES
+            key and no DATS framing. So it cannot drive this mask, and
+            nothing suggests a mask advertises 00 74. Its "mask" wording
+            comes from asset and navigator names and from user reviews of
+            its own LED-mask products. The mask's own app matches only
+            00 4A. The archived TR1906R04 OTA images are AT32 MCU code and
+            contain no advertising payload, so they neither confirm nor
+            rule out the bytes the BLE SoC sends. Treat a 00 74 match as a
+            Shining Display family device, not this one. Still open, and
+            only a scan can settle it: the mask's on-air bytes after
+            54 52 (expected 00 4A).
       - type: "ble_scan"
         ble:
           local_name:

@@ -62,9 +62,9 @@ command over BLE or the `/wifiSettings` OSC message; no reset needed.
 Three hops, any of the first two can drive the third:
 
 1. **BLE → bridge.** Open firmware: Nordic UART Service
-   `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`; write ASCII commands to
+   `6e400001-b5a3-f393-e0a9-e50e24dcca9e`; write ASCII commands to
    `6E400002-…`, notifications on `6E400003-…`; the app requests MTU 48.
-   Production app: service `49550001-AAD5-59BD-934C-023D807E01D5` with
+   Production app: service `49550001-aad5-59bd-934c-023d807e01d5` with
    characteristics `49550002-…`, `49550003-…`, `49550005-…` (roles
    unverified — recovered from the APK's compiled Dart library).
 2. **WiFi/OSC → bridge.** Bridge mDNS-advertises `_osc._udp`
@@ -79,10 +79,10 @@ Three hops, any of the first two can drive the third:
 
 | UUID | Name | Description |
 |------|------|-------------|
-| `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` | Nordic UART (open bridge firmware) | ASCII command channel |
-| `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | NUS RX | Write commands (write / write-no-response) |
-| `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | NUS TX | Notifications |
-| `49550001-AAD5-59BD-934C-023D807E01D5` | Flowtoys Connect service (production) | Vendor service used by com.flowtoys.app; characteristic roles unverified |
+| `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | Nordic UART (open bridge firmware) | ASCII command channel |
+| `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | NUS RX | Write commands (write / write-no-response) |
+| `6e400003-b5a3-f393-e0a9-e50e24dcca9e` | NUS TX | Notifications |
+| `49550001-aad5-59bd-934c-023d807e01d5` | Flowtoys Connect service (production) | Vendor service used by com.flowtoys.app; characteristic roles unverified |
 
 ### Commands
 

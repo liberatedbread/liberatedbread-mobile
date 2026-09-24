@@ -315,3 +315,23 @@ helpful_urls:
     kind: "vendor_support"
     description: >
       Vendor index. Note the vendor gates some downloads behind a password obtained from sales.
+
+remaining_unknowns:
+  - >
+    None of the nine telemetry entities on 0xFFEC has a format block, and one
+    cannot be written: each 16-byte notification is one block of a 512-byte
+    device-memory image, selected by the 6-bit block ID in byte 1 through a
+    55-entry address table, and the readings sit at image offsets that land
+    in different blocks — per the community implementations (bobecek79,
+    fd-tuner, EKSR, jackhumbert; they agree in substance) image 0xE8 word 0
+    is pack voltage in 0.1 V and word 2 the signed line current in 0.25 A
+    (negative = regen), image 0xE2 word 3 is raw motor RPM, image 0xF4
+    word 0 is motor temperature and byte 3 the state of charge, and image
+    0xD6 word 5 is controller temperature. A flat offset table has no way
+    to say "byte 1 selects the block"; what is missing from the schema is a
+    frame/block selector and a reassembly step. Until then the entities
+    keep their names and units and a consumer decodes the image itself.
+  - >
+    The scaling of throttle depth, vehicle speed (which the community derives
+    from RPM and a wheel-size parameter rather than reading directly) and
+    the ride-mode code have not been pinned to image offsets in this spec.

@@ -54,7 +54,7 @@ every constant checked. Facts not independently re-derived are marked
 |----------|-------|
 | Setup required | Yes — SPAKE2 pairing before any command works |
 | Method | `ble_provisioning` |
-| Advertised in Schlage mode | DataTransfer service UUID `1F6B43AA-94DE-4BA9-981C-DA38823117BD` |
+| Advertised in Schlage mode | DataTransfer service UUID `1f6b43aa-94de-4ba9-981c-da38823117bd` |
 | Pairing secret | Programming code printed inside the lock |
 | Confidence | medium (decompiled app + working open implementation; not replayed on hardware by us) |
 
@@ -83,7 +83,7 @@ is connected, the official app silently falls back to its cloud path.
 | `26002998-e001-4812-8c08-5cd2afda0830` | RxData (lock→client) | indicate (CCCD `00002902-…`) |
 | `ff530c78-cd50-4bb9-bbd4-0712f32b3796` | TxData (client→lock) | write |
 | `7f0dee73-4a3f-4103-98e6-a46cd301bdfb` | FW Update "General" | FWImageVersion `BCDE3B9E-…`, LeopardControlPoint `44FF6853-…` (`{1,1,1}` start / `{2,1,1}` finish) |
-| `1F6B43AA-94DE-4BA9-981C-DA38823117BD` | FW Update "DataTransfer" | RxLength `048D8799-…`, RxData `66B7C7FD-…`, RxCRC `507EFC3F-…`, RxACKNAK `1DC15719-…`; also the UUID advertised in Schlage mode |
+| `1f6b43aa-94de-4ba9-981c-da38823117bd` | FW Update "DataTransfer" | RxLength `048D8799-…`, RxData `66B7C7FD-…`, RxCRC `507EFC3F-…`, RxACKNAK `1DC15719-…`; also the UUID advertised in Schlage mode |
 
 The UUIDs ship as JSON raw resources in the APK (`res/raw/sense_gatt_profile.json`,
 `res/raw/firmware_gatt_profile.json`), byte-identical between app 3.6.0 and

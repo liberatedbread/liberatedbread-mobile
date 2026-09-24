@@ -53,10 +53,6 @@ device:
     # registry is exactly what the schema tells you not to do.
     mdns_service_type: "_leap._tcp.local."
     default_port: 8081
-    identity_keys:
-      primary: "mac"
-      secondary: "hostname"
-      display: "name"
 
   discovery:
     methods:

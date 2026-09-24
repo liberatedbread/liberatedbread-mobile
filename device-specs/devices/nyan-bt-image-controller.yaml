@@ -41,23 +41,32 @@ device:
     NotifyId 0000FFF1; rt_draw/game/pwd/dev_info/del_all/value_fix tokens present);
     wire framing cross-checked against two independent hardware-verified RE repos.
   identification:
-    local_name_prefix: "YS"
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
+    # No scan signals claimed on purpose. The NYAN bag advertises exactly
+    # what every other LOY SPACE / popled.cn panel does -- "YS"/"TL" plus a
+    # serial, service 0xFFF0 -- so a matcher here would tie three ways with
+    # autobaba-led-backpack and led-space on every scan. The family
+    # fallback is autobaba-led-backpack; this spec documents the NYAN
+    # product and the platform opcodes it exposes.
+    notes: >
+      Advertises as YS<serial> (the vendor app also scans "TL") with service
+      0xFFF0, identical to the AUTOBABA backpack and the LED space YSP-001
+      family; nothing on the air distinguishes them, and the protocol is the
+      same. A scanner resolves such a device to autobaba-led-backpack. If
+      hardware capture ever shows a NYAN-specific advertisement, state it
+      here and in discovery.
 
   discovery:
-    methods:
-      - type: "ble_scan"
-        ble:
-          local_name:
-            match: "prefix"
-            value: "YS"
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
-    identity:
-      stable_keys: ["address"]
-      display: "local_name"
-    static_ip_required: false
+    none: >
+      Not discoverable AS THIS PRODUCT: the bag advertises exactly what every
+      other LOY SPACE / popled.cn panel advertises -- a "YS" (or "TL") prefix
+      plus a serial, service 0xFFF0, no manufacturer data -- and all three
+      vendor apps filter on that same prefix list and nothing else, so no
+      signal on the air separates a NYAN bag from the AUTOBABA backpack or
+      an LED space panel. The scan itself is documented once, in
+      autobaba-led-backpack, which is the family fallback: a YS*/TL* device
+      resolves there, and the protocol it then speaks is the one described
+      here. Should a capture ever show a NYAN-specific advertisement, this
+      block becomes a ble_scan method and identification gains the needle.
 
   setup:
     required: false
@@ -129,6 +138,14 @@ features:
     format: "gif"
     max_width: 64
     max_height: 64
+
+remaining_unknowns:
+  - >
+    A scan-time signal that tells a NYAN GEAR bag from the AUTOBABA backpack
+    or an LED space panel. All three vendor apps filter on the ["YS", "TL"]
+    name prefixes and service 0xFFF0 and nothing else; no advertisement of
+    a NYAN unit has been captured. autobaba-led-backpack is the family
+    fallback until one is.
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"

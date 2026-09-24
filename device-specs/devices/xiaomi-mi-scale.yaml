@@ -16,7 +16,7 @@ device:
     water, bone mass, visceral fat, BMR). Price $20-30. Body composition is
     computed client-side from the impedance reading; the metric math
     originates from Holtek (the scale's MCU OEM) — Zepp Life ships it as a
-    JNI wrapper (Holtek HTBodyfat class loading a native "Bodyfat"
+    JNI wrapper (a Holtek body-fat class loading a native body-fat
     library) — and openScale's MiScaleLib is the reverse-engineered port.
     A newer Xiaomi Body Composition Scale S400 (MJTZC01YM) exists and is
     handled by openScale's separate MiScaleS400Handler.
@@ -94,7 +94,7 @@ device:
     service_uuids:
       - "0000181d-0000-1000-8000-00805f9b34fb"
     local_name_prefix: "MI"
-    discovery_notes: >
+    notes: >
       Service UUID 0x181D is present on v1 only; v2 (MIBCS) exposes 0x181B
       instead, so filtering on 0x181D misses v2 scales. Discover by
       advertised name — MIBCS, MIBFS, MI_SCALE — as openScale does.
@@ -198,7 +198,7 @@ device:
       notes: "Same as v2, different advertised name prefix."
     - model: "Mi Scale 2"
       identification:
-        local_name: "MI SCALE2"
+        local_name_prefix: "MI SCALE2"
       notes: >
         v2 capabilities. The exact advertised name "MI SCALE2" is
         community-sourced only: Zepp Life matches device names by regex
@@ -234,6 +234,80 @@ services:
           Standard BLE Weight Measurement characteristic. Often absent
           on Mi scales — weight arrives via 0x2A2F instead. When present,
           carries 10-byte weight frame.
+          The frame is the v1 layout in device.notes, NOT the SIG Weight
+          Measurement layout (whose flags byte would put a 0.005 kg / 0.01 lb
+          weight at the same offsets but with different scaling and no
+          timestamp). Layout from openScale's Mi Scale handler and Zepp Life's
+          frame parser; reported, not read back by this project. Weight is
+          only valid when control bit 5 (stabilised) is set and bit 7
+          (weight removed) is clear; raw 0xFFF0 is an overload sentinel.
+        format:
+          - offset: 0
+            length: 1
+            name: "control"
+            type: "uint8"
+            notes: >
+              Bit field, not a code: bit 0 = pounds, bit 4 = jin (catty),
+              bit 5 = stabilised, bit 7 = weight removed. The two unit bits
+              are also declared on their own as unit_flags below.
+          - offset: 0
+            length: 1
+            name: "unit_flags"
+            type: "uint8"
+            mask: 0x11
+            values:
+              0: "kg"
+              1: "lb"
+              16: "jin"
+            notes: "Bits 0 and 4 of the control byte: the unit weight_raw is in."
+          - offset: 1
+            length: 2
+            name: "weight_raw"
+            type: "uint16"
+            scale: 0.005
+            unit: "kg"
+            unit_source: "device_setting"
+            unit_reference: "00002a9d-0000-1000-8000-00805f9b34fb.unit_flags"
+            unit_values:
+              0: "kg"
+              1: "lb"
+              16: "jin"
+              default: "kg"
+            unit_scales:
+              kg: 0.005
+              lb: 0.01
+              jin: 0.01
+            device_class: "weight"
+            notes: >
+              The scale reports in whichever unit it is set to, and changing
+              the unit changes the resolution too: kilograms at raw / 200,
+              pounds and jin at raw / 100. unit_values and unit_scales state
+              both from unit_flags. The 0x1542 unit command selects which
+              unit the scale uses.
+          - offset: 3
+            length: 2
+            name: "year"
+            type: "uint16"
+          - offset: 5
+            length: 1
+            name: "month"
+            type: "uint8"
+          - offset: 6
+            length: 1
+            name: "day"
+            type: "uint8"
+          - offset: 7
+            length: 1
+            name: "hour"
+            type: "uint8"
+          - offset: 8
+            length: 1
+            name: "minute"
+            type: "uint8"
+          - offset: 9
+            length: 1
+            name: "second"
+            type: "uint8"
 
       - uuid: "00002a2f-0000-3512-2118-0009af100700"
         name: "History"
@@ -248,6 +322,12 @@ services:
           a notification of 1 byte or less ends the stream. Finish with
           `03`; on a complete transfer confirm with `04 <ts:uint32le>`.
           App-derived, not hardware-verified (medium confidence).
+          No format block: the notifications are a concatenation of whole
+          records (a v1 unit can pack two 10-byte records into one 20-byte
+          notification) interleaved with the 1-byte end marker and the
+          `01 <count>` reply, so no fixed offset holds across the stream.
+          Each record has the 0x2A9D layout on v1 and the 0x2A9C layout on
+          v2; a client walks the buffer in record-sized steps.
 
       - uuid: "00002a2b-0000-1000-8000-00805f9b34fb"
         name: "Current Time"
@@ -305,14 +385,175 @@ services:
         notes: >
           Standard Body Composition Measurement — the v2 GATT dump shows
           0x2A9C with indicate, not the 0x2A9D Weight Measurement.
+          What it carries is the 13-byte v2 live frame from device.notes,
+          not the SIG Body Composition layout: two control bytes, a
+          timestamp, impedance and then weight. Layout from openScale's v2
+          handler and Zepp Life's parser (reported, not read back here).
+          Weight is valid when control byte 1 bit 5 (stabilised) is set and
+          bit 7 (weight removed) is clear; impedance is meaningful only when
+          control byte 1 bit 1 is set; raw weight 0xFFF0 is an overload
+          sentinel.
+        format:
+          - offset: 0
+            length: 1
+            name: "control_0"
+            type: "uint8"
+            notes: "Bit 0 = pounds."
+          - offset: 1
+            length: 1
+            name: "control_1"
+            type: "uint8"
+            notes: >
+              Bit 1 = impedance present, bit 5 = stabilised, bit 6 = jin
+              (catty), bit 7 = weight removed.
+          - offset: 0
+            length: 2
+            name: "unit_flags"
+            type: "uint16"
+            endianness: "little"
+            mask: 0x4001
+            values:
+              0: "kg"
+              1: "lb"
+              16384: "jin"
+            notes: >
+              The two unit bits, read as one little-endian word over both
+              control bytes: bit 0 is control_0 bit 0 (pounds) and bit 14 is
+              control_1 bit 6 (jin).
+          - offset: 2
+            length: 2
+            name: "year"
+            type: "uint16"
+          - offset: 4
+            length: 1
+            name: "month"
+            type: "uint8"
+          - offset: 5
+            length: 1
+            name: "day"
+            type: "uint8"
+          - offset: 6
+            length: 1
+            name: "hour"
+            type: "uint8"
+          - offset: 7
+            length: 1
+            name: "minute"
+            type: "uint8"
+          - offset: 8
+            length: 1
+            name: "second"
+            type: "uint8"
+          - offset: 9
+            length: 2
+            name: "impedance"
+            type: "uint16"
+            unit: "ohm"
+            notes: >
+              Body impedance in ohms, the input to the client-side body
+              composition maths. Only meaningful when control_1 bit 1 is
+              set; otherwise the scale has not finished measuring.
+          - offset: 11
+            length: 2
+            name: "weight_raw"
+            type: "uint16"
+            scale: 0.005
+            unit: "kg"
+            unit_source: "device_setting"
+            unit_reference: "00002a9c-0000-1000-8000-00805f9b34fb.unit_flags"
+            unit_values:
+              0: "kg"
+              1: "lb"
+              16384: "jin"
+              default: "kg"
+            unit_scales:
+              kg: 0.005
+              lb: 0.01
+              jin: 0.01
+            device_class: "weight"
+            notes: >
+              Kilograms at raw / 200 when neither unit bit is set; pounds at
+              raw / 100 when control_0 bit 0 is set; jin at raw / 100 when
+              control_1 bit 6 is set. unit_values and unit_scales state both
+              from unit_flags.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["huami_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          OTAs are delivered device-bound through the Zepp Life app; there
+          are no public firmware files.
+      enter:
+        how: "unknown"
+        notes: >
+          The DFU control point 0x1531 and packet 0x1532 sit in the Mi vendor
+          service 0x1530 in normal mode, beside the 0x1542 unit
+          configuration. How the app starts an update on them is not
+          established.
+      dfu_mode:
+        notes: "How the scale appears while updating is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        App-derived (Zepp Life's DFU profile binds service 0x1530 with control
+        point 0x1531 and packet 0x1532), not hardware-verified. The layout
+        mirrors Nordic's legacy DFU (1530/1531/1532) but on the Huami
+        0000xxxx-0000-3512-2118-0009af100700 base, not Nordic's
+        …-1212-efde-1523-785feabcd123, so a Nordic legacy client will not
+        find it, and whether the opcodes match Nordic's is not established
+        (hence `huami_dfu`, not nordic_legacy_dfu). dfu.services is omitted because
+        0x1530 also carries the unit configuration a client does need to
+        write.
 
 entities:
   - platform: "sensor"
     name: "Weight"
+    device_class: "weight"
+    unit: "kg"
+    variants: ["Mi Scale v1"]
     state_characteristic: "00002a9d-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "weight_raw"
+    notes: >
+      v1 only — the body-composition models carry weight in the 0x2A9C frame
+      instead (see the second Weight entity). kg is the out-of-box unit. When
+      the scale is switched to pounds or jin, the bound field's unit_values
+      and unit_scales give the unit and scaling in force.
+  - platform: "sensor"
+    name: "Weight"
+    device_class: "weight"
+    unit: "kg"
+    variants:
+      - "Mi Body Composition Scale v2"
+      - "Mi Body Composition Scale (MIBFS)"
+      - "Mi Scale 2"
+    state_characteristic: "00002a9c-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "weight_raw"
+    notes: >
+      From the 13-byte v2 frame. kg is the out-of-box unit; the bound
+      field's unit_values and unit_scales follow this frame's unit_flags.
   - platform: "sensor"
     name: "Impedance"
-    state_characteristic: "00002a2f-0000-3512-2118-0009af100700"
+    unit: "ohm"
+    variants:
+      - "Mi Body Composition Scale v2"
+      - "Mi Body Composition Scale (MIBFS)"
+      - "Mi Scale 2"
+    state_characteristic: "00002a9c-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "impedance"
+    notes: >
+      Rebound from the 0x2A2F history stream (a concatenation of records
+      with no fixed offset) to the live 0x2A9C frame, which is where a
+      body-composition scale reports impedance as it measures. Valid only
+      while control_1 bit 1 is set. v1 scales have no impedance.
   - platform: "select"
     name: "Unit"
     state_characteristic: "00001542-0000-3512-2118-0009af100700"
@@ -325,3 +566,19 @@ entities:
       the unit-set frame (06 04 00 <unit>) is documented only in the 0x1542
       characteristic notes, so a binding-only consumer renders this entity
       hidden until that frame is promoted to a command.
+
+remaining_unknowns:
+  - >
+    The weight fields' unit is a bit field of the same frame (pounds,
+    jin or kilograms, each with its own divisor), which `unit_values` —
+    a raw-value-to-unit table — cannot express; the format blocks declare
+    the kilogram decode and describe the other two in notes, so a consumer
+    must test the control bits itself.
+  - >
+    0x2A2F history notifications concatenate whole records and interleave
+    the count reply and the end marker, so they carry no format block; a
+    client walks them in record-sized steps using the 0x2A9D (v1) or 0x2A9C
+    (v2) layout.
+  - >
+    Neither frame layout has been read back from a scale by this project;
+    both rest on openScale and Zepp Life's parsers.

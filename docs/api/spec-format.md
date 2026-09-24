@@ -26,6 +26,7 @@ device:              # identity, discovery, and one-time setup
   type: ...                  # what the thing IS — free text
   identification: ...        # how to recognise it while scanning
   discovery: ...             # how to FIND one that is already on the network
+  managed_by: ...            # driven through a controller — which spec, how to spot it
   setup: ...                 # how to GET one onto the network
   variants: ...              # models that share a protocol but differ in detail
 
@@ -77,7 +78,13 @@ message matters more than the rejection:
   and "additional properties are not allowed" would not say so;
 - a command's `payload:` accepts only `key` and `value_type` — a raw byte
   sequence is `value` (fixed) or `template` (parameterized), never
-  `payload.bytes`.
+  `payload.bytes`;
+- a BLE command carries `value` **or** `template`, never both. Declaring both
+  has no defined reading: an encoder that prefers `value` sends the constant
+  and ignores every parameter the spec drew a control for (xkglow-chrome's
+  colour command wrote pure red whatever was picked), and one that prefers
+  `template` makes the fixed bytes dead text. A fixed "on" and a
+  parameterised colour are two commands, each bound to its own entity role.
 
 ### Further reading and watch links
 
@@ -155,6 +162,19 @@ A BLE device with an encrypted command channel has an `initialization` block
 and a `setup` block saying `required: false`. Those are not in tension: there
 is nothing to provision, but every connection still needs a handshake.
 
+An `initialization` step names a `characteristic` and is *executable* when it
+carries at least one of `write` (bytes), `read` (`true`) or `subscribe`
+(`true` — open notifications on it, which SmartDawn needs before anything is
+sent). `when` states the cadence: `connect` (the default, once per
+connection) or `before_each_command` for the devices that demand a preamble
+before every write — KingSmith's MC-21 answers `CONTROL_NOT_PERMITTED` to any
+control-point write not immediately preceded by its ODM frame. A step with
+only a `description` is documentation of a handshake a client must implement
+itself (Schlage's per-session SPAKE2 exchange has no fixed bytes to state);
+a consumer reports it and does not pretend to have run it. `notes` sits
+beside an executable step. The step object is closed — an undeclared key
+is an error, because every key here changes what the step *is*.
+
 ### `identification` — what a scanner sees before connecting
 
 `device.discovery` says how to go looking. `device.identification` is the
@@ -182,12 +202,81 @@ device:
     mdns_service_type: "_hue._tcp.local."   # WiFi
     ssid_prefix: "..."                      # WiFi, AP mode
     default_port: 80                        # WiFi
+    zigbee_model_id: "TS0601"               # Zigbee Basic cluster
+    zigbee_manufacturer_names: [...]        # the key a Tuya DP map is chosen by
+    zwave_manufacturer_id: "0x0175"         # Z-Wave, hex
+    notes: >                                # prose beside the keys, never instead
+      ...
 ```
 
 Everything here should also be derivable from `discovery`, which carries the
 evidence and the payload-level matching rules. The duplication is deliberate:
 `identification` is the part a consumer can act on cheaply, and it is what the
 mobile app's spec matcher reads.
+
+The block is **closed**: a key not listed above fails validation. It has to be,
+because a scanner reads it by key and a signal filed under a key nothing reads
+never fires — three specs kept their advertised names under
+`advertisement_names`, `local_name` and `local_name_contains` and validated
+while matching nothing. Exact names are `local_names`; several prefixes are
+`local_name_prefixes`; a substring or regex test has no identification form
+and belongs in `discovery.methods[].ble.local_name`; a hostname pattern or a
+cloud endpoint is `notes` or `protocol_details`. The convention test names the
+key you probably meant.
+
+#### One probe, a whole product line: `platform_prefixes` and `managed_by`
+
+Some vendors answer one discovery protocol with everything they make.
+Ubiquiti's UDP-10001 probe draws a reply from every access point, switch,
+console, NVR and camera on the link, and the only thing that tells them apart
+is the platform string in the reply (`UNVR`, `UCKP`, `UFP-UAP-B`, `UVC G4
+Pro`). `identification.platform_prefixes` is the table that turns that string
+into something a consumer can draw — and, where a prefix belongs to a device
+another spec documents, hands the scan result to that spec:
+
+```yaml
+identification:
+  lan_protocols: ["ubiquiti-discovery"]
+  platform_prefixes:                    # match by prefix, longest wins
+    - prefix: "UNVR"
+      pictogram: "nvr"
+      verification: "confirmed"         # read in a live reply
+    - prefix: "UVC"
+      pictogram: "ip-camera"
+      spec: "unifi-protect-camera"      # that spec's device, not this one's
+    - prefix: "UCG"
+      pictogram: "router"
+      verification: "hypothesis"        # public product code, spelling unread
+```
+
+`pictogram` uses the `device.pictogram` vocabulary and overrides the spec-level
+token for a matching device. A row's `verification` says whether the prefix
+was read off the wire or taken from the vendor's public naming; keep the
+unread ones in, marked, so a new console degrades to a sensible glyph rather
+than the category icon. `ubiquiti-unifi-device.yaml` is the worked example.
+
+The other half is the device that is *driven through* one of those rows. A
+Protect camera is adopted to an NVR, configured there and streamed from there;
+a bulb behind a Zigbee hub has the same shape. `device.managed_by` says so,
+names the controller's spec, and says how to pick the controller out of the
+scan results:
+
+```yaml
+device:
+  managed_by:
+    spec: "ubiquiti-unifi-device"       # the controller's spec id
+    discovery:                          # at least one signal, matched against
+      platform_prefixes: ["UNVR", "UDM", "UCKP"]   #   the CONTROLLER's replies
+      # ssdp_search_target: "urn:..."   # or an SSDP target
+      # mdns_service_type: "_x._tcp.local."   # or an mDNS service type
+    notes: "What the controller does for this device, and what it still answers itself."
+```
+
+A consumer answers "is this managed elsewhere, and where is elsewhere" from
+these two blocks and holds no vendor list of its own. `spec` must resolve and
+every prefix must be a row of that spec's table; `scripts/test_device_specs.py`
+checks both. This is distinct from `camera.feed_host_source` (where a stream is
+served from) and from `instances` (the controller's own view of its children).
 
 #### A service type is often a platform, not a product
 
@@ -252,6 +341,75 @@ type over: an ESPHome spec that is also the catch-all for `_http._tcp` claims
 every printer and router that fails its TXT condition. Set `platform_fallback`
 only on a service type the firmware actually owns.
 
+**Which types are shared is a registry, not a judgement call.**
+`registries/shared-service-types.tsv` lists the mDNS types and SSDP search
+targets that prove nothing on their own — `_hap._tcp.local.`,
+`_http._tcp.local.`, `_googlecast._tcp.local.`, `upnp:rootdevice`,
+`urn:schemas-upnp-org:device:MediaRenderer:1` and the rest — with a reason
+for each. A consumer never promotes a match on one of them alone, so a spec
+whose only axis is in that table matches nothing until it adds one that is
+its own. Adding a type there is a spec-pack refresh, not an app release; the
+file's README says how to.
+
+#### An SSDP target is often a device class, not a product
+
+The same problem one protocol over. `urn:schemas-upnp-org:device:MediaRenderer:1`
+is every DLNA renderer on the link, and the vendor's name lives not in the
+M-SEARCH reply but in the description document its LOCATION header points at.
+`ssdp_match` is the SSDP twin of `mdns_txt_match` — conditions on that
+document's `<device>` elements, ANDed, that narrow a shared target to this
+product:
+
+```yaml
+identification:
+  ssdp_search_targets:
+    - "urn:schemas-upnp-org:device:MediaRenderer:1"
+  ssdp_match:
+    - field: "manufacturer"      # manufacturer | modelName | modelNumber |
+      match: "exact"             #   modelDescription | friendlyName | deviceType | UDN
+      value: "Hisense"
+      description: "<manufacturer>Hisense</manufacturer> in the port-38400 descriptor."
+```
+
+`discovery.methods[].ssdp.match` carries the same narrowing with its evidence
+(`manufacturer_exact`, the prose `rule`); the identification copy is the
+cheap one a matcher reads first. `hisense-vidaa.yaml` is the worked example.
+
+#### Probes that are neither SSDP nor mDNS
+
+Two more discovery methods exist for hardware that is found by asking on a
+port of its own, and both are declared in the shape a consumer executes
+rather than described in prose:
+
+- **`udp_broadcast`** — send `probe_hex` to `port`, read replies in
+  `response_format`. Two keys cover the protocols a plain broadcast does not:
+  `multicast_group` sends the probe to a group instead of a broadcast address
+  (Yeelight's port-1982 search and Govee's LAN API both use
+  `239.255.255.250`), and `listen_port` is where replies arrive when that is
+  not the probe's source port (Govee sends to 4001 and answers to 4002 — bind
+  it before you send). `identity_mapping.stable_keys[].source` is prefixed by
+  the dialect it is read with: `tlv:0x0005` a TLV record by type,
+  `json:msg.data.device` a path into a JSON reply, `header:id` an HTTP-style
+  header line. A device that answered is tagged with the spec's
+  `identification.lan_protocols` token (`govee-lan`, `yeelight-ssdp`,
+  `tplink-smarthome`), which is the strong identification: only something
+  that speaks the protocol replies at all. When two specs send the same
+  probe, the narrower one states what its product's reply must carry in
+  `response_match` (`source`/`match`/`value`, ANDed, the udp_broadcast twin
+  of `scope_match`). The broader one declares `platform_fallback: true`,
+  which `ssdp` now also accepts. Yeelight's cube lists `set_segment_rgb` in
+  the reply's `support` header, and `yeelight-wifi` is the fallback for
+  every other Yeelight.
+- **`ws_discovery`** — the OASIS WS-Discovery Probe ONVIF cameras answer, a
+  SOAP-over-UDP multicast to `239.255.255.250:3702` with `probe_types`
+  (`dn:NetworkVideoTransmitter`), whose ProbeMatch carries a `urn:uuid`
+  endpoint, Scopes and the device-service URL. It is not SSDP and an ONVIF
+  device answers no SSDP target; four camera specs used to claim one. The
+  generic `onvif.yaml` declares the method with `platform_fallback: true`,
+  exactly as an mDNS platform spec does; a vendor spec that can narrow the
+  Scopes declares its own with `scope_match`, and one that cannot identifies
+  itself by what it volunteers on its own (`mac_prefixes`, an HTTP probe).
+
 #### When one device family has two paths for the same thing
 
 `commands[].path_fallback` and `entities[].state_topic_fallback` are the HTTP
@@ -282,6 +440,18 @@ them as if they were:**
 | `local_name_prefix` | Strong | Distinctive prefixes rarely collide, but users rename devices and some vendors ship a generic default |
 | `manufacturer_data.company_id` | Medium | Identifies an advertisement shape, not a vendor — squatting is rampant (see `shining-glasses`, whose 21076 is just "TR" in little-endian) |
 | `mac_prefixes` | Weakest | An OUI belongs to a vendor, not a product |
+
+Where a company id is shared, the payload behind it is the discriminator, and
+`discovery.methods[].ble.manufacturer_data.pattern` is where it is stated.
+The pattern is hex matched against the manufacturer-specific payload **after**
+the two little-endian company-id bytes, which `company_id` has already
+matched: an advertisement reading `54 52 00 61` on the air under company id
+21076 (`0x5254`) has the pattern `0061`, never `54520061`. `match` is `prefix`
+(the default), `exact`, or `masked` — in which case `mask` is the same length
+as `pattern` and the comparison is `payload & mask == pattern & mask`. The five
+"TR" specs (ideal-led `0061`, magic-display `0027`, shining-glasses `0041`,
+shining-mask `004a`, led-helmet-display `0074`) differ in nothing but those
+two bytes, so the origin is what makes them five devices rather than one.
 
 `mac_prefixes` earns its place by ranking rather than by deciding. An OUI never
 justifies claiming a device is supported — `C4:7C:8D` matches every Xiaomi
@@ -603,6 +773,39 @@ payload_formats:
 columns that must be found from the end. The `example` should be real enough to
 test against; it is what an implementer will parse first.
 
+Where the payload is an **outcome envelope** — the transport status says
+nothing and success or failure is read from the body — add `envelope:` beside
+the prose, so a decoder follows data rather than a paragraph. Hue's CLIP v1
+answers HTTP 200 to everything and puts the verdict in a JSON array:
+
+```yaml
+payload_formats:
+  V1Envelope:
+    envelope:
+      container: "array"              # array | object
+      success_key: "success"          # element carrying this = one attribute acknowledged
+      error_key: "error"              # element carrying this = an error object ...
+      error_type_path: "type"         #   ... whose type code is here (inside the error)
+      error_description_path: "description"
+      error_types:                    # keyed by the code as a string
+        "101": { class: "retry",        description: "link button not pressed" }
+        "1":   { class: "repair",       description: "unauthorized user" }
+        "201": { class: "precondition", description: "parameter not modifiable",
+                 remedy: "carry \"on\": true in the same write" }
+```
+
+A body that is not the declared `container` is not an envelope (a bare object
+answering a CLIP GET is a plain success). Walk every element — a mixed
+envelope can succeed on one attribute and fail on another. `class` is what a
+client *does*: `retry` is the expected answer while something the user
+controls is pending, so keep polling and say nothing; `repair` means a stored
+credential or pairing is gone, so retrying cannot succeed and the client
+surfaces re-pairing; `precondition` is a well-formed request that needs
+something else sent first or alongside, and `remedy` says what; `terminal` —
+the default for any code not listed — fails the request and shows the
+description. `hue-bridge.yaml` is the worked example; its six `parse_rules`
+stay as the readable form of the same facts.
+
 **`timing`** — constants that look arbitrary but are not. Minimum poll
 timeouts, deliberate duplicate sends, how long a reboot takes. Recording them
 saves the next person from rediscovering each one by failing.
@@ -777,6 +980,7 @@ saying what the number *means*:
   type: "uint16"
   scale: 0.01        # value = raw × scale + value_offset
   unit: "C"          # unit of the DECODED value — what is on the wire
+  device_class: "temperature"   # what kind of reading — BLE format fields only
 ```
 
 The transform is linear on purpose: it runs backwards, so the same declaration
@@ -786,6 +990,16 @@ that decodes a reading also encodes a command parameter
 `min`/`max` on a parameter bound the bytes; `min`/`max`/`step` on a `number`
 entity describe the decoded control.
 
+A BLE characteristic's `format` field may also state its **`device_class`**
+— the class of the reading (`battery`, `temperature`, `humidity`, `voltage`,
+`current`, `power`, `speed`, `distance`, `weight`, …), in the same vocabulary
+as `entities[].device_class` (both `$ref` `$defs/device_class`). It is there
+so a consumer registering or drawing a reading does not have to guess the
+class from substrings of the field's name. State it where it is obvious, omit
+it for a raw code or flag byte, and keep it equal to the class of any entity
+that binds the field through `state_mapping.value` — the test suite checks
+the pair agree.
+
 **`unit` answers C-vs-F — but read `unit_source` before trusting it**,
 because temperature devices come in two shapes that look alike and decode
 differently:
@@ -794,6 +1008,27 @@ differently:
 |---|---|---|---|
 | Wire unit is a protocol constant; any C/F toggle is display-only | `fixed` (default) | Ember Mug: always centi-°C on the wire; `fc540004` changes the mug's screen, nothing else | Decode with `scale`/`unit` and never look back |
 | Wire unit follows a device setting | `device_setting` | Inkbird iBBQ: the same raw 165 is 165 °C or 165 °F depending on state | Read the setting named in `unit_reference`, map it through `unit_values`, only then decode |
+
+When the setting changes the resolution as well as the unit, add
+`unit_scales`, a scale per unit, keyed by what `unit_values` yields. A Mi
+Scale reports kilograms at raw/200 but pounds and jin at raw/100:
+`unit_scales: {kg: 0.005, lb: 0.01, jin: 0.01}`, with `scale` as the
+fallback for any unit not listed.
+
+A unit setting, or any other reading, often lives in a few bits of a packed
+byte. `mask` picks them out before anything else applies: the value becomes
+`(raw & mask) >> (trailing zero bits of mask)`, and several fields may share
+one `offset` with different masks. Hotwired's battery byte is `mask: 0x07`
+for its gauge step and `mask: 0xF0` for its present flag. The Mi Scale v2's
+two unit bits sit in different control bytes, so its `unit_flags` field
+reads both bytes as one little-endian word under `mask: 0x4001`.
+
+Some characteristics carry more than one kind of frame. `format_match:
+{offset, value}` on the characteristic says which frames `format`
+describes: any notification without `value` at `offset` is not decoded, and
+entities bound to it keep their last state. Hotwired's status notifications
+are CC reports interleaved with AA echoes of the last write; without the
+match, every echo would be published as a status.
 
 Getting the second case wrong is not an error you notice: every reading stays
 plausible and is simply in the wrong unit. That is why `unit_source:
@@ -869,6 +1104,15 @@ Two keys there earn their place:
   (`source`); a parameter that is none of the three means the control cannot
   send the command at all.
 
+One spelling difference between the two command families is deliberate. A
+network parameter's code table is `values: { "51": "low" }`, as above. A BLE
+command parameter states the same enumeration as `allowed: [0, 1]` plus
+`labels: ["off", "on"]`, paired by index — and the schema rejects `values`
+there, because on the BLE side `values` is the decode-side code table of a
+`format` field and has no meaning on something a client *writes*. Nine
+parameters wrote it anyway and a consumer implementing the declared vocabulary
+drew a 0–255 slider over a two-position switch.
+
 The two keys are **mutually exclusive**, and the schema enforces it, because
 they answer "the caller supplied nothing" with opposite instructions: `default`
 says substitute the constant, `source` says the truth lives on the device and a
@@ -906,6 +1150,50 @@ no value must fail the send visibly. An unpaired client that errors at
 `credential:username` is behaving correctly; one that quietly sends without it
 is the bug.
 
+Three more keys on a network command close the gaps that used to leave a
+declared command unsendable:
+
+- **`headers`** — request headers this command sends, name → value, with the
+  same `{name}` substitution as `body` and `path`. This is where a bearer
+  credential rides (`AUTH: "{auth_token}"` on every Vizio key, from a
+  `source: "credential:auth_token"` parameter) and where a REST API's
+  insisted-on `Content-Type` is stated. A placeholder the consumer cannot
+  fill fails the send; it never goes out empty.
+- **`auth`, naming entries of the root `auth_schemes`**, for a device that
+  accepts more than one credential on the same commands. Sony Bravia takes
+  either a pre-shared key (`X-Auth-PSK`) or the cookie a PIN pairing
+  issued. Pinning one of them as a fixed header locked out every client that
+  took the other route. Each scheme is `type: header` (its `headers` merge
+  over the command's) or `type: http_basic` (`username`/`password`, which
+  the client base64-encodes), and names the stored `credential` it needs. A
+  command lists the schemes it accepts, in order of preference, and the
+  client uses the first one it holds a credential for. Placeholders fill
+  from the command's parameters first, then from that credential. Sony's
+  `act_register` authenticates with `pin_basic`, whose password is its own
+  `pin` parameter.
+- **A literal `body` for an HTTP command whose wire shape is not a flat
+  object.** `arguments` renders a flat JSON object; Vizio's
+  `{"KEYLIST":[{...}]}` and Sony's JSON-RPC envelope are not one, so those
+  commands declare the document itself as a `body` template. Where the
+  template has no blanks, `example_body` must be the same document —
+  `scripts/test_device_specs.py` diffs every http/websocket command's pair —
+  so a worked example belongs only on a command with parameters to fill.
+- **`auto` on a parameter**, with `checksum_start`/`checksum_xor` — the same
+  encoder-filled roles a BLE parameter may carry (`checksum`, `xor_checksum`,
+  `subtract_checksum`, `crc8`, `crc16_modbus`, `sequence`, `packet_length`),
+  for byte-framed socket
+  protocols such as Magic Home's TCP frames. The enum is closed on both
+  sides and a test keeps the two identical.
+
+And one rule on the entity side: **`state_command` is a name.** It resolves
+to a key of `commands`, the `name` of an `http_endpoints` entry, or (on a BLE
+spec) a characteristic command — never a wire token. A one-path-POST API
+therefore declares its state read as a command carrying the body
+(`get_all_conf: {path: /post, body: '{"Command": "Channel/GetAllConf"}'}`)
+and points `state_command` at that key; the test suite fails a value that
+resolves to nothing, because that was a card whose buttons worked and whose
+value never arrived.
+
 `instance:` exists because of hubs. A hub is one network presence fronting a
 population the spec cannot enumerate — which lights sit behind a bridge is the
 owner's business, not the spec's — so the entity describes the *shape* of one
@@ -930,6 +1218,164 @@ chatty clients. A client walks the keys; for each child the `state_mapping`
 paths resolve *inside that child's object*, `label_path` names it for the
 human, and the id fills the `instance:` placeholder of every command the
 entity binds. `device-specs/devices/hue-bridge.yaml` is the worked example.
+
+#### A role that binds a command *and* an argument
+
+A role's value is normally the command's name. It may instead be an object
+that names the command and fixes some of its parameters, for a device whose
+verbs are one opcode and a selector byte. FTMS stops and pauses with the same
+control-point write, op `0x08`, told apart only by its `control` parameter:
+
+```yaml
+entities:
+  - platform: "button"
+    name: "Stop"
+    key: "stop"
+    commands:
+      press: { command: "stop_or_pause", values: { control: 1 } }
+  - platform: "button"
+    name: "Pause"
+    key: "pause"
+    commands:
+      press: { command: "stop_or_pause", values: { control: 2 } }
+```
+
+`values` keys must be parameters the named command declares (the convention
+test checks), and the literal is in the parameter's own type and wire scale —
+it substitutes exactly as a caller-supplied value would. Any parameter the
+binding does not fix is filled the way it always is: the control's own value,
+a `default`, or a `source` read-back. Before this form existed the two bytes
+lived in a consumer's widget, or a spec declared a constant-value twin of the
+parameterized command for each selector value (`stop_belt_ftms`,
+`pause_belt_ftms`); both still validate, and the object form is the shape to
+reach for next time. `ftms-fitness-machine-service.yaml` is the worked example.
+
+#### `bands` — the vendor's own verdict thresholds
+
+A reading a device *judges* — an air-quality monitor's ring, a radon
+detector's green/yellow/red — can carry the thresholds the vendor ships, so a
+consumer draws the verdict the device's own app would, rather than applying
+one vendor's numbers to every device with a matching unit:
+
+```yaml
+entities:
+  - platform: "sensor"
+    name: "Radon 24h Average"
+    unit: "Bq/m³"
+    bands:
+      - { level: "good", below: 100 }
+      - { level: "fair", above: 100, below: 150 }
+      - { level: "poor", above: 150 }
+  - platform: "sensor"
+    name: "Humidity"
+    unit: "%"
+    bands:                                     # two-sided: good in the middle
+      - { level: "poor", below: 25 }
+      - { level: "fair", above: 25, below: 30 }
+      - { level: "good", above: 30, below: 60 }
+      - { level: "fair", above: 60, below: 70 }
+      - { level: "poor", above: 70 }
+```
+
+Bounds are in the entity's `unit`; `above` is inclusive, `below` exclusive, so
+adjacent bands partition cleanly. Three levels only — `good`, `fair`, `poor` —
+because that is what every vendor UI draws. A reading matching no band has no
+verdict. These are the vendor's numbers, not this project's: say in `notes`
+where they came from, and where the device reports its own thresholds (the
+Airthings family does, over a UI-settings command) a consumer that can read
+them live should prefer them. `airthings-wave-family.yaml` is the worked
+example.
+
+### `features` — an upload is a control surface too
+
+A printer or a pixel display has, most of the time, no switch and no sensor
+to bind: its whole surface is "take this bitmap". `features` is where that is
+declared, and the keys on an `image_upload` entry are the facts an editor and
+an uploader need without reading the notes:
+
+```yaml
+features:
+  - type: "image_upload"
+    format: "1bit-bitmap"
+    max_width: 96
+    max_height: 65535
+    max_palette_colors: 2          # absent = no constraint
+    print_density:                 # a code set, same shape as a parameter
+      allowed: [0, 1, 2]
+      labels: ["light", "medium", "thick"]
+      default: 1
+      command: "set_density"       # which declared command carries the byte
+    paper_type: { allowed: [0, 1, 2], labels: [...], default: 0, command: "set_paper_type" }
+    print_geometry: { dpi: 300, bytes_per_row: 162, head_dots: 1296, ... }
+    media:                         # the roll table a mm*dpi guess approximates
+      - { name: "62mm continuous (DK-2205)", kind: "continuous", width_mm: 62,
+          print_width_dots: 696, right_margin_dots: 12, media_type_code: 10 }
+  - type: "raster_print"           # the upload IS the device
+```
+
+- **`max_palette_colors`** is the ceiling of the device's *format*, not of the
+  editor: 2 for a 1-bit head, 16 for a codec that packs a palette index into
+  a nibble, absent for a device that decodes PNG/GIF itself. Stated because
+  the mobile editor quantized thirteen devices to one codec's sixteen.
+- **`max_payload_bytes`** bounds the whole transfer (the LED badge's 8192-byte
+  flash); `framing.max_chunk_size` on the characteristic bounds one write.
+- **`print_density` / `paper_type`** are code sets in the `allowed`/`labels`
+  shape a command parameter uses, plus `command` so a picker knows what to
+  send through.
+- **`print_geometry`** and **`media[]`** hold a raster printer's head numbers
+  and roll table in the units a job builder needs — dots, at
+  `print_geometry.dpi`. Every key is described in `schema.json`.
+- **`raster_print`** is a marker declared *beside* `image_upload`, never
+  instead of it: it says the device's control surface is the byte stream and
+  resolves no entities, so a consumer keeps the printer rather than dropping
+  it as empty. The five raster printers in the catalogue declare both.
+
+Three smaller keys belong to the same wave. A characteristic may carry
+**`role: command | bulk | stream | notify`** so a consumer picks the upload
+channel by contract rather than by the word "WRITE2" in its `name`; a
+`framing.scheme` of **`length_prefixed_le16`** is a two-byte little-endian
+length then the packet, split into `max_chunk_size` writes (Rabbit Air); and
+a parameter's **`auto: crc8`** is CRC-8 poly 0x07 / init 0x00 over the
+`checksum_start` span (the cat printers, over the payload only, so
+`checksum_start: 6`).
+
+#### `firmware_update` and its `dfu` block
+
+A device that takes new firmware declares a `firmware_update` feature with a
+`dfu` block. The schema requires the block, so the facts cannot live only
+in prose:
+
+```yaml
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]       # stack(s); closed enum
+      transport: "ble"
+      image: { signing: "signed", algorithm: "ecdsa_p256", source: "bundled_in_app" }
+      enter: { how: "command", command: "enter_dfu" }   # must be `advanced`
+      dfu_mode:                               # checked BEFORE identification
+        local_names: ["AdMore Light Bar DFU"]
+        address_offset: 1
+      services: ["0000fe59-0000-1000-8000-00805f9b34fb"]
+      recovery: { interrupted: "keeps_old_image", inactivity_timeout_s: 120 }
+      verification: "reported"
+```
+
+A consumer matches `dfu_mode` before ordinary identification and shows a hit
+as "this product, mid-update", with no controls. `services` are listed
+read-only by a GATT explorer and never identify the product on their own.
+`image.signing` tells a user whether a replacement client could build an
+image or only deliver the vendor's. What each stack does by default (UUIDs,
+the `DfuTarg` name, the +1 address, timeouts) is in
+[Firmware Update](../protocols/firmware-update.md) and
+`registries/dfu-signatures.tsv`. A spec records only what its device
+changes.
+
+When the stack depends on the board, declare one `firmware_update` entry per
+group and scope each with `variants`: names from `device.variants[].model`,
+as on an entity. hello-fairy's ST17H66, ESP32 and Bluetrum boards each get
+their own entry. No variant may be covered by two entries of the same
+`type`.
 
 ### One spec, several models
 

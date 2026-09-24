@@ -363,7 +363,7 @@ services:
   # charger characteristics in oral-b-io-smartbrush.yaml, the A0F03Cxx command
   # channel is a P&G grooming-SDK building block; the app never pins a service
   # UUID for it that static analysis could read out.
-  - uuid: "A0F03C00-5047-4D53-8208-4F72616C2D42"
+  - uuid: "a0f03c00-5047-4d53-8208-4f72616c2d42"
     name: "P&G Grooming Command Service (Silk-expert Pro 5)"
     verification: "hypothesis"
     notes: >
@@ -377,7 +377,7 @@ services:
       for all six characteristics purely to keep the map in one place; the
       real on-air grouping (one service or several) is in remaining_unknowns.
     characteristics:
-      - uuid: "A0F03C00-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c00-5047-4d53-8208-4f72616c2d42"
         name: "Command (write)"
         properties: ["write"]
         notes: >
@@ -464,7 +464,7 @@ services:
             value: [0xC3, 51]
             verification: "reported"
 
-      - uuid: "A0F03C01-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c01-5047-4d53-8208-4f72616c2d42"
         name: "Read (read + indicate)"
         properties: ["read", "indicate"]
         notes: >
@@ -527,7 +527,7 @@ services:
             endianness: "big"
             notes: "Flashes fired in the current session."
 
-      - uuid: "A0F03C02-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c02-5047-4d53-8208-4f72616c2d42"
         name: "Write (write)"
         properties: ["write"]
         notes: >
@@ -536,7 +536,7 @@ services:
           cmdId}. Payloads are UTF-8 — SSID, Wi-Fi password, and the AWS
           key/certificate/Root-CA blobs during provisioning.
 
-      - uuid: "A0F03C03-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c03-5047-4d53-8208-4f72616c2d42"
         name: "Status (notify)"
         properties: ["notify"]
         notes: "Command acknowledgements, always 3 bytes: {opcode, cmdId, status}."
@@ -559,7 +559,7 @@ services:
               1: "BUSY"
               2: "ERROR"
 
-      - uuid: "A0F03C04-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c04-5047-4d53-8208-4f72616c2d42"
         name: "Push (notify)"
         properties: ["notify"]
         notes: >
@@ -591,7 +591,7 @@ services:
               4102: "OTA update in progress (0x1006)"
               4103: "OTA update reboot (0x1007)"
 
-      - uuid: "A0F04C00-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f04c00-5047-4d53-8208-4f72616c2d42"
         name: "Raw (notify)"
         properties: ["notify"]
         notes: >
@@ -600,6 +600,36 @@ services:
           (cmdId 51; DEVICE_DATA byte 6 reports whether the stream is on).
           The FlatBuffers schema was NOT extracted — the app carries parse
           code, so the layout is recoverable, but it is not in this spec yet.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: "No firmware image is public, and where the app gets one is not recovered."
+      enter:
+        how: "command"
+        command: "ota_update_start"
+        notes: "EXECUTE OTA_UPDATE_START, {0xC3, 12} on the Command characteristic."
+      dfu_mode:
+        notes: >
+          Over the existing connection, not the advertisement: GET
+          DEVICE_DATA byte 2 reads 3 (OTA_READY), SESSION_DATA byte 0
+          (operation state) reads 10 (OTA), and Push notifications carry
+          reasons 0x1005 (update ready), 0x1006 (in progress) and 0x1007
+          (reboot). Whether the unit re-advertises differently while
+          updating is not established.
+      recovery:
+        interrupted: "unknown"
+        notes: "DEVICE_DATA state 254 (UNRECOVERABLE_ERROR) exists; whether a failed update produces it is not established."
+      verification: "reported"
+      notes: >
+        App-derived (static analysis only). Only the entry command and the
+        lifecycle signals are recovered; the transfer format, and whether
+        the image travels over BLE or is fetched by the device over Wi-Fi,
+        are not (see remaining_unknowns).
 
 # Vendor-specific protocol detail this schema does not model. Namespaced so
 # the top level can stay closed; nothing here is a declared contract.

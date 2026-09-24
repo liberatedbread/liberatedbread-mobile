@@ -26,13 +26,13 @@ The device uses a standard HM-10/HM-19-style BLE UART module (CC2541/CC2640 base
 
 | UUID | Name | Description |
 |------|------|-------------|
-| `0000FFE0-0000-1000-8000-00805f9b34fb` | UART Service | Standard HM-10 serial pass-through service |
+| `0000ffe0-0000-1000-8000-00805f9b34fb` | UART Service | Standard HM-10 serial pass-through service |
 
 ### Characteristics
 
 | UUID | Name | Properties | Description |
 |------|------|------------|-------------|
-| `0000FFE1-0000-1000-8000-00805f9b34fb` | Serial Data | Read, Write, Write Without Response, Notify | Single bidirectional serial channel |
+| `0000ffe1-0000-1000-8000-00805f9b34fb` | Serial Data | Read, Write, Write Without Response, Notify | Single bidirectional serial channel |
 
 ### Discovery
 

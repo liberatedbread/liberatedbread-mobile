@@ -31,11 +31,11 @@ Smart thermometer hub (CQ60) with wireless probes. Uses BLE for probe communicat
 
 | UUID Family | Service UUID | Name |
 |-------------|-------------|------|
-| A (`048A`) | `048A00FF-CD06-4D57-A048-CCD5CB9F8F43` | Thermometer/Probe |
-| B (`9C6F`) | `9C6F00FC-0420-41C1-BD98-7A015C45DC5A` | System/Config |
-| C (`8A71`) | `8A7100FE-BABE-B7AE-074F-86D0C0B50089` | Wi-Fi Provisioning |
-| D (`6AC4`) | `6AC400FB-5BC3-4E99-ACB8-F85D442B9AE4` | User/Identity |
-| E (`F640`) | `F64000FD-6F49-4B5B-9BF8-76B3775D4D01` | FTP/File Transfer (OTA) |
+| A (`048A`) | `048a00ff-cd06-4d57-a048-ccd5cb9f8f43` | Thermometer/Probe |
+| B (`9C6F`) | `9c6f00fc-0420-41c1-bd98-7a015c45dc5a` | System/Config |
+| C (`8A71`) | `8a7100fe-babe-b7ae-074f-86d0c0b50089` | Wi-Fi Provisioning |
+| D (`6AC4`) | `6ac400fb-5bc3-4e99-acb8-f85d442b9ae4` | User/Identity |
+| E (`F640`) | `f64000fd-6f49-4b5b-9bf8-76b3775d4d01` | FTP/File Transfer (OTA) |
 
 ### Family A: Thermometer/Probe (`048A`)
 

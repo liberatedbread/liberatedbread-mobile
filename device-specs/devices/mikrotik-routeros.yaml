@@ -59,10 +59,6 @@ device:
     lan_protocols:
       - "mikrotik-mndp"
     default_port: 5678
-    identity_keys:
-      primary: "mac"
-      secondary: "identity"
-      display: "identity"
 
   discovery:
     methods:

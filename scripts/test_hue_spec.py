@@ -187,6 +187,98 @@ def test_pairing_envelopes_parse_under_the_documented_rules(spec, endpoints):
     )
 
 
+def decode_envelope(descriptor: dict, body: str) -> list[dict]:
+    """Decode an outcome envelope from `payload_formats.<name>.envelope` alone.
+
+    A transcription of the descriptor's documented contract, using nothing
+    but the standard library: this is what a consumer does instead of a
+    hand-mirrored `checkV1Envelope`. Returns one outcome per element:
+    `{"ok": True, "value": ...}` or `{"ok": False, "class": ..., "type": ...,
+    "description": ...}`. A body that is not the declared container is not an
+    envelope and is returned as a single success carrying the whole value.
+    """
+    parsed = json.loads(body)
+    container = descriptor["container"]
+    if container == "array" and not isinstance(parsed, list):
+        return [{"ok": True, "value": parsed}]
+    elements = parsed if container == "array" else [parsed]
+
+    def walk(obj, dotted):
+        for part in dotted.split("."):
+            obj = obj[part]
+        return obj
+
+    outcomes = []
+    for element in elements:
+        if descriptor["success_key"] in element:
+            outcomes.append({"ok": True, "value": element[descriptor["success_key"]]})
+            continue
+        error = element[descriptor["error_key"]]
+        code = walk(error, descriptor["error_type_path"])
+        rule = (descriptor.get("error_types") or {}).get(str(code), {})
+        outcomes.append(
+            {
+                "ok": False,
+                "type": code,
+                "class": rule.get("class", "terminal"),
+                "description": walk(error, descriptor["error_description_path"])
+                if descriptor.get("error_description_path")
+                else None,
+                "remedy": rule.get("remedy"),
+            }
+        )
+    return outcomes
+
+
+def test_envelope_descriptor_decodes_the_documented_outcomes(spec, endpoints):
+    """The six prose parse_rules, replayed through the `envelope` data alone.
+
+    The pre-press reply decodes as a `retry` (keep polling, not a failure);
+    the post-press reply as a success carrying credentials; a bare object is
+    not an envelope; an unlisted code is `terminal`; and a mixed envelope
+    yields one verdict per element.
+    """
+    descriptor = spec["payload_formats"]["V1Envelope"]["envelope"]
+
+    pre_press = decode_envelope(descriptor, spec["payload_formats"]["V1Envelope"]["example"])
+    assert [o["class"] for o in pre_press] == ["retry"]
+    assert pre_press[0]["type"] == 101
+    assert pre_press[0]["description"] == "link button not pressed"
+
+    post_press = decode_envelope(
+        descriptor, endpoints["Create User"]["response_body"]["example"]
+    )
+    assert post_press[0]["ok"] and "username" in post_press[0]["value"]
+
+    assert decode_envelope(descriptor, '{"lights": {}}') == [
+        {"ok": True, "value": {"lights": {}}}
+    ]
+
+    mixed = decode_envelope(
+        descriptor,
+        '[{"success":{"/lights/1/state/on":true}},'
+        '{"error":{"type":201,"address":"/lights/1/state/bri",'
+        '"description":"parameter, bri, is not modifiable. Device is set to off."}},'
+        '{"error":{"type":1,"address":"/","description":"unauthorized user"}},'
+        '{"error":{"type":7,"address":"/lights/1/state/bri","description":"invalid value"}}]',
+    )
+    assert [o.get("class") for o in mixed] == [None, "precondition", "repair", "terminal"]
+    assert "on" in mixed[1]["remedy"], "the 201 precondition names what to send"
+
+
+def test_envelope_error_classes_agree_with_the_prose(spec):
+    """The data and the parse_rules describe the same three special codes."""
+    descriptor = spec["payload_formats"]["V1Envelope"]["envelope"]
+    prose = " ".join(spec["payload_formats"]["V1Envelope"]["parse_rules"])
+    for code in descriptor["error_types"]:
+        assert f"error.type {code} " in prose, (
+            f"envelope classifies error type {code}, which the parse_rules never mention"
+        )
+    assert {r["class"] for r in descriptor["error_types"].values()} == {
+        "retry", "repair", "precondition"
+    }
+
+
 def test_create_user_asks_for_the_clientkey_unconditionally(commands):
     """generateclientkey is only honoured at creation time, so it is a literal.
 

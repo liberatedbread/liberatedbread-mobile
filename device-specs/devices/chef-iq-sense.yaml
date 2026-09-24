@@ -27,7 +27,7 @@ device:
     Five BLE UUID families for different device generations and functions.
     BLE manufacturer ID: 0x05CD. Device name: exactly "CQ60".
     Temperatures are IEEE 754 single-precision floats; the unit on the wire is
-    NOT determinable from the app code (parseBytesData is a plain readFloatLE
+    NOT determinable from the app code (its byte decoder is a plain LE float read
     with no conversion) and is governed by the writable 9C6FFFC0 Temperature
     Unit characteristic.
     Probe data uses TLV (Tag-Length-Value) binary encoding with typed attribute IDs.
@@ -46,7 +46,7 @@ device:
     Auth: AWS Cognito. The identity-pool id us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259
     is a PUBLIC client-side identifier (region:uuid format), NOT a secret credential -- it
     ships in every copy of the app (present both in the Hermes bundle and in
-    the app's string resources as COGNITO_IDENTITY_POOL_ID) and grants nothing
+    the app's string resources as the identity-pool setting) and grants nothing
     without a valid user login. Retained
     here (and in docs/devices/chef-iq-sense.md) for interoperability; no vendor secret is
     published. No certificate pinning.
@@ -226,21 +226,20 @@ services:
           Notifications carry TLV (Tag-Length-Value) records with typed
           attribute IDs; temperatures are IEEE 754 float32 (SingleFloat).
           The app applies NO unit conversion in the decode path
-          (parseBytesData is a plain readFloatLE), so the unit on the wire
+          (its byte decoder is a plain LE float read), so the unit on the wire
           is NOT determinable from the code; it is governed by the writable
           9C6FFFC0 Temperature Unit characteristic. TLV frame layout, read directly
-          from the app's own parser (processBLEData / parseBytesData in its
-          Hermes bundle): a
+          from the app's own BLE parser in its Hermes bundle: a
           sequence of attribute entries, each
           [attr_id uint16 LE][type uint8][length uint8][value length bytes].
-          The per-entry type byte (DataTypeEnum: 0 bool, 1-6 signed/unsigned
+          The per-entry type byte (the app's data-type enum: 0 bool, 1-6 signed/unsigned
           8/16/32-bit LE ints, 7 SignedInt64, 8 UnsignedInt64, 9 float32 LE
           rounded to 2 decimals, 10 DoubleFloat, 11 utf8 string,
           12 hex byte array, 13 MAC address, 14 JSON)
           drives decoding. One notification can carry several per-probe
           records: a new record starts when an attribute ID repeats, and
           attribute 16 (probe_address, MAC) is the record delimiter.
-          Attribute IDs (AttributeEnum, confirmed in the same bundle):
+          Attribute IDs (the app's attribute enum, confirmed in the same bundle):
           0 Timestamp (u32), 16 ProbeAddress (MAC), 17 Type (i8),
           19 HwVersion (str), 20 FwVersion (str), 21 SerialNumber (str),
           22 ServiceConfig (u8), 23 Name (str), 24 Registered (bool),
@@ -699,16 +698,63 @@ services:
           file_write_start:
             description: "Begin writing a file to device (OTA)"
             value: [4]
+            advanced: true
+            advanced_reason: "Opens the firmware-image write path (the app's alternative OTA transfer). What the device does with a partial or wrong file is not established, so treat a write here as able to leave the hub unusable."
           file_write_transfer:
             description: "Continue writing file data"
             value: [5]
+            advanced: true
+            advanced_reason: "Carries firmware-image data on the OTA write path; only meaningful inside a file_write_start/file_write_end session."
           file_write_end:
             description: "Complete file write"
             value: [6]
+            advanced: true
+            advanced_reason: "Closes a file write on the OTA path; what the device does with a completed firmware file (and when it reboots) is not established."
 
       - uuid: "f640fff1-6f49-4b5b-9bf8-76b3775d4d01"
         name: "FTP Command Response"
         properties: ["notify"]
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud", "vendor_ble"]
+      transport: ["cloud", "ble"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          Update metadata from the vendor REST API (GET /check-for-updates
+          with an app-embedded x-api-key; query model_number,
+          manifest_version, generation, hw_version, esp_version,
+          msp_version). The esp/msp split suggests separate ESP32 and MSP
+          images, but the image format is not recovered.
+      enter:
+        how: "in_place"
+        command: "file_write_start"
+        notes: >
+          Two paths. Cloud: the vendor pushes an ota_server_url over the
+          MQTT 'ota' config key and the hub fetches and applies the image
+          itself (the app also subscribes to an .../ota-response topic). BLE: the app
+          writes the file over the F640 FTP service with file_write_start
+          (4), file_write_transfer (5) and file_write_end (6) on FTP Command
+          Request, answers on FTP Command Response. Neither path is preceded
+          by a known reboot into a bootloader.
+      dfu_mode:
+        notes: >
+          The System service reports it in place: Has New Update
+          (9c6fff82) and OTA Progress (9c6fff84, percent). Nothing about the
+          advertisement in update mode is established.
+      services: ["f64000fd-6f49-4b5b-9bf8-76b3775d4d01"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        App-derived (static analysis of the Hermes bundle); no update was
+        driven. The FTP chunk layout inside file_write_transfer and the
+        response codes are not recovered. The F640 service is also
+        advertised and used in identification, so it is product identity as
+        well as the update path.
 
 entities:
   - platform: "sensor"
@@ -788,3 +834,15 @@ helpful_urls:
     kind: "manual"
     description: >
       Manual for the hub form factor.
+
+remaining_unknowns:
+  - >
+    The Internal Temperature and Ambient Temperature entities have no format
+    block and cannot have one: the Probe Data notify is a sequence of tagged
+    records ([attr_id u16 LE][type u8][length u8][value]) whose order and
+    count vary per notification, with a MAC-address attribute as the record
+    delimiter, so no attribute sits at a fixed byte offset. Decoding needs a
+    tag-walking parser keyed on attribute 36 / 37 (float32) and the format
+    vocabulary has neither a tag selector nor a float type. Consumers that
+    only need temperatures have the connectionless advertisement path
+    instead (int16 LE, 0.1 C per probe), which does have fixed offsets.

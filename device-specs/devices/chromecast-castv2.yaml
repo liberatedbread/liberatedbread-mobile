@@ -70,9 +70,6 @@ device:
       - key: "id"
         match: "present"
         description: "Cast devices publish a stable UUID in the mDNS TXT 'id' record."
-    identity_keys:
-      primary: "id"
-      display: "fn"
 
   discovery:
     methods:
