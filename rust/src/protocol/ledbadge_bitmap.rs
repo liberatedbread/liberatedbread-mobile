@@ -49,7 +49,7 @@ use super::image_upload::{
 };
 use super::{EncodedFrame, EncodedWrite};
 use crate::error::ProtocolError;
-use crate::spec::types::{Characteristic, DeviceSpec};
+use crate::spec::types::{Characteristic, DeviceSpec, TemplateElement};
 
 /// `protocol_handler` name this module implements (see the device spec's
 /// top-level `protocol_handler` key).
@@ -61,6 +61,10 @@ const ANCHOR_COMMAND: &str = "write_badge_data";
 
 const HEADER_LEN: usize = 64;
 const SLOTS: usize = 8;
+
+/// Header offset of slot 0's mode+speed byte. Everything before it is the
+/// magic, one reserved byte and the brightness/flash/marquee bytes.
+const SLOT_BYTES_AT: usize = 8;
 
 /// Chunk size when the characteristic declares no `framing.max_chunk_size`
 /// — the protocol's raw 16-byte writes, kept as a fallback for a spec pack
@@ -141,8 +145,11 @@ pub fn encode_badge_bitmap(
     let mut payload = Vec::with_capacity(HEADER_LEN + bitmap_len);
     // [0-3] magic "wang"; [4] reserved; [5] brightness 100%; [6] no flash;
     // [7] no marquee.
-    payload.extend_from_slice(magic);
-    payload.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+    // The spec's fixed leading bytes — the magic, and on a template-form spec
+    // the reserved byte after it — then zeros up to the per-slot bytes:
+    // reserved, brightness 100% (0x00), no flash, no marquee.
+    payload.extend_from_slice(&magic);
+    payload.resize(SLOT_BYTES_AT, 0x00);
     // [8-15] mode+speed per slot: slot 0 fixed at speed 1, the rest empty.
     payload.push(SLOT0_FIXED_MODE_SPEED1);
     payload.extend_from_slice(&[0u8; SLOTS - 1]);
@@ -195,10 +202,17 @@ pub fn encode_badge_bitmap(
 }
 
 /// The Badge Data channel and the header magic, both from the spec: the
-/// writable characteristic declaring `write_badge_data`, whose fixed `value`
-/// bytes ARE the "wang" magic. The undocumented 0xFEE7 service's writable
+/// writable characteristic declaring `write_badge_data`, whose fixed bytes ARE
+/// the "wang" magic. The undocumented 0xFEE7 service's writable
 /// characteristic declares no commands, so it can never be picked.
-fn resolve_badge_channel(spec: &DeviceSpec) -> Result<(&Characteristic, &[u8]), ProtocolError> {
+///
+/// Two spellings of "fixed bytes", because the catalogue used both: a bare
+/// `value: [0x77, 0x61, 0x6E, 0x67]`, and — since the spec came to describe
+/// the whole 64-byte header — a `template` whose leading literal run is the
+/// magic plus the reserved byte after it. The run stops at the first
+/// placeholder (`{brightness}`), so it can never reach past the fixed part of
+/// the header; a run that did would overwrite the slot bytes, and is refused.
+fn resolve_badge_channel(spec: &DeviceSpec) -> Result<(&Characteristic, Vec<u8>), ProtocolError> {
     let badge_char = spec
         .services
         .iter()
@@ -215,15 +229,35 @@ fn resolve_badge_channel(spec: &DeviceSpec) -> Result<(&Characteristic, &[u8]), 
                  which anchors the badge upload channel"
             ),
         })?;
-    let magic = badge_char.commands.as_ref().unwrap()[ANCHOR_COMMAND]
-        .value
-        .as_deref()
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| ProtocolError::ImageUploadUnsupported {
+    let command = &badge_char.commands.as_ref().unwrap()[ANCHOR_COMMAND];
+    let magic: Vec<u8> = match command.value.as_deref().filter(|v| !v.is_empty()) {
+        Some(value) => value.to_vec(),
+        None => command
+            .template
+            .iter()
+            .flatten()
+            .map_while(|element| match element {
+                TemplateElement::Byte(b) => Some(*b),
+                TemplateElement::Param(_) => None,
+            })
+            .collect(),
+    };
+    if magic.is_empty() {
+        return Err(ProtocolError::ImageUploadUnsupported {
             reason: format!(
-                "'{ANCHOR_COMMAND}' declares no value bytes to use as the header magic"
+                "'{ANCHOR_COMMAND}' declares no fixed bytes to use as the header magic"
             ),
-        })?;
+        });
+    }
+    if magic.len() > SLOT_BYTES_AT {
+        return Err(ProtocolError::ImageUploadUnsupported {
+            reason: format!(
+                "'{ANCHOR_COMMAND}' opens with {} fixed bytes, past the header's fixed \
+                 part ({SLOT_BYTES_AT} bytes)",
+                magic.len()
+            ),
+        });
+    }
     Ok((badge_char, magic))
 }
 
@@ -299,6 +333,33 @@ services:
     ///   [00 01, then 7x 00 00], reserved/date/tail zeros
     /// - bitmap: row y has bit (0x80 >> y) for y < 8 (the diagonal), rows
     ///   8-10 empty; 11 bytes zero-padded to one 16-byte chunk
+    /// The vendored spec now writes `write_badge_data` as the whole header
+    /// template rather than a four-byte `value`; the magic is its leading
+    /// literal run, and the transfer must come out byte-identical.
+    #[test]
+    fn a_template_form_spec_encodes_the_same_header() {
+        let template_yaml = SPEC_YAML.replace(
+            "value: [0x77, 0x61, 0x6E, 0x67]",
+            "template: [0x77, 0x61, 0x6E, 0x67, 0x00, \"{brightness}\", \"{flash}\"]\n            \
+             parameters:\n              brightness:\n                type: \"uint8\"\n                \
+             default: 0\n              flash:\n                type: \"uint8\"\n                \
+             default: 0",
+        );
+        assert_ne!(template_yaml, SPEC_YAML, "the fixture swap took");
+        let templated = parse_device_spec(&template_yaml).expect("template form parses");
+        let from_template =
+            encode_badge_bitmap(&templated, &diagonal_8x11(), 8, 11, 0, 509).unwrap();
+        let from_value = encode_badge_bitmap(&spec(), &diagonal_8x11(), 8, 11, 0, 509).unwrap();
+        let bytes = |frame: &EncodedFrame| -> Vec<(String, Vec<u8>)> {
+            frame
+                .writes
+                .iter()
+                .map(|w| (w.characteristic_uuid.clone(), w.bytes.clone()))
+                .collect()
+        };
+        assert_eq!(bytes(&from_template), bytes(&from_value));
+    }
+
     #[test]
     fn golden_8x11_diagonal_transfer() {
         let frame = encode_badge_bitmap(&spec(), &diagonal_8x11(), 8, 11, 0, 509).unwrap();

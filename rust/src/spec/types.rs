@@ -2400,6 +2400,23 @@ pub enum AutoRole {
     /// validate and still produce a plausible wrong CRC, which is the failure
     /// mode this vocabulary exists to avoid.
     Crc16Modbus,
+    /// The additive span sum SUBTRACTED FROM `checksum_xor`:
+    /// `(checksum_xor - sum) & 0xFF`. The seed-minus-sum idiom on BIO-key
+    /// TouchLock frames (`checksum_start: 0`, `checksum_xor: 0x5A`).
+    ///
+    /// Its own role rather than `checksum` with a negative salt, for the
+    /// reason [`AutoRole::XorChecksum`] is: the two differ in every byte, and
+    /// a reader that did not know the spelling must refuse the command rather
+    /// than send the additive one. `checksum_xor` is reused as the seed so one
+    /// constant travels with either seed-flavoured idiom.
+    SubtractChecksum,
+    /// CRC-8/SMBUS over the same span: polynomial 0x07, init 0x00, no
+    /// reflection, no final xor. One byte. The cat printers frame
+    /// `[0x51 0x78 cmd 0x00 len 0x00][payload][crc][0xFF]` and compute it over
+    /// the payload alone, so they say `checksum_start: 6`.
+    ///
+    /// A whole named algorithm for the reason [`AutoRole::Crc16Modbus`] is.
+    Crc8,
 }
 
 impl std::fmt::Display for AutoRole {
@@ -2412,6 +2429,8 @@ impl std::fmt::Display for AutoRole {
             AutoRole::Checksum => write!(f, "checksum"),
             AutoRole::XorChecksum => write!(f, "xor_checksum"),
             AutoRole::Crc16Modbus => write!(f, "crc16_modbus"),
+            AutoRole::SubtractChecksum => write!(f, "subtract_checksum"),
+            AutoRole::Crc8 => write!(f, "crc8"),
         }
     }
 }
