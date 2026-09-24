@@ -371,6 +371,24 @@ heading.
 
 ### Fixed
 
+- **The app reads the refreshed spec catalogue again.** Upstream #61 added
+  `auto: crc8` (both cat printers) and `auto: subtract_checksum` (BIO-key
+  TouchLock), moved the LED badge header into a template and BLE code tables
+  from `values` to `allowed` + `labels`; the three specs using the new roles
+  failed to load at all, so the cat printers fell back to the raw GATT
+  browser. All are read now, and main's vendored-catalogue tests pass again.
+- **A TCL Roku is a Roku again.** Both DIAL search targets were treated as
+  vendor identifiers, so every Roku tied Strong with Sony and Vizio and was
+  badged "Supported device", and a Chromecast or Fire TV came back a confident
+  "Sony Bravia". DIAL now corroborates and never admits.
+- **Sony Bravia's control screen no longer opens on an error.** The state
+  poll took the Power switch's SOAP transport for an HTTP reading; each
+  reading now uses its own transport, and one failing poll no longer blanks
+  the rest.
+- **Controls that could never do anything are gone.** A Tuya gas sensor
+  opened on seven dead cards and a Yeelight cube on an empty light card —
+  their readings named commands on a framing the app does not implement.
+
 - **Wemo adoption read the device metadata too late, and gave up on it too
   easily.** `GetMetaInfo` — the read whose two fields key the passphrase
   encryption — happened at provision time, after the AP list, after the user
@@ -479,6 +497,20 @@ heading.
   manifest, both plists and both entitlements files.
 
 ### Added
+
+- **Scan tags say what the catalogue agreed on.** A tie between specs keeps
+  the maker or the kind they share ("Govee light", "Supported TV") instead of
+  collapsing to "Supported device".
+- **The Wi-Fi tab separates printers it can drive from ones it can only
+  name.** Recognised-but-not-controlled devices (office printers, NAS,
+  routers) get their own section, and a row whose tap opens the device's web
+  page says so. The house-ad bar now docks under the Wi-Fi tab too.
+- **Controls fit the device.** TV remotes place the raw power key, discrete
+  Play/Pause/Stop/Previous/Next/Record, a number pad and the colour keys
+  instead of a leftover pile, and a stateless power switch the remote already
+  covers is not drawn twice; a non-TV's button card is titled "Controls"; BLE
+  locks say Lock/Unlock and confirm unlocking; a walking pad's verbs are drawn
+  once; printers print from an editor that says "Print", not "LED image".
 
 - **Local Roomba control, with no iRobot cloud in the loop.** A robot found on
   the LAN is adopted (hold HOME until the tones, the app reads its password
