@@ -99,6 +99,10 @@ optional here — they're a feature.
 ## More
 
 - [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) — build/run/test guide
+- [docs/RELEASE.md](docs/RELEASE.md) — releasing: build store artifacts with
+  `./scripts/release.sh`, which stamps `git describe` into
+  `AppConstants.appVersion`; [docs/APP_STORE_SUBMISSION.md](docs/APP_STORE_SUBMISSION.md)
+  is the Apple-side runbook
 - [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) — E2E architecture + spec format
 - [docs/ios-from-linux.md](docs/ios-from-linux.md) — iPhone workflows from Linux
 - [SPECS_TO_FIX.md](SPECS_TO_FIX.md) — problems whose fix is upstream in the

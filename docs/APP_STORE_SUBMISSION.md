@@ -42,6 +42,10 @@ long pole is now Step 2 (a Distribution certificate under the LLC team).
   "beta": Guideline 2.2 rejects demos and betas, and reviewers act on that
   wording wherever they see it — first-run screen, screenshots, description.
 - **Icons** — full set incl. the 1024 marketing icon (RGB, no alpha).
+- **Build stamp** — `./scripts/release.sh ios` (Step 5) stamps
+  `git describe` into the app, so Diagnostics and every copied bug report name
+  the exact commit. A bare `flutter build ipa` ships as `dev build`. See
+  [RELEASE.md](RELEASE.md).
 - **Marketing version** stays `0.1.0` (to ship as 1.0.0 edit only
   `pubspec.yaml`'s `version:` — consider doing so, since a 0.x version alongside
   any "early"/"preview" wording is part of what reads as a beta under Guideline
@@ -164,8 +168,8 @@ git clone -b main git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb &
 # says is fixed. Until the branch carrying the fix is on main, clone that one.
 grep -q NSPrivacyAccessedAPICategoryFileTimestamp ios/Runner/PrivacyInfo.xcprivacy || { echo "privacy manifest lacks the FileTimestamp declaration — wrong branch"; exit 1; }
 flutter pub get
-flutter build ipa --release --build-number=$(date +%Y%m%d%H%M) \
-  --export-options-plist=ios/ExportOptions-appstore.plist
+./scripts/release.sh ios   # flutter build ipa, timestamp build number, this
+                           # ExportOptions plist, plus the build stamp
 ```
 
 **`--build-number` is not optional on a re-upload.** `pubspec.yaml`'s
@@ -174,7 +178,7 @@ flutter build ipa --release --build-number=$(date +%Y%m%d%H%M) \
 second — a TestFlight build after a rejection, or the re-export once the
 multicast entitlement is granted — is refused by App Store Connect for a
 duplicate build number, and the refusal arrives by email after the upload, not
-during it. Any monotonic value works; the timestamp above needs no state.
+during it. Any monotonic value works; the script's timestamp needs no state.
 `.github/workflows/ios-adhoc.yml` uses `github.run_number` for the same reason.
 That needs the Step-2 cert + Step-4 profile in the keychain. Then upload the IPA
 (`build/ios/ipa/*.ipa`) one of:
