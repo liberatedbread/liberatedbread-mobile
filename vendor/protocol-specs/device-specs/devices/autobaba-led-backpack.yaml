@@ -37,9 +37,21 @@ device:
     NotifyId 0000FFF1; header magic constant present); wire framing cross-checked
     against two independent hardware-verified RE repos.
   identification:
-    local_name_prefix: "YS"
+    # FAMILY FALLBACK. Every LOY SPACE / popled.cn panel advertises "YS" (or
+    # "TL") plus a serial suffix and the 0xFFF0 service, whichever app it was
+    # sold with -- there is nothing on the air that tells an AUTOBABA
+    # backpack from a NYAN GEAR bag or an LED space YSP-001 panel, and the
+    # protocol is the same. This spec is the one that claims the scan
+    # signals; nyan-bt-image-controller and led-space describe their
+    # products but deliberately state no BLE identification of their own.
+    local_name_prefixes: ["YS", "TL"]
     service_uuids:
       - "0000fff0-0000-1000-8000-00805f9b34fb"
+    notes: >
+      The advertised name is the prefix followed by a device serial
+      (e.g. YS524A250660, hardware-observed by icedac/open-loyspace); the
+      vendor apps filter on the ["YS", "TL"] prefix list and nothing else.
+      A match means "a LOY SPACE platform panel", not this SKU.
 
   discovery:
     methods:
@@ -47,7 +59,7 @@ device:
         ble:
           local_name:
             match: "prefix"
-            value: "YS"
+            values: ["YS", "TL"]
           service_uuids:
             - "0000fff0-0000-1000-8000-00805f9b34fb"
     identity:
@@ -71,7 +83,7 @@ device:
           network credential exchange and no pairing PIN, so a replacement
           client only has to scan, connect and write.
         ble:
-          advertised_name: "YS"
+          advertised_name: "YS<serial> (or TL<serial>)"
           pairing_required: false
         steps:
           - action: "Power the device and scan for its advertisement."
@@ -219,6 +231,16 @@ entities:
     features: ["brightness"]
     commands:
       set_brightness: "set_brightness"
+
+remaining_unknowns:
+  - >
+    Whether any scan-time signal separates the LOY SPACE, NYAN GEAR and LED
+    space products: all three apps filter on the same ["YS", "TL"] name
+    prefixes and the same 0xFFF0 service, and no capture of a NYAN or
+    YSP-001 unit's advertisement exists to compare against. Until one does,
+    this spec is the family fallback and a YS*/TL* panel resolves here.
+    The dev_info reply (dev_model) after connect is the likely
+    discriminator.
 
 helpful_urls:
   - title: "LOY SPACE app (Google Play)"

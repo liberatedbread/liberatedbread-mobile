@@ -54,9 +54,6 @@ device:
   identification:
     mdns_service_type: "_smartthings._tcp.local."
     default_port: 8081
-    identity_keys:
-      primary: "hub_id"
-      display: "name"
 
   discovery:
     methods:

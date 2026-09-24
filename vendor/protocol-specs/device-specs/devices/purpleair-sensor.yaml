@@ -96,9 +96,6 @@ device:
     but a device with all of those failing still serves /json locally.
   identification:
     default_port: 80
-    identity_keys:
-      primary: "SensorId"
-      display: "Geo"
 
   discovery:
     methods:

@@ -504,9 +504,15 @@ commands:
     body: '{"devId":"<device_id>","uid":"","t":"<unix_ts>","dps":{"<dp>":<value>}}'
     verification: "reported"
   heartbeat:
-    description: "Keep-alive ping; the device answers with the same command."
+    description: >
+      Keep-alive ping; the device answers with the same command (0x09) and
+      an empty or echoed payload. Send one every 10-20 s on an idle socket
+      or the device drops the connection. The body is the two-id document
+      tinytuya's payload table sends for HEART_BEAT -- same framing, version
+      marker and cipher as dp_query (protocol_details.tuya_lan_protocol).
     transport: "tcp-json"
     command: "0x09 (HEART_BEAT)"
+    body: '{"gwId":"<device_id>","devId":"<device_id>"}'
     verification: "reported"
   muffle_alarm:
     description: "Silence the currently active alarm once (DP 14 = true; auto-resets)."

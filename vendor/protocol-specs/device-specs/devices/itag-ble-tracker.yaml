@@ -182,6 +182,21 @@ services:
           Button press notifications. CCCD descriptor 0x2902 may not exist
           on all models — use direct subscribe if CCCD write fails.
           Double-click detection with ~300ms debounce window.
+          Each press produces one notification carrying a single byte; the
+          open-source clients (itracing2, thejeshgn's write-up, ESPHome's
+          ble_client examples) treat the arrival of the notification as the
+          press and report the byte as 0x01. Reported, not confirmed on
+          hardware by this project. There is no release event — a consumer
+          should latch the press and clear it itself.
+        format:
+          - offset: 0
+            length: 1
+            name: "button_event"
+            type: "uint8"
+            notes: >
+              0x01 on a press. If a unit sends a different non-zero value,
+              treat any notification as a press rather than matching the
+              byte.
 
   - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
     name: "Battery Service"
@@ -193,6 +208,13 @@ services:
         name: "Battery Level"
         properties: ["read", "notify"]
         notes: "Read battery percentage (uint8, 0-100)."
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
 
 entities:
   - platform: "switch"
@@ -204,9 +226,20 @@ entities:
   - platform: "binary_sensor"
     name: "Button"
     state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "button_event"
+      on_when: "nonzero"
+    notes: >
+      A momentary event, not a level: the tag notifies once per press and
+      never reports release, so a consumer shows the press and clears it
+      after a short hold.
   - platform: "sensor"
     name: "Battery"
+    device_class: "battery"
+    unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_level"
 
 helpful_urls:
   - title: "iTag user manual (Internet Archive)"

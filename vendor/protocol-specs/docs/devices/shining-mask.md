@@ -30,7 +30,7 @@ RGB LED face mask with 2074 LEDs in a 46x58 irregular layout. Protocol uses AES-
 | `d44bc439-abfd-45a2-b575-92541612960a` | Image Upload | Write | No (raw bytes) |
 | `d44bc439-abfd-45a2-b575-92541612960b` | Audio Visualizer | Write | Yes (AES-128 ECB) |
 
-Scan filter service UUID: `0000FFF0-0000-1000-8000-00805F9B34FB`
+Scan filter service UUID: `0000fff0-0000-1000-8000-00805f9b34fb`
 
 ### Commands (pre-encryption, padded to 16 bytes)
 

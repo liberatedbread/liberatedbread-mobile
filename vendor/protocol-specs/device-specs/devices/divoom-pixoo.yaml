@@ -41,24 +41,71 @@ device:
     \ (IP, token, type)\n  constants — device name prefixes, supported models\n  device\
     \ function enum — device types, feature flags\n  send model — send priority,\
     \ HTTP/MQTT/Remote flow\n\n\nDiscovery:\
-    \ No local discovery protocol (no UDP broadcast, mDNS, or BLE scan). Device registers\
+    \ No local LAN discovery protocol (no UDP broadcast or mDNS); the only advertisement is the setup-time BLE name, see device.discovery. Device registers\
     \ with Divoom cloud; app queries Device/GetListV2 to get device IP and metadata.\
     \ Divoom's own third-party docs also offer a cloud LAN-discovery endpoint,\
     \ POST https://app.divoom-gz.com/Device/ReturnSameLANDevice, which returns\
     \ same-LAN devices (name, id, IP, MAC) — a documented alternative to GetListV2\
     \ (still cloud-dependent).\n"
   identification:
-    local_name_prefix: Pixoo16-WiFi,Pixoo16WiFi,Pixoo64,Di-Da
-    local_name_contains:
-    - PixooLCDWIFI
+    # Bluetooth local names the vendor app's scanner filters on. They are
+    # what a BLE scanner sees while a Pixoo is being provisioned (see
+    # discovery); a Pixoo already on Wi-Fi has no scan-time signal at all.
+    local_name_prefixes:
+    - Pixoo16-WiFi
+    - Pixoo16WiFi
+    - Pixoo64
+    - Di-Da
+    default_port: 80
+    notes: >
+      The name prefixes are the vendor app's Bluetooth-scan constants for the
+      Wi-Fi Pixoo models (Pixoo16-WiFi / Pixoo16WiFi for the 16x16, Pixoo64 /
+      Di-Da for the 64x64); the LCD-panel model advertises a name containing
+      "PixooLCDWIFI", which is a substring rather than a prefix and so lives
+      only in the discovery matcher. Port 80 carries Divoom's documented
+      local API that the commands below use; port 9000 is the app's
+      token-gated channel, and either open port is a LAN-side fact a
+      consumer can probe for.
   discovery:
-    none: >
-      No local discovery protocol exists -- no UDP broadcast, no mDNS, no BLE
-      advertisement. Established by static analysis of the vendor app, which
-      gets a device's LAN address from Divoom's cloud device-list API and
-      only then talks to port 9000 directly. A consumer without the cloud has
-      to be given the address, or find the device by probing port 9000 across
-      the subnet.
+    methods:
+    - type: ble_scan
+      ble:
+        local_name:
+          match: prefix
+          values:
+          - Pixoo16-WiFi
+          - Pixoo16WiFi
+          - Pixoo64
+          - Di-Da
+      notes: >
+        Setup-time advertisement only. The Pixoo advertises these names over
+        Bluetooth while it is being provisioned onto Wi-Fi -- the vendor
+        app's Bluetooth scanner filters on exactly this prefix list, and
+        Divoom's own setup guide says the Pixoo-64 II uses Bluetooth for
+        initial setup. Once the display is on Wi-Fi there is no local
+        discovery of any kind -- no UDP broadcast, no mDNS -- and the vendor
+        app learns the LAN address from Divoom's cloud device-list API before
+        talking to port 9000 directly. A consumer without the cloud has to
+        be given the address, or find the display by probing port 9000
+        across the subnet.
+    - type: ble_scan
+      ble:
+        local_name:
+          match: contains
+          value: PixooLCDWIFI
+      notes: >
+        The five-panel LCD model, matched by substring because the app does
+        (its constant is a startsWith on the model token inside a longer
+        name). Same setup-time-only caveat as above.
+    identity:
+      stable_keys:
+      - address
+      display: local_name
+      notes: >
+        The Bluetooth address is only seen during setup. After provisioning
+        the display is addressed by the LAN IP and DeviceId the cloud
+        device-list returns; neither is visible to a scanner.
+    static_ip_required: false
   setup:
     required: true
     confidence: high
@@ -458,8 +505,34 @@ protocol_details:
 
 commands:
   # Divoom's own documented local API on port 80: a plain JSON body whose
-  # `Command` names the action, no LocalToken. The `Channel/GetOnOff` this
-  # entity already polls for state is the read half of the same vocabulary.
+  # `Command` names the action, no LocalToken. The state read is the same
+  # vocabulary (`get_all_conf` below); the entities' `state_command` names
+  # that command, never a bare wire token.
+  get_all_conf:
+    description: >-
+      Read every panel setting in one call: Channel/GetAllConf (documented
+      for /post; answered by firmware 90104 and later). The reply is a flat
+      object -- LightSwitch (1 = screen on), Brightness (0-100),
+      RotationFlag, ClockTime, GalleryTime, CurClockId, Time24Flag,
+      TemperatureMode, GyrateAngle, MirrorFlag -- with error_code 0 on
+      success. The Pixel Display entity's state read. The app also knows a
+      `Channel/GetOnOff` command name, but that string appears only in its
+      cloud-routed command table and is not in Divoom's local API
+      documentation, so it is not declared here.
+    transport: http
+    method: POST
+    path: /post
+    body: '{"Command": "Channel/GetAllConf"}'
+    example_body: '{"Command": "Channel/GetAllConf"}'
+    returns:
+      - name: LightSwitch
+        type: integer
+        description: 1 when the screen is on, 0 when blanked by Channel/OnOffScreen.
+      - name: Brightness
+        type: integer
+        unit: '%'
+        description: System brightness 0-100.
+    verification: reported
   screen_on:
     description: Wake the panel's display.
     transport: http
@@ -498,27 +571,37 @@ entities:
   features:
   - brightness
   - effect
-  state_endpoint: /divoom_api
-  state_command: Channel/GetOnOff
+  # State is one POST of get_all_conf's body to /post; LightSwitch and
+  # Brightness are read out of the flat reply.
+  state_endpoint: /post
+  state_command: get_all_conf
+  state_mapping:
+    is_on: LightSwitch
+    on_value: 1
+    brightness: Brightness
   commands:
     turn_on: screen_on
     turn_off: screen_off
     set_brightness: set_brightness
+# Cloud-only readings. `state_endpoint: cloud` says the value is obtainable
+# only from Divoom's cloud (Device/GetListV2 on app.divoom-gz.com, reply
+# DeviceList[0].{DevicePrivateIP, DeviceSSID, DeviceVersion}); there is no
+# `state_command` because nothing in this spec's local vocabulary fetches
+# them -- the documented /post API has no device-info read -- and a
+# `state_command` must name a declared command. A consumer without cloud
+# credentials treats these as unavailable, not broken.
 - platform: sensor
   name: Device IP
   state_endpoint: cloud
-  state_command: Device/GetListV2
-  state_path: DeviceList[0].DevicePrivateIP
+  notes: Cloud Device/GetListV2, DeviceList[0].DevicePrivateIP. No local read; the LAN address is what discovery found anyway.
 - platform: sensor
   name: WiFi SSID
   state_endpoint: cloud
-  state_command: Device/GetListV2
-  state_path: DeviceList[0].DeviceSSID
+  notes: Cloud Device/GetListV2, DeviceList[0].DeviceSSID. No local read.
 - platform: sensor
   name: Firmware Version
   state_endpoint: cloud
-  state_command: Device/GetListV2
-  state_path: DeviceList[0].DeviceVersion
+  notes: Cloud Device/GetListV2, DeviceList[0].DeviceVersion. No local read documented; the firmware gates which /post commands answer (get_all_conf needs 90104+).
 http_endpoints:
 - path: /divoom_api
   method: POST

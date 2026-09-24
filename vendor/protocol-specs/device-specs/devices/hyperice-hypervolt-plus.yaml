@@ -125,13 +125,13 @@ device:
             actor: "client"
             request:
               protocol: "ble_gatt"
-              action: "Read 31CB4570-3C31-4E56-8C2B-E8F479D2B056"
+              action: "Read 31cb4570-3c31-4e56-8c2b-e8f479d2b056"
             expect: "A value whose last 3 bytes are the seed; 00 00 00 means no password is needed."
           - action: "If the seed is nonzero, write the derived 4-byte password back to the secure characteristic (write with response)."
             actor: "client"
             request:
               protocol: "ble_gatt"
-              action: "Write password to 31CB4570-3C31-4E56-8C2B-E8F479D2B056"
+              action: "Write password to 31cb4570-3c31-4e56-8c2b-e8f479d2b056"
             notes: >
               Derivation documented on the characteristic below; it mixes the
               device MAC with the seed through a fixed 256-entry lookup table
@@ -142,7 +142,7 @@ device:
             actor: "client"
             request:
               protocol: "ble_gatt"
-              action: "Enable notifications on 31CB456C-3C31-4E56-8C2B-E8F479D2B056"
+              action: "Enable notifications on 31cb456c-3c31-4e56-8c2b-e8f479d2b056"
             expect: "Notifications carrying the current level as a single byte."
     factory_reset:
       applicable: false
@@ -207,7 +207,7 @@ device:
         local_name_prefix: "VYGO;"
 
 initialization:
-  - characteristic: "31CB4570-3c31-4e56-8c2b-e8f479d2b056"
+  - characteristic: "31cb4570-3c31-4e56-8c2b-e8f479d2b056"
     read: true
 
 services:

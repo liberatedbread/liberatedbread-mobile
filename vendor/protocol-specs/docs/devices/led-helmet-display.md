@@ -16,13 +16,13 @@ The companion app is **Shining Display** (`com.shiningdisplay.shiningdisplay`). 
 - The **LOY family** (LOY PLAY / LOY EYES apps, Shenzhen Yanse, BLE service `FFF0`, popled.cn cloud) — a different OEM and protocol. This spec does not cover it.
 - The **Shining Mask / Shining Glasses / Magic Display family** ([magic-display](magic-display.md), shining-mask, shining-glasses) — Quintic QPP platform, AES-128-ECB encrypted ASCII commands. Different protocol despite overlapping seller names.
 
-This document covers only the TIRO/Heaton, JieLi-based panel driven by the Shining Display app, identified by the **FA02** command characteristic.
+This document covers only the TIRO/Heaton, JieLi-based panel driven by the Shining Display app, identified before connecting by manufacturer data `54 52 00 74` and after connecting by the **FA02** command characteristic.
 
 ## Hardware
 
 | Property | Value |
 |----------|-------|
-| Model Number | No single model number — OEM panel; project identifiers `TR2023-1248` (name prefix), `TR2302_1248_ble` (OTA project) |
+| Model Number | No single model number — OEM panel; OTA project identifiers `TR2302_1248_ble` (panel) and `TR2023-1248` (MCU image) |
 | Display | RGB LED matrix, 12×48 pixels (per firmware project name) |
 | Chipset | JieLi BLE SoC (firmware in JieLi `.ufw` format, chip-key scrambled) |
 | Radio | BLE only — no Wi-Fi |
@@ -35,11 +35,11 @@ This document covers only the TIRO/Heaton, JieLi-based panel driven by the Shini
 |----------|-------|
 | Setup required | No |
 | Method | `ble_direct` |
-| Setup AP / advertised name | BLE name prefix `TR2023-1248` (app-code constant — needs on-air confirmation) |
+| Setup AP / advertised name | Matched by manufacturer data `54 52 00 74` (company id 0x5254 "TR", then `00 74`), the app's scan gate — the advertised name prefix is supplied by the vendor cloud and not recorded (app-derived; needs on-air confirmation) |
 | Passphrase protection | not_applicable |
 | Confidence | medium (app-derived, not replayed on hardware) |
 
-Power the panel on, scan for the name prefix, connect, enumerate services and locate the write characteristic `0000fa02-…` by UUID. The app also enables notifications on `0000ae02-…` at connect time (command ACKs and OTA events arrive there) and negotiates MTU, chunking large writes to fit.
+Power the panel on, scan for an advertisement carrying manufacturer data `54 52 00 74`, connect, enumerate services and locate the write characteristic `0000fa02-…` by UUID. The app also enables notifications on `0000ae02-…` at connect time (command ACKs and OTA events arrive there) and negotiates MTU, chunking large writes to fit.
 
 **Factory reset**: no physical procedure is documented. The app exposes a reset command — write `04 00 03 80` to FA02. What exactly it clears is inferred from the UI label only (confidence: low).
 

@@ -569,6 +569,49 @@ http_endpoints:
     name: "CaptureSingleImage"
     description: "Capture one camera image."
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud", "custom"]
+      transport: ["cloud", "ble"]
+      image:
+        signing: "signed"
+        algorithm: "unknown"
+        source: "public_url"
+        format: "DDL OTA image (production-signed); the Escape-Pod-compatible 'ep' build for the wire-pod path."
+        notes: >
+          Production robots accept only DDL production-signed images: the
+          wire-pod path works by applying DDL's own 'ep' OTA, delivered through
+          the public Web Bluetooth page https://wpsetup.keriganc.com/ (see
+          helpful_urls), not a separately distributed image. The official OTA
+          hosts no longer resolve (tested 2026-07-31), so the robot can no
+          longer pull updates itself. Unlocked (OSKR/dev) robots take the
+          open WireOS firmware instead.
+      enter:
+        how: "button"
+        notes: >
+          Place the robot on the charger and hold the backpack button about
+          15 s: it boots Firmware Recovery Mode (factory firmware, user data
+          kept), from which the Web Bluetooth page flashes the image. Not the
+          double-click Clear User Data menu, which is a separate procedure.
+      dfu_mode:
+        notes: >
+          In recovery mode the screen shows anki.com/v. How the robot
+          advertises over BLE in recovery mode is not established.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          A factory recovery firmware is resident and boots from the
+          backpack-button hold, which is the route back after a bad update;
+          what an interrupted flash leaves behind is not documented.
+      verification: "reported"
+      notes: >
+        From DDL support articles 383/384 and the wire-pod installation wiki,
+        not hardware-verified. `vendor_cloud` is the original path (the robot
+        pulled OTAs from DDL's servers, now dead); `custom` is the
+        recovery-mode Web Bluetooth flash, whose wire protocol this spec does
+        not describe.
+
 entities:
   - platform: "sensor"
     name: "Battery"

@@ -84,8 +84,8 @@ device:
     Custom glyphs must be uploaded as FontCharacter records (type 13) before the
     text referencing them.
 
-    FIRMWARE: a vendor OTA mechanism exists in the app (deviceUpgrade /
-    UpgradeDialog, HardwareVersion; firmware filename pattern
+    FIRMWARE: a vendor OTA mechanism exists in the app (an upgrade routine
+    and dialog keyed on the panel's hardware version; firmware filename pattern
     db_update_GDF-C2302_xxxx_V1.0_210425a.bin — GDF-C2302 is the hardware model,
     210425a a 2021-04-25 build), but firmware binaries are not bundled in the
     APK and no public download exists — retrieving one would need an
@@ -283,6 +283,30 @@ services:
           the device notes above. Brightness is record type 14 (0-100) and screen
           mode is record type 15 — both are sent as data payloads here, NOT as
           commands on 0xFF21.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["unknown"]
+      image:
+        signing: "unknown"
+        source: "unknown"
+        format: "A .bin file named like db_update_GDF-C2302_xxxx_V1.0_210425a.bin (GDF-C2302 the hardware model, 210425a a 2021-04-25 build); contents unknown."
+        notes: >
+          No image is bundled in the APK and none is publicly downloadable;
+          getting one would need a capture of the app's upgrade flow.
+      enter:
+        how: "unknown"
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        The app carries an upgrade routine and dialog keyed on the panel's
+        hardware version, but neither the transport nor the wire protocol of
+        the update has been traced, and none of the open reimplementations
+        touches it. Presumably it rides the 0xFF20 service, which also
+        carries every ordinary command, so nothing is listed under
+        `services`.
 
 entities:
   - platform: "light"

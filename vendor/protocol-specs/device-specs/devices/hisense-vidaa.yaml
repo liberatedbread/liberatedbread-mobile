@@ -55,15 +55,26 @@ device:
     ssdp_search_targets:
       - "urn:schemas-upnp-org:device:MediaRenderer:1"
     # A DLNA renderer search target is not unique to Hisense — Samsung,
-    # Philips and many others answer it too. The Hisense-specific signal is
-    # in the descriptor at the LOCATION/38400 URL: manufacturer "Hisense"
-    # and a modelDescription whose key=value lines carry vidaa_support and
-    # transport_protocol. See discovery.methods[0].ssdp.match.
+    # Philips and many others answer it too, and a matcher treats it as a
+    # shared target that never identifies on its own. The Hisense-specific
+    # signal is in the descriptor at the LOCATION/38400 URL: manufacturer
+    # "Hisense" (every generation the spec covers, per the discovery
+    # method's rule) and a modelDescription whose key=value lines carry
+    # vidaa_support and transport_protocol. `ssdp_match` is the cheap
+    # pre-connect form of discovery.methods[0].ssdp.match; the descriptor
+    # conditions are ANDed, so only the axis that holds on every set is
+    # declared here and the two OR'd modelDescription keys stay in the
+    # discovery rule.
+    ssdp_match:
+      - field: "manufacturer"
+        match: "exact"
+        value: "Hisense"
+        description: >
+          <manufacturer>Hisense</manufacturer> in the renderer descriptor
+          served on port 38400 (18400 on some VIDAA versions) — the axis
+          Krazy998/mqtt-hisensetv and pyvidaa filter on; modelName is often
+          literally "Renderer" and cannot be used.
     default_port: 36669
-    identity_keys:
-      primary: "mac"
-      secondary: "ip"
-      display: "friendlyName"
 
   discovery:
     methods:

@@ -37,11 +37,34 @@ device:
     HeatSync/AddHeat line and other MEC Addheat white-labels, not just
     HOTWIRED.
   identification:
-    service_uuids:
-      - "0000ffb0-0000-1000-8000-00805f9b34fb"
-    advertisement_names:
+    # No service UUID: 0xFFB0 is the GATT service after connect, and whether
+    # it is also advertised is not established (discovery.methods notes).
+    # Whole-string names: the advertised local name is the BLE module's
+    # model number, not a prefix a serial is appended to.
+    local_names:
       - "BT-912"
       - "BT-712"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            values: ["BT-912", "BT-712"]
+        notes: >
+          The vendor app applies no scan filter of any kind -- no name, no
+          service UUID -- it lists everything and the user picks; a paired
+          controller is re-found by its stored address. "BT-912" and
+          "BT-712" are the advertised device names the app reads back after
+          a scan to colour its UI, i.e. the generic BLE module's model
+          number, so any product built on the same module advertises one of
+          them. Whether 0xFFB0 appears in the advertisement or only in the
+          GATT table after connect is not established.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
 
   setup:
     required: false
@@ -182,6 +205,73 @@ services:
           ffb2 during service discovery BEFORE enabling notifications
           (per the app's BLE service).
           Also check fallback: 0000fee1-0000-1000-8000-00805f9b34fb.
+          FRAME SELECTION: `format` describes the CC status report only, and
+          `format_match` says so: an AA-prefixed notification is the echo of
+          the last write and its bytes mean something else. Offsets are from the app's status parser (six
+          bytes, one field each); the app decodes the battery byte as two
+          bit groups and reads nothing from the temperature byte, so the
+          temperature scaling is a hypothesis. Nothing here has been read
+          back from hardware by this project.
+        format_match:
+          offset: 0
+          value: 0xCC
+          notes: "CC = status report. AA = echo of the last write, not decoded."
+        format:
+          - offset: 0
+            length: 1
+            name: "frame_type"
+            type: "uint8"
+            values:
+              0xCC: "status_report"
+              0xAA: "command_echo"
+            notes: "Only the status report is laid out below."
+          - offset: 1
+            length: 1
+            name: "power_state"
+            type: "uint8"
+            values:
+              0: "off"
+              1: "on"
+          - offset: 2
+            length: 1
+            name: "heat_level"
+            type: "uint8"
+            notes: "0-10, the current heat step."
+          - offset: 3
+            length: 1
+            name: "battery_status"
+            type: "uint8"
+            mask: 0x07
+            device_class: "battery"
+            notes: >
+              The low three bits of a packed byte: a five-step gauge, 0 =
+              empty, 1 = 25 %, 2 = 50 %, 3 = 75 %, 4 = 100 %. The upper
+              nibble (battery_present below) is a battery-present / charger
+              flag, so the raw byte 0x14 reads "present, full".
+          - offset: 3
+            length: 1
+            name: "battery_present"
+            type: "uint8"
+            mask: 0xF0
+            notes: >
+              Upper nibble of the battery byte: 0 = no battery shown,
+              non-zero = present. The app treats it as a flag; which values
+              mean "charging" is not established.
+          - offset: 4
+            length: 1
+            name: "internal_temp_raw"
+            type: "uint8"
+            unit: "C"
+            device_class: "temperature"
+            notes: >
+              Device internal temperature. The app never displays it, so
+              the unit and scale are inferred (0x20 = 32 reads plausibly as
+              whole degrees C) — hypothesis until bench-tested.
+          - offset: 5
+            length: 1
+            name: "control_state"
+            type: "uint8"
+            notes: "Unused by the app; meaning unknown."
 
   # Fallback service for older hardware variant
   - uuid: "0000ffb0-0000-1000-8000-00805f9b34fb"
@@ -327,22 +417,35 @@ entities:
 
   - platform: "sensor"
     name: "Battery Level"
+    device_class: "battery"
     state_characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     value_template: "{{ value[3:4] | int(base=16) | binary }}"
     unit: "%"
     state_mapping:
+      value: "battery_status"
       0: 0
       1: 25
       2: 50
       3: 75
       4: 100
+    notes: >
+      Binds the gauge bits of the CC status report's battery byte (the
+      field's `mask` strips the present flag) and maps steps 0-4 to a
+      nominal percent. AA echoes are excluded by the characteristic's
+      `format_match`.
 
   - platform: "sensor"
     name: "Internal Temperature"
+    device_class: "temperature"
     state_characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     value_template: "{{ value[4:5] | int(base=16) }}"
     unit: "C"
-    notes: "Scale and offset unconfirmed — requires bench testing"
+    state_mapping:
+      value: "internal_temp_raw"
+    notes: >
+      Scale and offset unconfirmed — requires bench testing. The field is
+      declared as whole degrees C as a hypothesis; see the format block.
+      AA echoes are excluded by the characteristic's `format_match`.
 
 helpful_urls:
   - title: "ADDHEAT app on Google Play"
@@ -363,3 +466,12 @@ helpful_urls:
   - title: "MEC Addheat"
     url: "https://www.addheat.com/"
     description: "The ODM behind the hardware, and the mec in com.hotwired.mec."
+
+remaining_unknowns:
+  - >
+    Which values of the battery byte's upper nibble mean "charging" as
+    opposed to merely "present".
+  - >
+    The internal temperature byte's unit and scale are a hypothesis (the
+    app never displays it); bench-test against a thermometer before
+    trusting the reading.

@@ -128,7 +128,7 @@ device:
             actor: user
           - action: >
               Scan for the lock: unified/Schlage mode advertises the
-              DataTransfer service UUID 1F6B43AA-94DE-4BA9-981C-DA38823117BD
+              DataTransfer service UUID 1f6b43aa-94de-4ba9-981c-da38823117bd
               (AD type 0x06, 128-bit LE). Connect and discover the uWeave
               service 883f45ec-14cb-46aa-9864-9a4e782b33d0.
             actor: client
@@ -279,7 +279,10 @@ device:
       required: false
   identification:
     service_uuids:
-      - "1f6b43aa-94de-4ba9-981c-da38823117bd"   # advertised (AD 0x06) in Schlage/unified mode
+      # Advertised (AD 0x06) in Schlage/unified mode. It is the firmware
+      # DataTransfer service, advertised in NORMAL operation — not a sign
+      # that the lock is mid-update (see features[firmware_update]).
+      - "1f6b43aa-94de-4ba9-981c-da38823117bd"
     notes: >
       Schlage/unified-mode locks advertise the firmware DataTransfer service
       UUID in the scan record (report: scan bytes [3..21) = 11 06 followed by
@@ -587,13 +590,41 @@ services:
         name: "LeopardControlPoint"
         properties: ["write"]
         verification: "reported"
+        commands:
+          firmware_transfer_start:
+            description: >
+              Open a firmware transfer: control-point write {1,1,1}. The
+              image then goes over the DataTransfer service (1f6b43aa-…)
+              in CRC-checked blocks (Sense 1024-byte blocks / 128-byte
+              packets; newer locks 4096/241 or 1024/205), closed by
+              firmware_transfer_finish.
+            value: [0x01, 0x01, 0x01]
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Starts replacing the lock's firmware. Only vendor images from
+              api.allegionengage.com are known to be valid, and what the
+              lock does with an interrupted or wrong image is not known. A
+              lock whose electronics stop responding can still be opened
+              with its physical key. Read FWImageVersion first so you know
+              what was running.
+          firmware_transfer_finish:
+            description: "Close a firmware transfer: control-point write {2,1,1}."
+            value: [0x02, 0x01, 0x01]
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Ends a firmware transfer, after which the lock is expected to
+              check and apply the image. Send it only after every block was
+              acknowledged on RxACKNAK; closing a partial transfer has
+              unknown consequences.
 
   - uuid: "1f6b43aa-94de-4ba9-981c-da38823117bd"
     name: "Firmware Update (DataTransfer)"
     notes: >
       Data plane for firmware OTA; also the UUID the lock ADVERTISES in
-      Schlage/unified mode (see identification). From
-      res/raw/firmware_gatt_profile.json.
+      Schlage/unified mode (see identification). From the app's bundled
+      firmware GATT profile resource.
     characteristics:
       - uuid: "048d8799-695b-4a7f-a7f7-a4a1301587fe"
         name: "RxLength"
@@ -615,7 +646,7 @@ services:
         properties: ["read", "notify"]
         verification: "reported"
         notes: >
-          UUID confirmed in profile JSON (firmware_gatt_profile.json:43-48
+          UUID confirmed in profile JSON (the firmware GATT profile resource
           places RxACKNAK under this DataTransfer service, alongside
           RxLength/RxData/RxCRC); properties reported, not re-derived.
 
@@ -686,6 +717,49 @@ local_access:
     (Go). pyschlage (github.com/dknowles2/pyschlage) covers the cloud API
     and backs the Home Assistant schlage integration; a local BLE
     integration can be built from this spec.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble", "vendor_cloud"]
+      transport: ["ble", "cloud"]
+      services:
+        - "7f0dee73-4a3f-4103-98e6-a46cd301bdfb"
+        - "1f6b43aa-94de-4ba9-981c-da38823117bd"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          Metadata from GET api.allegionengage.com/api/firmware/{platformType}
+          (Accept version=3); the binary URL is server-supplied
+          (links[rel=self]). The app checks CONTENT-LENGTH only; whether the
+          lock verifies a signature is not established.
+      enter:
+        how: "in_place"
+        command: "firmware_transfer_start"
+        notes: >
+          BLE push: the running lock takes the image with no separate
+          update mode. firmware_transfer_start ({1,1,1} on the control point
+          44ff6853-…) opens the transfer, blocks go over the DataTransfer
+          service (RxLength, RxData, RxCRC, acknowledged on RxACKNAK), and
+          firmware_transfer_finish ({2,1,1}) closes it. Wi-Fi models can
+          instead download their own update (the vendor_cloud mechanism),
+          triggered by pressing the interior button five times, per a vendor
+          support document.
+      dfu_mode:
+        notes: >
+          No separate update mode is known. The DataTransfer service UUID
+          1f6b43aa-… is advertised in ordinary Schlage/unified-mode
+          operation and is this product's identification signal, so a
+          scanner must not read it as "mid-update".
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From the app's bundled firmware GATT profile resource and its update
+        code; not run against a lock. The optional BR400 Wi-Fi adapter for
+        the Sense has its own, separate firmware path (see
+        research-notes/schlage-wifi-local-surface.md).
 
 # The device's own command protocol: framing, auth and opcode table.
 # Namespaced like every other bespoke block -- and NOT called `protocol`,

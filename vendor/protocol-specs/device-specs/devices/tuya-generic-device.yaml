@@ -76,10 +76,6 @@ device:
     lan_protocols:
       - "tuya-udp"
     default_port: 6667
-    identity_keys:
-      primary: "gw_id"
-      secondary: "ip"
-      display: "name"
 
   discovery:
     methods:

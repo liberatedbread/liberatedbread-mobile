@@ -110,11 +110,11 @@ and status queries.
 
 | UUID | Name | Props (phone side) | Role |
 |------|------|--------------------|------|
-| `86130247-E942-4FE5-AA46-E30768A0C1B0` | UniKey Device Service | — | the only service |
-| `00000989-0000-1000-8000-00805F9B34FB` | `UNIKEY_CHAR_COMMAND` | READ | lock **reads** the pending 4-byte command `[0,0,0,opcode]` |
-| `00000979-0000-1000-8000-00805F9B34FB` | `UNIKEY_CHAR_DATA_STREAM` | READ+WRITE | bulk data: UUIDs, nonces, HMACs, firmware chunks |
-| `00000999-0000-1000-8000-00805F9B34FB` | `UNIKEY_CHAR_STATUS` | WRITE | lock **writes** 4-byte flow-control/status; dispatch on byte[3] |
-| `00000959-0000-1000-8000-00805F9B34FB` | `UNIKEY_CHAR_CERTIFICATE` | READ+WRITE | UniKey TLV "certificate" channel (enroll, settings, history, firmware, result codes) |
+| `86130247-e942-4fe5-aa46-e30768a0c1b0` | UniKey Device Service | — | the only service |
+| `00000989-0000-1000-8000-00805f9b34fb` | `UNIKEY_CHAR_COMMAND` | READ | lock **reads** the pending 4-byte command `[0,0,0,opcode]` |
+| `00000979-0000-1000-8000-00805f9b34fb` | `UNIKEY_CHAR_DATA_STREAM` | READ+WRITE | bulk data: UUIDs, nonces, HMACs, firmware chunks |
+| `00000999-0000-1000-8000-00805f9b34fb` | `UNIKEY_CHAR_STATUS` | WRITE | lock **writes** 4-byte flow-control/status; dispatch on byte[3] |
+| `00000959-0000-1000-8000-00805f9b34fb` | `UNIKEY_CHAR_CERTIFICATE` | READ+WRITE | UniKey TLV "certificate" channel (enroll, settings, history, firmware, result codes) |
 
 (A fifth characteristic `0x0969` is constructed in the app's static
 initializer but never added to the service — dead code.)

@@ -85,9 +85,6 @@ device:
       - "4C:B9:EA"
       - "50:14:79"
       - "AC:F4:73"
-    identity_keys:
-      primary: "blid"
-      display: "robotname"
 
   discovery:
     methods:

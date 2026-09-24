@@ -73,8 +73,12 @@ device:
           # whole firmware family rather than one product, declares no
           # entities, and claims no product's controls. Without the flag it
           # competes on equal terms with any product spec that also names
-          # `_miio._udp`, and a Roborock vacuum came back badged as a Yeelight
-          # cube — because the product spec's NAME is the one a scan row shows.
+          # `_miio._udp` — and a Roborock vacuum once came back badged as a
+          # Yeelight cube, because yeelight-cube-lamp claimed the type with
+          # no TXT narrowing and a product spec's NAME is what a scan row
+          # shows. That claim is gone (the cube's miIO model string is
+          # unconfirmed, so nothing could narrow it); a product spec that
+          # wants this type back declares a `txt_match` on `model`.
           platform_fallback: true
           identity_mapping:
             stable_keys:

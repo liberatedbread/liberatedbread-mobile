@@ -47,12 +47,15 @@ device:
           manufacturer_data:
             company_id: 21076
             match: "prefix"
-            pattern: "54520041"
+            pattern: "0041"
             description: >
-              Vendor app discovery (BleConfig.matchProduct, ConnectActivity):
-              the manufacturer-data (AD type 0xFF) payload must start with
-              0x54 0x52 0x00 0x41 ("TR" + 0x0041; company_id 21076 = 0x5254 is
-              the "TR" prefix little-endian). The app does not filter on the
+              The vendor app's scan filter requires the manufacturer-data AD
+              structure (type 0xFF) to begin 0x54 0x52 0x00 0x41. The first
+              two bytes are the company id 21076 (0x5254, "TR" in wire
+              order), which `company_id` matches; `pattern` is the two bytes
+              after them, 0x00 0x41, the product id that tells the glasses
+              from the other "TR" products (ideal-led 0x0061, magic-display
+              0x0027, shining-mask 0x004A). The app does not filter on the
               0000fff0 service UUID.
     identity:
       stable_keys: ["address"]
@@ -127,7 +130,7 @@ services:
     notes: >
       Single primary service holding the four d44bc439 command/transfer
       characteristics (hardware handle table in Jhan-vasquez-dev/shining-glasses
-      PROTOCOL.md; the cdbwsoft BleManager binds 0000fff0 as the runtime
+      PROTOCOL.md; the cdbwsoft app's BLE manager binds 0000fff0 as the runtime
       service). There is NO separate d44bc439-...-9600 service and no FFF1
       characteristic on this device.
     characteristics:
@@ -233,8 +236,32 @@ services:
       OTA service with characteristics fd01/fd02 (per
       Jhan-vasquez-dev/shining-glasses). The vendor APK bundles two firmware
       images (TR1906R04-1-10_OTA.bin, TR1906R04-10_OTA.bin) — Panchip OTA
-      containers with a 16-byte FileInfo header; payload format not yet
-      decoded.
+      containers with a 16-byte file-info header; payload format not yet
+      decoded. See features[type: firmware_update].
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["panchip_ota"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "bundled_in_app"
+        format: "Panchip OTA container: a 16-byte file-info header, then a payload whose format is not yet decoded."
+        notes: "The vendor APK bundles two images for the TR1906R04 board (a -1-10 and a -10 build); they stay in the app."
+      enter:
+        how: "unknown"
+        notes: "The OTA opcodes on fd01/fd02 are not decoded, so neither entry nor transfer can be written down yet."
+      services: ["0000fd00-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From Jhan-vasquez-dev/shining-glasses (public static analysis and
+        HCI captures) and the bundled image names; no update has been run by
+        this project. Service 0000fd00-0000-1000-8000-00805f9b34fb, with
+        characteristics fd01/fd02, is the OTA path in normal mode. How the
+        glasses appear mid-update is not known.
 
 entities:
   - platform: "light"

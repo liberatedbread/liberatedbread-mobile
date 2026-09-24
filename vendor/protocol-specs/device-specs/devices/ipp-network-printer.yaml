@@ -70,10 +70,6 @@ device:
   identification:
     mdns_service_type: "_ipp._tcp.local."
     default_port: 631
-    identity_keys:
-      primary: "uuid"
-      secondary: "hostname"
-      display: "name"
 
   discovery:
     methods:

@@ -170,11 +170,11 @@ protocol_handler: "idotmatrix_image"
 # hardware-verified client (derkalle4/python3-idotmatrix-library image.py/gif.py,
 # fbnlrz/homeyidotmatrix, 8none1) uploads an encoded PNG (static) or GIF
 # (animated) FILE — the device decodes it — never a raw pixel buffer; there is no
-# public evidence for a raw RGB565/RGB888 path. (The app's BGRUtils.bitmap2RGB
-# RGB888 conversion is an app-side artifact, not the observed wire format.)
+# public evidence for a raw RGB565/RGB888 path. (The app's bitmap-to-RGB888
+# conversion helper is an app-side artifact, not the observed wire format.)
 # Panel sizes: the community documents square 16x16 / 32x32 / 64x64 panels
 # (derkalle4 README, fbnlrz README+docs/idm.md hardware-verified on IDM-BC5C5F,
-# tomglenn/idx-ai). App v2.1.4's ScreenData size table lists only smaller/odd
+# tomglenn/idx-ai). App v2.1.4's screen-size table lists only smaller/odd
 # codes (1010=10x10 .. 3820=20x38) and knows no 32x32 or 64x64 code — an
 # app-vs-firmware gap, so max here follows the real 64x64 hardware, not the app
 # table. The device crops rather than resizes, so a client should match the
@@ -185,6 +185,37 @@ features:
     animation: true
     max_width: 64
     max_height: 64
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["jieli_ota"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "bundled_in_app"
+        format: "JieLi OTA image (*_ota_mi.bin)."
+        notes: >
+          The app bundles two images (TR2401R006_01_01_ota_mi.bin,
+          TR2401R007_02_01_ota_mi.bin); they stay in the app. It also runs a
+          version check against the vendor cloud (manage.heaton.com.cn).
+      enter:
+        how: "unknown"
+        notes: >
+          In-band over JieLi RCSP on ae01/ae02. Whether this part is
+          single-backup (reboots into a loader, client reconnects) or
+          dual-backup (updates in place) is not established, and a
+          session-dependent component of the exchange is unsolved (235/256
+          two-byte probes elicit responses), so no entry bytes are known.
+      dfu_mode:
+        notes: "Not established."
+      services: ["0000ae00-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From the app (embedded JieLi OTA SDK) and fbnlrz/homeyidotmatrix
+        docs/AE-SERVICE.md (hardware-probed service, not a completed
+        update). The app's hard-coded AES key encrypts its cloud HTTP bodies
+        and is not shown to touch the OTA wire payloads.
 
 services:
   # APP-PROVEN-UNUSED — third-party BLE library defaults, overridden by the app
@@ -204,12 +235,12 @@ services:
         name: "Data Write/Read"
         properties: ["write", "read"]
         framing:
-          length_prefix: true
-          checksum: "crc32"
           max_chunk_size: 4096
         notes: >
           Library-default write characteristic, unused by the app (overridden
-          with 0xFA02 at init). The framed protocol that
+          with 0xFA02 at init). The framing block is repeated here only for
+          the record — the authoritative declaration, with the upload
+          commands, is on 0xFA02. The framed protocol that
           would run here — and does run on 0xFA02 — is a 16-byte header
           (length field at [0-1] is uint16 LITTLE-endian) + up to 4096-byte
           payload per frame; CRC32 (java.util.zip.CRC32) over the whole data
@@ -245,10 +276,13 @@ services:
 
   # OTA service (vendor app)
   - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
-    name: "iDotMatrix OTA Service"
+    name: "JieLi RCSP / OTA Service"
     notes: >
-      Jieli (杰理) OTA stack (com.jieli.jl_bt_ota.* in the app; Jieli's OTA SDK
-      is public as Jieli-Tech/Android-JL_OTA). Not yet unlocked publicly — a
+      Jieli (杰理) OTA stack (the app embeds Jieli's OTA SDK, which is
+      public as Jieli-Tech/Android-JL_OTA). ae00 is JieLi's stock RCSP
+      service, shared by every JieLi product, so it marks a JieLi SoC, not
+      this panel and not update mode. It is the update path: a generic
+      client lists it read-only. Not yet unlocked publicly — a
       session-dependent component is unsolved (235/256 two-byte inputs elicit
       responses). Evidence: fbnlrz/homeyidotmatrix docs/AE-SERVICE.md
       (hardware-probed).
@@ -292,7 +326,130 @@ services:
       - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
         name: "Write Data"
         properties: ["write"]
+        role: "command"
+        # The framed CRC32 upload runs HERE on every hardware-documented unit
+        # (8none1 btsnoop, derkalle4 gif.py, Homey docs/idm.md §4.17), not on
+        # the app-proven-unused 0xFEE9 characteristic that used to be the only
+        # place it was declared. One logical frame = 16-byte header + up to
+        # 4096 payload bytes; the BLE layer then splits each frame into
+        # ATT-sized writes (509 bytes with MTU negotiated, else 18; 20 ms per
+        # write for GIF/image, 50 ms for text) and waits for the 0xFA03 ack
+        # (status 1 = send the next frame, 3 = finished) between frames.
+        framing:
+          max_chunk_size: 4096
         commands:
+          upload_image_chunk:
+            description: >
+              One frame of a static-image (PNG file) upload, command type 2:
+              [packet length u16 LE][0x02][0x00][chunk flag][total file length
+              u32 LE][CRC32 of the whole file u32 LE][display seconds u16 LE]
+              [material type][payload]. Send the frames in order and wait for
+              the 0xFA03 ack (status 1) between them; the device decodes the
+              PNG once all `total_length` bytes have arrived. The last three
+              header fields were unstated until now: the vendor app's image
+              builder writes the display time from its material-time picker
+              (5/10/30/60/300 s) and the material-type byte it was handed —
+              12 for a plain upload, where the time is forced to 0, and 13 for
+              a timed material. 8none1's app captures show the type-12 form
+              (00 00 0c). App-derived for type 2 (derkalle4's PNG path uses a
+              different, header-less DIY layout), so `reported`.
+            verification: "reported"
+            template: ["{packet_length}", 0x02, 0x00, "{chunk_flag}", "{total_length}", "{crc32}", "{display_seconds}", "{material_type}", "{payload}"]
+            parameters:
+              packet_length:
+                type: "uint16"
+                endianness: "little"
+                auto: "packet_length"
+                description: "Total bytes of this frame, header included (4112 for a full chunk); encoder-filled, LITTLE-endian — the byte-palindromic 0x1010 of a full chunk hides a byte swap until the last frame."
+              chunk_flag:
+                type: "uint8"
+                allowed: [0, 2]
+                labels: ["first chunk", "continuation chunk"]
+                default: 0
+                description: "0 on the first frame of a file, 2 on every later frame."
+              total_length:
+                type: "uint32"
+                endianness: "little"
+                min: 1
+                max: 4294967295
+                description: "Length of the whole file across all frames — the same value in every frame."
+              crc32:
+                type: "uint32"
+                endianness: "little"
+                min: 0
+                max: 4294967295
+                description: "CRC-32 of the whole file (zlib / java.util.zip.CRC32: reflected poly 0xEDB88320, init and xorout 0xFFFFFFFF) — over the file, not this frame, so no `auto` span role fits it; the client computes it once and repeats it in every frame."
+              display_seconds:
+                type: "uint16"
+                endianness: "little"
+                min: 0
+                max: 65535
+                default: 0
+                description: "Seconds the material stays up in a rotation; the app offers 5, 10, 30, 60 or 300 and sends 0 with material_type 12."
+              material_type:
+                type: "uint8"
+                allowed: [12, 13]
+                labels: ["plain upload (display time ignored, sent as 0)", "timed material (display_seconds applies)"]
+                default: 12
+                description: "The app's material-type byte; 12 (0x0C) for a plain upload, 13 (0x0D) for a material shown for display_seconds."
+              payload:
+                type: "bytes"
+                min_length: 1
+                max_length: 4096
+                description: "Up to 4096 bytes of the PNG file, in order."
+          upload_gif_chunk:
+            description: >
+              One frame of an animated-GIF upload, command type 1 — the same
+              header as upload_image_chunk with 0x01 at byte 2. The
+              hardware-verified public form (derkalle4 gif.py, 8none1's
+              capture 10 10 01 00 … 05 00 0d) sends display time 5 and
+              material type 13; the vendor app's GIF builder fills those two
+              fields exactly as the image builder does. GIF bytes go as-is —
+              the device decodes the file. Ack-gate on 0xFA03 between frames.
+            verification: "reported"
+            template: ["{packet_length}", 0x01, 0x00, "{chunk_flag}", "{total_length}", "{crc32}", "{display_seconds}", "{material_type}", "{payload}"]
+            parameters:
+              packet_length:
+                type: "uint16"
+                endianness: "little"
+                auto: "packet_length"
+                description: "Total bytes of this frame, header included; encoder-filled, LITTLE-endian."
+              chunk_flag:
+                type: "uint8"
+                allowed: [0, 2]
+                labels: ["first chunk", "continuation chunk"]
+                default: 0
+                description: "0 on the first frame of a file, 2 on every later frame."
+              total_length:
+                type: "uint32"
+                endianness: "little"
+                min: 1
+                max: 4294967295
+                description: "Length of the whole GIF file — the same value in every frame."
+              crc32:
+                type: "uint32"
+                endianness: "little"
+                min: 0
+                max: 4294967295
+                description: "CRC-32 (zlib) of the whole GIF file, repeated in every frame."
+              display_seconds:
+                type: "uint16"
+                endianness: "little"
+                min: 0
+                max: 65535
+                default: 5
+                description: "Seconds the GIF stays up in a rotation; 5 is what every hardware-verified client sends."
+              material_type:
+                type: "uint8"
+                allowed: [12, 13]
+                labels: ["plain upload (display time ignored, sent as 0)", "timed material (display_seconds applies)"]
+                default: 13
+                description: "13 (0x0D) in every hardware-verified GIF upload."
+              payload:
+                type: "bytes"
+                min_length: 1
+                max_length: 4096
+                description: "Up to 4096 bytes of the GIF file, in order."
           screen_on:
             description: "Turn screen on"
             value: [0x05, 0x00, 0x07, 0x01, 0x01]
@@ -452,6 +609,7 @@ services:
       - uuid: "0000fa03-0000-1000-8000-00805f9b34fb"
         name: "Notify/Ack Data"
         properties: ["read", "notify"]
+        role: "notify"
         notes: >
           Primarily the notify/ack channel: upload-progress responses and
           command acks (05 00 <cmd> <sub> 01) arrive here; also readable.
@@ -465,6 +623,10 @@ entities:
       turn_on: "screen_on"
       turn_off: "screen_off"
       set_brightness: "set_brightness"
+
+remaining_unknowns:
+  - "Static-image (type 2) header bytes 13-15 are read from the vendor app's image builder, which mirrors its GIF builder; no public capture of a type-2 upload exists to confirm the device honours display_seconds for stills. The public PNG path (derkalle4 image.py, Homey §4.16) uses a different header-less DIY layout after enter_diy_mode instead."
+  - "Whether the device accepts material_type values other than 12 and 13 is untested; the app sends only those two."
 
 helpful_urls:
   - title: "adriantukendorf/iDotMatrix-HomeAssistant (HACS)"

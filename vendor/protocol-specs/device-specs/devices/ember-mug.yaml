@@ -37,7 +37,7 @@ device:
       path that restores it is not a trade worth making on one unit.
 
       A second Ember Mug 2 on 2026-08-19, firmware 394, hardware 10, serial
-      BBA75112054: the characteristic table enumerated identical to the first
+      <serial>: the characteristic table enumerated identical to the first
       unit's, eighteen present with volume and acceleration absent, the same
       Nordic DFU service and Generic Access second name, and every state
       characteristic read and decoded as documented. One LED write (bf ff 00 ff)
@@ -403,18 +403,19 @@ services:
       fc540009 Volume and fc54000b Acceleration are absent. See each of those.
 
 
-      Three things exist on this hardware that this file documents nowhere, and a
+      Three things exist on this hardware beyond the Ember service, and a
       client enumerating the device will meet all three:
 
 
-      1. An undocumented Nordic legacy DFU service at
+      1. A Nordic legacy DFU service at
       00001530-1212-efde-1523-785feabcd123, present in ordinary operation on a
       claimed mug, with control point 00001531 (write, notify), packet 00001532
       (write without response) and version 00001534 (read, reads 0100). Nothing
       here was written to it and nothing should be without a reason: writing to a
       DFU control point is how a mug gets bricked. This file's own device notes
       mention that the app ships Nordic DFU code, so the service being live on a
-      normal mug is the part worth adding.
+      normal mug is the part worth adding. It is now listed as its own service
+      entry below, read-only, with features[firmware_update].
 
 
       2. A second, writable device name. Generic Access 00002a00 reads "Ember
@@ -1501,6 +1502,62 @@ services:
             length: 1
             name: "brightness"
             type: "uint8"
+
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Nordic Legacy DFU"
+    notes: >
+      The firmware update path. HARDWARE: enumerated on two claimed Mug 2
+      units in ordinary operation (fw 367 and fw 394), so the application
+      carries it and the stack's buttonless entry applies. Listed so a GATT
+      explorer recognises it and keeps it read-only; nothing was ever written
+      to it. Characteristic properties are as enumerated.
+    characteristics:
+      - uuid: "00001531-1212-efde-1523-785feabcd123"
+        name: "DFU Control Point"
+        properties: ["write", "notify"]
+        notes: "Do not write. Per the Nordic legacy stack, 01 04 here reboots an application into the bootloader."
+      - uuid: "00001532-1212-efde-1523-785feabcd123"
+        name: "DFU Packet"
+        properties: ["write_without_response"]
+      - uuid: "00001534-1212-efde-1523-785feabcd123"
+        name: "DFU Version"
+        properties: ["read"]
+        notes: "HARDWARE: reads 0100."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_legacy_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: "Where the app gets images is not established. Legacy Nordic DFU images are unsigned (CRC-16 in the init packet) unless the vendor added a check."
+      enter:
+        how: "stack_characteristic"
+        notes: >
+          Inferred, not exercised: the legacy DFU service is live in the
+          running application, which is the stack's buttonless arrangement
+          (write 01 04 to control point 00001531). Whether the Ember app
+          uses it or a vendor command is not established, and nothing was
+          written to it on either test unit.
+      dfu_mode:
+        notes: >
+          Not observed. The Nordic legacy bootloader advertises "DfuTarg" by
+          default and whether it changes address depends on the SDK version,
+          so nothing here yet links a DfuTarg back to a mug; the address
+          offset needs a real update to establish.
+      services: ["00001530-1212-efde-1523-785feabcd123"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        The service and its characteristics are hardware-confirmed (two Mug 2
+        units); the mechanism's behaviour is the stack's documented default,
+        not observed on a mug. The app's manifest carries eight Nordic DFU
+        foreground-service entries. The Firmware characteristic (fc54000c)
+        may carry a bootloader version at bytes 4-5 on some firmware; fw 367
+        returns only four bytes.
 
 entities:
   - platform: "sensor"

@@ -62,10 +62,6 @@ device:
   identification:
     mdns_service_type: "_matter._tcp.local."
     default_port: 5540
-    identity_keys:
-      primary: "instance"
-      secondary: "hostname"
-      display: "name"
 
   discovery:
     methods:

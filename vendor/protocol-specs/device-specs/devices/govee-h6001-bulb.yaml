@@ -251,7 +251,7 @@ services:
     name: "Govee OTA Service"
     notes: >
       Firmware update service. Not needed for control. Present in the APK
-      (OtaManagerV1) and H6001 gained OTA capability in newer firmware,
+      (the app's first-generation OTA manager) and H6001 gained OTA capability in newer firmware,
       but no public H6001 GATT dump confirms 0xfd00 on-device — treat as
       unverified.
     characteristics:
@@ -262,10 +262,34 @@ services:
         name: "OTA Notify"
         properties: ["notify"]
 
-features: []
+features:
   # light_control omitted — not in schema feature enum.
   # Standard RGB bulb with dimming. White/CT control exists via fixed
   # warm/cold shades (set_color_white command), not arbitrary Kelvin.
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      services:
+        - "0000fd00-0000-1000-8000-00805f9b34fb"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: "Delivered by the Govee Home app; no public images are known."
+      enter:
+        how: "unknown"
+        notes: "The OTA opcodes on fd01/fd02 were not recovered, so no entry command is declared."
+      dfu_mode:
+        notes: "Not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        The 0xfd00 service (write fd01, notify fd02) is the Govee app's
+        first-generation OTA path; govee-rgbic-light places the same path on
+        the H605x lamp line. That H6001 firmware carries it is app-derived
+        only: no public H6001 GATT dump shows 0xfd00 on-device, and newer
+        H6001 firmware is only reported to have gained OTA.
 
 entities:
   - platform: "light"

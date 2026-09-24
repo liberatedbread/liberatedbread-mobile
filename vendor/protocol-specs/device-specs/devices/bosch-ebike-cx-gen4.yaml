@@ -171,19 +171,19 @@ services:
   # app-confirmed, not hardware-tested; no GATT exchange has been captured
   # or replayed by us. This link terminates at the display -- it is not a
   # path onto the CAN bus.
-  - uuid: "0000180A-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information Service"
     notes: >
       Standard Bluetooth SIG DIS, referenced by the app's BLE manager.
       App-confirmed, not hardware-tested.
-  - uuid: "DC435FBE-837D-42C5-A987-A9DE0087E491"
+  - uuid: "dc435fbe-837d-42c5-a987-a9de0087e491"
     name: "Bosch proprietary service (purpose not established)"
     notes: >
       128-bit vendor UUID declared alongside the MCSP/BSS UUIDs in the app's
       BLE manager. The inspected code paths do not reveal its
       role; listed so nobody has to guess. App-confirmed UUID, purpose
       unknown, not hardware-tested.
-  - uuid: "424F5343-4820-4D43-5350-76012E002E00"
+  - uuid: "424f5343-4820-4d43-5350-76012e002e00"
     name: "BOSCH MCSP v1"
     notes: >
       Data channel of the Kiox BLE link; the UUID's first ten bytes spell
@@ -228,7 +228,7 @@ services:
       protobuf (SEND_KEY etc.), backed by backend REST calls
       (postLockService/postUnlockService).
     characteristics:
-      - uuid: "424F5343-4820-4D43-5350-20204D657461"
+      - uuid: "424f5343-4820-4d43-5350-20204d657461"
         name: "Meta"
         properties: ["read"]
         notes: >
@@ -236,7 +236,7 @@ services:
           protocol version byte + 16-bit big-endian max payload; the app
           requests ATT MTU 253 when the meta version is > 1, else keeps 23
           App-confirmed, not hardware-tested.
-      - uuid: "424F5343-4820-4D43-5350-20204D49534F"
+      - uuid: "424f5343-4820-4d43-5350-20204d49534f"
         name: "MISO"
         properties: ["notify"]
         notes: >
@@ -244,7 +244,7 @@ services:
           data; the app enables notifications on it.
           Carries SimpleTransportMessage fragments. App-confirmed, not
           hardware-tested.
-      - uuid: "424F5343-4820-4D43-5350-20204D4F5349"
+      - uuid: "424f5343-4820-4d43-5350-20204d4f5349"
         name: "MOSI"
         properties: ["write"]
         notes: >
@@ -252,7 +252,7 @@ services:
           direction inferred from the MOSI naming and the CoAP request flow;
           the exact write call site was not pinned down in the app's
           code. App-confirmed, not hardware-tested.
-  - uuid: "424F5343-4820-4253-5376-76012E002E00"
+  - uuid: "424f5343-4820-4253-5376-76012e002e00"
     name: "BOSCH BSS v1"
     notes: >
       Security channel of the Kiox BLE link; the UUID's first ten bytes spell
@@ -266,7 +266,7 @@ services:
       (app-confirmed on the device record and the connect path). Not
       hardware-tested.
     characteristics:
-      - uuid: "424F5343-4820-4253-5320-20204D49534F"
+      - uuid: "424f5343-4820-4253-5320-20204d49534f"
         name: "MISO"
         properties: ["indicate", "notify"]
         notes: >
@@ -274,7 +274,7 @@ services:
           app enables indications, falling back to notifications if the
           indicate property is absent. App-confirmed, not
           hardware-tested.
-      - uuid: "424F5343-4820-4253-5320-20204D4F5349"
+      - uuid: "424f5343-4820-4253-5320-20204d4f5349"
         name: "MOSI"
         properties: ["write"]
         notes: >

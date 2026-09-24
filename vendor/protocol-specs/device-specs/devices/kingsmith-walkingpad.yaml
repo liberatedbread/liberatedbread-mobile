@@ -497,18 +497,24 @@ services:
     initialization:
       - characteristic: "d18d2c10-c44c-11e8-a355-529269fb1459"
         write: [0x01, 0x00, 0x0D, 0x00, 0x06, 0x0B, 0x0F, 0x0D]
+        when: "before_each_command"
         notes: >
           ODM property-list pre-amble. Applies only when the device exposes
           the vendor characteristic d18d2c10-… (MC-21 class). The parent
           service UUID is verified ABSENT from both app binaries (full
           128-bit-UUID string-table enumeration of both apps, 2026-08-08: d18d2c10-c44c-11e8-a355-529269fb1459
-          is the only *-c44c-11e8-* UUID in either app) — the official app
-          binds it purely by GATT enumeration; the parent service UUID must
-          be captured from hardware (see capture plan). KS Fit
-          sends this fixed 8-byte frame before EACH Control Point command,
-          not just once per connection; without it the device returns
-          CONTROL_NOT_PERMITTED to FTMS writes. The response carries the
-          device property table (capabilities, model); walkingpad-controller
+          is the only *-c44c-11e8-* UUID in either app) and absent from the
+          third-party capture archive this project indexes — the official app
+          binds it purely by GATT enumeration, so the characteristic is NOT
+          declared under any service here (this block hangs off the FTMS
+          service only because a step needs a home); a client must find it by
+          enumerating the GATT table, not by resolving this step's owning
+          service. The parent service UUID must be captured from hardware
+          (see capture plan). `when: before_each_command` states the cadence
+          as data: KS Fit sends this fixed 8-byte frame before EACH Control
+          Point command, not just once per connection; without it the device
+          returns CONTROL_NOT_PERMITTED to FTMS writes. The response carries
+          the device property table (capabilities, model); walkingpad-controller
           treats indication-timeout here as success, matching KS Fit.
     characteristics:
       - uuid: "00002ad9-0000-1000-8000-00805f9b34fb"
@@ -606,7 +612,7 @@ services:
     name: "KingSmith supplement service (KS-HD-* models)"
     notes: >
       Vendor supplement channel found in KS Fit on KS-HD-* devices (absent on
-      MC-21). KS Fit's FTMSSupplement layer exposes property list, user
+      MC-21). KS Fit's supplement layer exposes property list, user
       profile, unit setting, offline workout records, presets/courses and OTA
       through it; frames use the same body + 1-byte additive checksum wrapping
       as the ODM channel. Exactly four characteristics exist in the app's
@@ -616,13 +622,13 @@ services:
       for UUID comparison in active code paths), while 0e and 0f appear only
       in the canonical UUID table — so 0b/0d are the live command channels
       and 0e/0f are discovered table entries (roles TBD). Functional surface
-      from the supplement-extension symbols in its snapshot:
-      readPropertyList/_parseProperties, _writeSupplementCmd/wrapSupplementCmd
-      (command writes), callBackPropertyStatus/_parseEvent/_parseSupplementCmd
-      (async events + command responses), _parseSystemInfo ("supplement
-      system info: protocolVersion = "), runIdDiffers (offline-record
-      matching) and a full OTA path (startOta/_parseOTA/startModuleOta/
-      startMcuOta/startMotorOta/installOtaFile/otaSuccess). Exact
+      of the app's supplement extension, by role: reading and parsing the
+      property list; wrapping and writing supplement commands (body +
+      additive checksum); parsing async events and command responses;
+      parsing a system-info reply that carries a protocol version;
+      matching offline records by run id; and a full OTA path with
+      separate module, MCU and motor update routines, image install and a
+      success callback. Exact
       per-characteristic roles and properties still need an HCI snoop on a
       KS-HD-* device.
     characteristics:
@@ -657,20 +663,77 @@ services:
   - uuid: "00010203-0405-0607-0809-0a0b0c0d1912"
     name: "Telink OTA Service"
     notes: >
-      Telink OTA service in the ph4-walkingpad scan UUID list (a 0x…2b12
-      variant also appears) — the pads' BLE SoC is Telink-based and the app
-      delivers firmware updates over it. KS Fit's OTA stack lives in
-      a dedicated Dart package (snapshot symbols, 2026-08-18): separate MCU
-      and BLE-module update paths (ota/mcu/* incl. a CRC32 file check
-      before flashing, ota/module/firmware_module_ota), an FTMS-generation
-      OTA that rides the supplement channel (wilink/ftms_ota + the
-      startOta/_parseOTA/startModuleOta/startMcuOta/startMotorOta/
-      installOtaFile path on the supplement service), and a cloud version
-      check via the API method `firmware.update`. Wi-Fi/MIOT models
+      Telink OTA service in the ph4-walkingpad scan UUID list, with its
+      data characteristic 00010203-0405-0607-0809-0a0b0c0d2b12 — both seen
+      on a real WiLink-generation pad (device.testing). The pads' BLE SoC
+      is Telink-based and the app delivers firmware updates over it. KS
+      Fit's OTA stack is a dedicated package (from its snapshot's symbols,
+      2026-08-18) with separate MCU and BLE-module update paths (the MCU
+      path runs a CRC32 check on the file before flashing), an
+      FTMS-generation OTA that rides the supplement service (separate
+      module, MCU and motor update routines), and a cloud version check via
+      the API method `firmware.update`. Wi-Fi/MIOT models
       instead receive OTA through Xiaomi's MIOT SDK
       (the MIOT plugin's firmware-upgrade entry point). Exact
       byte-level flow not documented here; treat OTA writes as bricking
-      risks until captured from a real update.
+      risks until captured from a real update. See
+      features[firmware_update].
+    characteristics:
+      - uuid: "00010203-0405-0607-0809-0a0b0c0d2b12"
+        name: "Telink OTA data"
+        properties: []
+        notes: >
+          Present on a real pad (device.testing); properties not recorded.
+          Per the Telink SDK each write is a 2-byte LE index, 16 data bytes
+          and a CRC-16, with indexes 0xff00-0xff06 as commands — the stack's
+          documented format, not captured from this pad. Never write it from
+          a generic client.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["telink_ota", "vendor_ble"]
+      transport: "ble"
+      services: ["00010203-0405-0607-0809-0a0b0c0d1912"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The app checks for new images through the KingSmith API method
+          `firmware.update` (hosts in device.notes) and runs a CRC32 check
+          on an MCU image file before flashing it. Whether the pad verifies
+          anything beyond that is not established. The Telink SDK's own
+          images are unsigned; nothing records whether KingSmith changed
+          that.
+      enter:
+        how: "in_place"
+        notes: >
+          Telink OTA is served by the running application with no reboot
+          first — the stack's documented behaviour, not captured from this
+          pad. The FTMS-generation path on the KS-HD-* supplement service
+          (24e2521c-…) is a vendor protocol whose entry bytes are not
+          recorded. The app keeps separate MCU, BLE-module and (on
+          FTMS-generation pads) motor-controller update paths. The
+          supplement service is left out of dfu.services because it also
+          carries the pad's ordinary property, profile and workout traffic.
+      dfu_mode:
+        notes: >
+          No separate update-mode name or address is recorded; a Telink
+          in-place OTA keeps the device's identity.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Telink's SDK writes the new image to the other flash bank and
+          switches the boot flag only on success (stack default, not
+          checked here). The MCU and motor-controller paths are vendor code
+          of unknown design; treat an interrupted update of either as a
+          possible brick.
+      verification: "reported"
+      notes: >
+        The Telink OTA service and its 2b12 data characteristic were seen
+        on a real WiLink-generation pad; the update flow itself is
+        app-derived and has not been exercised. Wi-Fi/MIOT models update
+        through Xiaomi's MIOT SDK instead, which this block does not cover.
 
 entities:
   - platform: "sensor"
@@ -775,6 +838,16 @@ entities:
       12.0 km/h is a UI clamp at the highest factory ceiling in KS Fit's
       product table; read the FTMS Supported Speed Range characteristic
       0x2AD4 for the connected device's true min/max/step.
+
+remaining_unknowns:
+  - >
+    The GATT service that contains the ODM pre-amble characteristic
+    d18d2c10-c44c-11e8-a355-529269fb1459 (MC-21 class). Neither vendor app
+    names it — both bind the characteristic by enumeration — and no public
+    HCI capture in the archive this project indexes carries an MC-21 service
+    discovery, so the characteristic cannot yet be declared under a service in
+    this spec. A single `btsnoop` of KS Fit connecting to an MC-21 would settle
+    it (see the capture plan in research-notes/kingsmith-walkingpad-capture-plan.md).
 
 helpful_urls:
   - url: "https://github.com/ph4r05/ph4-walkingpad"

@@ -115,10 +115,11 @@ device:
     advertises permanently.
 
 
-    GATT. This unit answers commands in the clear with no app-layer handshake. Its
-    auth service is 00010203-0405-0607-0809-0a0b0c0d1912 and carries only 2b12, and
-    nothing needed it, so the presence of that service is not a signal that a
-    handshake is required. The handshake described below for newer firmware, and the
+    GATT. This unit answers commands in the clear with no app-layer handshake. It
+    carries 00010203-0405-0607-0809-0a0b0c0d1912 with only 2b12 under it, which is
+    the Telink OTA service (Telink SDK; govee-rgbic-light names it the same), not
+    an auth service: earlier revisions of this file called it one, and nothing
+    needed it. The handshake described below for newer firmware, and the
     report that an H5105 disconnects when written unencrypted, were not reproduced.
 
     The device hangs up on its own after about 11.9 s idle, measured three times.
@@ -183,12 +184,13 @@ device:
     SILICON AND FIRMWARE, from the upstream audit rather than from this bench.
     Telink TLSR8253F512 BLE SoC. FCC ID 2AQA6-H5075, grantee Shenzhen Intellirocks
     Tech, granted 2019-12-13. Firmware updates go over the air through the Govee
-    Home app on the Telink OTA service 02f00000-0000-0000-0000-00000000fe00, and no
-    public firmware images exist. The app also probes for the TI OAD service
-    F000FFC0-0451-4000-B000-000000000000 and for 0xFD00 when it is working out
-    whether a device can take an update. None of that was exercised here and the
-    OTA service was not seen in the GATT enumeration of this unit, which is what
-    you would expect if it only appears in an update mode.
+    Home app, and no public firmware images exist. Earlier revisions of this file
+    named 02f00000-0000-0000-0000-00000000fe00 as the Telink OTA service; it is
+    not. The Govee app carries several updaters and probes for each: the Telink
+    OTA service 00010203-…-1912 (data 2b12), 02f00000-…-fe00 (the Freqchip
+    profile, per govee-rgbic-light and switchbot-ble), the f000ffc0-… OAD service
+    and 0xFD00. Only the Telink one was seen in this unit's GATT enumeration,
+    which fits the TLSR8253 SoC. No update was exercised here.
 
 
     OTHER MODELS. This file also covers H5051, H5052, H5071, H5072, H5074, H5100,
@@ -743,10 +745,15 @@ services:
           alone; read is also present.
 
   - uuid: "00010203-0405-0607-0809-0a0b0c0d1912"
-    name: "Govee Auth Service"
+    name: "Telink OTA Service"
     notes: >
-      Present on this unit, which carries 2b12 under it and nothing else. Earlier
-      revisions of this file gave the service as ...1910; this unit has ...1912.
+      Present on this unit, which carries 2b12 under it and nothing else. This is
+      the Telink OTA service, served in place by the running application (Telink
+      SDK; registries/dfu-signatures.tsv; govee-rgbic-light names it the same on
+      Govee's Telink lights), and the firmware-update path — see the
+      firmware_update feature. Earlier revisions of this file called it the
+      "Govee Auth Service" and gave it as ...1910; this unit has ...1912, and the
+      Telink ...1910 service is a different one.
 
       No handshake was required here. Every aa command and the 33 01 history request
       answered unencrypted on firmware 1.04.07, with no disconnect and no rejection,
@@ -757,17 +764,22 @@ services:
       e7 02 as TX2, with AES-128-ECB over bytes 0 to 15 and RC4 over bytes 16 to 19,
       under the app PSK "MakingLifeSmarte" (wcbonner goveebttemplogger.cpp:3389,
       NHaag87 H5105_protocol.md). Reported, not reproduced. The claim that an H5105
-      disconnects when written unencrypted is about a model we do not have.
+      disconnects when written unencrypted is about a model we do not have. On
+      other Govee devices that handshake runs on 2b11 under ...1910, which this
+      unit does not carry.
     characteristics:
       - uuid: "00010203-0405-0607-0809-0a0b0c0d2b12"
-        name: "Auth Config"
+        name: "Telink OTA Data"
         properties: ["read", "write_without_response", "notify"]
         notes: >
-          Reads back a single 0x00 byte. Earlier revisions of this file gave the
+          Telink OTA data characteristic: a 2-byte little-endian index, 16 data
+          bytes and a CRC-16, with indexes 0xff00-0xff06 as commands (stack
+          behaviour, not exercised here). A write here starts an update, so a
+          generic client never writes to it. Reads back a single 0x00 byte.
+          Earlier revisions of this file called it "Auth Config" and gave the
           properties as read and write. The 2b10 and 2b11 characteristics those
-          revisions list are absent from this unit; since the service is described as
-          newer-firmware behaviour, that needs a second unit before it is called an
-          error rather than a firmware difference.
+          revisions list are absent from this unit; they belong to the ...1910
+          service, not this one.
 
   - uuid: "00001800-0000-1000-8000-00805f9b34fb"
     name: "Generic Access"
@@ -805,6 +817,46 @@ services:
   # There is no standard Battery Service 0x180F/0x2A19 on this unit, and none in any
   # primary source consulted, including a full GATT map of the sibling H5105. Battery
   # comes from advertisement byte 4 or from aa 08 on ...2011.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["telink_ota"]
+      transport: "ble"
+      services:
+        - "00010203-0405-0607-0809-0a0b0c0d1912"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          Delivered by the Govee Home app; no public firmware images exist.
+          Stock Telink OTA images are unsigned; whether Govee adds anything is
+          not established.
+      enter:
+        how: "in_place"
+        notes: >
+          The Telink stack default: the running application serves the OTA
+          service and takes the image without rebooting first (start index
+          0xff01, end 0xff02). That default is not exercised on this unit.
+      dfu_mode:
+        notes: >
+          Nothing established. On the stock Telink stack there is no separate
+          update mode: the device keeps its name and address while it receives
+          the image.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Stock Telink OTA writes the other flash bank and switches the boot
+          flag only on success, so an interrupted transfer would keep the old
+          image; not checked on this unit.
+      verification: "reported"
+      notes: >
+        The service's presence is observed on this unit (GATT enumeration);
+        its role comes from the Telink UUID and the Govee app's updater
+        selection, not from an update run here. The app also carries a
+        Freqchip updater (02f00000-…-fe00), an OAD updater (f000ffc0-…) and a
+        0xFD00 path for other Govee hardware; none was seen in this unit's GATT
+        enumeration.
 
 entities:
   - platform: "sensor"

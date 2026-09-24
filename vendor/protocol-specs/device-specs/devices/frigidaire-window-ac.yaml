@@ -50,34 +50,12 @@ device:
     post-pairing control based on the inspected APK.
   identification:
     ssid_prefix: "Air_Conditioner"
-    discovery: "Electrolux/Frigidaire app and cloud account enumeration"
-    local_discovery: false
-    provisioning_local_only:
-      softap_ssid_prefixes: ["AJ", "@E", "IOT", "Air_Conditioner", "Dehumidifier", "ELUX", "AC", "DEHUM"]
-      protocols: ["AllJoyn onboarding", "OCP provisioning"]
-      setup_endpoint: "192.168.6.1:3002"
-      legacy_cleartext_exception: "192.168.0.1"
-      udp_broadcast_port: 3000
-      legacy_setup_commands:
-        - "DELTA_NIU_HTTP_REQUEST"
-        - "DELTA_NIU_COOKIE_SIGN"
-        - "DELTA_NIU_SET_CLOUD_PASSWORD"
-        - "OCP_CLOUD_POST_APPLIANCE"
-        - "AJ_NIU_ONBOARD"
-        - "LOCAL_ROBOT_PASSWORD"
-    cloud_provider: "Electrolux OCP / Frigidaire app"
-    cloud_endpoints_observed:
-      - "https://api.ocp-dev.electrolux.one"
-      - "https://api.ocp-staging.electrolux.one"
-      - "https://frigidaire.app.electrolux.one/"
-      - "wss://ws.eu.ocp-dev.electrolux.one"
-      - "wss://ws.eu.ocp-staging.electrolux.one"
-      - "https://api.ocp.electrolux.one (production; regional bases api.us.ocp.electrolux.one for NA, api.eu.ocp.electrolux.one for EU)"
-      - "wss://ws.ocp.electrolux.one (production; regional wss://ws.us.ocp.electrolux.one, wss://ws.eu.ocp.electrolux.one)"
-      - "/appliance/api/v2/appliances?includeMetadata=true"
-      - "/appliance/api/v2/appliances/{applianceId}/command"
-      - "/appliance/api/v3/appliances/info"
-      - "/remote-control/api/v1/appliances/"
+    notes: >
+      No local discovery once the unit is on the home network: the
+      Electrolux/Frigidaire app enumerates appliances through the cloud
+      account, and the SSID prefix above is the only signal a scanner sees
+      (setup-time SoftAP). The provisioning-AP details and observed cloud
+      endpoints are under protocol_details.
 
   discovery:
     methods:
@@ -500,3 +478,30 @@ helpful_urls:
     kind: "manual"
     description: >
       Vendor manual for a Wi-Fi window unit of the generation this spec covers.
+
+protocol_details:
+  # Moved out of device.identification: none of this is a scan-time signal.
+  provisioning_local_only:
+    softap_ssid_prefixes: ["AJ", "@E", "IOT", "Air_Conditioner", "Dehumidifier", "ELUX", "AC", "DEHUM"]
+    protocols: ["AllJoyn onboarding", "OCP provisioning"]
+    setup_endpoint: "192.168.6.1:3002"
+    legacy_cleartext_exception: "192.168.0.1"
+    udp_broadcast_port: 3000
+    legacy_setup_steps: >
+      The legacy flow, in the app's order: an HTTP request to the module,
+      a cookie-signing exchange, setting the cloud password on the module,
+      posting the appliance to the OCP cloud, AllJoyn onboarding, and a
+      local password step.
+  cloud_provider: "Electrolux OCP / Frigidaire app"
+  cloud_endpoints_observed:
+    - "https://api.ocp-dev.electrolux.one"
+    - "https://api.ocp-staging.electrolux.one"
+    - "https://frigidaire.app.electrolux.one/"
+    - "wss://ws.eu.ocp-dev.electrolux.one"
+    - "wss://ws.eu.ocp-staging.electrolux.one"
+    - "https://api.ocp.electrolux.one (production; regional bases api.us.ocp.electrolux.one for NA, api.eu.ocp.electrolux.one for EU)"
+    - "wss://ws.ocp.electrolux.one (production; regional wss://ws.us.ocp.electrolux.one, wss://ws.eu.ocp.electrolux.one)"
+    - "/appliance/api/v2/appliances?includeMetadata=true"
+    - "/appliance/api/v2/appliances/{applianceId}/command"
+    - "/appliance/api/v3/appliances/info"
+    - "/remote-control/api/v1/appliances/"

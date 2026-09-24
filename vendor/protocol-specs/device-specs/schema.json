@@ -141,7 +141,13 @@
   "$defs": {
     "uuid": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      "description": "A full 128-bit UUID in canonical 8-4-4-4-12 form, lowercase hex (RFC 9562 output form). 16-bit SIG UUIDs are written expanded onto the Bluetooth base UUID, e.g. 0000fff0-0000-1000-8000-00805f9b34fb.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "device_class": {
+      "type": "string",
+      "description": "Home Assistant device-class vocabulary for a reading or control -- 'battery', 'temperature', 'humidity', 'voltage', 'current', 'power', 'speed', 'distance', 'weight', 'illuminance', 'atmospheric_pressure', ... One definition shared by `entities[].device_class` and a BLE characteristic's `format[].device_class`, so the class a field states is spelled exactly as the entity that renders it. A free string rather than an enum, on the `key` precedent: Home Assistant's list grows, and an enum would hard-fail strict parsers on every addition.",
+      "$comment": "Hoisted so the two places a spec can state a device class draw from one definition. The catalogue's actual usage is checked by pytest (a format field's class must match the entity bound to it)."
     },
     "hex_bytes": {
       "type": "string",
@@ -309,6 +315,54 @@
         }
       ]
     },
+    "ssdp_description_match": {
+      "$comment": "One condition on a UPnP description document, for `identification.ssdp_match`. The SSDP twin of `mdns_txt_match`: a search target is usually a device CLASS (MediaRenderer:1, Basic:1) rather than a product, and the vendor's name is in the descriptor the LOCATION header points at, not in the M-SEARCH reply.",
+      "type": "object",
+      "required": [
+        "field",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "enum": [
+            "manufacturer",
+            "manufacturerURL",
+            "modelName",
+            "modelNumber",
+            "modelDescription",
+            "friendlyName",
+            "deviceType",
+            "UDN"
+          ],
+          "description": "The `<device>` element of the description document this condition reads, spelled as UPnP Device Architecture spells it."
+        },
+        "match": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "prefix",
+            "contains",
+            "regex"
+          ],
+          "default": "exact",
+          "description": "How `value` is compared against the element's text. With `regex`, anchor it (^...$) to require a full match."
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_sensitive": {
+          "type": "boolean",
+          "default": true
+        },
+        "description": {
+          "type": "string",
+          "description": "Why this condition identifies the device -- what publishes the value. A matcher with no stated basis is a guess."
+        }
+      }
+    },
     "mac_prefix_confidence": {
       "type": "string",
       "enum": [
@@ -385,6 +439,13 @@
           },
           "description": "Map from the referenced unit-setting's raw value to the unit then in force, e.g. {0: 'C', 1: 'F'}. The key 'default' covers every unlisted value — the Inkbird unit byte means F when 0x46 (ASCII 'F') and C for anything else, which is {0x46: 'F', default: 'C'}."
         },
+        "unit_scales": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Scale per unit, keyed by the unit strings that `unit_values` produces. Use it when the device's unit setting changes the resolution as well as the unit: a Mi Scale reports kilograms at raw/200 but pounds and jin at raw/100. The client resolves the unit through `unit_values`, then takes that unit's scale from here, falling back to `scale` for any unit not listed."
+        },
         "values": {
           "type": "object",
           "additionalProperties": {
@@ -436,16 +497,18 @@
     },
     "initialization": {
       "type": "array",
-      "description": "Ordered handshake / setup steps executed after connecting and before normal commands. Allowed at the top level and per-service.",
+      "description": "Ordered handshake / setup steps executed after connecting and before normal commands. Allowed at the top level and per-service. A step is EXECUTABLE when it carries at least one of `write`, `read`, `subscribe`; a step with none of them is documentation of a handshake a client must implement itself (a per-session key exchange whose bytes no YAML can hold, say) and a consumer must report it as such rather than run it and believe it has handshaked. `when` states the cadence: once per connection by default, or before every command for the devices that demand it.",
+      "$comment": "Closed (`additionalProperties: false`) because every key here changes what a step IS: an undeclared `subscribe: true` was silently a no-op to a consumer that only knew `write`/`read`, which for a device that needs its notify channels open before anything is sent means every later write is lost. Add a key here before using it in a spec.",
       "items": {
         "type": "object",
         "required": [
           "characteristic"
         ],
+        "additionalProperties": false,
         "properties": {
           "characteristic": {
             "$ref": "#/$defs/uuid",
-            "description": "Target characteristic UUID for this step."
+            "description": "Target characteristic UUID for this step. Lower-case hex, like every other UUID in the catalogue -- a consumer comparing strings must not have to fold case to find the characteristic it just enumerated."
           },
           "write": {
             "type": "array",
@@ -457,6 +520,27 @@
           "read": {
             "type": "boolean",
             "description": "If true, read from the characteristic in this step (e.g. to capture a handshake response / encryption key)."
+          },
+          "subscribe": {
+            "type": "boolean",
+            "description": "If true, open notifications/indications on this characteristic in this step (write the CCCD). An operation, not a note: some devices deliver the handshake reply -- or everything after it -- only on a channel the client has already subscribed to, and a consumer that skips this step gets nothing back and cannot tell why."
+          },
+          "when": {
+            "type": "string",
+            "enum": [
+              "connect",
+              "before_each_command"
+            ],
+            "default": "connect",
+            "description": "When the step runs. `connect` (the default) is once per connection, after service discovery and before normal commands. `before_each_command` is a preamble the device demands before EVERY command write, not just the first -- the KingSmith MC-21 answers CONTROL_NOT_PERMITTED to any FTMS control-point write not immediately preceded by its ODM property-list frame. A consumer that runs such a step once per connection gets the first command through and every later one refused."
+          },
+          "description": {
+            "type": "string",
+            "description": "What this step does, in prose, for a step whose bytes cannot be stated as data -- a SPAKE2 exchange with fresh randoms per session, a challenge whose reply depends on the device MAC. A step with only `description` (no `write`, `read` or `subscribe`) is documentation a client must implement by hand, not an instruction it can execute; see the array's description."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Caveats beside an executable step: which models need it, what the reply carries, how the vendor app treats a timeout. Prose next to the data, never instead of it."
           },
           "delay_ms": {
             "type": "integer",
@@ -746,6 +830,80 @@
           "example": {
             "type": "string",
             "description": "A literal payload. Keep it real enough to test against — it is what an implementer will parse first."
+          },
+          "envelope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "container",
+              "success_key",
+              "error_key",
+              "error_type_path"
+            ],
+            "description": "The payload is an OUTCOME ENVELOPE: the transport status says nothing (Hue's CLIP v1 answers HTTP 200 to everything) and success or failure is read from the body. This block states the container shape and where the error type and text live, and `error_types` classifies the types a client has to treat specially, so the envelope is decoded from the spec rather than transcribed by hand into every client. Decoding: parse the body; if it is not the declared `container`, it is not an envelope (a bare object answering a CLIP v1 GET is a plain success reply). Walk every element (or the object itself when `container` is `object`): an element with `success_key` acknowledges one attribute; one with `error_key` carries an error whose type is at `error_type_path` and whose text is at `error_description_path`, both relative to the error object. A mixed envelope is possible, so check every element. An error type listed in `error_types` is handled by its `class`; any other type is `terminal`.",
+            "$comment": "Hue was the only catalogue entry that needed this, and its six prose parse_rules were being mirrored by hand into a transport class that otherwise only moved bytes. 'Read the outcome from the body, not the status' is a common REST shape, so the next such device would have been transcribed too.",
+            "properties": {
+              "container": {
+                "type": "string",
+                "enum": [
+                  "array",
+                  "object"
+                ],
+                "description": "`array`: a JSON array of outcome objects, one per attribute or request. `object`: a single outcome object."
+              },
+              "success_key": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Key whose presence on an element marks it a success outcome (Hue: `success`, whose value maps attribute path -> accepted value)."
+              },
+              "error_key": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Key whose presence on an element marks it an error outcome; its value is the error object the two paths below are resolved in."
+              },
+              "error_type_path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Dotted path, inside the error object, to the integer or string type code `error_types` is keyed by."
+              },
+              "error_description_path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Dotted path, inside the error object, to the human-readable text a consumer surfaces for a `terminal` error."
+              },
+              "error_types": {
+                "type": "object",
+                "minProperties": 1,
+                "description": "Type code -> how a client treats it. Keys are the code as a string (`\"101\"`), because JSON object keys are strings; compare against the decoded value as a number when it parses as one.",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "class"
+                  ],
+                  "properties": {
+                    "class": {
+                      "type": "string",
+                      "enum": [
+                        "retry",
+                        "repair",
+                        "precondition",
+                        "terminal"
+                      ],
+                      "description": "`retry`: not a failure -- the expected answer while a condition the user controls is pending (Hue 101, link button not pressed); keep polling and do not surface it. `repair`: the request cannot succeed by retrying, because a stored credential or pairing is gone (Hue 1, unauthorized user); surface re-pairing. `precondition`: the request was well-formed but a documented precondition was unmet, and `remedy` says what to send instead (Hue 201, bri written to a light that is off). `terminal`: the request failed; show `description`. The default for every type not listed."
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "What the code means, in the device's own words where it has them."
+                    },
+                    "remedy": {
+                      "type": "string",
+                      "description": "What a client does about it -- required in spirit for `precondition` and `repair`, where the class alone does not say."
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -776,9 +934,10 @@
           "type": "string",
           "enum": [
             "daniao_fragment",
-            "seeblue_envelope"
+            "seeblue_envelope",
+            "length_prefixed_le16"
           ],
-          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `seeblue_envelope` (LEDGlow/SEEBlue motorcycle lighting): each write is [0x95][message_length u8][message_index u8][protocol_id u8][packet bytes][checksum u8], where message_length counts message_index through the last packet byte, message_index is a per-connection sequence number the client owns, protocol_id comes from the command's `protocol_id`, and the checksum is the 8-bit two's complement of message_length through the last packet byte. Protocol ids: 0x00 INTERNAL (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the device answers on this one), 0x03 BOOTLOADER (latent OTA: flashes an Intel HEX over BLE; no firmware HEX is public), 0x04 GENERIC, 0x10 LEDGlow snapshot and the v2 UI-change commands. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
+          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `length_prefixed_le16` (Rabbit Air purifiers' GATT command channel): each logical packet is preceded by a two-byte LITTLE-ENDIAN uint16 length of the packet alone (the prefix is not counted), and the prefixed packet is then split into consecutive writes of at most `max_chunk_size` bytes, sent in order; the device answers in the same shape, so a reader takes the first two bytes of the first fragment as the total and accumulates fragment bodies until that many packet bytes have arrived. The chunk size is (negotiated ATT MTU - 5) in the vendor app, which requests MTU 515 and so writes 510-byte chunks — `max_chunk_size` states that common case. VERIFIED on hardware (MinusA2 gen2, 2026-08-15): cleartext setup and encrypted control conversations both ran framed this way. `seeblue_envelope` (LEDGlow/SEEBlue motorcycle lighting): each write is [0x95][message_length u8][message_index u8][protocol_id u8][packet bytes][checksum u8], where message_length counts message_index through the last packet byte, message_index is a per-connection sequence number the client owns, protocol_id comes from the command's `protocol_id`, and the checksum is the 8-bit two's complement of message_length through the last packet byte. Protocol ids: 0x00 INTERNAL (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the device answers on this one), 0x03 BOOTLOADER (latent OTA: flashes an Intel HEX over BLE; no firmware HEX is public), 0x04 GENERIC, 0x10 LEDGlow snapshot and the v2 UI-change commands. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
         },
         "channel_tag": {
           "type": "integer",
@@ -1032,9 +1191,6 @@
           "description": "Machine-readable statement of the credentials this method issues, keyed by the exact name that `source: credential:<name>` parameters refer to -- the key spelling is the coupling, the way `instances.keyed_by` is for `instance:` parameters. This is what lets a consumer run the pairing flow and store what it yields without a per-device credential table: the Hue link-button flow issues `username` (and `clientkey` when asked), and every later request's `credential:username` names the stored value.",
           "additionalProperties": {
             "type": "object",
-            "required": [
-              "reply_path"
-            ],
             "properties": {
               "command": {
                 "type": "string",
@@ -1044,6 +1200,15 @@
                 "type": "string",
                 "description": "Dotted path with bracketed indices into that reply: '[0].success.username'."
               },
+              "reply_cookie": {
+                "type": "string",
+                "description": "Name of the cookie, in the reply's Set-Cookie header, whose value is the credential -- for a device that issues its token as a cookie rather than in the body (Sony's actRegister answers `Set-Cookie: auth=<token>`). Parse it leniently: Sony's spelling is not RFC 6265-clean."
+              },
+              "user_entered": {
+                "type": "boolean",
+                "const": true,
+                "description": "The value is not read from any reply: a person sets it on the device and types the same string into the client (Sony's pre-shared key). The consumer prompts for it using `notes`."
+              },
               "request_condition": {
                 "type": "string",
                 "description": "Request argument that must be set for the field to appear at all -- Hue's clientkey exists only when `generateclientkey: true` rode the create request, and only at create time; a re-pair without it never sees the key again."
@@ -1051,7 +1216,24 @@
               "notes": {
                 "type": "string"
               }
-            }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "reply_path"
+                ]
+              },
+              {
+                "required": [
+                  "reply_cookie"
+                ]
+              },
+              {
+                "required": [
+                  "user_entered"
+                ]
+              }
+            ]
           }
         },
         "steps": {
@@ -1314,6 +1496,53 @@
           "type": "string",
           "description": "Optional finer-grained visual identity than `category`, for devices worth recognising on sight even when this app does not control them (a MacBook, a Framework laptop, a NAS, a Nintendo console, a UniFi access point, a MikroTik router). A consumer resolves this token to a specific glyph and FALLS BACK to the `category` icon when it does not recognise the token -- so an unknown pictogram never loses the device, exactly as an unknown `category` degrades to the generic icon. Tokens are kebab-case and describe the thing a person sees across the room: e.g. `wifi-ap`, `network-switch`, `router`, `ip-camera`, `video-doorbell`, `nvr`, `nas`, `cloud-key`, `game-console`, `laptop`, `laptop-apple`, `desktop`, `mini-pc`, `smart-speaker`, `3d-printer`, `smoke-alarm`, `thermostat`, `power-station`, `air-quality`, `co2-sensor`, `streaming-stick`, `garage-door`, `label-printer`. The vocabulary is open on purpose; the consumer's resolver owns the token->glyph table and its fallbacks."
         },
+        "managed_by": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "spec"
+          ],
+          "description": "These devices are driven through a CONTROLLER, not individually, and this says which spec documents it and how to recognise it among discovered devices. A UniFi Protect camera is adopted to an NVR, configured there, and its stream is served from there; a Zigbee bulb behind a hub has the same shape. A consumer that finds such a device answers 'this is managed elsewhere -- and elsewhere is that one' from the catalogue: `spec` names the controller's spec, and `discovery` carries the signal that picks the controller out of the scan results (an SSDP search target, an mDNS service type, or the platform prefixes of the controller's `identification.platform_prefixes` table). Distinct from `camera.feed_host_source`, which says where a stream is served from, and from `instances`, which is the controller's own view of its children.",
+          "$comment": "The mobile consumer held a Dart list of the Ubiquiti platform prefixes that mean 'this camera's NVR' and pointed the user at it; a new Ubiquiti console was a spec refresh everywhere else and a code edit there. Under `device` because it is identity context -- it sits with `identification` and `discovery`, which it refers to -- and the closed device object has to declare it either way.",
+          "properties": {
+            "spec": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "The controller's spec id: the filename under device-specs/devices/ without .yaml (`ubiquiti-unifi-device`). pytest checks it resolves."
+            },
+            "discovery": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "description": "How to recognise the controller among discovered devices. At least one signal; each is matched against the controller's own scan results, not this device's.",
+              "properties": {
+                "ssdp_search_target": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The SSDP search target the controller answers, as `identification.ssdp_search_targets` spells it."
+                },
+                "mdns_service_type": {
+                  "type": "string",
+                  "pattern": "^_[A-Za-z0-9_-]+\\._(tcp|udp)\\.local\\.$",
+                  "description": "The controller's mDNS service type, fully qualified and trailing-dotted like `identification.mdns_service_type`."
+                },
+                "platform_prefixes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": "Prefixes of the platform/model string a discovery reply carries, each one a row of the controller spec's `identification.platform_prefixes` table (pytest checks). `UNVR`, `UDM` and `UCKP` are the Ubiquiti consoles that host Protect."
+                }
+              }
+            },
+            "notes": {
+              "type": "string",
+              "description": "What the controller does for this device and what, if anything, the device still answers on its own."
+            }
+          }
+        },
         "admin_url": {
           "type": "string",
           "description": "URL template for the device's OWN administration interface, so a consumer can deep-link the user straight to it. Use `{address}` as the placeholder the consumer substitutes with the discovered IP/host (e.g. `https://{address}/`, `http://{address}/webfig/`). This is where a device we only IDENTIFY (see `integration`) sends the user to actually manage it -- a UniFi switch's web UI, a MikroTik router's WebFig. Not a research reference (those go in `helpful_urls`); this is a live control-plane link on the local network."
@@ -1521,7 +1750,15 @@
                 "minLength": 1
               },
               "minItems": 1,
-              "description": "SSDP/UPnP search targets this device answers to, e.g. `urn:Belkin:device:controllee:1`. The only way to find hardware with no meaningful mDNS presence. Declare vendor-specific targets only: generic UPnP boilerplate like `upnp:rootdevice` is answered by every router, printer and NAS on the link, so a consumer must treat it as a ranking hint rather than an identification -- the same caveat `mac_prefixes` carries."
+              "description": "SSDP/UPnP search targets this device answers to, e.g. `urn:Belkin:device:controllee:1`. The only way to find hardware with no meaningful mDNS presence. Declare vendor-specific targets only: generic UPnP boilerplate like `upnp:rootdevice` is answered by every router, printer and NAS on the link, so a consumer must treat it as a ranking hint rather than an identification -- the same caveat `mac_prefixes` carries. A device whose only honest target is a generic one (a TV that is found as a `MediaRenderer:1`) narrows it with `ssdp_match` on the description document instead of pretending the target is its own."
+            },
+            "ssdp_match": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/ssdp_description_match"
+              },
+              "description": "Conditions on the UPnP description document (the XML at the reply's LOCATION) that narrow a shared `ssdp_search_targets` entry to THIS device -- the SSDP twin of `mdns_txt_match`, and it carries the same contract: ALL entries must hold, a spec carrying none claims the whole target, and a consumer that ignores the key is no worse off than today. This is what makes a DLNA renderer search honest: `urn:schemas-upnp-org:device:MediaRenderer:1` is every Samsung, Philips and Hisense set on the link, and `<manufacturer>Hisense</manufacturer>` in the descriptor is what makes one of them a VIDAA TV. Mirror of `discovery.methods[].ssdp.match`, whose `manufacturer_exact`/`rule` carry the same narrowing with its evidence."
             },
             "mdns_service_type": {
               "type": "string",
@@ -1535,6 +1772,44 @@
                 "$ref": "#/$defs/mdns_txt_match"
               },
               "description": "Conditions on the TXT records of `mdns_service_type` that narrow it from a platform to THIS device. ALL entries must hold (they are ANDed) -- an alternative belongs in the `regex` matcher, not in a second entry. This is what keeps a shared service type honest: `_esphomelib._tcp` finds every ESPHome node, and `project_name` starting `ratgdo.` is what makes one of them a garage-door controller. Resolution rule, and it needs nothing beyond this block: among the specs claiming a service type, a consumer takes the one whose conditions ALL hold, preferring the one with the most of them; a spec carrying no conditions ranks last, because it claims the platform rather than a product. `discovery.methods[].mdns.platform_fallback` marks the spec that is MEANT to be last, so a reviewer can tell a deliberate catch-all from a spec that forgot its matcher. A consumer that ignores the key entirely is no worse off than it is today, which is why this is additive. Mirror of `discovery.methods[].mdns.txt_match`, which carries the same conditions with their evidence."
+            },
+            "platform_prefixes": {
+              "type": "array",
+              "minItems": 1,
+              "description": "For a spec that covers a whole product line behind ONE discovery protocol: the prefixes of the platform/model string a discovery reply carries, each mapped to the `pictogram` a consumer draws for it -- and, where a prefix belongs to a device another spec documents, that spec's id. Ubiquiti's UDP-10001 reply names the platform in TLV 0x0c (`UNVR`, `UCKP`, `UFP-UAP-B`, `UVC G4 Pro`) and one probe finds the whole fleet, so this is the table that turns one scan result into an NVR, a console, an access point or a camera. Match by prefix on the platform string, longest prefix wins. Rows carry `verification`: a prefix seen in a live reply is `confirmed`; one taken from the vendor's public product naming that no reply has been read for is `reported` or `hypothesis`, and stays in the table so a consumer degrades to a sensible glyph rather than the category icon.",
+              "$comment": "The mobile consumer carried this table in a screen -- sixteen prefixes and their glyph tokens -- because 'the platform is only known at discovery' was taken to mean the map could not live in a spec. It says when the value arrives, not where the map belongs. Also the table `device.managed_by.discovery.platform_prefixes` refers into.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "prefix",
+                  "pictogram"
+                ],
+                "properties": {
+                  "prefix": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Case-sensitive prefix of the platform string as the device spells it on the wire."
+                  },
+                  "pictogram": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                    "description": "Token from the `device.pictogram` vocabulary: `nvr`, `cloud-key`, `wifi-ap`, `network-switch`, `router`, `nas`, `ip-camera`. Overrides the spec-level `pictogram` for a device whose platform matches."
+                  },
+                  "spec": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                    "description": "When the prefix names a device ANOTHER spec documents (Ubiquiti's `UVC` cameras have their own), that spec's id; the consumer hands the scan result to it. pytest checks it resolves."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "What the prefix covers in product terms (Dream Machine consoles; the Protect NVR; U6/U7 access points)."
+                  },
+                  "verification": {
+                    "$ref": "#/$defs/verification"
+                  }
+                }
+              }
             },
             "lan_protocols": {
               "type": "array",
@@ -1587,8 +1862,32 @@
                   "type": "string"
                 }
               }
+            },
+            "zigbee_model_id": {
+              "type": "string",
+              "description": "Zigbee Basic-cluster model identifier the device reports at join (`TS0601` for every Tuya TS0601 white-label). The Zigbee analogue of a BLE local name, and about as discriminating: TS0601 is a generic Tuya MCU-bridge id shared by hundreds of unrelated products, so on its own it says 'a Tuya Zigbee device', and `zigbee_manufacturer_names` is what identifies the product."
+            },
+            "zigbee_manufacturer_names": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "description": "Zigbee Basic-cluster manufacturer names seen on this device family (`_TZE200_myd45weu` and kin). For Tuya white-labels this is the only field that pins a product -- the retail box name is not on the air, and the model id is shared -- so it is the key a consumer selects a datapoint map by. Alternatives, not a conjunction: any one of them means the device is this family."
+            },
+            "zwave_manufacturer_id": {
+              "type": "string",
+              "pattern": "^0x[0-9A-Fa-f]{1,4}$",
+              "description": "Z-Wave manufacturer id from the Manufacturer Specific command class, written as hex ('0x0175'). Identifies the vendor of a controller or node at inclusion time; product type/id refine it and belong in `variants` or `protocol_details` until a spec needs them here."
+            },
+            "notes": {
+              "type": "string",
+              "description": "Caveats the identification keys cannot carry: which firmware advertises which name, why a tempting signal (a platform-wide OUI, an `_http._tcp` answer) is deliberately absent, what a scanner must NOT conclude from a match. Prose beside the keys -- an identifying value that only appears here is one no scanner reads."
             }
-          }
+          },
+          "additionalProperties": false,
+          "$comment": "Closed for the same reason `device` is: a scanner reads this block by key, so a key it does not know is a signal that never fires. Three specs had their advertised names under `advertisement_names`, `local_name` and `local_name_contains` and validated fine while matching nothing. Every key a spec may state here is declared above; a matcher form the block cannot express (a substring test, a regex) belongs in `discovery.methods[].ble.local_name`, and anything else in `protocol_details`."
         },
         "discovery": {
           "type": "object",
@@ -1622,6 +1921,113 @@
                   "type"
                 ],
                 "oneOf": [
+                  {
+                    "properties": {
+                      "type": {
+                        "const": "ws_discovery"
+                      },
+                      "ws_discovery": {
+                        "type": "object",
+                        "required": [
+                          "identity_mapping"
+                        ],
+                        "description": "WS-Discovery (OASIS), the mechanism ONVIF cameras, NVRs and doorbells are found by: a SOAP-over-UDP Probe is multicast to 239.255.255.250:3702 and every matching device unicasts a ProbeMatch back carrying its endpoint reference (a urn:uuid), its Types, its Scopes (`onvif://www.onvif.org/name/<model>`, `.../hardware/<model>`, `.../location/...`) and its XAddrs (the device-service URL). NOT SSDP: the port, the payload and the reply are all different, and an ONVIF device answers no SSDP search target -- four camera specs used to claim one and were never found by it. The generic `onvif` reference spec declares this method with `platform_fallback: true`; a vendor camera spec that can narrow a ProbeMatch (a Scopes prefix, a Types value) declares it with `scope_match`, and one that cannot leaves the method to the platform spec and identifies itself by what it volunteers on its own (`mac_prefixes`, an mDNS TXT rule, an HTTP probe).",
+                        "properties": {
+                          "port": {
+                            "type": "integer",
+                            "default": 3702,
+                            "description": "UDP port the Probe is multicast to and replies come back from. 3702 is the port WS-Discovery reserves; declared so a spec that found a device answering elsewhere can say so."
+                          },
+                          "multicast_group": {
+                            "type": "string",
+                            "default": "239.255.255.250",
+                            "description": "Multicast group for the Probe. The same reserved SSDP group, on a different port."
+                          },
+                          "probe_types": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "description": "The `d:Types` the Probe asks for, as prefixed QNames with the prefix bound in the envelope: `dn:NetworkVideoTransmitter` (xmlns:dn=\"http://www.onvif.org/ver10/network/wsdl\") is what finds every ONVIF Profile S/T device; `tds:Device` (xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\") the broader ONVIF device type. An empty Types element (omit this key) matches every WS-Discovery responder on the link, printers included."
+                          },
+                          "scope_match": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "match",
+                                "value"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "match": {
+                                  "type": "string",
+                                  "enum": [
+                                    "exact",
+                                    "prefix",
+                                    "contains",
+                                    "regex"
+                                  ]
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "description": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "description": "Conditions on the ProbeMatch's Scopes (a whitespace-separated list of URIs) that narrow this method from 'an ONVIF device' to THIS product -- ANDed, and each holds when ANY scope satisfies it. The WS-Discovery analogue of an mDNS `txt_match`: absent, the method claims the whole platform and should carry `platform_fallback`."
+                          },
+                          "platform_fallback": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "This method matches every WS-Discovery responder of its `probe_types`, and is the deliberate catch-all: a consumer uses it only when no spec narrowed the same ProbeMatch with a `scope_match`. Same contract as the mdns key of the same name; at most one spec should declare it per probe type, and the ONVIF reference spec is that one."
+                          },
+                          "identity_mapping": {
+                            "type": "object",
+                            "required": [
+                              "stable_keys"
+                            ],
+                            "properties": {
+                              "stable_keys": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                  "type": "object",
+                                  "required": [
+                                    "source"
+                                  ],
+                                  "properties": {
+                                    "source": {
+                                      "type": "string",
+                                      "description": "`probematch:endpoint` (the urn:uuid in wsa:EndpointReference/wsa:Address -- the stable identity WS-Discovery defines), `probematch:xaddrs` (the device-service URL, an address not an identity), `probematch:scope:<prefix>` (the remainder of the first scope starting with that prefix, e.g. `probematch:scope:onvif://www.onvif.org/name/`), or `soap:<Operation>#<Field>` for a value read from the device service after discovery (`soap:GetDeviceInformation#SerialNumber`)."
+                                    },
+                                    "key": {
+                                      "type": "string",
+                                      "description": "Short name for this key (uuid, serial)."
+                                    }
+                                  }
+                                }
+                              },
+                              "display": {
+                                "type": "object",
+                                "properties": {
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
                   {
                     "properties": {
                       "type": {
@@ -1690,11 +2096,14 @@
                               },
                               "pattern": {
                                 "type": "string",
-                                "pattern": "^[0-9a-fA-F]+$"
+                                "pattern": "^[0-9a-fA-F]+$",
+                                "description": "Hex bytes matched against the manufacturer-specific PAYLOAD -- the AD structure's value AFTER the two little-endian company-id bytes, which `company_id` has already matched. So for a structure that reads 54 52 00 61 on the air under company id 21076 (0x5254), the pattern is `0061`, never `54520061`. `prefix` (the default) requires the payload to START with these bytes; `exact` requires the whole payload to equal them; `masked` compares `payload & mask == pattern & mask` over the pattern's length. Stated because the catalogue once measured it from both origins at once, and the four specs sharing company id 21076 are distinguishable by nothing else.",
+                                "$comment": "The origin matters most for exactly the specs that need the pattern: the 'TR' family (ideal-led, magic-display, shining-glasses, shining-mask) squats one company id and differs only in the two payload bytes after it. A consumer measuring from the wrong origin either ranks all four equally or matches none."
                               },
                               "mask": {
                                 "type": "string",
-                                "pattern": "^[0-9a-fA-F]+$"
+                                "pattern": "^[0-9a-fA-F]+$",
+                                "description": "For `match: masked`: hex bytes the same length as `pattern`, ANDed with both sides before comparing (`payload & mask == pattern & mask`). A 00 byte in the mask is a wildcard position -- Braun masks out a protocol-version byte that moves with firmware, banlanx a per-model id. Meaningless with `prefix` or `exact`."
                               },
                               "description": {
                                 "type": "string"
@@ -1937,6 +2346,11 @@
                             "type": "object",
                             "description": "Listen windows and probe timeouts. The response wait must be at least MX.",
                             "additionalProperties": true
+                          },
+                          "platform_fallback": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "This method matches a whole PLATFORM, not one product, and is the deliberate catch-all for it: a consumer uses it only when no spec matched the same probe with a narrower match (a udp_broadcast `response_match` on the same search target, or a more specific search target). Same contract as the mdns and ws_discovery `platform_fallback`. At most one spec should declare it per probe."
                           }
                         }
                       }
@@ -2121,6 +2535,17 @@
                             "default": "255.255.255.255",
                             "description": "Destination for the probe; the directed subnet broadcast (e.g. 192.168.1.255) also works and crosses fewer boundaries."
                           },
+                          "multicast_group": {
+                            "type": "string",
+                            "pattern": "^(22[4-9]|23[0-9])(\\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$",
+                            "description": "Send the probe to this multicast group INSTEAD of a broadcast address -- the protocols that joined a group rather than listening on the broadcast (Govee's LAN API and Yeelight's port-1982 search both use 239.255.255.250). When present, `broadcast_address` is ignored; a consumer must set the multicast TTL/interface it needs to reach the segment. Dotted quad in 224.0.0.0/4."
+                          },
+                          "listen_port": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 65535,
+                            "description": "The port replies arrive on, when it differs from `port`. Most probe/response protocols answer to the source port of the probe, which is what leaving this out means; Govee's LAN API is the exception -- the scan goes to 4001 and every device unicasts its answer to port 4002 on the sender, so a consumer has to bind 4002 before it sends or it never hears the reply."
+                          },
                           "probe_hex": {
                             "type": "string",
                             "pattern": "^[0-9a-fA-F]*$",
@@ -2160,7 +2585,7 @@
                                   "properties": {
                                     "source": {
                                       "type": "string",
-                                      "description": "e.g. tlv:mac, tlv:0x0005, json:SensorId"
+                                      "description": "Where in the reply the identity is, prefixed by the `response_format` dialect it is read with. `tlv:0x<type>` is a TLV record by its type byte(s) as hex (`tlv:0x0005`, the Ubiquiti v1 hostname record; `tlv:0x0001` its MAC); `tlv:<name>` a record by the name this spec's protocol block gives it (`tlv:mac`). `json:<dotted.path>` is a path into a JSON reply with numeric indices in brackets (`json:msg.data.device`, `json:system.get_sysinfo.deviceId`). `header:<Name>` is an HTTP-style header line of an `http` reply (`header:id` on Yeelight's port-1982 answer). `binary:<field>` names a field of a packed struct the protocol block lays out. A source whose dialect does not match `response_format` is unreadable and a validator should say so."
                                     }
                                   }
                                 }
@@ -2174,6 +2599,47 @@
                                 }
                               }
                             }
+                          },
+                          "response_match": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "source",
+                                "match",
+                                "value"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "source": {
+                                  "type": "string",
+                                  "description": "Where in the reply, in the same `<dialect>:<key>` spelling as `identity_mapping` sources (`header:support`, `json:model`, `tlv:0x0c`)."
+                                },
+                                "match": {
+                                  "type": "string",
+                                  "enum": [
+                                    "exact",
+                                    "prefix",
+                                    "contains",
+                                    "regex"
+                                  ]
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "description": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "description": "Conditions on the reply that narrow this method from 'a device speaking this protocol' to THIS product. The conditions are ANDed. A reply that fails one is not this spec's device, though it may still be a platform fallback's. Two specs sending the same probe tie on every reply unless the narrower one says what it requires. Yeelight is the case: the cube and the plain bulbs answer the same port-1982 M-SEARCH, and only the reply's `support` header tells them apart."
+                          },
+                          "platform_fallback": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "This method matches a whole PLATFORM, not one product, and is the deliberate catch-all for it: a consumer uses it only when no spec matched the same probe with a narrower `response_match`. Same contract as the mdns and ws_discovery `platform_fallback`. At most one spec should declare it per probe."
                           }
                         }
                       }
@@ -2785,6 +3251,15 @@
                     "type": "string",
                     "description": "BLE advertisement local name prefix that distinguishes this variant."
                   },
+                  "local_name_contains": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1,
+                    "description": "Substrings of the advertised BLE local name, ANY of which marks this variant, for a family whose models differ by a token in the middle of the name rather than by its prefix (Gerbing's 12 V controllers carry '12V' in an otherwise shared name). Case-sensitive. The top-level `identification` block has no substring key on purpose -- a device is FOUND by a prefix or a discovery matcher; this key only tells variants apart once one is found."
+                  },
                   "service_uuids": {
                     "type": "array",
                     "items": {
@@ -2910,9 +3385,18 @@
               "image_upload",
               "firmware_update",
               "audio_upload",
-              "stored_upload"
+              "stored_upload",
+              "raster_print"
             ],
-            "description": "Capability type. `stored_upload` persists content ON the device so it plays standalone after disconnect (distinct from `image_upload`, which streams live frames)."
+            "description": "Capability type. `stored_upload` persists content ON the device so it plays standalone after disconnect (distinct from `image_upload`, which streams live frames). `raster_print` states that the device's control surface is a raster byte stream — a label or receipt printer that takes rows of pixels and puts them on paper — and therefore resolves no entities: a consumer keeps such a device even though nothing binds a switch or a sensor to it, instead of dropping it as empty. It is a MARKER declared BESIDE the `image_upload` entry, not a replacement for it: the `image_upload` entry keeps describing the bitmap the stream accepts (`max_width`, `format: 1bit-bitmap`, `max_palette_colors`, `print_density`, `paper_type`, `print_geometry`, `media`), and `raster_print` answers the one question that entry cannot — whether the upload IS the whole device. Every raster printer in the catalogue declares both."
+          },
+          "variants": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Which of `device.variants` this feature applies to, by `model`, as for `entities[].variants`. Omit when every variant has it. A spec whose variants update differently declares one `firmware_update` entry per group: hello-fairy's ST17H66, ESP32 and Bluetrum boards each have their own stack, entry and update-mode signals. A variant must not be covered by two entries of the same `type`."
           },
           "container_format": {
             "type": "string",
@@ -3026,8 +3510,508 @@
             "type": "integer",
             "minimum": 1,
             "description": "Frame interval a client should default its animation-rate control to."
+          },
+          "max_palette_colors": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Palette ceiling the device's upload format can carry — the most distinct colours one uploaded image may contain. 2 for a 1-bit bitmap device (the thermal printers, the LED name badge, Magic Display), 16 for a codec that packs a palette index into a nibble. ABSENT means no constraint: a device that takes PNG/GIF/RGB888 files decodes whatever it is given. Stated so an editor quantizes to THIS device's limit rather than to whichever device's limit it learned first — the mobile editor applied one codec's 16-colour ceiling to thirteen devices, seven of which are monochrome."
+          },
+          "max_payload_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Most bytes one complete upload may total — header and pixel data together — when the device fixes a ceiling. The LED name badge's 8192-byte flash is the case: writing past it corrupts the display (the ls32 client refuses to). Distinct from `framing.max_chunk_size`, which bounds one WRITE; this bounds the WHOLE transfer."
+          },
+          "print_density": {
+            "type": "object",
+            "description": "For a printer whose darkness/heat setting is a set of codes rather than a range: the RAW byte values the device accepts and what each means, in the same `allowed`/`labels` shape a command parameter uses (paired by index, lengths equal). The command that carries the byte is named by `command`, so a consumer that draws a density picker knows what to send it through. Fichero D11: `allowed: [0, 1, 2]`, `labels: [light, medium, thick]`, `command: set_density`.",
+            "required": [
+              "allowed",
+              "labels"
+            ],
+            "properties": {
+              "allowed": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 1
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "default": {
+                "type": "integer",
+                "description": "The code a client sends when the user has chosen none, in RAW terms; must be one of `allowed`."
+              },
+              "command": {
+                "type": "string",
+                "description": "Name of the command (from a characteristic's `commands`) whose parameter takes these codes."
+              }
+            }
+          },
+          "paper_type": {
+            "type": "object",
+            "description": "For a label printer that must be told what stock is loaded: the RAW byte values and their meanings, same shape as `print_density`. Fichero D11: `allowed: [0, 1, 2]`, `labels: [gap label, black mark, continuous]`, `command: set_paper_type`. Sending the wrong type does not fail — the printer feeds to the wrong mark — so a consumer should ask rather than guess when no `default` is stated.",
+            "required": [
+              "allowed",
+              "labels"
+            ],
+            "properties": {
+              "allowed": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 1
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "default": {
+                "type": "integer",
+                "description": "The code a client sends when the user has chosen none, in RAW terms; must be one of `allowed`."
+              },
+              "command": {
+                "type": "string",
+                "description": "Name of the command whose parameter takes these codes."
+              }
+            }
+          },
+          "print_geometry": {
+            "type": "object",
+            "description": "How a raster printer's head maps a row of bytes to paper, in the units a job builder needs. Every key is an integer; a consumer that renders a label reads all of them from here rather than from constants. Declared on the `image_upload` entry (the `raster_print` entry is a marker). Brother QL-1110NWB: 300 dpi, 162 bytes per row, 1296 head dots, 200 invalidate bytes, 301-35434 dots of length, 44 unprintable dots on the right.",
+            "properties": {
+              "dpi": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Dots per inch of the head, on both axes unless `dpi_feed` says otherwise. mm to dots is `mm * dpi / 25.4`."
+              },
+              "dpi_feed": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Feed-axis resolution when it differs from `dpi` (a 600-dpi-length mode); absent means square dots."
+              },
+              "bytes_per_row": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Bytes in one raster row on the wire — the head width in bytes; a row narrower than this is padded with white."
+              },
+              "head_dots": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Dots across the print head (= 8 * bytes_per_row for a 1-bit head)."
+              },
+              "printable_dots": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Dots of the head that actually print, when fewer than `head_dots` (head_dots minus the dead zone)."
+              },
+              "invalidate_bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Count of 0x00 bytes a job opens with to flush a half-eaten command from the printer's buffer (Brother's 'invalidate' run: 200 on the QL-1110NWB, 400 on the QL-8x0). 0 or absent where the language has no such run."
+              },
+              "min_length_dots": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Shortest label the printer will produce, in feed-direction dots."
+              },
+              "max_length_dots": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Longest label the printer will produce, in feed-direction dots — the raster row count ceiling."
+              },
+              "additional_offset_right_dots": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Dots at the right edge of the head that never print (the dead zone a job must not place content in)."
+              },
+              "feed_margin_dots": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Default feed/margin amount in dots the job builder sends (Brother ESC i d; 35 on continuous DK rolls)."
+              },
+              "mirror_rows": {
+                "type": "boolean",
+                "description": "True when the head maps bit 7 of byte 0 to the RIGHT edge, so a row must be mirrored left-to-right before packing (Brother QL). Absent or false: bit 7 of byte 0 is the leftmost dot."
+              }
+            }
+          },
+          "media": {
+            "type": "array",
+            "description": "The stock the printer is known to take, one entry per roll, with the exact dot counts the job builder needs — the table a millimetre-times-dpi approximation is approximating. Declared on the `image_upload` entry beside `print_geometry`. Dot counts are at `print_geometry.dpi`. Brother's are transcribed from the open brother_ql project's label table, which was measured against hardware.",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "kind",
+                "width_mm"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "How a user knows the roll: the size, plus the vendor part number where there is one ('62mm continuous (DK-2205)')."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "die_cut",
+                    "continuous",
+                    "round_die_cut"
+                  ],
+                  "description": "'die_cut' pre-sized labels (length fixed by the roll), 'continuous' endless tape (length set by the job), 'round_die_cut' circular labels."
+                },
+                "width_mm": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Tape width in millimetres as the printer's media-type command wants it stated."
+                },
+                "length_mm": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Label length in millimetres for die-cut stock; 0 or absent for continuous."
+                },
+                "total_width_dots": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Full tape width in dots, backing included."
+                },
+                "total_length_dots": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Full label length in dots for die-cut stock."
+                },
+                "print_width_dots": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Printable width in dots — the row content a job may fill."
+                },
+                "print_length_dots": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Printable length in dots for die-cut stock (the raster row count); 0 or absent for continuous, where the job chooses."
+                },
+                "right_margin_dots": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Offset from the right side of the head, in dots, that centres the printable area on this roll."
+                },
+                "feed_margin_dots": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Extra feed this roll needs after the label, in dots, when it differs from `print_geometry.feed_margin_dots`."
+                },
+                "media_type_code": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255,
+                  "description": "The byte the printer's media command uses for this kind of stock (Brother ESC i z: 0x0A continuous, 0x0B die-cut)."
+                },
+                "notes": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "dfu": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mechanisms"
+            ],
+            "description": "How this device takes new firmware, in the shape a consumer acts on. Three consumer jobs depend on it: (1) recognising the device when it is sitting in its bootloader, which is exactly when a user is most worried and when a scanner most often mislabels it; (2) never letting a generic control surface wander into the update path; (3) telling a user whether a replacement client could ever update the device, or only deliver the vendor's own images. The per-stack facts (which UUIDs, which default bootloader name, which inactivity timeout) are in docs/protocols/firmware-update.md and registries/dfu-signatures.tsv; this block says which of them apply here and what the vendor changed.",
+            "properties": {
+              "mechanisms": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "nordic_secure_dfu",
+                    "nordic_legacy_dfu",
+                    "mcuboot_smp",
+                    "ti_oad",
+                    "telink_ota",
+                    "silabs_ota",
+                    "espressif_ota",
+                    "jieli_ota",
+                    "csr_ota",
+                    "dialog_suota",
+                    "freqchip_ota",
+                    "phyplus_ota",
+                    "quintic_ota",
+                    "panchip_ota",
+                    "asr_ota",
+                    "realtek_ota",
+                    "tuya_ble_ota",
+                    "beken_ota",
+                    "huami_dfu",
+                    "vendor_ble",
+                    "http_upload",
+                    "vendor_cloud",
+                    "custom",
+                    "unknown"
+                  ]
+                },
+                "description": "The update stack(s). A list because some devices carry two (a Nordic MCU plus a Wi-Fi module, or a legacy and a current path). `vendor_ble` is a vendor-specific protocol over the device's own GATT service; `http_upload` a firmware file POSTed to a web endpoint (WLED /update, ESPHome web OTA); `vendor_cloud` an update the device fetches itself when the vendor cloud tells it to; `custom` anything else described in `notes`."
+              },
+              "transport": {
+                "description": "What the image travels over. A list when the image can travel more than one way (a hub that pulls over Wi-Fi or takes a BLE write).",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "ble",
+                      "http",
+                      "tcp",
+                      "udp",
+                      "wifi_softap",
+                      "uart",
+                      "usb",
+                      "cloud"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "ble",
+                        "http",
+                        "tcp",
+                        "udp",
+                        "wifi_softap",
+                        "uart",
+                        "usb",
+                        "cloud"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "image": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "signing": {
+                    "type": "string",
+                    "enum": [
+                      "signed",
+                      "unsigned",
+                      "unknown"
+                    ],
+                    "description": "Whether the bootloader verifies a vendor signature. `signed` means a replacement client can deliver the vendor's images but cannot build new ones; `unsigned` means anyone can flash anything (and so can an attacker in radio range)."
+                  },
+                  "algorithm": {
+                    "type": "string",
+                    "enum": [
+                      "ecdsa_p256",
+                      "ed25519",
+                      "rsa2048",
+                      "rsa3072",
+                      "rsa_pss_3072",
+                      "hmac",
+                      "crc_only",
+                      "unknown"
+                    ],
+                    "description": "Signature or integrity algorithm, when known. `crc_only` is an integrity check, not authentication."
+                  },
+                  "encrypted": {
+                    "type": "boolean",
+                    "description": "Whether the image is encrypted in transit or at rest (SiLabs GBL AES-CTR, JieLi scrambling)."
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "bundled_in_app",
+                      "vendor_cloud",
+                      "public_url",
+                      "device_pulls",
+                      "user_supplied",
+                      "unknown"
+                    ],
+                    "description": "Where images come from. `public_url` only when the URL is already public and stated in `notes`; `device_pulls` when the device downloads its own update and the client only triggers it."
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "Container, e.g. 'nrfutil DFU zip (manifest.json + .bin + .dat init packet)', 'Silicon Labs GBL', 'raw flash image for offset 0x2000'."
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              },
+              "enter": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "how"
+                ],
+                "properties": {
+                  "how": {
+                    "type": "string",
+                    "enum": [
+                      "command",
+                      "stack_characteristic",
+                      "in_place",
+                      "button",
+                      "power_cycle",
+                      "automatic",
+                      "unknown"
+                    ],
+                    "description": "`command`: a vendor command in this spec (named in `command`) reboots into the bootloader. `stack_characteristic`: the stack's own buttonless entry (Nordic 8ec90003/8ec90004 opcode 0x01, SiLabs ota_control 0x00, Nordic legacy 1531 [0x01, 0x04]); the registry and firmware-update.md give the bytes. `in_place`: the running application receives the image itself, no reboot first (Telink, TI off-chip OAD, MCUboot SMP, ESP-IDF). `button`: a physical button or button combination. `automatic`: the device enters on its own (a vendor cloud push)."
+                  },
+                  "command": {
+                    "type": "string",
+                    "description": "The `commands` entry (or a characteristic's command) that enters the update mode. It must be `advanced`: a one-tap bootloader entry leaves the device unusable until an image arrives or a timeout returns it."
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              },
+              "endpoint": {
+                "type": "string",
+                "description": "For `http_upload`: the `http_endpoints` entry (by `name`) that takes the image. It must be `advanced`, like an entry command."
+              },
+              "dfu_mode": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "How the device appears while in its bootloader or update mode. A consumer checks these BEFORE ordinary identification: a match here is 'this product, mid-update', and gets no controls. Without it the bootloader either looks like an unknown device or, worse, matches the product and is offered controls it cannot answer.",
+                "properties": {
+                  "local_names": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": "Exact advertised names in update mode ('AdMore Light Bar DFU', 'LT716_OTA')."
+                  },
+                  "local_name_prefix": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "service_uuids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    "description": "Service UUIDs advertised in update mode."
+                  },
+                  "address_offset": {
+                    "type": "integer",
+                    "minimum": -255,
+                    "maximum": 255,
+                    "description": "Difference between the update-mode BLE address and the normal one, added to the least-significant byte: 1 for a Nordic Secure DFU bootloader without bond sharing, 0 when it keeps its address. It is the only link a scanner has from an anonymous 'DfuTarg' back to the device the user just tapped."
+                  },
+                  "ssid_prefix": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "SoftAP SSID the device raises in update mode (iKettle's 'iKettle Update')."
+                  },
+                  "advertisement_flag": {
+                    "type": "string",
+                    "description": "Where the normal advertisement signals an update in progress, e.g. 'manufacturer data byte 0 bit 4' (Aranet4). A scanner seeing it set treats the device as mid-update."
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              },
+              "services": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/uuid"
+                },
+                "description": "GATT services on this device that belong to the update path, in normal mode. A generic GATT explorer lists them read-only and never writes to them."
+              },
+              "recovery": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "interrupted": {
+                    "type": "string",
+                    "enum": [
+                      "keeps_old_image",
+                      "stays_in_bootloader",
+                      "bricks",
+                      "unknown"
+                    ],
+                    "description": "What an interrupted update leaves behind. `keeps_old_image`: dual-bank or A/B slots, the old firmware still boots. `stays_in_bootloader`: single-bank; the device waits in update mode (dfu_mode) for a retry. `bricks`: needs a wired reflash."
+                  },
+                  "inactivity_timeout_s": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Seconds of no update activity after which the bootloader boots a valid application again (Nordic SDK default 120). 0 = never."
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              },
+              "verification": {
+                "type": "string",
+                "enum": [
+                  "confirmed",
+                  "reported",
+                  "hypothesis"
+                ]
+              },
+              "notes": {
+                "type": "string",
+                "description": "Everything else, including the sequence of a vendor protocol this block cannot state and the basis for the facts above."
+              }
+            }
           }
-        }
+        },
+        "allOf": [
+          {
+            "$comment": "A firmware_update feature without its dfu block is the prose-only state this block exists to end.",
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "firmware_update"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "required": [
+                "dfu"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "dfu"
+              ]
+            },
+            "then": {
+              "properties": {
+                "type": {
+                  "const": "firmware_update"
+                }
+              }
+            }
+          }
+        ]
       }
     },
     "services": {
@@ -3117,6 +4101,16 @@
                 "framing": {
                   "$ref": "#/$defs/framing"
                 },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "command",
+                    "bulk",
+                    "stream",
+                    "notify"
+                  ],
+                  "description": "What this characteristic is FOR, when a service carries more than one writable characteristic and a consumer must pick between them by something other than `name`: 'command' carries the framed/short commands (the characteristic whose `commands:` a role map resolves), 'bulk' carries the payload of an upload (image rows, file chunks — what `features[].type: image_upload` streams between its `session_open` commands and the transfer-complete command), 'stream' carries live, unacknowledged real-time data outside any upload session (Magic Display's WRITE3: DIY sync-draw pixels and music-visualizer level frames), 'notify' carries the device's replies and acks. Optional; a service with one writable characteristic needs none. Exists because Magic Display's WRITE1/WRITE2/WRITE3 were told apart by the string \"WRITE2\" in `name`, which is a label for humans and not a contract. Read together with `framing.channel_tag` on schemes that tag channels by byte."
+                },
                 "commands": {
                   "type": "object",
                   "additionalProperties": {
@@ -3167,6 +4161,15 @@
                               "locate"
                             ]
                           }
+                        }
+                      },
+                      {
+                        "$comment": "`value` and `template` are two envelopes for one command and a command has one: `value` is the fixed bytes, `template` the bytes with parameter holes. A command carrying both has no defined reading -- an encoder that prefers `value` sends the constant and silently ignores every parameter the spec declared (xkglow-chrome's set_rgb_color drew zone and RGB sliders that wrote pure red whatever was picked), and one that prefers `template` makes the fixed bytes dead text. Wanting both a fixed 'on' and a parameterised colour is two commands, and an entity binds each role to its own.",
+                        "not": {
+                          "required": [
+                            "value",
+                            "template"
+                          ]
                         }
                       }
                     ],
@@ -3295,7 +4298,7 @@
                       },
                       "parameters": {
                         "type": "object",
-                        "description": "Command parameter definitions, keyed by parameter name. Every key is a parameter: there are no reserved siblings. Channel byte order for a colour command is stated by the order the `template` names `{red}`/`{green}`/`{blue}`, which is where the bytes actually come from -- a device wanting GRB is written `template: [\"{green}\", \"{red}\", \"{blue}\"]`. A separate `color_order` key used to live here and was removed: it restated the template with no defined precedence, so a spec whose two statements disagreed had no correct reading. A consumer building a generic control surface draws controls only for parameters that are none of `auto`, `default`, `source` -- those are the encoder's, the spec's, and the client credential-store's respectively, and none of them is a knob a user should be handed.",
+                        "description": "Command parameter definitions, keyed by parameter name. Every key is a parameter: there are no reserved siblings. Channel byte order for a colour command is stated by the order the `template` names `{red}`/`{green}`/`{blue}`, which is where the bytes actually come from -- a device wanting GRB is written `template: [\"{green}\", \"{red}\", \"{blue}\"]`. A separate `color_order` key used to live here and was removed: it restated the template with no defined precedence, so a spec whose two statements disagreed had no correct reading. A consumer building a generic control surface draws controls only for parameters that are none of `auto`, `default`, `source` -- those are the encoder's, the spec's, and the client credential-store's respectively, and none of them is a knob a user should be handed. An enumerated parameter is `allowed` + `labels`, never `values`: `values` is the decode-side code table a `format` field carries and has no meaning on something a client WRITES, so the schema rejects it here.",
                         "additionalProperties": {
                           "type": "object",
                           "required": [
@@ -3340,6 +4343,14 @@
                                 "required": [
                                   "default",
                                   "source"
+                                ]
+                              }
+                            },
+                            {
+                              "$comment": "`values` arrives here through $defs/number_semantics, where it is the DECODE-side code table for a reading. A write parameter states its enumeration as `allowed` (the raw values the device accepts) plus `labels` (their names, paired by index) -- the same fact, in the direction a consumer building a control needs it. Nine parameters across three specs wrote `values: {0: off, 1: on}` here and a consumer implementing what this block declares saw no constraint at all and drew a 0..255 slider over a two-position switch. Rejected rather than aliased so the catalogue says each thing once.",
+                              "not": {
+                                "required": [
+                                  "values"
                                 ]
                               }
                             }
@@ -3428,26 +4439,52 @@
                                 "packet_length",
                                 "checksum",
                                 "xor_checksum",
-                                "crc16_modbus"
+                                "subtract_checksum",
+                                "crc16_modbus",
+                                "crc8"
                               ],
-                              "description": "Marks a parameter the encoder fills in itself rather than a value the user sets — without this flag a generic command UI renders one control per declared parameter and would happily show a slider for a checksum byte. 'sequence': a per-message counter the encoder increments (SmartDawn `sn`). 'packet_length': the total encoded packet length (SmartDawn `len`). 'checksum': an additive frame checksum — the byte is the sum (mod 256) of all encoded frame bytes from index `checksum_start` up to but not including this parameter's own position, then XOR `checksum_xor`. This covers the common sum8-over-frame idiom (KingSmith WiLink sums from index 1 with no xor; UREVO UR frames sum from index 1 and xor 0x5A) without a per-device handler. 'xor_checksum': the same span reduced with XOR instead of addition — every Govee 20-byte frame ends in one, over bytes 0..18 (`checksum_start: 0`). 'crc16_modbus': CRC-16/MODBUS over the same span — reflected polynomial 0xA001, init 0xFFFF, no final xor — for MODBUS-RTU framing (Bluetti's `[addr][function][payload][crc lo][crc hi]`, `checksum_start: 0` because the address byte is covered). It is TWO bytes, so the parameter declares `type: uint16`, and MODBUS puts the low byte first, which is this schema's default `endianness`. A parameter carrying `auto` SHOULD still declare its wire `type` so the encoder knows how wide the computed value is. A consumer must never present an auto parameter as a control. NOTE: declarative -- a consumer that does not compute these cannot send the command, which is the honest outcome, since inventing the bytes would produce a packet the device rejects.",
+                              "description": "Marks a parameter the encoder fills in itself rather than a value the user sets — without this flag a generic command UI renders one control per declared parameter and would happily show a slider for a checksum byte. 'sequence': a per-message counter the encoder increments (SmartDawn `sn`). 'packet_length': the total encoded packet length (SmartDawn `len`). 'checksum': an additive frame checksum — the byte is the sum (mod 256) of all encoded frame bytes from index `checksum_start` up to but not including this parameter's own position, then XOR `checksum_xor`. This covers the common sum8-over-frame idiom (KingSmith WiLink sums from index 1 with no xor; UREVO UR frames sum from index 1 and xor 0x5A) without a per-device handler. 'xor_checksum': the same span reduced with XOR instead of addition — every Govee 20-byte frame ends in one, over bytes 0..18 (`checksum_start: 0`). 'subtract_checksum': the span sum (mod 256) SUBTRACTED FROM `checksum_xor`, i.e. (checksum_xor - sum) & 0xFF — the seed-minus-sum idiom on BIO-key TouchLock 20-byte frames (`checksum_start: 0`, `checksum_xor: 0x5A`). 'crc16_modbus': CRC-16/MODBUS over the same span — reflected polynomial 0xA001, init 0xFFFF, no final xor — for MODBUS-RTU framing (Bluetti's `[addr][function][payload][crc lo][crc hi]`, `checksum_start: 0` because the address byte is covered). It is TWO bytes, so the parameter declares `type: uint16`, and MODBUS puts the low byte first, which is this schema's default `endianness`. 'crc8': CRC-8 over the same span — polynomial 0x07, init 0x00, no input or output reflection, no final xor (the CRC-8/SMBUS parameters, and the 256-entry table every cat-printer client ships) — ONE byte, `type: uint8`. The cat printers compute it over the payload only, so their frames `[0x51 0x78 cmd 0x00 len 0x00][payload][crc][0xFF]` say `checksum_start: 6` (the MXW01's two-byte length field makes it 6 as well). A parameter carrying `auto` SHOULD still declare its wire `type` so the encoder knows how wide the computed value is. A consumer must never present an auto parameter as a control. NOTE: declarative -- a consumer that does not compute these cannot send the command, which is the honest outcome, since inventing the bytes would produce a packet the device rejects.",
                               "$comment": "'xor_checksum' and 'crc16_modbus' are separate ENUM VALUES rather than modifier keys (`checksum_op: xor`) beside 'checksum', and the choice is about how an old consumer fails. A modifier key is an unknown key, which every consumer here is built to ignore -- so it would read `auto: checksum`, compute an ADDITIVE sum over a frame that wanted something else, and send bytes the device silently drops, with a spec that validates and a UI that looks like it worked. An unrecognised `auto` VALUE cannot be mistaken for a mode the reader knows: it fails, which is what this key's own NOTE asks for. The cost is that it fails hard -- a strict enum reader (the mobile Rust crate) rejects the whole spec, not just the command -- so a consumer SHOULD treat an `auto` value it does not know as 'this command is unencodable' and keep the rest of the device. Each value names a COMPLETE algorithm rather than composing one from parts (width, polynomial, init, reflect, xorout): a spec that got one part wrong would still validate and still emit a plausible-looking wrong checksum, and CRC parameter soup is famously easy to get wrong. Naming whole algorithms keeps the failure at 'this reader does not implement crc16_modbus', which is checkable."
                             },
                             "checksum_start": {
                               "type": "integer",
                               "default": 1,
-                              "description": "First frame-byte index included in an `auto: checksum` / `auto: xor_checksum` / `auto: crc16_modbus` span. Defaults to 1 because the additive idiom's frame leader (0xF7 on KingSmith WiLink, the UR header on UREVO) is almost always excluded — it is a framing marker, not payload, and protocols that sum it in are the exception. Govee's XOR frames and MODBUS-RTU are both exceptions and say `checksum_start: 0` (MODBUS covers the address byte). Only meaningful alongside an `auto` checksum role."
+                              "description": "First frame-byte index included in an `auto: checksum` / `auto: xor_checksum` / `auto: subtract_checksum` / `auto: crc16_modbus` / `auto: crc8` span. Defaults to 1 because the additive idiom's frame leader (0xF7 on KingSmith WiLink, the UR header on UREVO) is almost always excluded — it is a framing marker, not payload, and protocols that sum it in are the exception. Govee's XOR frames, the TouchLock subtract frames and MODBUS-RTU are all exceptions and say `checksum_start: 0` (MODBUS covers the address byte). Only meaningful alongside an `auto` checksum role."
                             },
                             "checksum_xor": {
                               "type": "integer",
                               "default": 0,
-                              "description": "Value XORed into an `auto: checksum` result after the mod-256 sum (e.g. 0x5A on UREVO UR frames). Present because a fixed xor constant is how vendors salt an otherwise trivially guessable sum8; absent means 0 (plain additive checksum, as on KingSmith WiLink). Only meaningful alongside `auto: checksum` — it is a salt on the additive result, NOT the reduction operator, which is why an XOR-reduced frame is `auto: xor_checksum` and not this key."
+                              "description": "Value XORed into an `auto: checksum` result after the mod-256 sum (e.g. 0x5A on UREVO UR frames). Present because a fixed xor constant is how vendors salt an otherwise trivially guessable sum8; absent means 0 (plain additive checksum, as on KingSmith WiLink). With `auto: subtract_checksum` the same key is the SEED the span sum is subtracted from (0x5A on BIO-key TouchLock frames) — reused so one constant travels with either seed-flavoured idiom. Only meaningful alongside `auto: checksum` / `auto: subtract_checksum` — it is a salt on (or seed for) the additive result, NOT the reduction operator, which is why an XOR-reduced frame is `auto: xor_checksum` and not this key."
                             }
                           }
                         }
                       }
                     }
                   }
+                },
+                "format_match": {
+                  "type": "object",
+                  "required": [
+                    "offset",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "value": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255,
+                      "description": "The byte that must be present at `offset`."
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "Which notifications `format` describes, for a characteristic that carries more than one kind of frame. A value whose byte at `offset` is not `value` is not decoded by `format`, and entities bound to this characteristic keep their last state. Hotwired's status characteristic is the case: CC-prefixed status reports and AA-prefixed echoes of the last write arrive on the same characteristic, and decoding an echo as a status report publishes garbage."
                 },
                 "format": {
                   "type": "array",
@@ -3492,6 +4529,11 @@
                         ],
                         "description": "Field value type. int32/uint32/uint24 are consumed by the mobile Rust ValueType enum (fixed width, endianness honored; uint24 is a 3-byte unsigned field, e.g. KingSmith WiLink telemetry) — do not work around them with prose or paired uint16 fields."
                       },
+                      "mask": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Bit mask applied to the raw integer before anything else: raw = (raw & mask) >> (number of trailing zero bits in mask). It picks a bit field out of a packed byte -- Hotwired's battery byte keeps its gauge step in the low three bits (mask 7) and a charger flag above them. Several fields may share one `offset` with different masks. `scale`, `value_offset` and `values` apply to the masked value."
+                      },
                       "endianness": {
                         "type": "string",
                         "enum": [
@@ -3504,6 +4546,10 @@
                       "notes": {
                         "type": "string",
                         "description": "Per-field caveats that the structured fields cannot carry — a display rounding the app applies on top of the linear decode, an inferred rather than confirmed unit, a valid subrange."
+                      },
+                      "device_class": {
+                        "$ref": "#/$defs/device_class",
+                        "description": "The device class of this field's reading ('battery', 'temperature', 'humidity', 'voltage', ...), stated by the spec so a consumer does not guess it from the field name. Same vocabulary as `entities[].device_class`; a consumer that registers a reading with a home-automation platform, picks an icon, or bands a value takes the class from here rather than from substrings of `name`. Omit for a field with no class (a raw code, a counter, a flag byte); when an entity binds to the field, the two must agree."
                       }
                     }
                   },
@@ -3654,8 +4700,36 @@
                 "description": "A literal response body. The one an implementer parses first, so it must be real enough to test against: an entity bound to this endpoint should be derivable from it and nothing else. Same role as `payload_formats.<name>.example`, one level up — that one is a value, this is the document carrying it."
               }
             }
+          },
+          "advanced": {
+            "type": "boolean",
+            "description": "Same meaning as on a command: a generic client does not offer this endpoint without an explicit opt-in (a firmware upload, a factory reset). Requires `advanced_reason`."
+          },
+          "advanced_reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Shown to the user at the opt-in point, as for a command."
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "advanced": {
+                  "const": true
+                }
+              },
+              "required": [
+                "advanced"
+              ]
+            },
+            "then": {
+              "required": [
+                "advanced_reason"
+              ]
+            }
+          }
+        ]
       }
     },
     "websocket": {
@@ -5107,6 +6181,79 @@
         }
       }
     },
+    "auth_schemes": {
+      "type": "object",
+      "description": "Named ways of authenticating a network request, for devices that accept more than one credential for the same commands. Keyed by scheme name; a command's `auth` lists the schemes it accepts. Sony Bravia is the case: every request carries EITHER the pre-shared key as `X-Auth-PSK` OR the cookie a PIN pairing issued, and a client holds whichever one its user set up. Stating that as one fixed header on each command locked out every PIN-paired client. Header values and the Basic-auth `username`/`password` use the same `{name}` placeholders as `headers`, filled first from the command's own `parameters` and then from the stored credential the scheme names.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "header",
+              "http_basic"
+            ],
+            "description": "`header`: send `headers`. `http_basic`: send `Authorization: Basic base64(username:password)` -- the client does the encoding, which a header template cannot."
+          },
+          "credential": {
+            "type": "string",
+            "description": "The stored credential this scheme needs, spelled as `issues_credentials` and `credential:<name>` spell it. A client uses a scheme only when it holds this credential. Omit for a scheme whose values all come from the command's parameters (Sony's actRegister Basic auth, whose password is the PIN on screen)."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Headers this scheme adds, merged over the command's own `headers`."
+          },
+          "username": {
+            "type": "string",
+            "description": "http_basic username; may be empty."
+          },
+          "password": {
+            "type": "string",
+            "description": "http_basic password, usually a `{placeholder}`."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "header"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "headers"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "http_basic"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "password"
+              ]
+            }
+          }
+        ]
+      }
+    },
     "commands": {
       "type": "object",
       "description": "Named invocations a client can send, for devices whose control surface is not a GATT characteristic. Keyed by command name; an entity's `commands:` role map (`turn_on: plug_turn_on`) names an entry here, exactly as it names a characteristic's command on a BLE device.\n\nThe distinction from `http_endpoints`/`mqtt_topics` is what makes both blocks necessary: those catalogue the ACTIONS a device offers -- what exists, what it takes, what it returns -- while a command here is one INVOCATION of an action with its arguments already chosen. 'Turn the plug on' is SetBinaryState with BinaryState=1, and that '1' has nowhere else to live: an entity's role map carries a name, not a payload. A consumer sends one by substituting `parameters` into `arguments` and rendering through whatever request template the spec's transport block publishes.\n\nDeliberately not `additionalProperties: false`. BLE specs (airthings-wave-family) already keep a top-level command catalogue keyed by `characteristic`/`template`/`value`, and the point of one block is that a role map resolves the same way whatever the transport underneath it is.",
@@ -5114,6 +6261,45 @@
         "type": "object",
         "required": [
           "description"
+        ],
+        "allOf": [
+          {
+            "$comment": "A `transport: http` command without both halves of its address is documentation, not something a consumer may execute -- and the catalogue carried four (logitech-harmony-hub) that parsed, validated and silently resolved to nothing. Enforced rather than described.",
+            "if": {
+              "properties": {
+                "transport": {
+                  "const": "http"
+                }
+              },
+              "required": [
+                "transport"
+              ]
+            },
+            "then": {
+              "required": [
+                "path",
+                "method"
+              ]
+            }
+          },
+          {
+            "$comment": "For `tcp-json` the JSON in `body` IS the invocation; a command without one has nothing to send (tuya-wifi-gas-sensor's heartbeat was the case).",
+            "if": {
+              "properties": {
+                "transport": {
+                  "const": "tcp-json"
+                }
+              },
+              "required": [
+                "transport"
+              ]
+            },
+            "then": {
+              "required": [
+                "body"
+              ]
+            }
+          }
         ],
         "properties": {
           "description": {
@@ -5125,11 +6311,11 @@
               "soap",
               "http",
               "mqtt",
-              "ble",
               "udp",
               "coap",
               "tcp-json"
             ],
+            "$comment": "'ble' is deliberately NOT a value here. A GATT write lives on the characteristic that carries it (`services[].characteristics[].commands`), where it has a `template`/`value` and a UUID to go to; a top-level command saying `transport: ble` names no characteristic and no transport arm handles it, so it validated and rendered nothing (tuya-bt-soil-tester's `pair`/`dp_query`, since moved). 'websocket' is likewise absent because a websocket spec's commands ride the `websocket` block by way of `device.transport: websocket` and name their socket with `channel`, not `transport`.",
             "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport. 'tcp-json' is a JSON document sent over a raw TCP socket -- the TP-Link Kasa smart-home protocol on port 9999 -- where the whole invocation is the JSON in `body`, obfuscated by the transport's cipher; there is no service, path or method to state."
           },
           "service": {
@@ -5259,6 +6445,30 @@
                 "source": {
                   "type": "string",
                   "description": "Where a client obtains this value when it is not the one the user is setting. Three schemes, distinguished by prefix. 'state:<command>.<field>' (e.g. 'state:GetCrockpotState.time'): read back from the device. The case this exists for is an action that carries several settings at once: changing one means reading the others back and sending them along, and a spec that leaves that implicit produces a client which silently clears the settings it did not mean to touch. 'credential:<name>' (e.g. 'credential:username'): a per-device secret the client stored when it paired -- the Hue bridge's link-button flow issues a username that every subsequent path carries, and this scheme is how a spec says 'that stored value goes here' without pretending to know it. 'instance:<key>' (e.g. 'instance:id'): the identifier of the child currently being addressed, for commands bound by an entity with `instances:` -- the enumeration the entity's `state_command` returns supplies the ids, and this scheme names which placeholder each id fills. All three share one contract, and it is the point of the field: a `source` parameter deliberately has no `default` -- obtaining the value is PART OF THE SEND, and a renderer reaching it with no value must fail the write visibly rather than substitute anything. An unpaired client failing loudly at 'no credential:username' is correct behaviour; quietly sending without it would be a bug wearing a fallback's clothes. Consumers therefore treat `source` -- like `default` -- as satisfying the 'every blank fillable' rule when deciding whether a control is offered at all, and enforce the value's presence at send time instead."
+                },
+                "auto": {
+                  "type": "string",
+                  "enum": [
+                    "sequence",
+                    "packet_length",
+                    "checksum",
+                    "xor_checksum",
+                    "subtract_checksum",
+                    "crc16_modbus",
+                    "crc8"
+                  ],
+                  "description": "Marks a parameter the encoder fills in itself rather than a value the user sets -- the same vocabulary, with the same algorithms ('crc8' included: CRC-8/SMBUS, polynomial 0x07, init 0x00, one byte), as a BLE command parameter's `auto` (see `services[].characteristics[].commands.*.parameters.*.auto` for the full definition of each role). Present on the network side because a byte-framed socket protocol (Magic Home's `31 RR GG BB WW F0 0F <sum>` frames over TCP 5577) needs the same sum8-over-frame idiom a GATT write does: 'checksum' is the additive sum mod 256 of the encoded frame bytes from `checksum_start` up to this parameter's own position, then XOR `checksum_xor`; 'xor_checksum' reduces that span with XOR; 'subtract_checksum' is (checksum_xor - sum) & 0xFF; 'crc16_modbus' is CRC-16/MODBUS over the span; 'sequence' and 'packet_length' are a per-message counter and the encoded length. A consumer must never present an auto parameter as a control, and one that does not implement the named role must treat the command as unencodable rather than invent the byte. The enum is closed so a misspelling ('sum_checksum') fails validation instead of rendering a slider for a checksum byte.",
+                  "$comment": "Deliberately the SAME closed enum as the BLE block rather than a $ref to it: the BLE definition sits inside the characteristic command schema and a $ref into that tree would couple the two blocks' evolution. Keep the two enums identical when adding a role."
+                },
+                "checksum_start": {
+                  "type": "integer",
+                  "default": 1,
+                  "description": "First frame-byte index included in an `auto: checksum` / `auto: xor_checksum` / `auto: subtract_checksum` / `auto: crc8` / `auto: crc16_modbus` span. Same default and meaning as the BLE parameter key: 1 because the additive idiom usually excludes a frame leader; protocols that sum from the first byte (Magic Home's 0x31/0x71/0x81 frames) say `checksum_start: 0`. Only meaningful alongside an `auto` checksum role."
+                },
+                "checksum_xor": {
+                  "type": "integer",
+                  "default": 0,
+                  "description": "Value XORed into an `auto: checksum` result after the mod-256 sum, or the SEED an `auto: subtract_checksum` span is subtracted from -- exactly as the BLE parameter key. Absent means 0 (plain additive checksum). Not the reduction operator: an XOR-reduced frame is `auto: xor_checksum`."
                 }
               }
             }
@@ -5287,9 +6497,24 @@
               }
             }
           },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Request headers this command sends, name -> value, for transports that carry them (http, soap, websocket handshakes). Values may contain `{name}` placeholders filled from `parameters` exactly as `body` templates and `path` segments are -- so a per-device bearer credential rides as `AUTH: \"{auth_token}\"` with `auth_token: {source: \"credential:auth_token\"}`, and Sony's pre-shared key as `X-Auth-PSK: \"{psk}\"`. The same shape as `websocket.connect.headers`. A declared `Content-Type` replaces the one a consumer would infer from the body; a placeholder the consumer cannot fill must fail the send visibly, never go out empty. Headers the transport block already mandates for every request (a SOAP renderer's SOAPACTION) need not be repeated here; what belongs here is what varies per command or per device -- an auth header, a content type a REST API insists on for PUTs."
+          },
+          "auth": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Names from the root `auth_schemes` this command accepts, in order of preference. A client applies the first one it can satisfy (holds its `credential`, or the scheme needs none) and sends that scheme's headers alongside the command's own. Use it when the credential varies by how the device was set up. A command with only one way to authenticate can simply carry the header in `headers`."
+          },
           "example_body": {
             "type": "string",
-            "description": "The exact request this command produces, as bytes go out. The highest-value field here for the same reason test vectors are for crypto: it turns 'my request is rejected and I cannot tell which half is wrong' into a diff."
+            "description": "The exact request this command produces, as bytes go out. The highest-value field here for the same reason test vectors are for crypto: it turns 'my request is rejected and I cannot tell which half is wrong' into a diff. Where `body` is a literal with no `{name}` placeholders the two must parse to the same document -- `scripts/test_device_specs.py` diffs them for every http and websocket command -- so a worked example belongs only on a command that has blanks to fill."
           },
           "example_notes": {
             "type": "string"
@@ -5414,7 +6639,7 @@
             "$comment": "A pattern plus a repo-owned vocabulary rather than a schema enum, on the `category` precedent: an enum would make every vocabulary addition a schema change that hard-fails strict parsers (the mobile Rust crate rejects a whole spec on an unknown enum value), while the pytest list keeps growth additive and typo-checked."
           },
           "device_class": {
-            "type": "string"
+            "$ref": "#/$defs/device_class"
           },
           "icon": {
             "type": "string",
@@ -5513,7 +6738,7 @@
           },
           "state_command": {
             "type": "string",
-            "description": "Command name posted to `state_endpoint` to fetch this entity's state, e.g. 'Channel/GetOnOff'. Names a command in the spec's own `http_endpoints`/command vocabulary."
+            "description": "The NAME of the request that fetches this entity's state: a key of the top-level `commands` block (`get_on_off`, `get_power_status`, `get_sysinfo`) or the `name` of an `http_endpoints` entry (`GetBinaryState`, `Lights`). It is a name, never a wire token -- a consumer resolves it to a declared command or endpoint and sends THAT, so a value that resolves to neither (a bare JSON-RPC method, a vendor command string that appears only in a `body`) is a poll nothing can issue. A one-path-POST API therefore declares its state reads as `commands` entries carrying the `body` (Divoom's `{\"Command\": \"Channel/GetOnOff\"}`, Sony's JSON-RPC document) and points here at the command's key. On a BLE spec the same key may name a characteristic's `commands` entry. `state_endpoint` may restate the path for readers; the command's own `path` is what a consumer executes. `scripts/test_device_specs.py` enforces the resolution rule."
           },
           "state_path": {
             "type": "string",
@@ -5592,6 +6817,95 @@
             "$comment": "A pytest-owned vocabulary rather than a schema enum, on the `key` and `category` precedent: an enum would make every addition a schema change that hard-fails strict parsers, while the list keeps growth additive and typos caught. This key was `{\"type\": \"object\"}` -- anything at all was valid -- while every consumer matched a closed set, and eighteen bindings across seven specs had drifted outside it: openevse's amp setpoint bound `turn_on`, the Yeelight cube spelled its colour roles `set_rgb` and `set_color_temp`, and a name badge bound `set_text` to a bitmap chunk write. Every one of them read as wired and resolved nothing.",
             "propertyNames": {
               "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+            },
+            "additionalProperties": {
+              "description": "A binding is either the NAME of a declared command (the common case) or an object binding the role to a command PLUS fixed argument values, for a device whose verbs are one opcode and a selector byte: FTMS stops and pauses with the same `stop_or_pause` write, told apart only by its `control` parameter, so a Stop button binds `{command: stop_or_pause, values: {control: 1}}` and a Pause button the same command with `2`. `values` keys must be parameters the named command declares; the literal is substituted exactly as a caller-supplied value would be, and any parameter the binding does not fix is filled the way it always is (the control's own value, a `default`, or a `source` read-back). Before this form existed the two bytes lived in a consumer's widget, or a spec declared a constant-value twin of the parameterized command for each selector value.",
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "command",
+                    "values"
+                  ],
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The declared command this role sends -- the same name the string form would carry."
+                    },
+                    "values": {
+                      "type": "object",
+                      "minProperties": 1,
+                      "propertyNames": {
+                        "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+                      },
+                      "additionalProperties": {
+                        "type": [
+                          "number",
+                          "string",
+                          "boolean"
+                        ]
+                      },
+                      "description": "Parameter name -> literal value fixed by this binding, in the parameter's own type and wire scale (the value `template`/`arguments` substitute, not the entity's display unit)."
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "bands": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Verdict thresholds the DEVICE or its vendor ships for this reading -- the levels an air-quality monitor's own ring or app would show -- stated in the entity's `unit`, after any scale/value_offset. Each band names a `level` and the bounds that select it: a reading matches when it is >= `above` (when given) and < `below` (when given), so adjacent one-sided bands partition the range cleanly and a two-sided band (`above` AND `below`) states a window, which is how humidity's good-in-the-middle shape is written. Bands should not overlap; where they do, the later entry wins. A reading matching no band has no verdict, and a consumer that ignores this key shows the number exactly as before. These are the vendor's numbers, not this project's: the Airthings family's 100/150 Bq/m³ radon bands are what its own UI-settings command reports as shipped defaults, and a consumer that can read the live thresholds back from a device should prefer them. Say where the numbers came from in the entity's `notes`.",
+            "$comment": "The mobile consumer carried one vendor's shipped bands as constants and applied them to every device with a matching unit -- which is defensible for radon and wrong in general. Additive and per-entity so a spec can band the reading its vendor actually bands and stay silent on the rest.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "level"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "above"
+                  ]
+                },
+                {
+                  "required": [
+                    "below"
+                  ]
+                }
+              ],
+              "properties": {
+                "level": {
+                  "type": "string",
+                  "enum": [
+                    "good",
+                    "fair",
+                    "poor"
+                  ],
+                  "description": "Three levels, deliberately coarse: the green/yellow/red every vendor UI draws. Finer vendor scales collapse onto these."
+                },
+                "above": {
+                  "type": "number",
+                  "description": "Inclusive lower bound, in the entity's `unit`."
+                },
+                "below": {
+                  "type": "number",
+                  "description": "Exclusive upper bound, in the entity's `unit`."
+                },
+                "notes": {
+                  "type": "string"
+                }
+              }
             }
           }
         }

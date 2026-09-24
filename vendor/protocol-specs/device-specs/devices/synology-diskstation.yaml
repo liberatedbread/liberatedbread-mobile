@@ -67,10 +67,6 @@ device:
     by the owner.
   identification:
     default_port: 9999
-    identity_keys:
-      primary: "mac"
-      secondary: "serial"
-      display: "hostname"
 
   discovery:
     methods:

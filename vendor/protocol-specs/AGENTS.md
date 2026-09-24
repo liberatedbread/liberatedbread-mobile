@@ -222,6 +222,29 @@ in both directions — one spec is *found* by its matcher and another *withholds
 a warning based on one — and a broken needle produces no error, just a device
 that never appears.
 
+**UUIDs are lowercase, everywhere.** Write every 128-bit UUID in canonical
+8-4-4-4-12 form with lowercase hex, and expand 16-bit SIG UUIDs onto the
+Bluetooth base (`0000fff0-0000-1000-8000-00805f9b34fb`). That covers
+structured fields, prose in `notes`/`description`/step text, and the
+`docs/` pages too. Vendor apps and nRF Connect print them uppercase, so
+lowercase a value when you copy it in. Consumers compare UUIDs as strings
+more often than they should, and one spelling makes a grep find every
+use. The schema's `uuid` pattern enforces this for fields, and
+`scripts/test_uuid_case.py` enforces it for everything else. The only
+exception is a string that merely looks like a UUID and whose case
+matters (the Roku client-id secret is hashed as written). Add one to
+that test's `CASE_SIGNIFICANT` table with the reason.
+
+**Firmware update is a control surface, and the most dangerous one.** If
+the device takes new firmware, give it a `features` entry of `type:
+firmware_update` with a `dfu` block. Declare the bytes that reboot it into
+the bootloader as an `advanced` command (or mark the upload endpoint
+`advanced`), and say in `dfu_mode` what it looks like once there. The stack
+defaults (`DfuTarg`, address+1, UUIDs) are in
+[docs/protocols/firmware-update.md](docs/protocols/firmware-update.md). Record
+only what this device changes, and never assert a stack default as a fact
+about the device without saying so.
+
 **Steps are executed by somebody. Say who.** Every step needs an `action`, and
 `actor` is one of `user`, `client`, `device`. It is the field that decides
 whether a setup wizard can automate a step or must stop and ask a person to

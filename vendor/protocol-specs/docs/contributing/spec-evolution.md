@@ -487,11 +487,13 @@ correct degraded behaviour for a hub they do not understand.
 
 **Effort.** Small schema; the consumer work is the real half (an HTTP renderer
 beside the SOAP one, credential storage, instance enumeration) and landed with
-it. Deliberately deferred: a `headers:` vocabulary. Hue's CLIP v2 API moves the
+it. Deferred at the time: a `headers:` vocabulary. Hue's CLIP v2 API moves the
 credential from the path into an `hue-application-key` header, and other
-devices will want `Authorization:`; that is the next piece of this vocabulary
-when a spec needs v2, and it should follow the `arguments` substitution model
-rather than invent its own.
+devices will want `Authorization:`. That piece has since landed as `headers`
+on the command object, following the `arguments` substitution model exactly
+(`AUTH: "{auth_token}"` filled from a `credential:` parameter); Vizio's
+SmartCast and Sony's JSON-RPC reads are the first users, and the same key
+is what a v2 Hue spec would use.
 
 ### P13 — Power as a stateful control, and the toggle problem { #p13 }
 

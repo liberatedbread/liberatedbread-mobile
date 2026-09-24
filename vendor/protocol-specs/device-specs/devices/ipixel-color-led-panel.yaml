@@ -43,7 +43,7 @@ device:
 
     SAME OEM FAMILY as led-helmet-display.yaml ("TIRO FA02" family): same
     FA02 command characteristic, same length-prefixed framing convention,
-    same JieLi BLE SoC platform with the bundled com.tiro.jlotalibrary /
+    same JieLi BLE SoC platform with the OEM's bundled wrapper around the
     JieLi OTA SDK, same Heaton cloud backend. The opcode map and panel
     geometries differ (helmet = 12x48 turn-signal panel driven by the
     Shining Display app; this = general-purpose sign driven by iPixel
@@ -412,10 +412,14 @@ services:
     verification: "hypothesis"
     notes: >
       Standard JieLi firmware-update service (the app bundles the JieLi
-      OTA SDK via com.tiro.jlotalibrary, with the JieLi OTA notify UUID
-      003784cf-f7e3-55b4-6c4c-9fd140100a16 and ae00-service patterns —
-      the same OTA machinery as led-helmet-display.yaml). Presence on
-      this panel family is inferred from the app, not confirmed on-air.
+      OTA SDK through the OEM's wrapper library, with the ae00-service
+      patterns — the same OTA machinery as led-helmet-display.yaml).
+      The app also carries 003784cf-f7e3-55b4-6c4c-9fd140100a16, which
+      is NOT a JieLi UUID: it is the Quintic OTA notify characteristic
+      under service 0000fee8 in the sibling Magic Display app
+      (magic-display.yaml); JieLi's own notify is 0000ae02. Presence of
+      ae00 on this panel family is inferred from the app, not confirmed
+      on-air.
       Firmware images are JieLi OTA packages, chip-key scrambled (no
       ASCII header); eight current images were captured from the vendor
       cloud (see sources).
@@ -510,6 +514,43 @@ local_access:
     - "cloud clip-art/material library (cloud-hosted)"
     - "firmware update checks and image hosting (cloud-hosted; a captured image can in principle be flashed without the cloud via the JieLi OTA service)"
     - "Wi-Fi variant control path (app has a WifiSend interface; undocumented)"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["jieli_ota"]
+      transport: "ble"
+      services: ["0000ae00-0000-1000-8000-00805f9b34fb"]
+      image:
+        signing: "unknown"
+        encrypted: true
+        source: "vendor_cloud"
+        format: "JieLi OTA package: mostly chip-key scrambled *_ota_mi.bin files, some JieLi JLUFW .ufw containers."
+        notes: >
+          POST /api/rm/getFirmwareInfo on manage.heaton.com.cn (see
+          cloud.endpoints) returns a download URL on images.heaton.com.cn,
+          which serves only with Referer: https://manage.heaton.com.cn/.
+          The app picks the project_no from the panel's ledType and
+          firmware version. The .bin images are scrambled with the JieLi
+          chip-series key (the "encrypted" above); whether the loader also
+          verifies a signature is not established.
+      enter:
+        how: "stack_characteristic"
+        notes: >
+          JieLi's own update flow over 0000ae01 (write) / 0000ae02 (notify),
+          driven by the JieLi OTA SDK; its bytes are SDK-internal and not
+          traced here, and no vendor command on the FA02 channel is known to
+          enter it. Whether the part reboots into a loader or updates in
+          place is not established.
+      dfu_mode:
+        notes: "No update-mode name, address or advertisement is recorded."
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        The 0000ae00 service's presence on this family is inferred from the
+        app, not seen on-air. A captured image can in principle be flashed
+        without the cloud via the JieLi OTA service.
 
 entities:
   # No entity binds `state_characteristic`. The command channel 0000fa02 is

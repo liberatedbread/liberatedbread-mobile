@@ -34,11 +34,11 @@ device:
     BRIDGE BLE — TWO GENERATIONS. The published open-source bridge firmware
     (github.com/benkuper/FlowtoysConnectBridge, written for Flowtoys) and its
     companion Flutter app (benkuper/FlowtoysConnect) use the Nordic UART
-    Service: service 6E400001-B5A3-F393-E0A9-E50E24DCCA9E, phone writes ASCII
+    Service: service 6e400001-b5a3-f393-e0a9-e50e24dcca9e, phone writes ASCII
     command strings to 6E400002 (write / write-no-response), bridge notifies
     on 6E400003. The bridge advertises as "FlowConnect <name>" and the app
     requests MTU 48. The production app (com.flowtoys.app, decompiled) instead
-    targets a vendor-specific service 49550001-AAD5-59BD-934C-023D807E01D5
+    targets a vendor-specific service 49550001-aad5-59bd-934c-023d807e01d5
     with characteristics 49550002-..., 49550003-... and 49550005-... — their
     exact roles are not recoverable from the Flutter AOT binary's string
     table alone (the Dart command encoder is compiled, not string-visible).

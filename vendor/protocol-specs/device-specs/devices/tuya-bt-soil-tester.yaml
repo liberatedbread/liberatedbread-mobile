@@ -496,11 +496,20 @@ services:
           chunked at the 20-byte default MTU; the full framing spec lives in
           python-tuya-ble and is not restated here.
         commands:
+          # No `template`/`value` on any of these, deliberately: every
+          # frame is encrypted under the per-session key the pair exchange
+          # derives from the device uuid and the cloud-issued local_key,
+          # which are `device.setup.credentials` this spec cannot hold and
+          # which change on every re-pair. Constant bytes would be wrong
+          # bytes. See remaining_unknowns for what a byte-level
+          # transcription would need.
           pair:
             description: >
               Pairing handshake (function code 0x0001): exchanges keys
               derived from the device uuid + cloud-issued local_key.
-              Prerequisite for everything else.
+              Prerequisite for everything else. Not expressible as fixed
+              bytes -- the frame carries a random nonce and is encrypted
+              with a key derived from the two credentials.
             verification: "reported"
           device_info:
             description: "Query device info (function code 0x0000): device id, product id, firmware version."
@@ -517,6 +526,19 @@ services:
           device_reset:
             description: "Factory reset (function code 0x0006)."
             verification: "reported"
+          ota_transfer:
+            description: >
+              Firmware update block transfer (function codes 0x000C..0x0010,
+              per python-tuya-ble). Which code opens the transfer and what
+              each carries are not recorded here; python-tuya-ble is the
+              reference. Encrypted like every other frame.
+            verification: "reported"
+            advanced: true
+            advanced_reason: >
+              Writes new firmware to the BT3L radio module. An image for the
+              wrong module or an interrupted transfer can leave the sensor
+              without a working radio; the wired recovery is reflashing over
+              the SWS pads, keeping the factory data above 0x70000.
       - uuid: "00002b10-0000-1000-8000-00805f9b34fb"
         name: "Notify"
         properties: ["notify"]
@@ -527,15 +549,44 @@ services:
           and command responses. Subscribe after pairing; sensor readings
           only ever arrive here, never in advertisements.
 
-commands:
-  pair:
-    description: "GATT write of PAIR frames (0x0001) to characteristic 0x2B11; establishes the encrypted session from device uuid + local key."
-    transport: "ble"
-    verification: "reported"
-  dp_query:
-    description: "GATT write of a DPS request (0x0002) to 0x2B11; the report arrives as a 0x8001 notification on 0x2B10."
-    transport: "ble"
-    verification: "reported"
+# No top-level `commands` block: the GATT writes live on the 0x2B11
+# characteristic above (`pair`, `dp_query`, ...), which is where a BLE
+# command has a UUID to go to. The entities' `state_command: dp_query`
+# names that characteristic command. A top-level `transport: ble` entry
+# used to duplicate two of them here; no transport arm handles that value
+# and the schema no longer admits it.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["tuya_ble_ota"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+        notes: >
+          The stock update runs inside the encrypted Tuya BLE session as
+          function codes 0x000C..0x0010 (the `ota_transfer` command on the
+          write characteristic). Whether the module receives the image in
+          place or reboots first is not recorded.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The wired path always works: the BT3L (Telink TLSR8250) has SWS
+          flashing pads (Telink BDT or pvvx TlsrComSwireWriter). Preserve the
+          factory MAC/calibration data above flash offset 0x70000.
+      verification: "reported"
+      notes: >
+        Function codes from python-tuya-ble; no update has been run by this
+        project. The update rides the Tuya service
+        0000fd50-0000-1000-8000-00805f9b34fb, which is also the only control
+        path, so it is not listed under `services`; the `ota_transfer`
+        command is what a consumer keeps behind an opt-in. The haraldapp/SGS01BTHome
+        replacement firmware brings its own OTA once installed; that path
+        belongs to the replacement firmware, not to this device's stock
+        firmware. Not established for the 2026 SGS01B revision.
 
 entities:
   - platform: "sensor"
@@ -561,6 +612,20 @@ entities:
     state_command: "dp_query"
     state_field: "dps.15"
     notes: "Plus the coarse enum in DP 14 (low/normal/high). No battery DP documented for tv6peegl."
+
+remaining_unknowns:
+  - >
+    The byte-level form of the 0x2B11 writes. Every frame after (and
+    including) the PAIR exchange is AES-encrypted under a session key
+    derived from the device uuid and the cloud-issued local_key, with a
+    per-frame sequence number and a nonce, so no `template` can state the
+    bytes: they depend on credentials this spec cannot hold and on state a
+    client accumulates. python-tuya-ble implements the derivation and
+    framing; a transcription into this spec would need the schema to carry
+    a key-derivation step and an encryption layer that a consumer executes,
+    which it does not today. Until then the characteristic commands name
+    the function codes and the executable reference, and nothing here is
+    sendable from the YAML alone.
 
 cloud:
   required: true

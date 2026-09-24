@@ -57,8 +57,6 @@ device:
   identification:
     ssid_prefix: "HT-W01-"
     default_port: 8080
-    identity_keys:
-      primary: "wifi_ssid_suffix"
     notes: >
       There is no SSDP/mDNS/broadcast discovery — the device IS the network.
       Identification is a Wi-Fi scan: an SSID matching HT-W01-* is the
@@ -66,6 +64,21 @@ device:
       The app also carries an ONVIF WS-Discovery probe asset
       (assets/onvif/probe.xml), suggesting the camera may answer ONVIF
       probes; unverified.
+
+
+  discovery:
+    none: >
+      Nothing to discover on a LAN: the camera is its own access point, found
+      by the Wi-Fi scan that `identification.ssid_prefix` describes, and it
+      always answers at 192.168.1.10 once joined.
+    identity:
+      stable_keys: ["ssid"]
+      display: "ssid"
+      notes: >
+        The HT-W01-<suffix> SSID is the only per-unit key available before
+        joining. The fixed 192.168.1.10 address is the same on every camera,
+        so it identifies nothing.
+    static_ip_required: true
 
   setup:
     required: false

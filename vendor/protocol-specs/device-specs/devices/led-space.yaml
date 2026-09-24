@@ -56,26 +56,39 @@ device:
   identification:
     ssid_prefix: "YS"
     default_port: 9090
-    # BLE variant of the same board family (the app scans for it too).
-    local_name_prefix: "YS"
-    service_uuids:
-      - "0000fff0-0000-1000-8000-00805f9b34fb"
-    identity_keys:
-      primary: "id_dev"
-      display: "name"
+    # The Bluetooth variant of this board family advertises "YS"/"TL" plus
+    # a serial and service 0xFFF0 -- exactly what the AUTOBABA backpack and
+    # the NYAN bag advertise -- so no BLE signal is claimed here: a scanner
+    # would tie three ways. autobaba-led-backpack is the family fallback
+    # for the BLE path; this spec is the Wi-Fi/UDP path.
+    notes: >
+      Wi-Fi identification is the panel's own AP, SSID starting "YS", and
+      the UDP 9090 dev_info probe below. The BLE variant of the same board
+      is indistinguishable on the air from the other LOY SPACE / popled.cn
+      panels and resolves to autobaba-led-backpack.
 
   discovery:
     methods:
-      - type: "ble_scan"
-        ble:
-          local_name:
-            match: "prefix"
-            value: "YS"
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 9090
+          broadcast_address: "255.255.255.255"
+          passive_ok: false
+          response_format: "binary"
+        notes: >
+          After joining the panel's "YS…" AP the app broadcasts the
+          TLV-serialised {"cmd":{"get":"dev_info"}} frame (0xAA55 framing,
+          see protocol_details) to 255.255.255.255:9090 and binds to the
+          sender of the first reply, expected to be the AP gateway
+          192.168.4.1. The probe bytes depend on the frame's sequence
+          number and checksum, so they are given as a builder rather than a
+          fixed probe_hex. App-derived, not replayed against hardware.
     identity:
       stable_keys: ["id_dev"]
-      display: "local_name"
+      display: "name"
+      notes: >
+        id_dev and name come from the dev_info reply, not from anything on
+        the air.
     static_ip_required: false
 
   setup:
@@ -189,6 +202,18 @@ features:
     max_width: 64
     max_height: 64
     resolution_source: "device_reported"
+
+remaining_unknowns:
+  - >
+    A scan-time signal that tells a YSP-001 panel in Bluetooth mode from the
+    AUTOBABA backpack or the NYAN bag: all three apps filter on the same
+    ["YS", "TL"] name prefixes and service 0xFFF0. autobaba-led-backpack
+    claims the BLE signals as the family fallback; this spec claims only
+    the Wi-Fi path.
+  - >
+    The exact bytes of the UDP dev_info probe and the reply sender address
+    (192.168.4.1 expected) -- taken from the app's UDP/TLV code path, not
+    captured.
 
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.

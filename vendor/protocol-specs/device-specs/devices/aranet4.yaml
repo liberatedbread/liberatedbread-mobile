@@ -105,8 +105,10 @@ device:
     measurement-in-progress (progress = value & 0x00FFFFFF); radon values
     >= 0x1F00 are error codes.
 
-    OTA: Nordic Secure DFU service 0xFE59 is present; deliberately not
-    documented here (bricking risk).
+    OTA: Nordic Secure DFU service 0xFE59 is present; its bytes are
+    deliberately not documented here (bricking risk). What a consumer
+    needs to stay out of it and to recognise a unit mid-update is in
+    features[firmware_update].
 
     Cloud dependency: none. The Aranet Home app works fully offline; the
     optional Aranet Cloud is a paid add-on the sensor never needs.
@@ -268,7 +270,8 @@ services:
       characteristics by their own UUIDs. Standard services also present:
       GAP 0x1800, Device Information 0x180A (0x2A24 model, 0x2A25 serial,
       0x2A26 firmware e.g. "v1.2.0", 0x2A29 "SAF Tehnika"), Battery 0x180F
-      (0x2A19), Nordic Secure DFU 0xFE59 (not documented here).
+      (0x2A19), Nordic Secure DFU 0xFE59 (listed below as the update path;
+      its characteristics are not documented here).
     characteristics:
       - uuid: "f0cd3001-95da-4f4b-9ac8-aa55d312af0c"
         name: "Current readings + interval + ago (Aranet4)"
@@ -429,6 +432,16 @@ services:
         properties: ["read"]
         notes: "8 bytes, undocumented."
 
+  - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+    name: "Nordic Secure DFU"
+    notes: >
+      The firmware update path, listed so a GATT explorer recognises it and
+      keeps it read-only. Its presence rests on the cited implementations'
+      service listings, not on this project's own discovery (the live unit
+      dropped the link before discovery completed). Characteristics are
+      deliberately not documented: writing the buttonless entry reboots the
+      sensor into its bootloader.
+
 payload_formats:
   advertisement_aranet4_long:
     description: >
@@ -474,6 +487,38 @@ payload_formats:
       - "A 7-byte payload is the SHORT variant: header only (offsets 0-6), no measurements — integrations disabled or firmware < v1.2.0. The example above is a real short payload captured live 2026-08-14 (flags 0x21, firmware v0.4.14)."
       - "24-byte payloads are Aranet2/Radiation/Radon and START with a type byte (1/2/3); Aranet4 payloads have no type byte."
       - "Timestamping history: timestamp[i] = now - ago - (total - i) * interval, 1-based."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+        notes: >
+          Not established. The vendor app drives the update; whether it uses
+          the stack's buttonless characteristic under 0xFE59 or a vendor
+          command is not recorded, and neither is written here.
+      dfu_mode:
+        advertisement_flag: "manufacturer data (company 0x0702) byte 0 bit 4"
+        notes: >
+          The normal advertisement's flags byte sets bit 4 while an update
+          is active (see payload_formats); a scanner treats a unit with it
+          set as mid-update even though identification still matches. The
+          bootloader's own name and address are not established. The stack
+          default is "DfuTarg" at the device address +1 (no bond sharing);
+          that is the Nordic default, not something observed on this unit.
+      services: ["0000fe59-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From the cited reference implementations: the 0xFE59 service in the
+        GATT listing and the DFU-active advert bit. Nothing here was
+        exercised against hardware.
 
 entities:
   - platform: "sensor"

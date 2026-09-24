@@ -185,7 +185,7 @@ device:
     enter_pairing_mode:
       required: false
 services:
-  - uuid: "A0F0FF00-5047-4D53-8208-4F72616C2D42"
+  - uuid: "a0f0ff00-5047-4d53-8208-4f72616c2d42"
     name: Oral-B iO Brush Service
     notes: >
       The only service UUID recovered from the app. Per the device notes above,
@@ -196,7 +196,7 @@ services:
       FF03 UserID and FF2A (purpose unknown), per MatrixEditor/oralb-io and
       Bluetooth-Devices/oralb-ble; app v10 does not reference them.
     characteristics:
-      - uuid: "A0F0FF04-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff04-5047-4d53-8208-4f72616c2d42"
         name: DeviceState
         properties: ["read"]
         description: >
@@ -210,47 +210,47 @@ services:
           1=TRANSPORT_ENABLED_DEACTIVATE_TIMER_DISABLED,
           3=TRANSPORT_ENABLED_DEACTIVATE_TIMER_ENABLED. Advertising byte 7
           carries the same State value.
-      - uuid: "A0F0FF05-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff05-5047-4d53-8208-4f72616c2d42"
         name: BatteryLevel
         properties: ["read"]
         description: Battery level percentage
-      - uuid: "A0F0FF06-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff06-5047-4d53-8208-4f72616c2d42"
         name: ButtonState
         properties: ["notify"]
         description: Power and mode button press events
-      - uuid: "A0F0FF07-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff07-5047-4d53-8208-4f72616c2d42"
         name: BrushingMode
         properties: ["read"]
         description: Current brushing mode (9 modes in the V006 enum; 11 total with the V009 additions)
-      - uuid: "A0F0FF08-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff08-5047-4d53-8208-4f72616c2d42"
         name: BrushingTime
         properties: ["read"]
         description: "Brushing session duration (2 bytes: min, sec)"
-      - uuid: "A0F0FF09-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff09-5047-4d53-8208-4f72616c2d42"
         name: ToothbrushQuadrant
         properties: ["read"]
         description: Current quadrant coverage and progress
-      - uuid: "A0F0FF0A-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff0a-5047-4d53-8208-4f72616c2d42"
         name: Smiley
         properties: ["read"]
         description: Brushing quality feedback (1 byte face value)
-      - uuid: "A0F0FF0B-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff0b-5047-4d53-8208-4f72616c2d42"
         name: Pressure
         properties: ["read"]
         description: Pressure sensor reading
-      - uuid: "A0F0FF0D-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff0d-5047-4d53-8208-4f72616c2d42"
         name: SensorData
         properties: ["read"]
         description: Accelerometer/motion sensor data for position tracking
-      - uuid: "A0F0FF0E-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff0e-5047-4d53-8208-4f72616c2d42"
         name: DashboardDataStreamChunk
         properties: ["notify"]
         description: Real-time dashboard data stream chunks
-      - uuid: "A0F0FF10-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff10-5047-4d53-8208-4f72616c2d42"
         name: AccessControl
         properties: ["write"]
         description: BLE access control and pairing management
-      - uuid: "A0F0FF21-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff21-5047-4d53-8208-4f72616c2d42"
         name: Configure
         properties: ["write"]
         description: >
@@ -260,87 +260,87 @@ services:
           GumGuardSetting (OFF/ON/HD), PostBrushingStatisticsConfiguration.
           Metadata length grew 14 to 30 bytes at V008 (see
           protocol_changelog).
-      - uuid: "A0F0FF22-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff22-5047-4d53-8208-4f72616c2d42"
         name: RTC
         properties: ["write"]
         description: Real-time clock (4 bytes, seconds since 2000-01-01)
-      - uuid: "A0F0FF23-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff23-5047-4d53-8208-4f72616c2d42"
         name: Timezone
         properties: ["write"]
         description: Timezone offset configuration
-      - uuid: "A0F0FF24-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff24-5047-4d53-8208-4f72616c2d42"
         name: BrushTimer
         properties: ["read"]
         description: "Timer state flags (bitmask: prof, quad, tongue, timer)"
-      - uuid: "A0F0FF25-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff25-5047-4d53-8208-4f72616c2d42"
         name: BrushModes
         properties: ["read"]
         description: Available brushing modes bitmap
-      - uuid: "A0F0FF26-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff26-5047-4d53-8208-4f72616c2d42"
         name: QuadrantTimer
         properties: ["read"]
         description: Per-quadrant timing data
-      - uuid: "A0F0FF27-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff27-5047-4d53-8208-4f72616c2d42"
         name: TongueTime
         properties: ["read"]
         description: Tongue cleaning timer duration
-      - uuid: "A0F0FF28-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff28-5047-4d53-8208-4f72616c2d42"
         name: PressureConfiguration
         properties: ["write"]
         description: Pressure sensor config (visual signal, reduced speed)
-      - uuid: "A0F0FF29-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff29-5047-4d53-8208-4f72616c2d42"
         name: SelectedData
         properties: ["notify"]
         description: Session data retrieval (shared UUID for read req + notify)
-      - uuid: "A0F0FF2B-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff2b-5047-4d53-8208-4f72616c2d42"
         name: MyColor
         properties: ["write"]
         description: LED ring colour (RGB)
-      - uuid: "A0F0FF2C-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff2c-5047-4d53-8208-4f72616c2d42"
         name: ConfigureDashboard
         properties: ["write"]
         description: Dashboard display configuration
-      - uuid: "A0F0FF2D-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff2d-5047-4d53-8208-4f72616c2d42"
         name: RefillReminder
         properties: ["write"]
         description: Brush head replacement reminder
-      - uuid: "A0F0FF2E-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff2e-5047-4d53-8208-4f72616c2d42"
         name: PostBrushingStatisticsConfiguration
         properties: ["write"]
         description: Post-brushing statistics screen configuration
-      - uuid: "A0F03C00-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c00-5047-4d53-8208-4f72616c2d42"
         name: ChargerCommand
         properties: ["write"]
         description: Charger control commands
-      - uuid: "A0F03C01-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c01-5047-4d53-8208-4f72616c2d42"
         name: ChargerRead
         properties: ["read"]
         description: Charger data read (log items, passthrough)
-      - uuid: "A0F03C02-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c02-5047-4d53-8208-4f72616c2d42"
         name: ChargerWrite
         properties: ["write"]
         description: Charger config (WiFi, clock, night light, demo mode)
-      - uuid: "A0F03C03-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f03c03-5047-4d53-8208-4f72616c2d42"
         name: ChargerStatus
         properties: ["notify"]
         description: Charger status notifications
-      - uuid: "A0F0FF81-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff81-5047-4d53-8208-4f72616c2d42"
         name: OTACommand
         properties: ["write"]
         description: Firmware update command
-      - uuid: "A0F0FF82-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff82-5047-4d53-8208-4f72616c2d42"
         name: OTAPayLoad
         properties: ["write"]
         description: Firmware update data payload
-      - uuid: "A0F0FF83-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff83-5047-4d53-8208-4f72616c2d42"
         name: OTAVerify
         properties: ["read"]
         description: Firmware payload verification
-      - uuid: "A0F0FF84-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff84-5047-4d53-8208-4f72616c2d42"
         name: OTAState
         properties: ["notify"]
         description: Firmware update state machine
-      - uuid: "A0F0FF85-5047-4D53-8208-4F72616C2D42"
+      - uuid: "a0f0ff85-5047-4d53-8208-4f72616c2d42"
         name: OTATransferSize
         properties: ["read"]
         description: Firmware transfer block size
@@ -409,6 +409,47 @@ advertising:
       size: 1
       description: Total quadrant count
   minimum_length: 5
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        algorithm: "unknown"
+        source: "public_url"
+        format: "Silicon Labs Gecko Bootloader GBL (E-Platform, iO4, iO5); TI CC2640 binary (legacy SONOS)."
+        notes: >
+          P&G's firmware host https://fw.iot-dev.alchemy.codes serves
+          update manifests without authentication for model bytes 0x0031
+          (SONOS IO), 0x0034 (iO4), 0x0035 (iO5) and 0x0036 (E-Platform =
+          iO6-iO10); China uses a separate S3 host (device.notes). The
+          manifests are RSA-signed, and MatrixEditor/oralb-io ships the P&G
+          public key that verifies them — that is the app's check. Whether
+          the brush's own bootloader verifies the image (a GBL can carry an
+          ECDSA signature and AES encryption) is not established.
+      enter:
+        how: "unknown"
+        notes: >
+          The update runs over vendor characteristics inside the one brush
+          service a0f0ff00-…: OTACommand a0f0ff81 (write), OTAPayLoad
+          a0f0ff82 (write), OTAVerify a0f0ff83 (read), OTAState a0f0ff84
+          (notify) and OTATransferSize a0f0ff85 (read). The command bytes
+          that start an update are not recorded in this spec;
+          MatrixEditor/oralb-io ships a working OTA client.
+      dfu_mode:
+        notes: "No update-mode name, address or advertisement is recorded."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        A vendor protocol carrying another stack's image: the GBL files are
+        Silicon Labs format but travel over P&G's own characteristics, not
+        the Silicon Labs OTA service. dfu.services is omitted because the
+        OTA characteristics share a0f0ff00 with every ordinary brush
+        characteristic; a GATT explorer should treat a0f0ff81-a0f0ff85 as
+        the update path and never write them.
 
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.

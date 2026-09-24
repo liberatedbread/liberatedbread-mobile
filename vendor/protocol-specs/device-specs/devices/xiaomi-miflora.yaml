@@ -348,6 +348,40 @@ services:
             unit: "s"
             endianness: "little"
 
+  - uuid: "0000fef5-0000-1000-8000-00805f9b34fb"
+    name: "Dialog SUOTA Service"
+    notes: >
+      The firmware-update path, not a data service: list it read-only.
+      Known from the vendor app, which drives the update over this service
+      with the standard SPOTA characteristics (app-derived, not
+      hardware-verified: medium confidence); characteristic UUIDs not
+      recorded here. See features[type: firmware_update].
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["dialog_suota"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+      enter:
+        how: "unknown"
+        notes: "The app's entry sequence on the SPOTA characteristics is not recorded."
+      services: ["0000fef5-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Dialog's OTA over service 0000fef5-0000-1000-8000-00805f9b34fb with
+        its SPOTA characteristics, on plain unbonded GATT; the vendor app
+        removes any stale OS bond before connecting. setup.notes calls this
+        "SPOTA over 0xFEF5"; it is the same profile, since Dialog's SUOTA
+        service keeps the SPOTA characteristic names. Consistent with the
+        DA14580 SoC. Firmware older than ~2.7 only broadcasts its MAC and
+        needs this app-driven update before the MiBeacon sensor broadcast
+        works. The unpopulated SWD header is the wired fallback.
+
 entities:
   - platform: "sensor"
     name: "Temperature"

@@ -50,11 +50,7 @@ device:
     # The module OUI is shared across High-Flying-based products, so MAC alone
     # is a weak signal; the strong signal is the discovery reply string below.
     ssid_prefix: "milight"
-    ssid_examples: ["milight", "HF-LPB130"]
     default_port: 8899
-    identity_keys:
-      primary: "mac"
-      display: "name"
 
   discovery:
     methods:

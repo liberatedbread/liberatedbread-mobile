@@ -354,7 +354,7 @@
       {
         "title": "FastBle (open-source BLE wrapper used by the vendor app)",
         "url": "https://github.com/Jasonchenlijian/FastBle",
-        "description": "The Android BLE library the app's BLE layer is built on; explains the write-without-response + auto-split-at-MTU write behavior and the CCC notify-enable flow seen in this profile."
+        "description": "The Android BLE library the app's BLE layer is built on; explains the write-without-response + auto-split-at-MTU write behaviour and the CCC notify-enable flow seen in this profile."
       },
       {
         "title": "CoolLED1248 (sibling jtkj app — different profile)",
@@ -2302,7 +2302,7 @@
       {
         "title": "chvolkmann/govee_btled",
         "url": "https://github.com/chvolkmann/govee_btled",
-        "description": "Python client for legacy Govee BLE lights; its LedMode command bytes are the cross-reference for the color/scene/music sub-modes."
+        "description": "Python client for legacy Govee BLE lights; its LedMode command bytes are the cross-reference for the colour/scene/music sub-modes."
       },
       {
         "title": "Reverse-engineering Govee smart lights",
@@ -3568,7 +3568,7 @@
       {
         "url": "https://www.home-assistant.io/integrations/limitlessled/",
         "title": "Home Assistant LimitlessLED integration",
-        "description": "HA core integration driving MiLight/LimitlessLED bridges with the UDP v6 protocol documented here."
+        "description": "HA core integration driving MiLight/LimitlessLED bridges via the legacy write-only command set (the ledcontroller library) documented here."
       },
       {
         "title": "NeonHorizon/milight — V6 bridge drivers and protocol notes",

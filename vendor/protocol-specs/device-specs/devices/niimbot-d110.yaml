@@ -184,6 +184,48 @@ features:
     max_width: 96
     max_height: 65535
     format: "1bit-bitmap"
+    # 1 bit per pixel — black or white, nothing between. Stated so an editor
+    # does not quantize to another device's 16-colour ceiling.
+    max_palette_colors: 2
+  # The upload IS the device: the packet protocol prints rows and resolves no
+  # entities, and a consumer keeps the printer on this marker rather than
+  # dropping it as empty. Declared beside image_upload, which describes the
+  # bitmap the stream takes.
+  - type: "raster_print"
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "public_url"
+        format: >
+          Raw application image (D110 base address 0x01010000); newer files
+          carry the 0x18-signature header with length and CRC32 fields
+          described in device.notes.
+        notes: >
+          The community archive https://fw.niim.blue hosts original,
+          unmodified official images (D110 up to v13.15, B21 up to v1.31).
+          Whether the bootloader checks anything beyond the CRC32 is not
+          established. The D110_M (YC3122-L) refuses downgrades.
+      enter:
+        how: "unknown"
+        notes: >
+          niimbluelib names packet 0xF5 StartFirmwareUpgrade and sends it in
+          a CRC32 variant of the packet format rather than the XOR-checksum
+          envelope. That variant's layout is not written down here, so the
+          packet is not declared as a command; a client that builds it must
+          treat it as advanced.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From MultiMote/niimbluelib and the fw.niim.blue archive; not
+        exercised by this project. The same packet protocol also runs over
+        Bluetooth Classic SPP (RFCOMM channel 1) and USB serial, and whether
+        the upgrade packet works on those transports is not established. The
+        print service carries every ordinary command too, so it is not
+        listed under `services`.
 
 services:
   - uuid: "e7810a71-73ae-499d-8c15-faa9aef0c3f2"
@@ -221,7 +263,65 @@ services:
       - uuid: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
         name: "Print Data"
         properties: ["notify", "write_without_response"]
-        notes: "Single characteristic for command writes AND responses/heartbeat notifications on most models (niimbluelib selects the char requiring NOTIFY + WRITE_NO_RESPONSE)."
+        notes: >
+          Single characteristic for command writes AND responses/heartbeat
+          notifications on most models (niimbluelib selects the char requiring
+          NOTIFY + WRITE_NO_RESPONSE).
+          FRAME SELECTION: every reply the printer sends arrives here in the
+          `55 55 <cmd> <len> <data...> <xor> AA AA` envelope, and the format
+          block below describes exactly one of them — the reply to the
+          0xDC heartbeat request as a D110 sends it: cmd 0xDD with a 10-byte
+          data field, 17 bytes in all. Check bytes 2-3 read 0xDD 0x0A before
+          trusting the offsets; a print acknowledgement or an info reply on
+          the same characteristic puts other bytes there. Offsets are from
+          niimbluelib's heartbeat parser (the 10-byte case: lid at data
+          byte 8, charge level at data byte 9, no paper field) — reported,
+          not read back by this project. Other models answer with 13-, 19-
+          or 20-byte data fields whose lid/charge/paper bytes sit elsewhere;
+          see remaining_unknowns.
+        format:
+          - offset: 0
+            length: 2
+            name: "head"
+            type: "uint16"
+            endianness: "big"
+            values:
+              0x5555: "packet_head"
+          - offset: 2
+            length: 1
+            name: "response_id"
+            type: "uint8"
+            values:
+              0xDD: "heartbeat_reply"
+            notes: "The layout below only holds for 0xDD."
+          - offset: 3
+            length: 1
+            name: "data_length"
+            type: "uint8"
+            notes: "10 on the D110; other values mean another model's heartbeat layout."
+          - offset: 12
+            length: 1
+            name: "lid_open"
+            type: "uint8"
+            notes: "0 = lid closed, non-zero = open (data byte 8 of the D110 heartbeat)."
+          - offset: 13
+            length: 1
+            name: "charge_level"
+            type: "uint8"
+            device_class: "battery"
+            values:
+              0: "empty"
+              1: "25%"
+              2: "50%"
+              3: "75%"
+              4: "100%"
+            notes: >
+              A five-step gauge (data byte 9), not a percent; the labels are
+              the steps' nominal fill. The same 0-4 code comes back from the
+              battery-level printer-info query. niimbluelib's heartbeat parser
+              labels this byte a percentage; the 0-4 scale the printer-info
+              query returns is the reading adopted here, so treat a value
+              above 4 as a percent from a newer firmware.
 
 entities:
   - platform: "cover"
@@ -229,13 +329,33 @@ entities:
     state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
   - platform: "sensor"
     name: "Battery Level"
+    device_class: "battery"
+    variants: ["D110"]
     state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+    state_mapping:
+      value: "charge_level"
+    notes: >
+      0-4 gauge step from the D110 heartbeat reply; a consumer must send the
+      heartbeat request to get one, and must only decode replies whose
+      response_id is 0xDD (see the characteristic notes). Scoped to the D110
+      because the B21's heartbeat is a different length with the byte
+      elsewhere.
   - platform: "binary_sensor"
     name: "Lid"
+    variants: ["D110"]
     state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+    state_mapping:
+      value: "lid_open"
+      on_when: "nonzero"
+    notes: "On = lid open. Same heartbeat-reply caveats as Battery Level."
   - platform: "binary_sensor"
     name: "Paper"
     state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+    notes: >
+      Unbound: the D110's 10-byte heartbeat reply has no paper byte
+      (niimbluelib reports paper only for the 13-, 19- and 20-byte replies
+      of other models), so on the namesake model this reading cannot be
+      produced. Declared so the gap is visible; see remaining_unknowns.
 
 helpful_urls:
   - title: "eigger/hass-niimbot (HACS)"
@@ -246,3 +366,22 @@ helpful_urls:
     kind: "manual"
     description: >
       Vendor quick start covering the indicator-light meanings this spec's status decoding relies on.
+
+remaining_unknowns:
+  - >
+    The Print Data characteristic multiplexes every reply, and the schema
+    has no frame selector: the format block is written for the D110's
+    17-byte heartbeat reply (0xDD, 10 data bytes) and a consumer has to
+    check response_id and data_length itself before using the lid and
+    charge offsets.
+  - >
+    Other models' heartbeat replies put the same facts elsewhere — per
+    niimbluelib, a 13-byte data field (B1) carries lid at data byte 9,
+    charge at 10, paper-inserted at 11 and RFID-read at 12; a 19-byte field
+    has them at 15-18; a 20-byte field carries only paper at 18 and RFID at
+    19 — and one offset table cannot hold all four, so the Battery Level and
+    Lid entities are scoped to the D110 and the B21 has no bound readings.
+  - >
+    Paper presence is not in the D110 heartbeat reply at all, so the Paper
+    entity has nothing to bind on the namesake model; whether the D110
+    reports it through another query is not established.

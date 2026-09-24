@@ -84,9 +84,6 @@ device:
     # products. It says the device speaks HomeKit, not that it is this one.
     # The `discovery` block below still records it.
     default_port: 80
-    identity_keys:
-      primary: "hap_id"
-      display: "name"
 
   discovery:
     methods:
@@ -365,6 +362,47 @@ http_endpoints:
       endpoint at the controller's LAN IP (from its network state) during
       local firmware update and Wireless Flow Meter pairing flows. Not
       exercised against live hardware — that would flash the unit.
+    advanced: true
+    advanced_reason: >
+      Flashes the controller's firmware with whatever the body contains.
+      Only vendor images from the cloud's signed desiredFirmwareUrl are
+      known to be valid, and whether the device checks a signature has not
+      been tested. A failed flash can leave the controller off the network
+      and not watering, and no local recovery path is known. Note the
+      current fwv from GET /info first.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["http_upload"]
+      transport: "http"
+      endpoint: "Local OTA Firmware Push (LAN HTTPS API)"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The vendor cloud hands the app a signed download URL (gRPC
+          DeviceService/GetDesiredFirmware -> desiredFirmwareUrl); the app
+          upgrades it to https, caches the image and POSTs it here. No
+          public download host exists. Gen 2 images in research custody are
+          signed/encrypted containers (~342 KB, length-prefixed header,
+          high-entropy body); the Gen 3 image format is not established.
+      enter:
+        how: "in_place"
+        notes: >
+          The running firmware's HTTPS API (TCP 443, vendor-pinned CA,
+          header "x-api-key: <device serial, uppercase>") takes the image
+          as application/octet-stream on POST /fwupdate; no separate mode
+          is entered first.
+      dfu_mode:
+        notes: "No update-mode SSID, hostname or advertisement is recorded."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        The route and its method map (POST-only, 403 without the key) were
+        confirmed on a live Gen 3 unit; an image was never sent, so what
+        the device does with one comes from the vendor app only.
 
 entities:
   - platform: "switch"

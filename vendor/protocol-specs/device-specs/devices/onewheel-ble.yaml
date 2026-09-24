@@ -153,15 +153,48 @@ services:
       - uuid: "e659f303-ea98-11e3-ac10-0800200c9a66"
         name: "Battery remaining (%)"
         properties: ["read", "notify"]
-        notes: "Battery percentage."
+        notes: >
+          Battery percentage. Every Onewheel attribute characteristic is a
+          two-byte unsigned integer in BIG-endian order — pOneWheel reads them
+          all as an unsigned short from a big-endian view of the value and
+          this one needs no scaling. Reported from that open-source client,
+          not read back by this project.
+        format:
+          - offset: 0
+            length: 2
+            name: "battery_percent"
+            type: "uint16"
+            endianness: "big"
+            unit: "%"
+            device_class: "battery"
       - uuid: "e659f30b-ea98-11e3-ac10-0800200c9a66"
         name: "Speed (RPM)"
         properties: ["read", "notify"]
-        notes: "Wheel RPM (convert to speed by wheel circumference)."
+        notes: >
+          Wheel RPM (convert to speed by wheel circumference). uint16
+          big-endian, unscaled, as pOneWheel decodes it; reported.
+        format:
+          - offset: 0
+            length: 2
+            name: "wheel_rpm"
+            type: "uint16"
+            endianness: "big"
+            unit: "rpm"
       - uuid: "e659f316-ea98-11e3-ac10-0800200c9a66"
         name: "Battery voltage"
         properties: ["read", "notify"]
-        notes: "Pack voltage."
+        notes: >
+          Pack voltage: uint16 big-endian in tenths of a volt (pOneWheel
+          divides the raw short by 10 to display volts); reported.
+        format:
+          - offset: 0
+            length: 2
+            name: "battery_voltage"
+            type: "uint16"
+            endianness: "big"
+            scale: 0.1
+            unit: "V"
+            device_class: "voltage"
       - uuid: "e659f311-ea98-11e3-ac10-0800200c9a66"
         name: "Firmware revision"
         properties: ["read"]
@@ -184,15 +217,21 @@ entities:
     device_class: "battery"
     unit: "%"
     state_characteristic: "e659f303-ea98-11e3-ac10-0800200c9a66"
+    state_mapping:
+      value: "battery_percent"
   - platform: "sensor"
     name: "Speed"
     unit: "rpm"
     state_characteristic: "e659f30b-ea98-11e3-ac10-0800200c9a66"
+    state_mapping:
+      value: "wheel_rpm"
   - platform: "sensor"
     name: "Battery Voltage"
     device_class: "voltage"
     unit: "V"
     state_characteristic: "e659f316-ea98-11e3-ac10-0800200c9a66"
+    state_mapping:
+      value: "battery_voltage"
 
 helpful_urls:
   - title: "ponewheel/android-ponewheel"

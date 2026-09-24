@@ -77,13 +77,6 @@ device:
     # discovers via zeroconf (its manifest lists exactly these two).
     mdns_service_type: "_philipstv_rpc._tcp.local."
     default_port: 1925
-    identity_keys:
-      # serialnumber/deviceid arrive AES-CBC-encrypted in /{v}/system
-      # (jointspace_common.response_format.encrypted_fields); decrypt with the
-      # published shared key before using them as identity.
-      primary: "serial"
-      secondary: "device_id"
-      display: "name"
 
   discovery:
     methods:

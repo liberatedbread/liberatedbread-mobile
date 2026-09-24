@@ -30,20 +30,26 @@ device:
     authentication. Message syntax: <id> <args> <terminator>, terminator always
     byte 0x7e ('~').
 
-    COMMANDS (decimal ids; iBrew shows them in hex):
-      21   turn on / boil (optional target-temperature argument)
-      22   turn off
-      64 (0x40) get device info — used for UDP-broadcast discovery after setup
-      109  firmware-update mode (disables Wi-Fi, creates an "iKettle Update" AP)
+    IDs are written as hex wire byte with decimal in brackets, "0x15 (21)".
+    ian-kent/ikettle2 lists them in decimal, iBrew in bare hex, so the same
+    command reads "21" in one and "15" in the other. A bare "21" or "22" put
+    on the wire is a different command (iBrew lists 0x21 as heat-to-stored-
+    defaults and 0x22 as an unknown kettle command), so the base matters.
+    COMMANDS:
+      0x15 (21)   heat / boil; args <temperature> <keep-warm minutes>
+      0x16 (22)   stop heating
+      0x64 (100)  get device info — also the UDP-broadcast discovery probe
+      0x6d (109)  firmware-update mode (disables Wi-Fi, creates an "iKettle
+                  Update" AP)
     RESPONSES:
-      3    command acknowledged
-      20   kettle status (flag byte, temperature, water level)
-      101 (0x65) device info reply, e.g. 65 01 13 7e = device type 0x01 (kettle),
-           firmware 0x13 (19)
-    Water-level quirk: the level byte reads 7 with the kettle OFF its base, 8
-    when ON the base.
+      0x03 (3)    command status (ack)
+      0x14 (20)   kettle status (flag byte, temperature, water level)
+      0x65 (101)  device info reply, e.g. 65 01 13 7e = device type 0x01
+                  (kettle), firmware 0x13 (19)
+    Water-level quirk: the first level byte reads 7 with the kettle OFF its
+    base, 8 when ON the base.
 
-    DISCOVERY: the device-info command (0x64) is used over UDP broadcast after
+    DISCOVERY: the device-info command 0x64 (100) is used over UDP broadcast after
     setup — but this fails on routers that do not forward UDP broadcasts, so a
     direct TCP connection to a known IP is the reliable path.
 
@@ -70,7 +76,7 @@ device:
     methods:
       - type: "mdns"
         mdns:
-          # No mDNS; discovery is the UDP-broadcast device-info command (0x64),
+          # No mDNS; discovery is the UDP-broadcast device-info command 0x64 (100),
           # which many routers drop. Placeholder; direct TCP to a known IP is the
           # reliable path. See protocol_details.smarter_protocol.
           service_type: "_http._tcp.local."
@@ -82,8 +88,8 @@ device:
             display:
               source: "udp:2081#device_type"
         notes: >
-          Real discovery: broadcast the device-info command (0x64) on UDP 2081;
-          devices answer 0x65 with their type + firmware. Broadcast may be
+          Real discovery: broadcast the device-info frame `64 7e` (0x64 = 100)
+          on UDP 2081; devices answer 0x65 (101) with their type + firmware. Broadcast may be
           dropped by the router — prefer a direct TCP connection.
     identity:
       stable_keys: ["mac"]
@@ -95,7 +101,7 @@ device:
     confidence: "low"
     notes: >
       A factory-fresh kettle hosts its own AP for Wi-Fi onboarding; joining it to
-      the home network needs no cloud. The firmware-update command (109) also
+      the home network needs no cloud. The firmware-update command 0x6d (109) also
       creates an "iKettle Update" AP. Onboarding wire steps are not documented
       here.
     methods:
@@ -104,13 +110,13 @@ device:
         description: >
           Join the kettle's setup AP and hand it the home Wi-Fi credentials over
           the port-2081 protocol; it reboots onto the LAN and answers device-info
-          (0x64) there.
+          0x64 (100) there.
         steps:
           - action: "Power a new/reset kettle and join its setup AP."
             actor: "user"
           - action: "Send the home Wi-Fi credentials over the port-2081 protocol."
             actor: "client"
-            expect: "The kettle joins the home network and answers 0x64 device-info."
+            expect: "The kettle joins the home network and answers the 0x64 (100) device-info probe."
     factory_reset:
       applicable: true
       confidence: medium
@@ -118,16 +124,36 @@ device:
         Clears the stored WiFi credentials and the pairing, returning the base
         to onboarding so it can be given a new network.
       description: >
-        The reset lives on the BASE, not the kettle, and the kettle body has to
-        come off to reach it — which is the first thing to get wrong. Three
-        beeps is the confirmation to wait for.
+        On the iKettle 2.0 the community-documented hard reset is holding the
+        power button for about ten seconds; a client can also clear the Wi-Fi
+        over the protocol (reset_wifi). Smarter's own reset article is for
+        the 3rd generation, whose reset lives on the BASE with the kettle
+        body lifted off. It is kept below as a variant procedure because it
+        is the only vendor-documented one, not because it is known to work
+        on a 2.0.
 
-        One detail that saves a support ticket: after the reset the connection
-        light keeps flashing green, which looks exactly like the failure state
-        it looked like before. That is normal, and it does not mean the reset
-        did not take.
+        One detail that saves a support ticket (3rd generation, per Smarter):
+        after the reset the connection light keeps flashing green, which
+        looks exactly like the failure state it looked like before. That is
+        normal, and it does not mean the reset did not take.
       procedures:
-        - name: "Base button held until three beeps, then a power cycle"
+        - name: "Hold the power button for ten seconds (iKettle 2.0)"
+          verified: false
+          basis: "ian-kent/ikettle2 protocol notes: the recovery from command 0x6d (109)'s update mode is a hard reset holding the power button for 10 seconds."
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          steps:
+            - action: "Press and hold the kettle's power button for about ten seconds."
+              actor: "user"
+              expect: "The kettle drops its network settings and comes back up in onboarding (not established which LED pattern confirms it)."
+        - name: "Clear Wi-Fi over the protocol (iKettle 2.0)"
+          verified: false
+          basis: "iBrew: command 0x0c (Join wireless network) sent without a preceding SSID/password resets the Wi-Fi to factory settings; ian-kent/ikettle2 says the same of command 12."
+          steps:
+            - action: "Send reset_wifi on the port-2081 TCP session."
+              actor: "client"
+              expect: "The kettle leaves the network and returns to its setup access point."
+        - name: "Base button held until three beeps, then a power cycle (3rd generation)"
           verified: false
           basis: "Smarter's own support article on resetting the iKettle 3rd generation."
           power_state: "on"
@@ -165,15 +191,16 @@ protocol_details:
   smarter_protocol:
     transport: "port 2081, UDP or TCP, binary"
     framing: "<id> <args> <terminator 0x7e>"
+    id_notation: "hex wire byte, decimal in brackets; ian-kent/ikettle2 lists decimal, iBrew bare hex"
     commands:
-      "21": "turn on / boil (optional target-temperature argument)"
-      "22": "turn off"
-      "0x40 (64)": "get device info (UDP-broadcast discovery after setup)"
-      "109": "firmware-update mode (creates an 'iKettle Update' AP)"
+      "0x15 (21)": "heat / boil; args <temperature 0x00-0x64 = 0-100 C> <keep-warm minutes, 0x00 off or 0x05-0x1e>"
+      "0x16 (22)": "stop heating"
+      "0x64 (100)": "get device info (also the UDP-broadcast discovery probe after setup)"
+      "0x6d (109)": "firmware-update mode (creates an 'iKettle Update' AP)"
     responses:
-      "3": "command acknowledged"
-      "20": "kettle status (flag, temperature, water level)"
-      "0x65 (101)": "device info reply, e.g. 65 01 13 7e = kettle, firmware 19"
+      "0x03 (3)": "command status (ack)"
+      "0x14 (20)": "kettle status (flag, temperature, water level)"
+      "0x65 (101)": "device info reply, e.g. 65 01 13 7e = kettle, firmware 0x13 (19)"
     water_level_quirk: "level byte reads 7 off the base, 8 on the base"
 
 http_endpoints:
@@ -187,20 +214,92 @@ http_endpoints:
 
 commands:
   boil:
-    description: "Turn on / boil (command 21). Optional target-temperature argument."
+    description: >
+      Heat / boil (command 0x15 = 21). Arguments are the target temperature
+      as one byte in degrees C (0x00-0x64 = 0-100) and the keep-warm time in
+      minutes (0x00 off, 0x05-0x1e); iBrew's example `15 32 00 7e` heats to
+      50 C with no keep-warm. The legacy app's use of the second byte reads
+      as a units flag instead, so treat it as keep-warm per iBrew and send 00.
     transport: "tcp-json"
-    body: "21 <target_temp?> 7e"
+    body: "15 <target_temp?> <keep_warm_min?> 7e"
     verification: "reported"
   stop:
-    description: "Turn off (command 22)."
+    description: "Stop heating (command 0x16 = 22)."
     transport: "tcp-json"
-    body: "22 7e"
+    body: "16 7e"
     verification: "reported"
   device_info:
-    description: "Query device type + firmware (command 0x40). Reply 0x65 ..."
+    description: >
+      Query device type + firmware (command 0x64 = 100). Reply
+      `65 <type> <firmware> 7e` (0x65 = 101). The same frame is the UDP
+      discovery broadcast.
     transport: "tcp-json"
     body: "64 7e"
     verification: "reported"
+  reset_wifi:
+    description: >
+      Join wireless network (command 0x0c = 12) with no SSID/password sent
+      first: iBrew and ian-kent/ikettle2 both report that this resets the
+      Wi-Fi to factory settings. The app's normal join sends
+      `0c 7e 00 00 00 00 00 00` after the name and password frames.
+    transport: "tcp-json"
+    body: "0c 7e"
+    verification: "reported"
+    advanced: true
+    advanced_reason: >
+      Forgets the home Wi-Fi: the kettle drops off the network and has to be
+      set up again from its access point.
+  enter_firmware_update:
+    description: >
+      Enter firmware-update mode (command 0x6d = 109). The kettle drops off
+      the home Wi-Fi and raises its own "iKettle Update" access point; iBrew
+      notes it also opens TCP port 6000 there.
+    transport: "tcp-json"
+    body: "6d 7e"
+    verification: "reported"
+    advanced: true
+    advanced_reason: >
+      Takes the kettle off your Wi-Fi and into its update access point, where
+      it waits for a firmware image. Smarter's update service is gone, so there
+      is no image to give it. The community notes get it back with a hard
+      reset (hold the power button about ten seconds) or by pulling power for
+      a moment; neither is verified here.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "tcp"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          The vendor's update service went with the rest of the smart features
+          in 2025. No image source is known.
+      enter:
+        how: "command"
+        command: "enter_firmware_update"
+      dfu_mode:
+        ssid_prefix: "iKettle Update"
+        notes: >
+          The kettle leaves the home network and hosts the "iKettle Update"
+          access point instead; whether the SSID carries a suffix is not
+          established. A client that loses the kettle on the LAN and sees this
+          AP should report it as mid-update, not as a new device.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Entry and the update AP are from the community protocol notes
+        (ian-kent/ikettle2, iBrew), not hardware-verified. The legacy app's
+        own update path (research-notes/smarter-ikettle.md, app-derived and
+        not cross-checked) sends an update-init frame `6E 7E`, then
+        `70 <len32> 7E` followed by 261-byte image blocks with a `7E 7E 7E`
+        trailer, over the port-2081 TCP session. How that relates to command
+        0x6d (109) and the update AP (same flow, or two paths) is not
+        established; neither ian-kent/ikettle2 nor iBrew lists 0x6e (110) or
+        0x70 (112), so the mechanism is `custom` and `6E` is not declared as a
+        command.
 
 entities:
   - platform: "switch"

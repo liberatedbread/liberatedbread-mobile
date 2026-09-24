@@ -832,6 +832,15 @@ IDENTIFICATION_NEAR_MISSES = {
     "service_uuid": "service_uuids",
     "mac_prefix": "mac_prefixes",
     "mdns_service_types": "mdns_service_type",
+    # Two of the three R-221 spellings. The block is closed now, so these
+    # fail the schema too; the table is what turns "additional properties are
+    # not allowed" into the name of the key that was meant. The third,
+    # `local_name_contains`, has no identification-block equivalent (a
+    # substring test lives in `discovery.methods[].ble.local_name`), so it
+    # gets the schema's own message and is not listed here.
+    "local_name": "local_names",
+    "advertisement_names": "local_names",
+    "discovery_notes": "notes",
 }
 
 
@@ -1324,6 +1333,155 @@ def test_ble_name_matchers_state_exactly_one_needle_form(specs):
             )
 
 
+def _ble_manufacturer_matchers(spec: dict):
+    methods = (spec["device"].get("discovery") or {}).get("methods") or []
+    for method in methods:
+        matcher = (method.get("ble") or {}).get("manufacturer_data")
+        if isinstance(matcher, dict):
+            yield matcher
+
+
+def test_manufacturer_data_patterns_start_after_the_company_id(specs):
+    """`pattern` is the payload AFTER the two company-id bytes.
+
+    The catalogue once measured it from both origins at once (S-06): the four
+    specs squatting company id 21076 wrote `54520061`-style patterns that
+    repeated the id, while Braun and banlanx wrote the payload alone. A
+    consumer choosing either origin mismatched half the set -- and the
+    21076 family is distinguishable by nothing else. A pattern beginning with
+    its own company id in little-endian wire order is the regression to catch.
+    """
+    for device_id, spec in specs.items():
+        for matcher in _ble_manufacturer_matchers(spec):
+            pattern = matcher.get("pattern")
+            if not pattern:
+                continue
+            company_id = matcher["company_id"]
+            wire_order = f"{company_id & 0xFF:02x}{company_id >> 8:02x}"
+            assert not pattern.lower().startswith(wire_order), (
+                f"{device_id}: manufacturer_data.pattern {pattern!r} begins with "
+                f"the company id {company_id} in wire order ({wire_order}); "
+                "the pattern is the payload after those two bytes, which "
+                "`company_id` already matched"
+            )
+            mask = matcher.get("mask")
+            if matcher.get("match") == "masked":
+                assert mask and len(mask) == len(pattern), (
+                    f"{device_id}: a masked match needs a `mask` the same "
+                    f"length as its pattern ({pattern!r} vs {mask!r})"
+                )
+
+
+UUID_SHAPE = re.compile(
+    r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+)
+
+
+def _uuid_valued_fields(node, path=""):
+    """Every (path, value) whose key names a UUID field and whose value is one.
+
+    Keys are `uuid`, `characteristic`, `service_uuids` and any `*_uuid` /
+    `*_characteristic`, plus the items of a list under such a key.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else str(key)
+            named = str(key).endswith(("uuid", "uuids", "characteristic"))
+            if named and isinstance(value, str) and UUID_SHAPE.match(value):
+                yield here, value
+            elif named and isinstance(value, list):
+                for i, item in enumerate(value):
+                    if isinstance(item, str) and UUID_SHAPE.match(item):
+                        yield f"{here}[{i}]", item
+            yield from _uuid_valued_fields(value, here)
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            yield from _uuid_valued_fields(item, f"{path}[{i}]")
+
+
+def test_uuid_fields_are_lower_case(specs):
+    """One spelling per UUID, so string comparison finds it.
+
+    hyperice-hypervolt-plus stated its handshake characteristic in upper case
+    and the same characteristic in lower case fourteen lines later (S-03). A
+    consumer that compares strings -- which is every consumer that has not
+    been bitten yet -- resolves one and not the other. Lower case is what the
+    catalogue uses; prose may quote a UUID however the source spelt it.
+    """
+    wrong = [
+        f"{device_id}: {path} = {value}"
+        for device_id, spec in specs.items()
+        for path, value in _uuid_valued_fields(spec)
+        if value != value.lower()
+    ]
+    assert not wrong, "UUID fields must be lower-case hex:\n  " + "\n  ".join(wrong)
+
+
+def _initialization_fixture() -> dict:
+    """A real spec carrying an executable initialization step, for mutation."""
+    for path in SPEC_PATHS:
+        spec = load(path)
+        steps = spec.get("initialization") or []
+        if steps and any(k in steps[0] for k in ("write", "read", "subscribe")):
+            return spec
+    raise AssertionError("no spec carries a top-level executable initialization step")
+
+
+def test_initialization_steps_accept_subscribe_and_when():
+    """The keys six specs already used are declared now (S-01/S-02).
+
+    `subscribe: true` is an operation -- a consumer that only knew `write` and
+    `read` ran neither of SmartDawn's notify-channel steps and every later
+    write was lost. `when: before_each_command` is the KingSmith cadence
+    stated as data instead of a sentence in `notes`.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(_initialization_fixture())
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+    spec["initialization"].append(
+        {
+            "characteristic": "0000fff1-0000-1000-8000-00805f9b34fb",
+            "subscribe": True,
+            "when": "before_each_command",
+            "notes": "synthesised for the schema test",
+        }
+    )
+    assert not list(validator.iter_errors(spec)), (
+        "schema rejected an initialization step using subscribe / when / notes"
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"subscrib": True},
+        {"when": "sometimes"},
+        {"characteristic": "0000FFF1-0000-1000-8000-00805F9B34FB", "read": True},
+    ],
+    ids=["undeclared-key", "bad-when", "upper-case-uuid"],
+)
+def test_initialization_steps_are_closed(mutation):
+    """A step's keys change what it IS, so an unknown one is an error.
+
+    The third case is the convention (lower-case UUIDs) enforced by the
+    sweep above, not by the schema, so it is asserted by the sweep's helper
+    here rather than the validator.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(_initialization_fixture())
+    step = {"characteristic": "0000fff1-0000-1000-8000-00805f9b34fb"}
+    step.update(mutation)
+    spec["initialization"].append(step)
+    if "characteristic" in mutation:
+        assert any(
+            value != value.lower() for _, value in _uuid_valued_fields(spec)
+        ), "the sweep must see the upper-case characteristic"
+    else:
+        assert list(validator.iter_errors(spec)), (
+            f"schema accepted an initialization step with {mutation!r}"
+        )
+
+
 def test_ble_name_matcher_regexes_compile(specs):
     """A `match: regex` needle is a regular expression a consumer can run.
 
@@ -1414,6 +1572,58 @@ def test_format_field_keys_are_declared_in_the_schema(specs):
                     f"{undeclared}, which schema.json does not declare. "
                     f"Declared: {sorted(declared)}"
                 )
+
+
+def test_format_field_device_class_is_shared_with_entities():
+    """`format[].device_class` and `entities[].device_class` are one word.
+
+    The key exists on a format field so a consumer stops inferring a
+    reading's class from substrings of its name (`battery`, `humid`, `temp`).
+    That only helps if both places spell the vocabulary the same way, so the
+    schema routes both through `$defs/device_class` and this test pins the
+    routing: the key must be declared on the field, and it must resolve to
+    the same definition the entity uses.
+    """
+    schema = _schema()
+    field = schema["properties"]["services"]["items"]["properties"][
+        "characteristics"
+    ]["items"]["properties"]["format"]["items"]["properties"]
+    entity = schema["properties"]["entities"]["items"]["properties"]
+    assert "device_class" in field, "format fields cannot state a device class"
+    assert field["device_class"].get("$ref") == "#/$defs/device_class"
+    assert entity["device_class"].get("$ref") == "#/$defs/device_class"
+
+
+def test_format_field_device_class_matches_the_bound_entity(specs):
+    """A field's class and the class of the entity reading it must agree.
+
+    Two statements of one fact; if they drift, a consumer that trusts the
+    field registers the reading under one class and draws the tile under
+    another. Also prints the vocabulary the fields use so an unfamiliar
+    value gets a second look rather than passing silently.
+    """
+    used: set[str] = set()
+    for device_id, spec in specs.items():
+        fields = {}
+        for characteristic in _characteristics(spec):
+            for field in characteristic.get("format") or []:
+                if field.get("device_class"):
+                    used.add(field["device_class"])
+                    fields[(characteristic["uuid"].lower(), field["name"])] = field[
+                        "device_class"
+                    ]
+        for entity in spec.get("entities") or []:
+            uuid = str(entity.get("state_characteristic") or "").lower()
+            mapping = entity.get("state_mapping") or {}
+            bound = fields.get((uuid, mapping.get("value")))
+            if bound is None or not entity.get("device_class"):
+                continue
+            assert entity["device_class"] == bound, (
+                f"{device_id}: entity {entity['name']!r} says device_class "
+                f"{entity['device_class']!r} but the field it binds, "
+                f"{mapping.get('value')!r}, says {bound!r}."
+            )
+    print(f"format-field device classes in use: {sorted(used) or 'none'}")
 
 
 def _command_schema_keys() -> set[str]:
@@ -1551,6 +1761,95 @@ def test_command_parameters_are_all_parameters(specs):
                     )
 
 
+def _first_templated_command(spec: dict) -> dict:
+    for characteristic in _characteristics(spec):
+        for command in (characteristic.get("commands") or {}).values():
+            if isinstance(command, dict) and "template" in command and command.get("parameters"):
+                return command
+    raise AssertionError("fixture has no templated command with parameters")
+
+
+def test_the_schema_rejects_a_command_with_both_value_and_template():
+    """One command, one envelope.
+
+    xkglow-chrome's set_rgb_color carried a fixed `value` beside a
+    parameterised `template` (R-141/R-214). The encoder took the constant and
+    the four sliders it drew wrote pure red whatever was picked; the entity
+    lost its `set_color` role because the command read as fixed. The schema
+    now refuses the pair so the next one is a validation error, not a light
+    that ignores its colour picker.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "xkglow-chrome.yaml")
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+
+    both = copy.deepcopy(spec)
+    command = _first_templated_command(both)
+    command["value"] = [0x00, 0x00, 0x04, 0xFF, 0x00, 0x00]
+    assert list(validator.iter_errors(both)), (
+        "schema accepted a BLE command declaring both `value` and `template`"
+    )
+
+
+def test_no_command_declares_both_value_and_template(specs):
+    """The sweep behind the schema rule, for the failure message."""
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                assert not ("value" in command and "template" in command), (
+                    f"{device_id}: command {name!r} declares both `value` and "
+                    "`template`; a fixed form and a parameterised form are two "
+                    "commands, each bound to its own entity role"
+                )
+
+
+def test_the_schema_rejects_values_on_a_ble_write_parameter():
+    """A write parameter's enumeration is `allowed` + `labels`, never `values`.
+
+    `values` reaches the BLE parameter block through $defs/number_semantics,
+    where it is the decode-side code table of a reading. Nine parameters in
+    three specs wrote `values: {0: off, 1: on}` (S-04) and a consumer that
+    implemented what the block declares saw no constraint and drew a 0..255
+    slider over a two-position switch.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "xkglow-chrome.yaml")
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+
+    tabled = copy.deepcopy(spec)
+    command = _first_templated_command(tabled)
+    next(iter(command["parameters"].values()))["values"] = {"0": "off", "1": "on"}
+    assert list(validator.iter_errors(tabled)), (
+        "schema accepted `values` on a BLE command parameter"
+    )
+
+
+def test_ble_write_parameters_enumerate_with_allowed_and_labels(specs):
+    """The sweep behind the rule above, naming the parameter."""
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                for key, parameter in (command.get("parameters") or {}).items():
+                    if not isinstance(parameter, dict):
+                        continue
+                    assert "values" not in parameter, (
+                        f"{device_id}: {name}.{key} carries `values`, a decode-side "
+                        "code table; a write parameter says `allowed: [..]` + "
+                        "`labels: [..]`"
+                    )
+                    allowed = parameter.get("allowed")
+                    labels = parameter.get("labels")
+                    if allowed is not None and labels is not None:
+                        assert len(allowed) == len(labels), (
+                            f"{device_id}: {name}.{key} has {len(allowed)} allowed "
+                            f"values but {len(labels)} labels"
+                        )
+
+
 def test_locate_commands_are_never_advanced(specs):
     """A locator is a one-tap button; `advanced` means "not one tap".
 
@@ -1643,6 +1942,28 @@ def test_the_schema_enforces_the_button_contract():
         )
 
 
+def _bound_command_name(binding):
+    """The command a role binding names, whichever of its two forms it takes.
+
+    `entities[].commands.<role>` is either the command's name or an object
+    `{command: <name>, values: {<param>: <literal>}}` that fixes arguments
+    as well -- FTMS's Stop and Pause are one `stop_or_pause` write told apart
+    by its `control` byte. Every test that resolves a binding goes through
+    here so neither form is silently skipped.
+    """
+    if isinstance(binding, dict):
+        return binding.get("command")
+    return binding
+
+
+def _declared_commands(spec: dict) -> dict:
+    """Name -> command body, across the top-level map and every characteristic."""
+    declared = dict(spec.get("commands") or {})
+    for characteristic in _characteristics(spec):
+        declared.update(characteristic.get("commands") or {})
+    return declared
+
+
 def test_button_presses_name_a_declared_command(specs):
     """And the half a schema cannot check: the bound name resolves.
 
@@ -1651,17 +1972,79 @@ def test_button_presses_name_a_declared_command(specs):
     spec in the catalogue rather than one device's own test file.
     """
     for device_id, spec in specs.items():
-        declared = set(spec.get("commands") or {})
-        for characteristic in _characteristics(spec):
-            declared |= set(characteristic.get("commands") or {})
+        declared = set(_declared_commands(spec))
         for entity in spec.get("entities") or []:
             if entity.get("platform") != "button":
                 continue
-            bound = (entity.get("commands") or {}).get("press")
+            bound = _bound_command_name((entity.get("commands") or {}).get("press"))
             assert bound in declared, (
                 f"{device_id}: button {entity.get('name')!r} presses "
                 f"{bound!r}, which no command declares"
             )
+
+
+def test_every_role_binding_names_a_declared_command(specs):
+    """Same rule for every role on every platform, in both binding forms.
+
+    The object form `{command, values}` adds a second thing to resolve: each
+    key in `values` must be a parameter the named command declares, because
+    a literal bound to a parameter the template never reads is a byte that
+    silently goes nowhere -- the exact failure the form exists to end.
+    """
+    for device_id, spec in specs.items():
+        declared = _declared_commands(spec)
+        for entity in spec.get("entities") or []:
+            for role, binding in (entity.get("commands") or {}).items():
+                name = _bound_command_name(binding)
+                assert name in declared, (
+                    f"{device_id}: entity {entity.get('name')!r} binds "
+                    f"{role} -> {name!r}, which no command declares"
+                )
+                if not isinstance(binding, dict):
+                    continue
+                command = declared[name] if isinstance(declared[name], dict) else {}
+                parameters = set(command.get("parameters") or {})
+                stray = sorted(set(binding.get("values") or {}) - parameters)
+                assert not stray, (
+                    f"{device_id}: entity {entity.get('name')!r} role {role} "
+                    f"fixes {stray} on {name!r}, which declares only "
+                    f"{sorted(parameters)}"
+                )
+
+
+def test_the_schema_accepts_both_role_binding_forms():
+    """The object form is a contract, so its shape is enforced, not described.
+
+    A binding that misspells `values`, or names no command, must fail
+    validation rather than parse as a control that never sends anything.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "ftms-fitness-machine-service.yaml")
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+
+    def with_press(binding) -> dict:
+        broken = copy.deepcopy(spec)
+        broken["entities"] = [
+            {"platform": "button", "name": "B", "commands": {"press": binding}}
+        ]
+        return broken
+
+    assert not list(validator.iter_errors(with_press("start_or_resume")))
+    assert not list(
+        validator.iter_errors(
+            with_press({"command": "stop_or_pause", "values": {"control": 1}})
+        )
+    )
+    for label, binding in (
+        ("no command", {"values": {"control": 1}}),
+        ("no values", {"command": "stop_or_pause"}),
+        ("empty values", {"command": "stop_or_pause", "values": {}}),
+        ("a misspelled values key", {"command": "stop_or_pause", "value": {"control": 1}}),
+        ("a structured literal", {"command": "stop_or_pause", "values": {"control": [1]}}),
+    ):
+        assert list(validator.iter_errors(with_press(binding))), (
+            f"the schema must reject a role binding with {label}"
+        )
 
 
 def test_endianness_is_declared_the_same_way_everywhere():
@@ -1930,6 +2313,156 @@ def test_an_undeclared_device_key_is_rejected(closed_world_spec):
     spec = copy.deepcopy(closed_world_spec)
     spec["device"]["transprot"] = "http"
     assert list(validator.iter_errors(spec)), "schema accepted a typo'd device key"
+
+
+def test_the_schema_shapes_managed_by(closed_world_spec):
+    """`device.managed_by` is read by key by a consumer answering "is this
+    driven elsewhere, and where" -- so its shape is enforced, not described."""
+    validator = Draft202012Validator(_schema())
+
+    def with_managed_by(block) -> dict:
+        spec = copy.deepcopy(closed_world_spec)
+        spec["device"]["managed_by"] = block
+        return spec
+
+    good = {
+        "spec": "ubiquiti-unifi-device",
+        "discovery": {"platform_prefixes": ["UNVR"]},
+    }
+    assert not list(validator.iter_errors(with_managed_by(good)))
+    for label, block in (
+        ("no spec", {"discovery": {"platform_prefixes": ["UNVR"]}}),
+        ("a spec that is not a slug", {**good, "spec": "ubiquiti-unifi-device.yaml"}),
+        ("an empty discovery block", {**good, "discovery": {}}),
+        ("an unknown discovery signal", {**good, "discovery": {"platform": "UNVR"}}),
+        ("a bare mdns service type", {**good, "discovery": {"mdns_service_type": "_hap._tcp"}}),
+        ("an undeclared key", {**good, "controller": "nvr"}),
+    ):
+        assert list(validator.iter_errors(with_managed_by(block))), (
+            f"the schema must reject managed_by with {label}"
+        )
+
+
+def test_managed_by_and_platform_tables_resolve(specs):
+    """The half the schema cannot check: the controller's spec exists, and the
+    prefixes a device says to look for are rows of that spec's platform
+    table. A dangling reference here is a consumer that tells the user "this
+    is managed elsewhere" and cannot say where."""
+    for device_id, spec in specs.items():
+        ident = spec["device"].get("identification") or {}
+        for row in ident.get("platform_prefixes") or []:
+            if row.get("spec"):
+                assert row["spec"] in specs, (
+                    f"{device_id}: platform prefix {row['prefix']!r} hands off "
+                    f"to spec {row['spec']!r}, which does not exist"
+                )
+        managed = spec["device"].get("managed_by")
+        if not managed:
+            continue
+        controller = specs.get(managed["spec"])
+        assert controller is not None, (
+            f"{device_id}: managed_by names spec {managed['spec']!r}, which "
+            "does not exist"
+        )
+        wanted = (managed.get("discovery") or {}).get("platform_prefixes") or []
+        if not wanted:
+            continue
+        table = (controller["device"].get("identification") or {}).get(
+            "platform_prefixes"
+        ) or []
+        known = {row["prefix"] for row in table}
+        missing = sorted(set(wanted) - known)
+        assert not missing, (
+            f"{device_id}: managed_by looks for platform prefixes {missing}, "
+            f"which {managed['spec']}'s identification.platform_prefixes does "
+            f"not list (it has {sorted(known)})"
+        )
+
+
+def test_the_schema_shapes_verdict_bands(closed_world_spec):
+    """`entities[].bands` is the vendor's green/yellow/red as data; a band with
+    no bound, or a level outside the three, is a verdict nothing can draw."""
+    validator = Draft202012Validator(_schema())
+
+    def with_bands(bands) -> dict:
+        spec = copy.deepcopy(closed_world_spec)
+        spec["entities"] = [
+            {"platform": "sensor", "name": "Radon", "unit": "Bq/m³", "bands": bands}
+        ]
+        return spec
+
+    assert not list(
+        validator.iter_errors(
+            with_bands(
+                [
+                    {"level": "good", "below": 100},
+                    {"level": "fair", "above": 100, "below": 150},
+                    {"level": "poor", "above": 150},
+                ]
+            )
+        )
+    )
+    for label, bands in (
+        ("an empty list", []),
+        ("a band with no bound", [{"level": "poor"}]),
+        ("a level outside good/fair/poor", [{"level": "red", "above": 150}]),
+        ("a bound that is not a number", [{"level": "poor", "above": "150"}]),
+        ("an undeclared key", [{"level": "poor", "above": 150, "colour": "red"}]),
+    ):
+        assert list(validator.iter_errors(with_bands(bands))), (
+            f"the schema must reject bands with {label}"
+        )
+
+
+def test_the_schema_shapes_outcome_envelopes(closed_world_spec):
+    """`payload_formats.<name>.envelope` is what lets a client decode "HTTP 200,
+    read the body" from the spec instead of a hand-mirrored parser."""
+    validator = Draft202012Validator(_schema())
+    good = copy.deepcopy(closed_world_spec["payload_formats"]["V1Envelope"]["envelope"])
+
+    def with_envelope(envelope) -> dict:
+        spec = copy.deepcopy(closed_world_spec)
+        spec["payload_formats"]["V1Envelope"]["envelope"] = envelope
+        return spec
+
+    assert not list(validator.iter_errors(with_envelope(good)))
+    for label, mutate in (
+        ("no container", lambda e: e.pop("container")),
+        ("an unknown container", lambda e: e.update(container="list")),
+        ("no error type path", lambda e: e.pop("error_type_path")),
+        ("an unknown error class", lambda e: e["error_types"]["101"].update({"class": "ignore"})),
+        ("an error type with no class", lambda e: e["error_types"]["101"].pop("class")),
+        ("an undeclared key", lambda e: e.update(status_key="ok")),
+    ):
+        envelope = copy.deepcopy(good)
+        mutate(envelope)
+        assert list(validator.iter_errors(with_envelope(envelope))), (
+            f"the schema must reject an envelope with {label}"
+        )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("local_name_contains", ["Gerbing"]),
+        ("advertisement_names", ["BT-912"]),
+        ("identity_keys", {"primary": "udn"}),
+    ],
+)
+def test_an_undeclared_identification_key_is_rejected(closed_world_spec, key, value):
+    """`device.identification` is closed: a scanner reads it by key.
+
+    Three specs carried their advertised names under keys nothing read
+    (R-221) and validated; forty carried a duplicate of `discovery.identity`
+    the same way. A signal filed under an unknown key never fires, so an
+    unknown key is an error now rather than a silence.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = copy.deepcopy(closed_world_spec)
+    spec["device"]["identification"][key] = value
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted identification.{key}, which no consumer reads"
+    )
 
 
 @pytest.mark.parametrize(
@@ -2529,6 +3062,104 @@ def test_an_mqtt_examples_body_agrees_with_what_the_command_renders(specs):
         )
 
 
+# ── State reads and literal bodies resolve to something a consumer can send ──
+# `state_command` is a NAME and the schema now says so; these are the two
+# catalogue-wide checks that keep it one. sony-bravia and divoom-pixoo used to
+# name JSON-RPC methods and vendor wire tokens here, which parsed, validated,
+# and produced a state poll nothing could issue -- a card with buttons that
+# work and a value that never arrives.
+
+
+def _declared_request_names(spec: dict) -> set[str]:
+    """Everything a `state_command` may resolve to.
+
+    Top-level `commands` keys and `http_endpoints[].name` on the network
+    side; a characteristic's `commands` keys on the BLE side, which is where
+    a GATT command lives (tuya-bt-soil-tester's `dp_query`).
+    """
+    names = set(spec.get("commands") or {})
+    names |= {e.get("name") for e in spec.get("http_endpoints") or []}
+    for service in spec.get("services") or []:
+        for characteristic in service.get("characteristics") or []:
+            names |= set(characteristic.get("commands") or {})
+    names.discard(None)
+    return names
+
+
+def test_every_state_command_resolves_to_a_declared_request(specs):
+    """A `state_command` names a `commands` key, an `http_endpoints` name,
+    or a characteristic command -- never a bare wire token."""
+    unresolved = []
+    for device_id, spec in specs.items():
+        declared = _declared_request_names(spec)
+        for entity in spec.get("entities") or []:
+            name = entity.get("state_command")
+            if name is None:
+                continue
+            if name not in declared:
+                unresolved.append((device_id, entity.get("name"), name))
+    assert not unresolved, (
+        "state_command values that resolve to no `commands` key, "
+        "`http_endpoints[].name` or characteristic command -- declare the "
+        f"request (method, path, body) and point at its name: {unresolved}"
+    )
+
+
+def _literal_body_commands(specs: dict[str, dict]):
+    """(spec, name, command) for every http/websocket command whose `body`
+    carries no `{name}` placeholder and which publishes an `example_body`."""
+    for spec_name, spec in specs.items():
+        device_transport = spec["device"].get("transport")
+        for command_name, command in (spec.get("commands") or {}).items():
+            if not isinstance(command, dict):
+                continue
+            transport = command.get("transport") or device_transport
+            if transport not in {"http", "https", "websocket"}:
+                continue
+            body = command.get("body")
+            example = command.get("example_body")
+            if body is None or example is None or _PLACEHOLDER.search(body):
+                continue
+            yield spec_name, command_name, body, example
+
+
+def test_a_literal_body_renders_to_its_own_example(specs):
+    """Where `body` has no blanks, it IS what goes out, so `example_body`
+    must be the same document -- parsed as JSON where both parse, byte for
+    byte otherwise. vizio-smartcast's KEYLIST commands are why this exists:
+    flat `arguments` rendered to one shape while the example showed the
+    nested one the TV wants, and only the TV noticed.
+    """
+    seen = 0
+    for spec_name, command_name, body, example in _literal_body_commands(specs):
+        seen += 1
+        try:
+            same = json.loads(body) == json.loads(str(example))
+        except ValueError:
+            same = str(body) == str(example)
+        assert same, (
+            f"{spec_name}: command {command_name!r} would send {body!r} but "
+            f"its example_body says {example!r}"
+        )
+    assert seen, "no http/websocket command carries a literal body with an example"
+
+
+def test_network_and_ble_auto_vocabularies_are_one():
+    """The network parameter block copies the BLE `auto` enum rather than
+    $ref-ing it; this is what keeps the copy honest. magic-home's
+    `sum_checksum` validated for as long as the network side had no enum."""
+    schema = _schema()
+    ble = schema["properties"]["services"]["items"]["properties"][
+        "characteristics"
+    ]["items"]["properties"]["commands"]["additionalProperties"]["properties"][
+        "parameters"
+    ]["additionalProperties"]["properties"]["auto"]["enum"]
+    network = schema["properties"]["commands"]["additionalProperties"][
+        "properties"
+    ]["parameters"]["additionalProperties"]["properties"]["auto"]["enum"]
+    assert ble == network, "the two `auto` enums have drifted apart"
+
+
 # ── The WebSocket access surface ────────────────────────────────────────────
 # A consumer opens `websocket.connect`, is authorised by `websocket.pairing`,
 # and turns each command into a frame with the channel the command names. Every
@@ -2677,14 +3308,14 @@ def _credential_consumers(spec):
 
 
 def _issued_credential_names(spec):
-    """Every name a setup method declares it issues."""
+    """Every name a setup method, or one of its stages, declares it issues."""
     methods = ((spec.get("device") or {}).get("setup") or {}).get("methods") or []
-    return {
-        name
-        for method in methods
-        if isinstance(method, dict)
-        for name in (method.get("issues_credentials") or {})
-    }
+    phases = []
+    for method in methods:
+        if isinstance(method, dict):
+            phases.append(method)
+            phases.extend(s for s in method.get("stages") or [] if isinstance(s, dict))
+    return {name for phase in phases for name in (phase.get("issues_credentials") or {})}
 
 
 def test_every_credential_can_be_obtained_or_asked_for(specs):
@@ -3089,3 +3720,197 @@ def test_every_product_fixed_owner_names_a_real_file():
         f"PRODUCT_FIXED_LAN_ADDRESSES owner tokens matching no scanned file "
         f"(a stem must name a spec/note, a path must exist): {dangling}"
     )
+
+
+def test_command_auth_names_declared_schemes(specs):
+    """`auth` on a command names entries of the root `auth_schemes`; a
+    misspelt name is a command no client can authenticate."""
+    for device_id, spec in specs.items():
+        schemes = spec.get("auth_schemes") or {}
+        used = set()
+        for name, command in (spec.get("commands") or {}).items():
+            for scheme in (command or {}).get("auth") or []:
+                assert scheme in schemes, (
+                    f"{device_id}: command {name!r} accepts auth scheme "
+                    f"{scheme!r}, which auth_schemes does not declare"
+                )
+                used.add(scheme)
+        unused = set(schemes) - used
+        assert not unused, f"{device_id}: auth_schemes {sorted(unused)} are used by no command"
+
+
+def test_auth_scheme_placeholders_resolve(specs):
+    """A scheme's `{name}` placeholders are its stored credential or a
+    parameter of every command that uses it -- nothing else fills them."""
+    placeholder = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+    for device_id, spec in specs.items():
+        schemes = spec.get("auth_schemes") or {}
+        for scheme_name, scheme in schemes.items():
+            values = list((scheme.get("headers") or {}).values())
+            values += [scheme.get("username") or "", scheme.get("password") or ""]
+            names = {n for v in values for n in placeholder.findall(v)}
+            for command_name, command in (spec.get("commands") or {}).items():
+                if scheme_name not in ((command or {}).get("auth") or []):
+                    continue
+                params = set((command.get("parameters") or {}))
+                missing = names - params - {scheme.get("credential")}
+                assert not missing, (
+                    f"{device_id}: auth scheme {scheme_name!r} used by "
+                    f"{command_name!r} needs {sorted(missing)}, which is neither "
+                    "the scheme's credential nor a parameter of the command"
+                )
+
+
+def test_auth_scheme_credentials_can_be_obtained(specs):
+    """A scheme that needs a stored credential is useless unless setup says
+    how to get one."""
+    for device_id, spec in specs.items():
+        issued = _issued_credential_names(spec)
+        for scheme_name, scheme in (spec.get("auth_schemes") or {}).items():
+            credential = scheme.get("credential")
+            if credential:
+                assert credential in issued, (
+                    f"{device_id}: auth scheme {scheme_name!r} needs credential "
+                    f"{credential!r}, which no setup method or stage issues"
+                )
+
+
+def _format_fields(spec):
+    for service in spec.get("services") or []:
+        for characteristic in (service or {}).get("characteristics") or []:
+            for field in (characteristic or {}).get("format") or []:
+                yield characteristic, field
+
+
+def test_format_masks_fit_their_field(specs):
+    for device_id, spec in specs.items():
+        for characteristic, field in _format_fields(spec):
+            mask = field.get("mask")
+            if mask is None:
+                continue
+            assert mask < 1 << (8 * field["length"]), (
+                f"{device_id}: {characteristic['uuid']} field {field['name']!r} "
+                f"mask {mask:#x} is wider than its {field['length']}-byte field"
+            )
+
+
+def test_unit_scales_are_keyed_by_units_the_field_can_be_in(specs):
+    """`unit_scales` is looked up by the unit `unit_values` resolved to; a key
+    no unit_values entry produces is a scale nothing ever selects."""
+    for device_id, spec in specs.items():
+        for characteristic, field in _format_fields(spec):
+            scales = field.get("unit_scales")
+            if not scales:
+                continue
+            units = set((field.get("unit_values") or {}).values()) | {field.get("unit")}
+            stray = set(scales) - units
+            assert not stray, (
+                f"{device_id}: {characteristic['uuid']} field {field['name']!r} "
+                f"has unit_scales for {sorted(stray)}, which unit_values never yields"
+            )
+
+
+def _all_commands(spec):
+    """name -> command, across the top-level block and every characteristic."""
+    found = dict(spec.get("commands") or {})
+    for service in spec.get("services") or []:
+        for characteristic in (service or {}).get("characteristics") or []:
+            found.update((characteristic or {}).get("commands") or {})
+    return found
+
+
+def _dfu_blocks(spec):
+    for feature in spec.get("features") or []:
+        if isinstance(feature, dict) and feature.get("dfu"):
+            yield feature["dfu"]
+
+
+def test_dfu_entry_command_exists_and_is_advanced(specs):
+    """The command that reboots a device into its bootloader is one tap from
+    leaving it unusable, so it is `advanced` -- and it must be a real
+    command, or the declaration points nowhere."""
+    for device_id, spec in specs.items():
+        commands = _all_commands(spec)
+        for dfu in _dfu_blocks(spec):
+            enter = dfu.get("enter") or {}
+            name = enter.get("command")
+            if enter.get("how") == "command":
+                assert name, f"{device_id}: dfu.enter.how is command but names none"
+            if not name:
+                continue
+            assert name in commands, (
+                f"{device_id}: dfu.enter.command {name!r} is not a declared command"
+            )
+            assert commands[name].get("advanced") is True, (
+                f"{device_id}: {name!r} enters the bootloader but is not `advanced`"
+            )
+
+
+def test_dfu_services_are_declared_services(specs):
+    """`dfu.services` points a GATT explorer at services to keep read-only;
+    one the spec does not declare cannot be recognised on connect."""
+    for device_id, spec in specs.items():
+        declared = {
+            (service or {}).get("uuid") for service in spec.get("services") or []
+        }
+        for dfu in _dfu_blocks(spec):
+            for uuid in dfu.get("services") or []:
+                assert uuid in declared, (
+                    f"{device_id}: dfu.services lists {uuid}, which `services` "
+                    "does not declare"
+                )
+
+
+def test_dfu_upload_endpoint_exists_and_is_advanced(specs):
+    for device_id, spec in specs.items():
+        endpoints = {
+            (e or {}).get("name"): e for e in spec.get("http_endpoints") or []
+        }
+        for dfu in _dfu_blocks(spec):
+            name = dfu.get("endpoint")
+            if not name:
+                continue
+            assert name in endpoints, (
+                f"{device_id}: dfu.endpoint {name!r} is not an http_endpoints name"
+            )
+            assert endpoints[name].get("advanced") is True, (
+                f"{device_id}: http endpoint {name!r} takes a firmware image but "
+                "is not `advanced`"
+            )
+
+
+def test_feature_variants_name_declared_models_and_do_not_overlap(specs):
+    """`features[].variants` refers to `device.variants[].model`, like an
+    entity's. Two entries of one type covering the same model leave a
+    consumer to guess which one holds for it."""
+    for device_id, spec in specs.items():
+        models = {
+            (v or {}).get("model") for v in spec["device"].get("variants") or []
+        }
+        by_type = {}
+        for feature in spec.get("features") or []:
+            if not isinstance(feature, dict):
+                continue
+            scoped = feature.get("variants")
+            for model in scoped or []:
+                assert model in models, (
+                    f"{device_id}: feature {feature['type']!r} names variant "
+                    f"{model!r}, which device.variants does not declare"
+                )
+            by_type.setdefault(feature["type"], []).append(
+                frozenset(scoped) if scoped else None
+            )
+        for feature_type, scopes in by_type.items():
+            if len(scopes) < 2:
+                continue
+            assert None not in scopes, (
+                f"{device_id}: several {feature_type!r} features and one has no "
+                "`variants`, so it overlaps every other"
+            )
+            seen = set()
+            for scope in scopes:
+                assert not (seen & scope), (
+                    f"{device_id}: variants {sorted(seen & scope)} are covered by "
+                    f"more than one {feature_type!r} feature"
+                )
+                seen |= scope

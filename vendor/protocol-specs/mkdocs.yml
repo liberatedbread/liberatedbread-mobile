@@ -239,6 +239,7 @@ nav:
       - Overview: protocols/index.md
       - Initial Device Setup: protocols/device-setup.md
       - Pairing, Bonding and Unpairing: protocols/pairing.md
+      - Firmware Update (DFU / OTA): protocols/firmware-update.md
       - Common BLE Patterns: protocols/ble-common.md
       - Common WiFi Patterns: protocols/wifi-common.md
       - Common OBD-II Patterns: protocols/obd2-common.md

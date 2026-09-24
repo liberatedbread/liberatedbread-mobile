@@ -64,9 +64,66 @@ device:
       - "Nuki_SL_"
       - "Nuki_Opener_"
       - "Nuki_Door_Sensor_"
+    # What a Nuki advertises depends on its state (the app's scanner, and
+    # the official BLE API for the keyturner): the x000 Initialization UUID
+    # while uninitialized, the x100 Pairing Service while in pairing mode,
+    # and once paired an iBeacon whose proximity UUID is the x200 command
+    # service (manufacturer_data below; discovery carries the pattern). A
+    # matcher on x000 alone never finds a lock that is already set up.
     service_uuids:
-      # Keyturner service, advertised by the lock itself.
-      - "a92ee000-5501-11e4-916c-0800200c9a66"
+      - "a92ee000-5501-11e4-916c-0800200c9a66"   # Smart Lock 1-4, uninitialized
+      - "a92ee100-5501-11e4-916c-0800200c9a66"   # Smart Lock 1-4, pairing mode
+      - "a92ee400-5501-11e4-916c-0800200c9a66"   # Smart Lock 5th gen, uninitialized (app-derived)
+      - "a92ee300-5501-11e4-916c-0800200c9a66"   # Smart Lock 5th gen, pairing mode
+      - "a92ae000-5501-11e4-916c-0800200c9a66"   # Opener, uninitialized
+      - "a92ae100-5501-11e4-916c-0800200c9a66"   # Opener, pairing mode
+    manufacturer_data:
+      company_id: 76
+      company_id_hex: "0x004C"
+      description: >
+        Apple's company ID, carrying an iBeacon (02 15 + 16-byte proximity
+        UUID + major + minor + TX power). Only the proximity UUID makes it a
+        Nuki: a92ee200-... for a paired Smart Lock, a92ae200-... for a
+        paired Opener. On its own, 0x004C says nothing.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Nuki_"
+          service_uuids:
+            - "a92ee000-5501-11e4-916c-0800200c9a66"
+            - "a92ee100-5501-11e4-916c-0800200c9a66"
+            - "a92ee400-5501-11e4-916c-0800200c9a66"
+            - "a92ee300-5501-11e4-916c-0800200c9a66"
+            - "a92ae000-5501-11e4-916c-0800200c9a66"
+            - "a92ae100-5501-11e4-916c-0800200c9a66"
+        notes: "Uninitialized and pairing-mode devices."
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 76
+            match: "prefix"
+            pattern: "0215a92ee200550111e4916c0800200c9a66"
+            description: "iBeacon with the Smart Lock command-service UUID as proximity UUID: a paired Smart Lock."
+        notes: "App-derived (its paired-device scan filter), not captured."
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 76
+            match: "prefix"
+            pattern: "0215a92ae200550111e4916c0800200c9a66"
+            description: "iBeacon with the Opener command-service UUID as proximity UUID: a paired Opener."
+        notes: "App-derived (its paired-device scan filter), not captured."
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The iBeacon's major/minor are not established as a per-unit id, so
+        the BLE address is the key.
+    static_ip_required: false
   setup:
     required: true
     confidence: medium
@@ -282,159 +339,255 @@ ble:
 
 services:
   # --- Keyturner (Smart Lock) ---
-  # GATT roles corrected against the official Nuki BLE API V2.3.0 (2025-01-08):
-  # A92EE000 is the Initialization Service (advertises the uninitialized
-  # state, has NO characteristics of its own), A92EE100 is the Pairing
-  # Service, A92EE200 is the Keyturner (command) Service with A92EE201 =
-  # General Data IO (unencrypted) and A92EE202 = User-Specific Data IO
-  # (encrypted). The nested list below keeps the repo's flat layout.
-  # Unmapped: the app's BleConstants also carry A92DE000 (with A92DE001-DE003)
-  # and A92FE000 (with A92FE001/FE002), plus the Smart Lock Ultra pairing
-  # service A92EE300 — three further service prefixes with no device role
-  # established here (app-derived, not hardware-verified).
-  - uuid: "A92EE000-5501-11E4-916C-0800200C9A66"
+  # GATT layout per the official Nuki BLE API V2.3.0 (2025-01-08) and V2.3.1
+  # (2026-05-29): separate services. A92EE000 is the Initialization Service
+  # (advertises the uninitialized state, has NO characteristics of its own),
+  # A92EE100 is the Pairing Service carrying Pairing GDIO A92EE101 (Smart Lock
+  # 1-4), A92EE300 is the Pairing Service carrying Pairing GDIO A92EE301 (5th
+  # generation: Ultra/Pro/Go, V2.3.1), and A92EE200 is the Keyturner (command)
+  # Service with A92EE201 = General Data IO (unencrypted) and A92EE202 =
+  # User-Specific Data IO (encrypted).
+  #
+  # The app's BLE constants add, for the same family: A92EEF00 (an advertised
+  # UUID its scanner reads as "maintenance mode"), A92EE400 (the 5th-gen
+  # counterpart of A92EE000 in its scanner) and A92EE203 (a fifth request
+  # channel the app addresses under A92EE200). Opener (A92AExxx), Smart Door
+  # (A92AAxxx) and Door Sensor (A92ABxxx) follow below. Keypad (A92CExxx),
+  # Keypad 2.0 (A92DExxx), Fob (A92CFxxx) and Box (A92BExxx) are listed under
+  # protocol_details.additional_devices; the app's Bridge family (A92FE000
+  # with A92FE001/FE002) is not modelled here.
+  - uuid: "a92ee000-5501-11e4-916c-0800200c9a66"
     name: "Keyturner Initialization Service"
-    description: "Advertises the uninitialized state; has no characteristics of its own (official BLE API V2.3.0). The entries below are the separate keyturner services/characteristics, kept here for reference."
+    description: "Advertises the uninitialized state; has no characteristics of its own (official BLE API V2.3.0)."
+    notes: "Advertisement-only: its presence in a scan means the lock is not yet paired. Nothing to read or write under it."
+    device: "smart_lock"
+
+  - uuid: "a92eef00-5501-11e4-916c-0800200c9a66"
+    name: "Keyturner Maintenance-Mode Advertisement"
+    description: >
+      Advertised service UUID that the app's scanner reads as "device
+      initialized, in maintenance mode" (it sits beside A92EE000 =
+      uninitialized and A92EE100 = pairing mode in the same scan-filter set).
+      Not in the official BLE API. Earlier revisions of this spec listed it as
+      a pairing-data characteristic; nothing in the app uses it as a
+      characteristic. What maintenance mode is (bootloader/DFU is likely) is
+      unverified.
+    notes: "App-derived advertisement role only. Whether the device exposes a GATT service with this UUID in maintenance mode, and what characteristics it carries, has not been observed."
+    device: "smart_lock"
+
+  - uuid: "a92ee100-5501-11e4-916c-0800200c9a66"
+    name: "Keyturner Pairing Service"
+    description: "Pairing service for initial authorization (Smart Lock 1-4; 5th generation uses A92EE300), official BLE API V2.3.0. Also advertised while the lock is in pairing mode."
     device: "smart_lock"
     characteristics:
-      - uuid: "A92EE101-5501-11E4-916C-0800200C9A66"
-        name: "Keyturner Data"
-        type: "data"
-        description: >
-          Command/response characteristic for lock operations, configuration,
-          state queries, and firmware updates. Supports write, read, notify.
-        properties: ["write", "read", "notify", "indicate"]
-      - uuid: "A92EE100-5501-11E4-916C-0800200C9A66"
-        name: "Keyturner Pairing Service"
+      - uuid: "a92ee101-5501-11e4-916c-0800200c9a66"
+        name: "Keyturner Pairing General Data IO"
         type: "pairing"
-        description: "Pairing service for initial authorization (SL 1-4; Smart Lock Ultra uses A92EE300 instead)"
-        properties: ["write", "read", "notify"]
-      - uuid: "A92EEF00-5501-11E4-916C-0800200C9A66"
-        name: "Keyturner Pairing Data"
-        type: "pairing_data"
-        description: "Pairing data characteristic (present in the app's BleConstants; not listed in the official BLE API V2.3.0)"
-        properties: ["write", "read", "notify"]
-      - uuid: "A92EE200-5501-11E4-916C-0800200C9A66"
-        name: "Keyturner Service (command service)"
-        type: "data"
-        description: "Keyturner command service per official BLE API V2.3.0 (NOT a firmware service); carries the data IO characteristics below"
-        properties: ["write", "notify"]
-      - uuid: "A92EE201-5501-11E4-916C-0800200C9A66"
+        description: >
+          Pairing GDIO: the unencrypted channel the authorization handshake
+          runs over (official BLE API V2.3.0). Lock operations, configuration
+          and state queries go over the Keyturner Service's data IO
+          characteristics (a92ee201 / a92ee202).
+        # Official BLE API V2.3.1: write (long) + indicate on every data IO
+        # characteristic, not notify.
+        properties: ["write", "indicate"]
+
+  - uuid: "a92ee200-5501-11e4-916c-0800200c9a66"
+    name: "Keyturner Service (command service)"
+    description: "Keyturner command service per official BLE API V2.3.0 (NOT a firmware service). A paired lock advertises this UUID as its iBeacon proximity UUID (app scan filter)."
+    device: "smart_lock"
+    characteristics:
+      - uuid: "a92ee201-5501-11e4-916c-0800200c9a66"
         name: "Keyturner General Data IO"
         type: "data"
         description: "General Data IO characteristic — unencrypted command channel (official BLE API V2.3.0)"
-        properties: ["write", "notify"]
-      - uuid: "A92EE202-5501-11E4-916C-0800200C9A66"
+        properties: ["write", "indicate"]
+      - uuid: "a92ee202-5501-11e4-916c-0800200c9a66"
         name: "Keyturner User-Specific Data IO"
         type: "data"
         description: "User-Specific Data IO characteristic — encrypted command channel (official BLE API V2.3.0); used by pyNukiBT/NukiBleEsp32"
-        properties: ["write", "notify"]
-      - uuid: "A92EE203-5501-11E4-916C-0800200C9A66"
-        name: "Keyturner Firmware Verify"
-        type: "firmware_verify"
-        description: "Present in the app's BleConstants; not listed in the official BLE API V2.3.0 — role unverified"
-        properties: ["write", "read"]
+        properties: ["write", "indicate"]
+      - uuid: "a92ee203-5501-11e4-916c-0800200c9a66"
+        name: "Keyturner Auxiliary Data IO"
+        type: "data"
+        description: >
+          Not in the official BLE API. The app's request layer routes one of
+          its request channels (distinct from the GDIO and USDIO channels) to
+          this characteristic under A92EE200, so the parent service is
+          app-derived; the role of that channel is unverified. Earlier
+          revisions of this spec called it "Firmware Verify" with no evidence.
+          Properties are not stated anywhere and are assumed.
+        properties: ["write", "indicate"]
 
-  # --- Keypad (paired with Keyturner) ---
-  - uuid: "A92EE400-5501-11E4-916C-0800200C9A66"
-    name: "Keypad Pairing Service"
-    description: "Keypad pairing with parent Smart Lock"
-    device: "keypad"
+  - uuid: "a92ee300-5501-11e4-916c-0800200c9a66"
+    name: "Keyturner Pairing Service (5th generation)"
+    description: >
+      Pairing service of Smart Lock 5th generation (Ultra/Pro/Go), official
+      BLE API V2.3.1; pyNukiBT's Ultra class uses the same pair. The app uses
+      it for device type 5 and also scans for it as the "pairing mode"
+      advertisement of those locks. Earlier revisions of this spec labelled
+      it a Keypad service.
+    device: "smart_lock"
     characteristics:
-      - uuid: "A92EE300-5501-11E4-916C-0800200C9A66"
-        name: "Keypad Data Service"
-        type: "data"
-        properties: ["write", "read", "notify"]
-      - uuid: "A92EE301-5501-11E4-916C-0800200C9A66"
-        name: "Keypad Data"
-        type: "data"
-        properties: ["write", "read", "notify"]
+      - uuid: "a92ee301-5501-11e4-916c-0800200c9a66"
+        name: "Keyturner Pairing General Data IO (5th generation)"
+        type: "pairing"
+        description: "Unencrypted pairing GDIO for 5th-gen locks (official BLE API V2.3.1: write (long), indicate)."
+        properties: ["write", "indicate"]
+
+  - uuid: "a92ee400-5501-11e4-916c-0800200c9a66"
+    name: "Keyturner Initialization Service (5th generation)"
+    description: >
+      App-derived: the app's scanner for 5th-gen locks treats this advertised
+      UUID as "uninitialized", the role A92EE000 has for Smart Lock 1-4. Not
+      in the official BLE API V2.3.1. Earlier revisions of this spec called it
+      a Keypad Pairing Service; nothing in the app ties it to the Keypad.
+    notes: "Advertisement role is app-derived only; no characteristics are defined for it in the app, and whether it is a GATT service at all on hardware is unverified."
+    device: "smart_lock"
 
   # --- Opener ---
-  - uuid: "A92AE000-5501-11E4-916C-0800200C9A66"
-    name: "Opener Service"
-    description: "Primary GATT service for Nuki Opener (door intercom opener)"
+  # Official Nuki Opener BLE API V1.1.0 (2020-08-07) documents three services
+  # (Initialization / Pairing with GDIO / Opener Service with GDIO + USDIO),
+  # but prints them with the keyturner's a92ee... prefix -- a copy-paste error
+  # reported on the Nuki developer forum; the Opener announces a92ae....
+  # The a92ae UUIDs and their parents are confirmed by the app's BLE constants
+  # and request routing, NukiBleEsp32 (NukiOpenerConstants.h) and pyNukiBT.
+  - uuid: "a92ae000-5501-11e4-916c-0800200c9a66"
+    name: "Opener Initialization Service"
+    description: "Advertises the uninitialized state of an Opener; has no characteristics (Opener BLE API V1.1.0, with the a92ae prefix correction)."
+    notes: "Advertisement-only, like the keyturner's A92EE000: present in a scan while the Opener is not yet paired."
+    device: "opener"
+
+  - uuid: "a92aef00-5501-11e4-916c-0800200c9a66"
+    name: "Opener Maintenance-Mode Advertisement"
+    description: "Advertised UUID the app's Opener scanner reads as 'initialized, maintenance mode'. Not in the official Opener API; previously listed here as a pairing-data characteristic."
+    notes: "App-derived advertisement role only; whether a GATT service with characteristics exists under it is unverified."
+    device: "opener"
+
+  - uuid: "a92ae100-5501-11e4-916c-0800200c9a66"
+    name: "Opener Pairing Service"
+    description: "Pairing service for initial authorization (Opener BLE API V1.1.0; UUID per the app, NukiBleEsp32 and pyNukiBT). Also advertised while the Opener is in pairing mode."
     device: "opener"
     characteristics:
-      - uuid: "A92AE101-5501-11E4-916C-0800200C9A66"
-        name: "Opener Data"
-        type: "data"
-        properties: ["write", "read", "notify", "indicate"]
-      - uuid: "A92AE100-5501-11E4-916C-0800200C9A66"
-        name: "Opener Pairing Service"
+      - uuid: "a92ae101-5501-11e4-916c-0800200c9a66"
+        name: "Opener Pairing General Data IO"
         type: "pairing"
-        properties: ["write", "read", "notify"]
-      - uuid: "A92AEF00-5501-11E4-916C-0800200C9A66"
-        name: "Opener Pairing Data"
-        type: "pairing_data"
-        properties: ["write", "read", "notify"]
-      - uuid: "A92AE200-5501-11E4-916C-0800200C9A66"
-        name: "Opener Firmware"
-        type: "firmware"
-        properties: ["write", "notify"]
-      - uuid: "A92AE201-5501-11E4-916C-0800200C9A66"
-        name: "Opener Firmware Data"
-        type: "firmware_data"
-        properties: ["write", "notify"]
-      - uuid: "A92AE202-5501-11E4-916C-0800200C9A66"
-        name: "Opener Firmware Status"
-        type: "firmware_status"
-        properties: ["notify", "read"]
-      - uuid: "A92AE203-5501-11E4-916C-0800200C9A66"
-        name: "Opener Firmware Verify"
-        type: "firmware_verify"
-        properties: ["write", "read"]
+        description: "Unencrypted pairing GDIO the authorization handshake runs over (Opener BLE API V1.1.0: write (long), indicate). Not the command channel."
+        properties: ["write", "indicate"]
 
-  # --- Door Sensor ---
-  - uuid: "A92AA000-5501-11E4-916C-0800200C9A66"
+  - uuid: "a92ae200-5501-11e4-916c-0800200c9a66"
+    name: "Opener Service (command service)"
+    description: "Opener command service (Opener BLE API V1.1.0; UUID per the app, NukiBleEsp32 and pyNukiBT). NOT a firmware service. A paired Opener advertises this UUID as its iBeacon proximity UUID (app scan filter)."
+    device: "opener"
+    characteristics:
+      - uuid: "a92ae201-5501-11e4-916c-0800200c9a66"
+        name: "Opener General Data IO"
+        type: "data"
+        description: "General Data IO — unencrypted channel (Opener BLE API V1.1.0: write (long), indicate)."
+        properties: ["write", "indicate"]
+      - uuid: "a92ae202-5501-11e4-916c-0800200c9a66"
+        name: "Opener User-Specific Data IO"
+        type: "data"
+        description: "User-Specific Data IO — encrypted command channel (Opener BLE API V1.1.0: write (long), indicate); the characteristic NukiBleEsp32 and pyNukiBT send Opener commands on."
+        properties: ["write", "indicate"]
+      - uuid: "a92ae203-5501-11e4-916c-0800200c9a66"
+        name: "Opener Auxiliary Data IO"
+        type: "data"
+        description: "Not in the official Opener API. The app routes a separate request channel to it under A92AE200 (parent app-derived); role unverified. Properties assumed."
+        properties: ["write", "indicate"]
+
+  # --- Smart Door (device type 3) ---
+  # The A92AAxxx family is the Nuki Smart Door (a door with a built-in Nuki
+  # lock; device type 3), NOT the Door Sensor: the app's scanner, pairing and
+  # command routing for this family all belong to its "Door" device, which
+  # carries a full lock feature set (authorizations, keypad codes, time
+  # control, its own door-sensor config). The layout mirrors the keyturner
+  # and Opener. No official BLE API is published for it; everything here is
+  # app-derived and not hardware-verified.
+  - uuid: "a92aa000-5501-11e4-916c-0800200c9a66"
+    name: "Smart Door Initialization Service"
+    description: "App-derived: advertised UUID the app's Door scanner reads as 'uninitialized', mirroring A92EE000/A92AE000."
+    notes: "Advertisement role only; no characteristics are defined for it in the app. Not hardware-verified."
+    device: "smart_door"
+
+  - uuid: "a92aaf00-5501-11e4-916c-0800200c9a66"
+    name: "Smart Door Maintenance-Mode Advertisement"
+    description: "App-derived: advertised UUID the app's Door scanner reads as 'initialized, maintenance mode'. Previously listed here as a pairing-data characteristic."
+    notes: "App-derived advertisement role only; whether a GATT service with characteristics exists under it is unverified."
+    device: "smart_door"
+
+  - uuid: "a92aa100-5501-11e4-916c-0800200c9a66"
+    name: "Smart Door Pairing Service"
+    description: "App-derived: the service the app pairs a Door through (and the pairing-mode advertisement)."
+    device: "smart_door"
+    characteristics:
+      - uuid: "a92aa101-5501-11e4-916c-0800200c9a66"
+        name: "Smart Door Pairing General Data IO"
+        type: "pairing"
+        description: "App-derived: the unencrypted pairing characteristic under A92AA100. Properties assumed by analogy with the keyturner/Opener pairing GDIO."
+        properties: ["write", "indicate"]
+
+  - uuid: "a92aa200-5501-11e4-916c-0800200c9a66"
+    name: "Smart Door Service (command service)"
+    description: "App-derived: the Door's command service (also its iBeacon proximity UUID when paired). NOT a firmware service."
+    device: "smart_door"
+    characteristics:
+      - uuid: "a92aa201-5501-11e4-916c-0800200c9a66"
+        name: "Smart Door General Data IO"
+        type: "data"
+        description: "App-derived: unencrypted request channel. Properties assumed by analogy."
+        properties: ["write", "indicate"]
+      - uuid: "a92aa202-5501-11e4-916c-0800200c9a66"
+        name: "Smart Door User-Specific Data IO"
+        type: "data"
+        description: "App-derived: encrypted command channel. Properties assumed by analogy."
+        properties: ["write", "indicate"]
+      - uuid: "a92aa203-5501-11e4-916c-0800200c9a66"
+        name: "Smart Door Auxiliary Data IO"
+        type: "data"
+        description: "App-derived: a separate request channel under A92AA200; role unverified. Properties assumed."
+        properties: ["write", "indicate"]
+
+  # --- Door Sensor (device type 15) ---
+  # App-derived only (no official BLE API): one service, which the app also
+  # scans for as the sensor's advertisement and uses for pairing, carrying
+  # three characteristics. Not hardware-verified.
+  - uuid: "a92ab000-5501-11e4-916c-0800200c9a66"
     name: "Door Sensor Service"
-    description: "Nuki Door Sensor — magnetic door open/close detection"
+    description: "App-derived: the Door Sensor's single service; its advertised UUID, pairing service and request service in the app. Magnetic door open/close detection."
     device: "door_sensor"
     characteristics:
-      - uuid: "A92AA101-5501-11E4-916C-0800200C9A66"
-        name: "Door Sensor Data"
+      - uuid: "a92ab001-5501-11e4-916c-0800200c9a66"
+        name: "Door Sensor General Data IO"
         type: "data"
-        properties: ["write", "read", "notify"]
-      - uuid: "A92AA100-5501-11E4-916C-0800200C9A66"
-        name: "Door Sensor Pairing"
-        type: "pairing"
-        properties: ["write", "read", "notify"]
-      - uuid: "A92AAF00-5501-11E4-916C-0800200C9A66"
-        name: "Door Sensor Pairing Data"
-        type: "pairing_data"
-        properties: ["write", "read", "notify"]
-      - uuid: "A92AA200-5501-11E4-916C-0800200C9A66"
-        name: "Door Sensor Firmware"
-        type: "firmware"
-        properties: ["write", "notify"]
-      - uuid: "A92AA201-5501-11E4-916C-0800200C9A66"
-        name: "Door Sensor Firmware Data"
-        type: "firmware_data"
-        properties: ["write", "notify"]
-      - uuid: "A92AA202-5501-11E4-916C-0800200C9A66"
-        name: "Door Sensor Firmware Status"
-        type: "firmware_status"
-        properties: ["notify", "read"]
-      - uuid: "A92AA203-5501-11E4-916C-0800200C9A66"
-        name: "Door Sensor Firmware Verify"
-        type: "firmware_verify"
-        properties: ["write", "read"]
+        description: "App-derived: unencrypted channel, used for both pairing and plain requests. Properties assumed by analogy."
+        properties: ["write", "indicate"]
+      - uuid: "a92ab002-5501-11e4-916c-0800200c9a66"
+        name: "Door Sensor Encrypted Data IO"
+        type: "data"
+        description: "App-derived: encrypted channel, keyed with a Door-Sensor-specific shared key. Properties assumed by analogy."
+        properties: ["write", "indicate"]
+      - uuid: "a92ab003-5501-11e4-916c-0800200c9a66"
+        name: "Door Sensor Auxiliary Data IO"
+        type: "data"
+        description: "App-derived: a separate request channel; role unverified. Properties assumed."
+        properties: ["write", "indicate"]
 
   # --- Standard Device Information ---
-  - uuid: "0000180A-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information Service"
     description: "Standard BLE Device Information (model, serial, firmware)"
     device: "all"
     characteristics:
-      - uuid: "00002A24-0000-1000-8000-00805F9B34FB"
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
         name: "Model Number String"
         type: "device_info"
         properties: ["read"]
-      - uuid: "00002A25-0000-1000-8000-00805F9B34FB"
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
         name: "Serial Number String"
         type: "device_info"
         properties: ["read"]
-      - uuid: "00002A26-0000-1000-8000-00805F9B34FB"
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
         name: "Firmware Revision String"
         type: "device_info"
         properties: ["read"]
@@ -447,9 +600,15 @@ advertising:
     - "Nuki_Opener_"
     - "Nuki_Door_Sensor_"
   service_uuids:
-    - "A92EE000-5501-11E4-916C-0800200C9A66"   # Keyturner
-    - "A92AE000-5501-11E4-916C-0800200C9A66"   # Opener
-    - "A92AA000-5501-11E4-916C-0800200C9A66"   # Door Sensor
+    # Per the app's scanner, each family advertises its x000 UUID while
+    # uninitialized, x100 in pairing mode, xF00 in maintenance mode, and an
+    # iBeacon whose proximity UUID is its x200 command service once paired.
+    # Only the uninitialized-state UUIDs are listed here.
+    - "a92ee000-5501-11e4-916c-0800200c9a66"   # Keyturner (Smart Lock 1-4) Initialization Service
+    - "a92ee400-5501-11e4-916c-0800200c9a66"   # Keyturner 5th gen, uninitialized (app-derived)
+    - "a92ae000-5501-11e4-916c-0800200c9a66"   # Opener Initialization Service
+    - "a92aa000-5501-11e4-916c-0800200c9a66"   # Smart Door, uninitialized (app-derived)
+    - "a92ab000-5501-11e4-916c-0800200c9a66"   # Door Sensor service (app-derived)
   scan_response:
     prefix: "0201061521"
     ibeacon_prefix: "0201061AFF4C000215"
@@ -465,9 +624,13 @@ protocol_details:
   additional_devices:
     opener:
       name: "Nuki Opener"
-      service_uuid: "A92AE000-5501-11E4-916C-0800200C9A66"
-      data_characteristic: "A92AE101-5501-11E4-916C-0800200C9A66"
-      description: "Retrofit intercom door opener. Uses same command protocol as Smart Lock."
+      # Command service / encrypted command characteristic, as NukiBleEsp32
+      # and pyNukiBT use them; pairing goes over a92ae100 / a92ae101.
+      service_uuid: "a92ae200-5501-11e4-916c-0800200c9a66"
+      data_characteristic: "a92ae202-5501-11e4-916c-0800200c9a66"
+      pairing_service_uuid: "a92ae100-5501-11e4-916c-0800200c9a66"
+      pairing_characteristic: "a92ae101-5501-11e4-916c-0800200c9a66"
+      description: "Retrofit intercom door opener. Uses same command protocol as Smart Lock (official Nuki Opener BLE API V1.1.0)."
       commands:
         opener_lock_action:
           id: 13
@@ -482,40 +645,69 @@ protocol_details:
           name: "OpenerStatusResponse"
           description: "Simple open/closed status"
 
-    door_sensor:
-      name: "Nuki Door Sensor"
-      service_uuid: "A92AA000-5501-11E4-916C-0800200C9A66"
-      data_characteristic: "A92AA101-5501-11E4-916C-0800200C9A66"
-      description: "Magnetic door sensor for detecting open/closed state."
+    smart_door:
+      name: "Nuki Smart Door"
+      # App-derived (device type 3); this entry was previously labelled
+      # "Door Sensor". The states/status responses below belong to this
+      # device in the app, not to the Door Sensor.
+      service_uuid: "a92aa200-5501-11e4-916c-0800200c9a66"
+      data_characteristic: "a92aa202-5501-11e4-916c-0800200c9a66"
+      pairing_service_uuid: "a92aa100-5501-11e4-916c-0800200c9a66"
+      pairing_characteristic: "a92aa101-5501-11e4-916c-0800200c9a66"
+      description: "Door with an integrated Nuki lock (authorizations, keypad codes, time control and its own door-sensor config in the app). Not hardware-verified."
       commands:
-        door_sensor_states:
+        door_states:
           id: 12
           name: "DoorStatesResponse"
-          description: "Door sensor state (open/closed/calibrating)"
-        door_sensor_status:
+          description: "Smart Door state"
+        door_status:
           id: 14
           name: "DoorStatusResponse"
-          description: "Simple door open/closed status"
+          description: "Simple Smart Door status"
+
+    door_sensor:
+      name: "Nuki Door Sensor"
+      # App-derived (device type 15). Single service; the app pairs over the
+      # unencrypted a92ab001 and uses a92ab002 as the encrypted channel.
+      service_uuid: "a92ab000-5501-11e4-916c-0800200c9a66"
+      data_characteristic: "a92ab002-5501-11e4-916c-0800200c9a66"
+      pairing_characteristic: "a92ab001-5501-11e4-916c-0800200c9a66"
+      description: "Magnetic door sensor for detecting open/closed state. Not hardware-verified."
 
     keypad:
       name: "Nuki Keypad"
-      service_uuid: "A92CE000-5501-11E4-916C-0800200C9A66"
-      pairing_service_uuid: "A92EE400-5501-11E4-916C-0800200C9A66"
+      # App-derived (device type 12). Single service a92ce000 (also its
+      # advertised UUID) carrying a92ce001 (unencrypted data IO), a92ce002
+      # (encrypted data IO) and a92ce003 (auxiliary channel, role unverified).
+      # Earlier revisions tied it to a92ee400 / a92ee300 / a92ee301; those are
+      # Smart Lock 5th-gen pairing UUIDs (see services).
+      service_uuid: "a92ce000-5501-11e4-916c-0800200c9a66"
+      data_characteristic: "a92ce002-5501-11e4-916c-0800200c9a66"
+      pairing_characteristic: "a92ce001-5501-11e4-916c-0800200c9a66"
       description: >
-        Wireless numeric keypad that pairs with a Smart Lock. Manages access codes
-        (6-digit PINs). Keypad pairs through the parent Smart Lock's BLE connection
-        (service A92EE400) and communicates via A92EE300/A92EE301.
+        Wireless numeric keypad that pairs with a Smart Lock and manages access
+        codes (6-digit PINs). Characteristic roles are app-derived and not
+        hardware-verified.
+
+    keypad_2:
+      name: "Nuki Keypad 2.0"
+      # App-derived (device type 16): same shape as the Keypad under a92de000
+      # (a92de001 unencrypted, a92de002 encrypted, a92de003 auxiliary).
+      service_uuid: "a92de000-5501-11e4-916c-0800200c9a66"
+      data_characteristic: "a92de002-5501-11e4-916c-0800200c9a66"
+      pairing_characteristic: "a92de001-5501-11e4-916c-0800200c9a66"
+      description: "Second-generation keypad (fingerprint model). Not hardware-verified."
 
     fob:
       name: "Nuki Fob"
-      service_uuid: "A92CF000-5501-11E4-916C-0800200C9A66"
+      service_uuid: "a92cf000-5501-11e4-916c-0800200c9a66"
       description: >
         NFC/BLE key fob for touch-to-unlock. Uses fob-specific commands (15-28)
         for authorization and configuration.
 
     box:
       name: "Nuki Box"
-      service_uuid: "A92BE000-5501-11E4-916C-0800200C9A66"
+      service_uuid: "a92be000-5501-11e4-916c-0800200c9a66"
       description: "Nuki Box (wall-mounted access point)"
 
   command_protocol:

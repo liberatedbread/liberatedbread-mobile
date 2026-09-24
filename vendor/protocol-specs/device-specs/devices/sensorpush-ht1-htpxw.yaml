@@ -127,6 +127,45 @@ device:
     bonding: "none"
     enter_pairing_mode:
       required: false
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["ti_oad"]
+      transport: "ble"
+      services:
+        - "f000ffc0-0451-4000-b000-000000000000"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          No image source or signing scheme is established. Plain TI OAD is
+          CRC-only; whether this firmware adds anything on top is not known.
+      enter:
+        how: "unknown"
+        notes: >
+          The OAD service (identify f000ffc1, block f000ffc2, control f000ffc5)
+          sits in the normal GATT table beside the sensor service, so a client
+          that writes to it can start an update. Whether the CC254x application
+          receives the image in place or reboots into a resident OAD image is
+          not established; no vendor entry command is known.
+      dfu_mode:
+        notes: >
+          How the sensor advertises while mid-update is not established. TI
+          OAD has no standard update-mode name.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Vendor-documented: removing and replacing the battery resets the
+          firmware. Separately, a sensor whose DeviceID reads 0 or 0xFFFFFFFF
+          exposes the initial-config service ee090000-…-090ab0, through which
+          the app rewrites the device identity (see services). Neither is
+          established as recovery from an interrupted OAD transfer.
+      verification: "reported"
+      notes: >
+        From the vendor Bluetooth API GATT table and the app, not
+        hardware-verified. A generic GATT explorer should list the OAD service
+        read-only: battery pull is the only safe state change on this sensor.
+
 services:
   # The V1 (HT1) and V2 (HTP.xw) primary services differ only in the final UUID
   # byte (…aa9 vs …ab0). The vendor Bluetooth API doc pairs the …ab0 service
@@ -246,7 +285,7 @@ services:
         description: "TI OAD Control characteristic (per TI's canonical OAD map; Image Count is f000ffc3, not present here)"
 
   # Factory-recovery / initial-config service (observed in the Android app v4.5.9,
-  # CSEE09RecoveryCoordinator): present on sensors whose DeviceID reads as 0 or
+  # in its sensor-recovery flow): present on sensors whose DeviceID reads as 0 or
   # 0xFFFFFFFF (uninitialized or flash error). The app uses it to rewrite the
   # device identity (DeviceID, MAC-derived address, sample/advertising intervals,
   # TX power) and restore normal operation; ~5 min per-device cooldown.
@@ -255,7 +294,7 @@ services:
     description: Initial-configuration service exposed by sensors with an uninitialized or corrupt DeviceID; used by the app to rewrite device identity during recovery
     characteristics:
       # The recovery flow touches the same …090aa9 characteristics it rewrites in
-      # the primary service (per the app's CSEE09RecoveryCoordinator).
+      # the primary service (per the app's sensor-recovery flow).
       - uuid: "ef090001-11d6-42ba-93b8-9dd7ec090aa9"
         name: DeviceID
         properties: ["read", "write"]

@@ -147,22 +147,23 @@ services:
             which cost the whole spec its parse.
 
             Full protocol_id map (from the app's bundled LED-glow library
-            constants): 0x00 INTERNAL
-            (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the
-            device answers requests on this protocol), 0x03 BOOTLOADER
-            (latent OTA: SEEBlueLEBootloaderActivity flashes an Intel HEX
-            file over BLE with opcodes VERSION_REQUEST, START_UPDATE 0x01,
-            START_BLOCK 0x02, BLOCK_DATA 0x03 and ~2 s block pacing; no
-            firmware HEX is public), 0x04 GENERIC. Protocol 0x10 carries the
+            constants): 0x00 internal
+            (post-connect auth handshake), 0x01 lighting, 0x02 response (the
+            device answers requests on this protocol), 0x03 bootloader
+            (latent OTA: the app's bootloader-flasher screen sends an Intel
+            HEX file over BLE with a version request and the opcodes start
+            update 0x01, start block 0x02 and block data 0x03, with ~2 s
+            block pacing; no firmware HEX is public; see
+            features[type: firmware_update]), 0x04 generic. Protocol 0x10 carries the
             full LEDGlow snapshot and, in the v2 app, the UI-change commands
             below — those use packet [0x05, ui_id, values...] where 0x05 is a
             message-type byte, NOT the protocol_id.
 
             Protocol 0x10 also carries typed settings-snapshot blocks in the
-            v2 app (BluetoothHelper constants): type 0x06 underbody (UB),
+            v2 app (its BLE helper's constants): type 0x06 underbody (UB),
             0x07 white-wire (WW), 0x08 interior (IN), 0x09 ABC, 0x0A general
-            (TAB). A LEDGLOW_GET_FEATURES = 0x80 constant exists with no
-            observed call site.
+            (TAB). A get-features constant 0x80 exists with no observed
+            call site.
         commands:
           direct_brake_feature:
             description: "Direct protocol 0x01 command 0: brake feature; values 1=brake off, 2=brake light on, 8=brake pulse on (bit flags)"
@@ -673,6 +674,36 @@ services:
         name: "RX Notify"
         properties: ["notify"]
         notes: "Incoming SEEBlue frames; the device answers requests on protocol 0x02."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        format: "Intel HEX file."
+        notes: "No firmware HEX is public, and none is bundled in either app as far as the analysis found."
+      enter:
+        how: "unknown"
+        notes: >
+          The update runs on SEEBlue protocol_id 0x03 inside the ordinary
+          envelope on the TX Write characteristic: a version request, then
+          start update (opcode 0x01), then start block (0x02) and block data
+          (0x03) per block, about 2 s apart. The payloads after each opcode
+          are not recovered, so no command is declared; whether start update
+          reboots the controller or it receives the image in place is not
+          established. A client must not send protocol 0x03 frames outside a
+          real update.
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        Latent: the flasher exists in the vendor app code (static
+        analysis) but no update has been observed and no image is
+        available. The data service 0xFFE5 carries every ordinary command
+        too, so it is not listed under `services`.
 
 entities:
   - platform: "light"

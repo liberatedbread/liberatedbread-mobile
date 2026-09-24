@@ -45,7 +45,7 @@ device:
     on 2dd10010-1c37-452d-8979-d1b4a787d0a4, using the machine's SERIAL
     NUMBER (<model>-<region>-<serial>, e.g. F6V-US-XXXXXXXX) as the BLE local
     name, and some emit a Dyson-specific iBeacon (Apple company 0x004C,
-    proximity UUID 78F9140C-DCF8-4F5B-B49F-63AC9357C7C4). The BLE channel is
+    proximity UUID 78f9140c-dcf8-4f5b-b49f-63ac9357c7c4). The BLE channel is
     used by the MyDyson app for discovery and Wi-Fi onboarding, and newer
     models expose a BLE control/state proxy; the mature local control path,
     however, remains the local MQTT broker below. Live-observed on two units
@@ -56,9 +56,6 @@ device:
   identification:
     mdns_service_type: "_dyson_mqtt._tcp.local."
     default_port: 1883
-    identity_keys:
-      primary: "serial"
-      display: "name"
 
   discovery:
     methods:
@@ -235,7 +232,7 @@ evidence:
         scan), advertising the Dyson vendor GATT service
         2dd10010-1c37-452d-8979-d1b4a787d0a4 with their SERIAL NUMBER as the
         BLE local name — units "F6V-US-XXXXXXXX" (random addr, also emitting a
-        Dyson iBeacon: proximity UUID 78F9140C-DCF8-4F5B-B49F-63AC9357C7C4,
+        Dyson iBeacon: proximity UUID 78f9140c-dcf8-4f5b-b49f-63ac9357c7c4,
         major/minor 0) and "E5V/E5R-US-XXXXXXXX". No GATT session was driven.
         See the ble block for what the service is for.
 

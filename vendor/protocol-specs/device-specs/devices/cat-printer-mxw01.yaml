@@ -200,10 +200,18 @@ features:
     max_width: 384
     max_height: 65535
     format: "1bit-bitmap"
+    # Two colours in the default 1bpp mode. The 4bpp grayscale mode (print
+    # mode 0x02) carries 16 levels, but a client that has not chosen it
+    # must quantize to two; the feature declares the default path.
+    max_palette_colors: 2
     notes: >
       48 bytes per row, LSB = leftmost pixel, no bit reversal (unlike
       the legacy family). 4bpp grayscale (192 bytes/row, high nibble
-      first) via print mode 0x02.
+      first) via print mode 0x02 — 16 levels, so max_palette_colors is
+      16 in that mode.
+  # The upload IS the device: the command set prints rows and resolves no
+  # entities beyond the two status readings. Declared beside image_upload.
+  - type: "raster_print"
 
 protocol_handler: "cat_printer_mxw01"
 
@@ -221,13 +229,124 @@ services:
       - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
         name: "Control (Client → Printer)"
         properties: ["write", "write_without_response"]
+        role: "command"
         notes: >
           Write channel for all framed commands (0xA1 status, 0xA2
           intensity, 0xA3/0xA4 paper, 0xA9 print request, 0xAD flush,
-          0xAB battery, 0xB0/0xB1 info).
+          0xAB battery, 0xB0/0xB1 info). Each command below is one complete
+          frame [0x22 0x21 cmd 0x00 len_lo len_hi][payload][crc8][0xFF]; the
+          CRC-8 (poly 0x07, init 0x00, over the payload only — `auto: crc8`,
+          `checksum_start: 6`) is precomputed in the fixed `value`s and
+          encoder-filled in the templates. Bytes transcribed from
+          MaikelChan/CatPrinterBLE, jeremy46231/MXW01-catprinter and
+          eerimoq/moblin — three hardware-tested clients, none of them ours,
+          so `reported`. Image rows do not go here: see 0xAE03.
+        commands:
+          get_status:
+            description: "0xA1 with payload 0x00 — status query; the reply is the 0xA1 frame the 0xAE02 `format` decodes (state, battery, head temperature, error flags). Step 3 of the print sequence: abort unless error_flag is 0."
+            verification: "reported"
+            value: [0x22, 0x21, 0xA1, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF]
+          set_intensity:
+            description: "0xA2 — print darkness, one byte 0x00-0xFF. 0x5D is the working default; values above 150 risk scorching the paper (clementvp). Optional step 2."
+            verification: "reported"
+            template: [0x22, 0x21, 0xA2, 0x00, 0x01, 0x00, "{intensity}", "{crc}", 0xFF]
+            parameters:
+              intensity:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 93
+                description: "Darkness; 93 (0x5D) default, higher is darker, >150 risks paper damage."
+              crc:
+                type: "uint8"
+                auto: "crc8"
+                checksum_start: 6
+                description: "CRC-8 (poly 0x07) over the intensity byte; encoder-filled."
+          eject_paper:
+            description: "0xA3 — feed the paper out by a uint16 LITTLE-endian line count (optional step 8, to clear the tear edge)."
+            verification: "reported"
+            template: [0x22, 0x21, 0xA3, 0x00, 0x02, 0x00, "{lines}", "{crc}", 0xFF]
+            parameters:
+              lines:
+                type: "uint16"
+                endianness: "little"
+                min: 0
+                max: 65535
+                default: 90
+                description: "Lines to feed; 90 (one padded minimum buffer) clears the tear edge."
+              crc:
+                type: "uint8"
+                auto: "crc8"
+                checksum_start: 6
+                description: "CRC-8 (poly 0x07) over the two count bytes; encoder-filled."
+          retract_paper:
+            description: "0xA4 — pull the paper back by a uint16 LITTLE-endian line count (MaikelChan only)."
+            verification: "reported"
+            template: [0x22, 0x21, 0xA4, 0x00, 0x02, 0x00, "{lines}", "{crc}", 0xFF]
+            parameters:
+              lines:
+                type: "uint16"
+                endianness: "little"
+                min: 0
+                max: 65535
+                default: 0
+                description: "Lines to retract."
+              crc:
+                type: "uint8"
+                auto: "crc8"
+                checksum_start: 6
+                description: "CRC-8 (poly 0x07) over the two count bytes; encoder-filled."
+          print_request:
+            description: >
+              0xA9 — announce a print of `lines` rows in `mode`; payload is
+              [line count u16 LE, 0x30, mode]. Wait for the 0xA9 reply on
+              0xAE02 and require its payload[0] == 0x00 before streaming
+              rows on 0xAE03 (step 4). The 0x30 byte is constant in every
+              client; its meaning is not established.
+            verification: "reported"
+            template: [0x22, 0x21, 0xA9, 0x00, 0x04, 0x00, "{lines}", 0x30, "{mode}", "{crc}", 0xFF]
+            parameters:
+              lines:
+                type: "uint16"
+                endianness: "little"
+                min: 90
+                max: 65535
+                description: "Rows in the image buffer that follows on 0xAE03 (pad to at least 90 rows / 4320 bytes 1bpp)."
+              mode:
+                type: "uint8"
+                allowed: [0, 1, 2]
+                labels: ["1bpp mono (48 bytes/row)", "1bpp mono, shorter eject (observed variant)", "4bpp grayscale (192 bytes/row)"]
+                default: 0
+                description: "Pixel format of the rows that follow; 0x02 is the vendor app's HD mode (MaikelChan only)."
+              crc:
+                type: "uint8"
+                auto: "crc8"
+                checksum_start: 6
+                description: "CRC-8 (poly 0x07) over the four payload bytes; encoder-filled."
+          get_battery_level:
+            description: "0xAB with payload 0x00 — battery query; reply payload[0] = level (scale not established)."
+            verification: "reported"
+            value: [0x22, 0x21, 0xAB, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF]
+          cancel_print:
+            description: "0xAC with payload 0x00 — abort the current print."
+            verification: "reported"
+            value: [0x22, 0x21, 0xAC, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF]
+          print_data_flush:
+            description: "0xAD with payload 0x00 — sent after the last 0xAE03 data chunk to start printing (step 6); the printer then emits 0xAA print_complete when the run finishes."
+            verification: "reported"
+            value: [0x22, 0x21, 0xAD, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF]
+          get_print_type:
+            description: "0xB0 with payload 0x00 — reply payload[0] is a type code (0x01, 0xFF, others seen; meaning unclear). MaikelChan only."
+            verification: "reported"
+            value: [0x22, 0x21, 0xB0, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF]
+          get_version:
+            description: "0xB1 with payload 0x00 — reply payload is a UTF-8 version string plus a type byte (0x31/0x32, read by the vendor app as low/high-voltage head variants). MaikelChan only."
+            verification: "reported"
+            value: [0x22, 0x21, 0xB1, 0x00, 0x01, 0x00, 0x00, 0x00, 0xFF]
       - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
         name: "Notify (Printer → Client)"
         properties: ["notify"]
+        role: "notify"
         # This `format` describes the 0xA1 get_status RESPONSE frame ONLY. The
         # characteristic MULTIPLEXES several response frames — all shaped
         # [0x22 0x21 cmd_id 0x00 payload_len_le16][payload][crc8][0xFF] — so a
@@ -278,10 +397,34 @@ services:
       - uuid: "0000ae03-0000-1000-8000-00805f9b34fb"
         name: "Data (Client → Printer)"
         properties: ["write_without_response"]
+        role: "bulk"
+        framing:
+          length_prefix: false
+          max_chunk_size: 48
         notes: >
           Bulk image data only — raw unframed rows, 48 bytes/row 1bpp
           or 192 bytes/row 4bpp. No flow control; pace chunk writes
           (~15 ms per 48-byte row, or ~100 ms per MTU chunk).
+          max_chunk_size 48 is the one-row-per-write pacing every client
+          uses; MTU-sized writes also work with the longer gap.
+        commands:
+          write_image_rows:
+            description: >
+              One write of raw row bytes, no header, no CRC — the template
+              is the bytes themselves. 1bpp: 48 bytes per row, LSB =
+              leftmost pixel, 1 = black, NO bit reversal. 4bpp: 192 bytes
+              per row, high nibble first. Stream top to bottom after
+              print_request is accepted, pad the whole buffer to at least
+              4320 bytes (90 rows) or nothing prints, then send
+              print_data_flush on 0xAE01.
+            verification: "reported"
+            template: ["{rows}"]
+            parameters:
+              rows:
+                type: "bytes"
+                min_length: 48
+                max_length: 512
+                description: "One or more whole rows (48-byte 1bpp or 192-byte 4bpp multiples) per write, within the ATT MTU."
 
 entities:
   - platform: "cover"

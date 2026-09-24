@@ -154,6 +154,39 @@ services:
         properties: ["notify"]
         notes: "Asynchronous status events (control taken, target changed, stopped by safety key, ...)."
 
+entities:
+  # A reference spec normally carries no control surface of its own. These
+  # bindings are here because FTMS is the worked example of the object-form
+  # role binding: stop and pause are ONE control-point write, op 0x08, told
+  # apart by the `control` byte, so a button binds `{command, values}` rather
+  # than a constant-value twin of the parameterized command (the shape
+  # kingsmith-walkingpad and urevo-walking-pad had to declare before this
+  # form existed). A concrete FTMS treadmill spec can copy these three
+  # bindings as they stand. No Target Speed number is bound: set_target_speed
+  # splits its u16 across `speed_lo`/`speed_hi`, and a number entity cannot
+  # drive a two-byte parameter until spec-evolution P10 lands.
+  - platform: "button"
+    name: "Start"
+    key: "start"
+    commands:
+      press: "start_or_resume"
+  - platform: "button"
+    name: "Stop"
+    key: "stop"
+    commands:
+      press:
+        command: "stop_or_pause"
+        values:
+          control: 1
+  - platform: "button"
+    name: "Pause"
+    key: "pause"
+    commands:
+      press:
+        command: "stop_or_pause"
+        values:
+          control: 2
+
 helpful_urls:
   - title: "Bluetooth SIG — Fitness Machine Service v1.0"
     url: "https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/"

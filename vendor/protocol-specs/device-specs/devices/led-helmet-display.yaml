@@ -37,7 +37,9 @@ device:
     tiro.cc — company alive, site live 2026-08-18). The app is React Native; all protocol logic is
     in the Hermes bundle. Internal product-type string translates to
     "helmet screen". Device/project identifiers found in the app:
-    advertising-name prefix TR2023-1248, OTA project_no TR2302_1248_ble,
+    OTA project_no TR2302_1248_ble (panel firmware) and TR2023-1248
+    (the project number the app queries for the MCU image — not an
+    advertising name, as this spec used to say),
     a second variant pair TR2411R015_000102_ble / TR2411R015_000102_mcu
     (dual BLE+MCU OTA project, possibly a newer revision — unverified).
 
@@ -78,43 +80,73 @@ device:
 
     CONFIDENCE: MEDIUM for the GATT layout (FA02 write, JieLi AE00/AE01/
     AE02 OTA service) and the command table — read straight out of the
-    app's builder functions, but not exercised on hardware. LOW for the
-    advertising name prefix (code constant, needs an on-air scan), the
+    app's builder functions, but not exercised on hardware. MEDIUM for the
+    advertisement match (the app's native scan gate, read from its code,
+    no on-air capture). LOW for the
     flag-byte semantics, the direction value map, and everything about the
     bulk pixel/program upload pipeline beyond the dispatch-function names.
   identification:
-    # App-code constant, not yet confirmed by an on-air scan.
-    local_name_prefix: "TR2023-1248"
-    service_uuids:
-      - "0000ae00-0000-1000-8000-00805f9b34fb"
+    # The app's native scan gate admits an advertisement only if it carries a
+    # manufacturer-specific AD structure whose first four bytes are
+    # 54 52 00 74; nothing else in the advertisement is checked. 0x5254 is
+    # the unassigned "TR" company-id squat shared with ideal-led,
+    # magic-display, shining-glasses and shining-mask, so company_id alone is
+    # only a shape; the 00 74 behind it (discovery pattern "0074") is what
+    # separates this app's products from theirs. No service UUID is listed:
+    # 0000ae00 is the stock JieLi OTA service on every JieLi product, and the
+    # app neither filters on it nor on 0000fa02.
+    manufacturer_data:
+      company_id: 21076
+      company_id_hex: "0x5254"
+      description: >
+        Not an assigned identifier: 0x5254 little-endian spells "TR", the
+        first two bytes of the OEM family's 54 52 00 xx advertisement
+        prefix. This app's products use 54 52 00 74 — see discovery for the
+        payload match and layout.
     notes: >
-      The advertising name prefix TR2023-1248 is a string constant in the
-      app, unconfirmed on-air. The JieLi OTA service 0000ae00-… comes from
-      the bundled JieLi SDK constants; whether it appears in the
-      advertisement (as opposed to the GATT table after connect) is
-      unknown. The app discovers services dynamically and matches the
-      command channel by characteristic UUID 0000fa02-…, so clients should
-      do the same rather than trusting a containing-service UUID.
+      App-derived (the Android app's native scan filter), not yet seen
+      on-air. The 00 74 marker is the app's, not the helmet's: every
+      product the "Shining Display" app drives carries it (the Shining Mask
+      is not one of them: its own app gates on 00 4A, and this app has none
+      of the mask protocol). What tells this app's products apart is a
+      per-product advertised-name prefix (the text before the first "-") that the app
+      downloads from the vendor's product list at runtime; the helmet's
+      value is not in the app and was not recorded. The service UUIDs are
+      not advertisement signals here: the app discovers services after
+      connecting and binds the command channel by characteristic UUID
+      0000fa02-…, and 0000ae00-… is the JieLi OTA service every JieLi
+      product carries.
 
   discovery:
     methods:
       - type: "ble_scan"
         ble:
-          local_name:
+          manufacturer_data:
+            company_id: 21076
             match: "prefix"
-            value: "TR2023-1248"
+            pattern: "0074"
+            description: >
+              Manufacturer-specific AD structure reading 54 52 00 74 on the
+              air: company id 21076 (0x5254, "TR" in wire order) then
+              00 74, the marker the Shining Display app's scan gate requires.
+              The payload after the company id continues: [2] device type,
+              [3..4] customer id (CID), [5] product id (PID), [6..7] BLE
+              firmware version, [8..9] MCU firmware version (the app joins
+              each pair's byte values as decimal text and feeds them to its
+              OTA check). App-derived; no capture confirms it.
           notes: >
-            Name prefix is an app-code constant pending on-air
-            confirmation. Fallback: connect and enumerate — the command
-            characteristic 0000fa02-0000-1000-8000-00805f9b34fb (and the
-            JieLi OTA service 0000ae00-…) identify this family regardless
-            of the advertised name.
+            The app also drops any result without an advertised name, and,
+            once the user has picked a product, any whose name's first
+            "-"-separated token differs from that product's cloud-supplied
+            prefix. That prefix is not in the app; record it from a scan.
+            Fallback after connecting: the command characteristic
+            0000fa02-0000-1000-8000-00805f9b34fb identifies this family.
     identity:
       stable_keys: ["address"]
       display: "local_name"
       notes: >
         BLE address type (public vs random-static) is unverified; if the
-        address rotates, re-resolve by scanning for the name prefix /
+        address rotates, re-resolve by the 54 52 00 74 manufacturer data /
         FA02 characteristic.
     static_ip_required: false
 
@@ -128,18 +160,17 @@ device:
       - type: "ble_direct"
         verified: false
         description: >
-          Scan for the TR2023-1248 name prefix, connect, enumerate
+          Scan for manufacturer data 54 52 00 74, connect, enumerate
           services, and locate the FA02 write characteristic and the JieLi
           AE02 notify characteristic. No pairing/bonding or encryption
           appears anywhere in the app's command path.
         ble:
-          advertised_name: "TR2023-1248"
           pairing_required: false
           pin_source: "None — plain GATT writes, no bonding seen in the app's command path."
         steps:
           - action: "Power on the helmet display panel."
             actor: "user"
-            expect: "Panel advertises with a TR2023-1248-prefixed name (app-code constant; confirm on-air)."
+            expect: "Panel advertises a named advertisement carrying manufacturer data 54 52 00 74 (app scan gate; confirm on-air)."
           - action: "Connect and discover services; find the characteristic 0000fa02-0000-1000-8000-00805f9b34fb by UUID."
             actor: "client"
             request:
@@ -468,6 +499,42 @@ local_access:
     - "preset material library download (cloud-hosted)"
     - "firmware update checks and image hosting (cloud-hosted; a captured .ufw can in principle be flashed without the cloud via the JieLi OTA service)"
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["jieli_ota"]
+      transport: "ble"
+      services: ["0000ae00-0000-1000-8000-00805f9b34fb"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        format: "JieLi .ufw (JLUFW) container with plaintext section strings (JLUFW, JLBTSDK, btstack, ble_ota.bin / ble_app_ota.bin)."
+        notes: >
+          POST /api/rm/getFirmwareInfo on manage.heaton.com.cn with
+          appid=141 and project_no TR2302_1248_ble (or the newer
+          TR2411R015_000102_ble / _mcu pair) returns a file_path to a .ufw on
+          images.heaton.com.cn; see cloud.endpoints. Whether the loader
+          verifies a signature is not established.
+      enter:
+        how: "command"
+        command: "ota_start"
+        notes: >
+          The vendor's 0xAA / 0x55 command on FA02 opens the session; the
+          image then flows over the JieLi OTA service (0000ae01 write,
+          0000ae02 notify) in the jl_bt_ota SDK's own protocol, not traced
+          here. Whether the part reboots into a loader or updates in place
+          is not established. The newer hardware revision carries a dual
+          BLE + MCU OTA project, so it may take two images.
+      dfu_mode:
+        notes: "No update-mode name, address or advertisement is recorded."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        App-derived (MEDIUM confidence per device.notes), not run against
+        hardware. 0000ae02 also carries ordinary command ACKs, so
+        subscribing to it is normal; writing 0000ae01 is not.
+
 entities:
   # No entity binds `state_characteristic`. The command channel 0000fa02 is
   # write-only, so a consumer honouring that field would issue a read or a
@@ -589,7 +656,7 @@ evidence:
 remaining_unknowns:
   - "Flag byte (offset 3) semantics: 0x01 vs 0x80 looks like a sub-command selector sharing opcodes; verify on-air"
   - "Direction command value map (indices 0-5 to off/left/right/hazard/brake)"
-  - "Advertising name prefix TR2023-1248 needs an on-air scan; the containing service UUID of FA02 is unpinned (app matches by characteristic)"
+  - "Advertisement: confirm the 54 52 00 74 manufacturer data on-air, record the advertised name (its prefix before the first '-' is the per-product filter the app downloads from the cloud), the device-type byte that follows the marker, and whether any service UUID is advertised. The containing service UUID of FA02 is unpinned (app matches by characteristic). TR2023-1248, formerly listed here as the name prefix, is the MCU OTA project number"
   - "Pixel/program upload byte-level formats: getSendData pipeline, 12x48 RGB packing, sendTool_sendDiyData / sendPicWithData / sendTextData / sendWordData / sendTool_sendPraseModle / sendClockModel / sendTool_toupingWithData dispatch functions identified but not fully traced"
   - "Device-to-app feedback format on AE02 (ACKs; battery? handlebar-remote button events?)"
   - "Whether TR2411R015_000102_ble/mcu (dual BLE+MCU OTA project) is a newer helmet revision — RESOLVED 2026-08-19: its MCU-companion image TR2411R014-02.ufw carries AC695x/BR22 markers vs the older panel image's AC632N, so it is a newer (2025) hardware revision on the AC695N SoC"

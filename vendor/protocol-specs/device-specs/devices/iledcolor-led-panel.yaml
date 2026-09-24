@@ -258,6 +258,42 @@ services:
         notes: "JL OTA notification characteristic."
         properties: ["notify"]
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["jieli_ota"]
+      transport: "ble"
+      services: ["0000ae00-0000-1000-8000-00805f9b34fb"]
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The app asks app.iledshow.cn:8098/ota/getNewestOta
+          (width, height, currVersion, customerId, colorType) for the newest
+          panel image. The endpoint takes no authentication but only answers
+          for the exact (width, height, customerId, colorType) tuple a real
+          panel advertises. Container format and signature checking are not
+          established.
+      enter:
+        how: "stack_characteristic"
+        notes: >
+          JieLi's own update flow from the jl_bt_ota SDK: the client writes
+          0000ae01 and subscribes 0000ae02. No vendor command on the 0000a950
+          LED service enters it, and the RCSP bytes are not recorded here.
+          Whether the part reboots into a loader (single-backup) or updates
+          in place (dual-backup) is not established.
+      dfu_mode:
+        notes: "No update-mode name, address or advertisement is recorded."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        Characteristic roles are inferred from the jl_bt_ota SDK's client
+        behaviour, not from the panel's own GATT flags. The vendor published
+        its implementation as the open-source led_bt_jl_ota plugin. The app
+        reports the device MAC, name and advertisement bytes to
+        iledcolor.api.iledshow.cn/api/reporting/add on OTA events.
+
 helpful_urls:
   - title: "led_bt_jl_ota on pub.dev"
     url: "https://pub.dev/packages/led_bt_jl_ota"

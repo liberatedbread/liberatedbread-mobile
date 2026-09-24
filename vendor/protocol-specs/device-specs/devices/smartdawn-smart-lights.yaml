@@ -368,6 +368,40 @@ features:
     max_height: 255
     resolution_source: "device_reported"
 
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The app asks https://daniaokeji.com/led/ota?<product,fw,...> and gets
+          back {code, fw:{version, desc, date, url}}; the image is downloaded
+          from that url. Whether the controller verifies a signature is not
+          established.
+      enter:
+        how: "unknown"
+        notes: >
+          The update runs on the Uploader characteristic (27923001-…) with
+          three message types: start update (mt=2912), firmware packet
+          (mt=2913) and end update (mt=2914). Which header carries them on
+          that characteristic, their payloads, and whether the controller
+          reboots into a loader or receives the image in place are not
+          established, so no entry command is declared.
+      dfu_mode:
+        notes: "How the controller advertises during or after an update is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        App-derived (message-type numbers and the OTA endpoint from the app),
+        not hardware-verified. The Uploader characteristic also carries
+        stored effect/animation uploads (see the stored_upload feature), so
+        it is not update-only and dfu.services is omitted: the Daniao DDP
+        service is the device's whole control surface. A generic client must
+        never write mt 2912-2914 to it.
+
 services:
   - uuid: "00000074-1972-1925-3022-077119514e44"
     name: "Daniao DDP Service"
@@ -386,9 +420,9 @@ services:
       bytes 0-2. The tag byte is 0x00 on the DDP channel; on the BIN
       channel it identifies the buffer type — 1=TUTU_DOODLE (live doodle/
       photo pixels), 2=TUTU_ERASE, 4=TUTU_RESTORE (full-canvas redraw),
-      16=MUSIC_BIN — read from the H5 bundle's B3 enum and
-      BleUtils5.sendBinData. Writes use WRITE_TYPE_NO_RESPONSE
-      (BleUtils5 sets write type 2 on the DDP writer).
+      16=MUSIC_BIN — read from the H5 bundle's buffer-type enum and the
+      native BLE helper's bin-data sender. Writes use WRITE_TYPE_NO_RESPONSE
+      (the native BLE helper sets write type 2 on the DDP writer).
 
       EXTENDED (DNX) PACKET — the command format, 20-byte header:
       [0]=0xF0 (flag nibble 0xF, version 0), [1]=0x04 (from-role; app
@@ -408,7 +442,7 @@ services:
       Note: the app's dead Java header encoder writes offset
       little-endian while both live encoders (JS and decode path) treat it
       big-endian — BE is canonical. CAVEAT: the encoder for these packets
-      (mkOrginDdp, flag 0xE1) ships in every Daniao H5 bundle checked
+      (the H5 bundle's standard-packet builder, flag 0xE1) ships in every Daniao H5 bundle checked
       (SmartDawn 1.2.4, SuperPix 4.4.1, legacy SmartPixels) but has NO
       call sites in any of them — the live pixel-push path in v1.2.4 is
       the BIN-channel doodle flow described on the BIN Write
@@ -888,7 +922,7 @@ services:
           sequence, which is M_UI_END_SYNC then M_DOODLE_START — NOT
           M_DEV_START, which blanks the canvas): after it, each full-canvas
           redraw is one or more TUTU_RESTORE (tag 4) buffer arrays with
-          this exact layout (from the H5 bundle's TuTu.sendRecoveData,
+          this exact layout (from the H5 bundle's canvas-restore sender,
           ported and exercised against hardware):
 
           CHUNK = [start_x u8][start_y u8][palette_count u8 <= 16]
@@ -939,7 +973,7 @@ services:
           STORAGE of effects/animations (persisted so they play standalone).
           The second UUID group is 2072 — unlike every other characteristic
           here, it does not share the 010x/020x-1972 pattern (confirmed in
-          BleUtils5, SmartDawn 1.2.4 and BleUtils3, SuperPix 4.4.1).
+          the native BLE helper of both SmartDawn 1.2.4 and SuperPix 4.4.1).
 
           STORAGE UPLOAD (decoded from an over-the-air capture 2026-08-08 and
           confirmed live — the handshake was replayed and the device ACKed):
@@ -971,9 +1005,10 @@ services:
           scopes (whole-packet for START, payload-only for DATA), both verified
           on the wire.
 
-          FIRMWARE OTA uses the same channel: M_START_UPDATE_FIRMWARE mt=2912,
-          M_UPDATE_FIRMWARE_PACKET mt=2913, M_END_UPDATE_FIRMWARE mt=2914.
-          Firmware binaries are fetched from
+          FIRMWARE OTA uses the same channel, with three message types:
+          start update (mt=2912), firmware packet (mt=2913) and end update
+          (mt=2914). Their framing and payloads are not established; see the
+          firmware_update feature. Firmware binaries are fetched from
           https://daniaokeji.com/led/ota?<product,fw,...> which returns
           {code, fw:{version, desc, date, url}}.
 

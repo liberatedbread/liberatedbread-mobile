@@ -163,6 +163,48 @@ features:
     max_width: 96
     max_height: 65535
     format: "1bit-bitmap"
+    # 1 bit per pixel, MSB first, 1 = black. Two colours, nothing between.
+    max_palette_colors: 2
+    # Darkness codes for set_density (10 FF 10 00 nn) and stock codes for
+    # set_paper_type (10 FF 84 nn) — the vocabularies the print sequence
+    # opens with, declared so a consumer offers a picker and sends the byte.
+    print_density:
+      allowed: [0, 1, 2]
+      labels: ["light", "medium", "thick"]
+      default: 1
+      command: "set_density"
+    paper_type:
+      allowed: [0, 1, 2]
+      labels: ["gap label", "black mark", "continuous"]
+      default: 0
+      command: "set_paper_type"
+  # The upload IS the device: the GS v 0 raster stream prints and resolves
+  # no entities beyond the two status readings. Declared beside image_upload.
+  - type: "raster_print"
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: "No public firmware images exist; where the vendor app gets them is not recorded here."
+      enter:
+        how: "command"
+        command: "enter_update_mode"
+        notes: "10 FF E0 AA AA on the command characteristic."
+      dfu_mode:
+        notes: "Not established: whether the printer re-advertises or keeps the connection in update mode is not recorded."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        The AiYin-class OTA protocol: after enter_update_mode, the image is
+        sent in 1B 10-framed 256-byte chunks. Documented in
+        0xMH/fichero-printer's PROTOCOL.md and app-confirmed in the current
+        app's firmware-update and response-parsing paths; not
+        hardware-tested. The chunk header beyond 1B 10 and the response
+        codes are not transcribed here.
 
 protocol_handler: "fichero_d11"
 
@@ -179,15 +221,164 @@ services:
       - uuid: "0000ff02-0000-1000-8000-00805f9b34fb"
         name: "Write"
         properties: ["write"]
+        role: "command"
+        framing:
+          length_prefix: false
+          max_chunk_size: 20
         notes: >
           Write channel (the app picks the characteristic with the write
           property in this service). The vendor app writes in packets of
-          onePackSize bytes (default 20, raised after MTU negotiation),
-          paced by credits
-          received on 0xFF03.
+          20 bytes by default (raised after MTU negotiation — max_chunk_size
+          states the pre-negotiation floor), paced by credits received on
+          0xFF03. The four UART services are interchangeable, so the
+          `commands` here are the SAME block the 0x2AF1 characteristic
+          declares (a YAML anchor, not a copy): byte values from
+          0xMH/fichero-printer's docs/PROTOCOL.md and fichero/printer.py,
+          hardware-tested by that project on a D11s (fw 2.4.6) and
+          app-confirmed here — `reported`, not run by this project.
+        commands: &fichero_commands
+          wake_up:
+            description: "Twelve 0x00 bytes — wakes the print engine before enable_printer (step 3 of the print sequence). The vendor app and 0xMH both send exactly twelve."
+            verification: "reported"
+            value: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          enable_printer:
+            description: "10 FF FE 01 — AiYin-class 'start print job' (step 4). The Lujiang-class equivalent is enable_printer_lujiang; sending the wrong class makes the printer accept the raster and never print."
+            verification: "reported"
+            value: [0x10, 0xFF, 0xFE, 0x01]
+          stop_print:
+            description: "10 FF FE 45 — AiYin-class 'end print job' (step 7). Wait for a reply of 0xAA or the ASCII 'OK' on the notify characteristic, with a 60 s timeout; the label is cut/positioned when it arrives."
+            verification: "reported"
+            value: [0x10, 0xFF, 0xFE, 0x45]
+          set_density:
+            description: "10 FF 10 00 nn — print darkness (step 1). Replies 'OK'; 0xMH waits ~100 ms after it before the next command. The codes are declared on the image_upload feature's print_density."
+            verification: "reported"
+            template: [0x10, 0xFF, 0x10, 0x00, "{density}"]
+            parameters:
+              density:
+                type: "uint8"
+                allowed: [0, 1, 2]
+                labels: ["light", "medium", "thick"]
+                default: 1
+                description: "Darkness code."
+          set_paper_type:
+            description: "10 FF 84 nn — tell the printer what stock is loaded (step 2), so form_feed advances to the right mark. Replies 'OK'. Codes declared on the image_upload feature's paper_type."
+            verification: "reported"
+            template: [0x10, 0xFF, 0x84, "{paper_type}"]
+            parameters:
+              paper_type:
+                type: "uint8"
+                allowed: [0, 1, 2]
+                labels: ["gap label", "black mark", "continuous"]
+                default: 0
+                description: "Stock code."
+          print_raster:
+            description: >
+              ESC/POS GS v 0 raster (step 5): 1D 76 30 m xL xH yL yH followed
+              by width_bytes × height_rows bytes of 1-bit rows, MSB = leftmost pixel, 1 = black.
+              Width is in BYTES (12 = the 96-dot head, fixed on the D11s),
+              height in rows; both uint16 little-endian. The whole command is
+              one byte stream the transport chunks — 200-byte writes 20 ms
+              apart on 0x2AF1 (0xMH), 20-byte credit-paced packets on 0xFF02
+              (vendor app) — so `bitmap` may exceed one write. Wait ~500 ms
+              after the last chunk before form_feed.
+            verification: "reported"
+            template: [0x1D, 0x76, 0x30, "{mode}", "{width_bytes}", "{height_rows}", "{bitmap}"]
+            parameters:
+              mode:
+                type: "uint8"
+                allowed: [0, 1, 2, 3]
+                labels: ["normal", "double width", "double height", "double width and height"]
+                default: 0
+                description: "GS v 0 scaling mode; the app sends 0."
+              width_bytes:
+                type: "uint16"
+                endianness: "little"
+                min: 1
+                max: 12
+                default: 12
+                description: "Row width in bytes; 12 (96 dots) on the D11s — the set-width command is ignored by this model."
+              height_rows:
+                type: "uint16"
+                endianness: "little"
+                min: 1
+                max: 65535
+                description: "Row count; a 30 mm label at 203 dpi is 240 rows."
+              bitmap:
+                type: "bytes"
+                min_length: 12
+                max_length: 786420
+                description: "width_bytes * height_rows bytes of 1-bit rows, MSB first, 1 = black."
+          form_feed:
+            description: "1D 0C — advance to the next label / tear position (step 6). 0xMH waits ~300 ms after it before stop_print. 10 0C is an alternate form feed that replies 'OK'."
+            verification: "reported"
+            value: [0x1D, 0x0C]
+          feed_dots:
+            description: "1B 4A nn — feed forward by nn dots (ESC J)."
+            verification: "reported"
+            template: [0x1B, 0x4A, "{dots}"]
+            parameters:
+              dots:
+                type: "uint8"
+                min: 0
+                max: 255
+                default: 24
+                description: "Dots to feed (203 dpi: 8 dots per mm)."
+          get_status:
+            description: "10 FF 40 — one status byte: bit0 printing, bit1 cover open, bit2 no paper, bit3 low battery, bit4 overheated (alt), bit5 charging, bit6 overheated; 0x00 = ready. Poll before a job."
+            verification: "reported"
+            value: [0x10, 0xFF, 0x40]
+          get_battery:
+            description: "10 FF 50 F1 — two bytes [status, percent], e.g. 00 56 = 86 %."
+            verification: "reported"
+            value: [0x10, 0xFF, 0x50, 0xF1]
+          get_model:
+            description: "10 FF 20 F0 — ASCII model string ('D11s')."
+            verification: "reported"
+            value: [0x10, 0xFF, 0x20, 0xF0]
+          get_firmware_version:
+            description: "10 FF 20 F1 — ASCII firmware version ('2.4.6')."
+            verification: "reported"
+            value: [0x10, 0xFF, 0x20, 0xF1]
+          get_serial_number:
+            description: "10 FF 20 F2 — ASCII serial number."
+            verification: "reported"
+            value: [0x10, 0xFF, 0x20, 0xF2]
+          set_shutdown_time:
+            description: "10 FF 12 HH LL — auto power-off delay in minutes, uint16 BIG-endian; replies 'OK'. 10 FF 13 reads it back."
+            verification: "reported"
+            template: [0x10, 0xFF, 0x12, "{minutes}"]
+            parameters:
+              minutes:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 65535
+                default: 20
+                description: "Minutes of idle before power-off; the unit ships at 20."
+          factory_reset:
+            description: "10 FF 04 — restore factory settings; replies 'OK'. Also the command behind setup.factory_reset."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Clears the stored density, paper-type and auto-shutdown settings. Nothing is lost that a client cannot re-send: run set_density, set_paper_type and set_shutdown_time again afterwards."
+            value: [0x10, 0xFF, 0x04]
+          enable_printer_lujiang:
+            description: "10 FF F1 03 — the Lujiang/base-class 'start print job' (L13, LuckP/DP series siblings). NOT for the D11s, which needs enable_printer; kept so a Lujiang-class sibling is a spec edit, not a code change. Hardware-confirmed by atctwo on the L13."
+            verification: "reported"
+            value: [0x10, 0xFF, 0xF1, 0x03]
+          stop_print_lujiang:
+            description: "10 FF F1 45 — the Lujiang/base-class 'end print job'; pairs with enable_printer_lujiang. NOT for the D11s."
+            verification: "reported"
+            value: [0x10, 0xFF, 0xF1, 0x45]
+          enter_update_mode:
+            description: "10 FF E0 AA AA — put the printer into its firmware update mode; the image then follows in 1B 10-framed 256-byte chunks (see features[firmware_update]). From 0xMH's PROTOCOL.md and the vendor app's update flow; not hardware-tested."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Switches the printer into firmware update mode. No public firmware image exists, so there is nothing to finish the update with; how the printer leaves the mode without one is not established."
+            value: [0x10, 0xFF, 0xE0, 0xAA, 0xAA]
       - uuid: "0000ff01-0000-1000-8000-00805f9b34fb"
         name: "Notify"
         properties: ["notify"]
+        role: "notify"
         notes: >
           Notification channel for responses. Subscribe before sending
           commands. Responses are ASCII strings
@@ -197,7 +388,7 @@ services:
         properties: ["notify"]
         notes: >
           Credit/MTU flow-control channel (app-confirmed in v1.1.17, not
-          hardware-tested). Named notifyCreditCharacteristic in the app.
+          hardware-tested). The app treats it as its credit channel.
           A 2-byte message starting with 0x01 adds that many send
           credits; a 3-byte message starting with 0x02 carries the device's
           requested MTU, which the app negotiates upward. The write loop
@@ -217,16 +408,23 @@ services:
       - uuid: "00002af1-0000-1000-8000-00805f9b34fb"
         name: "Write"
         properties: ["write", "write_without_response"]
+        role: "command"
+        framing:
+          length_prefix: false
+          max_chunk_size: 200
         notes: >
           Write channel for info/config commands and raster print data.
           Third-party client 0xMH sends raster data in 200-byte chunks
           with 20ms delay between chunks; the vendor app instead writes
           20-byte packets (default, growing with the negotiated MTU)
-          paced by 0xFF03 credits on service 0xFF00.
+          paced by 0xFF03 credits on service 0xFF00. Same command set as
+          0xFF02 (YAML alias of that block).
+        commands: *fichero_commands
 
       - uuid: "00002af0-0000-1000-8000-00805f9b34fb"
         name: "Notify"
         properties: ["notify"]
+        role: "notify"
         notes: >
           Notification channel for responses. Subscribe before sending
           commands. Responses are ASCII strings or binary status bytes.
@@ -265,6 +463,11 @@ entities:
   - platform: "sensor"
     name: "Battery Level"
     state_characteristic: "00002af0-0000-1000-8000-00805f9b34fb"
+
+remaining_unknowns:
+  - "No command byte here has been run against hardware by this project: every `verification: reported` rests on 0xMH/fichero-printer (hardware-tested on a D11s, fw 2.4.6) and the vendor app's builders."
+  - "Whether the print_raster stream tolerates the credit-paced 20-byte writes of 0xFF02 without the 0xMH 20 ms gap is app-inferred, not measured."
+  - "10 FF C0 nn (set speed) answers four bytes nobody has decoded; it is left out of `commands` rather than declared with a guessed range."
 
 helpful_urls:
   - title: "NIIMBOT D11 wireless label printer manual (Internet Archive)"

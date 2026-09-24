@@ -11,7 +11,7 @@ Wi-Fi kettles/coffee makers whose app features were removed in 2025, leaving "ve
 
 ## Protocol Summary
 
-Binary protocol on port 2081 (UDP or TCP), no auth, `<id> <args> 0x7e` framing: 21 boil, 22 off, 0x40 device-info; responses 3 ack, 20 status (temperature + water level).
+Binary protocol on port 2081 (UDP or TCP), no auth, `<id> <args> 0x7e` framing. Commands (hex wire byte, decimal in brackets): 0x15 (21) boil, 0x16 (22) stop, 0x64 (100) device-info / discovery probe, 0x6d (109) firmware-update mode; responses 0x03 (3) ack, 0x14 (20) status (temperature + water level), 0x65 (101) device info.
 
 See `device-specs/devices/smarter-ikettle.yaml` for the full machine-readable spec.
 

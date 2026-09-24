@@ -184,20 +184,192 @@ services:
           19 bytes: elapsed time (3 B, 0.01 s), distance (3 B, 0.1 m), workout
           type, interval type, workout state, rowing state, stroke state, total
           work distance (3 B), workout duration (3 B), duration type, drag factor.
+          Field offsets below are transcribed from the vendor-published PM5 BLE
+          interface definition (rev 1.30), which lists each byte of this
+          notification in order; all multi-byte values are little-endian
+          (lo, mid, hi). Reported from the published document, not exercised
+          against a PM5 by this project. The enumerations (workout type,
+          workout/rowing/stroke state, duration type) are defined in the same
+          document and are not reproduced here.
+        format:
+          - offset: 0
+            length: 3
+            name: "elapsed_time"
+            type: "uint24"
+            scale: 0.01
+            unit: "s"
+          - offset: 3
+            length: 3
+            name: "distance"
+            type: "uint24"
+            scale: 0.1
+            unit: "m"
+            device_class: "distance"
+          - offset: 6
+            length: 1
+            name: "workout_type"
+            type: "uint8"
+          - offset: 7
+            length: 1
+            name: "interval_type"
+            type: "uint8"
+          - offset: 8
+            length: 1
+            name: "workout_state"
+            type: "uint8"
+          - offset: 9
+            length: 1
+            name: "rowing_state"
+            type: "uint8"
+          - offset: 10
+            length: 1
+            name: "stroke_state"
+            type: "uint8"
+          - offset: 11
+            length: 3
+            name: "total_work_distance"
+            type: "uint24"
+            unit: "m"
+          - offset: 14
+            length: 3
+            name: "workout_duration"
+            type: "uint24"
+            notes: >
+              Meaning follows workout_duration_type: time in 0.01 s, calories,
+              or distance in metres. No single scale applies, so none is
+              declared.
+          - offset: 17
+            length: 1
+            name: "workout_duration_type"
+            type: "uint8"
+          - offset: 18
+            length: 1
+            name: "drag_factor"
+            type: "uint8"
       - uuid: "ce060032-43e5-11e4-916c-0800200c9a66"
         name: "Additional status 1 (0x0032)"
         properties: ["notify"]
         notes: >
           17 bytes: elapsed time, speed (0.001 m/s), stroke rate, heart rate
           (bpm, 255 invalid), current pace, average pace, rest distance, rest
-          time, erg machine type.
+          time, erg machine type. Offsets transcribed from the vendor-published
+          interface definition (rev 1.30); little-endian throughout; reported,
+          not exercised here.
+        format:
+          - offset: 0
+            length: 3
+            name: "elapsed_time"
+            type: "uint24"
+            scale: 0.01
+            unit: "s"
+          - offset: 3
+            length: 2
+            name: "speed"
+            type: "uint16"
+            scale: 0.001
+            unit: "m/s"
+            device_class: "speed"
+          - offset: 5
+            length: 1
+            name: "stroke_rate"
+            type: "uint8"
+            unit: "spm"
+          - offset: 6
+            length: 1
+            name: "heart_rate"
+            type: "uint8"
+            unit: "bpm"
+            device_class: "heart_rate"
+            notes: "255 means no heart-rate source is paired."
+          - offset: 7
+            length: 2
+            name: "current_pace"
+            type: "uint16"
+            scale: 0.01
+            unit: "s"
+            notes: "Seconds per 500 m."
+          - offset: 9
+            length: 2
+            name: "average_pace"
+            type: "uint16"
+            scale: 0.01
+            unit: "s"
+            notes: "Seconds per 500 m."
+          - offset: 11
+            length: 2
+            name: "rest_distance"
+            type: "uint16"
+            unit: "m"
+          - offset: 13
+            length: 3
+            name: "rest_time"
+            type: "uint24"
+            scale: 0.01
+            unit: "s"
+          - offset: 16
+            length: 1
+            name: "erg_machine_type"
+            type: "uint8"
       - uuid: "ce060033-43e5-11e4-916c-0800200c9a66"
         name: "Additional status 2 (0x0033)"
         properties: ["notify"]
         notes: >
           20 bytes: elapsed time, interval count, average power (W), total
           calories, split/interval average pace/power/calories, last split
-          time/distance.
+          time/distance. Offsets transcribed from the vendor-published
+          interface definition (rev 1.30); little-endian throughout; reported,
+          not exercised here.
+        format:
+          - offset: 0
+            length: 3
+            name: "elapsed_time"
+            type: "uint24"
+            scale: 0.01
+            unit: "s"
+          - offset: 3
+            length: 1
+            name: "interval_count"
+            type: "uint8"
+          - offset: 4
+            length: 2
+            name: "average_power"
+            type: "uint16"
+            unit: "W"
+            device_class: "power"
+          - offset: 6
+            length: 2
+            name: "total_calories"
+            type: "uint16"
+            unit: "kcal"
+          - offset: 8
+            length: 2
+            name: "split_average_pace"
+            type: "uint16"
+            scale: 0.01
+            unit: "s"
+            notes: "Seconds per 500 m for the current split or interval."
+          - offset: 10
+            length: 2
+            name: "split_average_power"
+            type: "uint16"
+            unit: "W"
+            device_class: "power"
+          - offset: 12
+            length: 2
+            name: "split_average_calories"
+            type: "uint16"
+            unit: "kcal"
+          - offset: 14
+            length: 3
+            name: "last_split_time"
+            type: "uint24"
+            scale: 0.1
+            unit: "s"
+          - offset: 17
+            length: 3
+            name: "last_split_distance"
+            type: "uint24"
+            unit: "m"
 
 entities:
   - platform: "sensor"
@@ -205,16 +377,23 @@ entities:
     device_class: "power"
     unit: "W"
     state_characteristic: "ce060033-43e5-11e4-916c-0800200c9a66"
+    state_mapping:
+      value: "average_power"
     notes: "Average power from additional-status-2 (0x0033)."
   - platform: "sensor"
     name: "Stroke Rate"
     unit: "spm"
     state_characteristic: "ce060032-43e5-11e4-916c-0800200c9a66"
+    state_mapping:
+      value: "stroke_rate"
     notes: "Stroke rate from additional-status-1 (0x0032)."
   - platform: "sensor"
     name: "Distance"
+    device_class: "distance"
     unit: "m"
     state_characteristic: "ce060031-43e5-11e4-916c-0800200c9a66"
+    state_mapping:
+      value: "distance"
     notes: "Distance from general status (0x0031), 0.1 m units."
 
 helpful_urls:

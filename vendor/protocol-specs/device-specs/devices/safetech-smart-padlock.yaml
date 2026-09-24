@@ -256,13 +256,13 @@ device:
     enter_pairing_mode:
       required: false
 services:
-  - uuid: "0000FFD0-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000ffd0-0000-1000-8000-00805f9b34fb"
     name: "Lock main service (16-bit 0xFFD0)"
     description: >
       Core lock control: password authentication, open/close, state,
       auto-relock timing, LED timing and tamper-alarm config.
     characteristics:
-      - uuid: "0000FFD6-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffd6-0000-1000-8000-00805f9b34fb"
         name: "Password (0xFFD6)"
         type: "command"
         properties: ["write"]
@@ -278,7 +278,7 @@ services:
           password_update:
             description: "Set a new password: [0x01][new 4-byte password]."
             verification: "reported"
-      - uuid: "0000FFD7-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffd7-0000-1000-8000-00805f9b34fb"
         name: "Password result (0xFFD7)"
         type: "status"
         properties: ["notify"]
@@ -286,12 +286,12 @@ services:
           Authentication verdict: [0] = wrong password; [1] = main password
           OK; [1,1] = share password OK; values 2 and 3 exist in code but
           their meaning is unknown (open question #5).
-      - uuid: "0000FFD8-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffd8-0000-1000-8000-00805f9b34fb"
         name: "Auto-open / relock time (0xFFD8)"
         type: "config"
         properties: ["read", "write"]
         description: "1 byte, seconds: how long before the lock re-secures itself."
-      - uuid: "0000FFD9-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffd9-0000-1000-8000-00805f9b34fb"
         name: "Lock control (0xFFD9)"
         type: "command"
         properties: ["write"]
@@ -303,32 +303,32 @@ services:
           lock:
             description: "Write 0x00 to close / re-lock."
             verification: "reported"
-      - uuid: "0000FFDA-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffda-0000-1000-8000-00805f9b34fb"
         name: "Lock state (0xFFDA)"
         type: "status"
         properties: ["read", "notify"]
         description: "0x01 = open. Notify-capable; the app enables notifications after authenticating."
-      - uuid: "0000FFDB-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffdb-0000-1000-8000-00805f9b34fb"
         name: "LED time (0xFFDB)"
         type: "config"
         properties: ["write"]
         description: "Padlock/lock LED duration (exact encoding not decoded in the app)."
-      - uuid: "0000FFDC-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffdc-0000-1000-8000-00805f9b34fb"
         name: "Tamper alarm config (0xFFDC)"
         type: "config"
         properties: ["read", "write"]
         description: "2 bytes: {alarm on/off, minutes}."
-  - uuid: "0000FFF0-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "History service (16-bit 0xFFF0)"
     description: >
       Access-event history dump and the lock's stored user name.
     characteristics:
-      - uuid: "0000FFF1-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
         name: "History control (0xFFF1)"
         type: "command"
         properties: ["write"]
         description: "Write 0x01 to start the history dump on 0xFFF2."
-      - uuid: "0000FFF2-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "History records (0xFFF2)"
         type: "data"
         properties: ["notify"]
@@ -338,18 +338,18 @@ services:
           type/ID/user/time, but the exact byte offsets are not decoded in
           the app (parsed elsewhere) — layout needs a capture (open
           question #3).
-      - uuid: "0000FFF3-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
         name: "User name (0xFFF3)"
         type: "config"
         properties: ["read", "write"]
         description: "Format [length][name bytes], up to 15 bytes of name."
-  - uuid: "0000FFE0-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
     name: "RFID / share-code service (16-bit 0xFFE0)"
     description: >
       Manages the padlock's RF/NFC tag list and share codes (single-use /
       counted and time-windowed guest codes).
     characteristics:
-      - uuid: "0000FFE1-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
         name: "RFID list dump (0xFFE1)"
         type: "data"
         properties: ["write", "notify"]
@@ -357,24 +357,24 @@ services:
           Write 0x01 to dump the enrolled RFID tag list; frames arrive as
           notifications with an eight-times-0xE0 end marker. Frame format
           and tag-ID length unknown (open question #4).
-      - uuid: "0000FFE3-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffe3-0000-1000-8000-00805f9b34fb"
         name: "Delete RFID (0xFFE3)"
         type: "command"
         properties: ["write"]
         description: "Write <tag ID bytes> + 0xE0 terminator to delete a tag."
-      - uuid: "0000FFE4-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffe4-0000-1000-8000-00805f9b34fb"
         name: "Add RFID (0xFFE4)"
         type: "command"
         properties: ["write", "notify"]
         description: >
           Write 0x01 to enter learn mode, then present the tag. Result
           notification: 0 = busy, 1 = success, 0xFF = timeout.
-      - uuid: "0000FFE8-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffe8-0000-1000-8000-00805f9b34fb"
         name: "Share code (0xFFE8)"
         type: "config"
         properties: ["read", "write"]
         description: "4-byte share code + 1-byte remaining-use count."
-      - uuid: "0000FFE9-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffe9-0000-1000-8000-00805f9b34fb"
         name: "Time-windowed share code (0xFFE9)"
         type: "config"
         properties: ["read", "write"]
@@ -382,53 +382,53 @@ services:
           17 bytes: code[4] + startSeconds[4] + endSeconds[4] +
           startMinute[2] + endMinute[2] + flag[1]. Timestamps are seconds
           since 2000-01-01, LOCAL time (the same epoch as clock sync).
-  - uuid: "0000FFC0-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000ffc0-0000-1000-8000-00805f9b34fb"
     name: "Fingerprint / SureSet service (16-bit 0xFFC0)"
     description: >
       Present on the Gunbox biometric models only (type bytes '4'/'5');
       manages fingerprint enrolment and the SureSet feature.
     characteristics:
-      - uuid: "0000FFC1-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffc1-0000-1000-8000-00805f9b34fb"
         name: "Fingerprint status (0xFFC1)"
         type: "status"
         properties: ["read"]
         description: "Fingerprint subsystem status (exact encoding not decoded in the app)."
-      - uuid: "0000FFC3-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffc3-0000-1000-8000-00805f9b34fb"
         name: "Fingerprint enroll (0xFFC3)"
         type: "command"
         properties: ["write"]
         description: "Write 0x01 to start fingerprint enrolment."
-      - uuid: "0000FFC5-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffc5-0000-1000-8000-00805f9b34fb"
         name: "Fingerprint delete-all (0xFFC5)"
         type: "command"
         properties: ["write"]
         description: "Write 0xFF to delete all enrolled fingerprints."
-      - uuid: "0000FFC2-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffc2-0000-1000-8000-00805f9b34fb"
         name: "SureSet (0xFFC2)"
         type: "command"
         properties: ["write"]
         description: "SureSet control write (Gunbox feature; exact payloads not decoded in the app)."
-  - uuid: "0000FFB0-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000ffb0-0000-1000-8000-00805f9b34fb"
     name: "Z-Wave module service (16-bit 0xFFB0)"
     description: >
       Status of an optional Z-Wave module on family products that have one.
       Not present on the padlock.
     characteristics:
-      - uuid: "0000FFB1-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffb1-0000-1000-8000-00805f9b34fb"
         name: "Z-Wave control (0xFFB1)"
         type: "command"
         properties: ["write"]
         description: "Z-Wave module control write (payloads not decoded)."
-      - uuid: "0000FFB2-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ffb2-0000-1000-8000-00805f9b34fb"
         name: "Z-Wave status (0xFFB2)"
         type: "status"
         properties: ["read", "notify"]
         description: "0 = not connected, 1 = connected, 0xFF = module absent."
-  - uuid: "00001805-0000-1000-8000-00805F9B34FB"
+  - uuid: "00001805-0000-1000-8000-00805f9b34fb"
     name: "Current Time Service (standard 0x1805)"
     description: "Used only for clock sync after authentication."
     characteristics:
-      - uuid: "00002A2B-0000-1000-8000-00805F9B34FB"
+      - uuid: "00002a2b-0000-1000-8000-00805f9b34fb"
         name: "Current Time (0x2A2B)"
         type: "config"
         properties: ["write"]
@@ -437,33 +437,33 @@ services:
           time (not the standard 0x2A2B day-date-time structure — the app
           writes a bare 4-byte epoch). Written on every authenticated
           session.
-  - uuid: "0000180A-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information Service (standard 0x180A)"
     characteristics:
-      - uuid: "00002A24-0000-1000-8000-00805F9B34FB"
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
         name: "Model Number String (0x2A24)"
         type: "status"
         properties: ["read"]
         description: "Model string."
-      - uuid: "00002A26-0000-1000-8000-00805F9B34FB"
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
         name: "Firmware Revision String (0x2A26)"
         type: "status"
         properties: ["read"]
         description: "Firmware revision, 2 bytes."
-      - uuid: "00002A23-0000-1000-8000-00805F9B34FB"
+      - uuid: "00002a23-0000-1000-8000-00805f9b34fb"
         name: "System ID / MAC (0x2A23)"
         type: "status"
         properties: ["read"]
         description: "Device MAC address."
-  - uuid: "0000180F-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
     name: "Battery Service (standard 0x180F)"
     characteristics:
-      - uuid: "00002A19-0000-1000-8000-00805F9B34FB"
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
         name: "Battery Level (0x2A19)"
         type: "status"
         properties: ["read"]
         description: "Battery percentage."
-  - uuid: "0000FF00-0000-1000-8000-00805F9B34FB"
+  - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"
     name: "Generic UART service (16-bit 0xFF00)"
     notes: >
       Defined in the SDK's UUID table (TX 0xFF01 / RX 0xFF02) but NOT used
@@ -471,12 +471,12 @@ services:
       CC254x stack or used by other family products. Recorded so nobody
       chases it; the lock flow uses the 0xFFD0 family above.
     characteristics:
-      - uuid: "0000FF01-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ff01-0000-1000-8000-00805f9b34fb"
         name: "UART TX (0xFF01)"
         type: "data"
         properties: ["notify"]
         description: "Defined in the SDK; unused by the lock flows."
-      - uuid: "0000FF02-0000-1000-8000-00805F9B34FB"
+      - uuid: "0000ff02-0000-1000-8000-00805f9b34fb"
         name: "UART RX (0xFF02)"
         type: "data"
         properties: ["write"]
