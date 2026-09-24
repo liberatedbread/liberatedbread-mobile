@@ -370,7 +370,7 @@ void main() {
       );
       // A category label that is a word, not an initialism, reads lower-case
       // mid-sentence.
-      final lights = ScanGuess(
+      const lights = ScanGuess(
         deviceName: 'Govee H6001',
         manufacturer: 'Govee',
         category: DeviceCategory.light,
@@ -382,7 +382,7 @@ void main() {
     });
 
     test('a contested identify-only match falls back to its kind', () {
-      final g = ScanGuess(
+      const g = ScanGuess(
         deviceName: 'Network Printer (IPP / AirPrint / IPP Everywhere)',
         manufacturer: 'Various',
         category: DeviceCategory.printer,
