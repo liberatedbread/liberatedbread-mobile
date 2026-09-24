@@ -1231,7 +1231,9 @@ aranet4's `request_history_v1.param` and aurora-led-shoes' `set_power.state`
 carry `labels` beside `min`/`max` but no `allowed`. The schema gives labels no
 meaning on their own, so both draw as unlabelled sliders. Fix: add `allowed`
 (`[1, 2, 3, 4]`, `[0, 1]`) and a schema `dependentRequired: {labels:
-[allowed]}` so the next one fails validation.
+[allowed]}` so the next one fails validation. The refresh that brings it moves
+`the_vendored_coded_parameters_offer_their_codes_as_choices` from 64 to 66 —
+that pin exists to notice exactly this.
 
 ### S-25 — the TV specs' remaining remote keys carry no `key`
 
