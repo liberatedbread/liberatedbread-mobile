@@ -101,9 +101,24 @@ void main() {
             'credentials, which outlive the app. Run the device runner with '
             '--allow-keychain-wipe on a phone whose credentials are disposable.';
 
+  /// Why the desktop Linux (and Windows) targets skip it too.
+  ///
+  /// There is no accessibility class to be wrong about: the Linux plugin is
+  /// libsecret, whose items carry no such attribute, so the unscoped-query
+  /// premise is as absent here as on macOS. And the headless CI runner has
+  /// no Secret Service on its session bus at all, so the probe write in setUp
+  /// fails before any test body runs — which is how this suite first showed
+  /// up in the Linux job: three failures, none of them about the keychain.
+  /// Android keeps running it as the wipe's one on-device smoke.
+  final noKeychainHere = Platform.isLinux || Platform.isWindows
+      ? 'Apple-and-Android-only: the desktop secure-storage backends carry no '
+            'accessibility class, and the headless Linux runner has no Secret '
+            'Service to write the probe to.'
+      : null;
+
   /// The reason this suite is skipped here, or null to run it. testWidgets'
   /// `skip:` is a bool, so the reason itself is printed once below.
-  final skipReason = notOnMacOs ?? onAPhone;
+  final skipReason = notOnMacOs ?? noKeychainHere ?? onAPhone;
   if (skipReason != null) {
     debugPrint('keychain_accessibility_test: $skipReason');
   }
