@@ -53,6 +53,7 @@
 #   CI_JAVA_VERSION           JDK major version Gradle runs on
 #   CI_FRB_VERSION            flutter_rust_bridge_codegen
 #   CI_LLVM_COV_VERSION       cargo-llvm-cov (the rust-coverage job's tool)
+#   CI_SHELLCHECK_VERSION     shellcheck (scripts/ci-install-shellcheck.sh fetches it)
 #   CI_IOS_ATTEMPT_TIMEOUT    per-attempt wall clock for the iOS simulator run
 #   CI_IOS_BOOT_TIMEOUT       bound on waiting for the simulator to boot
 #   CI_RUST_ANDROID_TARGETS   space-separated rustup targets for Android
@@ -192,6 +193,7 @@ ci_versions_load() {
   _ci_set CI_JAVA_VERSION '17' "$(_ci_env JAVA_VERSION || true)"
   _ci_set CI_FRB_VERSION '2.9.0' "$(_ci_env FRB_VERSION || true)"
   _ci_set CI_LLVM_COV_VERSION '0.8.7' "$(_ci_env LLVM_COV_VERSION || true)"
+  _ci_set CI_SHELLCHECK_VERSION '0.11.0' "$(_ci_env SHELLCHECK_VERSION || true)"
 
   # The iOS simulator job's two bounds. scripts/ci-ios-tests.sh reads them from
   # here when they are not already in the environment, which is what lets that
@@ -227,6 +229,7 @@ ci_versions_print() {
   local v
   for v in CI_FLUTTER_VERSION CI_NDK_VERSION CI_ANDROID_API CI_BUILD_TOOLS_VERSION \
            CI_CMAKE_VERSION CI_JAVA_VERSION CI_FRB_VERSION CI_LLVM_COV_VERSION \
+           CI_SHELLCHECK_VERSION \
            CI_IOS_ATTEMPT_TIMEOUT CI_IOS_BOOT_TIMEOUT \
            CI_RUST_ANDROID_TARGETS CI_RUST_IOS_TARGETS \
            CI_EMULATOR_API CI_EMULATOR_TARGET CI_EMULATOR_ARCH CI_EMULATOR_PROFILE \

@@ -18,6 +18,16 @@
 # pipe (SC2259) — so `pick_simulator` had never once worked, and the script it
 # is in is the documented way to run the app on a simulator.
 #
+# WHICH SHELLCHECK
+#
+# The one pinned in ci.yml (SHELLCHECK_VERSION), installed by
+# scripts/ci-install-shellcheck.sh, when it is there; otherwise whatever is on
+# PATH, with a warning if its version is not the pin. The warning is the
+# point: 0.9.0 (ubuntu-latest's) and 0.11.0 (brew's) disagree about which code
+# a finding carries, and for a week the mirror passed on a Mac while the
+# analyze job failed on the same files. Run the installer once and the mirror
+# lints with CI's version.
+#
 # Usage:
 #   ./scripts/ci-shellcheck.sh
 #
@@ -34,8 +44,18 @@ set -uo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
 
-if ! command -v shellcheck >/dev/null 2>&1; then
-  echo "::error::shellcheck is not installed. Ubuntu/Debian: sudo apt-get install -y shellcheck. macOS: brew install shellcheck." >&2
+# shellcheck source=ci-versions.sh
+source scripts/ci-versions.sh
+if SHELLCHECK="$(./scripts/ci-install-shellcheck.sh --print-path)"; then
+  :
+elif command -v shellcheck >/dev/null 2>&1; then
+  SHELLCHECK=shellcheck
+  found="$(shellcheck --version 2>/dev/null | awk '/^version:/ { print $2 }')"
+  if [ "$found" != "$CI_SHELLCHECK_VERSION" ]; then
+    echo "::warning::linting with shellcheck ${found:-?} from PATH; CI uses ${CI_SHELLCHECK_VERSION}, and the two can disagree. Run ./scripts/ci-install-shellcheck.sh to lint with CI's." >&2
+  fi
+else
+  echo "::error::shellcheck is not installed. Run ./scripts/ci-install-shellcheck.sh for the pinned ${CI_SHELLCHECK_VERSION} (or: sudo apt-get install -y shellcheck / brew install shellcheck, and expect a version warning)." >&2
   exit 1
 fi
 
@@ -62,8 +82,8 @@ if [ "${#targets[@]}" -eq 0 ]; then
   exit 1
 fi
 
-echo "Linting ${#targets[@]} shell script(s) with $(shellcheck --version | awk '/^version:/ { print $2 }')"
-shellcheck -x -e SC1091,SC2029 "${targets[@]}"
+echo "Linting ${#targets[@]} shell script(s) with $("$SHELLCHECK" --version | awk '/^version:/ { print $2 }') ($SHELLCHECK)"
+"$SHELLCHECK" -x -e SC1091,SC2029 "${targets[@]}"
 status=$?
 
 if [ "$status" -eq 0 ]; then

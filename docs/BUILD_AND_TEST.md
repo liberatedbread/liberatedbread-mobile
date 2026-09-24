@@ -911,7 +911,7 @@ every pull request. Nine jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, then the selftests of the scripts that only ever run on an expensive job — `scripts/ci-ios-tests-selftest.sh`, `scripts/verify-ios-app-selftest.sh`, `scripts/device-select-selftest.sh`, `scripts/ci-emulator-tests-selftest.sh` — and two that guard a check rather than a job: `scripts/ci-format-selftest.sh` (which files the format check covers) and `scripts/net_virtual_device_selftest.py` (the emulated-network responder answers only what was asked). Then `scripts/ci-versions.sh --strict` (the toolchain pins are still readable by the setup scripts, and its fallbacks still say what the workflow says) and `scripts/update-specs.sh --check` (the vendored subtree is unmodified and its assets exist). Checks out full history for that last one, and `pub get --enforce-lockfile` here and nowhere else. Dart only — no Rust toolchain, nothing compiled |
+| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh` (with the shellcheck `scripts/ci-install-shellcheck.sh` fetches at the version pinned in `ci.yml`, not the runner's), then the selftests of the scripts that only ever run on an expensive job — `scripts/ci-ios-tests-selftest.sh`, `scripts/verify-ios-app-selftest.sh`, `scripts/device-select-selftest.sh`, `scripts/ci-emulator-tests-selftest.sh` — and two that guard a check rather than a job: `scripts/ci-format-selftest.sh` (which files the format check covers) and `scripts/net_virtual_device_selftest.py` (the emulated-network responder answers only what was asked). Then `scripts/ci-versions.sh --strict` (the toolchain pins are still readable by the setup scripts, and its fallbacks still say what the workflow says) and `scripts/update-specs.sh --check` (the vendored subtree is unmodified and its assets exist). Checks out full history for that last one, and `pub get --enforce-lockfile` here and nowhere else. Dart only — no Rust toolchain, nothing compiled |
 | `unit-tests` | ubuntu-latest | checks the FRB bindings haven't drifted from `rust/src/api/` (including brand-new untracked generated files), builds the host Rust lib with `scripts/ensure-rust-lib.sh` — in that order, see the comments there — then `flutter test --coverage --exclude-tags=netdisco`, audits the report for files no test imports (`scripts/ci-coverage-audit.sh`), and uploads it to Codecov under the `unit` flag |
 | `network-discovery` | ubuntu-latest | the `netdisco`-tagged suites, via `scripts/ci-netdisco-tests.sh`, against the stdlib responder `scripts/net_virtual_device.py` on ports 5353/1900; uploads their coverage to Codecov under the `netdisco` flag. No Rust toolchain — the code under test is `dart:io` sockets |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, then `cargo clippy --all-targets --all-features --locked -- -D warnings` and `cargo test --all-features --locked` (`--locked` so a forgotten `Cargo.lock` is an error, not a silent update) |
@@ -1136,6 +1136,20 @@ it, which for `scripts/ci-emulator-tests.sh` is forty minutes into the emulator
 job. A missing `#!` is quieter still: executed directly, the file is handed to
 the caller's shell, which on the Ubuntu runners is dash — no `pipefail`, no
 `[[ ]]`.
+
+The shellcheck it runs is a pinned one — `SHELLCHECK_VERSION` in `ci.yml`,
+fetched by `scripts/ci-install-shellcheck.sh` from the upstream release
+tarball and checked against a sha256 in that script — rather than whatever
+the runner or the laptop happens to have. The two happened to differ (0.9.0
+preinstalled on `ubuntu-latest`, the newest from brew), and they file the
+same finding under different codes: a function only reached through `trap`
+is SC2317 in 0.9 and SC2329 from 0.10, and 0.11 does not report it at all.
+So a `# shellcheck disable=` that satisfied the laptop did not satisfy CI,
+and `scripts/test.sh` was green while the job was red. `test.sh` runs the
+installer first (once; the binary lives under `~/.cache/liberatedbread`),
+and `ci-shellcheck.sh` warns when it has to fall back to a PATH shellcheck
+of another version. To bump: hash the four release tarballs, add them to the
+table in the installer, change the pin in `ci.yml`.
 
 There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
 manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its

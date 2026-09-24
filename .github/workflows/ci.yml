@@ -189,6 +189,13 @@ env:
   # tool. Built from source on a cache miss (~70s) by
   # scripts/ci-install-llvm-cov.sh, exactly like the FRB codegen.
   LLVM_COV_VERSION: '0.8.7'
+  # shellcheck, for the analyze job and scripts/test.sh. Pinned because the
+  # runner's preinstalled one (0.9.0, from 2022) and a Mac's brew (the newest)
+  # report the same finding under different codes — a `disable=` that
+  # satisfied the laptop did not satisfy CI, and the mirror was green while
+  # the job was red. Installed from the upstream release tarball, verified by
+  # the sha256 pinned in scripts/ci-install-shellcheck.sh; a bump edits both.
+  SHELLCHECK_VERSION: '0.11.0'
   # Comma-separated: the shape dtolnay/rust-toolchain's `targets:` input wants.
   # Android keeps all four even though no CI job builds every one, because a dev
   # machine provisioned from this list should be able to build any ABI.
@@ -305,9 +312,17 @@ jobs:
       # The shell in scripts/ is where this project's CI logic deliberately
       # lives, and it was the only language here with no linter. See the header
       # of scripts/ci-shellcheck.sh for the already-shipped bug that found.
-      # shellcheck is preinstalled on ubuntu-latest.
+      # Not the shellcheck preinstalled on ubuntu-latest: the pinned one, so
+      # the laptop mirror and this job lint with the same version and the same
+      # codes (see SHELLCHECK_VERSION in the env block).
+      - name: Install the pinned shellcheck
+        run: ./scripts/ci-install-shellcheck.sh
       - name: Lint shell scripts
         run: ./scripts/ci-shellcheck.sh
+      # ...and the installer's refusal path — a tarball that does not match
+      # its hash installs nothing — against a stub release over file://.
+      - name: Self-test the shellcheck installer
+        run: ./scripts/ci-install-shellcheck-selftest.sh
       # The retry loop guarding the 10x-billed iOS job, driven through all
       # seven of its outcomes against stub xcrun/flutter binaries — on ubuntu,
       # in ~15s. The situations it handles (a simulator that will not boot, an

@@ -126,14 +126,17 @@ flutter analyze --fatal-infos
 # CI's `analyze` job lints scripts/ too. Skipped with a warning rather than
 # fatal when shellcheck is absent, for the same reason the FRB check below is:
 # a missing dev tool should not look like a failing test suite. CI still runs
-# it, and CI has shellcheck preinstalled.
-if command -v shellcheck &>/dev/null; then
+# it. The version is CI's, fetched once by the installer (a hash-verified
+# tarball into ~/.cache); if that cannot happen here — no network, say — the
+# lint falls back to PATH's shellcheck and warns when it is not the pin.
+log "shellcheck ${CI_SHELLCHECK_VERSION} (install if missing)"
+./scripts/ci-install-shellcheck.sh \
+  || warn "could not install the pinned shellcheck; linting with whatever is on PATH"
+if ./scripts/ci-install-shellcheck.sh --print-path >/dev/null || command -v shellcheck &>/dev/null; then
   log "shellcheck (scripts/)"
   ./scripts/ci-shellcheck.sh
 else
-  warn "SKIPPING shellcheck: not installed."
-  warn "  Install it with: sudo apt-get install -y shellcheck (or brew install shellcheck)."
-  warn "  CI still runs this check."
+  warn "SKIPPING shellcheck: not installed and could not be fetched. CI still runs this check."
 fi
 
 # BEFORE the build, not after. `generate` rewrites rust/src/frb_generated.rs,
@@ -196,6 +199,8 @@ fi
 # exercises it. Skips its `timeout` cases on a Mac without coreutils.
 log "ci-emulator-tests selftest"
 ./scripts/ci-emulator-tests-selftest.sh
+log "ci-install-shellcheck selftest"
+./scripts/ci-install-shellcheck-selftest.sh
 
 # The device pickers behind run-ios-device*.sh and run-android-device-tests.sh,
 # against canned `flutter devices` output: a booted simulator reports the
