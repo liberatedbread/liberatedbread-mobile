@@ -41,29 +41,39 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final configAsync = ref.watch(haConfigProvider);
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Home Assistant')),
-      body: configAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-                friendlyErrorText(e,
-                    context: 'load HA settings',
-                    fallback: 'Could not load your Home Assistant settings.'),
-                style: const TextStyle(color: Colors.red)),
+      // Landscape is declared for iPhone; the explicitly-padded ListViews below
+      // ignore MediaQuery.padding, so without this the form's edge sat under
+      // the notch / Dynamic Island and the last row under the home indicator.
+      body: SafeArea(
+        child: configAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                friendlyErrorText(
+                  e,
+                  context: 'load HA settings',
+                  fallback: 'Could not load your Home Assistant settings.',
+                ),
+                style: TextStyle(color: scheme.error),
+              ),
+            ),
           ),
+          data: (config) => config != null && config.isRegistered
+              ? _buildRegisteredView(config)
+              : _buildSetupForm(),
         ),
-        data: (config) => config != null && config.isRegistered
-            ? _buildRegisteredView(config)
-            : _buildSetupForm(),
       ),
     );
   }
 
   Widget _buildSetupForm() {
     final urlKind = classifyHaUrl(_urlController.text);
+    final scheme = Theme.of(context).colorScheme;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -92,7 +102,8 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
           autocorrect: false,
           decoration: const InputDecoration(
             labelText: 'Long-lived access token',
-            helperText: 'In Home Assistant: your profile -> Security -> '
+            helperText:
+                'In Home Assistant: your profile -> Security -> '
                 'Long-lived access tokens',
             helperMaxLines: 2,
             border: OutlineInputBorder(),
@@ -102,8 +113,7 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
         if (_errorMessage != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            child:
-                Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+            child: Text(_errorMessage!, style: TextStyle(color: scheme.error)),
           ),
         const SizedBox(height: 8),
         FilledButton.icon(
@@ -123,9 +133,14 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
 
   Widget _buildRegisteredView(HaConfig config) {
     final forwarder = ref.watch(haForwarderProvider);
+    // Theme roles, not Colors.* literals: grey and green fail contrast on the
+    // light surface and none of them adapt to dark mode.
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final webhookId = config.webhookId!;
-    final maskedWebhook =
-        webhookId.length > 8 ? '${webhookId.substring(0, 8)}...' : webhookId;
+    final maskedWebhook = webhookId.length > 8
+        ? '${webhookId.substring(0, 8)}...'
+        : webhookId;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -137,16 +152,22 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.green.shade700),
+                    Icon(Icons.check_circle, color: scheme.tertiary),
                     const SizedBox(width: 8),
-                    const Text('Connected',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    const Text(
+                      'Connected',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Text(config.baseUrl),
-                Text('Webhook: $maskedWebhook',
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                Text(
+                  'Webhook: $maskedWebhook',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),
@@ -154,8 +175,9 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
         SwitchListTile(
           title: const Text('Forward sensor updates'),
           subtitle: const Text(
-              'Send decoded values to Home Assistant while connected to '
-              'devices'),
+            'Send decoded values to Home Assistant while connected to '
+            'devices',
+          ),
           value: config.enabled,
           onChanged: (v) async {
             // The keystore write can fail; without a catch that is both a
@@ -167,19 +189,20 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
               }
             } catch (e) {
               if (!mounted) return;
-              setState(() => _errorMessage = friendlyErrorText(
-                    e,
-                    context: 'HA setEnabled',
-                    fallback: 'Could not save the forwarding setting.',
-                  ));
+              setState(
+                () => _errorMessage = friendlyErrorText(
+                  e,
+                  context: 'HA setEnabled',
+                  fallback: 'Could not save the forwarding setting.',
+                ),
+              );
             }
           },
         ),
         if (_errorMessage != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            child:
-                Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+            child: Text(_errorMessage!, style: TextStyle(color: scheme.error)),
           ),
         ListenableBuilder(
           listenable: forwarder.status,
@@ -191,16 +214,20 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
             } else if (status.lastSuccess != null) {
               text = 'Last update sent: ${status.lastSuccess}';
             } else {
-              text = 'No updates sent yet - connect to a device to start '
+              text =
+                  'No updates sent yet - connect to a device to start '
                   'forwarding.';
             }
             return Padding(
               padding: const EdgeInsets.all(12),
-              child: Text(text,
-                  style: TextStyle(
-                      fontSize: 12,
-                      color:
-                          status.lastError != null ? Colors.red : Colors.grey)),
+              child: Text(
+                text,
+                style: textTheme.bodySmall?.copyWith(
+                  color: status.lastError != null
+                      ? scheme.error
+                      : scheme.onSurfaceVariant,
+                ),
+              ),
             );
           },
         ),
@@ -237,12 +264,15 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
       if (mounted) setState(() => _errorMessage = friendlyHaMessage(e));
     } catch (e) {
       if (mounted) {
-        setState(() => _errorMessage = friendlyErrorText(
-              e,
-              context: 'HA register',
-              fallback: 'Something went wrong connecting to Home Assistant. '
-                  'Check the address and token, then try again.',
-            ));
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'HA register',
+            fallback:
+                'Something went wrong connecting to Home Assistant. '
+                'Check the address and token, then try again.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -255,10 +285,11 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Disconnect from Home Assistant?'),
         content: const Text(
-            'This forgets the connection on this phone. The Liberated Bread '
-            'device entry in Home Assistant is not deleted - remove it '
-            'under Settings -> Devices in Home Assistant if you want it '
-            'gone.'),
+          'This forgets the connection on this phone. The Liberated Bread '
+          'device entry in Home Assistant is not deleted - remove it '
+          'under Settings -> Devices in Home Assistant if you want it '
+          'gone.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -279,11 +310,13 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
       await ref.read(haConfigProvider.notifier).disconnect();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorMessage = friendlyErrorText(
-            e,
-            context: 'HA disconnect',
-            fallback: 'Could not disconnect from Home Assistant.',
-          ));
+      setState(
+        () => _errorMessage = friendlyErrorText(
+          e,
+          context: 'HA disconnect',
+          fallback: 'Could not disconnect from Home Assistant.',
+        ),
+      );
     }
   }
 

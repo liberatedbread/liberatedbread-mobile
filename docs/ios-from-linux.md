@@ -17,11 +17,20 @@ it: `multicast_dns` binds UDP 5353 and joins 224.0.0.251 directly, and the SSDP
 half sends M-SEARCH to 239.255.255.250 from its own socket. Since iOS 14 raw
 multicast is blocked without this entitlement.
 
-`NSBonjourServices` in `Info.plist` does **not** cover this. That key applies to
-mDNS performed through the Bonjour APIs (`NWBrowser`, `NetService`), where
-`mDNSResponder` does the multicast for you. This app uses raw sockets, so it
-needs both: the entitlement to send at all, and the service-type list because
-the OS still filters mDNS answers by declared type.
+`NSBonjourServices` in `Info.plist` does **not** cover this, and — this is the
+part that was wrong here for a while — it does not supplement it either. That
+key applies to mDNS performed through the Bonjour APIs (`NWBrowser`,
+`NetService`), where `mDNSResponder` does the multicast for you and the OS
+filters answers by declared type. This app uses raw sockets, so the entitlement
+is the only thing gating discovery; the service-type list governs nothing it
+currently does.
+
+The list is still generated and committed, because it declares the app's intent
+accurately to App Review and because it is precisely what a move to `NWBrowser`
+would need already correct. That move is worth knowing about: a Bonjour-API
+implementation needs **no multicast entitlement at all**, which would remove the
+approval dependency this whole section is about. It would cost the SSDP half,
+which has no Bonjour equivalent.
 
 Unlike most capabilities, you cannot simply tick this one on in the App ID.
 Apple grants it by request:
@@ -153,8 +162,11 @@ Actions macOS runner.
 4. Nothing to edit in `ios/ExportOptions-adhoc.plist`. It ships with
    `YOUR_TEAM_ID` and `Liberated Bread Ad Hoc` placeholders, and the workflow
    substitutes `IOS_TEAM_ID` and `IOS_PROFILE_NAME` into its own workspace copy
-   at build time — so no team ID or personal profile name is ever committed.
-   Set both secrets rather than editing the file. If `IOS_PROFILE_NAME` is
+   at build time. One team ID IS committed, though: `ios/Runner.xcodeproj`
+   sets `DEVELOPMENT_TEAM = GQ358PSWM3` on every configuration, and with the
+   team in the project flutter_tools skips certificate-based detection — so
+   `IOS_TEAM_ID` must be `GQ358PSWM3`, or you edit the pbxproj to your own
+   team before building. Set both secrets rather than editing the plist. If `IOS_PROFILE_NAME` is
    unset, `-exportArchive` fails with *"No profile matching 'Liberated Bread
    Ad Hoc' found"* unless your profile happens to carry that exact name. The
    bundle ID (`ca.pigscanfly.liberatedbread`) is the one value that is genuinely

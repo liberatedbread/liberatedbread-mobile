@@ -10,6 +10,8 @@
 
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,8 +30,8 @@ import '../fakes/fake_spec_codec.dart';
 /// A setup AP that answers `/setup.xml` with a WiFiSetup service and an AP
 /// list, but never answers GetMetaInfo — the reported failure shape.
 http.Client _apWithNoMetaInfo() => MockClient((request) async {
-      if (request.url.path == '/setup.xml') {
-        return http.Response('''
+  if (request.url.path == '/setup.xml') {
+    return http.Response('''
 <?xml version="1.0"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
   <device>
@@ -47,12 +49,12 @@ http.Client _apWithNoMetaInfo() => MockClient((request) async {
   </device>
 </root>
 ''', 200);
-      }
-      final action = (request.headers['soapaction'] ?? '').toLowerCase();
-      if (action.contains('getmetainfo')) {
-        return http.Response('busy', 500);
-      }
-      return http.Response('''
+  }
+  final action = (request.headers['soapaction'] ?? '').toLowerCase();
+  if (action.contains('getmetainfo')) {
+    return http.Response('busy', 500);
+  }
+  return http.Response('''
 <?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
 <s:Body><u:GetApListResponse xmlns:u="urn:Belkin:service:x:1">
@@ -60,85 +62,131 @@ http.Client _apWithNoMetaInfo() => MockClient((request) async {
 HomeNet|6|WPA2PSK/AES,
 </ApList>
 </u:GetApListResponse></s:Body></s:Envelope>''', 200);
-    });
+});
 
-AdoptableDevice _device(String name, String prefix, String category,
-        AdoptFamily family, String method) =>
-    AdoptableDevice(
-      profile: SoftApProfileDto(
-        specName: name,
-        category: category,
-        methodType: method,
-        ssidPrefix: prefix,
-        ssidExamples: const [],
-        openNetwork: true,
-        gatewayIp: null,
-        ports: Uint16List(0),
-      ),
-      specYaml: 'yaml',
-      family: family,
-    );
+AdoptableDevice _device(
+  String name,
+  String prefix,
+  String category,
+  AdoptFamily family,
+  String method,
+) => AdoptableDevice(
+  profile: SoftApProfileDto(
+    specName: name,
+    category: category,
+    methodType: method,
+    ssidPrefix: prefix,
+    ssidExamples: const [],
+    openNetwork: true,
+    gatewayIp: null,
+    ports: Uint16List(0),
+  ),
+  specYaml: 'yaml',
+  family: family,
+);
 
-final _wemo = _device('Belkin Wemo Smart Devices', 'Wemo.', 'switch',
-    AdoptFamily.wemo, 'softap_soap');
-final _lifx =
-    _device('LIFX Z', 'LIFX', 'light', AdoptFamily.lifx, 'softap_udp');
+final _wemo = _device(
+  'Belkin Wemo Smart Devices',
+  'Wemo.',
+  'switch',
+  AdoptFamily.wemo,
+  'softap_soap',
+);
+final _lifx = _device(
+  'LIFX Z',
+  'LIFX',
+  'light',
+  AdoptFamily.lifx,
+  'softap_udp',
+);
 
 BleAdoptableDevice _bleDevice(
   String name,
   String advertisedName,
   String category,
   String? handler,
-) =>
-    BleAdoptableDevice(
-      profile: BleProvisioningProfileDto(
-        specName: name,
-        category: category,
-        advertisedName: advertisedName,
-        exactName: true,
-        serviceUuid: '366048ae-9f36-43cf-8004-010c0c9fa52e',
-        writeCharacteristic: '53ef7d7d-c244-42bd-9064-a1569a521ca9',
-        readCharacteristic: '53ef7d7d-c244-42bd-9064-a1569a521ca9',
-        mtu: 515,
-      ),
-      specYaml: 'yaml',
-      protocolHandler: handler,
-    );
+) => BleAdoptableDevice(
+  profile: BleProvisioningProfileDto(
+    specName: name,
+    category: category,
+    advertisedName: advertisedName,
+    exactName: true,
+    serviceUuid: '366048ae-9f36-43cf-8004-010c0c9fa52e',
+    writeCharacteristic: '53ef7d7d-c244-42bd-9064-a1569a521ca9',
+    readCharacteristic: '53ef7d7d-c244-42bd-9064-a1569a521ca9',
+    mtu: 515,
+  ),
+  specYaml: 'yaml',
+  protocolHandler: handler,
+);
 
 final _rabbitAir = _bleDevice(
-    'Rabbit Air Purifier', 'RabbitAirSetup', 'fan', 'rabbit_air_lan');
+  'Rabbit Air Purifier',
+  'RabbitAirSetup',
+  'fan',
+  'rabbit_air_lan',
+);
 
 Widget _wrap({
   List<AdoptableDevice> devices = const [],
   AdoptableDevice? nearby,
   List<BleAdoptableDevice> bleDevices = const [],
   AdoptService? service,
-}) =>
-    ProviderScope(
-      overrides: [
-        adoptableDevicesProvider.overrideWith((ref) async => devices),
-        nearbySetupNetworkProvider.overrideWith((ref) => Stream.value(nearby)),
-        bleAdoptableDevicesProvider.overrideWith((ref) async => bleDevices),
-        if (service != null)
-          adoptServiceProvider.overrideWith((ref) => service),
-      ],
-      child: const MaterialApp(home: AdoptDeviceScreen()),
-    );
+}) => ProviderScope(
+  overrides: [
+    adoptableDevicesProvider.overrideWith((ref) async => devices),
+    nearbySetupNetworkProvider.overrideWith((ref) => Stream.value(nearby)),
+    bleAdoptableDevicesProvider.overrideWith((ref) async => bleDevices),
+    if (service != null) adoptServiceProvider.overrideWith((ref) => service),
+  ],
+  child: const MaterialApp(home: AdoptDeviceScreen()),
+);
 
 void main() {
-  testWidgets('explains the manual join step and offers Settings',
-      (tester) async {
+  testWidgets('explains the manual join step and offers Settings', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(devices: [_wemo, _lifx]));
     await tester.pumpAndSettle();
 
     expect(find.text('Adopt a Wi-Fi device'), findsOneWidget); // app bar
     expect(find.textContaining('Factory reset'), findsOneWidget);
     expect(find.textContaining('join that network'), findsOneWidget);
-    expect(find.widgetWithText(TextButton, 'Open Settings'), findsOneWidget);
+    // Widget tests run as Android: the button really opens the Wi-Fi list.
+    expect(
+      find.widgetWithText(TextButton, 'Open Wi-Fi settings'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Open Wi-Fi settings and join'), findsOneWidget);
   });
 
-  testWidgets('lists every adoptable family with its setup prefix',
-      (tester) async {
+  testWidgets('on iOS the settings button says where it really goes', (
+    tester,
+  ) async {
+    // iOS has no public route to the Wi-Fi pane, and openAppSettings() lands
+    // on the app's own page — so the copy sends the user to Settings > Wi-Fi
+    // by hand, and the button is labelled for the page it does open.
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      await tester.pumpWidget(_wrap(devices: [_wemo, _lifx]));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.widgetWithText(TextButton, 'Open app settings'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('tap Wi-Fi and join'), findsOneWidget);
+      expect(find.text('Open Wi-Fi settings'), findsNothing);
+    } finally {
+      // Before the body returns: the binding checks that no foundation debug
+      // variable is still overridden, and that runs BEFORE addTearDown.
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('lists every adoptable family with its setup prefix', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(devices: [_wemo, _lifx]));
     await tester.pumpAndSettle();
 
@@ -148,8 +196,9 @@ void main() {
     expect(find.textContaining('"LIFX…"'), findsOneWidget);
   });
 
-  testWidgets('highlights the family whose setup network is in range',
-      (tester) async {
+  testWidgets('highlights the family whose setup network is in range', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(devices: [_wemo, _lifx], nearby: _wemo));
     await tester.pumpAndSettle();
 
@@ -162,16 +211,18 @@ void main() {
     );
   });
 
-  testWidgets('says so when the catalogue has no adoptable devices',
-      (tester) async {
+  testWidgets('says so when the catalogue has no adoptable devices', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(devices: const []));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('No adoptable device types'), findsOneWidget);
   });
 
-  testWidgets('warns at the picker when the device withheld its metadata',
-      (tester) async {
+  testWidgets('warns at the picker when the device withheld its metadata', (
+    tester,
+  ) async {
     // The failure this screen used to report only after a password was typed
     // and a two-minute credential sweep had run. Connecting now reads the
     // metadata in the spec's order, so by the time the network picker draws
@@ -212,6 +263,58 @@ void main() {
     );
   });
 
+  testWidgets('the typed SSID and password fields refuse autocorrect', (
+    tester,
+  ) async {
+    // iOS QuickType splits an SSID on the first space and, once "Show
+    // password" is on, corrects the password too. Every other credential
+    // field in the app already opts out; these two did not.
+    final codec = FakeSpecCodec()
+      ..wemoApList = const [
+        WemoAccessPointDto(
+          ssid: 'HomeNet',
+          channel: '6',
+          auth: 'WPA2PSK',
+          encrypt: 'AES',
+          joinable: true,
+          isOpen: false,
+        ),
+      ];
+    final service = AdoptService(
+      codec: codec,
+      soap: SoapControlClient(httpClient: _apWithNoMetaInfo()),
+      lifx: FakeLifxControlClient(),
+      wemoPorts: const [49153],
+      setupRetryGap: Duration.zero,
+    );
+    await tester.pumpWidget(_wrap(devices: [_wemo], service: service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Belkin Wemo Smart Devices'));
+    await tester.pumpAndSettle();
+
+    final ssidField = tester.widget<TextField>(
+      find.ancestor(
+        of: find.text('Wi-Fi network name (SSID)'),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(ssidField.autocorrect, isFalse);
+    expect(ssidField.enableSuggestions, isFalse);
+
+    await tester.enterText(find.byWidget(ssidField), 'thebread5 guest');
+    await tester.tap(find.text('Use this network'));
+    await tester.pumpAndSettle();
+
+    final passwordField = tester.widget<TextField>(
+      find.ancestor(
+        of: find.text('Wi-Fi password'),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(passwordField.autocorrect, isFalse);
+    expect(passwordField.enableSuggestions, isFalse);
+  });
+
   // ── The Bluetooth-provisioned families ──────────────────────────────────
   // These have no setup network to join, so they sit in their own section —
   // built from the catalogue, not written into the screen.
@@ -232,8 +335,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('lists a BLE-provisioned family from the catalogue',
-      (tester) async {
+  testWidgets('lists a BLE-provisioned family from the catalogue', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(devices: [_wemo], bleDevices: [_rabbitAir]));
     await tester.pumpAndSettle();
     await scrollToBleSection(tester);
@@ -244,8 +348,9 @@ void main() {
     expect(find.textContaining('"RabbitAirSetup"'), findsOneWidget);
   });
 
-  testWidgets('hides the whole section when nothing BLE is adoptable',
-      (tester) async {
+  testWidgets('hides the whole section when nothing BLE is adoptable', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(devices: [_wemo]));
     await tester.pumpAndSettle();
     await scrollToEnd(tester);
@@ -254,23 +359,62 @@ void main() {
     expect(find.text('Sets up over Bluetooth instead'), findsNothing);
   });
 
-  testWidgets('skips a BLE family whose provisioning this app cannot drive',
-      (tester) async {
+  testWidgets('skips a BLE family whose provisioning this app cannot drive', (
+    tester,
+  ) async {
     // A spec can declare a ble_provisioning method long before the app has a
     // conversation for it. Offering a card that dead-ends is worse than not
     // offering one, so an unknown handler is left out — and with it the
     // section, when it is the only entry.
-    await tester.pumpWidget(_wrap(
-      devices: [_wemo],
-      bleDevices: [
-        _bleDevice('Some Future Kettle', 'KettleSetup', 'appliance',
-            'not_implemented_yet'),
-      ],
-    ));
+    await tester.pumpWidget(
+      _wrap(
+        devices: [_wemo],
+        bleDevices: [
+          _bleDevice(
+            'Some Future Kettle',
+            'KettleSetup',
+            'appliance',
+            'not_implemented_yet',
+          ),
+        ],
+      ),
+    );
     await tester.pumpAndSettle();
     await scrollToEnd(tester);
 
     expect(find.text('Sets up over Bluetooth instead'), findsNothing);
     expect(find.text('Some Future Kettle'), findsNothing);
+  });
+
+  group('R-104: the Wemo join guesses are stated in one place', () {
+    // WPA2PSK/AES were vendor constants in a text field's callback, and the
+    // family check that depends on them was an enum comparison in a warning
+    // builder — so "which devices need a cipher guessed" was answerable only
+    // by reading the UI. The fix is the spec declaring what its provisioning
+    // command needs; until then these are one named, tested place.
+    test(
+      'a typed SSID becomes a joinable secured network with the guesses',
+      () {
+        final network = WemoJoinDefaults.assumedNetwork('  Home  '.trim());
+
+        expect(network.ssid, 'Home');
+        expect(network.joinable, isTrue);
+        expect(
+          network.isOpen,
+          isFalse,
+          reason: 'a typed SSID with no scan behind it is assumed secured',
+        );
+        expect(network.auth, 'WPA2PSK');
+        expect(network.encrypt, 'AES');
+        // No channel to claim: the device did not scan, so nothing knows one.
+        expect(network.channel, isEmpty);
+      },
+    );
+
+    test('only Wemo needs the setup metadata a secured join encrypts with', () {
+      expect(WemoJoinDefaults.needsMetaInfo(AdoptFamily.wemo), isTrue);
+      // LIFX carries a security byte instead and needs none of it.
+      expect(WemoJoinDefaults.needsMetaInfo(AdoptFamily.lifx), isFalse);
+    });
   });
 }

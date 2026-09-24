@@ -23,16 +23,16 @@ class DeviceGroup {
   });
 
   DeviceGroup copyWith({String? name, List<String>? deviceIds}) => DeviceGroup(
-        id: id,
-        name: name ?? this.name,
-        deviceIds: deviceIds ?? this.deviceIds,
-      );
+    id: id,
+    name: name ?? this.name,
+    deviceIds: deviceIds ?? this.deviceIds,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'deviceIds': deviceIds,
-      };
+    'id': id,
+    'name': name,
+    'deviceIds': deviceIds,
+  };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
   /// take the whole group list down with it. Non-string member entries are
@@ -112,10 +112,12 @@ class DeviceGroupStore {
     final groups = [
       for (final group in load())
         group.deviceIds.contains(deviceId)
-            ? group.copyWith(deviceIds: [
-                for (final id in group.deviceIds)
-                  if (id != deviceId) id,
-              ])
+            ? group.copyWith(
+                deviceIds: [
+                  for (final id in group.deviceIds)
+                    if (id != deviceId) id,
+                ],
+              )
             : group,
     ];
     await _write(groups);

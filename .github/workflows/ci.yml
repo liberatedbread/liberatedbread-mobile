@@ -189,6 +189,13 @@ env:
   # tool. Built from source on a cache miss (~70s) by
   # scripts/ci-install-llvm-cov.sh, exactly like the FRB codegen.
   LLVM_COV_VERSION: '0.8.7'
+  # shellcheck, for the analyze job and scripts/test.sh. Pinned because the
+  # runner's preinstalled one (0.9.0, from 2022) and a Mac's brew (the newest)
+  # report the same finding under different codes — a `disable=` that
+  # satisfied the laptop did not satisfy CI, and the mirror was green while
+  # the job was red. Installed from the upstream release tarball, verified by
+  # the sha256 pinned in scripts/ci-install-shellcheck.sh; a bump edits both.
+  SHELLCHECK_VERSION: '0.11.0'
   # Comma-separated: the shape dtolnay/rust-toolchain's `targets:` input wants.
   # Android keeps all four even though no CI job builds every one, because a dev
   # machine provisioned from this list should be able to build any ABI.
@@ -305,9 +312,17 @@ jobs:
       # The shell in scripts/ is where this project's CI logic deliberately
       # lives, and it was the only language here with no linter. See the header
       # of scripts/ci-shellcheck.sh for the already-shipped bug that found.
-      # shellcheck is preinstalled on ubuntu-latest.
+      # Not the shellcheck preinstalled on ubuntu-latest: the pinned one, so
+      # the laptop mirror and this job lint with the same version and the same
+      # codes (see SHELLCHECK_VERSION in the env block).
+      - name: Install the pinned shellcheck
+        run: ./scripts/ci-install-shellcheck.sh
       - name: Lint shell scripts
         run: ./scripts/ci-shellcheck.sh
+      # ...and the installer's refusal path — a tarball that does not match
+      # its hash installs nothing — against a stub release over file://.
+      - name: Self-test the shellcheck installer
+        run: ./scripts/ci-install-shellcheck-selftest.sh
       # The retry loop guarding the 10x-billed iOS job, driven through all
       # seven of its outcomes against stub xcrun/flutter binaries — on ubuntu,
       # in ~15s. The situations it handles (a simulator that will not boot, an
@@ -316,6 +331,11 @@ jobs:
       # is meant to survive.
       - name: Self-test the iOS retry logic
         run: ./scripts/ci-ios-tests-selftest.sh
+      # The device runner's wall-clock bound on `xcodebuild test`: that perl's
+      # alarm survives the exec and kills a hang, and that the runner uses it.
+      # scripts/test.sh runs this too; it is here so the mirror stays a mirror.
+      - name: Self-test the iOS device-runner timeout
+        run: ./scripts/run-ios-device-tests-selftest.sh
       # The bundle verifier itself, driven against stub nm/PlistBuddy binaries.
       # It only ever runs on the 10x-billed macOS job, against an artifact that
       # takes ten minutes to build, so its own bugs used to surface as a red run
@@ -325,6 +345,25 @@ jobs:
       # the Rust library entirely. See the header of the selftest.
       - name: Self-test the iOS bundle verifier
         run: ./scripts/verify-ios-app-selftest.sh
+      - name: device-select selftest
+        run: ./scripts/device-select-selftest.sh
+      # The emulator job's retry loop, driven against stub binaries on a runner
+      # with no emulator. The case it pins is the one that made the retry a
+      # no-op in the first place: an attempt that ignores SIGTERM. Seconds
+      # here, versus only ever being exercised inside a 40-minute job.
+      - name: ci-emulator-tests selftest
+        run: ./scripts/ci-emulator-tests-selftest.sh
+      # WHICH files the format check covers. It used to reformat the vendored
+      # cargokit build_tool under rust_builder/ — third-party source — and
+      # passed only because that tree happened to satisfy the formatter.
+      - name: ci-format selftest
+        run: ./scripts/ci-format-selftest.sh
+      # The emulated-network responder, asked directly — no sockets, so it
+      # belongs here and not in the network-discovery job. It answered every
+      # M-SEARCH with every device whatever the ST said, which made "the scan
+      # still sends its vendor search targets" unprovable.
+      - name: net_virtual_device selftest
+        run: python3 ./scripts/net_virtual_device_selftest.py
       # The header of this file says every pinned version lives in one `env:`
       # block and that scripts/ci-versions.sh reads it. Nothing enforced the
       # second half. That script is deliberately forgiving — a key it cannot
@@ -338,6 +377,13 @@ jobs:
       # --strict turns each of those stderr lines into a failure, in the gate,
       # in the pull request that renames the key. Costs milliseconds; it is one
       # awk pass over one file.
+      #
+      # It also fails when a fallback no longer AGREES with the value below it.
+      # Same failure, one step later: CI_LINUX_DESKTOP_PACKAGES kept the nine
+      # packages it was written with while this block grew dbus and
+      # python3-dbus-next, so a machine that fell back installed a set that
+      # cannot run the Linux desktop tests. Bumping a pin here means updating
+      # its fallback in the same commit.
       - name: Check the toolchain pins are still readable by the setup scripts
         run: ./scripts/ci-versions.sh --strict
       # Both halves of this are invisible failures without a gate. pubspec.yaml
@@ -1029,11 +1075,14 @@ jobs:
     # Merging costs granularity — a flaky test also reddens the build smoke —
     # which is the deliberate trade for roughly halving the macOS spend.
     #
-    # Lowered from 75: the simulator now boots concurrently with the build and
-    # the integration tests run as a single device cycle (see the aggregate
-    # entrypoint below), so even a fully cold-cache run fits comfortably. The
-    # test step carries its own tighter timeout below.
-    timeout-minutes: 60
+    # The sum of the step ceilings below (5 + 25 + 25 + 34 = 89), with a
+    # little over. It was 60 while there was one iOS build in this job; the
+    # device (aarch64-apple-ios, release, AOT) build added on ios-self-fix
+    # brought its own 25-minute step and nobody raised the job's — so a cold
+    # rust-cache plus a double simulator failure was cancelled mid test-step
+    # and reported as a cancellation rather than the underlying failure. The
+    # test step still carries its own tighter timeout below.
+    timeout-minutes: 90
     needs: [analyze, rust]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1062,14 +1111,19 @@ jobs:
           workspaces: rust
           prefix-key: v1-ios
       - run: flutter pub get
-      # Newer Flutter enables Swift Package Manager by default, and
-      # SPM-capable plugins (flutter_blue_plus_darwin ships a Package.swift)
-      # then bypass CocoaPods entirely — vanishing from Podfile.lock and
-      # breaking the pod-presence assertions below while still being linked.
-      # Pin plugin resolution to CocoaPods so the "every plugin is a pod"
-      # invariant those checks encode stays true.
-      - name: Use CocoaPods for plugin resolution (disable SPM)
-        run: flutter config --no-enable-swift-package-manager
+      # Swift Package Manager is disabled in pubspec.yaml (flutter: config:
+      # enable-swift-package-manager: false), NOT here.
+      #
+      # This step used to run `flutter config --no-enable-swift-package-manager`,
+      # which is a per-MACHINE setting written to ~/.config/flutter. That made
+      # this job the only place in the world where it was off: ios-adhoc.yml
+      # never ran it, and a developer Mac has SPM on by default. So the plugin
+      # linking this job verified was never the linking that reached a phone —
+      # four plugins resolved through SPM there and CocoaPods here, and
+      # verify_ios_pods.sh below failed on every developer Mac for that reason.
+      # The pubspec key travels with the repo and outranks both the global
+      # config and FLUTTER_SWIFT_PACKAGE_MANAGER, so every invocation on every
+      # machine now agrees. See the comment in pubspec.yaml.
       # Start the boot in the background so it overlaps the build below —
       # booted-and-ready cost ~65 serial seconds when it sat between the build
       # and the tests. `simctl boot` only STARTS the boot (it returns in
@@ -1152,6 +1206,31 @@ jobs:
             --target=integration_test/ci_all_test.dart \
             --dart-define=LIBERATED_BREAD_MOCK=true
 
+      # The step above builds integration_test/ci_all_test.dart, NOT the app.
+      # So until this step existed, lib/main.dart had never been compiled for
+      # iOS anywhere in CI, in any mode: the shipped entrypoint, the whole
+      # release/AOT path, and the arm64 device target were all unverified, and
+      # the first thing to exercise them was the ad-hoc workflow — which is
+      # manually triggered, so a break would surface whenever someone next
+      # wanted an IPA rather than in the PR that caused it.
+      #
+      # AOT is not a formality here. `flutter build ios --debug` compiles Dart
+      # to a JIT kernel and skips the tree-shaker and the const evaluator
+      # entirely, so a release-only compile failure is a real class: the
+      # tree-shaker rejecting a non-const IconData (this app builds icons from
+      # the spec catalogue in lib/core/entity_icon.dart and lib/core/icons/),
+      # or a deferred-loading or transitive-native issue that only the AOT
+      # snapshot surfaces.
+      #
+      # Cost: one more build on a runner that is already warm — same pub cache,
+      # same Rust cache, same CocoaPods. It reuses the aarch64-apple-ios target
+      # the toolchain step already installed. --no-codesign keeps it out of the
+      # signing story entirely, so it needs no secrets and cannot fail on a
+      # provisioning profile.
+      - name: Build iOS (device, release, no codesign) — the shipped entrypoint
+        timeout-minutes: 25
+        run: flutter build ios --release --no-codesign --no-pub
+
       # ── verify the artifact, not just the exit code ─────────────────────────
       # Why a lockfile check is not redundant with a green build, which pods are
       # asserted and which deliberately are not: scripts/verify_ios_pods.sh.
@@ -1159,6 +1238,65 @@ jobs:
       # a check nobody can run outside a macOS job is a check nobody maintains.
       - name: Verify CocoaPods resolution happened
         run: ./scripts/verify_ios_pods.sh ios
+      # The committed ios/ project must BE what the build uses, not a thing the
+      # toolchain silently rewrites on the way past.
+      #
+      # `flutter build ios` runs migrations against the tracked tree. On the
+      # 3.44.8 bump those rewrote nine files — a new AppDelegate, the UIScene
+      # manifest, CocoaPods build phases, the deletion of AppFrameworkInfo's
+      # MinimumOSVersion — and, because the plist migration round-trips through
+      # plutil, silently deleted the two explanatory comment blocks in
+      # Info.plist that record why there is no location usage string and what
+      # NSBonjourServices is for. Nothing failed. Linux CI never builds for iOS,
+      # so it stayed green; every Mac carried a permanently dirty tree; and the
+      # diff a reviewer read was not the project that shipped.
+      #
+      # This step makes the next such migration a red build in the PR that
+      # bumps Flutter, where someone can look at it, instead of a mystery a
+      # developer notices in `git status` months later. When it fires: run the
+      # build locally, review what the migration did, restore any comments it
+      # ate, and commit the result.
+      #
+      # ONE exception, and it is the only thing here this repo cannot control:
+      # the `COCOAPODS:` trailer of ios/Podfile.lock, which records the
+      # CocoaPods version that resolved it. `pod install` rewrites that line
+      # with whatever version the runner image ships, so a GitHub image bump
+      # turns this step red on a pull request that changed nothing about iOS —
+      # and the fix a red build asks for (commit the diff) pins this repo's
+      # lockfile to a hosted runner's toolchain until the next bump does it
+      # again. Everything else in the lockfile still counts: SPEC CHECKSUMS and
+      # the resolved pod versions are what the app links, and PODFILE CHECKSUM
+      # moves only when the Podfile does.
+      - name: Committed ios/ project matches what the build produces
+        run: |
+          drift=0
+          if ! git diff --exit-code -- ios/ ':(exclude)ios/Podfile.lock'; then
+            echo "::error file=ios/Runner.xcodeproj/project.pbxproj::Building for iOS modified tracked files under ios/. Flutter ran a project migration, so the committed project is not what CI just built. Run 'flutter build ios --simulator --debug --no-codesign' locally, review the diff (watch for XML comments the plist migration drops), and commit it." >&2
+            drift=1
+          fi
+          # The lockfile, minus the runner's CocoaPods version. -U0 so only
+          # changed lines are considered, and the +++/--- file headers are
+          # dropped before the COCOAPODS: line is.
+          lock="$(git diff -U0 -- ios/Podfile.lock \
+                  | grep -E '^[-+][^-+]' \
+                  | grep -vE '^[-+]COCOAPODS: ' || true)"
+          if [ -n "$lock" ]; then
+            echo "::error file=ios/Podfile.lock::Building for iOS changed ios/Podfile.lock beyond its CocoaPods version line — the pods CI linked are not the pods this repo committed. Run the build locally, review, and commit the lockfile:" >&2
+            echo "$lock" >&2
+            drift=1
+          fi
+          # `git diff` is blind to untracked files, so a migration that ADDS a
+          # file (as the SwiftPM one does) would pass the check above. Same
+          # gap, same fix, as the FRB binding check in scripts/test.sh.
+          # .gitignore already covers the build's own ephemeral output, so
+          # anything still listed here is a project file that wants reviewing.
+          untracked="$(git status --porcelain --untracked-files=all -- ios/ | grep '^??' || true)"
+          if [ -n "$untracked" ]; then
+            echo "::error file=ios/Podfile::Building for iOS created untracked files under ios/. Either commit them (a migration added a project file) or add them to .gitignore (build output):" >&2
+            echo "$untracked" >&2
+            drift=1
+          fi
+          exit "$drift"
       # Regression this catches: plist changes are invisible to a compiler. The
       # BLE usage strings are what let CoreBluetooth raise the system prompt at
       # all (real_ble_service.dart relies on that instead of permission_handler
@@ -1243,9 +1381,9 @@ jobs:
       #
       # Sized for the worst case the script can reach: two attempts of
       # (IOS_SIMULATOR_BOOT_TIMEOUT + IOS_SIMULATOR_ATTEMPT_TIMEOUT) = 32m, with
-      # headroom, and comfortably inside the job's 60 alongside the ~8 minutes
-      # the rest of this job takes. It is a ceiling on a double failure, not a
-      # budget anything normally spends — the step runs in about three minutes.
+      # headroom. It is a ceiling on a double failure, not a budget anything
+      # normally spends — the step runs in about three minutes. The job's own
+      # ceiling above is the sum of every step's, this one included.
       - name: Run integration tests on the simulator (mock mode)
         timeout-minutes: 34
         env:

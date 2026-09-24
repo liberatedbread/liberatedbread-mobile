@@ -34,7 +34,8 @@ class TailscaleSuggestionCard extends StatelessWidget {
           foreground: scheme.onSecondaryContainer,
           icon: Icons.home_outlined,
           title: 'This address only works on your home network',
-          body: 'For secure remote access, try Tailscale: it\'s free for '
+          body:
+              'For secure remote access, try Tailscale: it\'s free for '
               'personal use and gives Home Assistant a magic '
               'https://...ts.net address that works anywhere - no port '
               'forwarding.',
@@ -46,7 +47,8 @@ class TailscaleSuggestionCard extends StatelessWidget {
           foreground: scheme.onTertiaryContainer,
           icon: Icons.vpn_lock,
           title: 'Tailscale detected',
-          body: 'Secure remote access ready - this address works from '
+          body:
+              'Secure remote access ready - this address works from '
               'anywhere on your tailnet.',
           showLearnMore: false,
         );
@@ -56,7 +58,8 @@ class TailscaleSuggestionCard extends StatelessWidget {
           foreground: scheme.onErrorContainer,
           icon: Icons.warning_amber_outlined,
           title: 'Unencrypted connection',
-          body: 'Plain HTTP over the internet lets others intercept your '
+          body:
+              'Plain HTTP over the internet lets others intercept your '
               'access token. Use HTTPS, or Tailscale for an encrypted '
               'tunnel without certificates.',
           showLearnMore: true,
@@ -88,11 +91,13 @@ class TailscaleSuggestionCard extends StatelessWidget {
                 Icon(icon, color: foreground, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(title,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: foreground,
-                      )),
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: foreground,
+                    ),
+                  ),
                 ),
               ],
             ),

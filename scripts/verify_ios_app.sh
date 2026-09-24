@@ -14,9 +14,10 @@
 #      raise the system prompt at all — lib/services/real_ble_service.dart
 #      deliberately relies on that instead of asking permission_handler. Drop
 #      NSBluetoothAlwaysUsageDescription and iOS kills the app the moment it
-#      touches CBCentralManager; drop NSLocalNetworkUsageDescription or
-#      NSAllowsLocalNetworking and every http:// Home Assistant call fails.
-#      All of it compiles perfectly.
+#      touches CBCentralManager; drop NSLocalNetworkUsageDescription and the
+#      local-network prompt never appears. NSAllowsLocalNetworking is checked
+#      too, as a declaration rather than a control — see the note at that
+#      check. All of it compiles perfectly.
 #   2. The Rust library not actually being linked in. cargokit builds the crate
 #      as a static archive and rust_builder/ios/liberated_bread_core.podspec
 #      force-loads it (OTHER_LDFLAGS = -force_load .../libliberated_bread_core.a).
@@ -344,25 +345,36 @@ for key in "${REQUIRED_STRING_KEYS[@]}"; do
   fi
 done
 
-# usesCleartextTraffic has no iOS equivalent; NSAllowsLocalNetworking is what
-# lets the app reach a plain-http Home Assistant on the LAN. A bare
-# NSAppTransportSecurity dict with the flag flipped to false compiles fine and
-# breaks every local connection at runtime, so assert the value, not the key.
+# NSAllowsLocalNetworking is an ACCURATE DECLARATION of what this app does,
+# not a switch that governs it. App Transport Security is enforced inside
+# NSURLSession/CFNetwork and WKWebView; every socket this app opens is dart:io
+# (HttpClient, WebSocket, SecureSocket, raw UDP), which never passes through
+# ATS, so plain http:// to a LAN Home Assistant works with or without the key,
+# and its absence would not protect a token sent to a public http:// URL either
+# (that guard, where it exists, is in Dart). The key still belongs in the
+# plist: App Review reads NSAppTransportSecurity as the app's statement of its
+# cleartext use, and the honest statement for an app whose whole purpose is
+# talking http to devices on the local network is "local networking, and
+# nothing arbitrary". A build that drops or flips it has changed a
+# declaration the review answers rely on, so assert the value, not the key.
 ats_local="$(plist_get "NSAppTransportSecurity:NSAllowsLocalNetworking" || true)"
 if [[ "$ats_local" != "true" ]]; then
-  fail "NSAppTransportSecurity:NSAllowsLocalNetworking is '${ats_local:-<absent>}', expected 'true' — plain-http Home Assistant servers on the LAN would be blocked by ATS."
+  fail "NSAppTransportSecurity:NSAllowsLocalNetworking is '${ats_local:-<absent>}', expected 'true' — the plist no longer declares the app's local-network cleartext use (dart:io traffic is unaffected by ATS either way; this is the declaration App Review reads)."
 else
-  log "  ok  NSAppTransportSecurity:NSAllowsLocalNetworking = true"
+  log "  ok  NSAppTransportSecurity:NSAllowsLocalNetworking = true (a declaration; ATS does not govern dart:io traffic)"
 fi
 
-# iOS 14+ withholds mDNS answers for a service type absent from this array, and
-# does it silently, so a truncated list is a set of devices that simply never
-# appear. The exact contents are cross-checked against the bundled catalogue by
+# NSBonjourServices governs mDNS done through the Bonjour APIs (NWBrowser,
+# NetService), which this app does not use — it drives 5353 itself over a raw
+# socket, gated by the multicast entitlement checked above. So an empty array
+# is not "the Wi-Fi scan finds nothing"; it is a declaration that has gone
+# missing, which matters to App Review and to any future move onto NWBrowser.
+# The exact contents are cross-checked against the bundled catalogue by
 # test/platform/ios_bonjour_catalogue_test.dart; what can only be checked here
 # is that the array survived into the BUILT bundle at all.
 bonjour_count="$("$PLISTBUDDY" -c "Print :NSBonjourServices" "$PLIST" 2>/dev/null | grep -c '_' || true)"
 if [[ "$bonjour_count" -eq 0 ]]; then
-  fail "NSBonjourServices is missing or empty in the built Info.plist — iOS delivers no mDNS answers for undeclared service types, so the Wi-Fi scan finds nothing over mDNS and reports it as an empty network."
+  fail "NSBonjourServices is missing or empty in the built Info.plist. The generated declaration did not survive into the bundle: re-run ./scripts/regen-bonjour-services.sh and check the Info.plist in the build. (This does not by itself break the current raw-socket scan, which the multicast entitlement gates — but it is a declaration App Review reads, and the list a Bonjour-API implementation would depend on.)"
 else
   log "  ok  NSBonjourServices declares $bonjour_count service type(s)"
 fi
@@ -391,7 +403,20 @@ if [[ -f "$APP/embedded.mobileprovision" ]]; then
     fail "codesign not found. This is a device build (it has an embedded.mobileprovision), so its entitlements cannot be verified and a silently unentitled IPA would pass."
   else
     ENTITLEMENTS="$WORK/entitlements.plist"
-    if codesign -d --entitlements :- --xml "$APP" >"$ENTITLEMENTS" 2>/dev/null &&
+    # `--entitlements -`, not `:-`. The colon form is the old way of saying
+    # "write to this path", and codesign now answers it with
+    #   warning: Specifying ':' in the path is deprecated and will not work
+    #            in a future release
+    # on stderr (verified on Xcode 26.3) while still working. Since that
+    # stderr is discarded below, the warning was invisible here and the
+    # eventual removal would have arrived as this check silently failing to
+    # read any entitlements at all — which is the branch that then reports a
+    # bundle it could not inspect, on the one artifact that reaches a phone.
+    #
+    # `--xml` stays. Without it codesign prints a human-readable [Dict]/[Key]
+    # tree that PlistBuddy cannot parse, so dropping it is not the fix for the
+    # deprecation even though the two often get changed together.
+    if codesign -d --entitlements - --xml "$APP" >"$ENTITLEMENTS" 2>/dev/null &&
        [[ -s "$ENTITLEMENTS" ]]; then
       multicast="$("$PLISTBUDDY" -c "Print :com.apple.developer.networking.multicast" "$ENTITLEMENTS" 2>/dev/null || true)"
       if [[ "$multicast" != "true" ]]; then

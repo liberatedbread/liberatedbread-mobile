@@ -25,13 +25,19 @@ import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
+import 'package:liberated_bread_mobile/widgets/rabbit_air_controls_panel.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
+import 'package:liberated_bread_mobile/models/ha_config.dart';
+import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/services/ha_api_client.dart';
+import 'package:liberated_bread_mobile/services/ha_roomba_client.dart';
 import 'package:liberated_bread_mobile/services/roomba_control_service.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_ecp2_socket.dart';
+import '../fakes/fake_ha_api_client.dart';
 import '../fakes/fake_spec_codec.dart';
 import '../fakes/in_memory_settings_store.dart';
 
@@ -39,17 +45,19 @@ import '../fakes/in_memory_settings_store.dart';
 /// never opens a session, so a refusal stays a refusal — without opening a
 /// real socket to the test's fictional addresses.
 Ecp2ControlService noEcp2() => Ecp2ControlService(
-    connector: (host, port) async =>
-        throw const Ecp2Exception('no ECP2 in this test'));
+  connector: (host, port) async =>
+      throw const Ecp2Exception('no ECP2 in this test'),
+);
 
 /// The ECP2 override for tests of the fallback itself: sessions run on the
 /// scripted [socket], which leads with its challenge on connect like a real
 /// Roku does.
-Ecp2ControlService ecp2On(AutoEcp2Socket socket) =>
-    Ecp2ControlService(connector: (host, port) async {
-      socket.begin();
-      return socket;
-    });
+Ecp2ControlService ecp2On(AutoEcp2Socket socket) => Ecp2ControlService(
+  connector: (host, port) async {
+    socket.begin();
+    return socket;
+  },
+);
 
 const _setupXml = '''
 <root><device>
@@ -62,7 +70,8 @@ const _setupXml = '''
 </device></root>
 ''';
 
-String _stateResponse({required int mode, required int time}) => '''
+String _stateResponse({required int mode, required int time}) =>
+    '''
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
 <s:Body>
 <u:GetCrockpotStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
@@ -112,7 +121,10 @@ const _entities = [
         userParams: [],
         readBack: [
           NetworkReadBackDto(
-              param: 'time', command: 'GetCrockpotState', field: 'time'),
+            param: 'time',
+            command: 'GetCrockpotState',
+            field: 'time',
+          ),
         ],
       ),
       NetworkActionDto(
@@ -148,7 +160,10 @@ const _entities = [
         userParams: ['mode'],
         readBack: [
           NetworkReadBackDto(
-              param: 'time', command: 'GetCrockpotState', field: 'time'),
+            param: 'time',
+            command: 'GetCrockpotState',
+            field: 'time',
+          ),
         ],
       ),
     ],
@@ -172,7 +187,10 @@ NetworkReadingDto? _readCooker(String entity, Map<String, String> returned) {
       if (mode == null) return null;
       final on = mode != '0';
       return NetworkReadingDto(
-          kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+        kind: NetworkReadingKind.onOff,
+        isOn: on,
+        raw: on ? '1' : '0',
+      );
     case 'Cook Mode':
       const labels = {'0': 'off', '50': 'warm', '51': 'low', '52': 'high'};
       final mode = returned['mode'];
@@ -181,14 +199,18 @@ NetworkReadingDto? _readCooker(String entity, Map<String, String> returned) {
       return label == null
           ? NetworkReadingDto(kind: NetworkReadingKind.unknownOption, raw: mode)
           : NetworkReadingDto(
-              kind: NetworkReadingKind.option, label: label, raw: mode);
+              kind: NetworkReadingKind.option,
+              label: label,
+              raw: mode,
+            );
     case 'Cooked Time':
       final cooked = returned['cookedTime'];
       if (cooked == null) return null;
       return NetworkReadingDto(
-          kind: NetworkReadingKind.number,
-          number: double.parse(cooked),
-          raw: cooked);
+        kind: NetworkReadingKind.number,
+        number: double.parse(cooked),
+        raw: cooked,
+      );
   }
   return null;
 }
@@ -211,7 +233,9 @@ void main() {
       final action = request.headers['SOAPACTION'] ?? '';
       if (action.contains('GetCrockpotState')) {
         return http.Response(
-            _stateResponse(mode: currentMode, time: currentTime), 200);
+          _stateResponse(mode: currentMode, time: currentTime),
+          200,
+        );
       }
       if (action.contains('set_cook_mode') ||
           action.contains('crockpot_turn')) {
@@ -238,29 +262,31 @@ void main() {
     // against the spec's published bodies; this fake only has to be honest
     // about carrying the values it was handed.
     codec.networkRequest = (name, values) => SoapRequestDto(
-          service: 'urn:Belkin:service:basicevent:1',
-          action: name,
-          soapAction: '"urn:Belkin:service:basicevent:1#$name"',
-          path: null,
-          body: switch (name) {
-            'GetCrockpotState' => '<get/>',
-            // The real renderer bakes the fixed commands' literals in; the
-            // fake mirrors the published bodies so the virtual device can
-            // apply them.
-            'crockpot_turn_off' => '<set><mode>0</mode><time>0</time></set>',
-            'crockpot_turn_on' =>
-              '<set><mode>52</mode><time>${values['time'] ?? '0'}</time></set>',
-            _ => '<set>'
-                '${values.containsKey('mode') ? '<mode>${values['mode']}</mode>' : ''}'
-                '${values.containsKey('time') ? '<time>${values['time']}</time>' : ''}'
-                '</set>',
-          },
-        );
+      service: 'urn:Belkin:service:basicevent:1',
+      action: name,
+      soapAction: '"urn:Belkin:service:basicevent:1#$name"',
+      path: null,
+      body: switch (name) {
+        'GetCrockpotState' => '<get/>',
+        // The real renderer bakes the fixed commands' literals in; the
+        // fake mirrors the published bodies so the virtual device can
+        // apply them.
+        'crockpot_turn_off' => '<set><mode>0</mode><time>0</time></set>',
+        'crockpot_turn_on' =>
+          '<set><mode>52</mode><time>${values['time'] ?? '0'}</time></set>',
+        _ =>
+          '<set>'
+              '${values.containsKey('mode') ? '<mode>${values['mode']}</mode>' : ''}'
+              '${values.containsKey('time') ? '<time>${values['time']}</time>' : ''}'
+              '</set>',
+      },
+    );
     return ProviderScope(
       overrides: [
         specCodecProvider.overrideWithValue(codec),
-        soapControlClientProvider
-            .overrideWithValue(SoapControlClient(httpClient: http)),
+        soapControlClientProvider.overrideWithValue(
+          SoapControlClient(httpClient: http),
+        ),
       ],
       child: const MaterialApp(home: SizedBox()),
     );
@@ -271,14 +297,19 @@ void main() {
     await tester.pumpWidget(screen(http));
     // Navigate inside the ProviderScope so the screen sees the overrides.
     final context = tester.element(find.byType(SizedBox));
-    unawaited(Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute<void>(
-        builder: (_) => NetworkDeviceScreen(
+    unawaited(
+      Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
             device: _cookerDevice,
-            controls:
-                const NetworkControls(specYaml: 'yaml', entities: _entities)),
+            controls: const NetworkControls(
+              specYaml: 'yaml',
+              entities: _entities,
+            ),
+          ),
+        ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
   }
 
@@ -291,14 +322,16 @@ void main() {
     // sensor shows its number with the unit.
     final toggle = tester.widget<Switch>(find.byType(Switch));
     expect(toggle.value, isTrue);
-    final low =
-        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'low'));
+    final low = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'low'),
+    );
     expect(low.selected, isTrue);
     expect(find.text('15 min'), findsOneWidget);
   });
 
-  testWidgets('changing the mode reads the cook time back first',
-      (tester) async {
+  testWidgets('changing the mode reads the cook time back first', (
+    tester,
+  ) async {
     await pump(tester, cooker(mode: 52, time: 240));
 
     await tester.tap(find.widgetWithText(ChoiceChip, 'warm'));
@@ -312,18 +345,21 @@ void main() {
     expect(call.values, {'mode': '50', 'time': '240'});
 
     // And the device's reply, not the tap, is what the UI now shows.
-    final warm =
-        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'warm'));
+    final warm = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'warm'),
+    );
     expect(warm.selected, isTrue);
   });
 
-  testWidgets('an unknown mode reads as unrecognized, never as off',
-      (tester) async {
+  testWidgets('an unknown mode reads as unrecognized, never as off', (
+    tester,
+  ) async {
     await pump(tester, cooker(mode: 99, time: 0));
 
     expect(find.textContaining('Unrecognized state (99)'), findsOneWidget);
-    final off =
-        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'off'));
+    final off = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'off'),
+    );
     expect(off.selected, isFalse);
   });
 
@@ -342,8 +378,9 @@ void main() {
     expect(toggle.value, isFalse);
   });
 
-  testWidgets('an unreachable device degrades to an error, not a crash',
-      (tester) async {
+  testWidgets('an unreachable device degrades to an error, not a crash', (
+    tester,
+  ) async {
     await pump(tester, MockClient((request) async => http.Response('no', 500)));
 
     expect(find.byType(Switch), findsNothing);
@@ -434,41 +471,53 @@ void main() {
       // The SOAP client MUST go unused: a Roku serves no setup.xml, and a
       // screen that asks for one turns the remote into an error screen.
       final soap = MockClient((request) async {
-        fail('the description was fetched for a device that needs none: '
-            '${request.url}');
+        fail(
+          'the description was fetched for a device that needs none: '
+          '${request.url}',
+        );
       });
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider
-              .overrideWithValue(SoapControlClient(httpClient: soap)),
-          httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: roku)),
-          ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(httpClient: soap),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(httpClient: roku),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
               controls: NetworkControls(
-                  specYaml: 'yaml',
-                  entities: entities,
-                  capabilities: const NetworkCapabilitiesDto(
-                      mqttClientIdGenerated: false,
-                      signedSession: 'ecp2',
-                      defaultPort: 8060,
-                      tlsSelfSigned: false,
-                      advertisedPortUnreliable: false))),
+                specYaml: 'yaml',
+                entities: entities,
+                capabilities: const NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false,
+                ),
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
     }
 
-    testWidgets('renders the remote without fetching any description',
-        (tester) async {
+    testWidgets('renders the remote without fetching any description', (
+      tester,
+    ) async {
       final received = <http.Request>[];
       await pumpRemote(tester, received: received);
 
@@ -480,8 +529,9 @@ void main() {
       expect(find.textContaining('Could not reach'), findsNothing);
     });
 
-    testWidgets('pressing a button POSTs the rendered keypress',
-        (tester) async {
+    testWidgets('pressing a button POSTs the rendered keypress', (
+      tester,
+    ) async {
       final received = <http.Request>[];
       await pumpRemote(tester, received: received);
 
@@ -575,10 +625,14 @@ void main() {
 
       // The D-pad's keys are icon buttons; OK is the labelled centre.
       Finder iconKey(String tooltip) => find.byWidgetPredicate(
-          (widget) => widget is IconButton && widget.tooltip == tooltip);
+        (widget) => widget is IconButton && widget.tooltip == tooltip,
+      );
       for (final key in ['Up', 'Down', 'Left', 'Right']) {
-        expect(iconKey(key), findsOneWidget,
-            reason: '$key should be an icon key on the D-pad');
+        expect(
+          iconKey(key),
+          findsOneWidget,
+          reason: '$key should be an icon key on the D-pad',
+        );
       }
       expect(find.widgetWithText(FilledButton, 'OK'), findsOneWidget);
 
@@ -615,14 +669,18 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await pumpRemote(tester, received: [], entities: [
-        button('Back', 'mdi:arrow-u-left-top', 'back'),
-        button('Home', 'mdi:home', 'home'),
-        button('Exit', 'mdi:exit-to-app', 'exit'),
-        button('Menu', 'mdi:menu', 'menu'),
-        button('Options', 'mdi:asterisk', 'options'),
-        button('Info', 'mdi:information', 'info'),
-      ]);
+      await pumpRemote(
+        tester,
+        received: [],
+        entities: [
+          button('Back', 'mdi:arrow-u-left-top', 'back'),
+          button('Home', 'mdi:home', 'home'),
+          button('Exit', 'mdi:exit-to-app', 'exit'),
+          button('Menu', 'mdi:menu', 'menu'),
+          button('Options', 'mdi:asterisk', 'options'),
+          button('Info', 'mdi:information', 'info'),
+        ],
+      );
 
       expect(
         tester.takeException(),
@@ -635,8 +693,9 @@ void main() {
       }
     });
 
-    testWidgets('renders the channel picker below the button pad',
-        (tester) async {
+    testWidgets('renders the channel picker below the button pad', (
+      tester,
+    ) async {
       // A spec-optioned picker (no device fetch needed) next to one remote
       // button: the pad must sit above the picker, so the remote keeps its
       // place whether or not the channel list has loaded yet.
@@ -661,19 +720,28 @@ void main() {
           ),
         ],
       );
-      await pumpRemote(tester,
-          received: [], entities: [button('Home', 'mdi:home'), picker]);
+      await pumpRemote(
+        tester,
+        received: [],
+        entities: [button('Home', 'mdi:home'), picker],
+      );
 
       expect(find.widgetWithText(FilledButton, 'Home'), findsOneWidget);
       expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsOneWidget);
 
-      final padPos =
-          tester.getCenter(find.widgetWithText(FilledButton, 'Home'));
-      final pickerPos =
-          tester.getCenter(find.widgetWithText(ChoiceChip, 'Netflix'));
-      expect(pickerPos.dy, greaterThan(padPos.dy),
-          reason: 'the channel picker is the foot of the remote, '
-              'below the button pad');
+      final padPos = tester.getCenter(
+        find.widgetWithText(FilledButton, 'Home'),
+      );
+      final pickerPos = tester.getCenter(
+        find.widgetWithText(ChoiceChip, 'Netflix'),
+      );
+      expect(
+        pickerPos.dy,
+        greaterThan(padPos.dy),
+        reason:
+            'the channel picker is the foot of the remote, '
+            'below the button pad',
+      );
     });
   });
 
@@ -703,10 +771,7 @@ void main() {
       ssdpPort: 8060,
       ssdpTargets: const ['roku:ecp'],
       serviceTypes: const ['_display._tcp.local', '_airplay._tcp.local'],
-      sources: const {
-        NetworkDiscoverySource.ssdp,
-        NetworkDiscoverySource.mdns,
-      },
+      sources: const {NetworkDiscoverySource.ssdp, NetworkDiscoverySource.mdns},
       discoveredAt: DateTime.utc(2026),
     );
 
@@ -738,45 +803,60 @@ void main() {
       codec = FakeSpecCodec(
         networkEntities: (_) => const [homeButton],
         networkHttpRequest: (name, _) => const HttpRequestDto(
-            method: 'POST', path: '/keypress/Home', body: ''),
+          method: 'POST',
+          path: '/keypress/Home',
+          body: '',
+        ),
       );
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((request) async =>
-                  fail('no description exists for this device')))),
-          httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: plain)),
-          ecp2ControlServiceProvider.overrideWithValue(ecp2),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async =>
+                      fail('no description exists for this device'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(httpClient: plain),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
-            device: dualPortRoku,
-            controls: const NetworkControls(
-              specYaml: 'yaml',
-              entities: [homeButton],
-              // The spec's ecp2 block + declared port 8060, as the
-              // capabilities resolver hands them over for a real Roku.
-              capabilities: NetworkCapabilitiesDto(
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: dualPortRoku,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: [homeButton],
+                // The spec's ecp2 block + declared port 8060, as the
+                // capabilities resolver hands them over for a real Roku.
+                capabilities: NetworkCapabilitiesDto(
                   mqttClientIdGenerated: false,
                   signedSession: 'ecp2',
                   defaultPort: 8060,
                   tlsSelfSigned: false,
-                  advertisedPortUnreliable: false),
+                  advertisedPortUnreliable: false,
+                ),
+              ),
             ),
           ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
     }
 
-    testWidgets('a keypress goes to the SSDP port, not the mDNS one',
-        (tester) async {
+    testWidgets('a keypress goes to the SSDP port, not the mDNS one', (
+      tester,
+    ) async {
       final received = <http.Request>[];
       await pumpDualPort(
         tester,
@@ -793,7 +873,9 @@ void main() {
       // 8060, the LOCATION port — not 7250, the `_display._tcp` SRV port
       // that happens to be sitting in `port`.
       expect(
-          received.single.url.toString(), 'http://10.0.0.9:8060/keypress/Home');
+        received.single.url.toString(),
+        'http://10.0.0.9:8060/keypress/Home',
+      );
     });
 
     testWidgets('the ECP2 session opens on the SSDP port', (tester) async {
@@ -804,13 +886,17 @@ void main() {
       final dialled = <String>[];
       await pumpDualPort(
         tester,
-        plain: MockClient((request) async =>
-            fail('a Roku keypress goes over the session, not plain ECP')),
-        ecp2: Ecp2ControlService(connector: (host, port) async {
-          dialled.add('$host:$port');
-          socket.begin();
-          return socket;
-        }),
+        plain: MockClient(
+          (request) async =>
+              fail('a Roku keypress goes over the session, not plain ECP'),
+        ),
+        ecp2: Ecp2ControlService(
+          connector: (host, port) async {
+            dialled.add('$host:$port');
+            socket.begin();
+            return socket;
+          },
+        ),
       );
 
       await tester.tap(find.widgetWithText(FilledButton, 'Home'));
@@ -824,8 +910,9 @@ void main() {
       );
     });
 
-    testWidgets('the UPnP description is fetched from the SSDP port',
-        (tester) async {
+    testWidgets('the UPnP description is fetched from the SSDP port', (
+      tester,
+    ) async {
       // The SOAP half of the same contract: a Wemo-class device heard over
       // mDNS too must still resolve its description against the LOCATION
       // port, or state reads and every SOAP write go to a stranger.
@@ -841,26 +928,30 @@ void main() {
       });
       await tester.pumpWidget(screen(client));
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
-            device: NetworkDevice(
-              host: '10.0.0.5',
-              name: 'Kitchen Crock-Pot',
-              port: 80, // an `_http._tcp` sighting
-              ssdpPort: 49153, // where the UPnP surface actually is
-              ssdpTargets: const ['urn:Belkin:device:crockpot:1'],
-              sources: const {
-                NetworkDiscoverySource.ssdp,
-                NetworkDiscoverySource.mdns,
-              },
-              discoveredAt: DateTime.utc(2026),
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: NetworkDevice(
+                host: '10.0.0.5',
+                name: 'Kitchen Crock-Pot',
+                port: 80, // an `_http._tcp` sighting
+                ssdpPort: 49153, // where the UPnP surface actually is
+                ssdpTargets: const ['urn:Belkin:device:crockpot:1'],
+                sources: const {
+                  NetworkDiscoverySource.ssdp,
+                  NetworkDiscoverySource.mdns,
+                },
+                discoveredAt: DateTime.utc(2026),
+              ),
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: _entities,
+              ),
             ),
-            controls:
-                const NetworkControls(specYaml: 'yaml', entities: _entities),
           ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(fetched, ['http://10.0.0.5:49153/setup.xml']);
@@ -931,7 +1022,10 @@ void main() {
       codec = FakeSpecCodec(
         networkEntities: (_) => [channelEntity],
         networkHttpRequest: (name, values) => HttpRequestDto(
-            method: 'POST', path: '/launch/${values['app_id']}', body: ''),
+          method: 'POST',
+          path: '/launch/${values['app_id']}',
+          body: '',
+        ),
       );
       final roku = MockClient((request) async {
         received.add(request);
@@ -945,34 +1039,47 @@ void main() {
         current = '<active-app><app id="$launched">Now</app></active-app>';
         return http.Response('', 200);
       });
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((request) async =>
-                  fail('no description exists for this device')))),
-          httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: roku)),
-          ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async =>
+                      fail('no description exists for this device'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(httpClient: roku),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml',
-                  entities: [channelEntity],
-                  capabilities: NetworkCapabilitiesDto(
-                      mqttClientIdGenerated: false,
-                      signedSession: 'ecp2',
-                      defaultPort: 8060,
-                      tlsSelfSigned: false,
-                      advertisedPortUnreliable: false))),
+                specYaml: 'yaml',
+                entities: [channelEntity],
+                capabilities: NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false,
+                ),
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
       return received;
     }
@@ -984,18 +1091,23 @@ void main() {
       expect(find.widgetWithText(ChoiceChip, 'YouTube'), findsOneWidget);
       // The foreground channel is the selected one — read from the device,
       // not guessed.
-      final youtube =
-          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'YouTube'));
+      final youtube = tester.widget<ChoiceChip>(
+        find.widgetWithText(ChoiceChip, 'YouTube'),
+      );
       expect(youtube.selected, isTrue);
-      final netflix =
-          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Netflix'));
+      final netflix = tester.widget<ChoiceChip>(
+        find.widgetWithText(ChoiceChip, 'Netflix'),
+      );
       expect(netflix.selected, isFalse);
-      expect(received.map((r) => r.url.path),
-          containsAll(<String>['/query/apps', '/query/active-app']));
+      expect(
+        received.map((r) => r.url.path),
+        containsAll(<String>['/query/apps', '/query/active-app']),
+      );
     });
 
-    testWidgets('tapping a channel launches it and re-reads what is current',
-        (tester) async {
+    testWidgets('tapping a channel launches it and re-reads what is current', (
+      tester,
+    ) async {
       final received = await pumpChannels(tester);
       received.clear();
 
@@ -1009,28 +1121,35 @@ void main() {
       expect(received.first.url.path, '/launch/12');
       // ...and the selection now follows the device, which is why the state
       // source is re-read rather than assumed from the tap.
-      final netflix =
-          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Netflix'));
+      final netflix = tester.widget<ChoiceChip>(
+        find.widgetWithText(ChoiceChip, 'Netflix'),
+      );
       expect(netflix.selected, isTrue);
     });
 
-    testWidgets('a refused list says so, instead of reading as no channels',
-        (tester) async {
+    testWidgets('a refused list says so, instead of reading as no channels', (
+      tester,
+    ) async {
       // Limited mode answers /query/apps with 400 and this body — the fleet's
       // other spelling of 403. The list exists; the device will not share it.
-      await pumpChannels(tester,
-          appsStatus: 400,
-          appsBody: 'ECP command not allowed in Limited mode.');
+      await pumpChannels(
+        tester,
+        appsStatus: 400,
+        appsBody: 'ECP command not allowed in Limited mode.',
+      );
 
       expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsNothing);
       expect(
-          find.textContaining('refusing to share this list'), findsOneWidget);
+        find.textContaining('refusing to share this list'),
+        findsOneWidget,
+      );
       expect(find.text('The device is refusing commands'), findsOneWidget);
       expect(find.text('The device listed nothing here.'), findsNothing);
     });
 
-    testWidgets('an unanswered list says the device did not answer',
-        (tester) async {
+    testWidgets('an unanswered list says the device did not answer', (
+      tester,
+    ) async {
       // Distinct from refused and from empty: the query failed outright
       // (asleep TV, stale address), and "listed nothing" would be a lie.
       await pumpChannels(tester, appsStatus: 500, appsBody: 'gone');
@@ -1043,14 +1162,20 @@ void main() {
 
     testWidgets('the home screen reads as no channel selected', (tester) async {
       // Roku's home screen answers with an <app> carrying no id at all.
-      await pumpChannels(tester,
-          activeApp: '<active-app><app>Roku</app></active-app>');
+      await pumpChannels(
+        tester,
+        activeApp: '<active-app><app>Roku</app></active-app>',
+      );
 
       for (final label in ['Netflix', 'YouTube']) {
-        final chip =
-            tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label));
-        expect(chip.selected, isFalse,
-            reason: '$label must not read as current on the home screen');
+        final chip = tester.widget<ChoiceChip>(
+          find.widgetWithText(ChoiceChip, label),
+        );
+        expect(
+          chip.selected,
+          isFalse,
+          reason: '$label must not read as current on the home screen',
+        );
       }
     });
   });
@@ -1105,36 +1230,54 @@ void main() {
     }) async {
       codec = FakeSpecCodec(networkEntities: (_) => [keyboardEntity]);
       final ecp2 = withEcp2
-          ? ecp2On(AutoEcp2Socket(queryPayloads: {
-              'query-textedit-state':
-                  '{"textedit-state":{"textedit-id":"$textEditId"}}',
-            }))
+          ? ecp2On(
+              AutoEcp2Socket(
+                queryPayloads: {
+                  'query-textedit-state':
+                      '{"textedit-state":{"textedit-id":"$textEditId"}}',
+                },
+              ),
+            )
           : noEcp2();
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((request) async =>
-                  fail('a keyboard remote fetches no description')))),
-          httpControlClientProvider.overrideWithValue(HttpControlClient(
-              httpClient: MockClient(
-                  (request) async => fail('nothing types during a render')))),
-          ecp2ControlServiceProvider.overrideWithValue(ecp2),
-        ],
-        child: MaterialApp(
-          home: NetworkDeviceScreen(
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async =>
+                      fail('a keyboard remote fetches no description'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(
+                httpClient: MockClient(
+                  (request) async => fail('nothing types during a render'),
+                ),
+              ),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
               device: rokuDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml',
-                  entities: [keyboardEntity],
-                  capabilities: NetworkCapabilitiesDto(
-                      mqttClientIdGenerated: false,
-                      signedSession: 'ecp2',
-                      defaultPort: 8060,
-                      tlsSelfSigned: false,
-                      advertisedPortUnreliable: false))),
+                specYaml: 'yaml',
+                entities: [keyboardEntity],
+                capabilities: NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false,
+                ),
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       // Let the load drop the spinner and the ECP2 textedit poll resolve — a
       // handful of microtask turns, not a settle (the poll timer never idles).
       for (var i = 0; i < 6; i++) {
@@ -1145,8 +1288,11 @@ void main() {
     testWidgets('hides the keyboard when no field is focused', (tester) async {
       await pumpKeyboard(tester, textEditId: 'none');
 
-      expect(find.byType(TextField), findsNothing,
-          reason: 'a keystroke with nothing focused has nowhere to land');
+      expect(
+        find.byType(TextField),
+        findsNothing,
+        reason: 'a keystroke with nothing focused has nowhere to land',
+      );
       // The remote itself loaded — it is the keyboard specifically that waits.
       expect(find.byType(CircularProgressIndicator), findsNothing);
 
@@ -1161,42 +1307,59 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('a live textedit notice flips the keyboard on without a poll',
-        (tester) async {
+    testWidgets('a live textedit notice flips the keyboard on without a poll', (
+      tester,
+    ) async {
       // The device volunteers focus changes; the card must react to the notice,
       // not wait out the 3s backstop poll.
-      final socket = AutoEcp2Socket(queryPayloads: {
-        'query-textedit-state': '{"textedit-state":{"textedit-id":"none"}}',
-      });
+      final socket = AutoEcp2Socket(
+        queryPayloads: {
+          'query-textedit-state': '{"textedit-state":{"textedit-id":"none"}}',
+        },
+      );
       codec = FakeSpecCodec(networkEntities: (_) => [keyboardEntity]);
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((r) async => fail('no description')))),
-          httpControlClientProvider.overrideWithValue(HttpControlClient(
-              httpClient: MockClient((r) async => fail('nothing types')))),
-          ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
-        ],
-        child: MaterialApp(
-          home: NetworkDeviceScreen(
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient((r) async => fail('no description')),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(
+                httpClient: MockClient((r) async => fail('nothing types')),
+              ),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
               device: rokuDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml',
-                  entities: [keyboardEntity],
-                  capabilities: NetworkCapabilitiesDto(
-                      mqttClientIdGenerated: false,
-                      signedSession: 'ecp2',
-                      defaultPort: 8060,
-                      tlsSelfSigned: false,
-                      advertisedPortUnreliable: false))),
+                specYaml: 'yaml',
+                entities: [keyboardEntity],
+                capabilities: NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false,
+                ),
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       for (var i = 0; i < 6; i++) {
         await tester.pump();
       }
-      expect(find.byType(TextField), findsNothing,
-          reason: 'the poll read "none"');
+      expect(
+        find.byType(TextField),
+        findsNothing,
+        reason: 'the poll read "none"',
+      );
 
       socket.receive({
         'notify': 'textedit',
@@ -1204,14 +1367,18 @@ void main() {
       });
       await tester.pump();
       await tester.pump();
-      expect(find.byType(TextField), findsOneWidget,
-          reason: 'the notice flips it on live');
+      expect(
+        find.byType(TextField),
+        findsOneWidget,
+        reason: 'the notice flips it on live',
+      );
 
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('shows the keyboard when the signal cannot be read',
-        (tester) async {
+    testWidgets('shows the keyboard when the signal cannot be read', (
+      tester,
+    ) async {
       // No ECP2 session means no textedit-state to read; the keyboard shows
       // rather than hide a control the user might have been able to use.
       await pumpKeyboard(tester, withEcp2: false);
@@ -1222,79 +1389,104 @@ void main() {
     });
 
     testWidgets(
-        'a focused keyboard sits above the channel picker; an uncertain one '
-        'sits below it', (tester) async {
-      const channelEntity = NetworkEntityDto(
-        isInstanced: false,
-        name: 'Channel',
-        platform: 'select',
-        stateCommand: '',
-        options: [],
-        optionsSource: QuerySourceDto(
+      'a focused keyboard sits above the channel picker; an uncertain one '
+      'sits below it',
+      (tester) async {
+        const channelEntity = NetworkEntityDto(
+          isInstanced: false,
+          name: 'Channel',
+          platform: 'select',
+          stateCommand: '',
+          options: [],
+          optionsSource: QuerySourceDto(
             method: 'GET',
             path: '/query/apps',
             item: 'app',
-            valueAttribute: 'id'),
-        actions: [],
-      );
+            valueAttribute: 'id',
+          ),
+          actions: [],
+        );
 
-      Future<void> pumpRemote(
-          {required bool withEcp2, String textEditId = 'none'}) async {
-        codec = FakeSpecCodec(
-            networkEntities: (_) => [channelEntity, keyboardEntity]);
-        final ecp2 = withEcp2
-            ? ecp2On(AutoEcp2Socket(queryPayloads: {
-                'query-textedit-state':
-                    '{"textedit-state":{"textedit-id":"$textEditId"}}',
-              }))
-            : noEcp2();
-        final roku = MockClient((request) async =>
-            request.url.path == '/query/apps'
+        Future<void> pumpRemote({
+          required bool withEcp2,
+          String textEditId = 'none',
+        }) async {
+          codec = FakeSpecCodec(
+            networkEntities: (_) => [channelEntity, keyboardEntity],
+          );
+          final ecp2 = withEcp2
+              ? ecp2On(
+                  AutoEcp2Socket(
+                    queryPayloads: {
+                      'query-textedit-state':
+                          '{"textedit-state":{"textedit-id":"$textEditId"}}',
+                    },
+                  ),
+                )
+              : noEcp2();
+          final roku = MockClient(
+            (request) async => request.url.path == '/query/apps'
                 ? http.Response('<apps><app id="12">Netflix</app></apps>', 200)
-                : http.Response('', 200));
-        await tester.pumpWidget(ProviderScope(
-          overrides: [
-            specCodecProvider.overrideWithValue(codec),
-            soapControlClientProvider.overrideWithValue(SoapControlClient(
-                httpClient:
-                    MockClient((r) async => fail('a remote fetches no xml')))),
-            httpControlClientProvider
-                .overrideWithValue(HttpControlClient(httpClient: roku)),
-            ecp2ControlServiceProvider.overrideWithValue(ecp2),
-          ],
-          child: MaterialApp(
-            home: NetworkDeviceScreen(
-                device: rokuDevice,
-                controls: const NetworkControls(
+                : http.Response('', 200),
+          );
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                specCodecProvider.overrideWithValue(codec),
+                soapControlClientProvider.overrideWithValue(
+                  SoapControlClient(
+                    httpClient: MockClient(
+                      (r) async => fail('a remote fetches no xml'),
+                    ),
+                  ),
+                ),
+                httpControlClientProvider.overrideWithValue(
+                  HttpControlClient(httpClient: roku),
+                ),
+                ecp2ControlServiceProvider.overrideWithValue(ecp2),
+              ],
+              child: MaterialApp(
+                home: NetworkDeviceScreen(
+                  device: rokuDevice,
+                  controls: const NetworkControls(
                     specYaml: 'yaml',
                     entities: [channelEntity, keyboardEntity],
                     capabilities: NetworkCapabilitiesDto(
-                        mqttClientIdGenerated: false,
-                        signedSession: 'ecp2',
-                        defaultPort: 8060,
-                        tlsSelfSigned: false,
-                        advertisedPortUnreliable: false))),
-          ),
-        ));
-        for (var i = 0; i < 8; i++) {
-          await tester.pump();
+                      mqttClientIdGenerated: false,
+                      signedSession: 'ecp2',
+                      defaultPort: 8060,
+                      tlsSelfSigned: false,
+                      advertisedPortUnreliable: false,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          for (var i = 0; i < 8; i++) {
+            await tester.pump();
+          }
         }
-      }
 
-      // A focused field: the keyboard rides above the channel picker.
-      await pumpRemote(withEcp2: true, textEditId: 'search-1');
-      expect(find.byType(TextField), findsOneWidget);
-      expect(tester.getTopLeft(find.text('Keyboard')).dy,
-          lessThan(tester.getTopLeft(find.text('Channel')).dy));
-      await tester.pumpWidget(const SizedBox());
+        // A focused field: the keyboard rides above the channel picker.
+        await pumpRemote(withEcp2: true, textEditId: 'search-1');
+        expect(find.byType(TextField), findsOneWidget);
+        expect(
+          tester.getTopLeft(find.text('Keyboard')).dy,
+          lessThan(tester.getTopLeft(find.text('Channel')).dy),
+        );
+        await tester.pumpWidget(const SizedBox());
 
-      // Unknown (no signed session): it drops to the foot, below the channels.
-      await pumpRemote(withEcp2: false);
-      expect(find.byType(TextField), findsOneWidget);
-      expect(tester.getTopLeft(find.text('Keyboard')).dy,
-          greaterThan(tester.getTopLeft(find.text('Channel')).dy));
-      await tester.pumpWidget(const SizedBox());
-    });
+        // Unknown (no signed session): it drops to the foot, below the channels.
+        await pumpRemote(withEcp2: false);
+        expect(find.byType(TextField), findsOneWidget);
+        expect(
+          tester.getTopLeft(find.text('Keyboard')).dy,
+          greaterThan(tester.getTopLeft(find.text('Channel')).dy),
+        );
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   });
 
   // ── The TV keyboard: one keystroke per character ─────────────────────────
@@ -1337,8 +1529,10 @@ void main() {
       ],
     );
 
-    Future<List<http.Request>> pumpKeyboard(WidgetTester tester,
-        {Ecp2ControlService? ecp2}) async {
+    Future<List<http.Request>> pumpKeyboard(
+      WidgetTester tester, {
+      Ecp2ControlService? ecp2,
+    }) async {
       final received = <http.Request>[];
       codec = FakeSpecCodec(
         networkEntities: (_) => [keyboardEntity],
@@ -1354,51 +1548,68 @@ void main() {
         received.add(request);
         return http.Response('', 200);
       });
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((request) async =>
-                  fail('no description exists for this device')))),
-          httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: roku)),
-          ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async =>
+                      fail('no description exists for this device'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(httpClient: roku),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml',
-                  entities: [keyboardEntity],
-                  capabilities: NetworkCapabilitiesDto(
-                      mqttClientIdGenerated: false,
-                      signedSession: 'ecp2',
-                      defaultPort: 8060,
-                      tlsSelfSigned: false,
-                      advertisedPortUnreliable: false))),
+                specYaml: 'yaml',
+                entities: [keyboardEntity],
+                capabilities: NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false,
+                ),
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
       return received;
     }
 
-    testWidgets('typing sends one keypress per character, in order',
-        (tester) async {
+    testWidgets('typing sends one keypress per character, in order', (
+      tester,
+    ) async {
       final received = await pumpKeyboard(tester);
 
       await tester.enterText(find.byType(TextField), 'ab');
       await tester.pumpAndSettle();
 
-      expect(received.map((r) => r.url.path),
-          ['/keypress/Lit_a', '/keypress/Lit_b']);
+      expect(received.map((r) => r.url.path), [
+        '/keypress/Lit_a',
+        '/keypress/Lit_b',
+      ]);
     });
 
-    testWidgets('deleting sends backspace per removed character',
-        (tester) async {
+    testWidgets('deleting sends backspace per removed character', (
+      tester,
+    ) async {
       final received = await pumpKeyboard(tester);
       await tester.enterText(find.byType(TextField), 'ab');
       await tester.pumpAndSettle();
@@ -1410,8 +1621,9 @@ void main() {
       expect(received.map((r) => r.url.path), ['/keypress/Backspace']);
     });
 
-    testWidgets('an edit in the middle retypes only the difference',
-        (tester) async {
+    testWidgets('an edit in the middle retypes only the difference', (
+      tester,
+    ) async {
       final received = await pumpKeyboard(tester);
       await tester.enterText(find.byType(TextField), 'abc');
       await tester.pumpAndSettle();
@@ -1420,12 +1632,15 @@ void main() {
       await tester.enterText(find.byType(TextField), 'abx');
       await tester.pumpAndSettle();
 
-      expect(received.map((r) => r.url.path),
-          ['/keypress/Backspace', '/keypress/Lit_x']);
+      expect(received.map((r) => r.url.path), [
+        '/keypress/Backspace',
+        '/keypress/Lit_x',
+      ]);
     });
 
-    testWidgets('the backspace key deletes on the device and in the field',
-        (tester) async {
+    testWidgets('the backspace key deletes on the device and in the field', (
+      tester,
+    ) async {
       final received = await pumpKeyboard(tester);
       await tester.enterText(find.byType(TextField), 'ab');
       await tester.pumpAndSettle();
@@ -1435,8 +1650,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(received.map((r) => r.url.path), ['/keypress/Backspace']);
-      expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
-          'a');
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        'a',
+      );
     });
   });
 
@@ -1543,37 +1760,53 @@ void main() {
         networkEntities: (_) => entities,
         networkHttpRequest: render,
       );
-      final plain = MockClient((request) async =>
-          fail('plain ECP was used while the ECP2 session was available: '
-              '${request.url}'));
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((request) async =>
-                  fail('no description exists for this device')))),
-          httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: plain)),
-          ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
+      final plain = MockClient(
+        (request) async => fail(
+          'plain ECP was used while the ECP2 session was available: '
+          '${request.url}',
+        ),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async =>
+                      fail('no description exists for this device'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(httpClient: plain),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
               controls: NetworkControls(
-                  specYaml: 'yaml',
-                  entities: entities,
-                  capabilities: const NetworkCapabilitiesDto(
-                      mqttClientIdGenerated: false,
-                      signedSession: 'ecp2',
-                      defaultPort: 8060,
-                      tlsSelfSigned: false,
-                      advertisedPortUnreliable: false))),
+                specYaml: 'yaml',
+                entities: entities,
+                capabilities: const NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false,
+                ),
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
       return socket;
     }
@@ -1583,7 +1816,8 @@ void main() {
         tester,
         entities: const [channelEntity],
         queryPayloads: const {
-          'query-apps': '<apps>'
+          'query-apps':
+              '<apps>'
               '<app id="12">Netflix</app>'
               '<app id="837">YouTube</app>'
               '</apps>',
@@ -1591,13 +1825,17 @@ void main() {
               '<active-app><app id="837">YouTube</app></active-app>',
         },
         render: (name, values) => HttpRequestDto(
-            method: 'POST', path: '/launch/${values['app_id']}', body: ''),
+          method: 'POST',
+          path: '/launch/${values['app_id']}',
+          body: '',
+        ),
       );
 
       expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsOneWidget);
       expect(find.widgetWithText(ChoiceChip, 'YouTube'), findsOneWidget);
-      final youtube =
-          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'YouTube'));
+      final youtube = tester.widget<ChoiceChip>(
+        find.widgetWithText(ChoiceChip, 'YouTube'),
+      );
       expect(youtube.selected, isTrue);
       // Control works, so no gate note and no "list refused" note.
       expect(find.text('The device is refusing commands'), findsNothing);
@@ -1610,27 +1848,35 @@ void main() {
         entities: const [homeButton],
         queryPayloads: const {},
         render: (name, values) => const HttpRequestDto(
-            method: 'POST', path: '/keypress/Home', body: ''),
+          method: 'POST',
+          path: '/keypress/Home',
+          body: '',
+        ),
       );
 
       await tester.tap(find.widgetWithText(FilledButton, 'Home'));
       await tester.pumpAndSettle();
 
       expect(socket.sent, contains(containsPair('request', 'key-press')));
-      final keypress =
-          socket.sent.firstWhere((frame) => frame['request'] == 'key-press');
+      final keypress = socket.sent.firstWhere(
+        (frame) => frame['request'] == 'key-press',
+      );
       expect(keypress['param-key'], 'Home');
       expect(find.text('The device is refusing commands'), findsNothing);
     });
 
-    testWidgets('typing goes over the session, one key-press per character',
-        (tester) async {
+    testWidgets('typing goes over the session, one key-press per character', (
+      tester,
+    ) async {
       final socket = await pumpRoku(
         tester,
         entities: const [keyboardEntity],
         queryPayloads: const {},
         render: (name, values) => HttpRequestDto(
-            method: 'POST', path: '/keypress/Lit_${values['char']}', body: ''),
+          method: 'POST',
+          path: '/keypress/Lit_${values['char']}',
+          body: '',
+        ),
       );
 
       await tester.enterText(find.byType(TextField), 'ab');
@@ -1777,9 +2023,10 @@ void main() {
       );
       kasaCodec = FakeSpecCodec(
         networkEntities: (_) => entities,
-        networkEntitiesForState: (replies) => (replies['get_sysinfo']
-                    ?.keys
-                    .any((k) => k.startsWith('light_state')) ??
+        networkEntitiesForState: (replies) =>
+            (replies['get_sysinfo']?.keys.any(
+                  (k) => k.startsWith('light_state'),
+                ) ??
                 false)
             ? [light]
             : entities,
@@ -1795,17 +2042,20 @@ void main() {
           if (entity == 'Outlet') {
             final on = (int.tryParse(returned['relay_state'] ?? '0') ?? 0) != 0;
             return NetworkReadingDto(
-                kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+              kind: NetworkReadingKind.onOff,
+              isOn: on,
+              raw: on ? '1' : '0',
+            );
           }
           if (entity == 'Bulb' || entity == 'Light Strip') {
             // The dotted keys the flattener now emits for light_state.
             final on = returned['light_state.on_off'] == '1';
             return NetworkReadingDto(
-                kind: NetworkReadingKind.onOff,
-                isOn: on,
-                number:
-                    double.tryParse(returned['light_state.brightness'] ?? ''),
-                raw: on ? '1' : '0');
+              kind: NetworkReadingKind.onOff,
+              isOn: on,
+              number: double.tryParse(returned['light_state.brightness'] ?? ''),
+              raw: on ? '1' : '0',
+            );
           }
           // The sensors: the dotted path the flattener keys the reply by.
           final field = switch (entity) {
@@ -1816,73 +2066,94 @@ void main() {
           final raw = returned[field];
           if (raw == null) return null;
           return NetworkReadingDto(
-              kind: NetworkReadingKind.number,
-              number: double.parse(raw),
-              raw: raw);
+            kind: NetworkReadingKind.number,
+            number: double.parse(raw),
+            raw: raw,
+          );
         },
       );
 
       Future<Uint8List> exchange(
-          String host, int port, List<int> request, Duration timeout) async {
+        String host,
+        int port,
+        List<int> request,
+        Duration timeout,
+      ) async {
         final json = await kasaCodec.kasaDecodeFrame(frame: request);
         final String reply;
         if (json.contains('set_relay_state')) {
           relayState = json.contains('"state":1') ? 1 : 0;
           reply = '{"system":{"set_relay_state":{"err_code":0}}}';
         } else if (json.contains('get_realtime')) {
-          reply = '{"emeter":{"get_realtime":{"voltage":120.4,"current":0.5,'
+          reply =
+              '{"emeter":{"get_realtime":{"voltage":120.4,"current":0.5,'
               '"power":60.2,"total":12.34,"err_code":0}}}';
         } else {
           reply = bulb
               ? '{"system":{"get_sysinfo":{"mic_type":"IOT.SMARTBULB",'
-                  '${strip ? '"length":80,' : ''}'
-                  '"light_state":{"on_off":1,"brightness":75},"alias":"Reading Lamp"}}}'
+                    '${strip ? '"length":80,' : ''}'
+                    '"light_state":{"on_off":1,"brightness":75},"alias":"Reading Lamp"}}}'
               : '{"system":{"get_sysinfo":{"relay_state":$relayState,'
-                  '"alias":"Desk Lamp"}}}';
+                    '"alias":"Desk Lamp"}}}';
         }
         return Uint8List.fromList(await kasaCodec.kasaEncodeFrame(json: reply));
       }
 
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(kasaCodec),
-          // A plug serves no setup.xml — reaching for one is a bug.
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((r) async =>
-                  fail('fetched a description for a Kasa plug: ${r.url}')))),
-          kasaControlClientProvider.overrideWithValue(
-              KasaControlClient(kasaCodec, exchange: exchange)),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(kasaCodec),
+            // A plug serves no setup.xml — reaching for one is a bug.
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (r) async =>
+                      fail('fetched a description for a Kasa plug: ${r.url}'),
+                ),
+              ),
+            ),
+            kasaControlClientProvider.overrideWithValue(
+              KasaControlClient(kasaCodec, exchange: exchange),
+            ),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
               device: kasaDevice,
               controls: NetworkControls(
-                  specYaml: 'yaml',
-                  entities: entities,
-                  capabilities: const NetworkCapabilitiesDto(
-                      mqttClientIdGenerated: false,
-                      signedSession: 'ecp2',
-                      defaultPort: 8060,
-                      tlsSelfSigned: false,
-                      advertisedPortUnreliable: false))),
+                specYaml: 'yaml',
+                entities: entities,
+                capabilities: const NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  signedSession: 'ecp2',
+                  defaultPort: 8060,
+                  tlsSelfSigned: false,
+                  advertisedPortUnreliable: false,
+                ),
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
     }
 
-    testWidgets('polls get_sysinfo and reflects the relay state',
-        (tester) async {
+    testWidgets('polls get_sysinfo and reflects the relay state', (
+      tester,
+    ) async {
       await pumpPlug(tester, initial: 1);
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
       expect(find.textContaining('Could not reach'), findsNothing);
     });
 
-    testWidgets('the emeter sensors poll get_emeter alongside the switch',
-        (tester) async {
+    testWidgets('the emeter sensors poll get_emeter alongside the switch', (
+      tester,
+    ) async {
       await pumpPlug(tester, initial: 1, emeter: true);
 
       // The switch still reads the sysinfo poll; the sensors read the emeter
@@ -1894,8 +2165,9 @@ void main() {
       expect(find.textContaining('Could not reach'), findsNothing);
     });
 
-    testWidgets('toggling sends set_relay_state and re-polls the new state',
-        (tester) async {
+    testWidgets('toggling sends set_relay_state and re-polls the new state', (
+      tester,
+    ) async {
       await pumpPlug(tester, initial: 0);
       expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
 
@@ -1911,8 +2183,9 @@ void main() {
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
     });
 
-    testWidgets('a Kasa light gets real on/off and brightness controls',
-        (tester) async {
+    testWidgets('a Kasa light gets real on/off and brightness controls', (
+      tester,
+    ) async {
       // A KL-class bulb answers the plug protocol but reports light_state,
       // not relay_state. The first poll settles the surface on the spec's
       // Bulb light — the plug's relay switch is gone — and the light card
@@ -1931,8 +2204,9 @@ void main() {
       // Toggling sends light_off (the lightingservice), not set_relay_state.
       await tester.tap(find.byType(Switch));
       await tester.pumpAndSettle();
-      final sent =
-          kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName);
+      final sent = kasaCodec.renderNetworkKasaCommandCalls.map(
+        (c) => c.commandName,
+      );
       expect(sent, contains('light_off'));
       expect(sent, isNot(contains('relay_off')));
       expect(find.textContaining('Could not reach'), findsNothing);
@@ -1940,13 +2214,15 @@ void main() {
       // Brightness rides the action's own parameter name.
       await tester.drag(find.byType(Slider), const Offset(-40, 0));
       await tester.pumpAndSettle();
-      final brightness = kasaCodec.renderNetworkKasaCommandCalls
-          .lastWhere((c) => c.commandName == 'set_brightness');
+      final brightness = kasaCodec.renderNetworkKasaCommandCalls.lastWhere(
+        (c) => c.commandName == 'set_brightness',
+      );
       expect(brightness.values.keys, ['brightness']);
     });
 
-    testWidgets('a Kasa light STRIP switches over the lightStrip service',
-        (tester) async {
+    testWidgets('a Kasa light STRIP switches over the lightStrip service', (
+      tester,
+    ) async {
       // A KL430 reports a `length` (LED count) and silently ignores the bulb's
       // lightingservice — the spec's Light Strip variant binds the strip
       // commands, and the surface settles on it.
@@ -1957,8 +2233,9 @@ void main() {
       await tester.tap(find.byType(Switch));
       await tester.pumpAndSettle();
       // The strip command, not the bulb one.
-      final sent =
-          kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName);
+      final sent = kasaCodec.renderNetworkKasaCommandCalls.map(
+        (c) => c.commandName,
+      );
       expect(sent, contains('strip_off'));
       expect(sent, isNot(contains('light_off')));
     });
@@ -1992,21 +2269,23 @@ void main() {
         isInstanced: false,
         actions: [
           NetworkActionDto(
-              role: 'turn_on',
-              commandName: 'relay_on',
-              transport: 'tcp-json',
-              userParams: [],
-              readBack: [],
-              credentials: [],
-              instanceParams: []),
+            role: 'turn_on',
+            commandName: 'relay_on',
+            transport: 'tcp-json',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [],
+          ),
           NetworkActionDto(
-              role: 'turn_off',
-              commandName: 'relay_off',
-              transport: 'tcp-json',
-              userParams: [],
-              readBack: [],
-              credentials: [],
-              instanceParams: []),
+            role: 'turn_off',
+            commandName: 'relay_off',
+            transport: 'tcp-json',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [],
+          ),
         ],
       ),
       // The instanced multi-outlet switch: each child a switch, its id threaded
@@ -2020,25 +2299,27 @@ void main() {
         isInstanced: true,
         actions: [
           NetworkActionDto(
-              role: 'turn_on',
-              commandName: 'relay_on_child',
-              transport: 'tcp-json',
-              userParams: [],
-              readBack: [],
-              credentials: [],
-              instanceParams: [
-                NetworkSourceParamDto(param: 'child_id', name: 'id')
-              ]),
+            role: 'turn_on',
+            commandName: 'relay_on_child',
+            transport: 'tcp-json',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [
+              NetworkSourceParamDto(param: 'child_id', name: 'id'),
+            ],
+          ),
           NetworkActionDto(
-              role: 'turn_off',
-              commandName: 'relay_off_child',
-              transport: 'tcp-json',
-              userParams: [],
-              readBack: [],
-              credentials: [],
-              instanceParams: [
-                NetworkSourceParamDto(param: 'child_id', name: 'id')
-              ]),
+            role: 'turn_off',
+            commandName: 'relay_off_child',
+            transport: 'tcp-json',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [
+              NetworkSourceParamDto(param: 'child_id', name: 'id'),
+            ],
+          ),
         ],
       ),
     ];
@@ -2052,9 +2333,14 @@ void main() {
     late Map<String, bool> childOn;
     late FakeSpecCodec stripCodec;
 
-    Future<void> pumpStrip(WidgetTester tester) async {
+    Future<void> pumpStrip(
+      WidgetTester tester, {
+      List<NetworkCredentialDto> declaredCredentials = const [],
+      InMemorySettingsStore? settings,
+    }) async {
       childOn = {'8006AAA00': true, '8006AAA01': false, '8006AAA02': true};
       stripCodec = FakeSpecCodec(
+        networkCredentials: declaredCredentials,
         networkEntities: (_) => stripEntities,
         // The spec scopes the plain Outlet to the plug family and the
         // instanced Outlets to the strip family; a children-bearing reply
@@ -2066,20 +2352,26 @@ void main() {
           NetworkRoleReadingDto(
             role: 'is_on',
             reading: NetworkReadingDto(
-                kind: NetworkReadingKind.onOff,
-                isOn: childOn[id] ?? false,
-                raw: (childOn[id] ?? false) ? '1' : '0'),
+              kind: NetworkReadingKind.onOff,
+              isOn: childOn[id] ?? false,
+              raw: (childOn[id] ?? false) ? '1' : '0',
+            ),
           ),
         ],
         // The plain "Outlet" reads nothing on a strip.
         networkReading: (entity, returned) => null,
         // Echo command + child so the exchange can flip the addressed outlet.
         networkKasaRequest: (name, values) => KasaRequestDto(
-            json: '{"cmd":"$name","child":"${values['child_id'] ?? ''}"}'),
+          json: '{"cmd":"$name","child":"${values['child_id'] ?? ''}"}',
+        ),
       );
 
       Future<Uint8List> exchange(
-          String host, int port, List<int> request, Duration timeout) async {
+        String host,
+        int port,
+        List<int> request,
+        Duration timeout,
+      ) async {
         final json = await stripCodec.kasaDecodeFrame(frame: request);
         final child = RegExp(r'"child":"([^"]*)"').firstMatch(json)?.group(1);
         if (child != null && child.isNotEmpty) {
@@ -2090,76 +2382,146 @@ void main() {
         // children from its configured list, so the body's exact shape is moot.
         const reply = '{"system":{"get_sysinfo":{"alias":"Rack Strip"}}}';
         return Uint8List.fromList(
-            await stripCodec.kasaEncodeFrame(json: reply));
+          await stripCodec.kasaEncodeFrame(json: reply),
+        );
       }
 
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(stripCodec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((r) async =>
-                  fail('fetched a description for a Kasa strip: ${r.url}')))),
-          kasaControlClientProvider.overrideWithValue(
-              KasaControlClient(stripCodec, exchange: exchange)),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(stripCodec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (r) async =>
+                      fail('fetched a description for a Kasa strip: ${r.url}'),
+                ),
+              ),
+            ),
+            kasaControlClientProvider.overrideWithValue(
+              KasaControlClient(stripCodec, exchange: exchange),
+            ),
+            if (settings != null)
+              settingsStoreProvider.overrideWithValue(settings),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
               device: stripDevice,
               controls: const NetworkControls(
-                  specYaml: 'yaml', entities: stripEntities)),
+                specYaml: 'yaml',
+                entities: stripEntities,
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
     }
 
     Switch outletSwitch(WidgetTester tester, String label) =>
-        tester.widget<Switch>(find.descendant(
+        tester.widget<Switch>(
+          find.descendant(
             of: find.widgetWithText(Card, label),
-            matching: find.byType(Switch)));
+            matching: find.byType(Switch),
+          ),
+        );
 
-    testWidgets('renders one switch per outlet by alias, hiding the plain one',
-        (tester) async {
-      await pumpStrip(tester);
+    testWidgets(
+      'renders one switch per outlet by alias, hiding the plain one',
+      (tester) async {
+        await pumpStrip(tester);
 
-      expect(find.text('RackFans'), findsOneWidget);
-      expect(find.text('Pleaky1'), findsOneWidget);
-      expect(find.text('Spare'), findsOneWidget);
-      // Three outlets, and no fourth plain "Outlet" switch beside them.
-      expect(find.byType(Switch), findsNWidgets(3));
-      expect(find.text('Outlet'), findsNothing);
-      // Each reflects its child's reported state.
-      expect(outletSwitch(tester, 'RackFans').value, isTrue);
-      expect(outletSwitch(tester, 'Pleaky1').value, isFalse);
-      expect(outletSwitch(tester, 'Spare').value, isTrue);
-    });
+        expect(find.text('RackFans'), findsOneWidget);
+        expect(find.text('Pleaky1'), findsOneWidget);
+        expect(find.text('Spare'), findsOneWidget);
+        // Three outlets, and no fourth plain "Outlet" switch beside them.
+        expect(find.byType(Switch), findsNWidgets(3));
+        expect(find.text('Outlet'), findsNothing);
+        // Each reflects its child's reported state.
+        expect(outletSwitch(tester, 'RackFans').value, isTrue);
+        expect(outletSwitch(tester, 'Pleaky1').value, isFalse);
+        expect(outletSwitch(tester, 'Spare').value, isTrue);
+      },
+    );
 
-    testWidgets('toggling an outlet scopes the write to its child id',
-        (tester) async {
+    testWidgets('toggling an outlet scopes the write to its child id', (
+      tester,
+    ) async {
       await pumpStrip(tester);
 
       // Pleaky1 is off; turn it on.
-      await tester.tap(find.descendant(
+      await tester.tap(
+        find.descendant(
           of: find.widgetWithText(Card, 'Pleaky1'),
-          matching: find.byType(Switch)));
+          matching: find.byType(Switch),
+        ),
+      );
       await tester.pumpAndSettle();
 
       // The child-scoped command rendered, carrying Pleaky1's id — not the
       // whole-device relay_on.
       expect(
         stripCodec.renderNetworkKasaCommandCalls,
-        contains(predicate<({String commandName, Map<String, String> values})>(
+        contains(
+          predicate<({String commandName, Map<String, String> values})>(
             (c) =>
                 c.commandName == 'relay_on_child' &&
-                c.values['child_id'] == '8006AAA01')),
+                c.values['child_id'] == '8006AAA01',
+          ),
+        ),
       );
       // The post-send poll shows Pleaky1 on now, its siblings untouched.
       expect(outletSwitch(tester, 'Pleaky1').value, isTrue);
       expect(outletSwitch(tester, 'RackFans').value, isTrue);
       expect(outletSwitch(tester, 'Spare').value, isTrue);
+    });
+
+    testWidgets('an outlet send goes through the same sender every other '
+        'control uses', (tester) async {
+      // R-105. The outlet switches rendered and wrote the socket themselves —
+      // their own codec call, their own client, their own idea of the port —
+      // so they were the one control on this screen that did not inherit what
+      // NetworkCommandSender does for every other send. The stored credential
+      // it merges in is the visible half of that: a strip whose spec declares
+      // one used to send without it.
+      await pumpStrip(
+        tester,
+        declaredCredentials: const [
+          NetworkCredentialDto(
+            name: 'serial',
+            description: 'The strip serial.',
+            neededBy: ['relay_on_child'],
+            mustBeAskedFor: true,
+          ),
+        ],
+        settings: InMemorySettingsStore({
+          'credential.host:10.0.0.8.serial': 'S-123',
+        }),
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: find.widgetWithText(Card, 'Pleaky1'),
+          matching: find.byType(Switch),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final call = stripCodec.renderNetworkKasaCommandCalls.lastWhere(
+        (c) => c.commandName == 'relay_on_child',
+      );
+      expect(call.values['child_id'], '8006AAA01');
+      expect(
+        call.values['serial'],
+        'S-123',
+        reason: 'the sender merges the device\'s stored credentials',
+      );
     });
   });
 
@@ -2199,7 +2561,8 @@ void main() {
       sensor('Lifetime Energy', 'wattHoursLifetime', 'Wh'),
     ];
 
-    const productionJson = '{"wattsNow":2532,"wattHoursToday":18320,'
+    const productionJson =
+        '{"wattsNow":2532,"wattHoursToday":18320,'
         '"wattHoursSevenDays":120440,"wattHoursLifetime":10324050}';
 
     /// A stand-in gateway: answers the production GET with [body]/[status]
@@ -2213,7 +2576,10 @@ void main() {
       codec = FakeSpecCodec(
         networkEntities: (_) => envoyEntities,
         networkHttpRequest: (name, _) => const HttpRequestDto(
-            method: 'GET', path: '/api/v1/production', body: ''),
+          method: 'GET',
+          path: '/api/v1/production',
+          body: '',
+        ),
         networkReading: (entity, returned) {
           final field = switch (entity) {
             'Solar Production' => 'wattsNow',
@@ -2223,43 +2589,58 @@ void main() {
           final raw = returned[field];
           if (raw == null) return null;
           return NetworkReadingDto(
-              kind: NetworkReadingKind.number,
-              number: double.parse(raw),
-              raw: raw);
+            kind: NetworkReadingKind.number,
+            number: double.parse(raw),
+            raw: raw,
+          );
         },
       );
       final envoy = MockClient((request) async {
         received.add(request);
         return http.Response(body, status);
       });
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          // The gateway serves no UPnP description — asking is a bug.
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((r) async =>
-                  fail('fetched a description for an Envoy: ${r.url}')))),
-          httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: envoy)),
-          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
-      final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
-              device: envoyDevice,
-              controls:
-                  NetworkControls(specYaml: 'yaml', entities: envoyEntities)),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            // The gateway serves no UPnP description — asking is a bug.
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (r) async =>
+                      fail('fetched a description for an Envoy: ${r.url}'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(httpClient: envoy),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+          ],
+          child: const MaterialApp(home: SizedBox()),
         ),
-      ));
+      );
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: envoyDevice,
+              controls: NetworkControls(
+                specYaml: 'yaml',
+                entities: envoyEntities,
+              ),
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
       return received;
     }
 
-    testWidgets('polls production over HTTP and renders the sensors',
-        (tester) async {
+    testWidgets('polls production over HTTP and renders the sensors', (
+      tester,
+    ) async {
       final received = await pumpEnvoy(tester);
 
       // Exactly one GET, the one the spec declares — and no description.
@@ -2267,7 +2648,9 @@ void main() {
       expect(received, hasLength(1));
       expect(received.single.method, 'GET');
       expect(
-          received.single.url.toString(), 'http://10.0.0.11/api/v1/production');
+        received.single.url.toString(),
+        'http://10.0.0.11/api/v1/production',
+      );
 
       expect(find.text('2532 W'), findsOneWidget);
       expect(find.text('18320 Wh'), findsOneWidget);
@@ -2275,17 +2658,19 @@ void main() {
       expect(find.textContaining('Could not reach'), findsNothing);
     });
 
-    testWidgets('a 403 (JWT-gated firmware) shows the gate note, not an error',
-        (tester) async {
-      await pumpEnvoy(tester, status: 403);
+    testWidgets(
+      'a 403 (JWT-gated firmware) shows the gate note, not an error',
+      (tester) async {
+        await pumpEnvoy(tester, status: 403);
 
-      // The refusal is a device-side policy: the standing note names it, the
-      // readings stay honestly unknown, and the screen is not an error page.
-      expect(find.text('The device is refusing commands'), findsOneWidget);
-      expect(find.textContaining('answered discovery'), findsOneWidget);
-      expect(find.text('Unknown'), findsNWidgets(3));
-      expect(find.textContaining('Could not reach'), findsNothing);
-    });
+        // The refusal is a device-side policy: the standing note names it, the
+        // readings stay honestly unknown, and the screen is not an error page.
+        expect(find.text('The device is refusing commands'), findsOneWidget);
+        expect(find.textContaining('answered discovery'), findsOneWidget);
+        expect(find.text('Unknown'), findsNWidgets(3));
+        expect(find.textContaining('Could not reach'), findsNothing);
+      },
+    );
   });
 
   // ── A device that needs something before it can be driven ───────────────
@@ -2305,7 +2690,8 @@ void main() {
 
     const serialNeeded = NetworkCredentialDto(
       name: 'serial',
-      description: 'The printer serial, read off the touchscreen beside the '
+      description:
+          'The printer serial, read off the touchscreen beside the '
           'Access Code during setup.',
       neededBy: ['pause', 'resume', 'stop'],
       mustBeAskedFor: true,
@@ -2317,7 +2703,9 @@ void main() {
       description: 'The whitelist username the link button issues.',
       neededBy: ['set_light'],
       issuedBy: NetworkCredentialIssuanceDto(
-          method: 'button_pairing', replyPath: '[0].success.username'),
+        method: 'button_pairing',
+        replyPath: '[0].success.username',
+      ),
       mustBeAskedFor: false,
     );
 
@@ -2336,7 +2724,7 @@ void main() {
             userParams: [],
             readBack: [],
             credentials: [
-              NetworkSourceParamDto(param: 'serial', name: 'serial')
+              NetworkSourceParamDto(param: 'serial', name: 'serial'),
             ],
             instanceParams: [],
           ),
@@ -2354,27 +2742,40 @@ void main() {
         networkEntities: (_) => buttons,
         networkCredentials: declared,
       );
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          settingsStoreProvider.overrideWithValue(store),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((r) async =>
-                  fail('a printer serves no UPnP description: ${r.url}')))),
-          httpControlClientProvider.overrideWithValue(HttpControlClient(
-              httpClient: MockClient((r) async => http.Response('', 200)))),
-          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
-      final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
-              device: printer,
-              controls: NetworkControls(specYaml: 'yaml', entities: buttons)),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            settingsStoreProvider.overrideWithValue(store),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (r) async =>
+                      fail('a printer serves no UPnP description: ${r.url}'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(
+                httpClient: MockClient((r) async => http.Response('', 200)),
+              ),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+          ],
+          child: const MaterialApp(home: SizedBox()),
         ),
-      ));
+      );
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: printer,
+              controls: NetworkControls(specYaml: 'yaml', entities: buttons),
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
       return store;
     }
@@ -2402,33 +2803,44 @@ void main() {
       expect(find.text('This device needs one more thing'), findsNothing);
     });
 
-    testWidgets('a declared derivation stores the derived value, not the typed',
-        (tester) async {
-      // Dyson's password: the person types the sticker Wi-Fi password and the
-      // client stores base64(SHA-512(it)). The fake codec marks the
-      // transformation, so this pins that _saveCredential routed the typed
-      // value through the codec's derivation rather than storing it raw.
-      const passwordNeeded = NetworkCredentialDto(
-        name: 'password',
-        description: 'The Wi-Fi password printed on the sticker.',
-        neededBy: ['MQTT state'],
-        mustBeAskedFor: true,
-        derivation: 'base64_sha512',
-      );
-      final store = await pumpPrinter(tester, declared: const [passwordNeeded]);
+    testWidgets(
+      'a declared derivation stores the derived value, not the typed',
+      (tester) async {
+        // Dyson's password: the person types the sticker Wi-Fi password and the
+        // client stores base64(SHA-512(it)). The fake codec marks the
+        // transformation, so this pins that _saveCredential routed the typed
+        // value through the codec's derivation rather than storing it raw.
+        const passwordNeeded = NetworkCredentialDto(
+          name: 'password',
+          description: 'The Wi-Fi password printed on the sticker.',
+          neededBy: ['MQTT state'],
+          mustBeAskedFor: true,
+          derivation: 'base64_sha512',
+        );
+        final store = await pumpPrinter(
+          tester,
+          declared: const [passwordNeeded],
+        );
 
-      await tester.tap(find.text('Enter password'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'sticker-wifi-pw');
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Enter password'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'sticker-wifi-pw');
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pumpAndSettle();
 
-      expect(store.values.values,
-          contains('derived:base64_sha512:sticker-wifi-pw'));
-      expect(store.values.values, isNot(contains('sticker-wifi-pw')),
-          reason: 'the raw sticker password must never be stored as the '
-              'broker password');
-    });
+        expect(
+          store.values.values,
+          contains('derived:base64_sha512:sticker-wifi-pw'),
+        );
+        expect(
+          store.values.values,
+          isNot(contains('sticker-wifi-pw')),
+          reason:
+              'the raw sticker password must never be stored as the '
+              'broker password',
+        );
+      },
+    );
 
     testWidgets('one a pairing issues is never asked for', (tester) async {
       // Prompting for it would teach people to paste a secret that a button
@@ -2442,8 +2854,9 @@ void main() {
       await pumpPrinter(
         tester,
         declared: const [serialNeeded],
-        settings: InMemorySettingsStore(
-            {'credential.host:10.0.0.14.serial': '01P00A123456789'}),
+        settings: InMemorySettingsStore({
+          'credential.host:10.0.0.14.serial': '01P00A123456789',
+        }),
       );
       expect(find.textContaining('needs one more thing'), findsNothing);
     });
@@ -2484,28 +2897,44 @@ void main() {
 
     testWidgets('does not go looking for a UPnP description', (tester) async {
       codec = FakeSpecCodec(networkEntities: (_) => entities);
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((r) async =>
-                  fail('a Tuya sensor serves no setup.xml: ${r.url}')))),
-          httpControlClientProvider.overrideWithValue(HttpControlClient(
-              httpClient: MockClient((r) async =>
-                  fail('and it speaks no HTTP either: ${r.url}')))),
-          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
-      final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
-              device: sensor,
-              controls:
-                  const NetworkControls(specYaml: 'yaml', entities: entities)),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (r) async =>
+                      fail('a Tuya sensor serves no setup.xml: ${r.url}'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(
+                httpClient: MockClient(
+                  (r) async => fail('and it speaks no HTTP either: ${r.url}'),
+                ),
+              ),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+          ],
+          child: const MaterialApp(home: SizedBox()),
         ),
-      ));
+      );
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: sensor,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: entities,
+              ),
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
       // The reading is honestly unknown — nothing here can poll a tcp-json
@@ -2557,7 +2986,8 @@ void main() {
       ),
     ];
 
-    const statusXml = '<?xml version="1.0" encoding="utf-8"?>'
+    const statusXml =
+        '<?xml version="1.0" encoding="utf-8"?>'
         '<item><Power><value>ON</value></Power>'
         '<MasterVolume><value>-40.0</value></MasterVolume></item>';
 
@@ -2574,36 +3004,51 @@ void main() {
           final raw = returned['MasterVolume.value'];
           if (raw == null) return null;
           return NetworkReadingDto(
-              kind: NetworkReadingKind.number,
-              number: double.parse(raw),
-              raw: raw);
+            kind: NetworkReadingKind.number,
+            number: double.parse(raw),
+            raw: raw,
+          );
         },
       );
       final receiver = MockClient((request) async {
         received.add(request);
         return http.Response(statusXml, 200);
       });
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((r) async => fail(
-                  'fetched a description for a plain HTTP poll: ${r.url}')))),
-          httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: receiver)),
-          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
-      final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
-              device: denonDevice,
-              controls:
-                  NetworkControls(specYaml: 'yaml', entities: denonEntities)),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (r) async => fail(
+                    'fetched a description for a plain HTTP poll: ${r.url}',
+                  ),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(httpClient: receiver),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+          ],
+          child: const MaterialApp(home: SizedBox()),
         ),
-      ));
+      );
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: denonDevice,
+              controls: NetworkControls(
+                specYaml: 'yaml',
+                entities: denonEntities,
+              ),
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(received, hasLength(1));
@@ -2633,16 +3078,19 @@ void main() {
       discoveredAt: DateTime.utc(2026),
     );
 
-    NetworkActionDto udpAction(String role, String command,
-            [List<String> params = const []]) =>
-        NetworkActionDto(
-            role: role,
-            commandName: command,
-            transport: 'udp',
-            userParams: params,
-            readBack: const [],
-            credentials: const [],
-            instanceParams: const []);
+    NetworkActionDto udpAction(
+      String role,
+      String command, [
+      List<String> params = const [],
+    ]) => NetworkActionDto(
+      role: role,
+      commandName: command,
+      transport: 'udp',
+      userParams: params,
+      readBack: const [],
+      credentials: const [],
+      instanceParams: const [],
+    );
 
     // The spec's control surface, mirrored: power/mode/speed as controls,
     // quality/filter-life/rssi as readings, ionizer/lock as switches.
@@ -2656,7 +3104,7 @@ void main() {
         isInstanced: false,
         actions: [
           udpAction('turn_on', 'turn_on'),
-          udpAction('turn_off', 'turn_off')
+          udpAction('turn_off', 'turn_off'),
         ],
       ),
       NetworkEntityDto(
@@ -2671,7 +3119,7 @@ void main() {
         ],
         isInstanced: false,
         actions: [
-          udpAction('select_option', 'set_mode', ['mode'])
+          udpAction('select_option', 'set_mode', ['mode']),
         ],
       ),
       NetworkEntityDto(
@@ -2685,7 +3133,7 @@ void main() {
         options: const [],
         isInstanced: false,
         actions: [
-          udpAction('set_value', 'set_speed', ['speed'])
+          udpAction('set_value', 'set_speed', ['speed']),
         ],
       ),
       const NetworkEntityDto(
@@ -2756,11 +3204,18 @@ void main() {
     late int timeSyncs;
     late FakeSpecCodec rabbitCodec;
 
+    /// Entity decodes since the screen opened — the work the screen's own
+    /// 4 s poll used to do for nothing on a device whose exchange it cannot
+    /// make. See the poll test below.
+    late int rabbitDecodes;
+
     /// A stand-in purifier: holds state, answers the time sync with its
     /// clock, answers get_state with the lot, applies cmd-4 writes — all
     /// encrypted under [rabbitKey], over the fake codec's faithful cipher.
-    Future<void> pumpPurifier(WidgetTester tester,
-        {bool withKey = true}) async {
+    Future<void> pumpPurifier(
+      WidgetTester tester, {
+      bool withKey = true,
+    }) async {
       purifierState = {
         'power': false,
         'mode': 2,
@@ -2790,11 +3245,13 @@ void main() {
             _ => '',
           };
           return RabbitAirRequestDto(
-              json:
-                  '{"id":$requestId,"cmd":${name == 'time_sync' ? 9 : 4},"ts":$deviceTs$data}',
-              requestId: requestId);
+            json:
+                '{"id":$requestId,"cmd":${name == 'time_sync' ? 9 : 4},"ts":$deviceTs$data}',
+            requestId: requestId,
+          );
         },
         networkReading: (entity, returned) {
+          rabbitDecodes++;
           const boolFields = {
             'Power': 'power',
             'Ionizer': 'ionizer',
@@ -2808,7 +3265,10 @@ void main() {
             if (raw == null) return null;
             final on = raw == 'true';
             return NetworkReadingDto(
-                kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+              kind: NetworkReadingKind.onOff,
+              isOn: on,
+              raw: on ? '1' : '0',
+            );
           }
           final optionField = optionFields[entity];
           if (optionField != null) {
@@ -2820,10 +3280,15 @@ void main() {
             }
             if (label == null) {
               return NetworkReadingDto(
-                  kind: NetworkReadingKind.unknownOption, raw: raw);
+                kind: NetworkReadingKind.unknownOption,
+                raw: raw,
+              );
             }
             return NetworkReadingDto(
-                kind: NetworkReadingKind.option, label: label, raw: raw);
+              kind: NetworkReadingKind.option,
+              label: label,
+              raw: raw,
+            );
           }
           final field = switch (entity) {
             'Fan Speed' => 'speed',
@@ -2834,67 +3299,96 @@ void main() {
           final raw = returned[field];
           if (raw == null) return null;
           return NetworkReadingDto(
-              kind: NetworkReadingKind.number,
-              number: double.parse(raw),
-              raw: raw);
+            kind: NetworkReadingKind.number,
+            number: double.parse(raw),
+            raw: raw,
+          );
         },
       );
+      rabbitDecodes = 0;
 
       Future<List<Uint8List>> exchange(
-          String host, int port, Uint8List datagram, Duration timeout) async {
+        String host,
+        int port,
+        Uint8List datagram,
+        Duration timeout,
+      ) async {
         final plaintext = await rabbitCodec.rabbitAirDecryptDatagram(
-            userKey: rabbitKey, datagram: datagram);
+          userKey: rabbitKey,
+          datagram: datagram,
+        );
         final decoded = jsonDecode(plaintext) as Map<String, Object?>;
         final id = decoded['id'];
         if (decoded['cmd'] == 9) {
           timeSyncs++;
           final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
           return [
-            Uint8List.fromList(await rabbitCodec.rabbitAirEncryptDatagram(
-                userKey: rabbitKey, plaintext: '{"id":$id,"data":{"ts":$ts}}'))
+            Uint8List.fromList(
+              await rabbitCodec.rabbitAirEncryptDatagram(
+                userKey: rabbitKey,
+                plaintext: '{"id":$id,"data":{"ts":$ts}}',
+              ),
+            ),
           ];
         }
         final data = decoded['data'];
         if (data is Map) purifierState.addAll(data.cast());
         final reply = jsonEncode({'id': id, 'data': purifierState});
         return [
-          Uint8List.fromList(await rabbitCodec.rabbitAirEncryptDatagram(
-              userKey: rabbitKey, plaintext: reply))
+          Uint8List.fromList(
+            await rabbitCodec.rabbitAirEncryptDatagram(
+              userKey: rabbitKey,
+              plaintext: reply,
+            ),
+          ),
         ];
       }
 
       final store = InMemorySettingsStore();
       if (withKey) {
-        await RabbitAirKeyStore(store)
-            .saveUserKey(rabbitDevice.hostname!, rabbitKey);
+        await RabbitAirKeyStore(
+          store,
+        ).saveUserKey(rabbitDevice.hostname!, rabbitKey);
       }
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(rabbitCodec),
-          settingsStoreProvider.overrideWithValue(store),
-          // A purifier serves no setup.xml — reaching for one is a bug.
-          soapControlClientProvider.overrideWithValue(SoapControlClient(
-              httpClient: MockClient((r) async =>
-                  fail('fetched a description for a purifier: ${r.url}')))),
-          rabbitAirControlClientProvider.overrideWithValue(
-              RabbitAirControlClient(rabbitCodec, exchange: exchange)),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
-      final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
-              device: rabbitDevice,
-              controls:
-                  NetworkControls(specYaml: 'yaml', entities: rabbitEntities)),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(rabbitCodec),
+            settingsStoreProvider.overrideWithValue(store),
+            // A purifier serves no setup.xml — reaching for one is a bug.
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (r) async =>
+                      fail('fetched a description for a purifier: ${r.url}'),
+                ),
+              ),
+            ),
+            rabbitAirControlClientProvider.overrideWithValue(
+              RabbitAirControlClient(rabbitCodec, exchange: exchange),
+            ),
+          ],
+          child: const MaterialApp(home: SizedBox()),
         ),
-      ));
+      );
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: rabbitDevice,
+              controls: NetworkControls(
+                specYaml: 'yaml',
+                entities: rabbitEntities,
+              ),
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
     }
 
-    testWidgets(
-        'asks for the user key when none is stored, then drives the '
+    testWidgets('asks for the user key when none is stored, then drives the '
         'device once it is', (tester) async {
       await pumpPurifier(tester, withKey: false);
 
@@ -2924,8 +3418,9 @@ void main() {
       expect(find.text('-55 dBm'), findsOneWidget);
     });
 
-    testWidgets('with a stored key, syncs once, polls get_state and renders',
-        (tester) async {
+    testWidgets('with a stored key, syncs once, polls get_state and renders', (
+      tester,
+    ) async {
       await pumpPurifier(tester);
 
       expect(timeSyncs, 1);
@@ -2937,29 +3432,33 @@ void main() {
       expect(find.text('4320 min'), findsOneWidget);
       expect(find.text('-55 dBm'), findsOneWidget);
       expect(find.text('3'), findsWidgets); // Fan Speed
-      final manualChip =
-          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Manual'));
+      final manualChip = tester.widget<ChoiceChip>(
+        find.widgetWithText(ChoiceChip, 'Manual'),
+      );
       expect(manualChip.selected, isTrue);
     });
 
-    testWidgets('toggling power sends the encrypted write and re-polls',
-        (tester) async {
+    testWidgets('toggling power sends the encrypted write and re-polls', (
+      tester,
+    ) async {
       await pumpPurifier(tester);
 
       await tester.tap(find.byType(Switch).first);
       await tester.pumpAndSettle();
 
       expect(
-        rabbitCodec.renderNetworkRabbitAirCommandCalls
-            .map((c) => c.commandName),
+        rabbitCodec.renderNetworkRabbitAirCommandCalls.map(
+          (c) => c.commandName,
+        ),
         contains('turn_on'),
       );
       expect(purifierState['power'], isTrue);
       expect(tester.widget<Switch>(find.byType(Switch).first).value, isTrue);
     });
 
-    testWidgets('the mode select sends set_mode with the picked option',
-        (tester) async {
+    testWidgets('the mode select sends set_mode with the picked option', (
+      tester,
+    ) async {
       await pumpPurifier(tester);
 
       // The select card sits below the switches and sensors — scroll it into
@@ -2970,10 +3469,62 @@ void main() {
       await tester.tap(autoChip);
       await tester.pumpAndSettle();
 
-      final call = rabbitCodec.renderNetworkRabbitAirCommandCalls
-          .firstWhere((c) => c.commandName == 'set_mode');
+      final call = rabbitCodec.renderNetworkRabbitAirCommandCalls.firstWhere(
+        (c) => c.commandName == 'set_mode',
+      );
       expect(call.values, {'mode': '0'});
       expect(purifierState['mode'], 0);
+    });
+
+    testWidgets('Refresh drives the panel instead of replacing it', (
+      tester,
+    ) async {
+      // R-097. Refresh flipped the SCREEN into its loading state, which swaps
+      // the panel out for a spinner on the very next frame — destroying the
+      // State whose refresh was in flight, and building a fresh one
+      // afterwards that starts the key lookup and the clock sync over. The
+      // panel owns the conversation; Refresh forwards to it.
+      await pumpPurifier(tester);
+      final before = tester.state(find.byType(RabbitAirControlsPanel));
+      expect(find.text('4320 min'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Refresh'));
+      await tester.pump();
+      // No screen-level spinner in place of the controls mid-refresh.
+      expect(find.text('Asking the device...'), findsNothing);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.state(find.byType(RabbitAirControlsPanel)),
+        same(before),
+        reason: 'the refresh must not throw away what it is refreshing',
+      );
+      expect(find.text('4320 min'), findsOneWidget);
+    });
+
+    testWidgets('the screen runs no background poll of its own', (
+      tester,
+    ) async {
+      // R-097. The screen started its 4 s state poll for a purifier too, and
+      // that poll cannot make the encrypted exchange — it found no UPnP
+      // description, logged, and then re-decoded every entity and rebuilt the
+      // whole screen. Four times a minute, for as long as the screen was
+      // open, and never a changed reading.
+      await pumpPurifier(tester);
+      final decodesAfterLoad = rabbitDecodes;
+      expect(decodesAfterLoad, greaterThan(0));
+
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      expect(
+        rabbitDecodes,
+        decodesAfterLoad,
+        reason:
+            'the panel polls on its own terms; the screen has nothing '
+            'to poll',
+      );
     });
   });
 
@@ -2992,29 +3543,32 @@ void main() {
         options: [],
         actions: [
           NetworkActionDto(
-              credentials: [],
-              instanceParams: [],
-              role: 'open_cover',
-              transport: 'soap',
-              commandName: 'door_open',
-              userParams: [],
-              readBack: []),
+            credentials: [],
+            instanceParams: [],
+            role: 'open_cover',
+            transport: 'soap',
+            commandName: 'door_open',
+            userParams: [],
+            readBack: [],
+          ),
           NetworkActionDto(
-              credentials: [],
-              instanceParams: [],
-              role: 'close_cover',
-              transport: 'soap',
-              commandName: 'door_close',
-              userParams: [],
-              readBack: []),
+            credentials: [],
+            instanceParams: [],
+            role: 'close_cover',
+            transport: 'soap',
+            commandName: 'door_close',
+            userParams: [],
+            readBack: [],
+          ),
           NetworkActionDto(
-              credentials: [],
-              instanceParams: [],
-              role: 'stop_cover',
-              transport: 'soap',
-              commandName: 'door_stop',
-              userParams: [],
-              readBack: []),
+            credentials: [],
+            instanceParams: [],
+            role: 'stop_cover',
+            transport: 'soap',
+            commandName: 'door_stop',
+            userParams: [],
+            readBack: [],
+          ),
         ],
       ),
       NetworkEntityDto(
@@ -3026,31 +3580,34 @@ void main() {
         options: [],
         actions: [
           NetworkActionDto(
-              credentials: [],
-              instanceParams: [],
-              role: 'turn_on',
-              transport: 'soap',
-              commandName: 'fan_on',
-              userParams: [],
-              readBack: []),
+            credentials: [],
+            instanceParams: [],
+            role: 'turn_on',
+            transport: 'soap',
+            commandName: 'fan_on',
+            userParams: [],
+            readBack: [],
+          ),
           NetworkActionDto(
-              credentials: [],
-              instanceParams: [],
-              role: 'turn_off',
-              transport: 'soap',
-              commandName: 'fan_off',
-              userParams: [],
-              readBack: []),
+            credentials: [],
+            instanceParams: [],
+            role: 'turn_off',
+            transport: 'soap',
+            commandName: 'fan_off',
+            userParams: [],
+            readBack: [],
+          ),
           NetworkActionDto(
-              credentials: [],
-              instanceParams: [],
-              role: 'set_percentage',
-              transport: 'soap',
-              commandName: 'fan_speed',
-              userParams: ['value'],
-              min: 0,
-              max: 100,
-              readBack: []),
+            credentials: [],
+            instanceParams: [],
+            role: 'set_percentage',
+            transport: 'soap',
+            commandName: 'fan_speed',
+            userParams: ['value'],
+            min: 0,
+            max: 100,
+            readBack: [],
+          ),
         ],
       ),
       NetworkEntityDto(
@@ -3066,13 +3623,14 @@ void main() {
         options: [],
         actions: [
           NetworkActionDto(
-              credentials: [],
-              instanceParams: [],
-              role: 'set_value',
-              transport: 'soap',
-              commandName: 'set_speed',
-              userParams: ['speed'],
-              readBack: []),
+            credentials: [],
+            instanceParams: [],
+            role: 'set_value',
+            transport: 'soap',
+            commandName: 'set_speed',
+            userParams: ['speed'],
+            readBack: [],
+          ),
         ],
       ),
     ];
@@ -3080,19 +3638,23 @@ void main() {
     NetworkReadingDto? readUtility(String entity, Map<String, String> ret) =>
         switch (entity) {
           'Fan' => NetworkReadingDto(
-              kind: NetworkReadingKind.onOff,
-              isOn: ret['mode'] != '0',
-              raw: ret['mode'] ?? '0'),
+            kind: NetworkReadingKind.onOff,
+            isOn: ret['mode'] != '0',
+            raw: ret['mode'] ?? '0',
+          ),
           'Target Speed' => NetworkReadingDto(
-              kind: NetworkReadingKind.number,
-              number: double.tryParse(ret['time'] ?? ''),
-              raw: ret['time'] ?? ''),
+            kind: NetworkReadingKind.number,
+            number: double.tryParse(ret['time'] ?? ''),
+            raw: ret['time'] ?? '',
+          ),
           _ => null,
         };
 
-    Future<void> pumpUtility(WidgetTester tester,
-        {List<NetworkEntityDto> entities = utilityEntities,
-        List<String> hiddenNames = const []}) async {
+    Future<void> pumpUtility(
+      WidgetTester tester, {
+      List<NetworkEntityDto> entities = utilityEntities,
+      List<String> hiddenNames = const [],
+    }) async {
       posts = [];
       codec = FakeSpecCodec(
         networkEntities: (_) => entities,
@@ -3100,39 +3662,48 @@ void main() {
         networkReading: readUtility,
       );
       codec.networkRequest = (name, values) => SoapRequestDto(
-            service: 'urn:Belkin:service:basicevent:1',
-            action: name,
-            soapAction: '"urn:Belkin:service:basicevent:1#$name"',
-            path: null,
-            body: name == 'GetCrockpotState' ? '<get/>' : '<set/>',
-          );
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(codec),
-          soapControlClientProvider.overrideWithValue(
-              SoapControlClient(httpClient: cooker(mode: 1, time: 3))),
-        ],
-        child: const MaterialApp(home: SizedBox()),
-      ));
+        service: 'urn:Belkin:service:basicevent:1',
+        action: name,
+        soapAction: '"urn:Belkin:service:basicevent:1#$name"',
+        path: null,
+        body: name == 'GetCrockpotState' ? '<get/>' : '<set/>',
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(httpClient: cooker(mode: 1, time: 3)),
+            ),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
       final context = tester.element(find.byType(SizedBox));
-      unawaited(Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute<void>(
-          builder: (_) => NetworkDeviceScreen(
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
               device: _cookerDevice,
               controls: NetworkControls(
-                  specYaml: 'yaml',
-                  entities: entities,
-                  hiddenNames: hiddenNames)),
+                specYaml: 'yaml',
+                entities: entities,
+                hiddenNames: hiddenNames,
+              ),
+            ),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
     }
 
-    testWidgets('a cover renders its three motions and sends open',
-        (tester) async {
-      await pumpUtility(tester,
-          entities:
-              utilityEntities.where((e) => e.platform == 'cover').toList());
+    testWidgets('a cover renders its three motions and sends open', (
+      tester,
+    ) async {
+      await pumpUtility(
+        tester,
+        entities: utilityEntities.where((e) => e.platform == 'cover').toList(),
+      );
 
       expect(find.widgetWithText(OutlinedButton, 'Open'), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, 'Stop'), findsOneWidget);
@@ -3140,50 +3711,106 @@ void main() {
 
       await tester.tap(find.widgetWithText(OutlinedButton, 'Open'));
       await tester.pumpAndSettle();
-      expect(codec.renderNetworkCommandCalls.map((c) => c.commandName),
-          contains('door_open'));
+      expect(
+        codec.renderNetworkCommandCalls.map((c) => c.commandName),
+        contains('door_open'),
+      );
     });
 
-    testWidgets('a fan renders power and a percentage slider that sends',
-        (tester) async {
-      await pumpUtility(tester,
-          entities: utilityEntities.where((e) => e.platform == 'fan').toList());
+    testWidgets('a fan renders power and a percentage slider that sends', (
+      tester,
+    ) async {
+      await pumpUtility(
+        tester,
+        entities: utilityEntities.where((e) => e.platform == 'fan').toList(),
+      );
 
       // Power reads on (mode 1); the slider is live.
       final toggle = tester.widget<Switch>(find.byType(Switch));
       expect(toggle.value, isTrue);
       await tester.drag(find.byType(Slider), const Offset(120, 0));
       await tester.pumpAndSettle();
-      expect(codec.renderNetworkCommandCalls.map((c) => c.commandName),
-          contains('fan_speed'));
+      expect(
+        codec.renderNetworkCommandCalls.map((c) => c.commandName),
+        contains('fan_speed'),
+      );
     });
 
-    testWidgets('a bounded number renders a slider, not the edit dialog',
-        (tester) async {
-      await pumpUtility(tester,
-          entities:
-              utilityEntities.where((e) => e.platform == 'number').toList());
+    testWidgets('an unbounded number keeps a decimal and offers a signed pad', (
+      tester,
+    ) async {
+      // The dialog is the only path for a number entity with no range. Its
+      // keypad has to be able to type a minus and a decimal (iOS's plain
+      // number pad has neither), and what was typed has to be what is sent:
+      // 21.5 used to go out as '22'.
+      final unbounded = utilityEntities
+          .where((e) => e.platform == 'number')
+          .map(
+            (e) => NetworkEntityDto(
+              isInstanced: e.isInstanced,
+              name: e.name,
+              platform: e.platform,
+              unit: e.unit,
+              stateCommand: e.stateCommand,
+              valueField: e.valueField,
+              options: e.options,
+              actions: e.actions,
+            ),
+          )
+          .toList();
+      await pumpUtility(tester, entities: unbounded);
+
+      expect(find.byType(Slider), findsNothing);
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(
+        field.keyboardType,
+        const TextInputType.numberWithOptions(signed: true, decimal: true),
+      );
+
+      await tester.enterText(find.byType(TextField), '21.5');
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
+      final call = codec.renderNetworkCommandCalls.lastWhere(
+        (c) => c.commandName == 'set_speed',
+      );
+      expect(call.values['speed'], '21.5');
+    });
+
+    testWidgets('a bounded number renders a slider, not the edit dialog', (
+      tester,
+    ) async {
+      await pumpUtility(
+        tester,
+        entities: utilityEntities.where((e) => e.platform == 'number').toList(),
+      );
 
       expect(find.byType(Slider), findsOneWidget);
       expect(find.byIcon(Icons.edit_outlined), findsNothing);
       await tester.drag(find.byType(Slider), const Offset(120, 0));
       await tester.pumpAndSettle();
-      final call = codec.renderNetworkCommandCalls
-          .lastWhere((c) => c.commandName == 'set_speed');
+      final call = codec.renderNetworkCommandCalls.lastWhere(
+        (c) => c.commandName == 'set_speed',
+      );
       expect(double.parse(call.values['speed']!), inInclusiveRange(0, 6));
     });
 
-    testWidgets('hidden declared controls are counted, not vanished',
-        (tester) async {
-      await pumpUtility(tester,
-          entities:
-              utilityEntities.where((e) => e.platform == 'cover').toList(),
-          hiddenNames: const ['Vacation Mode', 'Learn Button']);
+    testWidgets('hidden declared controls are counted, not vanished', (
+      tester,
+    ) async {
+      await pumpUtility(
+        tester,
+        entities: utilityEntities.where((e) => e.platform == 'cover').toList(),
+        hiddenNames: const ['Vacation Mode', 'Learn Button'],
+      );
 
       expect(
-          find.textContaining(
-              '2 controls in this device’s spec are not supported'),
-          findsOneWidget);
+        find.textContaining(
+          '2 controls in this device’s spec are not supported',
+        ),
+        findsOneWidget,
+      );
       expect(find.textContaining('Vacation Mode'), findsOneWidget);
     });
   });
@@ -3215,10 +3842,11 @@ void main() {
     ];
 
     const roombaCapabilities = NetworkCapabilitiesDto(
-        mqttClientIdGenerated: false,
-        protocolHandler: roombaProtocolHandler,
-        tlsSelfSigned: false,
-        advertisedPortUnreliable: false);
+      mqttClientIdGenerated: false,
+      protocolHandler: roombaProtocolHandler,
+      tlsSelfSigned: false,
+      advertisedPortUnreliable: false,
+    );
 
     final robot = NetworkDevice(
       host: '10.0.0.7',
@@ -3240,44 +3868,51 @@ void main() {
     /// that refuses immediately — the real one dials a fictional address and
     /// leaves its timeout Timer pending past the end of the test. The refusal
     /// lands on the screen's error path, which is not what is being asserted.
-    testWidgets('holds the direct client for as long as the screen lives',
-        (tester) async {
+    testWidgets('holds the direct client for as long as the screen lives', (
+      tester,
+    ) async {
       final disposed = <ProviderBase<Object?>>[];
       final store = InMemorySettingsStore();
-      await RoombaCredentialStore(store).save(const RoombaCredentials(
-        blid: '3193C60472324700',
-        password: ':1:1486937829:gktkDoYpWaDxCfGh',
-      ));
+      await RoombaCredentialStore(store).save(
+        const RoombaCredentials(
+          blid: '3193C60472324700',
+          password: ':1:1486937829:gktkDoYpWaDxCfGh',
+        ),
+      );
 
-      await tester.pumpWidget(ProviderScope(
-        observers: [_DisposeSpy(disposed)],
-        overrides: [
-          specCodecProvider.overrideWithValue(FakeSpecCodec()),
-          settingsStoreProvider.overrideWithValue(store),
-          roombaClientProvider.overrideWith((ref, blid) {
-            final client = RoombaMqttClient(
-              codec: FakeSpecCodec(),
-              connect: (_, __, ___) async =>
-                  throw const RoombaConnectionException(
-                      'no robot in this test'),
-            );
-            ref.onDispose(client.dispose);
-            return client;
-          }),
-        ],
-        child: MaterialApp(
-          home: NetworkDeviceScreen(
-            device: robot,
-            controls: const NetworkControls(
+      await tester.pumpWidget(
+        ProviderScope(
+          observers: [_DisposeSpy(disposed)],
+          overrides: [
+            specCodecProvider.overrideWithValue(FakeSpecCodec()),
+            settingsStoreProvider.overrideWithValue(store),
+            roombaClientProvider.overrideWith((ref, blid) {
+              final client = RoombaMqttClient(
+                codec: FakeSpecCodec(),
+                connect: (_, _, _) async =>
+                    throw const RoombaConnectionException(
+                      'no robot in this test',
+                    ),
+              );
+              ref.onDispose(client.dispose);
+              return client;
+            }),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              device: robot,
+              controls: const NetworkControls(
                 specYaml: 'yaml',
                 entities: roombaEntities,
                 // The spec's own handler is what makes this a robot rather
                 // than merely an MQTT device — a Hisense set rides `mqtt`
                 // too, and only this one has a BLID to look up.
-                capabilities: roombaCapabilities),
+                capabilities: roombaCapabilities,
+              ),
+            ),
           ),
         ),
-      ));
+      );
       // Several frames: autoDispose reclaims on the turn after the last
       // listener goes, so one pump would pass even unfixed.
       for (var i = 0; i < 5; i++) {
@@ -3291,12 +3926,110 @@ void main() {
       );
     });
 
+    /// A push whose decode blows up must not take the app down with it.
+    ///
+    /// R-098. The robot's state stream had an `async` listener with no catch
+    /// and no coalescing — unlike the other push transport, whose
+    /// `_scheduleDecode` exists for exactly these two problems. An `async`
+    /// callback has nowhere to throw, so one undecodable push became an
+    /// uncaught zone error instead of a logged line and a next chance; and a
+    /// robot's shadow arrives as a burst, each message starting its own
+    /// concurrent full-entity decode.
+    testWidgets('a push whose decode fails does not escape the stream', (
+      tester,
+    ) async {
+      const batteryEntity = NetworkEntityDto(
+        isInstanced: false,
+        name: 'Battery',
+        platform: 'sensor',
+        deviceClass: 'battery',
+        stateCommand: 'state',
+        valueField: 'state.reported.batPct',
+        options: [],
+        actions: [],
+      );
+
+      final store = InMemorySettingsStore();
+      await RoombaCredentialStore(store).save(
+        const RoombaCredentials(
+          blid: '3193C60472324700',
+          password: ':1:1486937829:gktkDoYpWaDxCfGh',
+          // The Home Assistant route: a controller whose state stream this
+          // test can drive without a TLS socket or an MQTT broker.
+          haEntityId: 'vacuum.dorita',
+        ),
+      );
+
+      final api = FakeHaApiClient()
+        ..entities = {
+          'vacuum.dorita': const HaEntityState(
+            entityId: 'vacuum.dorita',
+            state: 'cleaning',
+            attributes: {'battery_level': 94, 'status': 'Clean'},
+          ),
+        };
+
+      var decodes = 0;
+      final codec = FakeSpecCodec(
+        networkEntities: (_) => const [batteryEntity],
+        networkReading: (entity, returned) {
+          decodes++;
+          throw StateError('a reading this build cannot decode');
+        },
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            settingsStoreProvider.overrideWithValue(store),
+            haRoombaClientProvider.overrideWithValue(
+              HaRoombaClient(
+                api: api,
+                config: const HaConfig(
+                  baseUrl: 'http://ha.local:8123',
+                  token: 'llat',
+                  deviceId: 'device',
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              device: robot,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: [batteryEntity],
+                capabilities: roombaCapabilities,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 3));
+
+      expect(decodes, greaterThan(0), reason: 'pushes did reach the decode');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the stream outlives one bad payload',
+      );
+      // And the screen is still there to take the next push.
+      expect(find.byType(NetworkDeviceScreen), findsOneWidget);
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pump();
+    });
+
     /// A television is not a robot. Both ride `mqtt`, so the transport string
     /// cannot tell them apart — only the spec's `protocol_handler` can. Taking
     /// the robot's load path here would look up a BLID that does not exist and
     /// leave a working set on an error screen.
-    testWidgets('a non-Roomba MQTT device does not take the robot load path',
-        (tester) async {
+    testWidgets('a non-Roomba MQTT device does not take the robot load path', (
+      tester,
+    ) async {
       final television = NetworkDevice(
         host: '10.0.0.9',
         name: 'Living Room TV',
@@ -3304,28 +4037,32 @@ void main() {
         discoveredAt: DateTime.utc(2026),
       );
 
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(FakeSpecCodec()),
-          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-          roombaClientProvider.overrideWith((ref, blid) =>
-              fail('a television must not open a robot session')),
-        ],
-        child: MaterialApp(
-          home: NetworkDeviceScreen(
-            device: television,
-            controls: const NetworkControls(
-              specYaml: 'yaml',
-              entities: roombaEntities,
-              // Same transport, no robot handler.
-              capabilities: NetworkCapabilitiesDto(
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(FakeSpecCodec()),
+            settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+            roombaClientProvider.overrideWith(
+              (ref, blid) => fail('a television must not open a robot session'),
+            ),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              device: television,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: roombaEntities,
+                // Same transport, no robot handler.
+                capabilities: NetworkCapabilitiesDto(
                   mqttClientIdGenerated: false,
                   tlsSelfSigned: false,
-                  advertisedPortUnreliable: false),
+                  advertisedPortUnreliable: false,
+                ),
+              ),
             ),
           ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       // And it is not left on the "fetch a description" path either: an MQTT
@@ -3333,12 +4070,15 @@ void main() {
       // set that loads cleanly shows its control and no banner — demanding a
       // UPnP control port it never advertised is what this arm prevents.
       expect(find.text('Clean'), findsOneWidget);
-      expect(find.textContaining('did not advertise a control port'),
-          findsNothing);
+      expect(
+        find.textContaining('did not advertise a control port'),
+        findsNothing,
+      );
     });
 
-    testWidgets('a websocket TV loads without demanding a control port',
-        (tester) async {
+    testWidgets('a websocket TV loads without demanding a control port', (
+      tester,
+    ) async {
       // Samsung-shaped: every action rides the spec's websocket surface. The
       // load path used to fall through to the SOAP else, demand a UPnP
       // control port, and try to fetch /setup.xml from a set that serves no
@@ -3371,30 +4111,35 @@ void main() {
         discoveredAt: DateTime.utc(2026),
       );
 
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(FakeSpecCodec()),
-          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-        ],
-        child: MaterialApp(
-          home: NetworkDeviceScreen(
-            device: television,
-            controls: const NetworkControls(
-              specYaml: 'yaml',
-              entities: wsEntities,
-              capabilities: NetworkCapabilitiesDto(
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(FakeSpecCodec()),
+            settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              device: television,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: wsEntities,
+                capabilities: NetworkCapabilitiesDto(
                   mqttClientIdGenerated: false,
                   tlsSelfSigned: true,
-                  advertisedPortUnreliable: false),
+                  advertisedPortUnreliable: false,
+                ),
+              ),
             ),
           ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Power'), findsOneWidget);
-      expect(find.textContaining('did not advertise a control port'),
-          findsNothing);
+      expect(
+        find.textContaining('did not advertise a control port'),
+        findsNothing,
+      );
     });
 
     /// The half the load test could not see. Loading cleanly proved the screen
@@ -3409,8 +4154,9 @@ void main() {
     /// with no broker port, so the generic arm's own first refusal is the one
     /// that lands — a sentence only `_sendMqtt` produces. Nothing here touches
     /// the network either way; both paths refuse before opening a socket.
-    testWidgets('a non-Roomba MQTT press takes the generic send path',
-        (tester) async {
+    testWidgets('a non-Roomba MQTT press takes the generic send path', (
+      tester,
+    ) async {
       final television = NetworkDevice(
         host: '10.0.0.9',
         name: 'Living Room TV',
@@ -3418,27 +4164,31 @@ void main() {
         discoveredAt: DateTime.utc(2026),
       );
 
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          specCodecProvider.overrideWithValue(FakeSpecCodec()),
-          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-          roombaClientProvider.overrideWith((ref, blid) =>
-              fail('a television must not open a robot session')),
-        ],
-        child: MaterialApp(
-          home: NetworkDeviceScreen(
-            device: television,
-            controls: const NetworkControls(
-              specYaml: 'yaml',
-              entities: roombaEntities,
-              capabilities: NetworkCapabilitiesDto(
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(FakeSpecCodec()),
+            settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+            roombaClientProvider.overrideWith(
+              (ref, blid) => fail('a television must not open a robot session'),
+            ),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              device: television,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: roombaEntities,
+                capabilities: NetworkCapabilitiesDto(
                   mqttClientIdGenerated: false,
                   tlsSelfSigned: false,
-                  advertisedPortUnreliable: false),
+                  advertisedPortUnreliable: false,
+                ),
+              ),
             ),
           ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Clean'));
@@ -3456,6 +4206,174 @@ void main() {
       );
     });
   });
+
+  // ── The three small honesty/lifetime bugs (R-095, R-099, R-100) ──────────
+  group('control screen lifetime and honesty', () {
+    // R-095: the first _load runs on the far side of the credential lookup
+    // (an FFI hop plus a keychain read). Backing out while that is in flight
+    // used to land setState — and a string of ref.reads — on a dead State.
+    testWidgets('backing out during the credential lookup is not an error', (
+      tester,
+    ) async {
+      final slow = _SlowCredentialsCodec();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(slow),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async => http.Response(_setupXml, 200),
+                ),
+              ),
+            ),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
+      final navigator = Navigator.of(
+        tester.element(find.byType(SizedBox)),
+        rootNavigator: true,
+      );
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: _cookerDevice,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: _entities,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(
+        find.byType(NetworkDeviceScreen),
+        findsNothing,
+        reason: 'the screen is gone before the lookup answers',
+      );
+
+      // Only now does the credential lookup answer — to nobody.
+      slow.gate.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+    });
+
+    // R-099: the read-back shared the send's catch, so a device that TOOK the
+    // command and then failed to answer the state poll was reported as one
+    // that refused it — with "Try again", which would send it twice.
+    testWidgets('a failed read-back is not reported as a refusal', (
+      tester,
+    ) async {
+      var written = 0;
+      await pump(
+        tester,
+        MockClient((request) async {
+          if (request.url.path == '/setup.xml') {
+            return http.Response(_setupXml, 200);
+          }
+          posts.add(request);
+          final action = request.headers['SOAPACTION'] ?? '';
+          if (action.contains('GetCrockpotState')) {
+            // The opening poll answers; the one after the write does not.
+            return written == 0
+                ? http.Response(_stateResponse(mode: 0, time: 0), 200)
+                : http.Response('gone', 500);
+          }
+          written++;
+          return http.Response(_ackResponse, 200);
+        }),
+      );
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'low'));
+      await tester.pumpAndSettle();
+
+      expect(written, 1, reason: 'the command was sent and acknowledged');
+      expect(find.textContaining('did not accept that'), findsNothing);
+      expect(find.textContaining('could not read back'), findsOneWidget);
+    });
+
+    // R-100: the row is labelled the control address and said so in its own
+    // comment, while reading the port discovery captured — the one the sender
+    // deliberately ignores on a device whose announcement is unreliable.
+    testWidgets('the Address row names the port the sender actually uses', (
+      tester,
+    ) async {
+      final codec = FakeSpecCodec(
+        networkEntities: (_) => const <NetworkEntityDto>[],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (request) async => http.Response('no', 404),
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              // Discovery captured 80 — an Envoy's mDNS answer — while the
+              // spec says the API is on 443 and the announcement is not to be
+              // believed.
+              device: NetworkDevice(
+                host: '10.0.0.7',
+                name: 'Gateway',
+                port: 80,
+                sources: const {NetworkDiscoverySource.mdns},
+                discoveredAt: DateTime.utc(2026),
+              ),
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: [],
+                capabilities: NetworkCapabilitiesDto(
+                  mqttClientIdGenerated: false,
+                  defaultPort: 443,
+                  tlsSelfSigned: true,
+                  advertisedPortUnreliable: true,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('10.0.0.7:443'), findsOneWidget);
+      expect(find.text('10.0.0.7:80'), findsNothing);
+    });
+  });
+}
+
+/// A codec whose credential lookup does not answer until [gate] is completed —
+/// standing in for the FFI hop plus keychain read the real one makes.
+class _SlowCredentialsCodec extends FakeSpecCodec {
+  final Completer<void> gate = Completer<void>();
+
+  _SlowCredentialsCodec() : super(networkEntities: _allEntities);
+
+  static List<NetworkEntityDto> _allEntities(List<String> _) => _entities;
+
+  @override
+  Future<List<NetworkCredentialDto>> credentialsForDevice(
+    String specYaml,
+  ) async {
+    await gate.future;
+    return const [];
+  }
 }
 
 /// Records every provider Riverpod tears down, so a test can assert one was
@@ -3466,7 +4384,9 @@ class _DisposeSpy extends ProviderObserver {
 
   @override
   void didDisposeProvider(
-      ProviderBase<Object?> provider, ProviderContainer container) {
+    ProviderBase<Object?> provider,
+    ProviderContainer container,
+  ) {
     disposed.add(provider);
   }
 }

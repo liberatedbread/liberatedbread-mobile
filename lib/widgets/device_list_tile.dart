@@ -10,6 +10,53 @@ import 'package:flutter/material.dart';
 
 import '../core/find_device.dart' show signalBars;
 
+/// The subtitle with the trailing detail (signal, last-seen, host:port).
+///
+/// The detail wins the space: it is the row's one specific fact, so the
+/// subtitle gives way first and is ellipsized to nothing before the detail
+/// loses a character. But the detail is capped at the row's width, so a long
+/// host:port at an accessibility text size ellipsizes instead of overflowing
+/// — as a plain non-flex Text in the Row it ran straight past the edge.
+class _SubtitleAndDetail extends StatelessWidget {
+  final String subtitle;
+  final String detail;
+
+  const _SubtitleAndDetail({required this.subtitle, required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          Flexible(
+            child: Text(
+              subtitle,
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+            child: Text(
+              '  ·  $detail',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: text.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                // Tabular figures stop the row jittering as values update.
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Section label with a count pill, e.g. "Found · 2".
 class SectionHeader extends StatelessWidget {
   final String label;
@@ -80,6 +127,14 @@ class DeviceListTile extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onForget;
 
+  /// A second trailing action, drawn before Forget. Used for a per-device
+  /// setting that has nowhere else to live — a Roomba's transport choice,
+  /// which decides who holds the robot's single client slot.
+  final VoidCallback? onConfigure;
+
+  /// What [onConfigure] does, for its tooltip and semantics. Required with it.
+  final String? configureTooltip;
+
   /// What the spec catalogue makes of this device, when it makes anything.
   final String? badge;
 
@@ -120,12 +175,17 @@ class DeviceListTile extends StatelessWidget {
     this.enabled = true,
     this.onTap,
     this.onForget,
+    this.onConfigure,
+    this.configureTooltip,
     this.badge,
     this.badgeIsClaim = false,
     this.description,
     this.stale = false,
     this.staleReason,
-  });
+  }) : assert(
+         onConfigure == null || configureTooltip != null,
+         'a configure action needs a tooltip: it is an icon with no label',
+       );
 
   @override
   Widget build(BuildContext context) {
@@ -157,7 +217,8 @@ class DeviceListTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Center(
-                  child: iconWidget ??
+                  child:
+                      iconWidget ??
                       Icon(icon, color: iconColor ?? tint, size: 22),
                 ),
               ),
@@ -208,23 +269,10 @@ class DeviceListTile extends StatelessWidget {
                           _SignalBars(rssi: rssi!, color: scheme.secondary),
                           const SizedBox(width: 8),
                         ],
-                        Flexible(
-                          child: Text(
-                            subtitle,
-                            style: text.bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Text(
-                          '  ·  $detail',
-                          style: text.bodySmall?.copyWith(
-                            color:
-                                scheme.onSurfaceVariant.withValues(alpha: 0.7),
-                            // Tabular figures stop the row jittering as values
-                            // update.
-                            fontFeatures: const [FontFeature.tabularFigures()],
+                        Expanded(
+                          child: _SubtitleAndDetail(
+                            subtitle: subtitle,
+                            detail: detail,
                           ),
                         ),
                       ],
@@ -234,8 +282,9 @@ class DeviceListTile extends StatelessWidget {
                       Text(
                         description!,
                         style: text.bodySmall?.copyWith(
-                          color:
-                              scheme.onSurfaceVariant.withValues(alpha: 0.75),
+                          color: scheme.onSurfaceVariant.withValues(
+                            alpha: 0.75,
+                          ),
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -244,6 +293,13 @@ class DeviceListTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onConfigure != null)
+                IconButton(
+                  icon: const Icon(Icons.tune),
+                  iconSize: 18,
+                  tooltip: configureTooltip,
+                  onPressed: onConfigure,
+                ),
               if (onForget != null)
                 IconButton(
                   icon: const Icon(Icons.close),
@@ -361,11 +417,7 @@ class ActionPillButton extends StatelessWidget {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon),
-          const SizedBox(width: 8),
-          Text(label),
-        ],
+        children: [Icon(icon), const SizedBox(width: 8), Text(label)],
       ),
     );
   }

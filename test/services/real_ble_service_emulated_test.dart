@@ -16,7 +16,8 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:flutter_blue_plus/flutter_blue_plus.dart' show AndroidScanMode;
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'
+    show AndroidScanMode, FlutterBluePlus;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
@@ -29,6 +30,12 @@ import '../fakes/emulated_ble.dart';
 const _scanWindow = Duration(milliseconds: 300);
 
 const _bulbId = 'AA:BB:CC:DD:EE:01';
+
+/// On a macOS host RealBleService takes its Apple branches, and mtu() then
+/// waits [RealBleService.appleMtuSettle] for a link that never reports one.
+/// Real devices report within a few ticks; the emulated adapter reports at
+/// connect, so anything left waiting is a device that has none at all.
+const _testMtuSettle = Duration(milliseconds: 50);
 const _lampId = 'AA:BB:CC:DD:EE:02';
 
 /// A device whose characteristics demand an authenticated link — a lock is the
@@ -41,6 +48,7 @@ void main() {
   late RealBleService service;
 
   setUpAll(() {
+    RealBleService.appleMtuSettle = _testMtuSettle;
     TestWidgetsFlutterBinding.ensureInitialized();
     ble = EmulatedBleAdapter.install();
   });
@@ -59,13 +67,15 @@ void main() {
   }) async {
     final seen = <IoTDevice>[];
     final finished = Completer<void>();
-    final sub = service.scan(timeout: timeout).listen(
-      seen.add,
-      onError: finished.completeError,
-      onDone: () {
-        if (!finished.isCompleted) finished.complete();
-      },
-    );
+    final sub = service
+        .scan(timeout: timeout)
+        .listen(
+          seen.add,
+          onError: finished.completeError,
+          onDone: () {
+            if (!finished.isCompleted) finished.complete();
+          },
+        );
     if (during != null) {
       await Future<void>.delayed(const Duration(milliseconds: 20));
       await during();
@@ -79,75 +89,87 @@ void main() {
   }
 
   group('scan', () {
-    test('reports an advertising peripheral with its name, rssi and id',
-        () async {
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
+    test(
+      'reports an advertising peripheral with its name, rssi and id',
+      () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
 
-      final found = await runScan();
+        final found = await runScan();
 
-      expect(found, hasLength(1));
-      expect(found.single.id, _bulbId);
-      expect(found.single.name, 'ACME_Bulb');
-      expect(found.single.rssi, -45);
-      expect(found.single.isConnectable, isTrue);
-    });
+        expect(found, hasLength(1));
+        expect(found.single.id, _bulbId);
+        expect(found.single.name, 'ACME_Bulb');
+        expect(found.single.rssi, -45);
+        expect(found.single.isConnectable, isTrue);
+      },
+    );
 
     test('reports every peripheral in range', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
       ble.add(
-          EmulatedPeripheral.bulb(id: _lampId, name: 'ACME_Lamp', rssi: -70));
+        EmulatedPeripheral.bulb(id: _lampId, name: 'ACME_Lamp', rssi: -70),
+      );
 
       final found = await runScan();
 
-      expect(
-        found.map((d) => d.name).toSet(),
-        {'ACME_Bulb', 'ACME_Lamp'},
-      );
+      expect(found.map((d) => d.name).toSet(), {'ACME_Bulb', 'ACME_Lamp'});
     });
 
-    test('does not re-emit a device whose advertisement is unchanged',
-        () async {
-      final bulb =
-          ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
+    test(
+      'does not re-emit a device whose advertisement is unchanged',
+      () async {
+        final bulb = ble.add(
+          EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'),
+        );
 
-      // flutter_blue_plus hands the app the FULL accumulated result list on
-      // every advertisement, so without coalescing this scan would emit the
-      // bulb four times and reset its discoveredAt each time.
-      final found = await runScan(during: () async {
-        bulb.advertise();
-        bulb.advertise();
-        bulb.advertise();
-      });
+        // flutter_blue_plus hands the app the FULL accumulated result list on
+        // every advertisement, so without coalescing this scan would emit the
+        // bulb four times and reset its discoveredAt each time.
+        final found = await runScan(
+          during: () async {
+            bulb.advertise();
+            bulb.advertise();
+            bulb.advertise();
+          },
+        );
 
-      expect(found, hasLength(1));
-    });
+        expect(found, hasLength(1));
+      },
+    );
 
-    test('re-emits on an rssi change, keeping the first-seen timestamp',
-        () async {
-      final bulb =
-          ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
+    test(
+      're-emits on an rssi change, keeping the first-seen timestamp',
+      () async {
+        final bulb = ble.add(
+          EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'),
+        );
 
-      final found = await runScan(during: () async {
-        bulb.advertise(rssi: -30);
-      });
+        final found = await runScan(
+          during: () async {
+            bulb.advertise(rssi: -30);
+          },
+        );
 
-      expect(found, hasLength(2));
-      expect(found.map((d) => d.rssi), [-45, -30]);
-      expect(found[1].discoveredAt, found[0].discoveredAt);
-    });
+        expect(found, hasLength(2));
+        expect(found.map((d) => d.rssi), [-45, -30]);
+        expect(found[1].discoveredAt, found[0].discoveredAt);
+      },
+    );
 
-    test('raises BlePermissionDeniedException when the adapter is unauthorized',
-        () async {
-      ble.adapterState = EmulatedAdapterState.unauthorized;
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+    test(
+      'raises BlePermissionDeniedException when the adapter is unauthorized',
+      () async {
+        ble.adapterState = EmulatedAdapterState.unauthorized;
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
 
-      await expectLater(
-        service.scan(timeout: _scanWindow),
-        emitsError(isA<BlePermissionDeniedException>()),
-      );
-      // The refusal happens before the radio is ever asked to scan.
-      expect(ble.platformCalls, isNot(contains('startScan')));
-    });
+        await expectLater(
+          service.scan(timeout: _scanWindow),
+          emitsError(isA<BlePermissionDeniedException>()),
+        );
+        // The refusal happens before the radio is ever asked to scan.
+        expect(ble.platformCalls, isNot(contains('startScan')));
+      },
+    );
 
     test('raises BleUnavailableException when the radio is off', () async {
       ble.adapterState = EmulatedAdapterState.off;
@@ -158,9 +180,167 @@ void main() {
       );
     });
 
+    group('adapter state still settling (F-002)', () {
+      // CoreBluetooth reports `unknown` until its state callback fires, and
+      // on a first launch that callback waits for the user to answer the
+      // system Bluetooth prompt. The scan has to wait with it: the first
+      // answer is not an answer.
+      test('waits for the platform to report a state, then scans', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
+        ble.adapterState = EmulatedAdapterState.unknown;
+
+        final found = await runScan(
+          during: () async {
+            expect(
+              ble.platformCalls,
+              isNot(contains('startScan')),
+              reason: 'nothing may start until the state has settled',
+            );
+            ble.adapterState = EmulatedAdapterState.on;
+          },
+        );
+
+        expect(found.map((d) => d.name), ['ACME_Bulb']);
+      });
+
+      test(
+        'a Deny answered after the prompt is a denial, not a dead radio',
+        () async {
+          // The broken path this pins: judged early, the scan reported
+          // "Bluetooth is turned off" — and the later `unauthorized` reached a
+          // scan that had already given up, so the settings shortcut never
+          // appeared.
+          ble.adapterState = EmulatedAdapterState.unknown;
+          unawaited(
+            Future<void>.delayed(const Duration(milliseconds: 30), () {
+              ble.adapterState = EmulatedAdapterState.unauthorized;
+            }),
+          );
+
+          await expectLater(
+            service.scan(timeout: _scanWindow),
+            emitsError(isA<BlePermissionDeniedException>()),
+          );
+          expect(ble.platformCalls, isNot(contains('startScan')));
+        },
+      );
+
+      test('turningOn is waited out the same way', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        ble.adapterState = EmulatedAdapterState.turningOn;
+
+        final found = await runScan(
+          during: () async => ble.adapterState = EmulatedAdapterState.on,
+        );
+
+        expect(found, hasLength(1));
+      });
+
+      test('a state that never settles is reported as unavailable', () async {
+        service.adapterSettleWindow = const Duration(milliseconds: 100);
+        ble.adapterState = EmulatedAdapterState.unknown;
+
+        await expectLater(
+          service.scan(timeout: _scanWindow),
+          emitsError(isA<BleUnavailableException>()),
+        );
+      });
+    });
+
+    group('device name (F-022)', () {
+      test('prefers the advertised local name to the platform cache', () async {
+        // CoreBluetooth's platformName is `peripheral.name`: a system-wide
+        // cache that, once any app has connected, holds the GAP Device Name
+        // rather than what is on air. A rebadged bulb advertises the brand
+        // its spec's local_name_prefix names; its GAP name is the chipset's.
+        ble.add(
+          EmulatedPeripheral.bulb(
+            id: _bulbId,
+            name: 'Nordic_Blinky',
+            advName: 'LEDBLE-TEST',
+          ),
+        );
+
+        final found = await runScan();
+
+        expect(found.single.name, 'LEDBLE-TEST');
+      });
+
+      test(
+        'falls back to the platform name when nothing is advertised',
+        () async {
+          final bulb = ble.add(
+            EmulatedPeripheral.bulb(id: _bulbId, name: 'Nordic_Blinky'),
+          );
+          bulb.advName = null;
+
+          final found = await runScan();
+
+          expect(found.single.name, 'Nordic_Blinky');
+        },
+      );
+    });
+
+    test('each advertisement is delivered on its own (F-020)', () async {
+      // fbp's default hands every listener a fresh copy of EVERYTHING found so
+      // far on every advertisement, and the listener walked it: O(devices) per
+      // sighting, which in a dense room was most of the scan's UI-isolate
+      // time. One-by-one delivery is the setting that makes a sighting cost
+      // one coalescer lookup — observable only at fbp's own stream.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      ble.add(EmulatedPeripheral.bulb(id: _lampId));
+      final batchSizes = <int>[];
+      final tap = FlutterBluePlus.scanResults.listen(
+        (results) => batchSizes.add(results.length),
+      );
+      addTearDown(tap.cancel);
+
+      final found = await runScan();
+
+      expect(found.map((d) => d.id), containsAll([_bulbId, _lampId]));
+      expect(batchSizes, isNotEmpty);
+      expect(
+        batchSizes.where((n) => n > 1),
+        isEmpty,
+        reason: 'an accumulated list means every sighting re-walks the room',
+      );
+    });
+
+    test('a changed manufacturer payload is a new sighting', () async {
+      // IoTDevice.hasSameIdentity learned to compare manufacturer bytes — a
+      // panel re-advertising 32x8 where it said 16x16 — but the coalescer
+      // here, which is what decides whether a sighting is EMITTED, still
+      // compared everything but the bytes: same rssi, name and uuids inside
+      // the heartbeat, and the new dimensions never reached the LED editor.
+      final panel = EmulatedPeripheral.bulb(id: _bulbId)
+        ..manufacturerData = {
+          0x1234: [16, 16],
+        };
+      ble.add(panel);
+
+      final seen = await runScan(
+        during: () async {
+          panel.manufacturerData = {
+            0x1234: [32, 8],
+          };
+          panel.advertise();
+        },
+      );
+
+      final sightings = seen.where((d) => d.id == _bulbId).toList();
+      expect(
+        sightings.length,
+        greaterThanOrEqualTo(2),
+        reason: 'the re-advertisement with new bytes must be emitted',
+      );
+      expect(sightings.last.manufacturerData[0x1234], [32, 8]);
+    });
+
     test('surfaces a platform scan failure on the stream', () async {
       ble.scanError = const EmulatedGattError(
-          2, 'SCAN_FAILED_APPLICATION_REGISTRATION_FAILED');
+        2,
+        'SCAN_FAILED_APPLICATION_REGISTRATION_FAILED',
+      );
 
       await expectLater(
         service.scan(timeout: _scanWindow),
@@ -171,8 +351,9 @@ void main() {
     test('stops the native scan when the consumer cancels early', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
 
-      final sub =
-          service.scan(timeout: const Duration(seconds: 30)).listen((_) {});
+      final sub = service
+          .scan(timeout: const Duration(seconds: 30))
+          .listen((_) {});
       await Future<void>.delayed(const Duration(milliseconds: 20));
       await sub.cancel();
       // Cancellation runs through onCancel asynchronously.
@@ -197,29 +378,40 @@ void main() {
 
       final started = ble.platformCalls.where((c) => c == 'startScan').length;
       final stopped = ble.platformCalls.where((c) => c == 'stopScan').length;
-      expect(stopped, greaterThanOrEqualTo(started),
-          reason: 'every scan this started must have been stopped again; '
-              'calls were ${ble.platformCalls}');
-    });
-
-    test('a second scan tears the first one down instead of stacking',
-        () async {
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-
-      final first =
-          service.scan(timeout: const Duration(seconds: 30)).listen((_) {});
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-
-      final second = await runScan();
-
-      expect(second, hasLength(1), reason: 'the new scan still finds the bulb');
       expect(
-        ble.platformCalls.where((c) => c == 'startScan').length,
-        2,
-        reason: 'each scan starts the radio exactly once',
+        stopped,
+        greaterThanOrEqualTo(started),
+        reason:
+            'every scan this started must have been stopped again; '
+            'calls were ${ble.platformCalls}',
       );
-      await first.cancel();
     });
+
+    test(
+      'a second scan tears the first one down instead of stacking',
+      () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+
+        final first = service
+            .scan(timeout: const Duration(seconds: 30))
+            .listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        final second = await runScan();
+
+        expect(
+          second,
+          hasLength(1),
+          reason: 'the new scan still finds the bulb',
+        );
+        expect(
+          ble.platformCalls.where((c) => c == 'startScan').length,
+          2,
+          reason: 'each scan starts the radio exactly once',
+        );
+        await first.cancel();
+      },
+    );
 
     test('a fresh scan does not resurface the previous scan results', () async {
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
@@ -232,28 +424,34 @@ void main() {
       bulb.rssi = -30;
       final second = await runScan();
 
-      expect(second.map((d) => d.rssi), [-30],
-          reason: 'one fresh advertisement, not a stale replay before it');
+      expect(
+        second.map((d) => d.rssi),
+        [-30],
+        reason: 'one fresh advertisement, not a stale replay before it',
+      );
     });
 
-    test('asks the platform to keep reporting a device it already saw',
-        () async {
-      // Without continuousUpdates, Android suppresses same-payload
-      // advertisements and Apple platforms coalesce duplicates: a device would
-      // be reported once and then never again, leaving "still here" and
-      // "switched off an hour ago" indistinguishable.
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+    test(
+      'asks the platform to keep reporting a device it already saw',
+      () async {
+        // Without continuousUpdates, Android suppresses same-payload
+        // advertisements and Apple platforms coalesce duplicates: a device would
+        // be reported once and then never again, leaving "still here" and
+        // "switched off an hour ago" indistinguishable.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
 
-      await runScan();
+        await runScan();
 
-      expect(ble.lastScanSettings?.continuousUpdates, isTrue);
-      expect(ble.lastScanSettings?.continuousDivisor, continuousScanDivisor);
-    });
+        expect(ble.lastScanSettings?.continuousUpdates, isTrue);
+        expect(ble.lastScanSettings?.continuousDivisor, continuousScanDivisor);
+      },
+    );
 
     test('an ambient scan asks Android for the balanced duty cycle', () async {
       // The energy dial: a scan the app starts by itself must not pin the
       // radio to continuous listening the way the pre-dial default did.
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      service.isApple = false;
 
       final sub = service
           .scan(timeout: null, intensity: ScanIntensity.ambient)
@@ -261,27 +459,70 @@ void main() {
       addTearDown(sub.cancel);
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      expect(ble.lastScanSettings?.androidScanMode,
-          AndroidScanMode.balanced.value);
-      expect(ble.lastScanSettings?.continuousDivisor, 1,
-          reason: 'the duty cycle already thinned receptions; the divisor on '
-              'top would double a sleepy sensor\'s reception gaps');
+      expect(
+        ble.lastScanSettings?.androidScanMode,
+        AndroidScanMode.balanced.value,
+      );
+      expect(
+        ble.lastScanSettings?.continuousDivisor,
+        1,
+        reason:
+            'the duty cycle already thinned receptions; the divisor on '
+            'top would double a sleepy sensor\'s reception gaps',
+      );
     });
 
-    test('a re-sighting moves lastSeen but not discoveredAt', () async {
-      final bulb =
-          ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
+    test(
+      'on Apple the ambient scan thins at the divisor instead (F-020)',
+      () async {
+        // No scan-mode knob on Apple platforms, so the divisor is the only
+        // thinning there is — and undivided, the always-on ambient scan shipped
+        // twice the channel traffic of the burst it is meant to be cheaper than.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        service.isApple = true;
 
-      final found = await runScan(during: () async {
+        final ambient = service
+            .scan(timeout: null, intensity: ScanIntensity.ambient)
+            .listen((_) {});
+        addTearDown(ambient.cancel);
         await Future<void>.delayed(const Duration(milliseconds: 30));
-        bulb.advertise(rssi: -30);
-      });
+        expect(
+          ble.lastScanSettings?.continuousDivisor,
+          appleAmbientScanDivisor,
+        );
+
+        final active = service
+            .scan(timeout: null, intensity: ScanIntensity.active)
+            .listen((_) {});
+        addTearDown(active.cancel);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(ble.lastScanSettings?.continuousDivisor, continuousScanDivisor);
+      },
+    );
+
+    test('a re-sighting moves lastSeen but not discoveredAt', () async {
+      final bulb = ble.add(
+        EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'),
+      );
+
+      final found = await runScan(
+        during: () async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          bulb.advertise(rssi: -30);
+        },
+      );
 
       expect(found, hasLength(2));
-      expect(found[1].discoveredAt, found[0].discoveredAt,
-          reason: 'advertising again does not make a device newly discovered');
-      expect(found[1].lastSeen.isAfter(found[0].lastSeen), isTrue,
-          reason: 'but it does make it freshly seen');
+      expect(
+        found[1].discoveredAt,
+        found[0].discoveredAt,
+        reason: 'advertising again does not make a device newly discovered',
+      );
+      expect(
+        found[1].lastSeen.isAfter(found[0].lastSeen),
+        isTrue,
+        reason: 'but it does make it freshly seen',
+      );
     });
 
     test('stopScan ends an in-progress scan', () async {
@@ -297,9 +538,13 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(ble.platformCalls, contains('stopScan'));
-      expect(closed, isTrue,
-          reason: 'the app-facing stream must finish, not hang open for the '
-              'remaining 30s of the requested window');
+      expect(
+        closed,
+        isTrue,
+        reason:
+            'the app-facing stream must finish, not hang open for the '
+            'remaining 30s of the requested window',
+      );
       await sub.cancel();
     });
   });
@@ -309,15 +554,13 @@ void main() {
   group('continuous scan', () {
     /// Start one, collecting what it reports. Cancelled on teardown.
     ({List<IoTDevice> seen, List<Object> errors, List<bool> done})
-        startContinuous() {
+    startContinuous() {
       final seen = <IoTDevice>[];
       final errors = <Object>[];
       final done = <bool>[];
-      final sub = service.scan(timeout: null).listen(
-            seen.add,
-            onError: errors.add,
-            onDone: () => done.add(true),
-          );
+      final sub = service
+          .scan(timeout: null)
+          .listen(seen.add, onError: errors.add, onDone: () => done.add(true));
       addTearDown(sub.cancel);
       return (seen: seen, errors: errors, done: done);
     }
@@ -359,28 +602,33 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
       expect(ble.platformCalls, contains('stopScan'));
-      expect(result.done, [true],
-          reason: 'a scan with no window of its own has to be told it is over, '
-              'or its consumer waits on a stream nothing will feed again');
-    });
-
-    test('the radio being switched off surfaces as an actionable error',
-        () async {
-      // A scan meant to run all session has to notice the radio going dark
-      // under it, rather than sitting there claiming to search.
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      final result = startContinuous();
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-
-      ble.adapterState = EmulatedAdapterState.off;
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-
-      expect(result.errors.single, isA<BleUnavailableException>());
-      expect(result.done, [true]);
+      expect(
+        result.done,
+        [true],
+        reason:
+            'a scan with no window of its own has to be told it is over, '
+            'or its consumer waits on a stream nothing will feed again',
+      );
     });
 
     test(
-        'a refused refresh recovers on the retry, not a quarter of an hour '
+      'the radio being switched off surfaces as an actionable error',
+      () async {
+        // A scan meant to run all session has to notice the radio going dark
+        // under it, rather than sitting there claiming to search.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        final result = startContinuous();
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        ble.adapterState = EmulatedAdapterState.off;
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        expect(result.errors.single, isA<BleUnavailableException>());
+        expect(result.done, [true]);
+      },
+    );
+
+    test('a refused refresh recovers on the retry, not a quarter of an hour '
         'later', () async {
       // fbp stops the running scan BEFORE starting its replacement, and unwinds
       // its own state if that start is refused — so a failed refresh leaves
@@ -403,75 +651,124 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 120));
 
       expect(result.seen.map((d) => d.name), contains('After The Failure'));
-      expect(result.done, isEmpty,
-          reason: 'a refresh failure does not end the scan the user sees');
+      expect(
+        result.done,
+        isEmpty,
+        reason: 'a refresh failure does not end the scan the user sees',
+      );
     });
 
-    test('a stop meant for the previous scan cannot close its replacement',
-        () async {
-      // The shape the scan screen produces whenever a stop is followed closely
-      // by a start: a tab switched away from and back, a device screen popped.
-      // The old scan is cancelled, stopScan() is still in flight, and the
-      // replacement starts inside that window.
-      //
-      // Honesty about what this pins: it exercises the sequence, not the
-      // interleaving. stopScan() now claims the active scan BEFORE awaiting the
-      // platform, so a scan installed during that await can never be torn down
-      // on behalf of one that is already over — but flutter_blue_plus's scan
-      // mutex and its synchronous isScanning bookkeeping keep the emulated
-      // adapter from landing on the exact interleaving that used to break, so
-      // this passes with the capture in either position. It is here to hold the
-      // contract, not to prove the race.
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      final first = service.scan(timeout: null).listen((_) {});
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      await first.cancel();
+    test(
+      'a stop meant for the previous scan cannot close its replacement',
+      () async {
+        // The shape the scan screen produces whenever a stop is followed closely
+        // by a start: a tab switched away from and back, a device screen popped.
+        // The old scan is cancelled, stopScan() is still in flight, and the
+        // replacement starts inside that window.
+        //
+        // What this pins, and what it cannot: stopScan() claims the active scan
+        // BEFORE awaiting the platform, so a scan installed during that await is
+        // never torn down on behalf of one that is already over. The exact
+        // interleaving that used to break is not reachable from the public API
+        // here — flutter_blue_plus holds a scan mutex, so the replacement's own
+        // `_endActiveScan` cannot be installed until the in-flight stopScan's
+        // platform call has returned — and forcing it would need a seam inside
+        // the service. So this asserts the OUTCOME the ownership rule exists to
+        // produce, on evidence a torn-down scan cannot produce:
+        //
+        //   * the replacement's stream is still open, AND
+        //   * the radio is still scanning FOR IT — a device that starts
+        //     advertising after the sequence reaches its consumer.
+        //
+        // The second half is what the test was missing. `done` staying empty is
+        // also what a stream nobody ever fed looks like, so on its own it was
+        // satisfied by a scan that had been silently stopped: the assertion
+        // could not tell a live replacement from a dead one.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        final first = service.scan(timeout: null).listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await first.cancel();
 
-      ble.latency = const Duration(milliseconds: 60);
-      final stopping = service.stopScan();
-      final second = startContinuous();
-      await stopping;
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+        ble.latency = const Duration(milliseconds: 60);
+        final stopping = service.stopScan();
+        final second = startContinuous();
+        await stopping;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
 
-      expect(second.done, isEmpty,
-          reason: 'the replacement scan belongs to nobody but its own caller');
-      expect(second.errors, isEmpty);
-    });
+        expect(
+          second.done,
+          isEmpty,
+          reason: 'the replacement scan belongs to nobody but its own caller',
+        );
+        expect(second.errors, isEmpty);
 
-    test('a teardown during an in-flight refresh does not revive the scan',
-        () async {
-      // Cancelling the refresh Timer cannot reach a callback that has already
-      // fired and is awaiting startScan. Without a teardown check inside the
-      // callback, that restart completes AFTER the consumer cancelled — and
-      // then reschedules itself, leaving a radio scanning forever for nobody.
-      service.continuousScanRefreshInterval = const Duration(milliseconds: 40);
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      final result = startContinuous();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        ble.latency = Duration.zero;
+        ble
+            .add(EmulatedPeripheral.bulb(id: _lampId, name: 'After The Stop'))
+            .advertise();
+        await Future<void>.delayed(const Duration(milliseconds: 120));
 
-      // Slow the platform down so the next refresh is mid-startScan when the
-      // teardown lands.
-      ble.latency = const Duration(milliseconds: 60);
-      await Future<void>.delayed(const Duration(milliseconds: 40));
-      await service.stopScan();
-      ble.latency = Duration.zero;
+        expect(
+          second.seen.map((d) => d.name),
+          contains('After The Stop'),
+          reason:
+              'the replacement scan is still running and still delivering — a '
+              'stop issued for the scan before it must reach neither its stream '
+              'nor its radio',
+        );
+        final calls = ble.platformCalls;
+        expect(
+          calls.lastIndexOf('startScan'),
+          greaterThan(calls.lastIndexOf('stopScan')),
+          reason: 'the radio was left scanning for the replacement; $calls',
+        );
+      },
+    );
 
-      // Let the in-flight restart finish and any (buggy) reschedule fire.
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      final startsAfterSettle =
-          ble.platformCalls.where((c) => c == 'startScan').length;
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+    test(
+      'a teardown during an in-flight refresh does not revive the scan',
+      () async {
+        // Cancelling the refresh Timer cannot reach a callback that has already
+        // fired and is awaiting startScan. Without a teardown check inside the
+        // callback, that restart completes AFTER the consumer cancelled — and
+        // then reschedules itself, leaving a radio scanning forever for nobody.
+        service.continuousScanRefreshInterval = const Duration(
+          milliseconds: 40,
+        );
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        final result = startContinuous();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(ble.platformCalls.where((c) => c == 'startScan').length,
+        // Slow the platform down so the next refresh is mid-startScan when the
+        // teardown lands.
+        ble.latency = const Duration(milliseconds: 60);
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        await service.stopScan();
+        ble.latency = Duration.zero;
+
+        // Let the in-flight restart finish and any (buggy) reschedule fire.
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        final startsAfterSettle = ble.platformCalls
+            .where((c) => c == 'startScan')
+            .length;
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(
+          ble.platformCalls.where((c) => c == 'startScan').length,
           startsAfterSettle,
-          reason: 'no further restarts once the scan is over');
-      final calls = ble.platformCalls;
-      expect(calls.lastIndexOf('stopScan'),
+          reason: 'no further restarts once the scan is over',
+        );
+        final calls = ble.platformCalls;
+        expect(
+          calls.lastIndexOf('stopScan'),
           greaterThan(calls.lastIndexOf('startScan')),
-          reason: 'whatever the in-flight restart revived was put back down; '
-              'calls were $calls');
-      expect(result.done, [true]);
-    });
+          reason:
+              'whatever the in-flight restart revived was put back down; '
+              'calls were $calls',
+        );
+        expect(result.done, [true]);
+      },
+    );
 
     test('restarts the platform scan so it cannot go opportunistic', () async {
       // Android downgrades a scan that has been running for 30 minutes to
@@ -483,10 +780,15 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 140));
 
-      expect(ble.platformCalls.where((c) => c == 'startScan').length,
-          greaterThan(2));
-      expect(result.done, isEmpty,
-          reason: 'refreshing is invisible to the consumer');
+      expect(
+        ble.platformCalls.where((c) => c == 'startScan').length,
+        greaterThan(2),
+      );
+      expect(
+        result.done,
+        isEmpty,
+        reason: 'refreshing is invisible to the consumer',
+      );
       expect(result.errors, isEmpty);
     });
   });
@@ -496,10 +798,14 @@ void main() {
       final events = <bool>[];
       final sub = service.adapterReady().listen(events.add);
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(events, [true],
-          reason: 'the current answer must arrive without waiting for a '
-              'transition, or a listener attached while the radio is off '
-              'would wait forever to learn that');
+      expect(
+        events,
+        [true],
+        reason:
+            'the current answer must arrive without waiting for a '
+            'transition, or a listener attached while the radio is off '
+            'would wait forever to learn that',
+      );
 
       ble.adapterState = EmulatedAdapterState.off;
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -525,7 +831,93 @@ void main() {
     });
   });
 
+  group('adapterUnauthorized', () {
+    test('replays the current answer, then follows the grant', () async {
+      // A Deny on the iOS prompt arrives as a transition, possibly long after
+      // the scan that raised the prompt — and a revoke in Settings later
+      // still. The screen needs to hear both as "permission needed".
+      final events = <bool>[];
+      final sub = service.adapterUnauthorized().listen(events.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(events, [false]);
+
+      ble.adapterState = EmulatedAdapterState.unauthorized;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      ble.adapterState = EmulatedAdapterState.on;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(events, [false, true, false]);
+      await sub.cancel();
+    });
+
+    test('a dark radio is not a denial', () async {
+      final events = <bool>[];
+      final sub = service.adapterUnauthorized().listen(events.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      ble.adapterState = EmulatedAdapterState.off;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(events, [false]);
+      await sub.cancel();
+    });
+  });
+
   group('connect', () {
+    group('adapter state (F-023)', () {
+      // With the radio off the platform refuses the connect with a plugin
+      // error the UI cannot tell from a device out of range, so Reconnect
+      // after a Control Centre toggle told the user to move closer.
+      test('refuses while the radio is off, and says so', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        ble.adapterState = EmulatedAdapterState.off;
+
+        await expectLater(
+          service.connect(_bulbId),
+          throwsA(isA<BleUnavailableException>()),
+        );
+        expect(ble.platformCalls, isNot(contains('connect:$_bulbId')));
+      });
+
+      test('a permission refusal is reported as one', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        ble.adapterState = EmulatedAdapterState.unauthorized;
+
+        await expectLater(
+          service.connect(_bulbId),
+          throwsA(isA<BlePermissionDeniedException>()),
+        );
+        expect(ble.platformCalls, isNot(contains('connect:$_bulbId')));
+      });
+
+      test('waits for a settling state, like scan does', () async {
+        // A saved device opened cold on iOS: the connect must wait for the
+        // permission prompt to be answered, not fail underneath it.
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        ble.adapterState = EmulatedAdapterState.unknown;
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 30), () {
+            ble.adapterState = EmulatedAdapterState.on;
+          }),
+        );
+
+        await service.connect(_bulbId);
+
+        expect(bulb.isConnected, isTrue);
+      });
+
+      test('a state that never settles refuses the connect', () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        service.adapterSettleWindow = const Duration(milliseconds: 100);
+        ble.adapterState = EmulatedAdapterState.unknown;
+
+        await expectLater(
+          service.connect(_bulbId),
+          throwsA(isA<BleUnavailableException>()),
+        );
+      });
+    });
+
     test('connects and reports the connection state', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
 
@@ -549,11 +941,13 @@ void main() {
       expect(bulb.isConnected, isFalse);
     });
 
-    test('disconnecting an already-disconnected device is a no-op, not a throw',
-        () async {
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      await service.disconnect(_bulbId);
-    });
+    test(
+      'disconnecting an already-disconnected device is a no-op, not a throw',
+      () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.disconnect(_bulbId);
+      },
+    );
 
     test('reports the negotiated MTU once connected', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId, mtu: 247));
@@ -562,9 +956,188 @@ void main() {
       expect(await service.mtu(_bulbId), 247);
     });
 
-    test('falls back to the 23-byte BLE floor for an unconnected device',
-        () async {
-      expect(await service.mtu('FF:FF:FF:FF:FF:FF'), 23);
+    test(
+      'falls back to the 23-byte BLE floor for an unconnected device',
+      () async {
+        expect(await service.mtu('FF:FF:FF:FF:FF:FF'), 23);
+      },
+    );
+  });
+
+  group('a link that drops on its own (R-013)', () {
+    test('releases the claims nobody let go of', () async {
+      // Claims count app-side owners, but the LINK can go without any of them
+      // letting go — unplugged, out of range, reset. The count used to
+      // survive into the next connect, so the first disconnect afterwards
+      // only decremented an inherited claim and never reached the platform:
+      // the radio stayed connected to a device the app thought it had
+      // released.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+      expect(bulb.isConnected, isTrue);
+
+      bulb.dropLink();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await service.connect(_bulbId);
+      ble.platformCalls.clear();
+      await service.disconnect(_bulbId);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(
+        ble.platformCalls,
+        contains('disconnect:$_bulbId'),
+        reason: 'one connect means one disconnect reaches the radio',
+      );
+      expect(bulb.isConnected, isFalse);
+    });
+
+    test('a dropped link does not leave a stale GATT table behind', () async {
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+      await service.discoverServices(_bulbId);
+      ble.platformCalls.clear();
+
+      bulb.dropLink();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await service.connect(_bulbId);
+      await service.discoverServices(_bulbId);
+
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('discoverServices')),
+        isNotEmpty,
+        reason: 'the new link must not be handed the old link\'s table',
+      );
+    });
+  });
+
+  test('the notification ring is keyed by service too (R-020)', () async {
+    // Keyed by characteristic alone, a reader asking about ANY service got
+    // another service's frames — and a caller spelling a 16-bit UUID in full
+    // form read an empty ring beside a full one.
+    ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+    await service.connect(_bulbId);
+    final sub = service
+        .subscribeCharacteristic(
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        )
+        .listen((_) {});
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    ble.peripheral(_bulbId)!.pushNotification(EmulatedUuids.batteryLevel, [42]);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(
+      service.recentNotifications(
+        _bulbId,
+        EmulatedUuids.batteryService,
+        EmulatedUuids.batteryLevel,
+      ),
+      [
+        [42],
+      ],
+    );
+    expect(
+      service.recentNotifications(
+        _bulbId,
+        EmulatedUuids.controlService,
+        EmulatedUuids.batteryLevel,
+      ),
+      isEmpty,
+      reason: 'nothing was pushed on that service',
+    );
+    // …and the same ring, asked for in the short spelling of the same UUIDs.
+    expect(
+      service.recentNotifications(_bulbId, '180F', '2A19'),
+      [
+        [42],
+      ],
+      reason: 'the key normalises both UUIDs, like the notify share does',
+    );
+    await sub.cancel();
+  });
+
+  // The Apple-only reconnect path (R-008). The remote id on Apple platforms
+  // is a system-minted UUID, not an address, so a saved device the system has
+  // forgotten fails before the radio is touched with "Peripheral not found" —
+  // and the saved-devices screen went straight to connect() with no scan, so
+  // the user was told to move closer, which cannot help. These run on every
+  // host because the platform answer is injected, not read: on CI (all Linux)
+  // the whole sequence would otherwise be dead code.
+  group('Apple identifier rediscovery (R-008)', () {
+    setUp(() {
+      service.isApple = true;
+      appleRediscoveryWindow = const Duration(milliseconds: 120);
+    });
+    tearDown(() => appleRediscoveryWindow = const Duration(seconds: 6));
+
+    test('scans for a forgotten peripheral, then connects', () async {
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId))
+        ..unknownToSystem = true;
+
+      await service.connect(_bulbId);
+
+      expect(bulb.isConnected, isTrue);
+      // Connect, a targeted scan, then connect again — in that order.
+      expect(
+        ble.platformCalls.where(
+          (c) => c == 'connect:$_bulbId' || c == 'startScan',
+        ),
+        ['connect:$_bulbId', 'startScan', 'connect:$_bulbId'],
+      );
+      expect(ble.lastScanSettings?.withRemoteIds, [_bulbId]);
+    });
+
+    test('stops the rediscovery scan before connecting again', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId)).unknownToSystem = true;
+
+      await service.connect(_bulbId);
+
+      final calls = ble.platformCalls;
+      expect(calls, contains('stopScan'));
+      // The scan must be over before the second attempt: an iOS scan left
+      // running through a connect is the battery cost the ambient scan is
+      // tuned to avoid, and fbp refuses some operations mid-scan.
+      expect(
+        calls.indexOf('stopScan'),
+        lessThan(calls.lastIndexOf('connect:$_bulbId')),
+      );
+    });
+
+    test(
+      'a peripheral that never advertises is reported as unheard, not far away',
+      () async {
+        // Powered off, asleep, or out of range: no sighting, so the system
+        // cannot re-register it however close the user stands.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId))
+          ..unknownToSystem = true
+          ..advertising = false;
+
+        await expectLater(
+          service.connect(_bulbId),
+          throwsA(isA<BleDeviceUnheardException>()),
+        );
+        expect(ble.platformCalls, contains('startScan'));
+        expect(ble.platformCalls, contains('stopScan'));
+      },
+    );
+
+    test('does not scan on a non-Apple platform', () async {
+      // Android resolves an address without the system's help, so a scan here
+      // would add seconds to every reconnect for nothing.
+      service.isApple = false;
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId)).unknownToSystem = true;
+
+      await expectLater(service.connect(_bulbId), throwsA(isA<Object>()));
+      expect(ble.platformCalls, isNot(contains('startScan')));
+    });
+
+    test('a peripheral the system still knows connects without a scan', () {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+
+      return service.connect(_bulbId).then((_) {
+        expect(ble.platformCalls, isNot(contains('startScan')));
+      });
     });
   });
 
@@ -580,19 +1153,70 @@ void main() {
         EmulatedUuids.batteryService,
       ]);
 
-      final command = services.first.characteristics
-          .firstWhere((c) => c.uuid == EmulatedUuids.controlCommand);
+      final command = services.first.characteristics.firstWhere(
+        (c) => c.uuid == EmulatedUuids.controlCommand,
+      );
       expect(command.canWrite, isTrue);
       expect(command.canWriteWithResponse, isFalse);
       expect(command.canWriteWithoutResponse, isTrue);
       expect(command.canRead, isFalse);
 
-      final state = services.first.characteristics
-          .firstWhere((c) => c.uuid == EmulatedUuids.controlState);
+      final state = services.first.characteristics.firstWhere(
+        (c) => c.uuid == EmulatedUuids.controlState,
+      );
       expect(state.canRead, isTrue);
       expect(state.canNotify, isTrue);
       expect(state.canWrite, isFalse);
     });
+
+    test(
+      'a service declaring one uuid twice yields two characteristics',
+      () async {
+        // GATT permits it and real devices do it (a strip with two identical
+        // channel characteristics). flutter_blue_plus could not address the
+        // second until 1.35.6 gave each an instance id; before the bump the two
+        // were indistinguishable and a read of either could answer from the
+        // wrong one.
+        final twin = EmulatedPeripheral(
+          id: _bulbId,
+          name: 'Twin',
+          services: [
+            EmulatedService(
+              uuid: EmulatedUuids.controlService,
+              characteristics: [
+                EmulatedCharacteristic(
+                  uuid: EmulatedUuids.controlCommand,
+                  value: const [1],
+                  canRead: true,
+                ),
+                EmulatedCharacteristic(
+                  uuid: EmulatedUuids.controlCommand,
+                  value: const [2],
+                  canRead: true,
+                ),
+              ],
+            ),
+          ],
+        );
+        ble.add(twin);
+        await service.connect(_bulbId);
+
+        final services = await service.discoverServices(_bulbId);
+
+        final chars = services.single.characteristics
+            .where((c) => c.uuid == EmulatedUuids.controlCommand)
+            .toList();
+        expect(
+          chars,
+          hasLength(2),
+          reason: 'both attributes have to survive discovery to be addressable',
+        );
+        expect(twin.services.single.characteristics.map((c) => c.instanceId), [
+          0,
+          1,
+        ]);
+      },
+    );
 
     test('retries a discovery that comes back empty', () async {
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
@@ -610,6 +1234,36 @@ void main() {
       );
     });
 
+    test(
+      'a services-changed event from the platform drops the cached table',
+      () async {
+        // CoreBluetooth delivers didModifyServices whether or not the app
+        // subscribed to Service Changed; the darwin plugin forwards it as
+        // OnServicesReset and fbp clears its own cache. Ours was cleared only
+        // in disconnect(), so a peripheral that republished its table after
+        // pairing left the service walking stale handles until the user
+        // disconnected by hand.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.connect(_bulbId);
+        await service.discoverServices(_bulbId);
+        await service.discoverServices(_bulbId);
+        expect(
+          ble.platformCalls.where((c) => c == 'discoverServices:$_bulbId'),
+          hasLength(1),
+          reason: 'the second call is served from the cache',
+        );
+
+        ble.pushServicesReset(_bulbId);
+        await Future<void>.delayed(Duration.zero);
+        await service.discoverServices(_bulbId);
+        expect(
+          ble.platformCalls.where((c) => c == 'discoverServices:$_bulbId'),
+          hasLength(2),
+          reason: 'after the reset the table must be rediscovered',
+        );
+      },
+    );
+
     test('caches the tree so later reads do not re-discover', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
       await service.connect(_bulbId);
@@ -617,7 +1271,10 @@ void main() {
       await service.discoverServices(_bulbId);
       await service.discoverServices(_bulbId);
       await service.readCharacteristic(
-          _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel);
+        _bulbId,
+        EmulatedUuids.batteryService,
+        EmulatedUuids.batteryLevel,
+      );
 
       expect(
         ble.platformCalls.where((c) => c.startsWith('discoverServices')).length,
@@ -640,30 +1297,37 @@ void main() {
       );
     });
 
-    test('gives up after the retry ladder and caches the empty verdict',
-        () async {
-      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      // Never resolves. This is the one deliberately slow test in the file: the
-      // ladder in nextEmptyDiscoveryRetryDelay is 200+400+800+1600+3200ms by
-      // design, and walking it is the only way to prove that the empty result
-      // is cached rather than re-laddered on every later call.
-      bulb.emptyDiscoveries = 1000;
-      await service.connect(_bulbId);
+    test(
+      'gives up after the retry ladder and caches the empty verdict',
+      () async {
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        // Never resolves. This is the one deliberately slow test in the file: the
+        // ladder in nextEmptyDiscoveryRetryDelay is 200+400+800+1600+3200ms by
+        // design, and walking it is the only way to prove that the empty result
+        // is cached rather than re-laddered on every later call.
+        bulb.emptyDiscoveries = 1000;
+        await service.connect(_bulbId);
 
-      expect(await service.discoverServices(_bulbId), isEmpty);
-      expect(
-        ble.platformCalls.where((c) => c.startsWith('discoverServices')).length,
-        6,
-        reason: 'one attempt plus five retries',
-      );
+        expect(await service.discoverServices(_bulbId), isEmpty);
+        expect(
+          ble.platformCalls
+              .where((c) => c.startsWith('discoverServices'))
+              .length,
+          6,
+          reason: 'one attempt plus five retries',
+        );
 
-      expect(await service.discoverServices(_bulbId), isEmpty);
-      expect(
-        ble.platformCalls.where((c) => c.startsWith('discoverServices')).length,
-        6,
-        reason: 'the settled verdict is cached, not re-laddered',
-      );
-    }, timeout: const Timeout(Duration(seconds: 60)));
+        expect(await service.discoverServices(_bulbId), isEmpty);
+        expect(
+          ble.platformCalls
+              .where((c) => c.startsWith('discoverServices'))
+              .length,
+          6,
+          reason: 'the settled verdict is cached, not re-laddered',
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 60)),
+    );
 
     test('throws when the peripheral fails discovery outright', () async {
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
@@ -671,7 +1335,9 @@ void main() {
       await service.connect(_bulbId);
 
       await expectLater(
-          service.discoverServices(_bulbId), throwsA(isA<Exception>()));
+        service.discoverServices(_bulbId),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 
@@ -684,93 +1350,135 @@ void main() {
     test('reads the peripheral value', () async {
       expect(
         await service.readCharacteristic(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         [85],
       );
     });
 
     test('reads what a later write left behind', () async {
-      await service.writeCharacteristic(_bulbId, EmulatedUuids.controlService,
-          EmulatedUuids.controlState, [0, 10, 1, 2, 3]);
+      await service.writeCharacteristic(
+        _bulbId,
+        EmulatedUuids.controlService,
+        EmulatedUuids.controlState,
+        [0, 10, 1, 2, 3],
+      );
 
       expect(
         await service.readCharacteristic(
-            _bulbId, EmulatedUuids.controlService, EmulatedUuids.controlState),
+          _bulbId,
+          EmulatedUuids.controlService,
+          EmulatedUuids.controlState,
+        ),
         [0, 10, 1, 2, 3],
       );
     });
 
     test(
-        'writes without response to a characteristic that supports no other mode',
-        () async {
-      await service.writeCharacteristic(_bulbId, EmulatedUuids.controlService,
-          EmulatedUuids.controlCommand, [0x01, 0x02]);
+      'writes without response to a characteristic that supports no other mode',
+      () async {
+        await service.writeCharacteristic(
+          _bulbId,
+          EmulatedUuids.controlService,
+          EmulatedUuids.controlCommand,
+          [0x01, 0x02],
+        );
 
-      final command = ble
-          .peripheral(_bulbId)!
-          .characteristic(EmulatedUuids.controlCommand)!;
-      expect(command.writes, hasLength(1));
-      expect(command.writes.single.value, [0x01, 0x02]);
-      expect(command.writes.single.type, EmulatedWriteType.withoutResponse,
-          reason: 'a with-response write to this characteristic would be '
-              'silently dropped by real hardware');
-    });
+        final command = ble
+            .peripheral(_bulbId)!
+            .characteristic(EmulatedUuids.controlCommand)!;
+        expect(command.writes, hasLength(1));
+        expect(command.writes.single.value, [0x01, 0x02]);
+        expect(
+          command.writes.single.type,
+          EmulatedWriteType.withoutResponse,
+          reason:
+              'a with-response write to this characteristic would be '
+              'silently dropped by real hardware',
+        );
+      },
+    );
 
-    test('prefers an acknowledged write when the characteristic supports it',
-        () async {
-      final peripheral = ble.peripheral(_bulbId)!;
-      peripheral.services.first.characteristics.add(EmulatedCharacteristic(
-        uuid: '0000fff3-0000-1000-8000-00805f9b34fb',
-        canWriteWithResponse: true,
-        canWriteWithoutResponse: true,
-      ));
-      // Re-discover so the new characteristic is in the service's cache.
-      await service.disconnect(_bulbId);
-      await service.connect(_bulbId);
-      await service.discoverServices(_bulbId);
+    test(
+      'prefers an acknowledged write when the characteristic supports it',
+      () async {
+        final peripheral = ble.peripheral(_bulbId)!;
+        peripheral.services.first.characteristics.add(
+          EmulatedCharacteristic(
+            uuid: '0000fff3-0000-1000-8000-00805f9b34fb',
+            canWriteWithResponse: true,
+            canWriteWithoutResponse: true,
+          ),
+        );
+        // Re-discover so the new characteristic is in the service's cache.
+        await service.disconnect(_bulbId);
+        await service.connect(_bulbId);
+        await service.discoverServices(_bulbId);
 
-      await service.writeCharacteristic(_bulbId, EmulatedUuids.controlService,
-          '0000fff3-0000-1000-8000-00805f9b34fb', [7]);
+        await service.writeCharacteristic(
+          _bulbId,
+          EmulatedUuids.controlService,
+          '0000fff3-0000-1000-8000-00805f9b34fb',
+          [7],
+        );
 
-      final char =
-          peripheral.characteristic('0000fff3-0000-1000-8000-00805f9b34fb')!;
-      expect(char.writes.single.type, EmulatedWriteType.withResponse);
-    });
+        final char = peripheral.characteristic(
+          '0000fff3-0000-1000-8000-00805f9b34fb',
+        )!;
+        expect(char.writes.single.type, EmulatedWriteType.withResponse);
+      },
+    );
 
     test('surfaces a read the peripheral refuses', () async {
       ble
-          .peripheral(_bulbId)!
-          .characteristic(EmulatedUuids.batteryLevel)!
-          .readError = EmulatedGattError.refused;
+              .peripheral(_bulbId)!
+              .characteristic(EmulatedUuids.batteryLevel)!
+              .readError =
+          EmulatedGattError.refused;
 
       await expectLater(
         service.readCharacteristic(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         throwsA(isA<Exception>()),
       );
     });
 
     test('surfaces a write the peripheral refuses', () async {
       ble
-          .peripheral(_bulbId)!
-          .characteristic(EmulatedUuids.controlCommand)!
-          .writeError = EmulatedGattError.refused;
+              .peripheral(_bulbId)!
+              .characteristic(EmulatedUuids.controlCommand)!
+              .writeError =
+          EmulatedGattError.refused;
 
       await expectLater(
-        service.writeCharacteristic(_bulbId, EmulatedUuids.controlService,
-            EmulatedUuids.controlCommand, [1]),
+        service.writeCharacteristic(
+          _bulbId,
+          EmulatedUuids.controlService,
+          EmulatedUuids.controlCommand,
+          [1],
+        ),
         throwsA(isA<Exception>()),
       );
     });
 
-    test('throws for a characteristic the peripheral does not expose',
-        () async {
-      await expectLater(
-        service.readCharacteristic(_bulbId, EmulatedUuids.controlService,
-            '0000dead-0000-1000-8000-00805f9b34fb'),
-        throwsA(isA<StateError>()),
-      );
-    });
+    test(
+      'throws for a characteristic the peripheral does not expose',
+      () async {
+        await expectLater(
+          service.readCharacteristic(
+            _bulbId,
+            EmulatedUuids.controlService,
+            '0000dead-0000-1000-8000-00805f9b34fb',
+          ),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
   });
 
   group('subscribeCharacteristic', () {
@@ -781,7 +1489,10 @@ void main() {
       final received = <List<int>>[];
       final sub = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen(received.add);
 
       // Give setNotifyValue (and its CCCD confirmation) time to complete before
@@ -794,7 +1505,7 @@ void main() {
 
       expect(received, [
         [84],
-        [83]
+        [83],
       ]);
 
       await sub.cancel();
@@ -806,8 +1517,7 @@ void main() {
       );
     });
 
-    test(
-        'a second subscriber keeps notifications alive when the first '
+    test('a second subscriber keeps notifications alive when the first '
         'cancels', () async {
       // Issue #29: six sensor tiles and the raw service card all subscribe to
       // one combined-packet characteristic, and the panel's ListView disposes
@@ -818,19 +1528,26 @@ void main() {
 
       final first = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen((_) {});
       final received = <List<int>>[];
       final second = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen(received.add);
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       // The enable is shared, not repeated per subscriber.
       expect(
-        ble.platformCalls
-            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        ble.platformCalls.where(
+          (c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true',
+        ),
         hasLength(1),
         reason: 'two subscribers should share one CCCD enable',
       );
@@ -847,7 +1564,7 @@ void main() {
       bulb.pushNotification(EmulatedUuids.batteryLevel, [70]);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(received, [
-        [70]
+        [70],
       ]);
 
       await second.cancel();
@@ -859,8 +1576,7 @@ void main() {
       );
     });
 
-    test(
-        'a cancel parked on an in-flight enable never disables a successor '
+    test('a cancel parked on an in-flight enable never disables a successor '
         'subscription', () async {
       // The freeze issue #29's refcount exists to prevent, through a second
       // door: A cancels while its shared enable is still in flight, the
@@ -868,14 +1584,23 @@ void main() {
       // The disable must yield to B's fresh share instead of landing last
       // and silencing it.
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      // No CCCD confirmations: every enable resolves only after the 3s
-      // spurious-timeout window, which is the in-flight window under test.
-      bulb.confirmsCccdWrites = false;
+      // A peripheral that acks its CCCD writes late: every enable stays in
+      // flight for this long, which is the window under test. A late ack —
+      // not a withheld one — because a withheld ack resolves only at the
+      // service's confirmation timeout, which is 3 s on Linux and 15 s
+      // elsewhere, and this test used to be built on the Linux figure: on a
+      // macOS host B's enable was still queued behind A's at the 7 s mark
+      // and the assertion below failed on every run.
+      const ackDelay = Duration(milliseconds: 1500);
+      bulb.cccdConfirmDelay = ackDelay;
       await service.connect(_bulbId);
 
       final first = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen((_) {});
       await Future<void>.delayed(const Duration(milliseconds: 100));
       // Cancel while the enable is mid-flight; do not await — the release
@@ -886,15 +1611,19 @@ void main() {
       final received = <List<int>>[];
       final second = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen(received.add);
 
-      // Both enables ride out their 3s windows (they serialize on fbp's
+      // Both enables ride out their ack delays (they serialize on fbp's
       // operation mutex), plus slack.
-      await Future<void>.delayed(const Duration(milliseconds: 7000));
+      await Future<void>.delayed(ackDelay * 2 + const Duration(seconds: 1));
       expect(
-        ble.platformCalls
-            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=false'),
+        ble.platformCalls.where(
+          (c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=false',
+        ),
         isEmpty,
         reason: "A's deferred disable must yield to B's live share",
       );
@@ -902,38 +1631,42 @@ void main() {
       bulb.pushNotification(EmulatedUuids.batteryLevel, [61]);
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(received, [
-        [61]
+        [61],
       ]);
       await second.cancel();
     });
 
-    test('a subscription abandoned before its enable writes no CCCD at all',
-        () async {
-      // Cancelling before the characteristic lookup finishes must abort the
-      // shared enable: a CCCD write (and on pairing-required peripherals,
-      // the system pairing dialog behind it) for zero subscribers is pure
-      // harm.
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      await service.connect(_bulbId);
-
-      final sub = service
-          .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
-          .listen((_) {});
-      // Cancel in the same turn, before discovery's microtask confirmation
-      // can complete the lookup.
-      await sub.cancel();
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-
-      expect(
-        ble.platformCalls.where((c) => c.startsWith('setNotify:')),
-        isEmpty,
-        reason: 'nobody was left to enable notifications for',
-      );
-    });
-
     test(
-        'a redundant connect keeps live shares, and connection claims keep '
+      'a subscription abandoned before its enable writes no CCCD at all',
+      () async {
+        // Cancelling before the characteristic lookup finishes must abort the
+        // shared enable: a CCCD write (and on pairing-required peripherals,
+        // the system pairing dialog behind it) for zero subscribers is pure
+        // harm.
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.connect(_bulbId);
+
+        final sub = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        // Cancel in the same turn, before discovery's microtask confirmation
+        // can complete the lookup.
+        await sub.cancel();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(
+          ble.platformCalls.where((c) => c.startsWith('setNotify:')),
+          isEmpty,
+          reason: 'nobody was left to enable notifications for',
+        );
+      },
+    );
+
+    test('a redundant connect keeps live shares, and connection claims keep '
         'the link up until the last owner leaves', () async {
       // flutter_blue_plus no-ops connect() on an open link, so CCCD state
       // survives — live shares must too. And with two claims on the link
@@ -945,7 +1678,10 @@ void main() {
       final received = <List<int>>[];
       final sub = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen(received.add);
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
@@ -959,12 +1695,9 @@ void main() {
       );
       bulb.pushNotification(EmulatedUuids.batteryLevel, [58]);
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(
-          received,
-          [
-            [58]
-          ],
-          reason: 'the share survived the redundant connect');
+      expect(received, [
+        [58],
+      ], reason: 'the share survived the redundant connect');
 
       await sub.cancel();
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -981,8 +1714,7 @@ void main() {
       );
     });
 
-    test(
-        'a connect issued while the first is still in flight does not '
+    test('a connect issued while the first is still in flight does not '
         'expire the shares that first owner goes on to install', () async {
       // Both connects are issued while the device is down. With a pre-await
       // isConnected snapshot, both would read "this call turned the link
@@ -998,22 +1730,23 @@ void main() {
       final received = <List<int>>[];
       final sub = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen(received.add);
       await Future<void>.delayed(const Duration(milliseconds: 50));
       await second;
 
       bulb.pushNotification(EmulatedUuids.batteryLevel, [42]);
       await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(received, [
+        [42],
+      ], reason: 'the trailing connect must not have expired the share');
       expect(
-          received,
-          [
-            [42]
-          ],
-          reason: 'the trailing connect must not have expired the share');
-      expect(
-        ble.platformCalls
-            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        ble.platformCalls.where(
+          (c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true',
+        ),
         hasLength(1),
         reason: 'one live share, enabled once — never expired and redone',
       );
@@ -1033,8 +1766,7 @@ void main() {
       );
     });
 
-    test(
-        'a reconnect enables notifications afresh even with a stale '
+    test('a reconnect enables notifications afresh even with a stale '
         'subscription open', () async {
       // A subscription from a previous link that was never cancelled must
       // neither satisfy the new link's enable (CCCD state died with the old
@@ -1044,7 +1776,10 @@ void main() {
       await service.connect(_bulbId);
       final stale = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen((_) {});
       await Future<void>.delayed(const Duration(milliseconds: 50));
       await service.disconnect(_bulbId);
@@ -1053,13 +1788,17 @@ void main() {
       final received = <List<int>>[];
       final fresh = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen(received.add);
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(
-        ble.platformCalls
-            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        ble.platformCalls.where(
+          (c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true',
+        ),
         hasLength(2),
         reason: 'the new link needs its own CCCD enable',
       );
@@ -1069,190 +1808,232 @@ void main() {
       await stale.cancel();
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(
-        ble.platformCalls
-            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=false'),
+        ble.platformCalls.where(
+          (c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=false',
+        ),
         isEmpty,
         reason: 'a dead share never writes into the new connection',
       );
       bulb.pushNotification(EmulatedUuids.batteryLevel, [66]);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(received, [
-        [66]
+        [66],
       ]);
 
       await fresh.cancel();
     });
 
-    test('drops notifications sent after the subscription is torn down',
-        () async {
-      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      await service.connect(_bulbId);
+    test(
+      'drops notifications sent after the subscription is torn down',
+      () async {
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.connect(_bulbId);
 
-      final received = <List<int>>[];
-      final sub = service
-          .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
-          .listen(received.add);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      await sub.cancel();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        final received = <List<int>>[];
+        final sub = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen(received.add);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await sub.cancel();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      bulb.pushNotification(EmulatedUuids.batteryLevel, [80]);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [80]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(received, isEmpty);
-    });
+        expect(received, isEmpty);
+      },
+    );
 
-    test('subscribes without waiting when the peripheral exposes no CCCD',
-        () async {
-      // BlueZ manages the CCCD internally and never exposes it as a descriptor.
-      final bulb = ble.add(EmulatedPeripheral(
-        id: _bulbId,
-        name: 'No CCCD',
-        services: [
-          EmulatedService(
-            uuid: EmulatedUuids.batteryService,
-            characteristics: [
-              EmulatedCharacteristic(
-                uuid: EmulatedUuids.batteryLevel,
-                value: const [90],
-                canRead: true,
-                canNotify: true,
-                exposesCccd: false,
+    test(
+      'subscribes without waiting when the peripheral exposes no CCCD',
+      () async {
+        // BlueZ manages the CCCD internally and never exposes it as a descriptor.
+        final bulb = ble.add(
+          EmulatedPeripheral(
+            id: _bulbId,
+            name: 'No CCCD',
+            services: [
+              EmulatedService(
+                uuid: EmulatedUuids.batteryService,
+                characteristics: [
+                  EmulatedCharacteristic(
+                    uuid: EmulatedUuids.batteryLevel,
+                    value: const [90],
+                    canRead: true,
+                    canNotify: true,
+                    exposesCccd: false,
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ));
-      await service.connect(_bulbId);
+        );
+        await service.connect(_bulbId);
 
-      final received = <List<int>>[];
-      final sub = service
-          .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
-          .listen(received.add);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      bulb.pushNotification(EmulatedUuids.batteryLevel, [89]);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      await sub.cancel();
+        final received = <List<int>>[];
+        final sub = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen(received.add);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [89]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await sub.cancel();
 
-      expect(received, [
-        [89]
-      ]);
-    });
-
-    test('errors the stream for a characteristic that does not exist',
-        () async {
-      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      await service.connect(_bulbId);
-
-      await expectLater(
-        service.subscribeCharacteristic(_bulbId, EmulatedUuids.controlService,
-            '0000dead-0000-1000-8000-00805f9b34fb'),
-        emitsError(isA<StateError>()),
-      );
-    });
+        expect(received, [
+          [89],
+        ]);
+      },
+    );
 
     test(
-        'keeps the subscription alive when the Linux backend never confirms '
-        'the CCCD write', () async {
-      // flutter_blue_plus_linux applies StartNotify synchronously and never
-      // emits the descriptor-written event flutter_blue_plus waits for, so
-      // every setNotifyValue times out AFTER succeeding. isSpuriousLinuxNotify-
-      // Timeout is what turns that into a warning instead of a dead
-      // subscription — this is that path, running for real.
-      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      bulb.confirmsCccdWrites = false;
-      await service.connect(_bulbId);
+      'errors the stream for a characteristic that does not exist',
+      () async {
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.connect(_bulbId);
 
-      final received = <List<int>>[];
-      final sub = service
-          .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
-          .listen(received.add);
+        await expectLater(
+          service.subscribeCharacteristic(
+            _bulbId,
+            EmulatedUuids.controlService,
+            '0000dead-0000-1000-8000-00805f9b34fb',
+          ),
+          emitsError(isA<StateError>()),
+        );
+      },
+    );
 
-      // The service shortens the Linux confirmation wait to 3s; wait it out.
-      await Future<void>.delayed(const Duration(milliseconds: 3500));
-      bulb.pushNotification(EmulatedUuids.batteryLevel, [77]);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      await sub.cancel();
+    test(
+      'keeps the subscription alive when the Linux backend never confirms '
+      'the CCCD write',
+      () async {
+        // flutter_blue_plus_linux applies StartNotify synchronously and never
+        // emits the descriptor-written event flutter_blue_plus waits for, so
+        // every setNotifyValue times out AFTER succeeding. isSpuriousLinuxNotify-
+        // Timeout is what turns that into a warning instead of a dead
+        // subscription — this is that path, running for real.
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        bulb.confirmsCccdWrites = false;
+        await service.connect(_bulbId);
 
-      expect(received, [
-        [77]
-      ]);
-    },
-        timeout: const Timeout(Duration(seconds: 30)),
-        // The tolerance is deliberately Linux-only (see
-        // isSpuriousLinuxNotifyTimeout), so on any other host this same setup
-        // correctly produces a failed subscription instead.
-        skip: Platform.isLinux
-            ? null
-            : 'the spurious-timeout tolerance only applies on Linux');
+        final received = <List<int>>[];
+        final sub = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen(received.add);
+
+        // The service shortens the Linux confirmation wait to 3s; wait it out.
+        await Future<void>.delayed(const Duration(milliseconds: 3500));
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [77]);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await sub.cancel();
+
+        expect(received, [
+          [77],
+        ]);
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+      // The tolerance is deliberately Linux-only (see
+      // isSpuriousLinuxNotifyTimeout), so on any other host this same setup
+      // correctly produces a failed subscription instead.
+      skip: Platform.isLinux
+          ? null
+          : 'the spurious-timeout tolerance only applies on Linux',
+    );
   });
 
   group('recentNotifications', () {
-    test('buffers pushes so a late subscriber can still recover them',
-        () async {
-      // The point of the ring: a device that announces itself ONCE on connect
-      // (the SmartDawn curtain's panel size) pushes before the widget that
-      // wants it exists. Whoever was subscribed at the time captures it.
-      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      await service.connect(_bulbId);
+    test(
+      'buffers pushes so a late subscriber can still recover them',
+      () async {
+        // The point of the ring: a device that announces itself ONCE on connect
+        // (the SmartDawn curtain's panel size) pushes before the widget that
+        // wants it exists. Whoever was subscribed at the time captures it.
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.connect(_bulbId);
 
-      final sub = service
-          .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
-          .listen((_) {});
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
-      bulb.pushNotification(EmulatedUuids.batteryLevel, [83]);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        final sub = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [83]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(
-        service.recentNotifications(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
-        [
-          [84],
-          [83]
-        ],
-      );
+        expect(
+          service.recentNotifications(
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          ),
+          [
+            [84],
+            [83],
+          ],
+        );
 
-      await sub.cancel();
-    });
+        await sub.cancel();
+      },
+    );
 
-    test('one push is buffered once however many subscribers share it',
-        () async {
-      // The ring is filled from the SHARED enable, not from each subscriber's
-      // listener. Recording per subscriber would enter one physical push N
-      // times and evict the buffer N times faster — on a characteristic with
-      // several cards on it, the connect-time push this exists to recover
-      // would be gone before anyone asked for it.
-      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      await service.connect(_bulbId);
+    test(
+      'one push is buffered once however many subscribers share it',
+      () async {
+        // The ring is filled from the SHARED enable, not from each subscriber's
+        // listener. Recording per subscriber would enter one physical push N
+        // times and evict the buffer N times faster — on a characteristic with
+        // several cards on it, the connect-time push this exists to recover
+        // would be gone before anyone asked for it.
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.connect(_bulbId);
 
-      final first = service
-          .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
-          .listen((_) {});
-      final second = service
-          .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
-          .listen((_) {});
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        final first = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        final second = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(
-        service.recentNotifications(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
-        [
-          [84]
-        ],
-      );
+        expect(
+          service.recentNotifications(
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          ),
+          [
+            [84],
+          ],
+        );
 
-      await first.cancel();
-      await second.cancel();
-    });
+        await first.cancel();
+        await second.cancel();
+      },
+    );
 
     test('a released characteristic stops filling the ring', () async {
       // The recorder rides the share, so the last cancel must take it with
@@ -1263,7 +2044,10 @@ void main() {
 
       final sub = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen((_) {});
       await Future<void>.delayed(const Duration(milliseconds: 50));
       bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
@@ -1276,9 +2060,12 @@ void main() {
 
       expect(
         service.recentNotifications(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         [
-          [84]
+          [84],
         ],
         reason: 'the push after the last cancel must not be buffered',
       );
@@ -1292,7 +2079,10 @@ void main() {
 
       final sub = service
           .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen((_) {});
       await Future<void>.delayed(const Duration(milliseconds: 50));
       bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
@@ -1303,56 +2093,69 @@ void main() {
 
       expect(
         service.recentNotifications(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         isEmpty,
       );
     });
 
-    test('a dropped link does not carry its pushes into the reconnect',
-        () async {
-      // The buffer is per-connection, and a link the peripheral drops never
-      // reaches disconnect() — so the clear has to ride the same link-turnover
-      // path the notify shares do, or a reconnect starts holding the previous
-      // link's pushes as if the device had just sent them.
-      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      await service.connect(_bulbId);
+    test(
+      'a dropped link does not carry its pushes into the reconnect',
+      () async {
+        // The buffer is per-connection, and a link the peripheral drops never
+        // reaches disconnect() — so the clear has to ride the same link-turnover
+        // path the notify shares do, or a reconnect starts holding the previous
+        // link's pushes as if the device had just sent them.
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.connect(_bulbId);
 
-      final sub = service
-          .subscribeCharacteristic(
-              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
-          .listen((_) {});
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        final sub = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      bulb.dropLink();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      await sub.cancel();
+        bulb.dropLink();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await sub.cancel();
 
-      await service.connect(_bulbId);
+        await service.connect(_bulbId);
 
-      expect(
-        service.recentNotifications(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
-        isEmpty,
-      );
-    });
+        expect(
+          service.recentNotifications(
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          ),
+          isEmpty,
+        );
+      },
+    );
   });
 
   group('link loss', () {
-    test('a peripheral that drops the link is reported as disconnected',
-        () async {
-      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-      await service.connect(_bulbId);
+    test(
+      'a peripheral that drops the link is reported as disconnected',
+      () async {
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+        await service.connect(_bulbId);
 
-      final states = <BleConnectionState>[];
-      final sub = service.connectionState(_bulbId).listen(states.add);
-      bulb.dropLink();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      await sub.cancel();
+        final states = <BleConnectionState>[];
+        final sub = service.connectionState(_bulbId).listen(states.add);
+        bulb.dropLink();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await sub.cancel();
 
-      expect(states.last, BleConnectionState.disconnected);
-    });
+        expect(states.last, BleConnectionState.disconnected);
+      },
+    );
 
     test('reads after a link loss fail rather than hanging', () async {
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
@@ -1364,7 +2167,10 @@ void main() {
 
       await expectLater(
         service.readCharacteristic(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         throwsA(isA<Exception>()),
       );
     });
@@ -1386,11 +2192,17 @@ void main() {
 
       expect(
         await service.readCharacteristic(
-            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         [85],
       );
-      expect(ble.platformCalls, isNot(contains('createBond:$_bulbId')),
-          reason: 'nothing refused anything, so nothing should ask to pair');
+      expect(
+        ble.platformCalls,
+        isNot(contains('createBond:$_bulbId')),
+        reason: 'nothing refused anything, so nothing should ask to pair',
+      );
     });
 
     test('a device that needs pairing still connects and discovers', () async {
@@ -1409,7 +2221,10 @@ void main() {
 
       await expectLater(
         service.readCharacteristic(
-            _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _lockId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         throwsA(isA<BlePairingRequiredException>()),
       );
     });
@@ -1419,8 +2234,12 @@ void main() {
       await openAndDiscover(_lockId);
 
       await expectLater(
-        service.writeCharacteristic(_lockId, EmulatedUuids.controlService,
-            EmulatedUuids.controlCommand, [1, 1]),
+        service.writeCharacteristic(
+          _lockId,
+          EmulatedUuids.controlService,
+          EmulatedUuids.controlCommand,
+          [1, 1],
+        ),
         throwsA(isA<BlePairingRequiredException>()),
       );
     });
@@ -1434,19 +2253,26 @@ void main() {
       // through exactly this call.
       await expectLater(
         service.subscribeCharacteristic(
-            _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _lockId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         emitsError(isA<BlePairingRequiredException>()),
       );
     });
 
     test('the same read succeeds once the device is bonded', () async {
-      final lock =
-          ble.add(EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true));
+      final lock = ble.add(
+        EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true),
+      );
       await openAndDiscover(_lockId);
 
       await expectLater(
         service.readCharacteristic(
-            _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _lockId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         throwsA(isA<BlePairingRequiredException>()),
       );
 
@@ -1455,26 +2281,39 @@ void main() {
 
       expect(
         await service.readCharacteristic(
-            _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+          _lockId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        ),
         [85],
       );
     });
 
     test('a bonded pairing-required device behaves like an open one', () async {
-      final lock =
-          ble.add(EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true));
+      final lock = ble.add(
+        EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true),
+      );
       lock.bondState = EmulatedBondState.bonded;
       await openAndDiscover(_lockId);
 
-      await service.writeCharacteristic(_lockId, EmulatedUuids.controlService,
-          EmulatedUuids.controlCommand, [1, 1]);
-      expect(lock.characteristic(EmulatedUuids.controlCommand)!.writes,
-          hasLength(1));
+      await service.writeCharacteristic(
+        _lockId,
+        EmulatedUuids.controlService,
+        EmulatedUuids.controlCommand,
+        [1, 1],
+      );
+      expect(
+        lock.characteristic(EmulatedUuids.controlCommand)!.writes,
+        hasLength(1),
+      );
 
       final received = <List<int>>[];
       final sub = service
           .subscribeCharacteristic(
-              _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+            _lockId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
           .listen(received.add);
       await Future<void>.delayed(const Duration(milliseconds: 50));
       lock.pushNotification(EmulatedUuids.batteryLevel, [84]);
@@ -1482,7 +2321,7 @@ void main() {
       await sub.cancel();
 
       expect(received, [
-        [84]
+        [84],
       ]);
     });
   });

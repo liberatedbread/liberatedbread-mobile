@@ -25,14 +25,15 @@ const _statusChar = '0000fff2-0000-1000-8000-00805f9b34fb';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const codec = RealSpecCodec();
+  final codec = RealSpecCodec();
   late final bool rustReady;
   late final String yaml;
 
   setUpAll(() async {
     rustReady = await initHostRustLib();
     yaml = await rootBundle.loadString(
-        'vendor/protocol-specs/device-specs/examples/example-bulb.yaml');
+      'vendor/protocol-specs/device-specs/examples/example-bulb.yaml',
+    );
   });
 
   test('the real Samsung surface fills its connect path end to end', () async {
@@ -44,7 +45,8 @@ void main() {
     // {client_name} and {token} while credential_name says samsung_token,
     // and only the vendored bytes can prove the fill rule covers that.
     final samsungYaml = await rootBundle.loadString(
-        'vendor/protocol-specs/device-specs/devices/samsung-tizen-tv.yaml');
+      'vendor/protocol-specs/device-specs/devices/samsung-tizen-tv.yaml',
+    );
     final surface = await codec.websocketSurface(samsungYaml);
     expect(surface, isNotNull, reason: 'samsung declares a websocket surface');
 
@@ -57,10 +59,14 @@ void main() {
       surface: surface!,
       connect: (url, headers) async {
         urls.add(url);
-        scheduleMicrotask(() => tv.send(jsonEncode({
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
               'event': 'ms.channel.connect',
               'data': {'token': 'issued-by-tv'},
-            })));
+            }),
+          ),
+        );
         return tv;
       },
     );
@@ -91,16 +97,19 @@ void main() {
     expect(spec.deviceName, 'Example Smart Bulb');
     expect(spec.localNamePrefixes, const ['ACME_']);
 
-    final control =
-        spec.services.firstWhere((s) => s.name == 'Control Service');
+    final control = spec.services.firstWhere(
+      (s) => s.name == 'Control Service',
+    );
     final command = control.characteristics.first;
     // Exact list, in order: the spec's declaration order has to survive the
     // YAML parse and the FFI round-trip, because it is the order the device
     // screen renders the controls in.
-    expect(
-      command.commands.map((c) => c.name).toList(),
-      <String>['power_on', 'power_off', 'set_brightness', 'set_color'],
-    );
+    expect(command.commands.map((c) => c.name).toList(), <String>[
+      'power_on',
+      'power_off',
+      'set_brightness',
+      'set_color',
+    ]);
     expect(
       command.commands
           .firstWhere((c) => c.name == 'set_color')
@@ -113,8 +122,9 @@ void main() {
       command.commands.firstWhere((c) => c.name == 'power_on').isFixed,
       isTrue,
     );
-    final setBrightness =
-        command.commands.firstWhere((c) => c.name == 'set_brightness');
+    final setBrightness = command.commands.firstWhere(
+      (c) => c.name == 'set_brightness',
+    );
     expect(setBrightness.isFixed, isFalse);
     expect(setBrightness.parameters.single.name, 'brightness');
   });
@@ -153,10 +163,13 @@ void main() {
     );
     // Ordered, not just present: decoded fields come back in the spec's
     // `format` order, which is what the UI lists them in.
-    expect(
-      decoded.map((d) => d.name).toList(),
-      <String>['power_state', 'brightness', 'red', 'green', 'blue'],
-    );
+    expect(decoded.map((d) => d.name).toList(), <String>[
+      'power_state',
+      'brightness',
+      'red',
+      'green',
+      'blue',
+    ]);
     final byName = {for (final d in decoded) d.name: d};
     expect(byName['brightness']!.uintValue, 80);
   });
@@ -229,10 +242,16 @@ void main() {
       device: device,
     );
 
-    expect(matches, isNotEmpty,
-        reason: 'the advertised mDNS service type is the identity it matches');
-    expect(matches.first.specIndex, 0,
-        reason: 'the index has to point back into the list that was passed in');
+    expect(
+      matches,
+      isNotEmpty,
+      reason: 'the advertised mDNS service type is the identity it matches',
+    );
+    expect(
+      matches.first.specIndex,
+      0,
+      reason: 'the index has to point back into the list that was passed in',
+    );
     expect(matches.first.deviceName, 'Philips Hue Bridge');
   });
 
@@ -241,17 +260,16 @@ void main() {
       markTestSkipped('Rust lib not loaded');
       return;
     }
-    final profiles = await codec.identifyStandardProfiles(
-      const ['0000180f-0000-1000-8000-00805f9b34fb'],
-    );
+    final profiles = await codec.identifyStandardProfiles(const [
+      '0000180f-0000-1000-8000-00805f9b34fb',
+    ]);
 
     expect(profiles, hasLength(1));
     expect(profiles.single.serviceUuid, '0000180f-0000-1000-8000-00805f9b34fb');
     expect(profiles.single.profileName, contains('Battery'));
   });
 
-  test('encodeEntityValue sends the value to the entity that owns it',
-      () async {
+  test('encodeEntityValue sends the value to the entity that owns it', () async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
       return;
@@ -260,7 +278,8 @@ void main() {
     // a mis-passed argument shows up as a wrong number rather than as a
     // plausible-looking blob.
     final gerbing = await rootBundle.loadString(
-        'vendor/protocol-specs/device-specs/devices/gerbing-thermogauge.yaml');
+      'vendor/protocol-specs/device-specs/devices/gerbing-thermogauge.yaml',
+    );
 
     final write = await codec.encodeEntityValue(
       specYaml: gerbing,
@@ -279,90 +298,93 @@ void main() {
     expect(other.characteristicUuid, isNot(write.characteristicUuid));
   });
 
-  test('encodeImageFrame keeps width, height and the frame index apart',
-      () async {
-    if (!rustReady) {
-      markTestSkipped('Rust lib not loaded');
-      return;
-    }
-    final display = await rootBundle.loadString(
-        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml');
+  test(
+    'encodeImageFrame keeps width, height and the frame index apart',
+    () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      final display = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      );
 
-    // Each of the four numeric arguments is checked by something it alone can
-    // move. They are adjacent ints in the signature, and a transposition
-    // compiles.
-    //
-    // A solid 40x34 canvas encodes as ONE TUTU chunk, so frame 0 is exactly
-    // three logical packets: ui_end_sync + doodle_start (the session open)
-    // and the pixel chunk. The frame index must come back advanced by all
-    // three — advancing by one would make the next frame's serials collide
-    // with this frame's and corrupt fragment reassembly on the device.
-    final first = await codec.encodeImageFrame(
-      specYaml: display,
-      width: 40,
-      height: 34,
-      rgb: List<int>.filled(40 * 34 * 3, 0xAB),
-      frameIndex: 0,
-      maxPayloadPerWrite: 509,
-    );
-
-    expect(first.nextFrameIndex, 3, reason: 'frameIndex reached the encoder');
-    expect(first.writes, hasLength(3));
-    expect(first.serviceUuid, isNotEmpty);
-    expect(
-      first.writes.every((w) => w.bytes.length <= 509),
-      isTrue,
-      reason: 'no BLE write may exceed maxPayloadPerWrite',
-    );
-
-    // A later frame skips the session open, streams on the OTHER (bulk)
-    // characteristic, and derives its fragment serial from frameIndex —
-    // which is how that argument proves it arrived.
-    final later = await codec.encodeImageFrame(
-      specYaml: display,
-      width: 40,
-      height: 34,
-      rgb: List<int>.filled(40 * 34 * 3, 0xAB),
-      frameIndex: first.nextFrameIndex,
-      maxPayloadPerWrite: 509,
-    );
-    expect(later.writes, hasLength(1));
-    expect(later.writes.single.bytes[0], first.nextFrameIndex);
-    expect(later.nextFrameIndex, first.nextFrameIndex + 1);
-    expect(
-      later.writes.single.characteristicUuid,
-      isNot(first.writes.first.characteristicUuid),
-      reason: 'pixels go to the bulk channel, not the command channel',
-    );
-
-    // maxPayloadPerWrite is enforced, not advisory: at the 20-byte BLE floor
-    // this canvas's single chunk cannot fit one write, and the device does
-    // not reassemble split chunks, so the encoder must refuse.
-    await expectLater(
-      codec.encodeImageFrame(
+      // Each of the four numeric arguments is checked by something it alone can
+      // move. They are adjacent ints in the signature, and a transposition
+      // compiles.
+      //
+      // A solid 40x34 canvas encodes as ONE TUTU chunk, so frame 0 is exactly
+      // three logical packets: ui_end_sync + doodle_start (the session open)
+      // and the pixel chunk. The frame index must come back advanced by all
+      // three — advancing by one would make the next frame's serials collide
+      // with this frame's and corrupt fragment reassembly on the device.
+      final first = await codec.encodeImageFrame(
         specYaml: display,
         width: 40,
         height: 34,
         rgb: List<int>.filled(40 * 34 * 3, 0xAB),
-        frameIndex: 5,
-        maxPayloadPerWrite: 20,
-      ),
-      throwsA(anything),
-    );
+        frameIndex: 0,
+        maxPayloadPerWrite: 509,
+      );
 
-    // And width/height: the encoder rejects a pixel buffer that is not
-    // width x height x 3, so a swapped or dropped dimension cannot pass
-    // unnoticed.
-    await expectLater(
-      codec.encodeImageFrame(
+      expect(first.nextFrameIndex, 3, reason: 'frameIndex reached the encoder');
+      expect(first.writes, hasLength(3));
+      expect(first.serviceUuid, isNotEmpty);
+      expect(
+        first.writes.every((w) => w.bytes.length <= 509),
+        isTrue,
+        reason: 'no BLE write may exceed maxPayloadPerWrite',
+      );
+
+      // A later frame skips the session open, streams on the OTHER (bulk)
+      // characteristic, and derives its fragment serial from frameIndex —
+      // which is how that argument proves it arrived.
+      final later = await codec.encodeImageFrame(
         specYaml: display,
         width: 40,
         height: 34,
-        rgb: List<int>.filled(40 * 33 * 3, 0xAB),
-        frameIndex: 0,
-        maxPayloadPerWrite: 20,
-      ),
-      throwsA(anything),
-    );
-  });
+        rgb: List<int>.filled(40 * 34 * 3, 0xAB),
+        frameIndex: first.nextFrameIndex,
+        maxPayloadPerWrite: 509,
+      );
+      expect(later.writes, hasLength(1));
+      expect(later.writes.single.bytes[0], first.nextFrameIndex);
+      expect(later.nextFrameIndex, first.nextFrameIndex + 1);
+      expect(
+        later.writes.single.characteristicUuid,
+        isNot(first.writes.first.characteristicUuid),
+        reason: 'pixels go to the bulk channel, not the command channel',
+      );
+
+      // maxPayloadPerWrite is enforced, not advisory: at the 20-byte BLE floor
+      // this canvas's single chunk cannot fit one write, and the device does
+      // not reassemble split chunks, so the encoder must refuse.
+      await expectLater(
+        codec.encodeImageFrame(
+          specYaml: display,
+          width: 40,
+          height: 34,
+          rgb: List<int>.filled(40 * 34 * 3, 0xAB),
+          frameIndex: 5,
+          maxPayloadPerWrite: 20,
+        ),
+        throwsA(anything),
+      );
+
+      // And width/height: the encoder rejects a pixel buffer that is not
+      // width x height x 3, so a swapped or dropped dimension cannot pass
+      // unnoticed.
+      await expectLater(
+        codec.encodeImageFrame(
+          specYaml: display,
+          width: 40,
+          height: 34,
+          rgb: List<int>.filled(40 * 33 * 3, 0xAB),
+          frameIndex: 0,
+          maxPayloadPerWrite: 20,
+        ),
+        throwsA(anything),
+      );
+    },
+  );
 }

@@ -65,9 +65,9 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
-      const codec = RealSpecCodec();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       if (Platform.environment['LB_LIVE_BLE_DIRECT'] != '1') {
@@ -110,18 +110,26 @@ void main() {
             sequence: nextSeq(),
           );
           final done = notify
-              .asyncMap((b) =>
-                  codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b))
+              .asyncMap(
+                (b) =>
+                    codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b),
+              )
               .where((e) => e != null)
               .cast<StoredUploadEventDto>()
-              .firstWhere((e) =>
-                  e.kind == StoredUploadEventKind.complete ||
-                  e.kind == StoredUploadEventKind.failed ||
-                  e.kind == StoredUploadEventKind.startRejected)
+              .firstWhere(
+                (e) =>
+                    e.kind == StoredUploadEventKind.complete ||
+                    e.kind == StoredUploadEventKind.failed ||
+                    e.kind == StoredUploadEventKind.startRejected,
+              )
               .timeout(const Duration(seconds: 30));
           for (final wr in plan.uploadWrites) {
             await ble.writeCharacteristic(
-                deviceId, plan.serviceUuid, wr.characteristicUuid, wr.bytes);
+              deviceId,
+              plan.serviceUuid,
+              wr.characteristicUuid,
+              wr.bytes,
+            );
           }
           await done;
           cids.add(cid);
@@ -131,28 +139,32 @@ void main() {
         final slotByCid = <int, int>{};
         final elSub = notify.listen((bytes) async {
           for (final e in await codec.decodeEffectList(
-              specYaml: specYaml, bytes: bytes)) {
+            specYaml: specYaml,
+            bytes: bytes,
+          )) {
             slotByCid[e.cid] = e.slot;
           }
         });
         final el = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'effect_list',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'effect_list',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, el);
         await Future<void>.delayed(const Duration(seconds: 3));
         await elSub.cancel();
         final slots = [for (final c in cids) slotByCid[c] ?? 0];
         // ignore: avoid_print
-        print('SLOTS ${[
-          for (var i = 0; i < cids.length; i++) '${cids[i]}->${slots[i]}'
-        ].join(', ')}');
+        print(
+          'SLOTS ${[for (var i = 0; i < cids.length; i++) '${cids[i]}->${slots[i]}'].join(', ')}',
+        );
 
         // ignore: avoid_print
         print(
-            'CYCLING play_effect over ${cids.length} frames every ${frameMs}ms '
-            'for ${holdSecs}s WHILE CONNECTED — watch the panel.');
+          'CYCLING play_effect over ${cids.length} frames every ${frameMs}ms '
+          'for ${holdSecs}s WHILE CONNECTED — watch the panel.',
+        );
         final until = DateTime.now().add(Duration(seconds: holdSecs));
         var i = 0;
         var logged = 0;
@@ -160,14 +172,15 @@ void main() {
           final cid = cids[i % cids.length];
           final slot = slots[i % slots.length];
           final cmd = await codec.encodeCommand(
-              specYaml: specYaml,
-              charUuid: _ddpWrite,
-              commandName: 'play_effect',
-              params: {
-                'effect_id': cid.toDouble(),
-                'slot': slot.toDouble(),
-                'sn': nextSeq().toDouble(),
-              });
+            specYaml: specYaml,
+            charUuid: _ddpWrite,
+            commandName: 'play_effect',
+            params: {
+              'effect_id': cid.toDouble(),
+              'slot': slot.toDouble(),
+              'sn': nextSeq().toDouble(),
+            },
+          );
           if (logged < 3) {
             // ignore: avoid_print
             print('>> play_effect cid=$cid slot=$slot -> ${_hex(cmd)}');

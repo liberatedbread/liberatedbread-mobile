@@ -57,12 +57,11 @@ void main() {
   bool Function(X509Certificate, String, int) evaluatorFor(
     TlsPolicy? policy, {
     bool fallback = false,
-  }) =>
-      trust.evaluator(
-        identity: 'envoy@192.0.2.4',
-        policy: policy,
-        fallback: (_, __, ___) => fallback,
-      );
+  }) => trust.evaluator(
+    identity: 'envoy@192.0.2.4',
+    policy: policy,
+    fallback: (_, _, _) => fallback,
+  );
 
   test('the vocabulary maps to what this app can actually do', () {
     expect(TlsPolicy.parse('standard'), TlsPolicy.standard);
@@ -84,21 +83,23 @@ void main() {
     expect(evaluate(_FakeCert('envoy-leaf'), '192.0.2.4', 443), isTrue);
   });
 
-  test('a changed certificate is refused, and the pin is not replaced',
-      () async {
-    final first = evaluatorFor(TlsPolicy.trustOnFirstUse);
-    expect(first(_FakeCert('envoy-leaf'), '192.0.2.4', 443), isTrue);
+  test(
+    'a changed certificate is refused, and the pin is not replaced',
+    () async {
+      final first = evaluatorFor(TlsPolicy.trustOnFirstUse);
+      expect(first(_FakeCert('envoy-leaf'), '192.0.2.4', 443), isTrue);
 
-    expect(
-      first(_FakeCert('someone-elses-leaf'), '192.0.2.4', 443),
-      isFalse,
-      reason: 'this is the whole point of pinning',
-    );
-    // And the refusal does not quietly re-pin: the original certificate is
-    // still the one this device is known by, so the real device coming back
-    // still works and the impostor still does not.
-    expect(first(_FakeCert('envoy-leaf'), '192.0.2.4', 443), isTrue);
-  });
+      expect(
+        first(_FakeCert('someone-elses-leaf'), '192.0.2.4', 443),
+        isFalse,
+        reason: 'this is the whole point of pinning',
+      );
+      // And the refusal does not quietly re-pin: the original certificate is
+      // still the one this device is known by, so the real device coming back
+      // still works and the impostor still does not.
+      expect(first(_FakeCert('envoy-leaf'), '192.0.2.4', 443), isTrue);
+    },
+  );
 
   test('a pin survives into a new session', () async {
     final before = evaluatorFor(TlsPolicy.trustOnFirstUse);
@@ -112,7 +113,7 @@ void main() {
     final after = next.evaluator(
       identity: 'envoy@192.0.2.4',
       policy: TlsPolicy.trustOnFirstUse,
-      fallback: (_, __, ___) => false,
+      fallback: (_, _, _) => false,
     );
     expect(
       after(_FakeCert('someone-elses-leaf'), '192.0.2.4', 443),
@@ -180,23 +181,29 @@ void main() {
 
     // Pin each device under its own name, interleaved as a group run would.
     expect(
-        client.debugEvaluateCertificate(_FakeCert('envoy'), '192.0.2.4', 443),
-        isTrue);
+      client.debugEvaluateCertificate(_FakeCert('envoy'), '192.0.2.4', 443),
+      isTrue,
+    );
     expect(
-        client.debugEvaluateCertificate(
-            _FakeCert('smartcast'), '192.0.2.7', 7345),
-        isTrue);
+      client.debugEvaluateCertificate(
+        _FakeCert('smartcast'),
+        '192.0.2.7',
+        7345,
+      ),
+      isTrue,
+    );
 
     // Each still recognises its own, and neither has been re-pinned to the
     // other's certificate.
     expect(
-        client.debugEvaluateCertificate(_FakeCert('envoy'), '192.0.2.4', 443),
-        isTrue);
+      client.debugEvaluateCertificate(_FakeCert('envoy'), '192.0.2.4', 443),
+      isTrue,
+    );
     expect(
-        client.debugEvaluateCertificate(
-            _FakeCert('smartcast'), '192.0.2.4', 443),
-        isFalse,
-        reason: 'the other device\'s certificate is still an impostor here');
+      client.debugEvaluateCertificate(_FakeCert('smartcast'), '192.0.2.4', 443),
+      isFalse,
+      reason: 'the other device\'s certificate is still an impostor here',
+    );
   });
 
   test('forgetting a device is a real way back', () async {
@@ -218,8 +225,11 @@ void main() {
     // lives on a Provider that outlives any screen.
     final next = TlsTrust(CertificatePinStore(store));
     await next.prepare('envoy@192.0.2.4');
-    expect(await CertificatePinStore(store).pin('envoy@192.0.2.4'), isNotNull,
-        reason: 'the new certificate was pinned in its place');
+    expect(
+      await CertificatePinStore(store).pin('envoy@192.0.2.4'),
+      isNotNull,
+      reason: 'the new certificate was pinned in its place',
+    );
   });
 
   test('the pin key survives a DHCP lease when the device published a MAC', () {
@@ -227,11 +237,16 @@ void main() {
     // to compute the same key or the pin is one nothing can clear. Keying by
     // IP also re-pins on every lease — the same as not pinning — and hands the
     // next tenant of that address the previous device's fingerprint.
-    expect(identityFor(mac: 'AA:BB:CC:11:22:33', host: '192.0.2.4'),
-        identityFor(mac: 'aa:bb:cc:11:22:33', host: '192.0.2.99'));
+    expect(
+      identityFor(mac: 'AA:BB:CC:11:22:33', host: '192.0.2.4'),
+      identityFor(mac: 'aa:bb:cc:11:22:33', host: '192.0.2.99'),
+    );
     expect(identityFor(mac: null, host: '192.0.2.4'), 'host:192.0.2.4');
-    expect(identityFor(mac: '', host: '192.0.2.4'), 'host:192.0.2.4',
-        reason: 'an empty address is no address');
+    expect(
+      identityFor(mac: '', host: '192.0.2.4'),
+      'host:192.0.2.4',
+      reason: 'an empty address is no address',
+    );
   });
 
   test('one sender closing does not disarm another on the same host', () async {
@@ -250,8 +265,9 @@ void main() {
       );
     }
     expect(
-        client.debugEvaluateCertificate(_FakeCert('envoy'), '192.0.2.4', 443),
-        isTrue);
+      client.debugEvaluateCertificate(_FakeCert('envoy'), '192.0.2.4', 443),
+      isTrue,
+    );
 
     client.forgetHost('192.0.2.4');
     expect(
@@ -284,8 +300,10 @@ void main() {
       identity: 'envoy@192.0.2.4',
       policy: TlsPolicy.trustOnFirstUse,
     );
-    expect(client.debugEvaluateCertificate(_FakeCert('real'), '192.0.2.4', 443),
-        isTrue);
+    expect(
+      client.debugEvaluateCertificate(_FakeCert('real'), '192.0.2.4', 443),
+      isTrue,
+    );
 
     // The unregistered sibling closing. It registered nothing, so it forgets
     // nothing — which is what the sender now enforces by only calling
@@ -309,11 +327,14 @@ void main() {
     final evaluate = guarded.evaluator(
       identity: 'envoy@192.0.2.4',
       policy: TlsPolicy.trustOnFirstUse,
-      fallback: (_, __, ___) => true,
+      fallback: (_, _, _) => true,
     );
     expect(evaluate(_FakeCert('whatever'), '192.0.2.4', 443), isFalse);
-    expect(guarded.refused('192.0.2.4'), isTrue,
-        reason: 'and it says WHY, rather than reading as unreachable');
+    expect(
+      guarded.refused('192.0.2.4'),
+      isTrue,
+      reason: 'and it says WHY, rather than reading as unreachable',
+    );
   });
 
   test('a standard-policy refusal is reported as a certificate problem', () {
@@ -334,8 +355,11 @@ void main() {
 
     await trust.forget('someone-else@192.0.2.9', host: '192.0.2.9');
 
-    expect(trust.refused('192.0.2.4'), isTrue,
-        reason: 'another device being forgotten is not news about this one');
+    expect(
+      trust.refused('192.0.2.4'),
+      isTrue,
+      reason: 'another device being forgotten is not news about this one',
+    );
   });
 
   test('a refused certificate is distinguishable from an absent device', () {
@@ -348,8 +372,11 @@ void main() {
     expect(trust.refused('192.0.2.4'), isFalse);
 
     expect(evaluate(_FakeCert('first'), '192.0.2.4', 443), isTrue);
-    expect(trust.refused('192.0.2.4'), isFalse,
-        reason: 'first contact is fine');
+    expect(
+      trust.refused('192.0.2.4'),
+      isFalse,
+      reason: 'first contact is fine',
+    );
 
     expect(evaluate(_FakeCert('changed'), '192.0.2.4', 443), isFalse);
     expect(trust.refused('192.0.2.4'), isTrue);
@@ -367,7 +394,7 @@ void main() {
     final vizio = trust.evaluator(
       identity: 'smartcast@192.0.2.7',
       policy: TlsPolicy.trustOnFirstUse,
-      fallback: (_, __, ___) => false,
+      fallback: (_, _, _) => false,
     );
     expect(
       vizio(_FakeCert('smartcast-leaf'), '192.0.2.7', 7345),

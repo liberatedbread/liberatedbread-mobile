@@ -79,20 +79,20 @@ class SavedDesign {
   });
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'cid': cid,
-        'kind': kind,
-        'contentHash': contentHash,
-        'savedAt': savedAt.toIso8601String(),
-        if (frameCids.isNotEmpty) 'frameCids': frameCids,
-        if (frameSlots.isNotEmpty) 'frameSlots': frameSlots,
-        if (frames.isNotEmpty) ...{
-          'frames': [for (final f in frames) base64Encode(f)],
-          'width': width,
-          'height': height,
-          'frameMs': frameMs,
-        },
-      };
+    'name': name,
+    'cid': cid,
+    'kind': kind,
+    'contentHash': contentHash,
+    'savedAt': savedAt.toIso8601String(),
+    if (frameCids.isNotEmpty) 'frameCids': frameCids,
+    if (frameSlots.isNotEmpty) 'frameSlots': frameSlots,
+    if (frames.isNotEmpty) ...{
+      'frames': [for (final f in frames) base64Encode(f)],
+      'width': width,
+      'height': height,
+      'frameMs': frameMs,
+    },
+  };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
   /// take the whole list down with it.
@@ -204,17 +204,39 @@ class SavedDesignsStore {
     await _prefs.remove('$_keyPrefix$deviceId');
   }
 
+  /// Replace the whole list for [deviceId] with [designs], in ONE write.
+  ///
+  /// The way to drop some entries and keep the rest. Doing it as clear()
+  /// followed by one save() per survivor left the list missing survivors —
+  /// designs still on the device — whenever a save after the clear threw,
+  /// and the throw then surfaced from the upload as "Could not save to the
+  /// device". One setString either lands or does not; there is no partial.
+  Future<void> replaceAll(String deviceId, List<SavedDesign> designs) async {
+    if (designs.isEmpty) {
+      await _prefs.remove('$_keyPrefix$deviceId');
+      return;
+    }
+    await _prefs.setString(
+      '$_keyPrefix$deviceId',
+      jsonEncode(designs.map((d) => d.toJson()).toList()),
+    );
+  }
+
   /// Insert or update [design], newest-first. An entry with the same cid OR
   /// the same content is replaced — the same device slot under a new name is
   /// one entry, not two.
   Future<List<SavedDesign>> save(String deviceId, SavedDesign design) async {
-    final designs = load(deviceId)
-        .where(
-            (d) => d.cid != design.cid && d.contentHash != design.contentHash)
-        .toList()
-      ..insert(0, design);
-    await _prefs.setString('$_keyPrefix$deviceId',
-        jsonEncode(designs.map((d) => d.toJson()).toList()));
+    final designs =
+        load(deviceId)
+            .where(
+              (d) => d.cid != design.cid && d.contentHash != design.contentHash,
+            )
+            .toList()
+          ..insert(0, design);
+    await _prefs.setString(
+      '$_keyPrefix$deviceId',
+      jsonEncode(designs.map((d) => d.toJson()).toList()),
+    );
     return designs;
   }
 }

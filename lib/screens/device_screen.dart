@@ -11,9 +11,11 @@ import '../providers/device_description_provider.dart';
 import '../providers/device_setup_help_provider.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/ha_provider.dart';
+import '../providers/spec_codec_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
+import '../services/spec_codec.dart' show BleHandshakeDto;
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/safety_advisory_gate.dart';
@@ -26,6 +28,126 @@ import 'setup_instructions_screen.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
+/// Thrown by [runBleHandshake] when [abort] completed before the handshake
+/// did. Not a failure of the device or the spec: the link is gone (or the
+/// screen is), and the steps that had not run yet were not run.
+class BleHandshakeAborted implements Exception {
+  const BleHandshakeAborted();
+}
+
+/// Execute a spec's connect-time handshake, step by step, and hand back the
+/// notification subscriptions it opened.
+///
+/// A thin executor ON PURPOSE. Every decision — which steps exist, what order
+/// they run in, which service each characteristic lives under, and which of
+/// them can be carried out at all — was made in Rust from the spec's
+/// `initialization` blocks; this loop holds none of it. What it does own is
+/// the two things only a client can: the BLE calls, and the subscriptions'
+/// lifetime, which is the connection's (the caller cancels them when the link
+/// goes).
+///
+/// Within one step the order is subscribe, write, read, wait: a step that
+/// opens notifications is opening them for what follows, and a step that both
+/// writes and reads (SpotLED's `04 14 00 00`) is reading the answer to its
+/// own write.
+///
+/// A step that fails STOPS the handshake — the steps are ordered because they
+/// depend on each other, and running the rest against a device that refused
+/// step two is how a half-initialized device comes to look initialized. The
+/// throw carries no list back, so anything this opened before it is cancelled
+/// here rather than left running with no owner.
+@visibleForTesting
+Future<List<StreamSubscription<List<int>>>> runBleHandshake({
+  required BleService ble,
+  required String deviceId,
+  required BleHandshakeDto handshake,
+  Future<void>? abort,
+}) async {
+  // Checked between steps and raced against each delay. A write or a read
+  // already in flight cannot be recalled, but the step after it is not
+  // started: a drop during step one of a SpotLED's three-write handshake
+  // used to leave steps two and three writing to a dead link, each waiting
+  // out a BLE timeout, before the screen could show what the watcher had
+  // known since the drop.
+  var aborted = false;
+  unawaited(abort?.then((_) => aborted = true));
+  // Prose, not instructions: schlage's session resumption is a fresh SPAKE2
+  // exchange per connect and no spec can hold its bytes. Said out loud rather
+  // than silently skipped, because "the handshake ran" and "the executable
+  // part of the handshake ran" are different claims.
+  for (final described in handshake.described) {
+    Log.ble.warning(
+      'the spec asks for a handshake step this app cannot perform on '
+      '$deviceId: $described',
+    );
+  }
+  final opened = <StreamSubscription<List<int>>>[];
+  try {
+    for (final step in handshake.steps) {
+      if (aborted) throw const BleHandshakeAborted();
+      final serviceUuid = step.serviceUuid;
+      if (serviceUuid == null) {
+        // No service declares the characteristic and the step named no owner,
+        // so there is nothing to address the operation to. Skipped rather
+        // than guessed: a write to the wrong service is not a handshake.
+        Log.ble.warning(
+          'skipping a handshake step on $deviceId: no service declares '
+          '${step.characteristicUuid}',
+        );
+        continue;
+      }
+      if (step.subscribe) {
+        opened.add(
+          ble
+              .subscribeCharacteristic(
+                deviceId,
+                serviceUuid,
+                step.characteristicUuid,
+              )
+              .listen(
+                // The payloads matter to the device, not to us: what the spec
+                // asks for is that notifications be RUNNING. The service's own
+                // ring keeps what arrives for whoever wants it later.
+                (_) {},
+                onError: (Object e) => Log.ble.debug(
+                  'handshake notification on ${step.characteristicUuid}: $e',
+                ),
+              ),
+        );
+      }
+      final write = step.write;
+      if (write != null) {
+        await ble.writeCharacteristic(
+          deviceId,
+          serviceUuid,
+          step.characteristicUuid,
+          write,
+        );
+      }
+      if (step.read) {
+        await ble.readCharacteristic(
+          deviceId,
+          serviceUuid,
+          step.characteristicUuid,
+        );
+      }
+      if (step.delayMs > 0) {
+        final delay = Future<void>.delayed(
+          Duration(milliseconds: step.delayMs),
+        );
+        await (abort == null ? delay : Future.any<void>([delay, abort]));
+        if (aborted) throw const BleHandshakeAborted();
+      }
+    }
+  } catch (_) {
+    for (final sub in opened) {
+      unawaited(sub.cancel());
+    }
+    rethrow;
+  }
+  return opened;
+}
+
 class DeviceScreen extends ConsumerStatefulWidget {
   final IoTDevice device;
 
@@ -36,6 +158,14 @@ class DeviceScreen extends ConsumerStatefulWidget {
 }
 
 class _DeviceScreenState extends ConsumerState<DeviceScreen> {
+  /// How long the connect path waits for the spec match before opening the
+  /// screen without having run the device's handshake. See
+  /// [_runSpecHandshake].
+  static const _specMatchWait = Duration(seconds: 3);
+
+  /// Set by the first Disconnect tap; see onDisconnect.
+  bool _leaving = false;
+
   _ScreenState _state = _ScreenState.connecting;
   // Set when "Try to find device" started the current connect attempt: the
   // find screen needs a live link for its RSSI ping, so from the failed and
@@ -46,6 +176,29 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   List<BleDiscoveredService> _services = [];
   late final BleService _bleService;
   StreamSubscription<BleConnectionState>? _connSub;
+
+  /// Notification streams the spec's connect-time handshake asked to be
+  /// opened, held for the life of THIS connection. A handshake that says
+  /// `subscribe` means "have notifications running before anything else
+  /// happens" (SmartDawn opens both of its DDP channels first), so the
+  /// subscriptions cannot be dropped the moment the handshake returns — and
+  /// they have to go when the link does, or the next connect stacks another
+  /// set on top.
+  final List<StreamSubscription<List<int>>> _handshakeSubs = [];
+
+  /// Completed to stop a handshake in flight: by the connection watcher when
+  /// the link drops, and by _cleanupConnection when the screen leaves.
+  Completer<void>? _handshakeAbort;
+
+  /// The bounded wait for the spec match, and the deadline that bounds it.
+  ///
+  /// Owned as fields rather than left inside a `Future.timeout` because both
+  /// have to be let go when the screen is: a timer still pending after the
+  /// tree is disposed is a leak (and a test failure), and a wait nothing
+  /// completes would strand [_connect] mid-flight — with the link it
+  /// established never torn down.
+  Completer<SpecMatchOutcome>? _matchGate;
+  Timer? _matchDeadline;
   // Watches the spec match for the connected device and records the outcome
   // (category + spec key) on the saved-device record, so grouping can
   // classify this device while it is out of range. A listener rather than a
@@ -69,6 +222,22 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   // exactly one disconnect() runs per established connection.
   bool _connected = false;
 
+  /// Bumped by every [_connect]. Retry, Try-to-find and the reconnect the
+  /// connection watcher fires all call it, and nothing stopped a second call
+  /// from overlapping the first: the older attempt was left suspended inside
+  /// `connect()` or `discoverServices()`, and when it finally resolved it
+  /// carried on as though it owned the screen — worst of all in its catch,
+  /// where `_cleanupConnection()` tore down the link the NEWER attempt had
+  /// just established and then painted the error state over a working
+  /// screen. An attempt that is no longer the current one now does nothing
+  /// at all: it does not disconnect (the peripheral is the same one the
+  /// live attempt is holding), it does not setState, it just stops.
+  int _connectGeneration = 0;
+
+  /// Whether a newer [_connect] has taken over from the attempt that started
+  /// at [generation].
+  bool _superseded(int generation) => generation != _connectGeneration;
+
   @override
   void initState() {
     super.initState();
@@ -77,10 +246,14 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   }
 
   Future<void> _connect() async {
+    final generation = ++_connectGeneration;
     // Drop any connection this screen still owns + cached services first, so a
     // retry or reconnect doesn't run against an already-connected peripheral
     // with a stale service cache.
     await _cleanupConnection();
+    // Even the teardown is an await: a second tap during it supersedes us
+    // before we have started.
+    if (_superseded(generation) || !mounted) return;
 
     setState(() {
       _state = _ScreenState.connecting;
@@ -89,6 +262,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
     try {
       await _bleService.connect(widget.device.id);
+      // A newer attempt is driving now. It targets the same peripheral, so
+      // the link this call established is the one it is about to use (or
+      // already using): hand it over untouched rather than disconnecting it,
+      // and let the newer attempt's own `_connected` own the teardown.
+      if (_superseded(generation)) return;
       // We now own a live connection — record it BEFORE the mounted check so an
       // unmount-during-connect still tears it down instead of leaking it.
       _connected = true;
@@ -138,11 +316,32 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
       final services = await _bleService.discoverServices(widget.device.id);
 
+      if (_superseded(generation)) return;
       // Same hazard as above: discovery can return after unmount.
       if (!mounted) {
         await _cleanupConnection();
         return;
       }
+      // The spec's own handshake, BEFORE the controls exist — six vendored
+      // specs declare one ("ordered handshake / setup steps executed after
+      // connecting and before normal commands", in the schema's words) and
+      // until this nothing ran them, so a SpotLED panel's first tap went out
+      // without the three writes the device is waiting for. Never fatal: a
+      // handshake that fails is a device that may ignore its commands, and a
+      // screen that refuses to open is a device that certainly does.
+      await _runSpecHandshake(services, generation);
+      if (_superseded(generation)) return;
+      if (!mounted) {
+        await _cleanupConnection();
+        return;
+      }
+      // A drop the watcher recorded DURING the handshake — a spec's delayMs
+      // sleeps run for seconds — stays on screen. _watchConnection flips
+      // _state to disconnected on the event and nothing after this point would
+      // ever flip it back, so painting `ready` over it showed "Connected · N
+      // services" and live controls on a dead link, with no way to reconnect
+      // and every control failing one by one.
+      if (_state == _ScreenState.disconnected || !_connected) return;
       setState(() {
         _services = services;
         _state = _ScreenState.ready;
@@ -153,6 +352,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         _openFind();
       }
     } catch (e) {
+      // A stale attempt's failure is not the screen's failure. Returning
+      // here is the whole point of the generation: `_cleanupConnection()`
+      // below would disconnect the peripheral the newer attempt is using,
+      // and the setState after it would replace a connected screen with
+      // "Could not connect to this device."
+      if (_superseded(generation)) return;
       // Drop any half-open link + cached services so the error path / Retry
       // starts from a clean slate (no-op if we never connected).
       await _cleanupConnection();
@@ -162,7 +367,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           _error = friendlyErrorText(
             e,
             context: 'connect/discover ${widget.device.id}',
-            fallback: 'Could not connect to this device. Move closer, check '
+            fallback:
+                'Could not connect to this device. Move closer, check '
                 'it is powered on, then try again.',
           );
           _state = _ScreenState.error;
@@ -212,21 +418,147 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     );
   }
 
+  /// Cut a handshake in flight short; idempotent.
+  void _abortHandshake() {
+    final abort = _handshakeAbort;
+    if (abort != null && !abort.isCompleted) abort.complete();
+  }
+
   /// Tear down the connection this screen owns: cancel the connection-state
   /// subscription and, if we established a link, disconnect it. Idempotent via
   /// the [_connected] guard so the unmount-cleanup and dispose() paths can't
   /// double-disconnect. Shared by the unmounted, discovery-failure, retry, and
   /// dispose paths so they all tear down identically.
   Future<void> _cleanupConnection() async {
+    _abortHandshake();
     // Cancel is fire-and-forget: it synchronously stops delivery, and awaiting
     // subscription teardown can stall inside the widget-test fake zone.
     unawaited(_connSub?.cancel());
     _connSub = null;
     _matchSub?.close();
     _matchSub = null;
+    _releaseMatchWait();
+    for (final sub in _handshakeSubs) {
+      unawaited(sub.cancel());
+    }
+    _handshakeSubs.clear();
     if (_connected) {
       _connected = false;
       await _bleService.disconnect(widget.device.id).catchError((Object _) {});
+    }
+  }
+
+  /// Stop waiting for the spec match: cancel the deadline and let whoever is
+  /// awaiting it through with no spec.
+  ///
+  /// Both halves matter. The timer must not outlive the tree; and the wait
+  /// must be COMPLETED rather than abandoned, because [_connect] suspends on
+  /// it while owning a live connection it tears down on the way out.
+  void _releaseMatchWait() {
+    _matchDeadline?.cancel();
+    _matchDeadline = null;
+    final gate = _matchGate;
+    _matchGate = null;
+    if (gate != null && !gate.isCompleted) {
+      gate.complete(const SpecMatchOutcome.none());
+    }
+  }
+
+  /// Run the matched spec's `initialization` handshake against this
+  /// connection, if it declares one.
+  ///
+  /// The decision of what to send is entirely the catalogue's, resolved in
+  /// Rust: which steps, in which order, against which service. This waits for
+  /// the match because the handshake is the SPEC's, and the match is where
+  /// the spec comes from — the same cached family entry the control panel
+  /// reads, so it costs no extra FFI.
+  Future<void> _runSpecHandshake(
+    List<BleDiscoveredService> services,
+    int generation,
+  ) async {
+    if (services.isEmpty) return;
+    try {
+      // Bounded, and both bounds answer the same way — no spec, no handshake,
+      // open the screen. The match is what the control panel is waiting on
+      // too, so waiting for it costs the user nothing they were not already
+      // waiting for; but a catalogue that never resolves (an asset read that
+      // hangs) must not hold a connected device behind a spinner, and a
+      // handshake skipped is exactly where this device was yesterday.
+      final gate = _matchGate = Completer<SpecMatchOutcome>();
+      void settle([SpecMatchOutcome outcome = const SpecMatchOutcome.none()]) {
+        if (!gate.isCompleted) gate.complete(outcome);
+      }
+
+      _matchDeadline = Timer(_specMatchWait, settle);
+      unawaited(
+        ref
+            .read(
+              matchedDeviceSpecProvider(
+                SpecMatchRequest.forServices(
+                  deviceId: widget.device.id,
+                  deviceName: widget.device.displayName,
+                  services: services,
+                ),
+              ).future,
+            )
+            .then(settle, onError: (Object _) => settle()),
+      );
+      final outcome = await gate.future;
+      _releaseMatchWait();
+      final chosen = outcome.chosen;
+      if (chosen == null) return;
+      final handshake = await ref
+          .read(specCodecProvider)
+          .specBleHandshake(specYaml: chosen.yaml);
+      if (handshake.steps.isEmpty && handshake.described.isEmpty) return;
+      if (_superseded(generation) || !mounted || !_connected) return;
+      final abort = _handshakeAbort = Completer<void>();
+      final List<StreamSubscription<List<int>>> subs;
+      try {
+        subs = await runBleHandshake(
+          ble: _bleService,
+          deviceId: widget.device.id,
+          handshake: handshake,
+          abort: abort.future,
+        );
+      } on BleHandshakeAborted {
+        // The link dropped, or the screen left, mid-handshake: the executor
+        // has already released what it opened, and the watcher (or the
+        // teardown) already owns what happens next.
+        Log.ble.debug(
+          'the spec handshake for ${widget.device.id} was cut short',
+        );
+        return;
+      } finally {
+        if (identical(_handshakeAbort, abort)) _handshakeAbort = null;
+      }
+      // Re-checked AFTER the await, not only before it. runBleHandshake awaits
+      // writes, reads and the spec's own `delayMs` sleeps (seconds, for
+      // SmartDawn), and dispose() has already drained and cleared
+      // _handshakeSubs by the time a user who backed out gets here. Adding to
+      // the list then is adding to a list nobody will drain again: the notify
+      // interest the handshake took out is never released, and the next
+      // connect stacks another set on top of it.
+      //
+      // [_superseded] for the same reason, and `_connected` cannot stand in
+      // for it: a Retry or a watcher reconnect during those sleeps drains
+      // _handshakeSubs in its own _cleanupConnection and then sets _connected
+      // back to true, so this attempt would hand the NEW link a set of
+      // subscriptions taken out on the old one.
+      if (_superseded(generation) || !mounted || !_connected) {
+        for (final sub in subs) {
+          unawaited(sub.cancel());
+        }
+        return;
+      }
+      _handshakeSubs.addAll(subs);
+    } catch (e) {
+      // Logged, not surfaced: the user's question is "do my controls work",
+      // and the answer to a half-run handshake is found by trying one.
+      Log.ble.warning(
+        'the spec handshake for ${widget.device.id} did not complete',
+        error: e,
+      );
     }
   }
 
@@ -240,11 +572,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _matchSub?.close();
     if (services.isEmpty) return;
     _matchSub = ref.listenManual(
-      matchedDeviceSpecProvider(SpecMatchRequest.forServices(
-        deviceId: widget.device.id,
-        deviceName: widget.device.displayName,
-        services: services,
-      )),
+      matchedDeviceSpecProvider(
+        SpecMatchRequest.forServices(
+          deviceId: widget.device.id,
+          deviceName: widget.device.displayName,
+          services: services,
+        ),
+      ),
       fireImmediately: true,
       (previous, next) async {
         final chosen = next.valueOrNull?.chosen;
@@ -292,12 +626,16 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _connSub?.cancel();
     _connSub = _bleService.connectionState(widget.device.id).listen((state) {
       if (!mounted) return;
-      final lostConnection = state == BleConnectionState.disconnected ||
+      final lostConnection =
+          state == BleConnectionState.disconnected ||
           state == BleConnectionState.disconnecting;
       if (lostConnection &&
           (_state == _ScreenState.ready ||
               _state == _ScreenState.discovering)) {
         setState(() => _state = _ScreenState.disconnected);
+        // And stop a handshake in flight: what it has not written yet it must
+        // not write to a link that is gone.
+        _abortHandshake();
       }
     });
   }
@@ -312,6 +650,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _connSub = null;
     _matchSub?.close();
     _matchSub = null;
+    _releaseMatchWait();
+    for (final sub in _handshakeSubs) {
+      unawaited(sub.cancel());
+    }
+    _handshakeSubs.clear();
     if (_connected) {
       _connected = false;
       // unawaited() does not swallow errors, so attach a catchError to keep a
@@ -325,12 +668,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasBanner = _adCategory != null || _adSpecKey != null;
     return Scaffold(
       // The device-targeted promo (label-roll supplies for a BLE label printer,
       // a filter kit for a Rabbit Air, …), shown only ONCE a spec has matched —
       // the connecting/failed/unmatched states get no bar, so no shop banner
       // clutters an error screen (and its ~48 px does not squeeze those layouts).
-      bottomNavigationBar: (_adCategory != null || _adSpecKey != null)
+      bottomNavigationBar: hasBanner
           ? DeviceAdBannerBar(category: _adCategory, specKey: _adSpecKey)
           : null,
       appBar: AppBar(
@@ -360,25 +704,29 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 Text(
                   _statusLabel,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context).appBarTheme.foregroundColor,
-                      ),
+                    color: Theme.of(context).appBarTheme.foregroundColor,
+                  ),
                 ),
               ],
             ),
           ],
         ),
       ),
-      body: _buildBody(),
+      // Landscape is declared for iPhone, so without this the body's 16-24 pt
+      // padding sits under the notch / Dynamic Island on one side and the home
+      // indicator below, while the app bar above it is inset correctly. When
+      // the ad bar is present it owns the bottom inset itself.
+      body: SafeArea(bottom: !hasBanner, child: _buildBody()),
     );
   }
 
   String get _statusLabel => switch (_state) {
-        _ScreenState.connecting => 'Connecting',
-        _ScreenState.discovering => 'Discovering services',
-        _ScreenState.ready => 'Connected',
-        _ScreenState.error => 'Connection failed',
-        _ScreenState.disconnected => 'Disconnected',
-      };
+    _ScreenState.connecting => 'Connecting',
+    _ScreenState.discovering => 'Discovering services',
+    _ScreenState.ready => 'Connected',
+    _ScreenState.error => 'Connection failed',
+    _ScreenState.disconnected => 'Disconnected',
+  };
 
   Widget _buildBody() {
     switch (_state) {
@@ -429,7 +777,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           icon: Icons.bluetooth_disabled,
           severity: _Severity.warning,
           title: 'Device disconnected',
-          message: 'The connection was lost. Move closer or check the device '
+          message:
+              'The connection was lost. Move closer or check the device '
               'is powered on, then reconnect.',
           actionLabel: 'Reconnect',
           onAction: _connect,
@@ -452,7 +801,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         // Air BLE controls for a provisioned purifier). Unresolved reads as
         // "not in setup mode", so the ordinary panel renders immediately
         // rather than the screen waiting on the catalogue.
-        final isRabbitAirSetup = ref
+        final isRabbitAirSetup =
+            ref
                 .watch(bleSetupModeMatchProvider(widget.device.name))
                 .valueOrNull !=
             null;
@@ -462,11 +812,15 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         // suppress the controls — [SafetyAdvisoryGate] shows a banner over them
         // and, when the spec asks, gates them behind a one-time acknowledgement.
         final safety = ref
-            .watch(matchedDeviceSpecProvider(SpecMatchRequest.forServices(
-              deviceId: widget.device.id,
-              deviceName: widget.device.displayName,
-              services: _services,
-            )))
+            .watch(
+              matchedDeviceSpecProvider(
+                SpecMatchRequest.forServices(
+                  deviceId: widget.device.id,
+                  deviceName: widget.device.displayName,
+                  services: _services,
+                ),
+              ),
+            )
             .valueOrNull
             ?.chosen
             ?.spec
@@ -487,7 +841,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               // renders immediately and gains its identity rows a frame later
               // rather than holding the whole screen on an asset load.
               description: describeWith(
-                  ref.watch(numberRegistryProvider), widget.device),
+                ref.watch(numberRegistryProvider),
+                widget.device,
+              ),
               serviceCount: _services.length,
               onFind: _openFind,
               onDisconnect: () async {
@@ -498,9 +854,31 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 // navigator is captured before the await so no BuildContext
                 // crosses the async gap, and the mounted guard keeps a
                 // pop-during-teardown from popping the listing itself.
+                // Once. A second tap while the first is still tearing down
+                // popped again after the screen had gone — the HomeShell
+                // underneath, leaving an empty Navigator.
+                if (_leaving) return;
+                _leaving = true;
                 final navigator = Navigator.of(context);
-                await _cleanupConnection();
-                if (!mounted) return;
+                try {
+                  await _cleanupConnection();
+                } catch (_) {
+                  // _cleanupConnection is best-effort; a teardown that threw
+                  // must still release the latch below rather than leave the
+                  // button dead.
+                }
+                // The latch guards a second tap DURING the teardown. On the
+                // paths that return WITHOUT popping — the screen outlived the
+                // disconnect, or there is nothing under this route — it was
+                // never cleared, so the Disconnect button stayed inert for the
+                // life of the screen with nothing to show for it. It stays set
+                // once the pop is committed: the screen is still mounted for
+                // the length of the transition, and a second tap there is the
+                // double-pop this latch exists to stop.
+                if (!mounted || !navigator.canPop()) {
+                  _leaving = false;
+                  return;
+                }
                 navigator.pop();
               },
             ),
@@ -511,12 +889,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       services: _services,
                     )
                   : safety == null
-                      ? panel
-                      : SafetyAdvisoryGate(
-                          advisory: safety,
-                          ackKey: widget.device.id,
-                          child: panel,
-                        ),
+                  ? panel
+                  : SafetyAdvisoryGate(
+                      advisory: safety,
+                      ackKey: widget.device.id,
+                      child: panel,
+                    ),
             ),
           ],
         );
@@ -562,13 +940,13 @@ class _ConnectedHeader extends StatelessWidget {
   /// CoreBluetooth substitutes a per-host UUID for the address, so there is no
   /// block to look up and `macAddress` is null.
   List<({String label, String value})> get _identity => [
-        if (device.macAddress != null)
-          (label: 'Address', value: device.macAddress!),
-        for (final company in description.companies.take(1))
-          (label: 'Advertises as', value: company),
-        if (description.addressVendor != null)
-          (label: 'Address block', value: description.addressVendor!),
-      ];
+    if (device.macAddress != null)
+      (label: 'Address', value: device.macAddress!),
+    for (final company in description.companies.take(1))
+      (label: 'Advertises as', value: company),
+    if (description.addressVendor != null)
+      (label: 'Address block', value: description.addressVendor!),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -603,8 +981,9 @@ class _ConnectedHeader extends StatelessWidget {
                   children: [
                     Text(
                       name,
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -623,8 +1002,9 @@ class _ConnectedHeader extends StatelessWidget {
                         Text(
                           'Connected  ·  $serviceCount service'
                           '${serviceCount == 1 ? '' : 's'}',
-                          style: text.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant),
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
@@ -650,8 +1030,9 @@ class _ConnectedHeader extends StatelessWidget {
                             // showing it is that it can be acted on.
                             child: SelectableText(
                               row.value,
-                              style: text.bodySmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                              style: text.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
                               maxLines: 2,
                             ),
                           ),
@@ -669,9 +1050,7 @@ class _ConnectedHeader extends StatelessWidget {
               Expanded(
                 child: FilledButton.tonalIcon(
                   onPressed: onFind,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 44),
-                  ),
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
                   icon: const Icon(Icons.radar, size: 18),
                   label: const Text('Find device'),
                 ),
@@ -712,11 +1091,15 @@ class _PairingProgress extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     const steps = ['Connecting', 'Discovering services'];
 
+    // Scrollable, not a bare Column: in landscape the body is ~320 pt tall
+    // and this stack needs more, which pushed the actions off-screen; at a
+    // large text size the same happens in portrait. Center keeps it centred
+    // whenever it does fit.
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const RadarScanner(scanning: true, size: 168),
             const SizedBox(height: 32),
@@ -740,8 +1123,11 @@ class _PairingProgress extends StatelessWidget {
                     // Done steps get a check, the active step a filled dot, and
                     // pending steps a hollow ring — readable without colour.
                     if (i < step)
-                      Icon(Icons.check_circle,
-                          size: 18, color: scheme.secondary)
+                      Icon(
+                        Icons.check_circle,
+                        size: 18,
+                        color: scheme.secondary,
+                      )
                     else if (i == step)
                       SizedBox(
                         width: 18,
@@ -752,17 +1138,23 @@ class _PairingProgress extends StatelessWidget {
                         ),
                       )
                     else
-                      Icon(Icons.circle_outlined,
-                          size: 18, color: scheme.outlineVariant),
+                      Icon(
+                        Icons.circle_outlined,
+                        size: 18,
+                        color: scheme.outlineVariant,
+                      ),
                     const SizedBox(width: 10),
-                    Text(
-                      steps[i],
-                      style: text.bodyMedium?.copyWith(
-                        color: i <= step
-                            ? scheme.onSurface
-                            : scheme.onSurfaceVariant,
-                        fontWeight:
-                            i == step ? FontWeight.w600 : FontWeight.w400,
+                    Flexible(
+                      child: Text(
+                        steps[i],
+                        style: text.bodyMedium?.copyWith(
+                          color: i <= step
+                              ? scheme.onSurface
+                              : scheme.onSurfaceVariant,
+                          fontWeight: i == step
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
                       ),
                     ),
                   ],
@@ -826,14 +1218,19 @@ class _StatusState extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final isError = severity == _Severity.error;
     final disc = isError ? scheme.errorContainer : scheme.tertiaryContainer;
-    final accent =
-        isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
+    final accent = isError
+        ? scheme.onErrorContainer
+        : scheme.onTertiaryContainer;
 
+    // Scrollable, not a bare Column: in landscape the body is ~320 pt tall
+    // and this stack needs more, which pushed the actions off-screen; at a
+    // large text size the same happens in portrait. Center keeps it centred
+    // whenever it does fit.
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               width: 96,
@@ -885,8 +1282,10 @@ class _StatusState extends StatelessWidget {
               const SizedBox(height: 4),
               TextButton.icon(
                 onPressed: onTertiaryAction,
-                icon: Icon(tertiaryActionIcon ?? Icons.menu_book_outlined,
-                    size: 18),
+                icon: Icon(
+                  tertiaryActionIcon ?? Icons.menu_book_outlined,
+                  size: 18,
+                ),
                 label: Text(tertiaryActionLabel!),
                 style: TextButton.styleFrom(
                   minimumSize: const Size(0, 44),

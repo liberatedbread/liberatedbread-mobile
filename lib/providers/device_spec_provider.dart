@@ -27,7 +27,12 @@ const specManifestPath = '$specsRoot/device-specs/index.json';
 /// is how a printer spec ends up bundled but never loaded. When this temp index
 /// is bundled it takes precedence, so a local build always sees every vendored
 /// spec. See scripts/regen-spec-index.sh.
-const specManifestTempPath = '$specsRoot/device-specs/index-temp.json';
+///
+/// Under examples/ rather than beside index.json: pubspec bundles examples/
+/// as a directory, which is the only way an asset that may not exist can be
+/// included, whereas device-specs/ itself is no longer a directory asset
+/// (that entry shipped schema.json and README.md for nothing).
+const specManifestTempPath = '$specsRoot/device-specs/examples/index-temp.json';
 
 /// Used when the manifest is missing or unreadable, so a broken vendoring
 /// degrades to "mock mode still works" rather than an app with no specs.
@@ -60,27 +65,32 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   // next made the catalogue load O(specs) in latency instead of O(1).
   final bundled = await _bundledAssetKeys();
   final paths = await _bundledSpecPaths(bundled);
-  final loads = await Future.wait(paths.map((path) async {
-    // Listed in the index but not bundled: skip rather than fail the whole
-    // catalogue, and skip WITHOUT loading — an absent-asset error that lands
-    // after a test body completes fails that test even when caught (see
-    // [_bundledAssetKeys]). The sync script keeps index and bundle in step;
-    // this guards a hand-edited index.
-    if (bundled != null && !bundled.contains(path)) {
-      Log.spec.warning('spec listed in manifest but not bundled: $path');
-      return null;
-    }
-    try {
-      return (path: path, yaml: await rootBundle.loadString(path));
-    } on FlutterError {
-      Log.spec.warning('spec listed in manifest but not bundled: $path');
-      return null;
-    } catch (e, st) {
-      Log.spec.warning('failed to load bundled spec $path',
-          error: e, stackTrace: st);
-      return null;
-    }
-  }));
+  final loads = await Future.wait(
+    paths.map((path) async {
+      // Listed in the index but not bundled: skip rather than fail the whole
+      // catalogue, and skip WITHOUT loading — an absent-asset error that lands
+      // after a test body completes fails that test even when caught (see
+      // [_bundledAssetKeys]). The sync script keeps index and bundle in step;
+      // this guards a hand-edited index.
+      if (bundled != null && !bundled.contains(path)) {
+        Log.spec.warning('spec listed in manifest but not bundled: $path');
+        return null;
+      }
+      try {
+        return (path: path, yaml: await rootBundle.loadString(path));
+      } on FlutterError {
+        Log.spec.warning('spec listed in manifest but not bundled: $path');
+        return null;
+      } catch (e, st) {
+        Log.spec.warning(
+          'failed to load bundled spec $path',
+          error: e,
+          stackTrace: st,
+        );
+        return null;
+      }
+    }),
+  );
   for (final loaded in loads) {
     if (loaded != null) specs[loaded.path] = loaded.yaml;
   }
@@ -90,8 +100,10 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   final cached = await ref.watch(cachedSpecPacksProvider.future);
   specs.addAll(cached);
 
-  Log.spec.info('${specs.length} spec(s) available '
-      '(${specs.length - cached.length} bundled, ${cached.length} from packs)');
+  Log.spec.info(
+    '${specs.length} spec(s) available '
+    '(${specs.length - cached.length} bundled, ${cached.length} from packs)',
+  );
   return specs;
 });
 
@@ -172,8 +184,9 @@ Future<List<String>?> _pathsFromManifest(String manifest) async {
       // `example-bulb.yaml` became `vendor/protocol-specs/example-bulb.yaml`,
       // which is not a bundled asset. Give a bare name the directory the old
       // manifests implied.
-      paths.add(specAssetPath(
-          path.contains('/') ? path : 'device-specs/devices/$path'));
+      paths.add(
+        specAssetPath(path.contains('/') ? path : 'device-specs/devices/$path'),
+      );
     }
     return paths;
   } catch (e) {

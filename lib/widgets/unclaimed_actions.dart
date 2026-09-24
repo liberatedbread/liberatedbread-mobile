@@ -74,8 +74,9 @@ class UnclaimedActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final unclaimed =
-        actions.where((a) => !claimed.contains(a.role)).toList(growable: false);
+    final unclaimed = actions
+        .where((a) => !claimed.contains(a.role))
+        .toList(growable: false);
     if (unclaimed.isEmpty) return const SizedBox.shrink();
 
     final fixed = unclaimed.where((a) => !a.takesValue).toList();
@@ -116,9 +117,9 @@ class UnclaimedActions extends StatelessWidget {
             child: Text(
               valued.length == 1
                   ? '${labelFor(valued.single.role)} is in this device’s spec '
-                      'but has no control here yet.'
+                        'but has no control here yet.'
                   : '${valued.map((a) => labelFor(a.role)).join(', ')} are in '
-                      'this device’s spec but have no controls here yet.',
+                        'this device’s spec but have no controls here yet.',
               key: const ValueKey('unclaimed-valued-note'),
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),

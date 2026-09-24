@@ -26,8 +26,23 @@ export PATH="${FLUTTER_HOME}/bin:$HOME/.cargo/bin:$PATH"
 SCRIPT_DIR="$SCRIPT_DIR_EARLY"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-log()  { printf '\033[1;32m[test]\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[test]\033[0m %s\n' "$*"; }
+# Every stage line carries the wall clock since the script started and the
+# time the PREVIOUS stage took, so a run profiles itself: "which of these is
+# slow" is answered by the log rather than by a stopwatch.
+_t0=$SECONDS
+_tprev=$SECONDS
+# Computed in the caller's shell, not in a `$(...)`: a subshell could not
+# advance _tprev, and the per-stage delta would have measured from the start
+# every time. Two `local`s, because a value set by one `local` is not yet in
+# scope for the next assignment on the same line (SC2318).
+_stamp() {
+  local now=$SECONDS
+  local tot=$((now - _t0)) d=$((now - _tprev))
+  _tprev=$now
+  STAMP="$(printf '%3dm%02ds (+%3ds)' $((tot / 60)) $((tot % 60)) "$d")"
+}
+log()  { _stamp; printf '\033[1;32m[test]\033[0m %s %s\n' "$STAMP" "$*"; }
+warn() { _stamp; printf '\033[1;33m[test]\033[0m %s %s\n' "$STAMP" "$*"; }
 
 # CI regenerates the flutter_rust_bridge bindings and fails if the committed
 # ones differ, so a change to rust/src/api/ that was never re-generated is a
@@ -100,33 +115,29 @@ flutter pub get --enforce-lockfile
 log "dart format (tracked Dart files)"
 ./scripts/ci-format.sh
 
+# WHICH files that formats — the app's, and not the vendored cargokit copy
+# under rust_builder/. Both directions of that set are silent when wrong.
+log "ci-format selftest"
+./scripts/ci-format-selftest.sh
+
 log "flutter analyze --fatal-infos"
 flutter analyze --fatal-infos
 
 # CI's `analyze` job lints scripts/ too. Skipped with a warning rather than
 # fatal when shellcheck is absent, for the same reason the FRB check below is:
 # a missing dev tool should not look like a failing test suite. CI still runs
-# it, and CI has shellcheck preinstalled.
-if command -v shellcheck &>/dev/null; then
+# it. The version is CI's, fetched once by the installer (a hash-verified
+# tarball into ~/.cache); if that cannot happen here — no network, say — the
+# lint falls back to PATH's shellcheck and warns when it is not the pin.
+log "shellcheck ${CI_SHELLCHECK_VERSION} (install if missing)"
+./scripts/ci-install-shellcheck.sh \
+  || warn "could not install the pinned shellcheck; linting with whatever is on PATH"
+if ./scripts/ci-install-shellcheck.sh --print-path >/dev/null || command -v shellcheck &>/dev/null; then
   log "shellcheck (scripts/)"
   ./scripts/ci-shellcheck.sh
 else
-  warn "SKIPPING shellcheck: not installed."
-  warn "  Install it with: sudo apt-get install -y shellcheck (or brew install shellcheck)."
-  warn "  CI still runs this check."
+  warn "SKIPPING shellcheck: not installed and could not be fetched. CI still runs this check."
 fi
-
-# Drives scripts/ci-ios-tests.sh through its whole retry loop against stub
-# binaries. Needs no Mac and no simulator, which is the point — it is the only
-# way that logic gets exercised outside a real iOS CI failure.
-log "ci-ios-tests.sh self-test"
-./scripts/ci-ios-tests-selftest.sh
-
-# The bundle-verifier's own selftest, exactly as CI's gate runs it. It was
-# CI-only, which is how the gate went red on a commit this script had
-# blessed — the one gap this mirror exists to close.
-log "verify-ios-app selftest"
-./scripts/verify-ios-app-selftest.sh
 
 # BEFORE the build, not after. `generate` rewrites rust/src/frb_generated.rs,
 # which is an input to the crate — running it second leaves the freshly built
@@ -140,6 +151,66 @@ check_frb_bindings
 log "host Rust library (FFI-backed tests load it by path)"
 ./scripts/ensure-rust-lib.sh
 
+
+# ── The three long legs, in parallel ─────────────────────────────────────────
+#
+# Everything above is a gate the legs depend on (the bindings the library is
+# built from, the library the Dart suite loads). Everything below is
+# independent of everything else below: the Dart suite does not read the
+# crate's test results, cargo does not read lcov, and the selftests drive stub
+# binaries. Run one after another they took the sum of their times on a
+# machine with eight cores idle; run together they take the longest of them.
+# Each leg's output goes to its own file and is replayed in a fixed order once
+# all three are done, so the log reads as it always did and a failure is
+# attributed to its leg. LB_TEST_SERIAL=1 runs them one after another — the
+# old order — for a run whose interleaving needs ruling out.
+
+leg_selftests() {
+# Drives scripts/ci-ios-tests.sh through its whole retry loop against stub
+# binaries. Needs no Mac and no simulator, which is the point — it is the only
+# way that logic gets exercised outside a real iOS CI failure.
+log "ci-ios-tests.sh self-test"
+./scripts/ci-ios-tests-selftest.sh
+
+# The device runner's wall-clock bound on `xcodebuild test`: that its perl
+# alarm survives the exec and kills a hang, and that the runner uses it.
+log "run-ios-device-tests selftest"
+./scripts/run-ios-device-tests-selftest.sh
+
+# The bundle-verifier's own selftest, exactly as CI's gate runs it. It was
+# CI-only, which is how the gate went red on a commit this script had
+# blessed — the one gap this mirror exists to close.
+log "verify-ios-app selftest"
+./scripts/verify-ios-app-selftest.sh
+
+# The emulated-network responder answers only what was asked — the property the
+# netdisco suites' "the app sent the right query" claims rest on. No sockets,
+# so it runs here rather than in the netdisco job.
+if command -v python3 &>/dev/null; then
+  log "net_virtual_device selftest"
+  python3 ./scripts/net_virtual_device_selftest.py
+else
+  warn "SKIPPING net_virtual_device selftest: no python3. CI still runs it."
+fi
+
+# The emulator job's retry loop, against stub binaries: an attempt that ignores
+# SIGTERM has to be escalated to SIGKILL, or the retry the whole script exists
+# for never runs. Seconds here; otherwise only a 40-minute emulator job ever
+# exercises it. Skips its `timeout` cases on a Mac without coreutils.
+log "ci-emulator-tests selftest"
+./scripts/ci-emulator-tests-selftest.sh
+log "ci-install-shellcheck selftest"
+./scripts/ci-install-shellcheck-selftest.sh
+
+# The device pickers behind run-ios-device*.sh and run-android-device-tests.sh,
+# against canned `flutter devices` output: a booted simulator reports the
+# same platform as a phone, and the picker once offered one as "the first
+# paired iPhone".
+log "device-select selftest"
+./scripts/device-select-selftest.sh
+}
+
+leg_dart() {
 # --exclude-tags=netdisco mirrors CI: those suites bind ports 5353 and 1900 for
 # real multicast, which a machine running avahi-daemon or systemd-resolved
 # cannot spare. Run them with ./scripts/ci-netdisco-tests.sh.
@@ -153,8 +224,24 @@ log "host Rust library (FFI-backed tests load it by path)"
 # host_rust_lib.dart opens rust/target/debug/<lib> by relative path precisely
 # because the macOS hardened runtime strips DYLD_* from the `dart` binary, so
 # neither variable was ever what made this work.
-log "flutter test --coverage --exclude-tags=netdisco"
-flutter test --coverage --exclude-tags=netdisco
+# One test isolate per core. The runner's default is half the cores, and on
+# this suite that is 150 s → 133 s with coverage on, measured alone on an
+# 8-core Mac (131 s → 116 s without) — and 161 s → 146 s measured HERE, with
+# the Cargo and selftest legs running on the same cores at the same time, so
+# the gain survives the contention. Coverage itself costs ~19 s and stays:
+# the audit below needs it, and a mirror that skips what CI measures is not a
+# mirror. LB_TEST_JOBS overrides the count.
+jobs="${LB_TEST_JOBS:-$( (sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) | head -1)}"
+# The runner picks its reporter by whether ITS stdout is a terminal, and under
+# run_legs it is a log file: that is the `expanded` reporter, one line per
+# test, thousands of lines replayed onto the terminal where the compact
+# status line used to be. Asked for compact when the replay is going to a
+# terminal (LEG_STDOUT_IS_TTY, read by run_legs before the fork); a run whose
+# stdout is a pipe gets the default it always got.
+reporter=""
+[[ "${LEG_STDOUT_IS_TTY:-0}" == "1" ]] && reporter="--reporter=compact"
+log "flutter test --coverage --exclude-tags=netdisco --concurrency=$jobs ${reporter}"
+flutter test --coverage --exclude-tags=netdisco --concurrency="$jobs" ${reporter:+"$reporter"}
 
 # A file no test imports is ABSENT from lcov rather than reported as zero, so
 # it silently leaves the percentage alone. Both reports are offered when the
@@ -166,7 +253,9 @@ if [[ -s coverage/netdisco-lcov.info ]]; then
   coverage_reports+=(coverage/netdisco-lcov.info)
 fi
 ./scripts/ci-coverage-audit.sh "${coverage_reports[@]}"
+}
 
+leg_cargo() {
 log "cargo fmt --all -- --check"
 (cd rust && cargo fmt --all -- --check)
 
@@ -177,5 +266,60 @@ log "cargo clippy --locked --all-targets --all-features -- -D warnings"
 
 log "cargo test --locked --all-features"
 (cd rust && cargo test --locked --all-features)
+}
+
+run_legs() {
+  local -a names=(selftests cargo dart)
+  local -a pids=()
+  local name
+  if [[ "${LB_TEST_SERIAL:-0}" == "1" ]]; then
+    for name in "${names[@]}"; do "leg_$name"; done
+    return 0
+  fi
+  local dir; dir="$(mktemp -d)"
+  # Read here, before the fork: inside a leg stdout is its log file, and
+  # leg_dart needs to know where that log is going to end up.
+  LEG_STDOUT_IS_TTY=0
+  [[ -t 1 ]] && LEG_STDOUT_IS_TTY=1
+  # Job control on, so each leg is its own process group. Without it a `&`
+  # job in a script starts with SIGINT ignored — and flutter, dart, cargo and
+  # rustc inherit that — so ^C killed this script at `wait` and left all three
+  # legs running unattended, and a group has to exist for the trap below to
+  # have something to signal. stdin from /dev/null, as bash gives a job
+  # without job control: a leg that read the terminal would be stopped
+  # (SIGTTIN) and this script would wait on it forever.
+  set -m
+  for name in "${names[@]}"; do
+    # The leg closes its own log with the time it took: the header printed
+    # below is written when the leg is REPLAYED, and the interval between
+    # two replays is the wait, not the work.
+    ( t=$SECONDS; "leg_$name"; rc=$?
+      printf '\033[1;32m[test]\033[0m %s leg took %ds\n' "$name" $((SECONDS - t)); exit "$rc" ) \
+      < /dev/null > "$dir/$name.log" 2>&1 &
+    pids+=("$!")
+  done
+  set +m
+  # Group-killed, not pid-killed: the pid is the subshell, and TERM to it alone
+  # orphans the flutter or cargo it is waiting on.
+  # shellcheck disable=SC2064  # $dir and pids are meant to expand now
+  trap "trap - INT TERM; kill -TERM -- $(printf -- '-%s ' "${pids[@]}") 2>/dev/null; rm -rf '$dir'; exit 130" INT TERM
+  local i failed=()
+  for i in "${!names[@]}"; do
+    if ! wait "${pids[$i]}"; then failed+=("${names[$i]}"); fi
+    # No (+delta) on this line, on purpose: it would measure the gap between
+    # replays. The leg's duration is the last line of its log.
+    printf '\033[1;32m[test]\033[0m %3dm%02ds ── %s leg ──\n' \
+      $(((SECONDS - _t0) / 60)) $(((SECONDS - _t0) % 60)) "${names[$i]}"
+    cat "$dir/${names[$i]}.log"
+  done
+  trap - INT TERM
+  rm -rf "$dir"
+  if (( ${#failed[@]} )); then
+    printf '\033[1;31m[test]\033[0m FAILED: %s\n' "${failed[*]}" >&2
+    return 1
+  fi
+}
+
+run_legs
 
 log "All checks passed."

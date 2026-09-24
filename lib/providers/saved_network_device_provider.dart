@@ -100,7 +100,9 @@ class SavedNetworkDevicesNotifier
       // downgraded by a later thin sighting whose host is all it knows —
       // the mac-keyed pin would outlive the record's memory of it.
       credentialIdentity: _strongerIdentity(
-          existing?.credentialIdentity, device.credentialIdentity),
+        existing?.credentialIdentity,
+        device.credentialIdentity,
+      ),
       // Every identity this device's material was ever keyed under. The primary
       // above may flip when a host-only device changes host; retaining the old
       // keys here is what lets forget clear the pin/credentials left behind
@@ -200,8 +202,12 @@ class SavedNetworkDevicesNotifier
   bool contains(String id) => state.any((d) => d.id == id);
 }
 
-final savedNetworkDevicesProvider = StateNotifierProvider<
-    SavedNetworkDevicesNotifier, List<SavedNetworkDevice>>(
-  (ref) =>
-      SavedNetworkDevicesNotifier(ref.watch(savedNetworkDeviceStoreProvider)),
-);
+final savedNetworkDevicesProvider =
+    StateNotifierProvider<
+      SavedNetworkDevicesNotifier,
+      List<SavedNetworkDevice>
+    >(
+      (ref) => SavedNetworkDevicesNotifier(
+        ref.watch(savedNetworkDeviceStoreProvider),
+      ),
+    );

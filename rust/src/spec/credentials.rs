@@ -123,6 +123,57 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
         }
     }
 
+    // The BLE half of the same join. A `source: credential:<name>` on a BLE
+    // command parameter says exactly what it says on a network one — the
+    // value is held, not chosen — and the two are parsed from the same
+    // scheme; scanning only `spec.commands` meant a BLE control naming a
+    // stored password resolved fine, prompted for nothing, and then failed
+    // every send with ParameterMissing, which reads as a broken device
+    // rather than an unpaired one. No vendored spec declares one today
+    // (idotmatrix's `verify_password` is the shape it is written for), so
+    // this is the join being whole rather than a fix to a visible symptom.
+    //
+    // `needed_by` names the command as the spec spells it. A name repeated
+    // across characteristics is recorded once — the list exists to tell a
+    // person what an answer unblocks, and the same word twice tells them
+    // nothing — which the shared sort/dedup below would do anyway; doing it
+    // here too keeps the list right for a reader of this loop alone.
+    for service in &spec.services {
+        for characteristic in &service.characteristics {
+            let Some(commands) = &characteristic.commands else {
+                continue;
+            };
+            for (command_name, command) in commands {
+                let Some(parameters) = &command.parameters else {
+                    continue;
+                };
+                for parameter in parameters.params.values() {
+                    let Some(SourceScheme::Credential(name)) =
+                        parameter.source.as_deref().and_then(parse_source)
+                    else {
+                        continue;
+                    };
+                    let entry =
+                        found
+                            .entry(name.to_string())
+                            .or_insert_with(|| CredentialRequirement {
+                                name: name.to_string(),
+                                description: None,
+                                needed_by: Vec::new(),
+                                issued_by: None,
+                                derivation: None,
+                            });
+                    if entry.description.is_none() {
+                        entry.description = parameter.description.clone();
+                    }
+                    if !entry.needed_by.iter().any(|n| n == command_name) {
+                        entry.needed_by.push(command_name.clone());
+                    }
+                }
+            }
+        }
+    }
+
     for (name, issuance) in issued_credentials(spec) {
         found
             .entry(name.clone())
@@ -612,6 +663,67 @@ commands:
         assert_eq!(found[0].needed_by, vec!["pause"]);
         assert!(found[0].issued_by.is_none());
         assert!(found[0].must_be_asked_for());
+    }
+
+    /// A BLE panel shaped like idotmatrix's: the password it was set up with
+    /// rides a GATT command's parameter, not a top-level one. Scanning only
+    /// `spec.commands` reported no credential at all, so nothing prompted,
+    /// nothing was stored, and the control failed every press with
+    /// ParameterMissing — which reads as a broken device rather than an
+    /// unpaired one.
+    #[test]
+    fn a_ble_parameters_credential_joins_the_command_that_needs_it() {
+        const PANEL: &str = r#"
+device:
+  name: Test Panel
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: ble
+services:
+  - uuid: "0000fa00-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
+        name: Write
+        properties: ["write"]
+        commands:
+          verify_password:
+            description: Unlock the panel.
+            template: [0x08, "{password}"]
+            parameters:
+              password:
+                type: uint8
+                source: "credential:device_password"
+                description: The six-digit code shown at setup.
+          set_brightness:
+            description: Brightness.
+            template: [0x09, "{level}", "{password}"]
+            parameters:
+              level:
+                type: uint8
+              password:
+                type: uint8
+                source: "credential:device_password"
+"#;
+        let spec = parse_device_spec(PANEL).expect("test spec should parse");
+        let found = required_credentials(&spec);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "device_password");
+        // Each command once, however many of its parameters name the same
+        // value; sorted with every other requirement's list.
+        assert_eq!(
+            found[0].needed_by,
+            vec!["set_brightness", "verify_password"]
+        );
+        assert_eq!(
+            found[0].description.as_deref(),
+            Some("The six-digit code shown at setup."),
+            "the parameter's own words are what a client shows when it asks"
+        );
+        assert!(
+            found[0].must_be_asked_for(),
+            "no declared flow mints it, and a command needs it"
+        );
     }
 
     #[test]

@@ -13,7 +13,9 @@ import 'package:flutter/material.dart';
 ///  * the slider commits on `onChangeEnd`, not per pixel of drag, with the
 ///    dragged value held locally until the next reading arrives — one write
 ///    per gesture is what keeps a bridge that throttles chatty clients
-///    happy, without any debounce machinery.
+///    happy, without any debounce machinery. The hold ends when the reading
+///    changes OR when [busy] falls, so a failed write cannot leave a
+///    fabricated level on screen forever.
 class HubChildLightCard extends StatefulWidget {
   final String label;
   final bool? isOn;
@@ -55,11 +57,21 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
     // A new reading arrived: the device has answered, so it owns the slider
     // again.
     if (old.brightness != widget.brightness) _dragging = null;
+    // The send finished and the reading did NOT move. That is the write
+    // having failed, or the bridge answering with the level it already had;
+    // either way the device has now had its say, and the dragged value must
+    // stop standing in for a reading it never became. Without this the
+    // slider kept showing a brightness the light is not at, for as long as
+    // the screen stayed open — the one case the `brightness` check above
+    // cannot see, because nothing changed.
+    if (old.busy && !widget.busy) _dragging = null;
   }
 
   double get _sliderValue =>
-      (_dragging ?? widget.brightness ?? widget.brightnessMin)
-          .clamp(widget.brightnessMin, widget.brightnessMax);
+      (_dragging ?? widget.brightness ?? widget.brightnessMin).clamp(
+        widget.brightnessMin,
+        widget.brightnessMax,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -87,9 +99,12 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(widget.label,
-                          style: text.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w600)),
+                      Text(
+                        widget.label,
+                        style: text.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       if (isOn == null)
                         Text('State unknown', style: text.bodySmall),
                     ],
@@ -102,18 +117,18 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 else
-                  Switch(
-                    value: isOn ?? false,
-                    onChanged: widget.onToggle,
-                  ),
+                  Switch(value: isOn ?? false, onChanged: widget.onToggle),
               ],
             ),
             if (widget.onBrightness != null) ...[
               const SizedBox(height: 4),
               Row(
                 children: [
-                  Icon(Icons.brightness_6,
-                      size: 18, color: scheme.onSurfaceVariant),
+                  Icon(
+                    Icons.brightness_6,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
                   Expanded(
                     child: Slider(
                       semanticFormatterCallback: (v) =>
@@ -127,13 +142,17 @@ class _HubChildLightCardState extends State<HubChildLightCard> {
                           : (value) => setState(() => _dragging = value),
                       onChangeEnd: widget.busy
                           ? null
-                          : (value) =>
-                              widget.onBrightness?.call(value.roundToDouble()),
+                          : (value) => widget.onBrightness?.call(
+                              value.roundToDouble(),
+                            ),
                     ),
                   ),
-                  Text('${_sliderValue.round()}',
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant)),
+                  Text(
+                    '${_sliderValue.round()}',
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ],

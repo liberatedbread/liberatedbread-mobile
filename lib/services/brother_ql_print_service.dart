@@ -100,9 +100,9 @@ class BrotherQlPrintService {
         }
       },
       onError: (Object _) => completeWith(null),
-      onDone: () => completeWith(buffer.length >= 32
-          ? Uint8List.fromList(buffer.sublist(0, 32))
-          : null),
+      onDone: () => completeWith(
+        buffer.length >= 32 ? Uint8List.fromList(buffer.sublist(0, 32)) : null,
+      ),
       cancelOnError: true,
     );
     return completer.future.whenComplete(() {
@@ -129,5 +129,6 @@ class BrotherQlSendFailed extends BrotherQlSendResult {
 }
 
 /// The print transport. Tests override with a fake.
-final brotherQlPrintServiceProvider =
-    Provider<BrotherQlPrintService>((ref) => const BrotherQlPrintService());
+final brotherQlPrintServiceProvider = Provider<BrotherQlPrintService>(
+  (ref) => const BrotherQlPrintService(),
+);

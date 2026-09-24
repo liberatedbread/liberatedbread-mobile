@@ -27,3 +27,9 @@ tags:
   # machine cannot start pressing buttons on whatever TV is in earshot. Run
   # deliberately, with the device you mean to drive in view.
   live_wifi: {}
+  # integration_test/device_hardware_test.dart: the shipping services against
+  # a PHYSICAL phone's radio, Wi-Fi and keychain. Kept out of the CI aggregate
+  # and the Linux per-file loop by this tag, and every test in it also skips
+  # itself unless the build carries --dart-define=LB_HARDWARE=true, so nothing
+  # runs on a Simulator by accident. scripts/run-ios-device-tests.sh runs it.
+  hardware: {}

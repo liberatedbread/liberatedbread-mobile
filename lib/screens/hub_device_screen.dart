@@ -52,6 +52,29 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   String? _bridgeId;
   HubCredentials? _credentials;
 
+  /// The id the device at this address claims for itself, kept once its
+  /// certificate agreed with the claim — even when the saved sighting did
+  /// not. That disagreement is the "you replaced the bridge" case, and this
+  /// is the identity pairing has to target after the old one is forgotten.
+  String? _probedBridgeId;
+
+  /// The id the sighting carried, which is what any stored pairing and pin
+  /// for this device are keyed by when the probe never got as far as
+  /// confirming one.
+  String? get _advertisedBridgeId {
+    final advertised = widget.device.txt['bridgeid'];
+    if (advertised == null || advertised.length != 16) return null;
+    return advertised.toUpperCase();
+  }
+
+  /// What "Forget this bridge" acts on. The resolved id when there is one;
+  /// otherwise the advertised id, because a load that failed its identity
+  /// check never resolved anything, and yet the stale credential and pin it
+  /// is warning about are sitting in the store under the advertised key.
+  /// Deciding this from [_bridgeId] alone made the menu item a silent no-op
+  /// in exactly the state whose error text told the user to use it.
+  String? get _forgetTarget => _bridgeId ?? _advertisedBridgeId;
+
   /// Raw state replies per state_command — handed back to the codec, which
   /// is the only layer that parses them.
   final Map<String, String> _stateBodies = {};
@@ -87,8 +110,9 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     });
     try {
       final bridgeId = _bridgeId ??= await _resolveBridgeId();
-      _credentials =
-          await ref.read(hubCredentialStoreProvider).credentials(bridgeId);
+      _credentials = await ref
+          .read(hubCredentialStoreProvider)
+          .credentials(bridgeId);
       if (_credentials != null) {
         await _refreshState();
       }
@@ -103,12 +127,19 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       setState(() {
         _loading = false;
         _credentials = null;
-        _authNote = 'The bridge no longer recognizes this app — its '
+        _authNote =
+            'The bridge no longer recognizes this app — its '
             'whitelist entry is gone (a factory reset does that). '
             'Pair again to continue.';
       });
     } catch (e) {
       if (!mounted) return;
+      // Only promise the menu action when there is an id to perform it
+      // under; a banner that says "forget it below" above a greyed-out item
+      // is the dead end this used to be.
+      final tlsAdvice = _forgetTarget == null
+          ? 'If you replaced the bridge, scan again and pair with the new one.'
+          : 'If you replaced the bridge, forget it below and pair again.';
       setState(() {
         _loading = false;
         _error = friendlyErrorText(
@@ -116,10 +147,10 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
           context: 'hub control',
           fallback: e is HubTlsException
               ? 'The bridge failed its security check: it presented a '
-                  'different certificate than the one this app pinned. If '
-                  'you replaced the bridge, forget it below and pair again.'
+                    'different certificate than the one this app pinned. '
+                    '$tlsAdvice'
               : 'Could not reach the bridge. It may have a new address — '
-                  'try scanning again.',
+                    'try scanning again.',
         );
       });
     }
@@ -138,41 +169,37 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   /// disagrees with what the device says is an error rather than a
   /// preference — the same "forget it and pair again" the pin mismatch gets.
   Future<String> _resolveBridgeId() async {
-    final probe =
-        await ref.read(hubHttpClientProvider).fetchConfig(widget.device.host);
+    final probe = await ref
+        .read(hubHttpClientProvider)
+        .fetchConfig(widget.device.host);
     final claimed = _bridgeIdFromConfig(probe.body);
     if (claimed == null) {
       throw HubTransportException(
-          'the device did not identify itself as a bridge');
+        'the device did not identify itself as a bridge',
+      );
     }
     final seenCn = probe.observedCn;
     if (seenCn != null && seenCn.toUpperCase() != claimed) {
       throw HubTlsException(
-          'the bridge claims id $claimed but its certificate says $seenCn');
+        'the bridge claims id $claimed but its certificate says $seenCn',
+      );
     }
-    final advertised = widget.device.txt['bridgeid'];
-    if (advertised != null &&
-        advertised.length == 16 &&
-        advertised.toUpperCase() != claimed) {
+    // Past the certificate check the claim is the device's own, verified
+    // identity; remember it before the sighting gets its say, so a forget of
+    // the stale sighting has something trustworthy to pair with next.
+    _probedBridgeId = claimed;
+    final advertised = _advertisedBridgeId;
+    if (advertised != null && advertised != claimed) {
       throw HubTlsException(
-          'this was saved as bridge ${advertised.toUpperCase()}, but the '
-          'device at ${widget.device.host} says it is $claimed');
+        'this was saved as bridge $advertised, but the device at '
+        '${widget.device.host} says it is $claimed',
+      );
     }
     return claimed;
   }
 
-  static String? _bridgeIdFromConfig(String body) {
-    try {
-      final parsed = jsonDecode(body);
-      if (parsed is Map<String, dynamic>) {
-        final id = parsed['bridgeid'];
-        if (id is String && id.length == 16) return id.toUpperCase();
-      }
-    } on FormatException {
-      // Fall through: not a config document.
-    }
-    return null;
-  }
+  static String? _bridgeIdFromConfig(String body) =>
+      HueBridgeVocabulary.bridgeIdFrom(body);
 
   /// One GET per instanced entity's state command, then enumerate and read
   /// every child from that single reply.
@@ -223,11 +250,10 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     final values = <String, String>{};
     for (final action in actions) {
       for (final credential in action.credentials) {
-        final value = switch (credential.name) {
-          'username' => credentials.username,
-          'clientkey' => credentials.clientKey,
-          _ => null,
-        };
+        final value = HueBridgeVocabulary.credentialValue(
+          credential.name,
+          credentials,
+        );
         if (value != null) values[credential.param] = value;
       }
     }
@@ -272,7 +298,8 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       if (!mounted) return;
       setState(() {
         _credentials = null;
-        _authNote = 'The bridge no longer recognizes this app — its '
+        _authNote =
+            'The bridge no longer recognizes this app — its '
             'whitelist entry is gone (a factory reset does that). '
             'Pair again to continue.';
       });
@@ -317,16 +344,17 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   }
 
   Future<void> _forget() async {
-    final bridgeId = _bridgeId;
+    final bridgeId = _forgetTarget;
     if (bridgeId == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Forget this bridge?'),
         content: const Text(
-            'Removes the stored pairing, certificate pin and settings from '
-            'this app. The bridge itself keeps its whitelist entry; pairing '
-            'again mints a new one.'),
+          'Removes the stored pairing, certificate pin and settings from '
+          'this app. The bridge itself keeps its whitelist entry; pairing '
+          'again mints a new one.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -349,6 +377,17 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       _childrenByEntity.clear();
       _readings.clear();
     });
+    if (_bridgeId != null) return;
+    // The load never resolved an identity: the sighting's id and the
+    // device's disagreed, or the certificate did. The user has now said the
+    // saved bridge is gone, so the device actually at this address is the one
+    // to deal with — its own verified id, when the probe got that far,
+    // becomes the screen's, which enables Pair with it and keys the new
+    // credential and pin correctly. Without one (the certificate itself
+    // disagreed with the claim) there is nothing safe to pair with, and the
+    // reload reports that again rather than leaving a stale banner.
+    _bridgeId = _probedBridgeId;
+    await _load();
   }
 
   Future<void> _loadSafely() async {
@@ -387,20 +426,25 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       appBar: AppBar(
         title: Text(widget.device.displayName),
         actions: [
-          if (paired)
-            IconButton(
-              tooltip: 'Refresh',
-              onPressed: _loading ? null : () => unawaited(_load()),
-              icon: const Icon(Icons.refresh),
-            ),
+          // Offered in every settled state, not only when paired: a load that
+          // failed on the probe (a transient TLS or transport error) had no
+          // way back short of leaving the screen.
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loading ? null : () => unawaited(_load()),
+            icon: const Icon(Icons.refresh),
+          ),
           PopupMenuButton<String>(
             onSelected: (choice) {
               if (choice == 'forget') unawaited(_forget());
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'forget',
-                child: Text('Forget this bridge'),
+                // Greyed rather than a silent no-op when nothing is known
+                // to forget under.
+                enabled: _forgetTarget != null,
+                child: const Text('Forget this bridge'),
               ),
             ],
           ),
@@ -423,16 +467,20 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
               const Center(child: CircularProgressIndicator()),
               const SizedBox(height: 16),
               Center(
-                child: Text('Asking the bridge...',
-                    style: text.bodyMedium
-                        ?.copyWith(color: scheme.onSurfaceVariant)),
+                child: Text(
+                  'Asking the bridge...',
+                  style: text.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ] else if (!paired) ...[
               _pairingCard(),
             ] else ...[
               for (final entity in _instancedEntities) ...[
-                for (final child in _childrenByEntity[entity.name] ??
-                    const <NetworkInstanceDto>[]) ...[
+                for (final child
+                    in _childrenByEntity[entity.name] ??
+                        const <NetworkInstanceDto>[]) ...[
                   _childCard(entity, child),
                   const SizedBox(height: 12),
                 ],
@@ -463,9 +511,12 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
                 Icon(Icons.hub_outlined, color: scheme.primary),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text('Not paired yet',
-                      style: text.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  child: Text(
+                    'Not paired yet',
+                    style: text.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -508,11 +559,17 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       onToggle: (turnOn == null || turnOff == null)
           ? null
           : (wantOn) =>
-              unawaited(_send(entity, child, wantOn ? turnOn : turnOff)),
+                unawaited(_send(entity, child, wantOn ? turnOn : turnOff)),
       onBrightness: setBrightness == null
           ? null
-          : (value) => unawaited(_send(entity, child, setBrightness,
-              value: value.round().toString())),
+          : (value) => unawaited(
+              _send(
+                entity,
+                child,
+                setBrightness,
+                value: value.round().toString(),
+              ),
+            ),
     );
   }
 
@@ -550,10 +607,13 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
               children: [
                 SizedBox(
                   width: 90,
-                  child: Text(label,
-                      style: text.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600)),
+                  child: Text(
+                    label,
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
                 Expanded(child: SelectableText(value, style: text.bodySmall)),
               ],
@@ -562,4 +622,57 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       ],
     );
   }
+}
+
+/// Everything this screen knows about the Hue bridge's own dialect, in one
+/// place with one reason to change.
+///
+/// BELONGS IN RUST. Both of these are protocol statements the spec already
+/// carries or could: which field of `/api/config` is the bridge's identity
+/// and what shape it has, and which pairing field fills a `credential:<name>`
+/// parameter. They were written out in the middle of the widget — a
+/// `jsonDecode` in a `State` method and a `switch` on credential names beside
+/// a `setState` — which is how "the bridge id is 16 hex characters" ended up
+/// being a fact about a Flutter screen. The real fix is
+/// `render_network_http_command`'s side resolving `source: credential:<name>`
+/// against the pairing record, and the bridge-identity probe answering with
+/// the id rather than the document; then this class goes away and the screen
+/// only decides what to show.
+///
+/// Collected here rather than moved to `lib/core` on purpose: this is not a
+/// utility anybody should reach for, it is a debt with an address.
+@visibleForTesting
+class HueBridgeVocabulary {
+  const HueBridgeVocabulary._();
+
+  /// The bridge's own id out of an `/api/config` reply, or null when the
+  /// document is not one (an unrelated device answering 200, a captive
+  /// portal, malformed JSON).
+  ///
+  /// `bridgeid` is the field, and the 16-character length is the check that
+  /// a `bridgeid` of some other shape is not this protocol. Upper-cased
+  /// because the certificate CN it is cross-checked against is, and because
+  /// it keys the credential store and the pin.
+  static String? bridgeIdFrom(String body) {
+    try {
+      final parsed = jsonDecode(body);
+      if (parsed is Map<String, dynamic>) {
+        final id = parsed['bridgeid'];
+        if (id is String && id.length == 16) return id.toUpperCase();
+      }
+    } on FormatException {
+      // Fall through: not a config document.
+    }
+    return null;
+  }
+
+  /// The pairing field a `credential:<name>` parameter names, or null when
+  /// nothing here can fill it — which fails the send visibly, the spec's own
+  /// rule for a `source:` nothing can supply.
+  static String? credentialValue(String name, HubCredentials credentials) =>
+      switch (name) {
+        'username' => credentials.username,
+        'clientkey' => credentials.clientKey,
+        _ => null,
+      };
 }

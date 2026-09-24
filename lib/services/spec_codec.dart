@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show immutable;
+
 import '../src/rust/api/device_api.dart';
+import '../src/rust/api/spec_handle.dart'
+    show CatalogueEntryDto, SpecLoadFailureDto, UdpProbeDto;
 
 // Re-export the flutter_rust_bridge DTOs so widgets and tests depend on this
 // abstraction instead of importing the generated bindings directly. The DTOs
@@ -94,7 +98,10 @@ export '../src/rust/api/device_api.dart'
         BrotherQlJobParamsDto,
         CameraDto,
         CameraStreamDto,
-        CameraKeepaliveDto;
+        CameraKeepaliveDto,
+        BleHandshakeDto,
+        BleHandshakeStepDto,
+        StateTopicFallbackDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -107,6 +114,17 @@ export '../src/rust/spec/types.dart' show MacPrefixConfidence;
 // on this abstraction.
 export 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
 
+// The catalogue DTOs live in their own generated module because the Rust
+// types that produce them do. Re-exported here for the same reason every
+// other DTO is: consumers depend on this abstraction, not on where
+// flutter_rust_bridge happened to put a file.
+export '../src/rust/api/spec_handle.dart'
+    show
+        CatalogueEntryDto,
+        SpecLoadFailureDto,
+        UdpIdentityFieldDto,
+        UdpProbeDto;
+
 /// Abstraction over the Rust device-spec codec (flutter_rust_bridge FFI).
 ///
 /// The production implementation ([RealSpecCodec]) delegates to the generated
@@ -117,6 +135,26 @@ export 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
 abstract class SpecCodec {
   /// Parse a device-spec YAML string into a [DeviceSpecDto].
   Future<DeviceSpecDto> loadDeviceSpec(String yaml);
+
+  /// Parse the whole catalogue and hold it, returning the handle the match,
+  /// scan, adopt and group paths ask through.
+  ///
+  /// [specs] is key → YAML in catalogue order (bundled assets first, then
+  /// installed packs — the order the pack-shadows-bundled rule depends on).
+  ///
+  /// The catalogue is loaded, not returned: parsing 203 specs into 203
+  /// [DeviceSpecDto]s and decoding them on the UI isolate was a ~70-77 ms
+  /// stall on the first scan result, for data that only two dozen light
+  /// fields per spec were ever read from. What comes back is those fields
+  /// ([SpecCatalogue.specs]) plus the ability to ask for one spec's full DTO
+  /// by index, for the one or two a screen actually renders.
+  ///
+  /// [onProgress] is called with the number of specs parsed so far after
+  /// each chunk, for a caller that wants to show the warm-up.
+  Future<SpecCatalogue> loadCatalogue(
+    Map<String, String> specs, {
+    void Function(int loaded, int total)? onProgress,
+  });
 
   /// Which of the spec's `device.variants[]` the BLE device in front of us
   /// could be, from what it advertised and what it carries.
@@ -277,8 +315,10 @@ abstract class SpecCodec {
 
   /// Apply a spec-declared credential derivation (`base64_sha512`) to what the
   /// person typed — the sticker password in, the wire value out.
-  Future<String> deriveCredentialValue(
-      {required String derivation, required String value});
+  Future<String> deriveCredentialValue({
+    required String derivation,
+    required String value,
+  });
 
   /// Render a named command from the spec's `commands` block into a POSTable
   /// SOAP request. [values] carries what the user picked plus any read-back
@@ -308,6 +348,26 @@ abstract class SpecCodec {
     required String stateCommand,
     required Map<String, String> values,
   });
+
+  /// The second spelling of each state topic the spec declares one for, as
+  /// declared (placeholders unfilled). Empty for a spec with no
+  /// `state_topic_fallback` — all but ratgdo, today.
+  ///
+  /// A subscription has no 404 to fall back on, so the MQTT sender listens on
+  /// both spellings rather than waiting out a topic that may simply never be
+  /// published.
+  Future<List<StateTopicFallbackDto>> specStateTopicFallbacks({
+    required String specYaml,
+  });
+
+  /// The ordered handshake the spec wants run on every BLE connect, before
+  /// anything else is read or written — the schema's `initialization`, both
+  /// the device-wide block and each service's.
+  ///
+  /// Rust decides what to send and in what order; the caller is a loop.
+  /// [BleHandshakeDto.described] carries the steps the spec could only state
+  /// in prose, so a client knows when it has run half a handshake.
+  Future<BleHandshakeDto> specBleHandshake({required String specYaml});
 
   /// Enumerate the children an instanced entity's state reply carries, in the
   /// hub's own order.
@@ -609,6 +669,9 @@ abstract class SpecCodec {
   /// uploader writes and, when the spec declares one, a play-by-id command.
   Future<StoredUploadPlanDto> encodeStoredImage({
     required String specYaml,
+    // Usable bytes per BLE write on the live link (MTU - 3): DATA packets
+    // are sized to fit it. Null sizes them from the spec alone.
+    int? maxWrite,
     required int width,
     required int height,
     required List<int> rgb,
@@ -631,6 +694,9 @@ abstract class SpecCodec {
   /// than the panel so the text scrolls.
   Future<StoredUploadPlanDto> encodeStoredText({
     required String specYaml,
+    // Usable bytes per BLE write on the live link (MTU - 3): DATA packets
+    // are sized to fit it. Null sizes them from the spec alone.
+    int? maxWrite,
     required int textWidth,
     required int textHeight,
     required List<int> bits,
@@ -668,6 +734,9 @@ abstract class SpecCodec {
   /// vendor's 20 fps).
   Future<StoredUploadPlanDto> encodeStoredAnimation({
     required String specYaml,
+    // Usable bytes per BLE write on the live link (MTU - 3): DATA packets
+    // are sized to fit it. Null sizes them from the spec alone.
+    int? maxWrite,
     required int width,
     required int height,
     required List<List<int>> frames,
@@ -683,6 +752,16 @@ abstract class SpecCodec {
   Future<StoredUploadEventDto?> decodeStoredUploadEvent({
     required String specYaml,
     required List<int> bytes,
+  });
+
+  /// The same over a WINDOW of recent notifications: fragments are
+  /// reassembled by serial before anything is read, so a packet a 23-byte
+  /// MTU splits in two is decoded once both halves are in. Events come back
+  /// in packet order; [StoredUploadEventReader] is the caller that keeps the
+  /// window.
+  Future<List<StoredUploadEventDto>> decodeStoredUploadEvents({
+    required String specYaml,
+    required List<List<int>> notifications,
   });
 
   /// The play-by-cid write that RE-triggers an already stored design — the
@@ -789,7 +868,8 @@ abstract class SpecCodec {
   /// a setup network of their own, so the adopt screen lists them from the
   /// specs rather than from a hand-written card.
   Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
-      List<String> specYamls);
+    List<String> specYamls,
+  );
 
   /// The index of the first profile whose setup-mode advertised name matches
   /// [advertisedName] under that spec's exact/prefix rule, or null. Decides
@@ -933,3 +1013,363 @@ class AutorunMode {
   static const int repeat = 1;
   static const int random = 2;
 }
+
+/// The spec catalogue, parsed and held by the codec.
+///
+/// Exists because the catalogue is asked about far more often than it is
+/// rendered. Matching a connected device, ranking a scan result, joining a
+/// saved spec key and selecting by protocol handler all read a handful of
+/// identifying fields; only the screen that actually draws a device needs the
+/// spec itself. So the parse stays where it happened ([RealSpecCodec] keeps
+/// it in Rust) and this is the window onto it: light entries by value, full
+/// DTOs one index at a time.
+abstract class SpecCatalogue {
+  /// Every spec that parsed, in catalogue order. The index of an entry is
+  /// what [matchDevice] reports and what [specAt] takes.
+  List<CatalogueSpec> get specs;
+
+  /// Every spec that did NOT parse, with the parser's reason. Named rather
+  /// than dropped: a catalogue that quietly shrank is how a bundled device
+  /// stops matching with nothing in the log.
+  List<SpecLoadFailureDto> get failures;
+
+  /// Match every spec against a device we are already connected to.
+  ///
+  /// Returns one entry per spec that matched, in catalogue order, with the
+  /// axes that hit. Ranking them is `rankSpecMatches`' job, not this one's.
+  Future<List<SpecMatch>> matchDevice({
+    required String deviceName,
+    required List<String> serviceUuids,
+  });
+
+  /// The full DTO of the spec at [index] — everything a device screen draws.
+  ///
+  /// Also the point at which a codec that holds parses may hand its parse to
+  /// the per-spec call path, so the screen's first `decodeValue` does not
+  /// re-send the YAML. [index] must be a [specs] index.
+  Future<DeviceSpecDto> specAt(int index);
+
+  /// Every UDP discovery probe the catalogue declares, bytes already decoded.
+  ///
+  /// The scan service sends these rather than holding a payload constant and a
+  /// transport per vendor — adding a device that answers its own broadcast
+  /// then takes a spec and nothing else (SPECS_TO_FIX.md S-10).
+  Future<List<UdpProbeDto>> udpBroadcastProbes();
+}
+
+/// One catalogue member as the non-rendering paths see it: the YAML it was
+/// loaded from, the identity projection the scan matchers take, and the two
+/// fields the adopt/network paths select on.
+@immutable
+class CatalogueSpec {
+  /// Position in [SpecCatalogue.specs] — the index [SpecCatalogue.specAt]
+  /// takes and [SpecMatch] reports.
+  final int index;
+
+  /// The key the catalogue was loaded under: a bundled asset path, or
+  /// `pack:<name>/<file>` for an installed pack.
+  final String key;
+
+  /// The spec's text. Still here because most entry points still take it;
+  /// the ones that are asked repeatedly take a held parse instead.
+  final String yaml;
+
+  /// The identifying projection — what both scan matchers rank against.
+  final SpecIdentityDto identity;
+
+  /// `device.protocol_handler`, which the adopt and Rabbit Air paths select
+  /// specs by.
+  final String? protocolHandler;
+
+  /// UUIDs of the GATT services this spec declares, as declared. The
+  /// post-connect ranking drops a name-only match no declared service
+  /// corroborates, and asks it here rather than pulling the whole spec.
+  final List<String> gattServiceUuids;
+
+  const CatalogueSpec({
+    required this.index,
+    required this.key,
+    required this.yaml,
+    required this.identity,
+    required this.protocolHandler,
+    required this.gattServiceUuids,
+  });
+
+  /// From the projection Rust hands back, joined to the text Dart already
+  /// holds.
+  CatalogueSpec.fromDto(CatalogueEntryDto dto, String yaml)
+    : this(
+        index: dto.index,
+        key: dto.key,
+        yaml: yaml,
+        identity: dto.identity,
+        protocolHandler: dto.protocolHandler,
+        gattServiceUuids: dto.gattServiceUuids,
+      );
+
+  String get deviceName => identity.deviceName;
+  String get manufacturer => identity.manufacturer;
+}
+
+/// One catalogue entry's match against a connected device: which spec, and
+/// on which evidence.
+///
+/// Carries the entry rather than a [DeviceSpecDto]: the whole point of the
+/// index is that a match no longer ships 203 specs in and the winners back
+/// out. `rankSpecMatches` reads only what is here.
+@immutable
+class SpecMatch {
+  final CatalogueSpec entry;
+
+  /// The device's advertised name starts with one of the spec's declared
+  /// prefixes (or matches one of its exact names).
+  final bool matchedByNamePrefix;
+
+  /// How strong the evidence is, on the scan badge's own scale.
+  final MatchConfidence confidence;
+
+  /// The spec's declared service UUIDs the device actually carries.
+  final List<String> matchedServiceUuids;
+
+  const SpecMatch({
+    required this.entry,
+    required this.matchedByNamePrefix,
+    required this.confidence,
+    required this.matchedServiceUuids,
+  });
+}
+
+/// A [SpecCatalogue] built out of a codec's per-spec calls: one
+/// [SpecCodec.loadDeviceSpec] per spec, and [SpecCodec.matchDeviceToSpec]
+/// over the resulting DTOs.
+///
+/// This is what the catalogue was before Rust held it, kept as the path for
+/// any codec without native handles — the fakes the widget suite runs on. It
+/// composes the codec's own public calls rather than re-implementing
+/// anything, and `test/services/spec_catalogue_golden_test.dart` pins it
+/// against the real one over the whole vendored catalogue.
+/// The native core is not loaded: the whole catalogue answers "no spec", and
+/// says why once per spec.
+///
+/// What main() chose for a core that fails to load is to carry on without
+/// it — every scan and connect still works, no device matches a spec, the
+/// raw controls are what the user gets. An AsyncError from the catalogue
+/// provider took that away from every screen that watches it (the adopt
+/// screen showed "Could not read the device catalogue", BLE group members
+/// "Could not reach this device"). This is the same choice, at the
+/// catalogue: empty, with the reason attached to every key so the provider's
+/// one "native codec unavailable" line still has its count.
+class EmptySpecCatalogue implements SpecCatalogue {
+  @override
+  final List<CatalogueSpec> specs = const [];
+
+  @override
+  final List<SpecLoadFailureDto> failures;
+
+  EmptySpecCatalogue(this.failures);
+
+  @override
+  Future<List<SpecMatch>> matchDevice({
+    required String deviceName,
+    required List<String> serviceUuids,
+  }) async => const [];
+
+  @override
+  Future<DeviceSpecDto> specAt(int index) async =>
+      throw RangeError.index(index, specs, 'index', 'the catalogue is empty');
+
+  @override
+  Future<List<UdpProbeDto>> udpBroadcastProbes() async => const [];
+}
+
+/// Whether [error] is flutter_rust_bridge saying the native core was never
+/// initialised — the one failure that is not about any spec.
+bool isBridgeUninitialised(Object error) =>
+    error.toString().contains('has not been initialized');
+
+class FallbackSpecCatalogue implements SpecCatalogue {
+  final SpecCodec _codec;
+
+  @override
+  final List<CatalogueSpec> specs;
+
+  @override
+  final List<SpecLoadFailureDto> failures;
+
+  /// The DTOs behind [specs], by index — this catalogue parses eagerly
+  /// because that is all its codec can do.
+  final List<DeviceSpecDto> _dtos;
+
+  FallbackSpecCatalogue._(this._codec, this.specs, this._dtos, this.failures);
+
+  /// Parse every spec in [yamls] through [codec], skipping the ones that
+  /// fail. Chunked for the same reason the real catalogue is: a 203-spec
+  /// parse that never yields is a frame the UI dropped.
+  static Future<FallbackSpecCatalogue> load(
+    SpecCodec codec,
+    Map<String, String> yamls, {
+    void Function(int loaded, int total)? onProgress,
+    int chunkSize = catalogueChunkSize,
+  }) async {
+    final entries = yamls.entries.toList();
+    final specs = <CatalogueSpec>[];
+    final dtos = <DeviceSpecDto>[];
+    final failures = <SpecLoadFailureDto>[];
+    for (var start = 0; start < entries.length; start += chunkSize) {
+      final chunk = entries.skip(start).take(chunkSize).toList();
+      final parsed = await Future.wait(
+        chunk.map((e) async {
+          try {
+            return await codec.loadDeviceSpec(e.value);
+          } catch (error) {
+            failures.add(
+              SpecLoadFailureDto(key: e.key, message: error.toString()),
+            );
+            return null;
+          }
+        }),
+      );
+      for (var i = 0; i < chunk.length; i++) {
+        final dto = parsed[i];
+        if (dto == null) continue;
+        specs.add(
+          CatalogueSpec(
+            index: specs.length,
+            key: chunk[i].key,
+            yaml: chunk[i].value,
+            identity: specIdentityOf(dto),
+            protocolHandler: dto.protocolHandler,
+            gattServiceUuids: [for (final s in dto.services) s.uuid],
+          ),
+        );
+        dtos.add(dto);
+      }
+      onProgress?.call(specs.length + failures.length, entries.length);
+    }
+    return FallbackSpecCatalogue._(codec, specs, dtos, failures);
+  }
+
+  /// A catalogue over specs that are ALREADY parsed.
+  ///
+  /// For a caller holding the DTOs and their text — the group screen's
+  /// invalidation path, and the suites that stand a catalogue up without a
+  /// codec that can parse. [keys] defaults to the spec's own identity key, so
+  /// entries stay distinguishable without inventing asset paths.
+  factory FallbackSpecCatalogue.fromParsed(
+    SpecCodec codec,
+    List<({DeviceSpecDto spec, String yaml})> parsed, {
+    List<String>? keys,
+  }) {
+    final specs = <CatalogueSpec>[];
+    for (var i = 0; i < parsed.length; i++) {
+      final dto = parsed[i].spec;
+      specs.add(
+        CatalogueSpec(
+          index: i,
+          key: keys?[i] ?? '${dto.deviceName}|${dto.manufacturer}',
+          yaml: parsed[i].yaml,
+          identity: specIdentityOf(dto),
+          protocolHandler: dto.protocolHandler,
+          gattServiceUuids: [for (final s in dto.services) s.uuid],
+        ),
+      );
+    }
+    return FallbackSpecCatalogue._(codec, specs, [
+      for (final entry in parsed) entry.spec,
+    ], const []);
+  }
+
+  /// No probes from the fallback catalogue.
+  ///
+  /// The probe blocks are read by the Rust spec model, which is exactly what
+  /// this catalogue exists to do without. A build that has fallen back to it
+  /// has bigger problems than a Milight bridge it cannot find, and answering
+  /// "none" costs only the probes the dedicated transports send anyway.
+  @override
+  Future<List<UdpProbeDto>> udpBroadcastProbes() async => const [];
+
+  @override
+  Future<List<SpecMatch>> matchDevice({
+    required String deviceName,
+    required List<String> serviceUuids,
+  }) async {
+    final matches = await _codec.matchDeviceToSpec(
+      specs: _dtos,
+      deviceName: deviceName,
+      advertisedServiceUuids: serviceUuids,
+    );
+    // The matcher hands back the specs it was given, so an identity join
+    // recovers each one's index. A plain `==` is not an option: the generated
+    // `DeviceSpecDto ==` compares List fields by reference, which an FFI
+    // round trip does not preserve.
+    final byIdentity = <String, int>{};
+    for (var i = 0; i < _dtos.length; i++) {
+      byIdentity.putIfAbsent(_identityKey(_dtos[i]), () => i);
+    }
+    return [
+      for (final match in matches)
+        if (byIdentity[_identityKey(match.spec)] case final index?)
+          SpecMatch(
+            entry: specs[index],
+            matchedByNamePrefix: match.matchedByNamePrefix,
+            confidence: match.confidence,
+            matchedServiceUuids: match.matchedServiceUuids,
+          ),
+    ];
+  }
+
+  static String _identityKey(DeviceSpecDto spec) => [
+    spec.deviceName,
+    spec.manufacturer,
+    spec.localNamePrefixes.join(','),
+    spec.serviceUuids.join(','),
+  ].join('|');
+
+  @override
+  Future<DeviceSpecDto> specAt(int index) async => _dtos[index];
+}
+
+/// How many specs a catalogue load parses per event-loop turn.
+///
+/// The load is chunked rather than issued as one 200-wide `Future.wait`
+/// because both ends of it run on the calling isolate: the YAML is encoded
+/// going out and the entries decoded coming back, and as one burst that was
+/// a frame-eating stall landing exactly as the first scan results appear.
+///
+/// Forty is where the two pressures meet. Smaller chunks cost round trips
+/// and leave the Rust side too little to spread across its cores; larger
+/// ones grow the per-turn share. At forty the whole 204-spec load holds the
+/// isolate for about 2 ms in total on an Apple Silicon host — measured, with
+/// the by-value load it replaced, by
+/// `test/services/spec_codec_ffi_budget_test.dart`.
+const catalogueChunkSize = 40;
+
+/// The identifying projection of a parsed spec — the fields both scan
+/// matchers rank against.
+///
+/// Mirrors Rust's `SpecIdentityDto::from(&DeviceSpecDto)`, for the codecs
+/// that build a catalogue out of DTOs (see [FallbackSpecCatalogue]). The
+/// golden test compares the two projections over the whole vendored
+/// catalogue, so a field added on one side and forgotten on the other fails
+/// there rather than in a scan that quietly stops matching.
+SpecIdentityDto specIdentityOf(DeviceSpecDto spec) => SpecIdentityDto(
+  deviceName: spec.deviceName,
+  manufacturer: spec.manufacturer,
+  category: spec.category,
+  pictogram: spec.pictogram,
+  adminUrl: spec.adminUrl,
+  integration: spec.integration,
+  securityAdvisory: spec.securityAdvisory,
+  localNamePrefixes: spec.localNamePrefixes,
+  localNames: spec.localNames,
+  serviceUuids: spec.serviceUuids,
+  companyIds: spec.companyIds,
+  macPrefixes: spec.macPrefixes,
+  mdnsServiceTypes: spec.mdnsServiceTypes,
+  ssdpSearchTargets: spec.ssdpSearchTargets,
+  lanProtocols: spec.lanProtocols,
+  defaultPort: spec.defaultPort,
+  nameMatchers: spec.nameMatchers,
+  txtMatchGroups: spec.txtMatchGroups,
+  platformFallbackTypes: spec.platformFallbackTypes,
+);

@@ -42,9 +42,9 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
-      const codec = RealSpecCodec();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       // === 1. ADVERTISEMENT ===
@@ -55,13 +55,18 @@ void main() {
       await ble.stopScan();
       // ignore: avoid_print
       print(
-          'scanned mfd: ${device.manufacturerData.map((k, v) => MapEntry('0x${k.toRadixString(16)}', _hex(v)))}');
+        'scanned mfd: ${device.manufacturerData.map((k, v) => MapEntry('0x${k.toRadixString(16)}', _hex(v)))}',
+      );
       final adv = await codec.advertisedResolution(
-          specYaml: specYaml, manufacturerData: device.manufacturerData);
+        specYaml: specYaml,
+        manufacturerData: device.manufacturerData,
+      );
       // ignore: avoid_print
-      print(adv == null
-          ? '!! ADVERTISEMENT did NOT resolve'
-          : 'ADVERTISEMENT resolution = ${adv.width}x${adv.height}');
+      print(
+        adv == null
+            ? '!! ADVERTISEMENT did NOT resolve'
+            : 'ADVERTISEMENT resolution = ${adv.width}x${adv.height}',
+      );
 
       // === 2. DEVICE INFO ===
       await ble.connect(deviceId);
@@ -89,9 +94,11 @@ void main() {
       }
       final info = await codec.deviceInfoResolution(notifications: collected);
       // ignore: avoid_print
-      print(info == null
-          ? '!! DEVICE INFO did NOT resolve'
-          : 'DEVICE INFO resolution = ${info.width}x${info.height}');
+      print(
+        info == null
+            ? '!! DEVICE INFO did NOT resolve'
+            : 'DEVICE INFO resolution = ${info.width}x${info.height}',
+      );
 
       await ble.disconnect(deviceId);
 

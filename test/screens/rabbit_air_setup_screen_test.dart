@@ -28,11 +28,11 @@ import '../fakes/in_memory_settings_store.dart';
 /// canned states, and can be told to fail the next [begin].
 class _FakeProvisionService extends RabbitAirProvisionService {
   _FakeProvisionService()
-      : super(
-          codec: FakeSpecCodec(),
-          keyStore: RabbitAirKeyStore(InMemorySettingsStore()),
-          linkFactory: () => throw UnimplementedError('no link in this fake'),
-        );
+    : super(
+        codec: FakeSpecCodec(),
+        keyStore: RabbitAirKeyStore(InMemorySettingsStore()),
+        linkFactory: () => throw UnimplementedError('no link in this fake'),
+      );
 
   final begun = <String>[];
   ({String ssid, String passphrase, int security})? joined;
@@ -50,14 +50,20 @@ class _FakeProvisionService extends RabbitAirProvisionService {
     await Future<void>.delayed(Duration.zero);
     if (failNextBegin) {
       failNextBegin = false;
-      emit(state.copyWith(
+      emit(
+        state.copyWith(
           step: RabbitAirProvisionStep.failed,
-          message: 'the purifier did not answer'));
+          message: 'the purifier did not answer',
+        ),
+      );
       return;
     }
-    emit(const RabbitAirProvisionState(
+    emit(
+      const RabbitAirProvisionState(
         RabbitAirProvisionStep.awaitingNetworkChoice,
-        networks: networks));
+        networks: networks,
+      ),
+    );
   }
 
   @override
@@ -69,8 +75,13 @@ class _FakeProvisionService extends RabbitAirProvisionService {
     joined = (ssid: ssid, passphrase: passphrase, security: security);
     emit(const RabbitAirProvisionState(RabbitAirProvisionStep.joining));
     await Future<void>.delayed(Duration.zero);
-    emit(const RabbitAirProvisionState(RabbitAirProvisionStep.done,
-        thingId: 'abcdef1234_000000000000000000', verified: true));
+    emit(
+      const RabbitAirProvisionState(
+        RabbitAirProvisionStep.done,
+        thingId: 'abcdef1234_000000000000000000',
+        verified: true,
+      ),
+    );
   }
 }
 
@@ -123,14 +134,14 @@ void main() {
   );
 
   Widget wrap({IoTDevice? preselected}) => ProviderScope(
-        overrides: [
-          bleServiceProvider.overrideWithValue(ble),
-          rabbitAirProvisionServiceProvider.overrideWithValue(service),
-          specCodecProvider.overrideWithValue(codec),
-          deviceSpecsProvider.overrideWith((ref) => {'rabbit.yaml': 'r-yaml'}),
-        ],
-        child: MaterialApp(home: RabbitAirSetupScreen(device: preselected)),
-      );
+    overrides: [
+      bleServiceProvider.overrideWithValue(ble),
+      rabbitAirProvisionServiceProvider.overrideWithValue(service),
+      specCodecProvider.overrideWithValue(codec),
+      deviceSpecsProvider.overrideWith((ref) => {'rabbit.yaml': 'r-yaml'}),
+    ],
+    child: MaterialApp(home: RabbitAirSetupScreen(device: preselected)),
+  );
 
   setUp(() {
     service = _FakeProvisionService();
@@ -150,8 +161,7 @@ void main() {
       ];
   });
 
-  testWidgets(
-      'intro explains setup mode, then the scan lists only '
+  testWidgets('intro explains setup mode, then the scan lists only '
       'RabbitAirSetup devices', (tester) async {
     await tester.pumpWidget(wrap());
     await tester.pumpAndSettle();
@@ -166,8 +176,9 @@ void main() {
     expect(find.text('SomeOtherGadget'), findsNothing);
   });
 
-  testWidgets('the full flow: pick a device, pick a network, password, done',
-      (tester) async {
+  testWidgets('the full flow: pick a device, pick a network, password, done', (
+    tester,
+  ) async {
     await tester.pumpWidget(wrap());
     await tester.pumpAndSettle();
     await tester.tap(find.text('Find the purifier'));
@@ -188,15 +199,21 @@ void main() {
     await tester.tap(find.text('Join this network'));
     await tester.pumpAndSettle();
 
-    expect(
-        service.joined, (ssid: 'Cottage', passphrase: 'hunter2', security: 3));
+    expect(service.joined, (
+      ssid: 'Cottage',
+      passphrase: 'hunter2',
+      security: 3,
+    ));
     expect(find.text('The purifier is on your Wi-Fi.'), findsOneWidget);
     expect(
-        find.textContaining('abcdef1234_000000000000000000'), findsOneWidget);
+      find.textContaining('abcdef1234_000000000000000000'),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('an open network provisions without a password prompt',
-      (tester) async {
+  testWidgets('an open network provisions without a password prompt', (
+    tester,
+  ) async {
     await tester.pumpWidget(wrap(preselected: setupDevice));
     await tester.pumpAndSettle();
 
@@ -208,8 +225,9 @@ void main() {
     expect(find.text('The purifier is on your Wi-Fi.'), findsOneWidget);
   });
 
-  testWidgets('a failed begin before the picker offers to try again',
-      (tester) async {
+  testWidgets('a failed begin before the picker offers to try again', (
+    tester,
+  ) async {
     service.failNextBegin = true;
     await tester.pumpWidget(wrap(preselected: setupDevice));
     await tester.pumpAndSettle();

@@ -12,17 +12,23 @@ String _table(Map<String, String> rows) {
 
 final _registry = NumberRegistry(
   addressBlocks: [
-    RegistryTable.parse(_table({'C47C8D6': 'HHCC Plant Technology'}),
-        keyWidth: 7),
     RegistryTable.parse(
-        _table({'A4CF12': 'Espressif Inc.', 'B894D9': 'Texas Instruments'}),
-        keyWidth: 6),
+      _table({'C47C8D6': 'HHCC Plant Technology'}),
+      keyWidth: 7,
+    ),
+    RegistryTable.parse(
+      _table({'A4CF12': 'Espressif Inc.', 'B894D9': 'Texas Instruments'}),
+      keyWidth: 6,
+    ),
   ],
-  companyIds:
-      RegistryTable.parse(_table({'00961': 'Ember Technologies'}), keyWidth: 5),
+  companyIds: RegistryTable.parse(
+    _table({'00961': 'Ember Technologies'}),
+    keyWidth: 5,
+  ),
   serviceUuids: RegistryTable.parse(
-      _table({'180f': 'Battery Service', '181a': 'Environmental Sensing'}),
-      keyWidth: 4),
+    _table({'180f': 'Battery Service', '181a': 'Environmental Sensing'}),
+    keyWidth: 4,
+  ),
 );
 
 IoTDevice _device({
@@ -30,16 +36,15 @@ IoTDevice _device({
   String name = '',
   List<String> serviceUuids = const [],
   List<int> companyIds = const [],
-}) =>
-    IoTDevice(
-      id: id,
-      name: name,
-      rssi: -50,
-      isConnectable: true,
-      discoveredAt: DateTime(2026),
-      serviceUuids: serviceUuids,
-      companyIds: companyIds,
-    );
+}) => IoTDevice(
+  id: id,
+  name: name,
+  rssi: -50,
+  isConnectable: true,
+  discoveredAt: DateTime(2026),
+  serviceUuids: serviceUuids,
+  companyIds: companyIds,
+);
 
 void main() {
   group('describeDevice', () {
@@ -54,24 +59,30 @@ void main() {
 
     test('names standard services when capabilities are advertised', () {
       final d = describeDevice(
-        _device(serviceUuids: const [
-          '0000180f-0000-1000-8000-00805f9b34fb',
-          '0000181a-0000-1000-8000-00805f9b34fb',
-        ]),
+        _device(
+          serviceUuids: const [
+            '0000180f-0000-1000-8000-00805f9b34fb',
+            '0000181a-0000-1000-8000-00805f9b34fb',
+          ],
+        ),
         _registry,
       );
       expect(d.standardServices, ['Battery Service', 'Environmental Sensing']);
       expect(d.vendorServiceCount, 0);
       expect(
-          d.summary, 'Espressif Inc. · Battery Service, Environmental Sensing');
+        d.summary,
+        'Espressif Inc. · Battery Service, Environmental Sensing',
+      );
     });
 
     test('counts vendor services rather than printing raw UUIDs', () {
       final d = describeDevice(
-        _device(serviceUuids: const [
-          'fc543622-236c-4c94-8fa9-944a3e5353fa',
-          'fc543621-236c-4c94-8fa9-944a3e5353fa',
-        ]),
+        _device(
+          serviceUuids: const [
+            'fc543622-236c-4c94-8fa9-944a3e5353fa',
+            'fc543621-236c-4c94-8fa9-944a3e5353fa',
+          ],
+        ),
         _registry,
       );
       expect(d.standardServices, isEmpty);
@@ -171,8 +182,10 @@ void main() {
     });
 
     test('a named device gets the full summary, maker included', () {
-      final device =
-          _device(name: 'Kitchen Bulb', serviceUuids: const ['180f']);
+      final device = _device(
+        name: 'Kitchen Bulb',
+        serviceUuids: const ['180f'],
+      );
       expect(
         deviceSubtitle(device, describeDevice(device, _registry)),
         'Espressif Inc. · Battery Service',

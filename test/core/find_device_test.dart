@@ -14,76 +14,73 @@ CommandDto _command(
   String name, {
   bool isFixed = true,
   bool isEncodable = true,
-}) =>
-    CommandDto(
-      name: name,
-      description: '',
-      parameters: const [],
-      isFixed: isFixed,
-      isEncodable: isEncodable,
-      advanced: false,
-    );
+}) => CommandDto(
+  name: name,
+  description: '',
+  parameters: const [],
+  isFixed: isFixed,
+  isEncodable: isEncodable,
+  advanced: false,
+);
 
 DeviceSpecDto _spec({
   required String serviceUuid,
   required String charUuid,
   required List<CommandDto> commands,
-}) =>
-    DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Test Device',
-      manufacturer: 'Test Co',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: [serviceUuid],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      defaultPort: null,
-      entities: const [],
-      services: [
-        ServiceDto(
-          uuid: serviceUuid,
-          name: 'Control',
-          characteristics: [
-            CharacteristicDto(
-              uuid: charUuid,
-              name: 'Command',
-              canRead: false,
-              canWrite: true,
-              canNotify: false,
-              commands: commands,
-              formatFields: const [],
-            ),
-          ],
+}) => DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Test Device',
+  manufacturer: 'Test Co',
+  manufacturerStatus: 'abandoned',
+  protocol: 'ble',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: [serviceUuid],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  defaultPort: null,
+  entities: const [],
+  services: [
+    ServiceDto(
+      uuid: serviceUuid,
+      name: 'Control',
+      characteristics: [
+        CharacteristicDto(
+          uuid: charUuid,
+          name: 'Command',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: commands,
+          formatFields: const [],
         ),
       ],
-    );
+    ),
+  ],
+);
 
 BleDiscoveredService _discovered(
   String serviceUuid,
   String charUuid, {
   bool canWrite = true,
-}) =>
-    BleDiscoveredService(
-      uuid: serviceUuid,
-      characteristics: [
-        BleDiscoveredCharacteristic(
-          uuid: charUuid,
-          canRead: false,
-          canWrite: canWrite,
-          canWriteWithoutResponse: canWrite,
-          canNotify: false,
-        ),
-      ],
-    );
+}) => BleDiscoveredService(
+  uuid: serviceUuid,
+  characteristics: [
+    BleDiscoveredCharacteristic(
+      uuid: charUuid,
+      canRead: false,
+      canWrite: canWrite,
+      canWriteWithoutResponse: canWrite,
+      canNotify: false,
+    ),
+  ],
+);
 
 const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
@@ -96,8 +93,10 @@ void main() {
 
     test('is 10 m one decade below the measured power', () {
       // With n = 2.5, one decade of distance is 25 dB of path loss.
-      expect(estimateDistanceMeters(kDefaultMeasuredPower - 25),
-          closeTo(10.0, 1e-9));
+      expect(
+        estimateDistanceMeters(kDefaultMeasuredPower - 25),
+        closeTo(10.0, 1e-9),
+      );
     });
 
     test('decreases monotonically as the signal strengthens', () {
@@ -381,8 +380,11 @@ void main() {
     test('skips Immediate Alert when the Alert Level is not writable', () {
       final actions = detectAlertActions(
         services: [
-          _discovered(immediateAlertServiceUuid, alertLevelCharUuid,
-              canWrite: false),
+          _discovered(
+            immediateAlertServiceUuid,
+            alertLevelCharUuid,
+            canWrite: false,
+          ),
         ],
       );
       expect(actions, isEmpty);
@@ -440,16 +442,13 @@ void main() {
         detectAlertActions(
           spec: spec,
           specYaml: 'y',
-          services: [
-            _discovered('0000eee0-0000-1000-8000-00805f9b34fb', _chr),
-          ],
+          services: [_discovered('0000eee0-0000-1000-8000-00805f9b34fb', _chr)],
         ),
         isEmpty,
       );
     });
 
-    test(
-        'a characteristic UUID duplicated across services binds to the '
+    test('a characteristic UUID duplicated across services binds to the '
         'service the spec names', () {
       const otherSvc = '0000eee0-0000-1000-8000-00805f9b34fb';
       final actions = detectAlertActions(
@@ -499,24 +498,26 @@ void main() {
       expect(actions.single.commandName, 'find_me');
     });
 
-    test('spec commands and Immediate Alert combine across characteristics',
-        () {
-      final actions = detectAlertActions(
-        spec: _spec(
-          serviceUuid: _svc,
-          charUuid: _chr,
-          commands: [_command('beep')],
-        ),
-        specYaml: 'yaml',
-        services: [
-          _discovered(_svc, _chr),
-          _discovered(immediateAlertServiceUuid, alertLevelCharUuid),
-        ],
-      );
-      expect(actions, hasLength(2));
-      expect(actions.first.commandName, 'beep');
-      expect(actions.last.bytes, [0x02]);
-    });
+    test(
+      'spec commands and Immediate Alert combine across characteristics',
+      () {
+        final actions = detectAlertActions(
+          spec: _spec(
+            serviceUuid: _svc,
+            charUuid: _chr,
+            commands: [_command('beep')],
+          ),
+          specYaml: 'yaml',
+          services: [
+            _discovered(_svc, _chr),
+            _discovered(immediateAlertServiceUuid, alertLevelCharUuid),
+          ],
+        );
+        expect(actions, hasLength(2));
+        expect(actions.first.commandName, 'beep');
+        expect(actions.last.bytes, [0x02]);
+      },
+    );
 
     test('UUID matching is case-insensitive', () {
       final actions = detectAlertActions(
@@ -536,31 +537,33 @@ void main() {
       // ("1802"/"2a06"), while specs always write the 128-bit spelling. This
       // is what real hardware looks like, and comparing the two literally is
       // what made the feature dead on device.
-      final actions = detectAlertActions(services: [
-        _discovered('1802', '2a06'),
-      ]);
+      final actions = detectAlertActions(
+        services: [_discovered('1802', '2a06')],
+      );
       expect(actions, hasLength(1));
       expect(actions.single.bytes, [0x02]);
     });
 
-    test('matches a spec command on a short-form discovered characteristic',
-        () {
-      const sigSvc = '00001204-0000-1000-8000-00805f9b34fb';
-      const sigChr = '00001a00-0000-1000-8000-00805f9b34fb';
-      final actions = detectAlertActions(
-        spec: _spec(
-          serviceUuid: sigSvc,
-          charUuid: sigChr,
-          commands: [_command('blink_led')],
-        ),
-        specYaml: 'yaml',
-        // What discovery actually hands us for those UUIDs.
-        services: [_discovered('1204', '1a00')],
-      );
-      expect(actions, hasLength(1));
-      expect(actions.single.commandName, 'blink_led');
-      expect(actions.single.label, 'Blink LED');
-    });
+    test(
+      'matches a spec command on a short-form discovered characteristic',
+      () {
+        const sigSvc = '00001204-0000-1000-8000-00805f9b34fb';
+        const sigChr = '00001a00-0000-1000-8000-00805f9b34fb';
+        final actions = detectAlertActions(
+          spec: _spec(
+            serviceUuid: sigSvc,
+            charUuid: sigChr,
+            commands: [_command('blink_led')],
+          ),
+          specYaml: 'yaml',
+          // What discovery actually hands us for those UUIDs.
+          services: [_discovered('1204', '1a00')],
+        );
+        expect(actions, hasLength(1));
+        expect(actions.single.commandName, 'blink_led');
+        expect(actions.single.label, 'Blink LED');
+      },
+    );
   });
 
   group('isPlausibleRssi', () {

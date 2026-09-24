@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import '../core/log.dart';
 import 'settings_store.dart';
 
 /// What a robot's password handshake — or its owner's iRobot account — yielded.
@@ -79,18 +80,30 @@ class RoombaCredentials {
     bool clearRest980 = false,
     String? haEntityId,
     bool clearHaEntity = false,
-  }) =>
-      RoombaCredentials(
-        blid: blid,
-        password: password,
-        name: name ?? this.name,
-        sku: sku ?? this.sku,
-        lastIp: lastIp ?? this.lastIp,
-        rest980BaseUrl:
-            clearRest980 ? null : (rest980BaseUrl ?? this.rest980BaseUrl),
-        haEntityId: clearHaEntity ? null : (haEntityId ?? this.haEntityId),
-      );
+  }) => RoombaCredentials(
+    blid: blid,
+    password: password,
+    name: name ?? this.name,
+    sku: sku ?? this.sku,
+    lastIp: lastIp ?? this.lastIp,
+    rest980BaseUrl: clearRest980
+        ? null
+        : (rest980BaseUrl ?? this.rest980BaseUrl),
+    haEntityId: clearHaEntity ? null : (haEntityId ?? this.haEntityId),
+  );
 }
+
+/// The identity a robot's TLS certificate is pinned under: `roomba:<BLID>`.
+///
+/// The BLID and never the IP, for the reason [RoombaCredentialStore] keys the
+/// password that way — the IP is a DHCP lease. Uppercased like the store's
+/// keys, because the BLID arrives uppercase from the UDP announcement and
+/// lowercase from iRobot's account API, and a pin written under one spelling
+/// and read under the other is a pin that never matches. One function
+/// because three callers must agree exactly: the password handshake that
+/// writes the pin, the MQTT session that checks it, and the forget path that
+/// clears it. A key computed two ways is a pin nothing can erase.
+String roombaTlsIdentity(String blid) => 'roomba:${blid.toUpperCase()}';
 
 /// Everything the app remembers about one adopted robot, keyed by its BLID.
 ///
@@ -133,6 +146,7 @@ class RoombaCredentialStore {
   /// would make the recommended path the one that cannot be stored.
   Future<RoombaCredentials?> credentials(String blid) async {
     final password = await _store.read(_key(blid, 'password'));
+    Log.registerSecret(password);
     final haEntityId = await _store.read(_key(blid, 'ha_entity_id'));
     final hasPassword = password != null && password.isNotEmpty;
     final hasHaEntity = haEntityId != null && haEntityId.isNotEmpty;
@@ -151,6 +165,7 @@ class RoombaCredentialStore {
   Future<void> save(RoombaCredentials credentials) async {
     // Empty means "we do not have one" — a robot Home Assistant holds. Writing
     // it would leave an empty key that reads back as a password.
+    Log.registerSecret(credentials.password);
     await _writeIfPresent(credentials.blid, 'password', credentials.password);
     await _writeIfPresent(credentials.blid, 'name', credentials.name);
     await _writeIfPresent(credentials.blid, 'sku', credentials.sku);

@@ -63,7 +63,7 @@ class EntityLiveValue {
     return field == null
         ? 'The spec decoded no fields for this characteristic.'
         : 'The spec maps this reading to "$field", which the format block '
-            'does not define.';
+              'does not define.';
   }
 
   DecodedValueDto? fieldNamed(String name) =>

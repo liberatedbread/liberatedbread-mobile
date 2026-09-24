@@ -87,10 +87,27 @@ pub(crate) fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolErr
 
 /// Pick the right [`DeviceProtocol`] for a request.
 ///
-/// When both `spec_yaml` and `service_uuid` are supplied, the spec wins —
-/// the spec author may have overridden a standard service. To force
-/// standard-profile dispatch (e.g. for the Battery service), pass
-/// `spec_yaml: None`.
+/// When both `spec_yaml` and `service_uuid` are supplied, the spec wins for
+/// any service the spec DECLARES — the spec author may have overridden a
+/// standard one, and `spec_wins_over_standard_profile` pins that. For a
+/// standard service the spec is silent about, dispatch falls through to the
+/// built-in profile.
+///
+/// That fallthrough is the difference between "this device has a spec" and
+/// "this device has nothing but a spec". Almost every peripheral in the
+/// catalogue also advertises the SIG Battery (0x180F) and Device Information
+/// (0x180A) services, and almost no spec declares them — they are the same on
+/// every device, which is the whole point of a standard profile. Without the
+/// fallthrough, holding a spec made those services undecodable: the generic
+/// protocol was handed a characteristic its spec never mentions and answered
+/// CharacteristicNotFound, so the only way to reach a battery level was to
+/// drop the spec on the floor first and know to do it. The caller that knew
+/// was Dart, which is why the battery UUIDs and the profile's own field name
+/// are spelled again in `lib/core/group_actions.dart` — and why Device
+/// Information, which Dart never learned to special-case, was unreachable.
+///
+/// To force standard-profile dispatch for a service the spec DOES declare,
+/// pass `spec_yaml: None`.
 pub fn select_protocol(
     spec_yaml: Option<&str>,
     service_uuid: Option<&str>,
@@ -99,6 +116,9 @@ pub fn select_protocol(
         // Hand the Arc straight through: GenericProtocol shares the cached
         // spec, so this is a refcount bump, not a deep clone per FFI call.
         let spec = parse_or_cached(yaml)?;
+        if let Some(proto) = service_uuid.and_then(|uuid| standard_profile_for(&spec, uuid)) {
+            return Ok(proto);
+        }
         return Ok(Box::new(GenericProtocol::new(spec)));
     }
     if let Some(uuid) = service_uuid {
@@ -107,6 +127,38 @@ pub fn select_protocol(
         }
     }
     Err(ProtocolError::NoProtocolForRequest)
+}
+
+/// The built-in profile that answers for `service_uuid` when `spec` is silent
+/// about it, or None when the spec declares the service (its own definition
+/// wins) or no profile exists for it.
+///
+/// The one place the fallthrough rule lives. Both doors — [`select_protocol`]
+/// by YAML and `LoadedSpec::decode_value` by handle — call this, because the
+/// two once held separate copies of the rule and the by-handle one was
+/// missing: the first decode of a Battery notify answered 55 % and every
+/// later one CharacteristicNotFound, for the same bytes.
+pub(crate) fn standard_profile_for(
+    spec: &DeviceSpec,
+    service_uuid: &str,
+) -> Option<Box<dyn DeviceProtocol>> {
+    if declares_service(spec, service_uuid) {
+        return None;
+    }
+    profiles::lookup(service_uuid).map(|profile| profile.create_protocol())
+}
+
+/// Whether `spec` has anything to say about `service_uuid`.
+///
+/// Compared in the profiles module's normalized short form, so a spec writing
+/// the full 128-bit UUID and a caller passing `180f` are the same service —
+/// the mismatch that would otherwise make this fallthrough fire on a spec that
+/// HAD overridden the profile.
+fn declares_service(spec: &DeviceSpec, service_uuid: &str) -> bool {
+    let wanted = profiles::normalize_uuid(service_uuid);
+    spec.services
+        .iter()
+        .any(|service| profiles::normalize_uuid(&service.uuid) == wanted)
 }
 
 #[cfg(test)]
@@ -184,6 +236,63 @@ services:
         // Spec-driven decoding produces "custom_level", not "battery_percent".
         assert_eq!(decoded["custom_level"], DecodedValue::Uint(77));
         assert!(!decoded.contains_key("battery_percent"));
+    }
+
+    /// A spec that says nothing about the SIG Battery service must not make
+    /// that service undecodable. Holding a spec used to: the generic protocol
+    /// was handed 2a19, found no such characteristic in the YAML, and failed —
+    /// so the battery a device advertises like every other device was reachable
+    /// only by dropping the spec first, which is a rule the Rust side never
+    /// stated and Dart re-implemented.
+    #[test]
+    fn a_standard_service_the_spec_omits_falls_through_to_its_profile() {
+        let proto = select_protocol(Some(BULB_YAML), Some("180f")).unwrap();
+        let decoded = proto.decode_value("2a19", &[55]).unwrap();
+        assert_eq!(decoded["battery_percent"], DecodedValue::Uint(55));
+    }
+
+    /// And Device Information, the profile nothing could reach: Dart special-
+    /// cased the battery UUIDs and never learned about this one.
+    #[test]
+    fn device_information_is_reachable_for_a_spec_that_omits_it() {
+        let proto = select_protocol(
+            Some(BULB_YAML),
+            Some("0000180a-0000-1000-8000-00805f9b34fb"),
+        )
+        .unwrap();
+        let decoded = proto.decode_value("2a29", b"Acme").unwrap();
+        // The profile keys its one reading as "value" and names the field
+        // separately; what matters here is that the DEVICE INFORMATION
+        // protocol answered at all.
+        assert_eq!(decoded["value"], DecodedValue::String("Acme".to_string()));
+    }
+
+    /// The fallthrough is for services the spec is SILENT about. One it
+    /// declares is still the spec's, whichever way the two spell the UUID.
+    #[test]
+    fn a_spec_that_declares_the_standard_service_still_wins_either_spelling() {
+        for spelling in ["180f", "0000180F-0000-1000-8000-00805F9B34FB"] {
+            let proto = select_protocol(Some(SPEC_OVERRIDING_BATTERY), Some(spelling)).unwrap();
+            let decoded = proto
+                .decode_value("00002a19-0000-1000-8000-00805f9b34fb", &[77])
+                .unwrap();
+            assert_eq!(
+                decoded["custom_level"],
+                DecodedValue::Uint(77),
+                "{spelling}"
+            );
+        }
+    }
+
+    /// A non-standard service the spec omits has no profile to fall through
+    /// to, so it stays the spec's problem and reports the miss the spec path
+    /// always reported.
+    #[test]
+    fn a_non_standard_service_the_spec_omits_stays_with_the_spec() {
+        let proto = select_protocol(Some(BULB_YAML), Some("fff9")).unwrap();
+        assert!(proto
+            .decode_value("0000fff9-0000-1000-8000-00805f9b34fb", &[1])
+            .is_err());
     }
 
     fn assert_err<F>(

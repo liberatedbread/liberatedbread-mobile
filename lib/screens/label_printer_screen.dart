@@ -66,8 +66,12 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
     final printer = ref.read(brotherQlPrintServiceProvider);
     try {
       final request = await codec.brotherQlStatusRequest();
-      final result = await printer.send(widget.device.host, _port, request,
-          readStatus: true);
+      final result = await printer.send(
+        widget.device.host,
+        _port,
+        request,
+        readStatus: true,
+      );
       if (!mounted) return;
       switch (result) {
         case BrotherQlSendFailed(:final reason):
@@ -135,9 +139,9 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
     final status = _status;
     final detail = status == null
         ? 'The printer did not report its media, so this assumes a standard '
-            '62 mm continuous roll.'
+              '62 mm continuous roll.'
         : 'This uses one ${status.mediaWidthMm} mm label to check the '
-            'printer end to end.';
+              'printer end to end.';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -145,11 +149,13 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
         content: Text(detail),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Print')),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Print'),
+          ),
         ],
       ),
     );
@@ -168,8 +174,9 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
       if (!mounted) return;
       switch (result) {
         case BrotherQlSendOk():
-          messenger
-              .showSnackBar(const SnackBar(content: Text('Test label sent.')));
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Test label sent.')),
+          );
         case BrotherQlSendFailed(:final reason):
           messenger.showSnackBar(SnackBar(content: Text(reason)));
       }
@@ -177,7 +184,8 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
       Log.spec.warning('label print failed', error: e);
       if (mounted) {
         messenger.showSnackBar(
-            const SnackBar(content: Text('Could not send the label.')));
+          const SnackBar(content: Text('Could not send the label.')),
+        );
       }
     } finally {
       if (mounted) setState(() => _printing = false);
@@ -225,7 +233,8 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Icon(Icons.print_outlined),
               label: Text(_printing ? 'Sending…' : 'Print test label'),
             ),
@@ -264,57 +273,70 @@ class _StatusCard extends StatelessWidget {
     final text = Theme.of(context).textTheme;
 
     Widget shell(Widget child) => Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: scheme.outlineVariant),
-          ),
-          child: child,
-        );
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: child,
+    );
 
     if (loading) {
-      return shell(Row(
-        children: [
-          const SizedBox(
+      return shell(
+        Row(
+          children: [
+            const SizedBox(
               width: 20,
               height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2)),
-          const SizedBox(width: 14),
-          Text('Reading printer status…', style: text.bodyMedium),
-        ],
-      ));
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 14),
+            // Expanded so the line wraps at large text sizes instead of
+            // overflowing past the spinner.
+            Expanded(
+              child: Text('Reading printer status…', style: text.bodyMedium),
+            ),
+          ],
+        ),
+      );
     }
 
     if (error != null) {
-      return shell(Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.error_outline, color: scheme.error),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(error!,
-                style: text.bodyMedium?.copyWith(color: scheme.error)),
-          ),
-        ],
-      ));
+      return shell(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error_outline, color: scheme.error),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                error!,
+                style: text.bodyMedium?.copyWith(color: scheme.error),
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     final s = status;
     if (s == null) {
-      return shell(Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Printer reachable', style: text.titleMedium),
-          const SizedBox(height: 6),
-          Text(
-            'Connected at $host:$port, but it did not report its status. '
-            'Some firmware answers only while idle — a test label should still '
-            'print.',
-            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ],
-      ));
+      return shell(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Printer reachable', style: text.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              'Connected at $host:$port, but it did not report its status. '
+              'Some firmware answers only while idle — a test label should still '
+              'print.',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      );
     }
 
     final mediaLabel = switch (s.mediaType) {
@@ -322,34 +344,38 @@ class _StatusCard extends StatelessWidget {
       'die_cut' => '${s.mediaWidthMm}×${s.mediaLengthMm} mm die-cut',
       _ => 'No media loaded',
     };
-    return shell(Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(
-              s.readyToPrint ? Icons.check_circle_outline : Icons.warning_amber,
-              color: s.readyToPrint ? scheme.tertiary : scheme.error,
-            ),
-            const SizedBox(width: 10),
-            Text(
-              s.readyToPrint ? 'Ready to print' : 'Not ready',
-              style: text.titleMedium,
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        _row(context, 'Media', mediaLabel),
-        if (s.errors.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              s.errors.join(' · '),
-              style: text.bodySmall?.copyWith(color: scheme.error),
-            ),
+    return shell(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                s.readyToPrint
+                    ? Icons.check_circle_outline
+                    : Icons.warning_amber,
+                color: s.readyToPrint ? scheme.tertiary : scheme.error,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                s.readyToPrint ? 'Ready to print' : 'Not ready',
+                style: text.titleMedium,
+              ),
+            ],
           ),
-      ],
-    ));
+          const SizedBox(height: 12),
+          _row(context, 'Media', mediaLabel),
+          if (s.errors.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                s.errors.join(' · '),
+                style: text.bodySmall?.copyWith(color: scheme.error),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _row(BuildContext context, String label, String value) {
@@ -361,9 +387,10 @@ class _StatusCard extends StatelessWidget {
         children: [
           SizedBox(
             width: 88,
-            child: Text(label,
-                style:
-                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            child: Text(
+              label,
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ),
           Expanded(child: Text(value, style: text.bodyMedium)),
         ],

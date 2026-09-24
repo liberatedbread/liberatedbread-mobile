@@ -108,8 +108,10 @@ class HttpHaApiClient implements HaApiClient {
     required String token,
     required String entityId,
   }) async {
-    final response =
-        await _get(Uri.parse('$baseUrl/api/states/$entityId'), token);
+    final response = await _get(
+      Uri.parse('$baseUrl/api/states/$entityId'),
+      token,
+    );
     // A 404 here means "no such entity", which is a real answer rather than a
     // wrong address — unlike the 404 the mobile_app registration can get.
     if (response.statusCode == 404) return null;
@@ -148,10 +150,9 @@ class HttpHaApiClient implements HaApiClient {
 
   Future<http.Response> _get(Uri url, String token) async {
     try {
-      return await _client.get(
-        url,
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(_timeout);
+      return await _client
+          .get(url, headers: {'Authorization': 'Bearer $token'})
+          .timeout(_timeout);
     } on SocketException catch (e) {
       throw HaNetworkException('Could not reach ${url.host}: ${e.message}');
     } on TimeoutException {
@@ -206,7 +207,8 @@ class HttpHaApiClient implements HaApiClient {
   /// [HaApiException] (via [HaServerException]) so callers keep seeing only
   /// the typed exception contract, never a raw [FormatException]/[TypeError].
   static List<HaWebhookSensorResult> _parseUpdateResults(
-      http.Response response) {
+    http.Response response,
+  ) {
     final body = response.body;
     if (body.isEmpty) return const [];
     try {
@@ -218,8 +220,10 @@ class HttpHaApiClient implements HaApiClient {
             HaWebhookSensorResult(
               uniqueId: entry.key,
               success: (entry.value as Map<String, dynamic>)['success'] == true,
-              errorCode: ((entry.value as Map<String, dynamic>)['error']
-                  as Map<String, dynamic>?)?['code'] as String?,
+              errorCode:
+                  ((entry.value as Map<String, dynamic>)['error']
+                          as Map<String, dynamic>?)?['code']
+                      as String?,
             ),
       ];
     } on FormatException catch (e) {
@@ -233,7 +237,11 @@ class HttpHaApiClient implements HaApiClient {
   /// typed exception hierarchy. [HaApiException] itself is sealed and cannot
   /// be instantiated, so [HaServerException] carries the diagnostic.
   static HaServerException _malformed(
-          int statusCode, String context, Object cause) =>
-      HaServerException(
-          statusCode, 'malformed $context response body ($cause)');
+    int statusCode,
+    String context,
+    Object cause,
+  ) => HaServerException(
+    statusCode,
+    'malformed $context response body ($cause)',
+  );
 }

@@ -1,12 +1,12 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/iot_device.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/spec_codec.dart' show MatchConfidence, SecurityAdvisoryDto;
 import '../widgets/black_hat_icon.dart';
+import '../core/web_link.dart';
 
 /// The page a scan result opens when the catalogue matched a spec carrying a
 /// `security_advisory` — a device with a known, cited security problem. It
@@ -35,21 +35,21 @@ class SecurityWarningScreen extends StatelessWidget {
   /// The colour a severity is drawn in. `malicious`/`vulnerable` take the
   /// theme's error colour; `reported` a softer caution (tertiary).
   Color _accent(ColorScheme scheme) => switch (advisory.severity) {
-        'malicious' || 'vulnerable' => scheme.error,
-        _ => scheme.tertiary,
-      };
+    'malicious' || 'vulnerable' => scheme.error,
+    _ => scheme.tertiary,
+  };
 
   IconData get _icon => switch (advisory.severity) {
-        'malicious' => Icons.gpp_bad_outlined,
-        'vulnerable' => Icons.dangerous_outlined,
-        _ => Icons.gpp_maybe_outlined,
-      };
+    'malicious' => Icons.gpp_bad_outlined,
+    'vulnerable' => Icons.dangerous_outlined,
+    _ => Icons.gpp_maybe_outlined,
+  };
 
   String get _severityLabel => switch (advisory.severity) {
-        'malicious' => 'Do not trust this device',
-        'vulnerable' => 'Known vulnerability',
-        _ => 'Reported issue',
-      };
+    'malicious' => 'Do not trust this device',
+    'vulnerable' => 'Known vulnerability',
+    _ => 'Reported issue',
+  };
 
   /// How sure we are it is this device. These specs match on an inferred name,
   /// so a low-confidence match is the norm and the page says so.
@@ -66,14 +66,11 @@ class SecurityWarningScreen extends StatelessWidget {
     };
   }
 
-  Future<void> _open(BuildContext context, String url) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final uri = Uri.tryParse(url);
-    if (uri == null ||
-        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      messenger.showSnackBar(SnackBar(content: Text('Could not open $url')));
-    }
-  }
+  // Through the shared guard: advisory and mitigation URLs arrive verbatim
+  // from spec YAML, which a pack URL over plain http can supply, so only a
+  // web link may reach the OS — never shortcuts://, tel:, itms-services://.
+  Future<void> _open(BuildContext context, String url) =>
+      openWebLink(context, url);
 
   @override
   Widget build(BuildContext context) {
@@ -112,13 +109,20 @@ class SecurityWarningScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(_severityLabel,
-                            style: text.titleMedium?.copyWith(
-                                color: accent, fontWeight: FontWeight.w700)),
+                        Text(
+                          _severityLabel,
+                          style: text.titleMedium?.copyWith(
+                            color: accent,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                         const SizedBox(height: 6),
-                        Text(advisory.summary.trim(),
-                            style: text.bodyMedium
-                                ?.copyWith(color: scheme.onSurface)),
+                        Text(
+                          advisory.summary.trim(),
+                          style: text.bodyMedium?.copyWith(
+                            color: scheme.onSurface,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -126,16 +130,21 @@ class SecurityWarningScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            Text(device.displayName,
-                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            Text(
+              device.displayName,
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 4),
-            Text(_certaintyLine(),
-                style:
-                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            Text(
+              _certaintyLine(),
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
             if ((advisory.detail ?? '').trim().isNotEmpty) ...[
               const SizedBox(height: 16),
-              Text(advisory.detail!.trim(),
-                  style: text.bodyMedium?.copyWith(height: 1.4)),
+              Text(
+                advisory.detail!.trim(),
+                style: text.bodyMedium?.copyWith(height: 1.4),
+              ),
             ],
             const SizedBox(height: 20),
 
@@ -151,14 +160,26 @@ class SecurityWarningScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      Icon(Icons.build_outlined,
-                          size: 20, color: scheme.primary),
-                      const SizedBox(width: 8),
-                      Text('How to fix it',
-                          style: text.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700)),
-                    ]),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.build_outlined,
+                          size: 20,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        // Expanded so the heading wraps at large text sizes
+                        // instead of overflowing past the icon.
+                        Expanded(
+                          child: Text(
+                            'How to fix it',
+                            style: text.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     Text(mitigationSummary.trim(), style: text.bodyMedium),
                     if (mitigationUrl != null) ...[
@@ -176,9 +197,12 @@ class SecurityWarningScreen extends StatelessWidget {
             ] else if (advisory.severity != 'malicious') ...[
               // No mitigation given: say so, rather than let the absence imply
               // there is nothing to worry about.
-              Text('No fix has been published yet.',
-                  style: text.bodyMedium
-                      ?.copyWith(color: scheme.onSurfaceVariant)),
+              Text(
+                'No fix has been published yet.',
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
               const SizedBox(height: 12),
             ],
 

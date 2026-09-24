@@ -8,6 +8,7 @@ import '../services/rest980_client.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
 import 'ha_provider.dart';
+import 'network_control_provider.dart';
 import 'spec_codec_provider.dart';
 
 /// Adopted robots' BLIDs and passwords, on the same secure settings store the
@@ -15,7 +16,8 @@ import 'spec_codec_provider.dart';
 /// platform keychain/keystore, and a test overriding [settingsStoreProvider]
 /// gets an isolated in-memory store for free.
 final roombaCredentialStoreProvider = Provider<RoombaCredentialStore>(
-    (ref) => RoombaCredentialStore(ref.watch(settingsStoreProvider)));
+  (ref) => RoombaCredentialStore(ref.watch(settingsStoreProvider)),
+);
 
 /// The Home Assistant transport, or null when HA is not set up in the app.
 ///
@@ -37,15 +39,32 @@ final haRoombaClientProvider = Provider<HaRoombaClient?>((ref) {
 
 /// The HOME-button password handshake. A provider so the adoption wizard's
 /// widget tests drive it from a scripted socket rather than a real robot.
+///
+/// Given the shared [tlsTrustProvider] so the robot's certificate is pinned
+/// on first sight, as its spec asks — the freshly minted password crosses
+/// this connection, and the same trust store is what the MQTT session below
+/// and the forget path consult, so one pin serves all three.
 final roombaPasswordServiceProvider = Provider<RoombaPasswordService>(
-    (ref) => RoombaPasswordService(codec: ref.watch(specCodecProvider)));
+  (ref) => RoombaPasswordService(
+    codec: ref.watch(specCodecProvider),
+    trust: ref.watch(tlsTrustProvider),
+  ),
+);
 
 /// The account route to the same credentials.
 ///
-/// Constructed per use and disposed with the ref: it holds an `http.Client`,
-/// and the one thing this service must never do is outlive the sign-in it was
-/// created for. Nothing about steady-state control touches it.
-final iRobotCloudServiceProvider = Provider<IRobotCloudService>((ref) {
+/// `autoDispose`, and that is the whole point rather than tidiness: it holds
+/// an `http.Client` carrying a Gigya sign-in, and the one thing this service
+/// must never do is outlive the sign-in it was created for. As a plain
+/// `Provider` the doc said "constructed per use and disposed with the ref"
+/// while the instance was in fact minted once into the root scope and kept,
+/// with its `close` reached only when the whole app went away. Nothing about
+/// steady-state control touches it, so the adoption wizard — which watches it
+/// for as long as it is on screen — is the only thing keeping it alive, and
+/// closing the wizard closes the client.
+final iRobotCloudServiceProvider = Provider.autoDispose<IRobotCloudService>((
+  ref,
+) {
   final service = IRobotCloudService();
   ref.onDispose(service.close);
   return service;
@@ -58,12 +77,15 @@ final iRobotCloudServiceProvider = Provider<IRobotCloudService>((ref) {
 /// old, so a session that outlives the screen watching it keeps the owner
 /// locked out of their own iRobot app. When the last watcher goes away the
 /// client disconnects and the slot is free again.
-final roombaClientProvider =
-    Provider.autoDispose.family<RoombaMqttClient, String>((ref, blid) {
-  final client = RoombaMqttClient(codec: ref.watch(specCodecProvider));
-  ref.onDispose(client.dispose);
-  return client;
-});
+final roombaClientProvider = Provider.autoDispose
+    .family<RoombaMqttClient, String>((ref, blid) {
+      final client = RoombaMqttClient(
+        codec: ref.watch(specCodecProvider),
+        trust: ref.watch(tlsTrustProvider),
+      );
+      ref.onDispose(client.dispose);
+      return client;
+    });
 
 /// The rest980 transport, for robots configured to route through a server.
 ///
@@ -83,5 +105,6 @@ final rest980ClientProvider = Provider<Rest980Client>((ref) {
 /// autoDispose + family so a screen watching it re-reads after adoption or
 /// after forgetting — callers invalidate it after either.
 final roombaCredentialsProvider = FutureProvider.autoDispose
-    .family<RoombaCredentials?, String>((ref, blid) =>
-        ref.watch(roombaCredentialStoreProvider).credentials(blid));
+    .family<RoombaCredentials?, String>(
+      (ref, blid) => ref.watch(roombaCredentialStoreProvider).credentials(blid),
+    );

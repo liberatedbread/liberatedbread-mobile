@@ -67,11 +67,13 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
     );
     // Best-effort side channel to Home Assistant; never blocks or breaks
     // the local UI (the forwarder swallows its own errors).
-    unawaited(forwarder.onDecodedValues(
-      deviceId: widget.deviceId,
-      specChar: widget.specChar,
-      values: decoded,
-    ));
+    unawaited(
+      forwarder.onDecodedValues(
+        deviceId: widget.deviceId,
+        specChar: widget.specChar,
+        values: decoded,
+      ),
+    );
     if (mounted) {
       setState(() {
         _values = decoded;
@@ -112,32 +114,38 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
     final ble = ref.read(bleServiceProvider);
     _notifySub = ble
         .subscribeCharacteristic(
-      widget.deviceId,
-      widget.serviceUuid,
-      widget.specChar.uuid,
-    )
+          widget.deviceId,
+          widget.serviceUuid,
+          widget.specChar.uuid,
+        )
         .listen(
-      (bytes) {
-        unawaited(_decodeAndSet(bytes).catchError((Object e) {
-          if (mounted) {
-            setState(() => _error = friendlyErrorText(
+          (bytes) {
+            unawaited(
+              _decodeAndSet(bytes).catchError((Object e) {
+                if (mounted) {
+                  setState(
+                    () => _error = friendlyErrorText(
+                      e,
+                      context: 'decode ${widget.specChar.uuid}',
+                      fallback: 'Could not decode the latest value.',
+                    ),
+                  );
+                }
+              }),
+            );
+          },
+          onError: (Object e) {
+            if (mounted) {
+              setState(
+                () => _error = friendlyErrorText(
                   e,
-                  context: 'decode ${widget.specChar.uuid}',
-                  fallback: 'Could not decode the latest value.',
-                ));
-          }
-        }));
-      },
-      onError: (Object e) {
-        if (mounted) {
-          setState(() => _error = friendlyErrorText(
-                e,
-                context: 'notify ${widget.specChar.uuid}',
-                fallback: 'Live updates stopped.',
-              ));
-        }
-      },
-    );
+                  context: 'notify ${widget.specChar.uuid}',
+                  fallback: 'Live updates stopped.',
+                ),
+              );
+            }
+          },
+        );
   }
 
   @override
@@ -160,18 +168,28 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   }
 
   Widget _buildBody() {
+    // Theme roles, not Colors.* literals: grey fails contrast on the light
+    // surface and neither adapts to dark mode.
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     if (_loading && _values == null) {
-      return const Text('Reading...',
-          style: TextStyle(fontStyle: FontStyle.italic));
+      return const Text(
+        'Reading...',
+        style: TextStyle(fontStyle: FontStyle.italic),
+      );
     }
     if (_error != null) {
-      return Text('Error: $_error',
-          style: const TextStyle(color: Colors.red, fontSize: 12));
+      return Text(
+        'Error: $_error',
+        style: text.bodySmall?.copyWith(color: scheme.error),
+      );
     }
     final values = _values;
     if (values == null || values.isEmpty) {
-      return const Text('(no value)',
-          style: TextStyle(color: Colors.grey, fontSize: 12));
+      return Text(
+        '(no value)',
+        style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -208,7 +226,9 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   /// — while `scale`, `value_offset`, `unit`, `values` and `unit_source` all
   /// crossed the FFI beside it and went unread. A SIG temperature therefore
   /// read "2350" here and "23.5 °C" on the entity card above it, from the
-  /// same characteristic and the same spec.
+  /// same characteristic and the same spec. The transform now arrives already
+  /// applied (`decodedText`, from `rust/src/codec/number.rs`), so the two
+  /// surfaces cannot say different things about one reading.
   ///
   /// The code-table name keeps the raw code beside it, unlike the entity card
   /// which shows the name alone: this is the GATT browser, and someone
@@ -234,9 +254,25 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   /// is a percentage whatever it is called — and only falls back to the name
   /// for the many bundled fields that carry no unit at all. The bar is drawn
   /// from the DECODED value, so a scaled percentage fills correctly.
+  ///
+  /// The name fallback is now fenced two ways, because on its own it was a
+  /// claim about a RANGE made from a WORD. A field called
+  /// `battery_voltage_mv` carries millivolts; it matched `battery`, and the
+  /// GATT browser drew it a 0-100% bar pinned at full under a reading of
+  /// 3700. So the fallback applies only where the spec said nothing about
+  /// the unit — a field that declares `mV` has already told us it is not a
+  /// percentage — and only where the decoded value actually falls in 0..100,
+  /// which is the range the bar is drawing. A declared `unit: "%"` keeps its
+  /// bar whatever it reads, out-of-range included: there the spec asserted
+  /// the scale, and clamping shows the reading is off rather than hiding it.
   double? _percentOf(DecodedValueDto v) {
-    final isPercent = v.unit == '%' || v.name.toLowerCase().contains('battery');
-    if (!isPercent) return null;
-    return decodedNumberOf(v);
+    final unit = v.unit;
+    if (unit == '%') return decodedNumberOf(v);
+    if (unit != null && unit.isNotEmpty) return null;
+    if (unitFollowsDeviceSetting(v)) return null;
+    if (!v.name.toLowerCase().contains('battery')) return null;
+    final number = decodedNumberOf(v);
+    if (number == null || !number.isFinite) return null;
+    return (number < 0 || number > 100) ? null : number;
   }
 }

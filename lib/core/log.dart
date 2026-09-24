@@ -48,6 +48,21 @@ class LogRecord {
     this.stackTrace,
   });
 
+  /// This record with [secrets] replaced by [redactedText] in its message and
+  /// in its error's text. The error becomes a String: the type is kept in the
+  /// text, the object could not be.
+  LogRecord redacted(Iterable<String> secrets) {
+    final errorText = error?.toString();
+    return LogRecord(
+      time: time,
+      level: level,
+      category: category,
+      message: redactAll(message, secrets),
+      error: errorText == null ? null : redactAll(errorText, secrets),
+      stackTrace: stackTrace,
+    );
+  }
+
   /// The console rendering: `14:02:11.482 INFO  [ble] scan started`.
   ///
   /// Time-of-day (not a full date) because this is read live, next to the
@@ -69,9 +84,9 @@ class LogRecord {
       ..write(message);
     final errorText = error?.toString().trimRight();
     if (errorText != null && errorText.isNotEmpty) {
-      buffer.write(errorText.contains('\n')
-          ? '\n${_indent(errorText)}'
-          : ': $errorText');
+      buffer.write(
+        errorText.contains('\n') ? '\n${_indent(errorText)}' : ': $errorText',
+      );
     }
     final stack = stackTrace?.toString().trimRight();
     if (stack != null && stack.isNotEmpty) buffer.write('\n${_indent(stack)}');
@@ -131,12 +146,20 @@ class Logger {
 
   /// Run [body], and log how long it took.
   ///
-  /// The pattern this replaces is hand-rolled in the adoption service and
-  /// nowhere else, which is the problem: "how long did the probe take" is the
-  /// first question about every network exchange in this app and only one of
-  /// them can answer it. A failure is logged too, at [LogLevel.warning] with
-  /// its elapsed time, and then rethrown — the caller's error handling is
-  /// unchanged, and the timing line is not lost to the throw.
+  /// The shared form of a pattern this app keeps needing: "how long did that
+  /// take" is the first question about every network exchange here. Used by
+  /// the catalogue load (`specCatalogueProvider`), which is the measurement
+  /// the spec-handle redesign turned on its head.
+  ///
+  /// `AdoptService` still hand-rolls its own `Stopwatch` and `_elapsed`, and
+  /// deliberately: its lines interpolate the elapsed time INTO a sentence
+  /// ("wemo probe answered in 240 ms but offered no WiFiSetup"), which this
+  /// helper's one-line form cannot say. Converting it would cost those
+  /// sentences, so do not read this doc as asking for it.
+  ///
+  /// A failure is logged too, at [LogLevel.warning] with its elapsed time, and
+  /// then rethrown — the caller's error handling is unchanged, and the timing
+  /// line is not lost to the throw.
   ///
   /// The clock starts before [body] is called and stops when its future
   /// completes, so it measures what a person waited for rather than what the
@@ -152,9 +175,11 @@ class Logger {
       _emit(level, '$what took ${formatElapsed(watch.elapsed)}');
       return result;
     } catch (e) {
-      _emit(LogLevel.warning,
-          '$what failed after ${formatElapsed(watch.elapsed)}',
-          error: e);
+      _emit(
+        LogLevel.warning,
+        '$what failed after ${formatElapsed(watch.elapsed)}',
+        error: e,
+      );
       rethrow;
     }
   }
@@ -170,14 +195,16 @@ class Logger {
     // interpolation — hence the rule against logging in tight loops, and
     // [isEnabled] for the cases where the argument is the expensive part.)
     if (!isEnabled(level)) return;
-    Log._dispatch(LogRecord(
-      time: DateTime.now(),
-      level: level,
-      category: category,
-      message: message,
-      error: error,
-      stackTrace: stackTrace,
-    ));
+    Log._dispatch(
+      LogRecord(
+        time: DateTime.now(),
+        level: level,
+        category: category,
+        message: message,
+        error: error,
+        stackTrace: stackTrace,
+      ),
+    );
   }
 }
 
@@ -293,7 +320,7 @@ class Log {
     packs,
     ads,
     app,
-    ui
+    ui,
   ];
 
   /// Release builds never emit below this, whatever [minLevel] says. Verbose
@@ -321,8 +348,7 @@ class Log {
   static LogLevel clampToReleaseFloor(
     LogLevel level, {
     required bool releaseMode,
-  }) =>
-      releaseMode && level.index < releaseFloor.index ? releaseFloor : level;
+  }) => releaseMode && level.index < releaseFloor.index ? releaseFloor : level;
 
   /// Per-category thresholds, overriding [minLevel] where present.
   static final Map<String, LogLevel> _categoryLevels = {};
@@ -415,7 +441,34 @@ class Log {
     buffer?.clear();
   }
 
-  static void _dispatch(LogRecord record) {
+  /// Secrets that must never reach the buffer or the console, however they
+  /// arrive: a FormatException quoting the credential JSON it choked on, a
+  /// ClientException carrying a token-bearing URL, an uncaught error the
+  /// hooks in main.dart forward verbatim. Registered by the stores as they
+  /// load or save a credential; applied to every record at dispatch.
+  static final Set<String> _secrets = {};
+
+  /// The shortest value that is registered. A credential shorter than this
+  /// — a four-digit PIN — is low-entropy enough that redacting its digits
+  /// out of every later timestamp, port and hex dump would cost more
+  /// diagnostics than it protects; the long ones (tokens, keys, passwords)
+  /// are what a log must never carry.
+  static const int minSecretLength = 8;
+
+  /// Register [secret] for redaction in every record from now on. Null,
+  /// empty and short values are ignored (an empty one would match at every
+  /// position; see [minSecretLength] for short).
+  static void registerSecret(String? secret) {
+    if (secret != null && secret.length >= minSecretLength) {
+      _secrets.add(secret);
+    }
+  }
+
+  @visibleForTesting
+  static void clearSecrets() => _secrets.clear();
+
+  static void _dispatch(LogRecord raw) {
+    final record = _secrets.isEmpty ? raw : raw.redacted(_secrets);
     buffer?.add(record);
     final installed = sink;
     if (installed != null) {
@@ -511,11 +564,11 @@ String redactAll(String text, Iterable<String?> secrets) {
 /// (`https://user:pass@host/`) and query parameters (`?token=...`) both travel
 /// in one, and a user-supplied URL (the spec-pack manifest) can carry either.
 String logSafeUrl(Uri uri) => Uri(
-      scheme: uri.scheme,
-      host: uri.host,
-      port: uri.hasPort ? uri.port : null,
-      path: uri.path,
-    ).toString();
+  scheme: uri.scheme,
+  host: uri.host,
+  port: uri.hasPort ? uri.port : null,
+  path: uri.path,
+).toString();
 
 /// The runtime type of [error] and nothing else.
 ///

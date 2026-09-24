@@ -34,12 +34,8 @@ class GroupMember {
   /// discovery, and the battery read needs none at all.
   final Set<GroupOp> specOps;
 
-  GroupMember({
-    required this.id,
-    required this.name,
-    this.spec,
-    this.specYaml,
-  }) : specOps = spec == null ? const {} : supportedGroupOps(spec);
+  GroupMember({required this.id, required this.name, this.spec, this.specYaml})
+    : specOps = spec == null ? const {} : supportedGroupOps(spec);
 }
 
 /// One Wi-Fi device taking part in a group run — the network counterpart of
@@ -116,8 +112,11 @@ class GroupRunEvent {
 
 /// Resolves a spec for a member the app has no stored match for, from what
 /// discovery found — the same matching the device screen would do on connect.
-typedef GroupSpecResolver = Future<({DeviceSpecDto spec, String yaml})?>
-    Function(GroupMember member, List<BleDiscoveredService> services);
+typedef GroupSpecResolver =
+    Future<({DeviceSpecDto spec, String yaml})?> Function(
+      GroupMember member,
+      List<BleDiscoveredService> services,
+    );
 
 /// Executes one group operation across a group's members, one device at a
 /// time, reporting per-device progress as a stream.
@@ -145,13 +144,7 @@ class GroupRunner {
   /// dead link fails one member, not the evening.
   static const ioTimeout = Duration(seconds: 8);
 
-  GroupRunner({
-    required BleService ble,
-    required SpecCodec codec,
-    GroupSpecResolver? resolveSpec,
-  })  : _ble = ble,
-        _codec = codec,
-        _resolveSpec = resolveSpec;
+  GroupRunner({required this._ble, required this._codec, this._resolveSpec});
 
   Stream<GroupRunEvent> run(
     GroupOp op,
@@ -200,8 +193,9 @@ class GroupRunner {
           deviceId: member.id,
           status: GroupDeviceStatus.discovering,
         );
-        final services =
-            await _ble.discoverServices(member.id).timeout(discoverTimeout);
+        final services = await _ble
+            .discoverServices(member.id)
+            .timeout(discoverTimeout);
 
         var spec = knownSpec;
         var specYaml = member.specYaml;
@@ -211,8 +205,10 @@ class GroupRunner {
             // hangs (FFI, pack load) must not wedge the generator — an
             // un-timed suspension here can't even be cancelled, because the
             // finally-disconnect only runs when the generator resumes.
-            final resolved =
-                await _resolveSpec(member, services).timeout(discoverTimeout);
+            final resolved = await _resolveSpec(
+              member,
+              services,
+            ).timeout(discoverTimeout);
             spec = resolved?.spec;
             specYaml = resolved?.yaml;
           } on TimeoutException {
@@ -227,7 +223,13 @@ class GroupRunner {
         );
         result = op.isCommand
             ? await _runCommands(
-                op, member, spec, specYaml, services, brightnessPercent)
+                op,
+                member,
+                spec,
+                specYaml,
+                services,
+                brightnessPercent,
+              )
             : await _runReads(op, member, spec, specYaml, services);
       } catch (e) {
         result = GroupRunEvent(
@@ -307,8 +309,11 @@ class GroupRunner {
       return GroupRunEvent(
         deviceId: member.id,
         status: GroupDeviceStatus.skipped,
-        detail: supportedGroupOps(spec, matchedVariants: matchedVariants)
-                .contains(op)
+        detail:
+            supportedGroupOps(
+              spec,
+              matchedVariants: matchedVariants,
+            ).contains(op)
             ? 'Not found on this device'
             : "Not supported by this device's spec",
       );
@@ -326,7 +331,11 @@ class GroupRunner {
       );
       await _ble
           .writeCharacteristic(
-              member.id, write.serviceUuid, write.charUuid, bytes)
+            member.id,
+            write.serviceUuid,
+            write.charUuid,
+            bytes,
+          )
           .timeout(ioTimeout);
     }
     return GroupRunEvent(
@@ -394,10 +403,9 @@ class GroupRunner {
           bytes: bytes,
         );
         final display = groupReadingDisplay(read, decoded);
-        readings.add(GroupReading(
-          label: read.label,
-          value: display ?? 'Unavailable',
-        ));
+        readings.add(
+          GroupReading(label: read.label, value: display ?? 'Unavailable'),
+        );
         if (display != null) succeeded++;
       } catch (e) {
         // One reading failing shouldn't blank the others — degrade this row
@@ -461,14 +469,11 @@ class NetworkGroupRunner {
   final CredentialReader Function(NetworkDevice device)? _credentialsFor;
 
   NetworkGroupRunner({
-    required SpecCodec codec,
-    required SoapControlClient soap,
-    required NetworkCommandSenderFactory senderFor,
-    CredentialReader Function(NetworkDevice device)? credentialsFor,
-  })  : _codec = codec,
-        _soap = soap,
-        _credentialsFor = credentialsFor,
-        _senderFor = senderFor;
+    required this._codec,
+    required this._soap,
+    required this._senderFor,
+    this._credentialsFor,
+  });
 
   Stream<GroupRunEvent> run(
     GroupOp op,
@@ -484,11 +489,13 @@ class NetworkGroupRunner {
       while (live < concurrency && next < members.length) {
         final member = members[next++];
         if (stop.stopped) {
-          controller.add(GroupRunEvent(
-            deviceId: member.memberId,
-            status: GroupDeviceStatus.skipped,
-            detail: 'Cancelled',
-          ));
+          controller.add(
+            GroupRunEvent(
+              deviceId: member.memberId,
+              status: GroupDeviceStatus.skipped,
+              detail: 'Cancelled',
+            ),
+          );
           continue;
         }
         live++;
@@ -516,44 +523,57 @@ class NetworkGroupRunner {
         }
 
         final deadline = Timer(memberTimeout, () {
-          report(GroupRunEvent(
-            deviceId: member.memberId,
-            status: GroupDeviceStatus.failed,
-            detail: 'The device did not answer in time.',
-          ));
+          report(
+            GroupRunEvent(
+              deviceId: member.memberId,
+              status: GroupDeviceStatus.failed,
+              detail: 'The device did not answer in time.',
+            ),
+          );
           memberStop.stop();
         });
 
-        _runMember(op, member, brightnessPercent, memberStop).then(report,
-            onError: (Object e, StackTrace st) {
-          // Without this, a throw anywhere in the member — plan resolution,
-          // sender construction, a credential reader — became an unhandled
-          // zone error while the row rendered "running" forever: report
-          // never fired, and whenComplete below had already cancelled the
-          // deadline that was the only other way out.
-          Log.net.warning('group member ${member.memberId} failed',
-              error: e, stackTrace: st);
-          report(GroupRunEvent(
+        _runMember(op, member, brightnessPercent, memberStop)
+            .then(
+              report,
+              onError: (Object e, StackTrace st) {
+                // Without this, a throw anywhere in the member — plan resolution,
+                // sender construction, a credential reader — became an unhandled
+                // zone error while the row rendered "running" forever: report
+                // never fired, and whenComplete below had already cancelled the
+                // deadline that was the only other way out.
+                Log.net.warning(
+                  'group member ${member.memberId} failed',
+                  error: e,
+                  stackTrace: st,
+                );
+                report(
+                  GroupRunEvent(
+                    deviceId: member.memberId,
+                    status: GroupDeviceStatus.failed,
+                    detail: friendlyErrorText(
+                      e,
+                      fallback: 'Something went wrong driving this device.',
+                      log: Log.net,
+                    ),
+                  ),
+                );
+              },
+            )
+            .whenComplete(() {
+              deadline.cancel();
+              live--;
+              pump();
+              if (live == 0 && next >= members.length) {
+                unawaited(controller.close());
+              }
+            });
+        controller.add(
+          GroupRunEvent(
             deviceId: member.memberId,
-            status: GroupDeviceStatus.failed,
-            detail: friendlyErrorText(
-              e,
-              fallback: 'Something went wrong driving this device.',
-              log: Log.net,
-            ),
-          ));
-        }).whenComplete(() {
-          deadline.cancel();
-          live--;
-          pump();
-          if (live == 0 && next >= members.length) {
-            unawaited(controller.close());
-          }
-        });
-        controller.add(GroupRunEvent(
-          deviceId: member.memberId,
-          status: GroupDeviceStatus.running,
-        ));
+            status: GroupDeviceStatus.running,
+          ),
+        );
       }
       if (live == 0 && next >= members.length && !controller.isClosed) {
         unawaited(controller.close());
@@ -571,10 +591,10 @@ class NetworkGroupRunner {
     StopSignal stop,
   ) async {
     GroupRunEvent skip(String detail) => GroupRunEvent(
-          deviceId: member.memberId,
-          status: GroupDeviceStatus.skipped,
-          detail: detail,
-        );
+      deviceId: member.memberId,
+      status: GroupDeviceStatus.skipped,
+      detail: detail,
+    );
 
     if (!op.isCommand) {
       // Battery/sensor sweeps are BLE ops today; a Wi-Fi member sits those
@@ -643,8 +663,11 @@ class NetworkGroupRunner {
       var sent = 0;
       for (final send in plan.direct) {
         if (stop.stopped) break;
-        await sender.sendAction(send.action, Map.of(send.values),
-            description: description);
+        await sender.sendAction(
+          send.action,
+          Map.of(send.values),
+          description: description,
+        );
         sent++;
       }
 
@@ -652,8 +675,12 @@ class NetworkGroupRunner {
       var stateUnknown = 0;
       for (final toggle in plan.gated) {
         if (stop.stopped) break;
-        final isOn = await _readIsOn(toggle.entity, specYaml, sender,
-            description: description);
+        final isOn = await _readIsOn(
+          toggle.entity,
+          specYaml,
+          sender,
+          description: description,
+        );
         if (isOn == true) {
           await sender.sendAction(toggle.action, {}, description: description);
           sent++;
@@ -708,10 +735,12 @@ class NetworkGroupRunner {
     bool soap(NetworkActionDto action) =>
         !NetworkCommandSender.isIndependentTransport(action);
     return plan.direct.any((send) => soap(send.action)) ||
-        plan.gated.any((toggle) =>
-            soap(toggle.action) ||
-            toggle.entity.transport == null ||
-            toggle.entity.transport == 'soap');
+        plan.gated.any(
+          (toggle) =>
+              soap(toggle.action) ||
+              toggle.entity.transport == null ||
+              toggle.entity.transport == 'soap',
+        );
   }
 
   /// Read one entity's power state and decode it through the same
@@ -745,7 +774,13 @@ class NetworkGroupRunner {
         );
         final path = desc.controlPathFor(request);
         if (path == null) return null;
-        returned = await _soap.send(desc.host, desc.port, path, request);
+        returned = await _soap.send(
+          desc.host,
+          desc.port,
+          path,
+          request,
+          urlBase: desc.urlBase,
+        );
       }
       final reading = await _codec.readNetworkEntity(
         specYaml: specYaml,

@@ -28,7 +28,7 @@ class GroupsScreen extends ConsumerWidget {
     final custom = ref.watch(deviceGroupsProvider);
     final savedById = {for (final device in saved) device.id: device};
     final savedNetworkById = {
-      for (final device in savedNetwork) device.id: device
+      for (final device in savedNetwork) device.id: device,
     };
 
     return Scaffold(
@@ -41,7 +41,8 @@ class GroupsScreen extends ConsumerWidget {
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                    builder: (_) => const GroupEditScreen()),
+                  builder: (_) => const GroupEditScreen(),
+                ),
               ),
               icon: const Icon(Icons.add),
               label: const Text('New group'),
@@ -54,7 +55,11 @@ class GroupsScreen extends ConsumerWidget {
                 children: [
                   ..._byTypeSection(context, auto),
                   ..._myGroupsSection(
-                      context, custom, savedById, savedNetworkById),
+                    context,
+                    custom,
+                    savedById,
+                    savedNetworkById,
+                  ),
                   ..._unidentifiedSection(context, auto),
                 ],
               ),
@@ -63,7 +68,9 @@ class GroupsScreen extends ConsumerWidget {
   }
 
   List<Widget> _byTypeSection(
-      BuildContext context, AsyncValue<AutoGroups> auto) {
+    BuildContext context,
+    AsyncValue<AutoGroups> auto,
+  ) {
     final groups = auto.valueOrNull?.groups ?? const <AutoGroup>[];
     if (groups.isEmpty) return const [];
     return [
@@ -90,41 +97,44 @@ class GroupsScreen extends ConsumerWidget {
   }
 
   List<Widget> _myGroupsSection(
-      BuildContext context,
-      List<DeviceGroup> custom,
-      Map<String, SavedDevice> savedById,
-      Map<String, SavedNetworkDevice> savedNetworkById) {
+    BuildContext context,
+    List<DeviceGroup> custom,
+    Map<String, SavedDevice> savedById,
+    Map<String, SavedNetworkDevice> savedNetworkById,
+  ) {
     if (custom.isEmpty) return const [];
     return [
       SectionHeader(label: 'My groups', count: custom.length),
       const SizedBox(height: 12),
       for (final group in custom) ...[
-        Builder(builder: (context) {
-          // The count reflects what a run would actually touch — the same
-          // filter groupMembersProvider applies: forgotten devices leave a
-          // group silently, and so does a member whose recorded kind turned
-          // out to be non-groupable. Network members resolve through their
-          // own store and namespace.
-          final liveMembers = group.deviceIds.where((id) {
-            if (isNetworkMemberId(id)) {
-              final device = savedNetworkById[networkDeviceIdOf(id)];
+        Builder(
+          builder: (context) {
+            // The count reflects what a run would actually touch — the same
+            // filter groupMembersProvider applies: forgotten devices leave a
+            // group silently, and so does a member whose recorded kind turned
+            // out to be non-groupable. Network members resolve through their
+            // own store and namespace.
+            final liveMembers = group.deviceIds.where((id) {
+              if (isNetworkMemberId(id)) {
+                final device = savedNetworkById[networkDeviceIdOf(id)];
+                return device != null && isGroupable(device.category);
+              }
+              final device = savedById[id];
               return device != null && isGroupable(device.category);
-            }
-            final device = savedById[id];
-            return device != null && isGroupable(device.category);
-          }).length;
-          return GroupTile(
-            icon: Icons.workspaces_outlined,
-            title: group.name,
-            subtitle: liveMembers == 1 ? '1 device' : '$liveMembers devices',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => GroupDetailScreen(groupId: group.id),
+            }).length;
+            return GroupTile(
+              icon: Icons.workspaces_outlined,
+              title: group.name,
+              subtitle: liveMembers == 1 ? '1 device' : '$liveMembers devices',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => GroupDetailScreen(groupId: group.id),
+                ),
               ),
-            ),
-          );
-        }),
+            );
+          },
+        ),
         const SizedBox(height: 10),
       ],
       const SizedBox(height: 12),
@@ -132,7 +142,9 @@ class GroupsScreen extends ConsumerWidget {
   }
 
   List<Widget> _unidentifiedSection(
-      BuildContext context, AsyncValue<AutoGroups> auto) {
+    BuildContext context,
+    AsyncValue<AutoGroups> auto,
+  ) {
     final unidentified = auto.valueOrNull?.unidentified ?? const [];
     if (unidentified.isEmpty) return const [];
     final scheme = Theme.of(context).colorScheme;
@@ -215,16 +227,19 @@ class GroupTile extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700, color: tint),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: tint,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -256,8 +271,11 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.workspaces_outlined,
-                size: 48, color: scheme.onSurfaceVariant),
+            Icon(
+              Icons.workspaces_outlined,
+              size: 48,
+              color: scheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 16),
             Text(
               'No groups yet',
@@ -270,8 +288,10 @@ class _EmptyState extends StatelessWidget {
               'from the Nearby tab first — every kind of device you save '
               'gets a group here automatically, and you can make your own.',
               textAlign: TextAlign.center,
-              style: text.bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+              style: text.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                height: 1.5,
+              ),
             ),
           ],
         ),

@@ -40,6 +40,7 @@ const _robotPassword = ':1:1486937829:gktkDoYpWaDxCfGh';
 /// test can assert what did — and did not — go out.
 MockClient _irobot({
   List<http.Request>? seen,
+  Map<String, Object?>? discoveryOverride,
   Map<String, Object?>? loginOverride,
   Map<String, Object?>? robotsOverride,
 }) {
@@ -49,42 +50,49 @@ MockClient _irobot({
 
     if (path.endsWith('/v1/discover/endpoints')) {
       return http.Response(
-        jsonEncode({
-          'gigya': {
-            'api_key': 'REGION-API-KEY',
-            'datacenter_domain': 'accounts.us1.gigya.com',
-          },
-          'httpBase': 'https://unauth2.prod.iot.irobotapi.com',
-        }),
+        jsonEncode(
+          discoveryOverride ??
+              {
+                'gigya': {
+                  'api_key': 'REGION-API-KEY',
+                  'datacenter_domain': 'accounts.us1.gigya.com',
+                },
+                'httpBase': 'https://unauth2.prod.iot.irobotapi.com',
+              },
+        ),
         200,
       );
     }
     if (path.endsWith('/accounts.login')) {
       return http.Response(
-        jsonEncode(loginOverride ??
-            {
-              'errorCode': 0,
-              'UID': 'uid-123',
-              'UIDSignature': 'sig-abc',
-              'signatureTimestamp': 1755129600,
-              'sessionInfo': {'sessionToken': 'tok'},
-            }),
+        jsonEncode(
+          loginOverride ??
+              {
+                'errorCode': 0,
+                'UID': 'uid-123',
+                'UIDSignature': 'sig-abc',
+                'signatureTimestamp': 1755129600,
+                'sessionInfo': {'sessionToken': 'tok'},
+              },
+        ),
         200,
       );
     }
     if (path.endsWith('/v2/login')) {
       return http.Response(
-        jsonEncode(robotsOverride ??
-            {
-              'robots': {
-                '3193C60472324700': {
-                  'password': _robotPassword,
-                  'name': 'Dorita',
-                  'sku': 'R980020',
-                  'softwareVer': 'v2.4.16-126',
+        jsonEncode(
+          robotsOverride ??
+              {
+                'robots': {
+                  '3193C60472324700': {
+                    'password': _robotPassword,
+                    'name': 'Dorita',
+                    'sku': 'R980020',
+                    'softwareVer': 'v2.4.16-126',
+                  },
                 },
               },
-            }),
+        ),
         200,
       );
     }
@@ -105,41 +113,151 @@ void main() {
       expect(robots, hasLength(1));
       final robot = robots.single;
       expect(robot.blid, '3193C60472324700');
-      expect(robot.password, _robotPassword,
-          reason: 'byte-for-byte what the button route yields');
+      expect(
+        robot.password,
+        _robotPassword,
+        reason: 'byte-for-byte what the button route yields',
+      );
       expect(robot.name, 'Dorita');
       expect(robot.sku, 'R980020');
     });
 
-    test('walks discovery, Gigya, then the iRobot API, in that order',
-        () async {
-      final seen = <http.Request>[];
-      final service = IRobotCloudService(client: _irobot(seen: seen));
+    test(
+      'walks discovery, Gigya, then the iRobot API, in that order',
+      () async {
+        final seen = <http.Request>[];
+        final service = IRobotCloudService(client: _irobot(seen: seen));
 
-      await service.fetchCredentials(
-        email: _account,
-        password: _accountPassword,
-        countryCode: 'GB',
-      );
+        await service.fetchCredentials(
+          email: _account,
+          password: _accountPassword,
+          countryCode: 'GB',
+        );
 
-      expect(seen.map((r) => r.url.path).toList(), [
-        '/v1/discover/endpoints',
-        '/accounts.login',
-        '/v2/login',
-      ]);
-      // The region picks the endpoints; the wrong one answers with an empty
-      // robot list rather than an error, which is the confusing failure the
-      // parameter exists to avoid.
-      expect(seen.first.url.queryParameters['country_code'], 'GB');
-      // Read the account's robots; never claim ownership of one. Claiming
-      // would be a side effect on somebody's account this app has no business
-      // causing.
-      final login = jsonDecode(seen.last.body) as Map<String, dynamic>;
-      expect(login['assume_robot_ownership'], 0);
-      expect(login['gigya'], {
-        'signature': 'sig-abc',
-        'timestamp': '1755129600',
-        'uid': 'uid-123',
+        expect(seen.map((r) => r.url.path).toList(), [
+          '/v1/discover/endpoints',
+          '/accounts.login',
+          '/v2/login',
+        ]);
+        // The region picks the endpoints; the wrong one answers with an empty
+        // robot list rather than an error, which is the confusing failure the
+        // parameter exists to avoid.
+        expect(seen.first.url.queryParameters['country_code'], 'GB');
+        // Read the account's robots; never claim ownership of one. Claiming
+        // would be a side effect on somebody's account this app has no business
+        // causing.
+        final login = jsonDecode(seen.last.body) as Map<String, dynamic>;
+        expect(login['assume_robot_ownership'], 0);
+        expect(login['gigya'], {
+          'signature': 'sig-abc',
+          'timestamp': '1755129600',
+          'uid': 'uid-123',
+        });
+      },
+    );
+
+    group('the password is only ever sent over HTTPS', () {
+      // Only [discoveryHost] is known ahead of time. Everything the password
+      // is posted to comes back from that call, so it is exactly as
+      // trustworthy as whatever answered — a DNS reply, a proxy, a captive
+      // portal. The old check was `startsWith('http')`, which `http://`
+      // passes, so a directory reply naming a plaintext Gigya host got the
+      // account password in the clear.
+      Map<String, Object?> directory({
+        String gigya = 'accounts.us1.gigya.com',
+        String api = 'https://unauth2.prod.iot.irobotapi.com',
+      }) => {
+        'gigya': {'api_key': 'REGION-API-KEY', 'datacenter_domain': gigya},
+        'httpBase': api,
+      };
+
+      test('an http:// Gigya base is refused before anything is sent', () async {
+        final seen = <http.Request>[];
+        final service = IRobotCloudService(
+          client: _irobot(
+            seen: seen,
+            discoveryOverride: directory(
+              gigya: 'http://accounts.us1.gigya.com',
+            ),
+          ),
+        );
+
+        await expectLater(
+          service.fetchCredentials(email: _account, password: _accountPassword),
+          throwsA(
+            isA<IRobotCloudException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('insecure'),
+                contains('HTTPS'),
+                contains('nothing was sent'),
+                contains('HOME-button'),
+              ),
+            ),
+          ),
+        );
+
+        expect(
+          seen.map((r) => r.url.path).toList(),
+          ['/v1/discover/endpoints'],
+          reason:
+              'fail closed: the sign-in must not be attempted at all, and the '
+              'password must never reach the wire',
+        );
+        expect(seen.every((r) => !r.body.contains(_accountPassword)), isTrue);
+      });
+
+      test('an http:// robot-list base is refused too', () async {
+        // This one carries the Gigya assertion rather than the password, but
+        // the assertion is a bearer credential for the same account and the
+        // reply is a list of local robot passwords. Same rule.
+        final seen = <http.Request>[];
+        final service = IRobotCloudService(
+          client: _irobot(
+            seen: seen,
+            discoveryOverride: directory(
+              api: 'http://unauth2.prod.iot.irobotapi.com',
+            ),
+          ),
+        );
+
+        await expectLater(
+          service.fetchCredentials(email: _account, password: _accountPassword),
+          throwsA(isA<IRobotCloudException>()),
+        );
+        expect(seen.map((r) => r.url.path).toList(), [
+          '/v1/discover/endpoints',
+        ]);
+      });
+
+      test('a scheme that is neither is refused, not guessed at', () async {
+        final service = IRobotCloudService(
+          client: _irobot(discoveryOverride: directory(gigya: 'ftp://nope')),
+        );
+        await expectLater(
+          service.fetchCredentials(email: _account, password: _accountPassword),
+          throwsA(isA<IRobotCloudException>()),
+        );
+      });
+
+      test('a bare domain still means https, as it always did', () async {
+        // Gigya's `datacenter_domain` has no scheme; refusing it would break
+        // every real sign-in.
+        final seen = <http.Request>[];
+        final service = IRobotCloudService(client: _irobot(seen: seen));
+
+        await service.fetchCredentials(
+          email: _account,
+          password: _accountPassword,
+        );
+
+        expect(seen.map((r) => r.url.scheme).toSet(), {'https'});
+        expect(
+          seen[1].url.host,
+          'accounts.us1.gigya.com',
+          reason: 'promoted, not rewritten',
+        );
       });
     });
 
@@ -164,46 +282,55 @@ void main() {
           .where((request) => request.body.contains(_accountPassword))
           .map((request) => request.url.path)
           .toList();
-      expect(carrying, ['/accounts.login'],
-          reason:
-              'the password reaches the identity provider and nothing else');
+      expect(
+        carrying,
+        ['/accounts.login'],
+        reason: 'the password reaches the identity provider and nothing else',
+      );
     });
 
     /// Gigya's own message ("Invalid loginID or password") is better than
     /// anything we could substitute, so it is surfaced rather than replaced.
     test('surfaces a rejected sign-in with the provider\'s reason', () async {
       final service = IRobotCloudService(
-        client: _irobot(loginOverride: const {
-          'errorCode': 403042,
-          'errorMessage': 'Invalid loginID or password',
-        }),
+        client: _irobot(
+          loginOverride: const {
+            'errorCode': 403042,
+            'errorMessage': 'Invalid loginID or password',
+          },
+        ),
       );
 
       await expectLater(
         service.fetchCredentials(email: _account, password: 'wrong'),
-        throwsA(isA<IRobotCloudException>().having(
-          (e) => e.message,
-          'message',
-          contains('Invalid loginID or password'),
-        )),
+        throwsA(
+          isA<IRobotCloudException>().having(
+            (e) => e.message,
+            'message',
+            contains('Invalid loginID or password'),
+          ),
+        ),
       );
     });
 
     /// The likeliest confusing failure: the guide says to firewall the robot,
     /// and someone who did that first lands here. The message has to name it,
     /// or they go hunting for a network fault that is not there.
-    test('a blocked network is explained, not reported as a generic error',
-        () async {
-      final service = IRobotCloudService(
-        client: MockClient(
-            (_) async => throw http.ClientException('Connection failed')),
-      );
+    test(
+      'a blocked network is explained, not reported as a generic error',
+      () async {
+        final service = IRobotCloudService(
+          client: MockClient(
+            (_) async => throw http.ClientException('Connection failed'),
+          ),
+        );
 
-      await expectLater(
-        service.fetchCredentials(email: _account, password: _accountPassword),
-        throwsA(isA<IRobotCloudException>()),
-      );
-    });
+        await expectLater(
+          service.fetchCredentials(email: _account, password: _accountPassword),
+          throwsA(isA<IRobotCloudException>()),
+        );
+      },
+    );
 
     test('an account with no robots says so plainly', () async {
       final service = IRobotCloudService(
@@ -212,8 +339,13 @@ void main() {
 
       await expectLater(
         service.fetchCredentials(email: _account, password: _accountPassword),
-        throwsA(isA<IRobotCloudException>()
-            .having((e) => e.message, 'message', contains('no robots'))),
+        throwsA(
+          isA<IRobotCloudException>().having(
+            (e) => e.message,
+            'message',
+            contains('no robots'),
+          ),
+        ),
       );
     });
 
@@ -222,15 +354,17 @@ void main() {
     /// Skipping it beats offering a credential that cannot work.
     test('skips robots that carry no local password', () async {
       final service = IRobotCloudService(
-        client: _irobot(robotsOverride: const {
-          'robots': {
-            'V4MODEL0000000': {'name': 'New Roomba', 'sku': 'R105'},
-            '3193C60472324700': {
-              'password': _robotPassword,
-              'name': 'Dorita',
+        client: _irobot(
+          robotsOverride: const {
+            'robots': {
+              'V4MODEL0000000': {'name': 'New Roomba', 'sku': 'R105'},
+              '3193C60472324700': {
+                'password': _robotPassword,
+                'name': 'Dorita',
+              },
             },
           },
-        }),
+        ),
       );
 
       final robots = await service.fetchCredentials(
@@ -241,18 +375,27 @@ void main() {
       expect(robots.map((r) => r.blid), ['3193C60472324700']);
     });
 
-    test('a directory missing its fields fails before asking for a password',
-        () async {
-      final service = IRobotCloudService(
-        client: MockClient((request) async =>
-            http.Response(jsonEncode({'unexpected': true}), 200)),
-      );
+    test(
+      'a directory missing its fields fails before asking for a password',
+      () async {
+        final service = IRobotCloudService(
+          client: MockClient(
+            (request) async =>
+                http.Response(jsonEncode({'unexpected': true}), 200),
+          ),
+        );
 
-      await expectLater(
-        service.fetchCredentials(email: _account, password: _accountPassword),
-        throwsA(isA<IRobotCloudException>()
-            .having((e) => e.message, 'message', contains('HOME-button'))),
-      );
-    });
+        await expectLater(
+          service.fetchCredentials(email: _account, password: _accountPassword),
+          throwsA(
+            isA<IRobotCloudException>().having(
+              (e) => e.message,
+              'message',
+              contains('HOME-button'),
+            ),
+          ),
+        );
+      },
+    );
   });
 }

@@ -80,6 +80,29 @@ fn wifi_spec_parses_with_no_ble_services() {
     );
 }
 
+/// The Frigidaire set-point is declared `uint8` — the BLE vocabulary, which
+/// the vendored schema does not forbid — and the OCP endpoint takes
+/// `{"<attribute>": <value>}` with the value as a JSON number. A renderer
+/// that knew only the JSON type names quoted it, and the set-point never
+/// changed.
+#[test]
+fn frigidaire_set_temperature_renders_its_uint8_argument_as_a_number() {
+    use liberated_bread_core::protocol::http;
+    use std::collections::BTreeMap;
+
+    let spec = parse_device_spec(include_str!("specs/frigidaire-window-ac.yaml"))
+        .expect("wifi spec should parse");
+    let values: BTreeMap<String, String> = [("temperature", "22"), ("appliance_id", "abc123")]
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect();
+    let request = http::render_request(&spec, "set_temperature", &values)
+        .expect("set_temperature renders with a temperature and the appliance id");
+    assert_eq!(request.method, "PUT");
+    assert_eq!(request.path, "/appliance/api/v2/appliances/abc123/command");
+    assert_eq!(request.body, r#"{"targetTemperatureC":22}"#);
+}
+
 #[test]
 fn ble_spec_still_exposes_characteristics() {
     // The tolerance changes must not stop the parser from surfacing the fields
@@ -206,6 +229,40 @@ fn admore_allowed_and_labels_surface_in_dto() {
 /// mispair. Labels without any `allowed` are dropped for the same reason.
 /// The parser itself still preserves both blocks (tolerance), so this also
 /// pins that the drop happens exactly at the DTO boundary.
+/// One malformed handshake step used to fail the whole spec's parse and drop
+/// the device from the catalogue. The schema lets `write` carry any integer,
+/// and packs install from arbitrary URLs.
+#[test]
+fn a_malformed_initialization_step_drops_the_step_not_the_device() {
+    const YAML: &str = r#"
+device:
+  name: "Handshake"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+initialization:
+  - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+    write: [0, 256]
+  - write: [7]
+  - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+    write: [1]
+services:
+  - uuid: "0000ff20-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000ff21-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+"#;
+    let spec = parse_device_spec(YAML).expect("a bad step must not fail the spec");
+    assert_eq!(
+        spec.initialization.len(),
+        1,
+        "256 is not a byte and a step with no characteristic addresses nothing; the one that parses stays"
+    );
+    assert_eq!(spec.initialization[0].write.as_deref(), Some(&[1u8][..]));
+}
+
 #[test]
 fn mismatched_labels_are_dropped_at_dto_boundary_but_allowed_kept() {
     use liberated_bread_core::api::device_api::load_device_spec;

@@ -34,7 +34,9 @@ final haApiClientProvider = Provider<HaApiClient>((ref) {
 /// Opens external links (Tailscale docs). Injected so widget tests never hit
 /// the url_launcher platform channel.
 final urlOpenerProvider = Provider<Future<bool> Function(Uri)>(
-    (ref) => (url) => launchUrl(url, mode: LaunchMode.externalApplication));
+  (ref) =>
+      (url) => launchUrl(url, mode: LaunchMode.externalApplication),
+);
 
 /// The app-wide sensor forwarder bridging decoded BLE values to HA.
 final haForwarderProvider = Provider<HaSensorForwarder>((ref) {
@@ -48,8 +50,9 @@ final haForwarderProvider = Provider<HaSensorForwarder>((ref) {
   return forwarder;
 });
 
-final haConfigProvider =
-    AsyncNotifierProvider<HaConfigNotifier, HaConfig?>(HaConfigNotifier.new);
+final haConfigProvider = AsyncNotifierProvider<HaConfigNotifier, HaConfig?>(
+  HaConfigNotifier.new,
+);
 
 /// Loads, registers, and updates the persisted Home Assistant configuration.
 class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
@@ -73,8 +76,11 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
       //
       // Logging the error itself is safe here: the read FAILED, so no stored
       // plaintext was produced for it to carry.
-      Log.ha.warning('config read failed; treating as unconfigured',
-          error: e, stackTrace: st);
+      Log.ha.warning(
+        'config read failed; treating as unconfigured',
+        error: e,
+        stackTrace: st,
+      );
       return null;
     }
     if (raw == null) return null;
@@ -90,14 +96,19 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
       // of its source around the error offset, so interpolating this exception
       // ('$e') prints part of the token — measurably so for the truncated blob
       // this branch exists to handle. Log the TYPE only; never the value.
-      Log.ha.warning('stored config is corrupt (${errorType(e)}); clearing it '
-          'so re-registration can recover');
+      Log.ha.warning(
+        'stored config is corrupt (${errorType(e)}); clearing it '
+        'so re-registration can recover',
+      );
       try {
         await store.delete(configKey);
       } catch (e2, st2) {
         // Safe to log: a delete failure carries the key, not the value.
-        Log.ha.error('could not clear the corrupt config',
-            error: e2, stackTrace: st2);
+        Log.ha.error(
+          'could not clear the corrupt config',
+          error: e2,
+          stackTrace: st2,
+        );
       }
       return null;
     }
@@ -139,8 +150,10 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
     await store.write(configKey, jsonEncode(config.toJson()));
     // The base url is user-visible on the settings screen; the webhook id and
     // token are not, and never go to a log. See `redact` in core/log.dart.
-    Log.ha.info('registered with Home Assistant at $normalized '
-        '(webhook ${redact(result.webhookId)})');
+    Log.ha.info(
+      'registered with Home Assistant at $normalized '
+      '(webhook ${redact(result.webhookId)})',
+    );
     state = AsyncData(config);
   }
 
@@ -168,7 +181,9 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
     if (existing != null) return existing;
     final rng = Random.secure();
     final id = List.generate(
-        16, (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+      16,
+      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
     await store.write(deviceIdKey, id);
     return id;
   }

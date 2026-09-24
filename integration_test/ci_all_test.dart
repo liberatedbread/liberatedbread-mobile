@@ -33,6 +33,7 @@ import 'package:integration_test/integration_test.dart';
 import 'app_launch_test.dart' as app_launch;
 import 'error_flow_test.dart' as error_flow;
 import 'group_flow_test.dart' as group_flow;
+import 'keychain_accessibility_test.dart' as keychain_accessibility;
 import 'mock_flow_test.dart' as mock_flow;
 import 'native_core_test.dart' as native_core;
 
@@ -60,6 +61,10 @@ void main() {
 
   group('error_flow_test.dart', error_flow.main);
   group('mock_flow_test.dart', mock_flow.main);
+  // Touches only the keychain, never RustLib, so it belongs in the group that
+  // runs BEFORE the ones that bring the native core up — see
+  // test/platform/integration_aggregate_test.dart for why the order matters.
+  group('keychain_accessibility_test.dart', keychain_accessibility.main);
   // ── the two suites that bring up RustLib, and why they are pinned here ────
   //
   // NOT alphabetical, deliberately, and this is the one place in the repo

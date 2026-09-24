@@ -64,8 +64,10 @@ class EntitySensorCard extends StatelessWidget {
       value: value.decodedNumber,
     );
     if (level == null) return null;
-    final visible =
-        sensorLevelVisible(deviceClass: entity.deviceClass, level: level);
+    final visible = sensorLevelVisible(
+      deviceClass: entity.deviceClass,
+      level: level,
+    );
     return visible ? level : null;
   }
 
@@ -104,8 +106,9 @@ class EntitySensorCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         entity.name,
-                        style: text.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
+                        style: text.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -192,27 +195,29 @@ class EntitySensorCard extends StatelessWidget {
   }
 
   BoxDecoration _cardDecoration(ColorScheme scheme) => BoxDecoration(
-        color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: scheme.outlineVariant),
-      );
+    color: scheme.surfaceContainerLow,
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: scheme.outlineVariant),
+  );
 
-  Widget _iconBox(ColorScheme scheme,
-          {required double size, required double iconSize}) =>
-      Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: scheme.secondaryContainer,
-          borderRadius: BorderRadius.circular(size * 0.3),
-        ),
-        child: Icon(_icon, color: scheme.onSecondaryContainer, size: iconSize),
-      );
+  Widget _iconBox(
+    ColorScheme scheme, {
+    required double size,
+    required double iconSize,
+  }) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: scheme.secondaryContainer,
+      borderRadius: BorderRadius.circular(size * 0.3),
+    ),
+    child: Icon(_icon, color: scheme.onSecondaryContainer, size: iconSize),
+  );
 
   Widget _liveBolt(ColorScheme scheme, {required double size}) => Tooltip(
-        message: 'Updates live',
-        child: Icon(Icons.bolt, size: size, color: scheme.onSurfaceVariant),
-      );
+    message: 'Updates live',
+    child: Icon(Icons.bolt, size: size, color: scheme.onSurfaceVariant),
+  );
 
   /// The decoded value with its unit, for a live reading.
   Widget _reading(EntityLiveValue value, ColorScheme scheme, TextTheme text) {
@@ -247,7 +252,10 @@ class EntitySensorCard extends StatelessWidget {
   /// Everything that is not a clean live reading: pending, failed, or a spec
   /// gap, said in words rather than left as a blank tile.
   Widget _statusContent(
-      EntityLiveValue value, ColorScheme scheme, TextTheme text) {
+    EntityLiveValue value,
+    ColorScheme scheme,
+    TextTheme text,
+  ) {
     switch (value.status) {
       case EntityValueStatus.unavailable:
         // An entity whose characteristic has no `format:` block can't be
@@ -271,9 +279,10 @@ class EntitySensorCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Text('Reading...',
-                style:
-                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            Text(
+              'Reading...',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ],
         );
       case EntityValueStatus.error:

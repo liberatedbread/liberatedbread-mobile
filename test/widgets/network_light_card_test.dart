@@ -35,8 +35,7 @@ class _FakeLifxClient extends LifxControlClient {
     required int sequence,
     Duration timeout = const Duration(seconds: 1),
     int retries = 2,
-  }) async =>
-      null;
+  }) async => null;
 }
 
 NetworkActionDto _action(String role, {List<String> params = const []}) =>
@@ -51,46 +50,50 @@ NetworkActionDto _action(String role, {List<String> params = const []}) =>
     );
 
 NetworkEntityDto _lightEntity({bool multizone = false}) => NetworkEntityDto(
-      name: 'LIFX Z Multizone Strip',
-      platform: 'light',
-      transport: 'lifx',
-      isInstanced: false,
-      stateCommand: '',
-      options: const [],
-      actions: [
-        _action('turn_on'),
-        _action('turn_off'),
-        _action('set_color',
-            params: const ['red', 'green', 'blue', 'brightness']),
-        _action('set_color_temperature', params: const ['kelvin']),
-        if (multizone)
-          _action('set_zone_color',
-              params: const ['zone', 'red', 'green', 'blue', 'brightness']),
-      ],
-    );
+  name: 'LIFX Z Multizone Strip',
+  platform: 'light',
+  transport: 'lifx',
+  isInstanced: false,
+  stateCommand: '',
+  options: const [],
+  actions: [
+    _action('turn_on'),
+    _action('turn_off'),
+    _action('set_color', params: const ['red', 'green', 'blue', 'brightness']),
+    _action('set_color_temperature', params: const ['kelvin']),
+    if (multizone)
+      _action(
+        'set_zone_color',
+        params: const ['zone', 'red', 'green', 'blue', 'brightness'],
+      ),
+  ],
+);
 
 Widget _wrap(
-        NetworkEntityDto entity, FakeSpecCodec codec, _FakeLifxClient client) =>
-    ProviderScope(
-      overrides: [
-        specCodecProvider.overrideWithValue(codec),
-        lifxControlClientProvider.overrideWithValue(client),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: NetworkLightCard(
-            entity: entity,
-            specYaml: 'lifx',
-            host: '192.168.1.44',
-            targetMac: 'd0:73:d5:aa:bb:cc',
-          ),
-        ),
+  NetworkEntityDto entity,
+  FakeSpecCodec codec,
+  _FakeLifxClient client,
+) => ProviderScope(
+  overrides: [
+    specCodecProvider.overrideWithValue(codec),
+    lifxControlClientProvider.overrideWithValue(client),
+  ],
+  child: MaterialApp(
+    home: Scaffold(
+      body: NetworkLightCard(
+        entity: entity,
+        specYaml: 'lifx',
+        host: '192.168.1.44',
+        targetMac: 'd0:73:d5:aa:bb:cc',
       ),
-    );
+    ),
+  ),
+);
 
 void main() {
-  testWidgets('power toggle renders turn_on then turn_off over UDP',
-      (tester) async {
+  testWidgets('power toggle renders turn_on then turn_off over UDP', (
+    tester,
+  ) async {
     final codec = FakeSpecCodec();
     final client = _FakeLifxClient();
     await tester.pumpWidget(_wrap(_lightEntity(), codec, client));
@@ -108,8 +111,9 @@ void main() {
     expect(client.sent.length, 2);
   });
 
-  testWidgets('tapping a colour swatch sends set_color with rgb params',
-      (tester) async {
+  testWidgets('tapping a colour swatch sends set_color with rgb params', (
+    tester,
+  ) async {
     final codec = FakeSpecCodec();
     final client = _FakeLifxClient();
     await tester.pumpWidget(_wrap(_lightEntity(), codec, client));
@@ -121,13 +125,16 @@ void main() {
 
     final call = codec.renderLifxCalls.last;
     expect(call.action, 'set_color');
-    expect(call.params.keys,
-        containsAll(<String>['red', 'green', 'blue', 'brightness']));
+    expect(
+      call.params.keys,
+      containsAll(<String>['red', 'green', 'blue', 'brightness']),
+    );
     expect(client.sent, isNotEmpty);
   });
 
-  testWidgets('a brightness slider appears only when set_color carries it',
-      (tester) async {
+  testWidgets('a brightness slider appears only when set_color carries it', (
+    tester,
+  ) async {
     final codec = FakeSpecCodec();
     final client = _FakeLifxClient();
     await tester.pumpWidget(_wrap(_lightEntity(), codec, client));
@@ -135,67 +142,74 @@ void main() {
     // Two sliders: brightness and colour temperature.
     expect(find.byType(Slider), findsNWidgets(2));
   });
-  testWidgets('a non-LIFX light rides the generic sender, never the UDP client',
-      (tester) async {
-    // The routing bug this guards: platform == light used to imply the LIFX
-    // implementation, so an http light would have had LIFX datagrams fired
-    // at it. Now the transport decides, and the card presents only.
-    final codec = FakeSpecCodec();
-    final client = _FakeLifxClient();
-    const generic = NetworkEntityDto(
-      name: 'Bridge Light',
-      platform: 'light',
-      transport: 'http',
-      isInstanced: false,
-      stateCommand: '',
-      options: [],
-      actions: [
-        NetworkActionDto(
-          role: 'turn_on',
-          commandName: 'light_on',
-          transport: 'http',
-          userParams: [],
-          readBack: [],
-          credentials: [],
-          instanceParams: [],
-        ),
-        NetworkActionDto(
-          role: 'turn_off',
-          commandName: 'light_off',
-          transport: 'http',
-          userParams: [],
-          readBack: [],
-          credentials: [],
-          instanceParams: [],
-        ),
-      ],
-    );
-    final sent = <(String, Map<String, String>)>[];
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        specCodecProvider.overrideWithValue(codec),
-        lifxControlClientProvider.overrideWithValue(client),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: NetworkLightCard(
-            entity: generic,
-            specYaml: 'y',
-            host: '10.0.0.7',
-            targetMac: '',
-            sendAction: (action, values) async =>
-                sent.add((action.commandName, values)),
+  testWidgets(
+    'a non-LIFX light rides the generic sender, never the UDP client',
+    (tester) async {
+      // The routing bug this guards: platform == light used to imply the LIFX
+      // implementation, so an http light would have had LIFX datagrams fired
+      // at it. Now the transport decides, and the card presents only.
+      final codec = FakeSpecCodec();
+      final client = _FakeLifxClient();
+      const generic = NetworkEntityDto(
+        name: 'Bridge Light',
+        platform: 'light',
+        transport: 'http',
+        isInstanced: false,
+        stateCommand: '',
+        options: [],
+        actions: [
+          NetworkActionDto(
+            role: 'turn_on',
+            commandName: 'light_on',
+            transport: 'http',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [],
+          ),
+          NetworkActionDto(
+            role: 'turn_off',
+            commandName: 'light_off',
+            transport: 'http',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [],
+          ),
+        ],
+      );
+      final sent = <(String, Map<String, String>)>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            lifxControlClientProvider.overrideWithValue(client),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: NetworkLightCard(
+                entity: generic,
+                specYaml: 'y',
+                host: '10.0.0.7',
+                targetMac: '',
+                sendAction: (action, values) async =>
+                    sent.add((action.commandName, values)),
+              ),
+            ),
           ),
         ),
-      ),
-    ));
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(Switch));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
 
-    expect(sent.single.$1, 'light_on');
-    expect(client.sent, isEmpty,
-        reason: 'no LIFX datagram may reach a non-LIFX device');
-  });
+      expect(sent.single.$1, 'light_on');
+      expect(
+        client.sent,
+        isEmpty,
+        reason: 'no LIFX datagram may reach a non-LIFX device',
+      );
+    },
+  );
 }

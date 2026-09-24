@@ -132,7 +132,8 @@ if [[ "$MOCK" == "true" ]]; then
   FLUTTER_ARGS+=("--dart-define=LIBERATED_BREAD_MOCK=true")
 fi
 
-FLUTTER_ARGS+=("${EXTRA_ARGS[@]}")
+# Guarded: bash 3.2 (macOS) treats an empty array expansion as unbound under set -u.
+(( ${#EXTRA_ARGS[@]} > 0 )) && FLUTTER_ARGS+=("${EXTRA_ARGS[@]}")
 
 # ── go ───────────────────────────────────────────────────────────────────────
 

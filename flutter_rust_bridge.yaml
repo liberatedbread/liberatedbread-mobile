@@ -1,3 +1,13 @@
 rust_input: crate::api
 rust_root: rust
 dart_output: lib/src/rust
+# Pasted at the top of every generated Dart file.
+#
+# `strict-inference` (analysis_options.yaml) flags the generated
+# `RustArcStaticData(...)` that every `#[frb(opaque)]` type gets, which is
+# code flutter_rust_bridge writes and CI drift-gates — so it can be neither
+# hand-fixed nor ignored in place. Silencing exactly that one diagnostic in
+# generated files keeps `flutter analyze --fatal-infos` meaningful everywhere
+# else, including for the rest of these files.
+dart_preamble: |
+  // ignore_for_file: inference_failure_on_instance_creation

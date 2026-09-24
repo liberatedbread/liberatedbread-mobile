@@ -18,43 +18,42 @@ const _cmdService = '00010203-0405-0607-0809-0a0b0c0d1910';
 const _stateChar = 'fc540003-236c-4c94-8fa9-944a3e5353fa';
 
 EntityActionDto _fixedAction(String role, String command) => EntityActionDto(
-      role: role,
-      serviceUuid: _cmdService,
-      characteristicUuid: _cmdChar,
-      commandName: command,
-      userParams: const [],
-    );
+  role: role,
+  serviceUuid: _cmdService,
+  characteristicUuid: _cmdChar,
+  commandName: command,
+  userParams: const [],
+);
 
 Widget _wrap(
   EntityDto entity, {
   required FakeSpecCodec codec,
   required FakeBleService ble,
   String? stateServiceUuid,
-}) =>
-    ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: SwitchControlCard(
-            deviceId: 'd',
-            stateServiceUuid: stateServiceUuid,
-            entity: entity,
-            specYaml: 'y',
-          ),
-        ),
+}) => ProviderScope(
+  overrides: [
+    bleServiceProvider.overrideWithValue(ble),
+    specCodecProvider.overrideWithValue(codec),
+  ],
+  child: MaterialApp(
+    home: Scaffold(
+      body: SwitchControlCard(
+        deviceId: 'd',
+        stateServiceUuid: stateServiceUuid,
+        entity: entity,
+        specYaml: 'y',
       ),
-    );
+    ),
+  ),
+);
 
 void main() {
   testWidgets(
-      'a stateless switch renders On/Off buttons and sends the bound command',
-      (tester) async {
-    // govee's plug: commands only, no state characteristic at all. A toggle
-    // would claim to know the current state; buttons promise nothing.
-    final entity = EntityDto(
+    'a stateless switch renders On/Off buttons and sends the bound command',
+    (tester) async {
+      // govee's plug: commands only, no state characteristic at all. A toggle
+      // would claim to know the current state; buttons promise nothing.
+      final entity = EntityDto(
         options: const [],
         name: 'Plug Outlet',
         platform: 'switch',
@@ -65,43 +64,47 @@ void main() {
           _fixedAction('turn_on', 'turn_on'),
           _fixedAction('turn_off', 'turn_off'),
         ],
-        variants: const []);
-    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x33, 0x01]));
-    final ble = FakeBleService();
+        variants: const [],
+      );
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x33, 0x01]));
+      final ble = FakeBleService();
 
-    await tester.pumpWidget(_wrap(entity, codec: codec, ble: ble));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(_wrap(entity, codec: codec, ble: ble));
+      await tester.pumpAndSettle();
 
-    expect(find.byType(Switch), findsNothing);
-    expect(find.text('State unknown — commands send blind'), findsOneWidget);
+      expect(find.byType(Switch), findsNothing);
+      expect(find.text('State unknown — commands send blind'), findsOneWidget);
 
-    await tester.tap(find.text('On'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('On'));
+      await tester.pumpAndSettle();
 
-    expect(codec.encodeCalls, hasLength(1));
-    expect(codec.encodeCalls.single.commandName, 'turn_on');
-    expect(codec.encodeCalls.single.charUuid, _cmdChar);
-    expect(ble.writes, hasLength(1));
-    expect(ble.writes.single.charUuid, _cmdChar);
-    expect(ble.writes.single.value, [0x33, 0x01]);
-  });
+      expect(codec.encodeCalls, hasLength(1));
+      expect(codec.encodeCalls.single.commandName, 'turn_on');
+      expect(codec.encodeCalls.single.charUuid, _cmdChar);
+      expect(ble.writes, hasLength(1));
+      expect(ble.writes.single.charUuid, _cmdChar);
+      expect(ble.writes.single.value, [0x33, 0x01]);
+    },
+  );
 
-  testWidgets('a switch with readable state renders a toggle that sends',
-      (tester) async {
+  testWidgets('a switch with readable state renders a toggle that sends', (
+    tester,
+  ) async {
     final entity = EntityDto(
-        options: const [],
-        name: 'Temperature Control',
-        platform: 'switch',
-        stateCharacteristic: _stateChar,
-        canNotify: false,
-        hasFormat: true,
-        valueField: 'target_temp_raw',
-        onWhenNonzero: true,
-        actions: [
-          _fixedAction('turn_on', 'enable'),
-          _fixedAction('turn_off', 'disable'),
-        ],
-        variants: const []);
+      options: const [],
+      name: 'Temperature Control',
+      platform: 'switch',
+      stateCharacteristic: _stateChar,
+      canNotify: false,
+      hasFormat: true,
+      valueField: 'target_temp_raw',
+      onWhenNonzero: true,
+      actions: [
+        _fixedAction('turn_on', 'enable'),
+        _fixedAction('turn_off', 'disable'),
+      ],
+      variants: const [],
+    );
     // Device reports a nonzero target temperature: on.
     final codec = FakeSpecCodec(
       decoded: const [
@@ -110,13 +113,19 @@ void main() {
           valueType: 'uint',
           display: '5320',
           uintValue: 5320,
+          rawNumber: 5320.0,
+          decodedNumber: 5320.0,
+          decodedText: '5320',
+          decimals: 0,
         ),
       ],
       encoded: Uint8List.fromList([0x00]),
     );
-    final ble = FakeBleService(readValues: const {
-      _stateChar: [0xC8, 0x14],
-    });
+    final ble = FakeBleService(
+      readValues: const {
+        _stateChar: [0xC8, 0x14],
+      },
+    );
 
     await tester.pumpWidget(
       _wrap(entity, codec: codec, ble: ble, stateServiceUuid: 's'),
@@ -129,8 +138,11 @@ void main() {
     await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
 
-    expect(codec.encodeCalls.single.commandName, 'disable',
-        reason: 'toggling an on switch sends turn_off');
+    expect(
+      codec.encodeCalls.single.commandName,
+      'disable',
+      reason: 'toggling an on switch sends turn_off',
+    );
     expect(ble.writes, hasLength(1));
     expect(find.text('Off (sent)'), findsOneWidget);
   });
@@ -138,18 +150,19 @@ void main() {
   testWidgets('a press action renders a momentary button', (tester) async {
     // SwitchBot's bot: press alongside on/off. All three must be sendable.
     final entity = EntityDto(
-        options: const [],
-        name: 'Bot Press',
-        platform: 'switch',
-        canNotify: false,
-        hasFormat: false,
-        onWhenNonzero: false,
-        actions: [
-          _fixedAction('turn_on', 'bot_turn_on'),
-          _fixedAction('turn_off', 'bot_turn_off'),
-          _fixedAction('press', 'bot_press'),
-        ],
-        variants: const []);
+      options: const [],
+      name: 'Bot Press',
+      platform: 'switch',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _fixedAction('turn_on', 'bot_turn_on'),
+        _fixedAction('turn_off', 'bot_turn_off'),
+        _fixedAction('press', 'bot_press'),
+      ],
+      variants: const [],
+    );
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x57, 0x01]));
     final ble = FakeBleService();
 
@@ -168,32 +181,42 @@ void main() {
     expect(ble.writes, hasLength(1));
   });
 
-  testWidgets('a switch with state but no sendable actions is read-only',
-      (tester) async {
+  testWidgets('a switch with state but no sendable actions is read-only', (
+    tester,
+  ) async {
     // ember's temperature-control switch binds prose, not commands: live
     // state with no way to change it is exactly what the spec supports.
     const entity = EntityDto(
-        options: [],
-        name: 'Temperature Control',
-        platform: 'switch',
-        stateCharacteristic: _stateChar,
-        canNotify: false,
-        hasFormat: true,
-        valueField: 'target_temp_raw',
-        onWhenNonzero: true,
-        actions: [],
-        variants: []);
-    final codec = FakeSpecCodec(decoded: const [
-      DecodedValueDto(
-        name: 'target_temp_raw',
-        valueType: 'uint',
-        display: '0',
-        uintValue: 0,
-      ),
-    ]);
-    final ble = FakeBleService(readValues: const {
-      _stateChar: [0, 0],
-    });
+      options: [],
+      name: 'Temperature Control',
+      platform: 'switch',
+      stateCharacteristic: _stateChar,
+      canNotify: false,
+      hasFormat: true,
+      valueField: 'target_temp_raw',
+      onWhenNonzero: true,
+      actions: [],
+      variants: [],
+    );
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
+          name: 'target_temp_raw',
+          valueType: 'uint',
+          display: '0',
+          uintValue: 0,
+          rawNumber: 0.0,
+          decodedNumber: 0.0,
+          decodedText: '0',
+          decimals: 0,
+        ),
+      ],
+    );
+    final ble = FakeBleService(
+      readValues: const {
+        _stateChar: [0, 0],
+      },
+    );
 
     await tester.pumpWidget(
       _wrap(entity, codec: codec, ble: ble, stateServiceUuid: 's'),
@@ -205,20 +228,22 @@ void main() {
     expect(find.text('Off'), findsOneWidget);
   });
 
-  testWidgets('an encode failure surfaces instead of pretending success',
-      (tester) async {
+  testWidgets('an encode failure surfaces instead of pretending success', (
+    tester,
+  ) async {
     final entity = EntityDto(
-        options: const [],
-        name: 'Plug Outlet',
-        platform: 'switch',
-        canNotify: false,
-        hasFormat: false,
-        onWhenNonzero: false,
-        actions: [
-          _fixedAction('turn_on', 'turn_on'),
-          _fixedAction('turn_off', 'turn_off'),
-        ],
-        variants: const []);
+      options: const [],
+      name: 'Plug Outlet',
+      platform: 'switch',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _fixedAction('turn_on', 'turn_on'),
+        _fixedAction('turn_off', 'turn_off'),
+      ],
+      variants: const [],
+    );
     final codec = FakeSpecCodec(encodeError: StateError('bad param'));
     final ble = FakeBleService();
 

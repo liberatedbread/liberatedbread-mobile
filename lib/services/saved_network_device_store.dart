@@ -127,57 +127,55 @@ class SavedNetworkDevice {
   /// carries is one the device actually answered with, and the timestamp is
   /// the save's own.
   NetworkDevice toNetworkDevice() => NetworkDevice(
-        host: host,
-        name: name,
-        hostname: hostname,
-        port: port,
-        ssdpPort: ssdpPort,
-        ssdpDescriptionPath: ssdpDescriptionPath,
-        ssdpTargets: ssdpTargets,
-        serviceTypes: serviceTypes,
-        answeredLanProtocols: answeredLanProtocols,
-        server: server,
-        pictogram: pictogram,
-        txt: txt,
-        sources: sources.isNotEmpty ? sources : _derivedSources(),
-        discoveredAt: lastSeen,
-      );
+    host: host,
+    name: name,
+    hostname: hostname,
+    port: port,
+    ssdpPort: ssdpPort,
+    ssdpDescriptionPath: ssdpDescriptionPath,
+    ssdpTargets: ssdpTargets,
+    serviceTypes: serviceTypes,
+    answeredLanProtocols: answeredLanProtocols,
+    server: server,
+    pictogram: pictogram,
+    txt: txt,
+    sources: sources.isNotEmpty ? sources : _derivedSources(),
+    discoveredAt: lastSeen,
+  );
 
   /// What a record written before [sources] was persisted must fall back to:
   /// the old derivation, kept for those records alone.
   Set<NetworkDiscoverySource> _derivedSources() => {
-        if (ssdpPort != null || ssdpTargets.isNotEmpty)
-          NetworkDiscoverySource.ssdp
-        else
-          NetworkDiscoverySource.mdns,
-      };
+    if (ssdpPort != null || ssdpTargets.isNotEmpty)
+      NetworkDiscoverySource.ssdp
+    else
+      NetworkDiscoverySource.mdns,
+  };
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'lastSeen': lastSeen.toIso8601String(),
-        'host': host,
-        if (hostname != null) 'hostname': hostname,
-        if (port != null) 'port': port,
-        if (ssdpPort != null) 'ssdpPort': ssdpPort,
-        if (ssdpDescriptionPath != null)
-          'ssdpDescriptionPath': ssdpDescriptionPath,
-        if (ssdpTargets.isNotEmpty) 'ssdpTargets': ssdpTargets,
-        if (serviceTypes.isNotEmpty) 'serviceTypes': serviceTypes,
-        if (answeredLanProtocols.isNotEmpty)
-          'answeredLanProtocols': answeredLanProtocols,
-        if (server != null) 'server': server,
-        if (pictogram != null) 'pictogram': pictogram,
-        if (sources.isNotEmpty)
-          'sources': [for (final source in sources) source.name],
-        if (txt.isNotEmpty) 'txt': txt,
-        if (category != null) 'category': category,
-        if (specKey != null) 'specKey': specKey,
-        if (credentialIdentity != null)
-          'credentialIdentity': credentialIdentity,
-        if (credentialIdentities.isNotEmpty)
-          'credentialIdentities': [...credentialIdentities],
-      };
+    'id': id,
+    'name': name,
+    'lastSeen': lastSeen.toIso8601String(),
+    'host': host,
+    if (hostname != null) 'hostname': hostname,
+    if (port != null) 'port': port,
+    if (ssdpPort != null) 'ssdpPort': ssdpPort,
+    if (ssdpDescriptionPath != null) 'ssdpDescriptionPath': ssdpDescriptionPath,
+    if (ssdpTargets.isNotEmpty) 'ssdpTargets': ssdpTargets,
+    if (serviceTypes.isNotEmpty) 'serviceTypes': serviceTypes,
+    if (answeredLanProtocols.isNotEmpty)
+      'answeredLanProtocols': answeredLanProtocols,
+    if (server != null) 'server': server,
+    if (pictogram != null) 'pictogram': pictogram,
+    if (sources.isNotEmpty)
+      'sources': [for (final source in sources) source.name],
+    if (txt.isNotEmpty) 'txt': txt,
+    if (category != null) 'category': category,
+    if (specKey != null) 'specKey': specKey,
+    if (credentialIdentity != null) 'credentialIdentity': credentialIdentity,
+    if (credentialIdentities.isNotEmpty)
+      'credentialIdentities': [...credentialIdentities],
+  };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
   /// take the whole list down with it — the same tolerance every store in
@@ -217,8 +215,8 @@ class SavedNetworkDevice {
       ssdpPort: ssdpPort is int ? ssdpPort : null,
       ssdpDescriptionPath:
           descriptionPath is String && descriptionPath.isNotEmpty
-              ? descriptionPath
-              : null,
+          ? descriptionPath
+          : null,
       ssdpTargets: _strings(targets),
       serviceTypes: _strings(json['serviceTypes']),
       answeredLanProtocols: _strings(json['answeredLanProtocols']),
@@ -235,7 +233,8 @@ class SavedNetworkDevice {
       txt: txt,
       category: category is String && category.isNotEmpty ? category : null,
       specKey: specKey is String && specKey.isNotEmpty ? specKey : null,
-      credentialIdentity: json['credentialIdentity'] is String &&
+      credentialIdentity:
+          json['credentialIdentity'] is String &&
               (json['credentialIdentity'] as String).isNotEmpty
           ? json['credentialIdentity'] as String
           : null,

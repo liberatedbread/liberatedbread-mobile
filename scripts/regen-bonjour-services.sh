@@ -2,23 +2,36 @@
 # Rewrite ios/Runner/Info.plist's NSBonjourServices array from the mDNS service
 # types the vendored catalogue names.
 #
-# WHY THIS IS GENERATED AND NOT HAND-WRITTEN
+# WHAT THIS KEY ACTUALLY GOVERNS  (read this before trusting the array)
 #
-# iOS 14+ withholds mDNS answers for a service type not declared in
-# NSBonjourServices, and it does it SILENTLY: no error, no log, the device
-# simply never appears. The array was therefore a second copy of a fact the
-# YAML already states, maintained by hand, updated only when somebody
-# remembered — and the catalogue arrives by `git subtree pull`, so it drifted
-# on every spec wave. The last one added five Wi-Fi specs and the array missed
-# all five; a broader read of the same catalogue found ten more that had been
-# missing for longer, including the two legacy printer types the scan already
-# draws a printer glyph for.
+# NSBonjourServices constrains mDNS performed through the BONJOUR APIs —
+# NWBrowser, the old NetService — where mDNSResponder does the query on the
+# app's behalf and the OS filters answers by declared type.
 #
-# So it is derived. `update-specs.sh` runs this straight after a pull, which
-# makes "a new Wi-Fi spec is discoverable on iOS" a property of vendoring the
-# spec rather than of a reviewer noticing. Unlike index-temp.json this output IS
-# committed: it is part of the iOS bundle, and the diff is the point — it shows
-# which types a spec wave added.
+# This app does not use those APIs. lib/services/real_network_scan_service.dart
+# drives mDNS itself: `multicast_dns` binds UDP 5353 and joins 224.0.0.251 on a
+# RawDatagramSocket, and the SSDP half sends its own M-SEARCH. Raw multicast is
+# gated by the com.apple.developer.networking.multicast ENTITLEMENT, not by
+# this key. ios/Runner/Runner.entitlements and
+# test/platform/ios_entitlements_test.dart have always said so; the header here
+# used to say the opposite, and claimed that vendoring a spec made it
+# "discoverable on iOS" by virtue of landing in this array. It does not.
+#
+# The array is still generated and still committed, for two reasons worth
+# keeping: it declares the app's intent accurately to App Review, and it is
+# exactly what a move to NWBrowser would need already correct — which is the
+# App-Store-friendlier path, since a Bonjour-API implementation needs no
+# multicast entitlement at all. Deriving it from the catalogue means that if
+# that move ever happens, the list is not fifteen spec waves out of date.
+#
+# WHY IT IS GENERATED AND NOT HAND-WRITTEN
+#
+# The array is a second copy of a fact the YAML already states. Maintained by
+# hand it drifted on every `git subtree pull`: one spec wave added five Wi-Fi
+# specs and the array missed all five, and a broader read found ten more that
+# had been missing for longer. `update-specs.sh` runs this straight after a
+# pull, and the committed diff is the point — it shows which types a wave
+# added.
 #
 # WHAT COUNTS AS A TYPE
 #

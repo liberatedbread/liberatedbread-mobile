@@ -107,14 +107,21 @@ class _RabbitAirSetupInfoPanelState
     final old = _client;
     _client = null;
     if (old != null) await old.disconnect();
+    // Disconnecting the previous client is an await, so the panel can already
+    // be gone by the time it returns — back out of the setup screen while a
+    // retry is in flight and every line below ran on a defunct State, where
+    // setState throws and `ref.read` reaches through a disposed ref.
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     final codec = ref.read(specCodecProvider);
     final client = _client = RabbitAirBleClient(
-        ref.read(bleServiceProvider), codec,
-        responseTimeout: widget.responseTimeout);
+      ref.read(bleServiceProvider),
+      codec,
+      responseTimeout: widget.responseTimeout,
+    );
     _nextId = 0;
     try {
       await client.attach(widget.device.id, services: widget.services);
@@ -122,8 +129,10 @@ class _RabbitAirSetupInfoPanelState
       await _poll();
       if (!mounted) return;
       setState(() => _loading = false);
-      _pollTimer =
-          Timer.periodic(widget.pollInterval, (_) => unawaited(_poll()));
+      _pollTimer = Timer.periodic(
+        widget.pollInterval,
+        (_) => unawaited(_poll()),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -146,14 +155,17 @@ class _RabbitAirSetupInfoPanelState
       throw StateError('RabbitAirSetupInfoPanel exchange before attach');
     }
     final codec = ref.read(specCodecProvider);
-    final envelope =
-        await codec.renderRabbitAirSetupEnvelope(id: _nextId++, cmd: cmd);
+    final envelope = await codec.renderRabbitAirSetupEnvelope(
+      id: _nextId++,
+      cmd: cmd,
+    );
     final reply = utf8.decode(await client.sendCommand(utf8.encode(envelope)));
     final decoded = jsonDecode(reply);
     final error = decoded is Map ? decoded['error'] : null;
     if (error != null && error != false) {
       throw RabbitAirBleException(
-          'the purifier refused command $cmd (error: $error)');
+        'the purifier refused command $cmd (error: $error)',
+      );
     }
     return reply;
   }
@@ -228,9 +240,12 @@ class _RabbitAirSetupInfoPanelState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_error!,
-                      style: text.bodyMedium
-                          ?.copyWith(color: scheme.onErrorContainer)),
+                  Text(
+                    _error!,
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerRight,
@@ -251,19 +266,19 @@ class _RabbitAirSetupInfoPanelState
           const Center(child: CircularProgressIndicator()),
           const SizedBox(height: 16),
           Center(
-            child: Text('Asking the device...',
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+            child: Text(
+              'Asking the device...',
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ),
         ] else ...[
-          if (_info != null) ...[
-            _infoCard(),
-            const SizedBox(height: 12),
-          ],
+          if (_info != null) ...[_infoCard(), const SizedBox(height: 12)],
           for (final entity
               in surface?.entities ?? const <NetworkEntityDto>[]) ...[
             RabbitAirReadingCard(
-                entity: entity, reading: _readings[entity.name]),
+              entity: entity,
+              reading: _readings[entity.name],
+            ),
             const SizedBox(height: 12),
           ],
         ],
@@ -294,8 +309,10 @@ class _RabbitAirSetupInfoPanelState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Purifier info',
-                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            Text(
+              'Purifier info',
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             for (final (label, value) in rows)
               Padding(
@@ -305,13 +322,17 @@ class _RabbitAirSetupInfoPanelState
                   children: [
                     SizedBox(
                       width: 110,
-                      child: Text(label,
-                          style: text.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600)),
+                      child: Text(
+                        label,
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                     Expanded(
-                        child: SelectableText(value, style: text.bodySmall)),
+                      child: SelectableText(value, style: text.bodySmall),
+                    ),
                   ],
                 ),
               ),
@@ -325,11 +346,11 @@ class _RabbitAirSetupInfoPanelState
   /// MinusA2, 2 = BioGS 2.0, 3 = A3); null when absent or unknown — an
   /// unrecognized code is not a guess.
   String? get _modelName => switch (_model) {
-        1 => 'MinusA2',
-        2 => 'BioGS 2.0',
-        3 => 'A3',
-        _ => null,
-      };
+    1 => 'MinusA2',
+    2 => 'BioGS 2.0',
+    3 => 'A3',
+    _ => null,
+  };
 }
 
 /// The card a "RabbitAirSetup" unit shows at the foot of its info view: this
@@ -355,7 +376,9 @@ class RabbitAirSetupCard extends StatelessWidget {
         title: Text(
           'Finish setting up this purifier',
           style: text.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600, color: scheme.onSecondaryContainer),
+            fontWeight: FontWeight.w600,
+            color: scheme.onSecondaryContainer,
+          ),
         ),
         subtitle: Text(
           'It is in setup mode. Hand it your Wi-Fi over Bluetooth.',

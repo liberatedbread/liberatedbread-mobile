@@ -53,8 +53,9 @@ void main() {
     // before runApp; pumping LiberatedBreadApp directly bypasses that, and
     // ScanScreen's History section (savedDevicesProvider) needs it on first
     // build.
-    SharedPreferences.setMockInitialValues(
-        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+    SharedPreferences.setMockInitialValues({
+      AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+    });
     final prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(

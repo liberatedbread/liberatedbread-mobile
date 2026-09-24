@@ -82,10 +82,7 @@ class DeviceDescription {
   /// Reads as observation rather than identification throughout — every phrase
   /// here is something the device broadcast, not a conclusion about what it is.
   String? get summary {
-    final parts = [
-      if (maker != null) maker!,
-      if (servicesLine != null) servicesLine!
-    ];
+    final parts = [?maker, ?servicesLine];
     return parts.isEmpty ? null : parts.join(' · ');
   }
 }
@@ -139,7 +136,7 @@ String? deviceSubtitle(IoTDevice device, DeviceDescription description) {
   if (device.name.isEmpty) {
     // The maker (if any) is already the title; don't repeat it.
     final services = description.servicesLine;
-    return [device.id, if (services != null) services].join(' · ');
+    return [device.id, ?services].join(' · ');
   }
   return description.summary;
 }

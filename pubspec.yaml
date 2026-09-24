@@ -6,12 +6,21 @@ publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: '>=3.6.0 <4.0.0'
+  # What pubspec.lock and the pinned Flutter 3.44.8 already demand. This is
+  # also the package's LANGUAGE version: below 3.7 the lints flutter_lints 6
+  # adds were no-ops and `dart format` used the pre-3.7 style. Raising it
+  # reformatted every Dart file in the repository, once, in the commit that
+  # made this change.
+  sdk: ^3.12.0
 
 dependencies:
   flutter:
     sdk: flutter
-  flutter_blue_plus: 1.35.4
+  # 1.36.8 is the LAST BSD-3 release: 2.x is a commercial "FlutterBluePlus
+  # License" with build-time telemetry, so the ceiling here is a licence
+  # boundary, not caution. Exact, because the federated interface below has
+  # to match it exactly.
+  flutter_blue_plus: 1.36.8
   flutter_rust_bridge: 2.9.0
   flutter_riverpod: ^2.4.0
   flutter_secure_storage: ^9.2.0
@@ -31,7 +40,7 @@ dependencies:
   # SOAP/UPnP control of network devices (Wemo): parsing setup.xml and SOAP
   # response envelopes. Already in the tree as a transitive dependency; listed
   # here because lib/ imports it directly.
-  xml: ^6.5.0
+  xml: ^7.0.1
   liberated_bread_core:
     path: rust_builder
   multicast_dns: ^0.3.3+1
@@ -41,7 +50,7 @@ dev_dependencies:
     sdk: flutter
   integration_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   # Test-only: fake time for the polled Roomba adapters, whose rule is about
   # what a `Timer.periodic` does when the server answers slower than the
   # interval — real-time waiting would make that a ten-second test. Already
@@ -50,9 +59,9 @@ dev_dependencies:
   fake_async: ^1.3.1
   # Test-only: the live-hardware smoke (test/live/) registers the Linux BlueZ
   # backend by hand, because a test VM has no app startup to do it. Pinned to
-  # the exact version flutter_blue_plus 1.35.4 resolves anyway, so this adds
+  # the exact version flutter_blue_plus 1.36.8 resolves anyway, so this adds
   # no new code — it only makes the transitive dependency importable.
-  flutter_blue_plus_linux: 3.0.2
+  flutter_blue_plus_linux: 7.0.3
   # Test-only, and pinned exactly like flutter_blue_plus above because it is
   # that package's own federated interface — the two move together and a
   # mismatch is a compile error, not a warning.
@@ -63,18 +72,52 @@ dev_dependencies:
   # is NOT re-exported by package:flutter_blue_plus (it exports only
   # DeviceIdentifier, Guid, LogLevel and PhySupport), so it has to be depended
   # on directly rather than reached through the transitive dependency.
-  flutter_blue_plus_platform_interface: 4.0.2
+  flutter_blue_plus_platform_interface: 7.0.0
 
 flutter:
+  # Plugins link through CocoaPods on Apple platforms, not Swift Package
+  # Manager. This lives HERE, in the project, rather than in a
+  # `flutter config --no-enable-swift-package-manager` on one CI runner,
+  # because a machine-global setting is per-machine: the ios-build job set it,
+  # the ios-adhoc workflow that produces the installable IPA did not, and a
+  # developer Mac has SPM on by default (enabledByDefault on stable). So the
+  # linking configuration CI tested was never the one that reached a phone —
+  # four plugins (flutter_blue_plus_darwin, permission_handler_apple,
+  # shared_preferences_foundation, url_launcher_ios) resolved through SPM
+  # there and CocoaPods here.
+  #
+  # That split is not cosmetic. permission_handler_apple's Package.swift
+  # defines PERMISSION_BLUETOOTH=1 when Info.plist carries a Bluetooth usage
+  # string, while its podspec leaves the macro at 0 unless the Podfile's
+  # post_install adds it — so the same source builds a working Bluetooth
+  # permission strategy under SPM and a compiled-out one under CocoaPods.
+  # ios/Podfile's post_install comment is the record of that hazard.
+  #
+  # flutter_tools resolves this key before the global config and before
+  # FLUTTER_SWIFT_PACKAGE_MANAGER (flutter_features_config.dart: project level
+  # ?? global config, then the environment), so one line here governs every
+  # invocation on every machine. Two of the app's own plugins
+  # (flutter_secure_storage, and rust_builder/liberated_bread_core, which is a
+  # cargokit podspec with no Package.swift) have no SPM support anyway, which
+  # is what the "do not support Swift Package Manager" warning on every build
+  # is telling us. Revisit when the Rust pod grows a Package.swift.
+  config:
+    enable-swift-package-manager: false
   uses-material-design: true
   assets:
     # Everything ships straight out of the vendored protocol-specs subtree.
     # There is no copy under assets/: the subtree is the single source of truth,
-    # so there is nothing to keep in step and nothing to go stale. Listed as a
-    # directory (not just index.json) so a locally-rebuilt, gitignored
-    # index-temp.json rides along when present — see device_spec_provider's
-    # specManifestTempPath. (README.md/schema.json ship too; both are tiny.)
-    - vendor/protocol-specs/device-specs/
+    # so there is nothing to keep in step and nothing to go stale.
+    #
+    # index.json by name, not its directory: the directory entry also shipped
+    # schema.json (330 KB) and README.md (37 KB), which nothing in the app
+    # reads — five percent of the vendored payload, enumerated in the asset
+    # manifest on every launch. The locally-rebuilt, gitignored index-temp.json
+    # (see device_spec_provider's specManifestTempPath) lives under examples/
+    # for exactly this reason: a directory entry is the only way an asset that
+    # may or may not exist can ride along, and examples/ is a directory that
+    # ships anyway.
+    - vendor/protocol-specs/device-specs/index.json
     - vendor/protocol-specs/device-specs/devices/
     - vendor/protocol-specs/device-specs/examples/
     # Registries listed file by file rather than as a directory so SOURCES.md,

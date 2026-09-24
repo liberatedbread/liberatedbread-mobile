@@ -11,8 +11,12 @@
 #   source scripts/ci-versions.sh      # defines CI_* variables (see below)
 #   ./scripts/ci-versions.sh           # prints them, one KEY=value per line
 #
-# Every value has a fallback, so a parse miss degrades to "slightly stale pin"
-# rather than "setup explodes"; a miss is reported on stderr so it gets fixed.
+# Every value has a fallback, so a parse miss degrades to a usable pin rather
+# than "setup explodes"; a miss is reported on stderr so it gets fixed. The
+# fallback is not allowed to DISAGREE with the workflow, though — `--strict`
+# fails on that too (see _ci_set), because a fallback that has drifted
+# provisions a machine differently from CI precisely when this script has lost
+# its ability to notice.
 #
 # HOW THIS READS THE WORKFLOW, and why it is boring on purpose.
 #
@@ -49,6 +53,9 @@
 #   CI_JAVA_VERSION           JDK major version Gradle runs on
 #   CI_FRB_VERSION            flutter_rust_bridge_codegen
 #   CI_LLVM_COV_VERSION       cargo-llvm-cov (the rust-coverage job's tool)
+#   CI_SHELLCHECK_VERSION     shellcheck (scripts/ci-install-shellcheck.sh fetches it)
+#   CI_IOS_ATTEMPT_TIMEOUT    per-attempt wall clock for the iOS simulator run
+#   CI_IOS_BOOT_TIMEOUT       bound on waiting for the simulator to boot
 #   CI_RUST_ANDROID_TARGETS   space-separated rustup targets for Android
 #   CI_RUST_IOS_TARGETS       space-separated rustup targets for iOS
 #   CI_EMULATOR_API           API level of the AVD CI boots
@@ -131,11 +138,38 @@ _ci_env_list() {
 # turn "announced" into "enforced" — see the bottom of this file.
 CI_VERSIONS_FALLBACKS=0
 
+# How many fallbacks disagree with the value ci.yml actually declares, and
+# which ones.
+#
+# A fallback is not a second opinion — it is what a machine gets when the
+# workflow cannot be read at all (a shallow checkout, a moved file, a parse
+# that broke). A fallback that has drifted is therefore not "slightly stale":
+# it is a dev environment provisioned differently from CI, silently, exactly
+# when this script has already lost its ability to notice.
+#
+# CI_LINUX_DESKTOP_PACKAGES is the one that proved it. ci.yml grew `dbus` and
+# `python3-dbus-next` for the Linux desktop job; the fallback here kept the
+# older nine, so any machine that fell back installed a set that cannot run
+# the Linux tests, and the failure surfaced as an unrelated GTK/CMake error
+# inside `flutter build linux`.
+#
+# So the same `--strict` that enforces "every key is readable" also enforces
+# "every fallback still says what the workflow says". Bumping a pin in ci.yml
+# means updating its fallback here in the same commit — one line, named in the
+# error.
+CI_VERSIONS_STALE=0
+CI_VERSIONS_STALE_KEYS=""
+
 # Assign $1=$3 if $3 is non-empty, else fall back to $2 and say so.
 _ci_set() {
   local var="$1" fallback="$2" parsed="$3"
   if [ -n "$parsed" ]; then
     printf -v "$var" '%s' "$parsed"
+    if [ "$parsed" != "$fallback" ]; then
+      CI_VERSIONS_STALE=$((CI_VERSIONS_STALE + 1))
+      CI_VERSIONS_STALE_KEYS="${CI_VERSIONS_STALE_KEYS}${var} "
+      _ci_warn "$var fallback is '$fallback' but ${CI_WORKFLOW##*/} says '$parsed'; update the fallback in $_ci_versions_self"
+    fi
   else
     printf -v "$var" '%s' "$fallback"
     CI_VERSIONS_FALLBACKS=$((CI_VERSIONS_FALLBACKS + 1))
@@ -145,6 +179,8 @@ _ci_set() {
 
 ci_versions_load() {
   CI_VERSIONS_FALLBACKS=0
+  CI_VERSIONS_STALE=0
+  CI_VERSIONS_STALE_KEYS=""
   if [ ! -r "$CI_WORKFLOW" ]; then
     _ci_warn "workflow not readable at ${CI_WORKFLOW}; using fallbacks for everything"
   fi
@@ -157,6 +193,14 @@ ci_versions_load() {
   _ci_set CI_JAVA_VERSION '17' "$(_ci_env JAVA_VERSION || true)"
   _ci_set CI_FRB_VERSION '2.9.0' "$(_ci_env FRB_VERSION || true)"
   _ci_set CI_LLVM_COV_VERSION '0.8.7' "$(_ci_env LLVM_COV_VERSION || true)"
+  _ci_set CI_SHELLCHECK_VERSION '0.11.0' "$(_ci_env SHELLCHECK_VERSION || true)"
+
+  # The iOS simulator job's two bounds. scripts/ci-ios-tests.sh reads them from
+  # here when they are not already in the environment, which is what lets that
+  # script be run on a laptop exactly as its own usage text says. In CI the
+  # workflow's env: block still supplies them directly.
+  _ci_set CI_IOS_ATTEMPT_TIMEOUT '720' "$(_ci_env IOS_SIMULATOR_ATTEMPT_TIMEOUT || true)"
+  _ci_set CI_IOS_BOOT_TIMEOUT '240' "$(_ci_env IOS_SIMULATOR_BOOT_TIMEOUT || true)"
 
   _ci_set CI_RUST_ANDROID_TARGETS \
     'aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android' \
@@ -176,7 +220,7 @@ ci_versions_load() {
   CI_EMULATOR_SYSTEM_IMAGE="system-images;android-${CI_EMULATOR_API};${CI_EMULATOR_TARGET};${CI_EMULATOR_ARCH}"
 
   _ci_set CI_LINUX_DESKTOP_PACKAGES \
-    'clang cmake libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config xvfb' \
+    'clang cmake dbus libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config python3-dbus-next xvfb' \
     "$(_ci_env LINUX_DESKTOP_PACKAGES || true)"
 }
 
@@ -185,10 +229,14 @@ ci_versions_print() {
   local v
   for v in CI_FLUTTER_VERSION CI_NDK_VERSION CI_ANDROID_API CI_BUILD_TOOLS_VERSION \
            CI_CMAKE_VERSION CI_JAVA_VERSION CI_FRB_VERSION CI_LLVM_COV_VERSION \
+           CI_SHELLCHECK_VERSION \
+           CI_IOS_ATTEMPT_TIMEOUT CI_IOS_BOOT_TIMEOUT \
            CI_RUST_ANDROID_TARGETS CI_RUST_IOS_TARGETS \
            CI_EMULATOR_API CI_EMULATOR_TARGET CI_EMULATOR_ARCH CI_EMULATOR_PROFILE \
            CI_EMULATOR_SYSTEM_IMAGE CI_LINUX_DESKTOP_PACKAGES; do
-    printf '%s=%s\n' "$v" "${!v}"
+    # %q: shell-quoted, so `eval "$(./scripts/ci-versions.sh)"` survives the
+    # space-separated package list instead of running its second word.
+    printf '%s=%q\n' "$v" "${!v}"
   done
 }
 
@@ -211,6 +259,10 @@ if [ "${BASH_SOURCE[0]:-}" = "${0}" ]; then
     esac
   done
   ci_versions_print
+  if [ "$strict" -eq 1 ] && [ "$CI_VERSIONS_STALE" -gt 0 ]; then
+    echo "::error file=scripts/ci-versions.sh::${CI_VERSIONS_STALE} fallback(s) in this script no longer match .github/workflows/ci.yml: ${CI_VERSIONS_STALE_KEYS% }. The fallback is what provisions a machine that cannot read the workflow, so a drifted one installs something CI never uses — which is how CI_LINUX_DESKTOP_PACKAGES came to be missing dbus and python3-dbus-next. Copy each value from the env: block into the matching _ci_set call above." >&2
+    exit 1
+  fi
   if [ "$strict" -eq 1 ] && [ "$CI_VERSIONS_FALLBACKS" -gt 0 ]; then
     echo "::error file=.github/workflows/ci.yml::${CI_VERSIONS_FALLBACKS} pinned value(s) could not be read out of this workflow's top-level env: block (each is named on stderr above), so scripts/setup.sh and .claude/hooks/session-start.sh would provision dev environments from stale hardcoded defaults while CI used the real ones. Add the key back to that env: block, or update the reader in scripts/ci-versions.sh." >&2
     exit 1

@@ -146,7 +146,8 @@ HaSensorRegistration mapDecodedValue({
   //    on how the device is configured. It is dropped outright rather than
   //    routed through the conventional-unit fallback, which would otherwise
   //    quietly re-invent the thing this case exists to refuse.
-  final measured = !isBinary &&
+  final measured =
+      !isBinary &&
       label == null &&
       decoded != null &&
       !unitFollowsDeviceSetting(value);
@@ -180,7 +181,8 @@ HaSensorRegistration mapDecodedValue({
 
   return HaSensorRegistration(
     uniqueId: haUniqueId(deviceId, specChar.uuid, value.name),
-    name: '$deviceName ${humanizeName(specChar.name)} '
+    name:
+        '$deviceName ${humanizeName(specChar.name)} '
         '${humanizeName(value.name)}',
     type: isBinary ? 'binary_sensor' : 'sensor',
     state: state,

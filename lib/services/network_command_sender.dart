@@ -26,11 +26,12 @@ typedef CredentialReader = Future<Map<String, String>> Function();
 /// inline and the two copies drifted: dropping an optional argument from a
 /// function type is silent, and the group's copy lost `capabilities` for a
 /// whole release of consequences (see NetworkGroupRunner's field note).
-typedef NetworkCommandSenderFactory = NetworkCommandSender Function({
-  required NetworkDevice device,
-  required String specYaml,
-  NetworkCapabilitiesDto? capabilities,
-});
+typedef NetworkCommandSenderFactory =
+    NetworkCommandSender Function({
+      required NetworkDevice device,
+      required String specYaml,
+      NetworkCapabilitiesDto? capabilities,
+    });
 
 /// Sends spec-resolved actions to one network device, over whichever of the
 /// six transports each action declares — the send half of what
@@ -158,24 +159,17 @@ class NetworkCommandSender {
     required this.ssdpTargets,
     required this.specYaml,
     this.capabilities,
-    required SpecCodec codec,
-    required HttpControlClient http,
-    required SoapControlClient soap,
-    required KasaControlClient kasa,
-    required RabbitAirControlClient rabbitAir,
+    required this._codec,
+    required this._http,
+    required this._soap,
+    required this._kasa,
+    required this._rabbitAir,
     required Ecp2ControlService ecp2,
-    MqttConnect? mqttConnect,
+    this._mqttConnect,
     this.wsCredential,
     this.onCredentialIssued,
-    WsConnect? wsConnect,
-  })  : _wsConnect = wsConnect,
-        _mqttConnect = mqttConnect,
-        _codec = codec,
-        _http = http,
-        _soap = soap,
-        _kasa = kasa,
-        _rabbitAir = rabbitAir,
-        _ecp2Service = ecp2;
+    this._wsConnect,
+  }) : _ecp2Service = ecp2;
 
   /// The credentials read from the store, held once read.
   ///
@@ -356,7 +350,19 @@ class NetworkCommandSender {
     // registration is memoized here, so it never re-registered, and its next
     // request fell through to blanket trust — an impostor accepted on a device
     // that was correctly pinned a moment earlier.
-    if (_tlsReady != null) _http.forgetHost(host);
+    //
+    // R-037: awaited first, because `_tlsReady` is set to the future BEFORE
+    // the registration it stands for has been made. A close landing in that
+    // gap decremented a count nothing had incremented — so the count went
+    // negative, the entry was removed, and the registration then landed and
+    // put it back at one with nobody left to release it: a policy and a
+    // blanket-trusted host kept for the life of the process, which is the
+    // leak this release exists to prevent.
+    final registering = _tlsReady;
+    if (registering != null) {
+      await registering.catchError((Object _) {});
+      _http.forgetHost(host);
+    }
     _tlsReady = null;
     final session = _ecp2;
     _ecp2 = null;
@@ -412,7 +418,7 @@ class NetworkCommandSender {
     // `source:` strings the renderers already understand.
     final values = <String, String>{
       ...await _storedCredentials(),
-      ...rawValues
+      ...rawValues,
     };
     switch (action.transport) {
       case 'http':
@@ -434,7 +440,9 @@ class NetworkCommandSender {
   /// method and path are the whole request, and the address is the one
   /// discovery already established.
   Future<void> _sendHttp(
-      NetworkActionDto action, Map<String, String> values) async {
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
     final request = await _codec.renderNetworkHttpCommand(
       specYaml: specYaml,
       commandName: action.commandName,
@@ -451,7 +459,9 @@ class NetworkCommandSender {
   /// and the keepalive exists so the session survives between them. Closed
   /// with the sender.
   Future<void> _sendMqtt(
-      NetworkActionDto action, Map<String, String> values) async {
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
     final request = await _codec.renderNetworkMqttCommand(
       specYaml: specYaml,
       commandName: action.commandName,
@@ -481,11 +491,55 @@ class NetworkCommandSender {
     NetworkActionDto? action,
     List<String> topics,
   ) async {
+    // The reading half of the spec's two-spellings rule. On HTTP the device
+    // answers 404 and the sender tries the other path; a subscription has no
+    // 404 — a topic the firmware never publishes on is indistinguishable from
+    // a quiet device — so the honest move is to listen on both and let the
+    // device decide which it uses. Messages arriving on the second spelling
+    // are handed on under the FIRST, because the caller subscribed to a
+    // reading, not to a string.
+    final second = await _fallbackTopics(topics);
     final session = await _openMqtt(action, const {});
     for (final topic in topics) {
       await session.subscribe(topic);
     }
-    return session.messages;
+    for (final topic in second.keys) {
+      await session.subscribe(topic);
+    }
+    if (second.isEmpty) return session.messages;
+    return session.messages.map(
+      (message) => second.containsKey(message.topic)
+          ? MqttMessage(second[message.topic]!, message.payload)
+          : message,
+    );
+  }
+
+  /// Second spelling → the topic it stands in for, for the topics the caller
+  /// asked about.
+  ///
+  /// The spec declares its pairs unfilled, so this can only speak for a topic
+  /// the spec states literally — which is what a `state_topic_fallback` is:
+  /// the same reading spelled the way an older firmware generation named it
+  /// (ESPHome's `/cover/door` beside `/cover/Door`), never a template. A
+  /// placeholder-carrying topic arrives here already filled and matches
+  /// nothing, which is the honest answer rather than a guessed substitution.
+  /// Empty — and free — for every spec that declares no fallback.
+  Future<Map<String, String>> _fallbackTopics(List<String> topics) async {
+    final List<StateTopicFallbackDto> declared;
+    try {
+      declared = await _codec.specStateTopicFallbacks(specYaml: specYaml);
+    } catch (e) {
+      // A fallback nobody can resolve must not cost the primary its
+      // subscription: the reading a spec spells once is the common case.
+      Log.net.debug('could not resolve state-topic fallbacks for $host: $e');
+      return const {};
+    }
+    final wanted = topics.toSet();
+    return {
+      for (final pair in declared)
+        if (wanted.contains(pair.topic) && !wanted.contains(pair.fallback))
+          pair.fallback: pair.topic,
+    };
   }
 
   /// The MQTT session, opened once and reused.
@@ -494,7 +548,9 @@ class NetworkCommandSender {
   /// surface is MQTT has no second way in, so a failure to connect is the
   /// caller's to report rather than something to latch and route around.
   Future<MqttSession> _openMqtt(
-      NetworkActionDto? action, Map<String, String> values) {
+    NetworkActionDto? action,
+    Map<String, String> values,
+  ) {
     final existing = _mqtt;
     if (existing != null && existing.isConnected) return Future.value(existing);
     // One connect in flight, shared by every caller waiting on it. MQTT is an
@@ -509,14 +565,17 @@ class NetworkCommandSender {
   }
 
   Future<MqttSession> _connectMqtt(
-      NetworkActionDto? action, Map<String, String> values) async {
+    NetworkActionDto? action,
+    Map<String, String> values,
+  ) async {
     if (_closed) {
       throw const MqttConnectionException('This device screen has closed.');
     }
     final port = devicePort ?? capabilities?.defaultPort;
     if (port == null) {
       throw const MqttConnectionException(
-          'the device did not advertise a broker port');
+        'the device did not advertise a broker port',
+      );
     }
     final credentials = await _storedCredentials();
     // The session must connect under the very id its topics are addressed to,
@@ -557,9 +616,12 @@ class NetworkCommandSender {
       // convention (a plaintext 1883 broker — Dyson — must NOT get the TLS
       // handshake the unconditional default used to send). A test-injected
       // connector still wins.
-      connect: _mqttConnect ??
+      connect:
+          _mqttConnect ??
           selectMqttConnector(
-              declared: capabilities?.mqttTransportSecurity, port: port),
+            declared: capabilities?.mqttTransportSecurity,
+            port: port,
+          ),
       label: 'mqtt $host',
     );
     await session.connect(
@@ -586,7 +648,9 @@ class NetworkCommandSender {
   /// MQTT one is: a television authorises a client once, per socket, and
   /// re-pairing per keypress would raise its consent prompt every time.
   Future<void> _sendWebsocket(
-      NetworkActionDto action, Map<String, String> values) async {
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
     final session = await _openWs();
     await session.send(action.commandName, values);
   }
@@ -608,7 +672,8 @@ class NetworkCommandSender {
       // The resolver admits a websocket command only when the spec declares a
       // surface, so reaching here means the two disagree.
       throw const WsConnectionException(
-          'This device declares no WebSocket control surface.');
+        'This device declares no WebSocket control surface.',
+      );
     }
     final stale = _ws;
     _ws = null;
@@ -653,8 +718,9 @@ class NetworkCommandSender {
           // this press its session (or the zone its stability).
           await persist(credentialName, issued);
         } catch (e) {
-          Log.net
-              .warning('storing issued "$credentialName" for $host failed: $e');
+          Log.net.warning(
+            'storing issued "$credentialName" for $host failed: $e',
+          );
         }
         // The store just changed (or tried to) under the memoized read.
         refreshCredentials();
@@ -672,19 +738,42 @@ class NetworkCommandSender {
   /// path: [openSignedSession] returns null and this is a plain send on the
   /// discovered port.
   Future<String> sendHttpRequest(HttpRequestDto request) async {
-    final session = await openSignedSession();
-    if (session != null) {
+    // The gate every other path here has. A send that starts after close()
+    // — a poll or a group-run continuation already past its await when the
+    // screen disposed — re-registered the host's TLS policy through
+    // `_tlsReady ??=` below after close() had done its one forgetHost,
+    // leaving a registration nothing releases: the per-host leak the R-037
+    // release in close() exists to prevent.
+    if (_closed) throw StateError('NetworkCommandSender is closed');
+    // At most two tries over the session: the one that finds it dead, and
+    // one over its replacement.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final session = await openSignedSession();
+      if (session == null) break;
       try {
         return await session.send(request);
       } on ControlRefusedException {
         // ECP2 has no equivalent for this path, or the device refused it over
         // the session — fall through to the plain path below.
+        break;
       } on Ecp2Exception {
-        // The session faltered; fall back to plain ECP for this request. A
-        // socket that truly died self-closes and throws fast next time, so the
-        // fallback stays cheap and the keyboard watch keeps owning the session.
+        // A session the device dropped UNDER this request (its socket
+        // closed mid-round-trip) is reopened by the next openSignedSession
+        // and the request retried once, so the press that discovers the
+        // drop still lands. Any other falter — a timeout on a session that
+        // is still up — falls back to plain ECP for this request only; the
+        // session stays owned by the keyboard watch and the next send
+        // tries it again.
+        if (!session.isClosed) break;
       }
     }
+    // Asked AGAIN, because the session attempt above is an await a close()
+    // can land inside. The gate at the top only covers a send that STARTS
+    // after close(); one already in flight — the keypress whose ECP2 open
+    // the screen's dispose interrupted — resumed here with `_tlsReady` still
+    // null, close() had already done its one forgetHost, and the `??=` below
+    // registered a policy nothing would ever release.
+    if (_closed) throw StateError('NetworkCommandSender is closed');
     // The device's own TLS policy, before the first handshake. Once per
     // sender: the pin has to be in the client's hand synchronously when
     // `badCertificateCallback` fires, and reading the store on every send
@@ -705,14 +794,17 @@ class NetworkCommandSender {
     // itself in both arms.
     _tlsReady ??= _http
         .useTlsPolicy(
-      host: host,
-      identity: identity,
-      policy: TlsPolicy.parse(capabilities?.tlsVerification),
-    )
+          host: host,
+          identity: identity,
+          policy: TlsPolicy.parse(capabilities?.tlsVerification),
+        )
         .catchError((Object e) {
-      Log.net.warning('could not load the certificate pin for $host', error: e);
-      _tlsReady = null;
-    });
+          Log.net.warning(
+            'could not load the certificate pin for $host',
+            error: e,
+          );
+          _tlsReady = null;
+        });
     await _tlsReady;
 
     final port = controlPort;
@@ -721,7 +813,8 @@ class NetworkCommandSender {
       // device — by the time a control is tappable there this cannot happen;
       // a headless caller (a group run) can reach it.
       throw const SoapTransportException(
-          'the device did not advertise a control port');
+        'the device did not advertise a control port',
+      );
     }
     return _http.send(host, port, request);
   }
@@ -739,30 +832,57 @@ class NetworkCommandSender {
   /// latched: it clears the in-flight handle so the next caller re-attempts,
   /// so a hiccup while the keyboard watch opens the session cannot poison the
   /// control fallback.
+  ///
+  /// A session the device has since dropped is not "opened once and reused":
+  /// it marks itself dead when its socket closes (a reboot, sleep, a Wi-Fi
+  /// blip) and fails every request at once, so it is let go and a fresh one
+  /// opened. Serving the corpse instead — as this did — sent every later
+  /// press down the plain-ECP fallback, which a Limited-mode Roku refuses,
+  /// leaving the set uncontrollable until the screen was closed and reopened.
   Future<Ecp2Session?> openSignedSession() {
     final session = _ecp2;
-    if (session != null) return Future.value(session);
+    if (session != null) {
+      if (!session.isClosed) return Future.value(session);
+      _ecp2 = null;
+      // Its socket is already gone; this releases the focus stream and the
+      // subscription the dead session still holds.
+      unawaited(session.close());
+    }
     final port = controlPort;
     if (_closed || _ecp2Unavailable || !isRoku || port == null) {
       return Future.value(null);
     }
-    return _ecp2Opening ??=
-        _ecp2Service.connect(host, port).then<Ecp2Session?>((opened) {
-      _ecp2Opening = null;
-      // Closed while the connect was in flight: close() saw a null _ecp2 and
-      // closed nothing, so close it here or the socket leaks.
-      if (_closed) {
-        unawaited(opened.close());
-        return null;
-      }
-      return _ecp2 = opened;
-    }).catchError((Object e) {
-      _ecp2Opening = null;
-      if (e is Ecp2Exception) _ecp2Unavailable = true;
-      Log.net.debug('ecp2 session failed for $host: $e');
-      return null;
-    });
+    return _ecp2Opening ??= _ecp2Service
+        .connect(host, port)
+        .then<Ecp2Session?>((opened) {
+          _ecp2Opening = null;
+          // Closed while the connect was in flight: close() saw a null _ecp2 and
+          // closed nothing, so close it here or the socket leaks.
+          if (_closed) {
+            unawaited(opened.close());
+            return null;
+          }
+          _ecp2Proven = true;
+          return _ecp2 = opened;
+        })
+        .catchError((Object e) {
+          _ecp2Opening = null;
+          // A device that has authenticated once speaks ECP2; a failure to open
+          // a REPLACEMENT session is the TV still rebooting or still asleep, not
+          // "no ECP2 here", and latching it would put the set back on the
+          // permanent fallback this reopen exists to end. Each attempt is still
+          // bounded by the service's timeout and shared by concurrent callers
+          // through `_ecp2Opening`.
+          if (e is Ecp2Exception && !_ecp2Proven) _ecp2Unavailable = true;
+          Log.net.debug('ecp2 session failed for $host: $e');
+          return null;
+        });
   }
+
+  /// Whether a session on this device has ever authenticated — the
+  /// difference between "no ECP2 here" (latched) and "the TV is away for a
+  /// moment" (retried) when a later open fails.
+  bool _ecp2Proven = false;
 
   /// The Kasa send: render the JSON command and write it to the plug over
   /// the socket. Like the HTTP send there is no read-back and no
@@ -770,7 +890,9 @@ class NetworkCommandSender {
   /// so the switch snaps to the plug's true state whether or not the write
   /// took.
   Future<void> _sendKasa(
-      NetworkActionDto action, Map<String, String> values) async {
+    NetworkActionDto action,
+    Map<String, String> values,
+  ) async {
     final request = await _codec.renderNetworkKasaCommand(
       specYaml: specYaml,
       commandName: action.commandName,
@@ -791,10 +913,15 @@ class NetworkCommandSender {
   ) async {
     if (key == null) {
       throw const RabbitAirControlException(
-          'no user key is stored for this purifier');
+        'no user key is stored for this purifier',
+      );
     }
-    await _rabbitAir.syncClock(host, _rabbitAirHostPort,
-        specYaml: specYaml, userKey: key);
+    await _rabbitAir.syncClock(
+      host,
+      _rabbitAirHostPort,
+      specYaml: specYaml,
+      userKey: key,
+    );
     final request = await _codec.renderNetworkRabbitAirCommand(
       specYaml: specYaml,
       commandName: action.commandName,
@@ -815,7 +942,8 @@ class NetworkCommandSender {
   ) async {
     if (description == null) {
       throw const SoapTransportException(
-          'the device description has not been fetched');
+        'the device description has not been fetched',
+      );
     }
     // The spec says which settings this action carries that the user is NOT
     // changing, and where to read them. Fetched fresh, not from the last
@@ -828,8 +956,20 @@ class NetworkCommandSender {
       );
       final path = description.controlPathFor(request);
       if (path == null) continue;
-      final returned =
-          await _soap.send(description.host, description.port, path, request);
+      final returned = await _soap.send(
+        description.host,
+        description.port,
+        path,
+        request,
+        // R-039: the description's URLBase resolves its relative controlURLs,
+        // and Wemo firmware really does publish LOCATION on one port and
+        // URLBase on another. Every other consumer of a SoapDeviceDescription
+        // passes it (adopt_service, group_runner, network_device_screen's
+        // state poll); without it here the screen READ live state from the
+        // URLBase port while every button press POSTed to the LOCATION port
+        // and came back 404, reported as the device refusing the command.
+        urlBase: description.urlBase,
+      );
       final current = returned[readBack.field];
       // An empty element (`<time/>`) is a value the device did not state,
       // not a value of "": forwarding it renders an empty parameter the
@@ -848,8 +988,15 @@ class NetworkCommandSender {
     final path = description.controlPathFor(request);
     if (path == null) {
       throw SoapTransportException(
-          'the device does not list ${request.service}');
+        'the device does not list ${request.service}',
+      );
     }
-    await _soap.send(description.host, description.port, path, request);
+    await _soap.send(
+      description.host,
+      description.port,
+      path,
+      request,
+      urlBase: description.urlBase,
+    );
   }
 }

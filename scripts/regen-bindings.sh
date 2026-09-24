@@ -24,7 +24,7 @@ regen_frb_bindings() {
   # Regenerate only when a Rust source is newer than the generated bindings, so
   # a launch that changed no Rust pays nothing.
   if [[ -f "$generated" ]] &&
-     [[ -z "$(find "$project/rust/src" -name '*.rs' -newer "$generated" -print -quit 2>/dev/null)" ]]; then
+     [[ -z "$(find "$project/rust/src" -name '*.rs' -not -name 'frb_generated.rs' -newer "$generated" -print -quit 2>/dev/null)" ]]; then
     return 0
   fi
 

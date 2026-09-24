@@ -565,6 +565,99 @@ fn vendored_specs_decode_with_offsets_and_value_tables() {
     assert_eq!(decoded[0].value_label.as_deref(), Some("heating"));
 }
 
+/// A `string`/`bytes` format field's `length` is a ceiling, and the catalogue
+/// says so in as many words: ember-mug's `Mug Name` is `length: 16` with the
+/// note "reads five bytes, EMBER ... an upper bound and not a length", and
+/// xiaomi-miflora's 0x1a02 "returns variable-length data" with the firmware
+/// string at offset 2 of a reply the hardware sends seven bytes long. Both
+/// used to decode to `BufferTooShort`, and on the MiFlora that took the
+/// battery beside the string down too — the spec's only battery source.
+#[test]
+fn vendored_variable_length_fields_decode_from_short_replies() {
+    use liberated_bread_core::api::device_api::decode_value;
+
+    let read = |file: &str| {
+        let path = spec_path(file);
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    };
+
+    let decoded = decode_value(
+        Some(read("ember-mug.yaml")),
+        None,
+        "fc540001-236c-4c94-8fa9-944a3e5353fa".into(),
+        b"EMBER".to_vec(),
+    )
+    .expect("a five-byte name against a sixteen-byte ceiling decodes");
+    assert_eq!(decoded[0].string_value.as_deref(), Some("EMBER"));
+
+    let decoded = decode_value(
+        Some(read("xiaomi-miflora.yaml")),
+        None,
+        "00001a02-0000-1000-8000-00805f9b34fb".into(),
+        vec![0x63, 0x27, b'3', b'.', b'2', b'.', b'2'],
+    )
+    .expect("the seven-byte reply the hardware sends decodes");
+    let field = |name: &str| {
+        decoded
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap_or_else(|| panic!("{name} must be decoded"))
+    };
+    assert_eq!(field("battery").uint_value, Some(99));
+    assert_eq!(
+        field("firmware_version").string_value.as_deref(),
+        Some("3.2.2")
+    );
+}
+
+/// xkglow-chrome's `set_rgb_color` declares a fixed `value` AND a
+/// parameterised `template`. The template must be the command: the raw
+/// browser's zone/red/green/blue controls reach the wire, and the DTO does
+/// not call the command fixed while still listing parameters for it.
+#[test]
+fn the_vendored_xkglow_set_rgb_color_honours_its_parameters() {
+    use liberated_bread_core::api::device_api::{encode_command, load_device_spec};
+    use std::collections::HashMap;
+
+    let yaml = fs::read_to_string(spec_path("xkglow-chrome.yaml")).expect("spec reads");
+    const ZONE_COMMAND: &str = "458a7133-0009-4e37-a4a4-5d8492586977";
+
+    let params = HashMap::from([
+        ("zone".to_string(), 3.0),
+        ("red".to_string(), 0.0),
+        ("green".to_string(), 128.0),
+        ("blue".to_string(), 255.0),
+    ]);
+    let bytes = encode_command(
+        Some(yaml.clone()),
+        None,
+        ZONE_COMMAND.into(),
+        "set_rgb_color".into(),
+        params,
+    )
+    .expect("set_rgb_color encodes from its template");
+    assert_eq!(
+        bytes,
+        vec![0x00, 0x03, 0x04, 0x00, 0x80, 0xFF],
+        "the caller's zone and colour must reach the wire, not the fixed red"
+    );
+
+    let dto = load_device_spec(yaml).expect("xkglow-chrome loads");
+    let command = dto
+        .services
+        .iter()
+        .flat_map(|s| &s.characteristics)
+        .filter(|c| c.uuid.eq_ignore_ascii_case(ZONE_COMMAND))
+        .flat_map(|c| &c.commands)
+        .find(|c| c.name == "set_rgb_color")
+        .expect("set_rgb_color is on the zone command characteristic");
+    assert!(
+        !command.is_fixed,
+        "a command whose parameters the encoder honours must not be called fixed"
+    );
+    assert!(command.is_encodable);
+}
+
 /// A characteristic that encrypts or frames its payloads must resolve no
 /// control actions, however sendable the command itself looks.
 ///
@@ -949,6 +1042,125 @@ fn specs_this_branch_unlocked_do_not_offer_commands_that_cannot_encode() {
     assert_eq!(unsupported_write_kind(blink_char, blink), None);
 }
 
+/// Six vendored specs declare an `initialization` handshake, and until this
+/// branch every one of them was parsed to nowhere: `Service` had no field for
+/// the per-service blocks, and the top-level ones sat in `extensions`.
+///
+/// Driven against the real files because the whole failure was that the
+/// catalogue said something nothing read.
+#[test]
+fn the_vendored_handshakes_reach_the_connect_time_api() {
+    use liberated_bread_core::api::device_api::spec_ble_handshake;
+
+    let yaml = |file: &str| {
+        fs::read_to_string(spec_path(file)).unwrap_or_else(|e| panic!("reading {file}: {e}"))
+    };
+
+    // SpotLED: three fixed writes to the command characteristic, in order,
+    // addressed to the service that declares it.
+    let spotled =
+        spec_ble_handshake(yaml("spotled-led-panel.yaml")).expect("spotled's handshake resolves");
+    assert_eq!(spotled.steps.len(), 3, "spotled declares three writes");
+    assert!(
+        spotled.steps.iter().all(|s| s.write.is_some()
+            && s.service_uuid.as_deref() == Some("0000ff20-0000-1000-8000-00805f9b34fb")),
+        "every spotled step is an addressed write, got {:?}",
+        spotled.steps
+    );
+    assert_eq!(
+        spotled.steps[0].write.as_deref(),
+        Some(&[0x00, 0x00, 0x00, 0x01][..])
+    );
+
+    // SmartDawn: two subscriptions, opened before anything is sent.
+    let smartdawn = spec_ble_handshake(yaml("smartdawn-smart-lights.yaml"))
+        .expect("smartdawn's handshake resolves");
+    assert_eq!(smartdawn.steps.len(), 2);
+    assert!(smartdawn
+        .steps
+        .iter()
+        .all(|s| s.subscribe && s.write.is_none()));
+
+    // Hyperice declares its one step at the TOP level, upper-case, and the
+    // service is resolved from the spec's own characteristic list.
+    let hyperice = spec_ble_handshake(yaml("hyperice-hypervolt-plus.yaml"))
+        .expect("hyperice's handshake resolves");
+    assert_eq!(hyperice.steps.len(), 1);
+    assert!(hyperice.steps[0].read);
+    assert_eq!(
+        hyperice.steps[0].service_uuid.as_deref(),
+        Some("31cb4500-3c31-4e56-8c2b-e8f479d2b056")
+    );
+
+    // Schlage's session resumption is a fresh SPAKE2 exchange per connect,
+    // stated in prose: reported, never executed.
+    let schlage =
+        spec_ble_handshake(yaml("schlage-smart-locks.yaml")).expect("schlage's handshake resolves");
+    assert_eq!(schlage.steps.len(), 1, "only the RxData read is executable");
+    assert_eq!(
+        schlage.described.len(),
+        4,
+        "the four procedural steps must be reported, not dropped: {:?}",
+        schlage.described
+    );
+
+    // And the overwhelming majority declares none, so a connect pays nothing.
+    let bulb = spec_ble_handshake(yaml("example-bulb.yaml")).expect("the example bulb resolves");
+    assert!(bulb.steps.is_empty() && bulb.described.is_empty());
+}
+
+/// The ratgdo fleet spans an ESPHome change in how a URL names an entity, so
+/// its spec states two paths per action and two topics per reading. Both have
+/// to reach the rendered request, or every board on firmware up to 2025.12
+/// answers 404 to every tap and every state read.
+///
+/// Against the real vendored file, because the point is that the CATALOGUE's
+/// pairs survive parsing and rendering — a spec edit upstream that drops a
+/// `path_fallback`, or a parser that stops reading the key, has to fail here.
+#[test]
+fn the_vendored_ratgdo_renders_both_spellings_of_its_paths() {
+    use liberated_bread_core::api::device_api::{
+        render_network_http_command, render_network_http_state_request,
+    };
+
+    let yaml =
+        || fs::read_to_string(spec_path("ratgdo.yaml")).expect("ratgdo.yaml should be readable");
+
+    let open = render_network_http_command(yaml(), "door_open".into(), Default::default())
+        .expect("ratgdo's door_open renders");
+    assert_eq!(open.path, "/cover/Door/open");
+    assert_eq!(
+        open.path_fallback.as_deref(),
+        Some("/cover/door/open"),
+        "the legacy object_id spelling must ride along, or a pre-2026 board \
+         404s on every Open"
+    );
+
+    // The state read takes the same pair, off the entity rather than the
+    // command: `state_topic` here names a path on the board's own web server.
+    let state = render_network_http_state_request(yaml(), "/cover/Door".into(), Default::default())
+        .expect("ratgdo's cover state renders");
+    assert_eq!(state.path, "/cover/Door");
+    assert_eq!(state.path_fallback.as_deref(), Some("/cover/door"));
+
+    // Every ratgdo command states its pair, percent-encoding and all.
+    let lock = render_network_http_command(yaml(), "lock_remotes".into(), Default::default())
+        .expect("ratgdo's lock_remotes renders");
+    assert_eq!(lock.path, "/lock/Lock%20remotes/lock");
+    assert_eq!(
+        lock.path_fallback.as_deref(),
+        Some("/lock/lock_remotes/lock")
+    );
+
+    // A spec that states one path gets ONE candidate — nothing may invent a
+    // second, because a blind retry is a device that acts twice.
+    let roku = fs::read_to_string(spec_path("roku-ecp.yaml")).expect("roku-ecp.yaml readable");
+    let keypress = render_network_http_command(roku, "press_power_on".into(), Default::default())
+        .expect("roku's power keypress renders");
+    assert_eq!(keypress.path, "/keypress/PowerOn");
+    assert_eq!(keypress.path_fallback, None);
+}
+
 /// The network control surface against the real catalogue: the ratgdo garage
 /// door — one of the three `integration: supported` specs — resolves its
 /// cover, and an `identify_only` spec resolves an EMPTY surface however many
@@ -1003,6 +1215,60 @@ fn vendored_specs_resolve_the_network_surface_honestly() {
     assert_eq!(roku.signed_session.as_deref(), Some("ecp2"));
     assert_eq!(roku.default_port, Some(8060));
     assert_eq!(roku.default_scheme, None);
+}
+
+/// The catalogue's HTTP writes are mostly declared as a literal `body:` with
+/// no `arguments:` — WLED, Valetudo, Bose SoundTouch, Divoom — and for a long
+/// time the renderer never read that field: every one of those controls was
+/// offered, and every press POSTed an empty body. This drives the real files.
+#[test]
+fn vendored_literal_http_bodies_render_filled_not_empty() {
+    use liberated_bread_core::protocol::http;
+    use liberated_bread_core::spec::parser::parse_device_spec;
+    use std::collections::BTreeMap;
+
+    let spec = |file: &str| {
+        let path = spec_path(file);
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        parse_device_spec(&yaml).unwrap_or_else(|e| panic!("{file} parses: {e}"))
+    };
+    let values = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    };
+
+    // WLED: a fixed JSON body, and a `uint8` placeholder in numeric position
+    // that must render as a number.
+    let wled = spec("wled-controller.yaml");
+    let on = http::render_request(&wled, "turn_on", &values(&[])).expect("turn_on renders");
+    assert_eq!(on.method, "POST");
+    assert_eq!(on.path, "/json/state");
+    assert_eq!(on.body, r#"{"on": true}"#);
+    let bri = http::render_request(&wled, "set_brightness", &values(&[("brightness", "100")]))
+        .expect("set_brightness renders");
+    assert_eq!(bri.body, r#"{"bri": 100}"#);
+    let fx = http::render_request(&wled, "set_effect", &values(&[("effect", "12")]))
+        .expect("set_effect renders");
+    assert_eq!(fx.body, r#"{"seg": [{"id": 0, "fx": 12}]}"#);
+
+    // Valetudo: a fixed JSON body on a PUT.
+    let valetudo = spec("valetudo.yaml");
+    let start = http::render_request(&valetudo, "start", &values(&[])).expect("start renders");
+    assert_eq!(start.body, r#"{"action":"start"}"#);
+
+    // Bose SoundTouch: XML bodies, fixed and with an integer placeholder.
+    let bose = spec("bose-soundtouch.yaml");
+    let power = http::render_request(&bose, "power", &values(&[])).expect("power renders");
+    assert_eq!(
+        power.body,
+        r#"<key state="press" sender="Gabbo">POWER</key>"#
+    );
+    let volume = http::render_request(&bose, "set_volume", &values(&[("level", "30")]))
+        .expect("set_volume renders");
+    assert_eq!(volume.body, "<volume>30</volume>");
 }
 
 /// The vendored iDotMatrix spec now reports its image uploads encodable.
@@ -2512,6 +2778,34 @@ fn a_bare_shared_service_type_claims_nothing_in_the_catalogue() {
         matches.iter().map(|m| &m.device_name).collect::<Vec<_>>()
     );
 
+    // The SSDP counterpart. bose-soundtouch and hisense-vidaa both declare
+    // the DLNA renderer class, squeezebox-slimproto the server class, and the
+    // scan's `ssdp:all` search collects exactly those STs from every Sonos,
+    // smart TV and NAS on the link — each of which came back a Strong Bose
+    // tied with a Strong Hisense, or a Strong Squeezebox.
+    for class in [
+        "urn:schemas-upnp-org:device:MediaRenderer:1",
+        "urn:schemas-upnp-org:device:MediaServer:1",
+    ] {
+        let dlna = NetworkDeviceDto {
+            name: String::new(),
+            hostname: None,
+            service_types: Vec::new(),
+            ssdp_targets: vec![class.into()],
+            answered_lan_protocols: Vec::new(),
+            txt: Default::default(),
+            port: None,
+            mac: None,
+        };
+        let matches = match_network_device(identities.clone(), dlna);
+        assert!(
+            matches.is_empty(),
+            "a host whose only signal is `{class}` was claimed by {} spec(s): {:?}",
+            matches.len(),
+            matches.iter().map(|m| &m.device_name).collect::<Vec<_>>()
+        );
+    }
+
     // The half that must keep working: the same host, publishing what ESPHome
     // publishes, is an ESPHome node.
     let node = NetworkDeviceDto {
@@ -2886,4 +3180,332 @@ fn the_vendored_tvs_declare_their_pairing_tokens() {
             "{file}: a pairing-minted token must never be prompted for"
         );
     }
+}
+
+/// The nine catalogue parameters that spell their enumeration `values` must
+/// reach a consumer as a CHOICE, not as a range.
+///
+/// They are real switches and mode bytes — elk-bledom's on/off `state`,
+/// wl-smartled's four-way `light_mode` — and the struct that carries a BLE
+/// parameter had no field for the table, so every one of them drew as a
+/// 0..255 slider with no hint that two or four values mean anything. Counted
+/// here rather than listed one by one: the count is what says the whole set
+/// is read, and a spec refresh that adds a tenth should notice it.
+#[test]
+fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
+    let mut coded: Vec<(String, String, String, usize)> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let raw = fs::read_to_string(&path).expect("a bundled spec should read");
+        let Ok(spec) = parse_device_spec(&raw) else {
+            continue;
+        };
+        for service in &spec.services {
+            for characteristic in &service.characteristics {
+                let Some(commands) = &characteristic.commands else {
+                    continue;
+                };
+                for (command_name, command) in commands {
+                    let Some(parameters) = &command.parameters else {
+                        continue;
+                    };
+                    for (name, parameter) in &parameters.params {
+                        if parameter.values.is_none() {
+                            continue;
+                        }
+                        let choices = parameter.allowed_with_labels().unwrap_or_else(|| {
+                            panic!(
+                                "{}: {command_name}.{name} declares a code table and \
+                                     offers no choices",
+                                path.display()
+                            )
+                        });
+                        coded.push((
+                            path.file_name().unwrap().to_string_lossy().into_owned(),
+                            command_name.clone(),
+                            name.clone(),
+                            choices.len(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        coded.len(),
+        9,
+        "the catalogue's coded BLE parameters, each offering its codes: {coded:#?}"
+    );
+    assert!(
+        coded.iter().all(|(_, _, _, count)| *count >= 2),
+        "a code table with one entry is not a choice: {coded:#?}"
+    );
+}
+
+/// No bundled entity may claim a state poll the spec cannot answer.
+///
+/// `state_command` NAMES something in the spec's own vocabulary — the schema
+/// says so in those words — and `render_state_request` answers CommandNotFound
+/// for anything else. Divoom's panels and a Sony set write a wire call from
+/// the vendor's own protocol there (`Channel/GetOnOff`, `getPowerStatus`), and
+/// while those were admitted the screen polled them every four seconds and
+/// drew sensors that could never fill. The resolver refuses them now; this is
+/// the guard that a refresh reintroducing one is visible here rather than on a
+/// device.
+#[test]
+fn no_vendored_entity_binds_a_state_command_that_cannot_be_rendered() {
+    use liberated_bread_core::protocol::http::render_state_request;
+    use liberated_bread_core::spec::bindings::{network_entities, state_binding, StateBinding};
+
+    for path in vendored_yaml_paths() {
+        let raw = fs::read_to_string(&path).expect("a bundled spec should read");
+        let Ok(spec) = parse_device_spec(&raw) else {
+            continue;
+        };
+        for entity in network_entities(&spec) {
+            let Some(StateBinding::Command(name)) = state_binding(&spec, entity) else {
+                continue;
+            };
+            // Placeholders are the caller's to fill, so an empty value map
+            // may still fail on one; what must not happen is the command
+            // being unknown.
+            if let Err(e) = render_state_request(&spec, name, &Default::default()) {
+                assert!(
+                    !e.to_string().contains("not found"),
+                    "{}: entity {:?} binds state_command {name:?}, which this \
+                     spec describes nowhere: {e}",
+                    path.display(),
+                    entity.name
+                );
+            }
+        }
+    }
+}
+
+/// Every `udp_broadcast` block in the catalogue parses into the typed model.
+///
+/// Thirteen specs declare one and the app executed none of them: eight vendor
+/// probes were Dart constants instead, so six devices whose spec is complete
+/// could not be found at all, and adding a ninth meant editing a 2700-line
+/// service (SPECS_TO_FIX.md S-10). Reading them as data is the first half of
+/// closing that; this pins that the data is actually there and well-formed,
+/// so the executor has something to stand on.
+#[test]
+fn every_declared_udp_probe_parses() {
+    let mut declaring = 0usize;
+    let mut with_payload = 0usize;
+    let mut passive_only = 0usize;
+
+    for file in vendored_yaml_paths() {
+        let path = file.file_name().unwrap().to_string_lossy().into_owned();
+        let yaml = fs::read_to_string(&file).expect("spec file should be readable");
+        let Ok(spec) = parse_device_spec(&yaml) else {
+            continue; // parseability is `every_vendored_spec_parses_ok`'s job
+        };
+        let probes = spec.device.udp_broadcast_probes();
+        if probes.is_empty() {
+            continue;
+        }
+        declaring += 1;
+        for probe in &probes {
+            assert!(
+                probe.port.is_some(),
+                "{path}: a udp_broadcast probe with no port cannot be sent or listened for"
+            );
+            // Either it says what to send, or it says the device speaks first.
+            let speaks_first = probe.passive_ok.unwrap_or(false);
+            match probe.probe_hex.as_deref() {
+                Some(hex) => {
+                    with_payload += 1;
+                    assert!(
+                        hex.len() % 2 == 0 && hex.chars().all(|c| c.is_ascii_hexdigit()),
+                        "{path}: probe_hex is not hex: {hex}"
+                    );
+                }
+                None => {
+                    // A probe that neither carries a payload nor says the device
+                    // speaks first tells a client nothing it can act on. One spec
+                    // is in that state because the payload it needs is not
+                    // expressible: the Aqara hub wants a JSON document carrying
+                    // THIS phone's LAN address and listen port, so no fixed hex
+                    // string can stand for it, and the bytes live in prose notes
+                    // instead (SPECS_TO_FIX.md S-20).
+                    const PAYLOAD_ONLY_IN_PROSE: &[&str] = &["aqara-hub.yaml"];
+                    assert!(
+                        speaks_first || PAYLOAD_ONLY_IN_PROSE.contains(&path.as_str()),
+                        "{path}: a probe with no payload and no passive_ok says nothing a \
+                         client could act on"
+                    );
+                    passive_only += 1;
+                }
+            }
+            // Identity fields must name a dialect this app can grow to read.
+            if let Some(mapping) = &probe.identity_mapping {
+                for field in mapping.stable_keys.iter().chain(mapping.display.iter()) {
+                    let (dialect, _) = field.dialect();
+                    assert!(
+                        matches!(dialect, "json" | "tlv" | "csv" | "payload"),
+                        "{path}: identity source dialect {dialect} is not one the \
+                         catalogue uses elsewhere (json/tlv/csv/payload)"
+                    );
+                    assert!(
+                        !field.name().is_empty(),
+                        "{path}: an identity field resolves to no name"
+                    );
+                }
+            }
+        }
+    }
+
+    assert!(
+        declaring >= 10,
+        "the catalogue declared {declaring} udp_broadcast specs; it had 10 when this \
+         was written, and a drop means a spec lost its block"
+    );
+    assert!(
+        with_payload > 0 && passive_only > 0,
+        "both shapes are exercised"
+    );
+}
+
+/// The probes the catalogue hands the scanner are the ones the app already
+/// sends, byte for byte.
+///
+/// Four vendor probes lived as Dart constants beside a hand-written transport
+/// each (`_ubiquitiProbe`, `_mikrotikProbe`, the Kasa `get_sysinfo` plaintext,
+/// and Rust's own `roomba::DISCOVERY_PROBE`), with nothing tying them to the
+/// spec that documents the same bytes. They agree today — this pins that, so
+/// moving the transports onto catalogue data is a swap rather than a rewrite,
+/// and so a spec edit that changes a probe cannot silently diverge from the
+/// constant the way the LIFX header offset once did.
+#[test]
+fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
+    use liberated_bread_core::api::spec_handle::new_catalogue;
+
+    let mut catalogue = new_catalogue();
+    let paths = vendored_yaml_paths();
+    let keys: Vec<String> = paths
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    let yamls: Vec<String> = paths
+        .iter()
+        .map(|p| fs::read_to_string(p).expect("spec file should be readable"))
+        .collect();
+    let failed = catalogue
+        .add_specs(keys, yamls)
+        .expect("the bundled catalogue should load");
+    assert!(
+        failed.is_empty(),
+        "specs failed to parse: {:?}",
+        failed.iter().map(|f| &f.key).collect::<Vec<_>>()
+    );
+
+    let probes = catalogue.udp_broadcast_probes();
+    let by_key =
+        |key: &str, port: u16| -> Vec<&liberated_bread_core::api::spec_handle::UdpProbeDto> {
+            probes
+                .iter()
+                .filter(|p| p.spec_key == key && p.port == port)
+                .collect()
+        };
+
+    // Ubiquiti and UniFi Protect: the same four bytes on 10001.
+    for key in ["ubiquiti-unifi-device.yaml", "unifi-protect-camera.yaml"] {
+        let found = by_key(key, 10001);
+        assert_eq!(found.len(), 1, "{key}: one probe on 10001");
+        assert_eq!(
+            found[0].probe,
+            vec![0x01, 0x00, 0x00, 0x00],
+            "{key}: must match `_ubiquitiProbe` in real_network_scan_service.dart"
+        );
+    }
+
+    // MikroTik MNDP: a four-byte-zero solicitation on 5678.
+    let mikrotik = by_key("mikrotik-routeros.yaml", 5678);
+    assert_eq!(mikrotik.len(), 1);
+    assert_eq!(
+        mikrotik[0].probe,
+        vec![0, 0, 0, 0],
+        "must match `_mikrotikProbe` in real_network_scan_service.dart"
+    );
+    assert!(
+        mikrotik[0].passive_ok,
+        "a RouterOS box also beacons unprompted, which is why that transport \
+         binds :5678 rather than an ephemeral port"
+    );
+
+    // iRobot: the nine ASCII bytes Rust already holds.
+    let roomba = by_key("irobot-roomba.yaml", 5678);
+    assert_eq!(roomba.len(), 1);
+    assert_eq!(
+        roomba[0].probe,
+        liberated_bread_core::protocol::roomba::DISCOVERY_PROBE.to_vec(),
+        "the spec and `roomba::DISCOVERY_PROBE` describe the same nine bytes"
+    );
+
+    // Kasa: the spec carries the ENCRYPTED datagram, so it decrypts to the
+    // plaintext the Dart constant holds. XOR-autokey, initial key 171.
+    let kasa = by_key("tplink-kasa-smart-plug.yaml", 9999);
+    assert_eq!(kasa.len(), 1);
+    let mut key = 171u8;
+    let plain: Vec<u8> = kasa[0]
+        .probe
+        .iter()
+        .map(|&c| {
+            let p = c ^ key;
+            key = c;
+            p
+        })
+        .collect();
+    assert_eq!(
+        String::from_utf8(plain).expect("the Kasa probe decrypts to JSON"),
+        r#"{"system":{"get_sysinfo":null}}"#,
+        "must match `_kasaProbeJson` in real_network_scan_service.dart"
+    );
+
+    // What the catalogue-driven transport actually sends, spelled out: the
+    // probes that carry a payload, minus the five specs with a hand-written
+    // transport in real_network_scan_service.dart. Today that is the Milight
+    // bridge's two strings and nothing else — every other declared probe is
+    // `passive_ok` with no payload (Tuya, Synology) or has no payload at all
+    // (the Aqara hub, S-20). Pinned here rather than in Dart because this is
+    // where the data is: a spec that adds a probe should show up as a change
+    // to this list, which is the whole point of reading them as data.
+    let mut would_send: Vec<String> = probes
+        .iter()
+        .filter(|p| !p.probe.is_empty())
+        .filter(|p| {
+            !matches!(
+                p.spec_key.as_str(),
+                "tplink-kasa-smart-plug.yaml"
+                    | "mikrotik-routeros.yaml"
+                    | "ubiquiti-unifi-device.yaml"
+                    | "unifi-protect-camera.yaml"
+                    | "irobot-roomba.yaml"
+            )
+        })
+        .map(|p| format!("{}:{}", p.spec_key, p.port))
+        .collect();
+    would_send.sort();
+    assert_eq!(
+        would_send,
+        vec![
+            "limitlessled-milight-bridge.yaml:48899",
+            "limitlessled-milight-bridge.yaml:48899",
+        ]
+    );
+
+    // And the probes for devices the app cannot yet find are present, which is
+    // the point of reading them as data (SPECS_TO_FIX.md S-10).
+    assert_eq!(
+        by_key("limitlessled-milight-bridge.yaml", 48899).len(),
+        2,
+        "the bridge answers two different probes depending on firmware"
+    );
+    let synology = by_key("synology-diskstation.yaml", 9999);
+    assert_eq!(synology.len(), 1);
+    assert!(
+        synology[0].passive_ok && synology[0].probe.is_empty(),
+        "a DiskStation is heard, not asked — it shares port 9999 with Kasa"
+    );
 }

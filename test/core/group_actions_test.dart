@@ -3,6 +3,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/decoded_number.dart';
 import 'package:liberated_bread_mobile/core/group_actions.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -21,16 +22,15 @@ EntityActionDto _action(
   List<String> userParams = const [],
   double? min,
   double? max,
-}) =>
-    EntityActionDto(
-      role: role,
-      serviceUuid: serviceUuid,
-      characteristicUuid: charUuid,
-      commandName: commandName,
-      userParams: userParams,
-      min: min,
-      max: max,
-    );
+}) => EntityActionDto(
+  role: role,
+  serviceUuid: serviceUuid,
+  characteristicUuid: charUuid,
+  commandName: commandName,
+  userParams: userParams,
+  min: min,
+  max: max,
+);
 
 EntityDto _entity(
   String name, {
@@ -43,65 +43,63 @@ EntityDto _entity(
   double? valueScale,
   double? precision,
   String? unit,
-}) =>
-    EntityDto(
-        options: const [],
-        name: name,
-        platform: platform,
-        deviceClass: deviceClass,
-        stateCharacteristic: stateCharacteristic,
-        canNotify: false,
-        hasFormat: hasFormat,
-        valueField: valueField,
-        valueScale: valueScale,
-        precision: precision,
-        unit: unit,
-        onWhenNonzero: false,
-        actions: actions,
-        variants: const []);
+}) => EntityDto(
+  options: const [],
+  name: name,
+  platform: platform,
+  deviceClass: deviceClass,
+  stateCharacteristic: stateCharacteristic,
+  canNotify: false,
+  hasFormat: hasFormat,
+  valueField: valueField,
+  valueScale: valueScale,
+  precision: precision,
+  unit: unit,
+  onWhenNonzero: false,
+  actions: actions,
+  variants: const [],
+);
 
 DeviceSpecDto _spec({
   List<EntityDto> entities = const [],
   List<ServiceDto> services = const [],
-}) =>
-    DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Test Device',
-      manufacturer: 'Test Co',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [_svc],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      services: services,
-      entities: entities,
-    );
+}) => DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Test Device',
+  manufacturer: 'Test Co',
+  manufacturerStatus: 'abandoned',
+  protocol: 'ble',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [_svc],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  services: services,
+  entities: entities,
+);
 
 BleDiscoveredService _discovered({
   String serviceUuid = _svc,
   String charUuid = _cmdChar,
   bool canWrite = true,
   bool canRead = false,
-}) =>
-    BleDiscoveredService(
-      uuid: serviceUuid,
-      characteristics: [
-        BleDiscoveredCharacteristic(
-          uuid: charUuid,
-          canRead: canRead,
-          canWrite: canWrite,
-          canNotify: false,
-        ),
-      ],
-    );
+}) => BleDiscoveredService(
+  uuid: serviceUuid,
+  characteristics: [
+    BleDiscoveredCharacteristic(
+      uuid: charUuid,
+      canRead: canRead,
+      canWrite: canWrite,
+      canNotify: false,
+    ),
+  ],
+);
 
 DecodedValueDto _decoded(
   String name, {
@@ -109,103 +107,152 @@ DecodedValueDto _decoded(
   double? scale,
   String? unit,
   String? valueLabel,
-}) =>
-    DecodedValueDto(
-      name: name,
-      valueType: 'uint8',
-      display: '$uintValue',
-      uintValue: uintValue,
-      scale: scale,
-      unit: unit,
-      valueLabel: valueLabel,
-    );
+}) => DecodedValueDto(
+  name: name,
+  valueType: 'uint8',
+  display: '$uintValue',
+  uintValue: uintValue,
+  // Shaped the way the Rust decoder fills a DTO in: the transform is applied
+  // there, and the reading rows read the answer.
+  rawNumber: uintValue?.toDouble(),
+  decodedNumber: uintValue == null ? null : uintValue * (scale ?? 1.0),
+  decodedText: uintValue == null
+      ? null
+      : (uintValue * (scale ?? 1.0)).toStringAsFixed(
+          decimalsForTransform(scale: scale),
+        ),
+  decimals: decimalsForTransform(scale: scale),
+  scale: scale,
+  unit: unit,
+  valueLabel: valueLabel,
+);
 
 void main() {
   group('supportedGroupOps', () {
     test('light action roles map onto the command ops', () {
-      final spec = _spec(entities: [
-        _entity('Bulb', platform: 'light', actions: [
-          _action('turn_on'),
-          _action('turn_off'),
-          _action('set_brightness'),
-        ]),
-      ]);
-      expect(supportedGroupOps(spec),
-          {GroupOp.turnOn, GroupOp.turnOff, GroupOp.setBrightness});
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Bulb',
+            platform: 'light',
+            actions: [
+              _action('turn_on'),
+              _action('turn_off'),
+              _action('set_brightness'),
+            ],
+          ),
+        ],
+      );
+      expect(supportedGroupOps(spec), {
+        GroupOp.turnOn,
+        GroupOp.turnOff,
+        GroupOp.setBrightness,
+      });
     });
 
     test('an action without a command name does not count', () {
-      final spec = _spec(entities: [
-        _entity('Bulb', platform: 'light', actions: [
-          _action('turn_on', commandName: null),
-        ]),
-      ]);
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Bulb',
+            platform: 'light',
+            actions: [_action('turn_on', commandName: null)],
+          ),
+        ],
+      );
       expect(supportedGroupOps(spec), isEmpty);
     });
 
     test('roles on non light/switch platforms are not group commands', () {
       // A climate set_value must never ride along into "turn all on".
-      final spec = _spec(entities: [
-        _entity('Heat', platform: 'climate', actions: [_action('turn_on')]),
-      ]);
+      final spec = _spec(
+        entities: [
+          _entity('Heat', platform: 'climate', actions: [_action('turn_on')]),
+        ],
+      );
       expect(supportedGroupOps(spec), isEmpty);
     });
 
     test('a readable battery entity offers the battery op', () {
-      final spec = _spec(entities: [
-        _entity('Battery',
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Battery',
             platform: 'sensor',
             deviceClass: 'battery',
             stateCharacteristic: _stateChar,
-            hasFormat: true),
-      ]);
+            hasFormat: true,
+          ),
+        ],
+      );
+      expect(supportedGroupOps(spec), {GroupOp.readBattery});
+    });
+
+    test('a declared SIG battery service offers the battery op without a '
+        'format block', () {
+      final spec = _spec(
+        services: const [
+          ServiceDto(
+            uuid: batteryServiceUuid,
+            name: 'Battery',
+            characteristics: [
+              CharacteristicDto(
+                uuid: batteryLevelCharUuid,
+                name: 'Battery Level',
+                canRead: true,
+                canWrite: false,
+                canNotify: false,
+                commands: [],
+                formatFields: [],
+              ),
+            ],
+          ),
+        ],
+      );
       expect(supportedGroupOps(spec), {GroupOp.readBattery});
     });
 
     test(
-        'a declared SIG battery service offers the battery op without a '
-        'format block', () {
-      final spec = _spec(services: const [
-        ServiceDto(uuid: batteryServiceUuid, name: 'Battery', characteristics: [
-          CharacteristicDto(
-            uuid: batteryLevelCharUuid,
-            name: 'Battery Level',
-            canRead: true,
-            canWrite: false,
-            canNotify: false,
-            commands: [],
-            formatFields: [],
-          ),
-        ]),
-      ]);
-      expect(supportedGroupOps(spec), {GroupOp.readBattery});
-    });
-
-    test('sensor entities offer the snapshot op; batteries do not double up',
-        () {
-      final spec = _spec(entities: [
-        _entity('Temperature',
-            platform: 'sensor',
-            stateCharacteristic: _stateChar,
-            hasFormat: true),
-        _entity('Battery',
-            platform: 'sensor',
-            deviceClass: 'battery',
-            stateCharacteristic: _stateChar,
-            hasFormat: true),
-      ]);
-      expect(
-          supportedGroupOps(spec), {GroupOp.readSensors, GroupOp.readBattery});
-    });
+      'sensor entities offer the snapshot op; batteries do not double up',
+      () {
+        final spec = _spec(
+          entities: [
+            _entity(
+              'Temperature',
+              platform: 'sensor',
+              stateCharacteristic: _stateChar,
+              hasFormat: true,
+            ),
+            _entity(
+              'Battery',
+              platform: 'sensor',
+              deviceClass: 'battery',
+              stateCharacteristic: _stateChar,
+              hasFormat: true,
+            ),
+          ],
+        );
+        expect(supportedGroupOps(spec), {
+          GroupOp.readSensors,
+          GroupOp.readBattery,
+        });
+      },
+    );
   });
 
   group('resolveGroupWrites', () {
-    final onOffSpec = _spec(entities: [
-      _entity('Bulb', platform: 'light', actions: [
-        _action('turn_on'),
-        _action('turn_off', commandName: 'power_off'),
-      ]),
-    ]);
+    final onOffSpec = _spec(
+      entities: [
+        _entity(
+          'Bulb',
+          platform: 'light',
+          actions: [
+            _action('turn_on'),
+            _action('turn_off', commandName: 'power_off'),
+          ],
+        ),
+      ],
+    );
 
     test('resolves a write when the pair is discovered and writable', () {
       final writes = resolveGroupWrites(
@@ -225,7 +272,7 @@ void main() {
         op: GroupOp.turnOff,
         spec: onOffSpec,
         services: [
-          _discovered(charUuid: '0000aaaa-0000-1000-8000-00805f9b34fb')
+          _discovered(charUuid: '0000aaaa-0000-1000-8000-00805f9b34fb'),
         ],
       );
       expect(writes, isEmpty);
@@ -240,23 +287,56 @@ void main() {
       expect(writes, isEmpty);
     });
 
-    test('the same characteristic under a different service does not count',
-        () {
-      // Vendor channels reuse char UUIDs; the pair must match, not the char.
-      final writes = resolveGroupWrites(
-        op: GroupOp.turnOff,
-        spec: onOffSpec,
-        services: [
-          _discovered(serviceUuid: '0000eee0-0000-1000-8000-00805f9b34fb'),
+    test(
+      'the same characteristic under a different service does not count',
+      () {
+        // Vendor channels reuse char UUIDs; the pair must match, not the char.
+        final writes = resolveGroupWrites(
+          op: GroupOp.turnOff,
+          spec: onOffSpec,
+          services: [
+            _discovered(serviceUuid: '0000eee0-0000-1000-8000-00805f9b34fb'),
+          ],
+        );
+        expect(writes, isEmpty);
+      },
+    );
+
+    test('a parameter the group has no value for is omitted, not zeroed', () {
+      // Mirrors the light card. Sending 0.0 for `warmth` wrote a real zero
+      // to every member of the group for a knob nobody chose; omitting it
+      // leaves the spec default (or a visible ParameterMissing) to the
+      // encoder.
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Bulb',
+            platform: 'light',
+            actions: [
+              _action(
+                'set_brightness',
+                userParams: const ['brightness', 'warmth'],
+                max: 100,
+              ),
+            ],
+          ),
         ],
       );
-      expect(writes, isEmpty);
+      final writes = resolveGroupWrites(
+        op: GroupOp.setBrightness,
+        spec: spec,
+        services: [_discovered()],
+        brightnessPercent: 50,
+      );
+      expect(writes.single.params, {'brightness': 50.0});
     });
 
     test('switch on/off sends no parameters', () {
-      final spec = _spec(entities: [
-        _entity('Plug', platform: 'switch', actions: [_action('turn_on')]),
-      ]);
+      final spec = _spec(
+        entities: [
+          _entity('Plug', platform: 'switch', actions: [_action('turn_on')]),
+        ],
+      );
       final writes = resolveGroupWrites(
         op: GroupOp.turnOn,
         spec: spec,
@@ -265,23 +345,36 @@ void main() {
       expect(writes.single.params, isEmpty);
     });
 
-    test('a light turn_on that carries color parameters gets full-on white',
-        () {
-      final spec = _spec(entities: [
-        _entity('LEDs', platform: 'light', actions: [
-          _action('turn_on',
-              commandName: 'set_rgb_color',
-              userParams: const ['red', 'green', 'blue']),
-        ]),
-      ]);
-      final writes = resolveGroupWrites(
-        op: GroupOp.turnOn,
-        spec: spec,
-        services: [_discovered()],
-      );
-      expect(
-          writes.single.params, {'red': 255.0, 'green': 255.0, 'blue': 255.0});
-    });
+    test(
+      'a light turn_on that carries color parameters gets full-on white',
+      () {
+        final spec = _spec(
+          entities: [
+            _entity(
+              'LEDs',
+              platform: 'light',
+              actions: [
+                _action(
+                  'turn_on',
+                  commandName: 'set_rgb_color',
+                  userParams: const ['red', 'green', 'blue'],
+                ),
+              ],
+            ),
+          ],
+        );
+        final writes = resolveGroupWrites(
+          op: GroupOp.turnOn,
+          spec: spec,
+          services: [_discovered()],
+        );
+        expect(writes.single.params, {
+          'red': 255.0,
+          'green': 255.0,
+          'blue': 255.0,
+        });
+      },
+    );
 
     test('brightness maps percent onto the declared device range', () {
       expect(
@@ -309,29 +402,53 @@ void main() {
       );
     });
 
-    test('brightness fills the named slider parameter and zeroes the rest', () {
-      final spec = _spec(entities: [
-        _entity('Strip', platform: 'light', actions: [
-          _action('set_brightness',
-              userParams: const ['brightness', 'mystery'], min: 0, max: 100),
-        ]),
-      ]);
+    test('brightness fills the named slider parameter and omits the rest', () {
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Strip',
+            platform: 'light',
+            actions: [
+              _action(
+                'set_brightness',
+                userParams: const ['brightness', 'mystery'],
+                min: 0,
+                max: 100,
+              ),
+            ],
+          ),
+        ],
+      );
       final writes = resolveGroupWrites(
         op: GroupOp.setBrightness,
         spec: spec,
         services: [_discovered()],
         brightnessPercent: 40,
       );
-      expect(writes.single.params, {'brightness': 40.0, 'mystery': 0.0});
+      expect(
+        writes.single.params,
+        {'brightness': 40.0},
+        reason: 'a knob nobody chose is left to the encoder, not zeroed',
+      );
     });
 
     test("'level' is honoured as the slider parameter name", () {
-      final spec = _spec(entities: [
-        _entity('Strip', platform: 'light', actions: [
-          _action('set_brightness',
-              userParams: const ['level'], min: 0, max: 200),
-        ]),
-      ]);
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Strip',
+            platform: 'light',
+            actions: [
+              _action(
+                'set_brightness',
+                userParams: const ['level'],
+                min: 0,
+                max: 200,
+              ),
+            ],
+          ),
+        ],
+      );
       final writes = resolveGroupWrites(
         op: GroupOp.setBrightness,
         spec: spec,
@@ -343,14 +460,18 @@ void main() {
   });
 
   group('resolveBatteryReads', () {
-    final specBattery = _spec(entities: [
-      _entity('Battery',
+    final specBattery = _spec(
+      entities: [
+        _entity(
+          'Battery',
           platform: 'sensor',
           deviceClass: 'battery',
           stateCharacteristic: _stateChar,
           hasFormat: true,
-          valueField: 'battery'),
-    ]);
+          valueField: 'battery',
+        ),
+      ],
+    );
 
     test('the spec battery entity wins over the SIG service', () {
       final reads = resolveBatteryReads(
@@ -358,10 +479,11 @@ void main() {
         services: [
           _discovered(charUuid: _stateChar, canRead: true, canWrite: false),
           _discovered(
-              serviceUuid: batteryServiceUuid,
-              charUuid: batteryLevelCharUuid,
-              canRead: true,
-              canWrite: false),
+            serviceUuid: batteryServiceUuid,
+            charUuid: batteryLevelCharUuid,
+            canRead: true,
+            canWrite: false,
+          ),
         ],
       );
       final read = reads.single;
@@ -375,10 +497,11 @@ void main() {
         spec: specBattery,
         services: [
           _discovered(
-              serviceUuid: batteryServiceUuid,
-              charUuid: batteryLevelCharUuid,
-              canRead: true,
-              canWrite: false),
+            serviceUuid: batteryServiceUuid,
+            charUuid: batteryLevelCharUuid,
+            canRead: true,
+            canWrite: false,
+          ),
         ],
       );
       final read = reads.single;
@@ -391,10 +514,11 @@ void main() {
         spec: null,
         services: [
           _discovered(
-              serviceUuid: batteryServiceUuid,
-              charUuid: batteryLevelCharUuid,
-              canRead: true,
-              canWrite: false),
+            serviceUuid: batteryServiceUuid,
+            charUuid: batteryLevelCharUuid,
+            canRead: true,
+            canWrite: false,
+          ),
         ],
       );
       expect(reads.single.specBased, isFalse);
@@ -405,10 +529,11 @@ void main() {
         spec: null,
         services: [
           _discovered(
-              serviceUuid: _svc,
-              charUuid: batteryLevelCharUuid,
-              canRead: true,
-              canWrite: false),
+            serviceUuid: _svc,
+            charUuid: batteryLevelCharUuid,
+            canRead: true,
+            canWrite: false,
+          ),
         ],
       );
       expect(reads, isEmpty);
@@ -419,24 +544,29 @@ void main() {
         spec: null,
         services: [
           _discovered(
-              serviceUuid: batteryServiceUuid,
-              charUuid: batteryLevelCharUuid,
-              canRead: false,
-              canWrite: false),
+            serviceUuid: batteryServiceUuid,
+            charUuid: batteryLevelCharUuid,
+            canRead: false,
+            canWrite: false,
+          ),
         ],
       );
       expect(reads, isEmpty);
     });
 
     test('variant entities binding the same characteristic read it once', () {
-      final spec = _spec(entities: [
-        for (final variant in ['Gen 1', 'Gen 2'])
-          _entity('Battery ($variant)',
+      final spec = _spec(
+        entities: [
+          for (final variant in ['Gen 1', 'Gen 2'])
+            _entity(
+              'Battery ($variant)',
               platform: 'sensor',
               deviceClass: 'battery',
               stateCharacteristic: _stateChar,
-              hasFormat: true),
-      ]);
+              hasFormat: true,
+            ),
+        ],
+      );
       final reads = resolveBatteryReads(
         spec: spec,
         services: [
@@ -448,82 +578,103 @@ void main() {
   });
 
   group('read service binding', () {
-    test('reads bind to the service the spec declares, not discovery order',
-        () {
-      // The device also exposes the same characteristic UUID under a vendor
-      // service that discovery happens to list first. Reading THAT one and
-      // decoding it with this entity's format would report garbage as a
-      // healthy value — the spec says which service it meant.
-      final spec = _spec(
-        entities: [
-          _entity('Battery',
+    test(
+      'reads bind to the service the spec declares, not discovery order',
+      () {
+        // The device also exposes the same characteristic UUID under a vendor
+        // service that discovery happens to list first. Reading THAT one and
+        // decoding it with this entity's format would report garbage as a
+        // healthy value — the spec says which service it meant.
+        final spec = _spec(
+          entities: [
+            _entity(
+              'Battery',
               platform: 'sensor',
               deviceClass: 'battery',
               stateCharacteristic: batteryLevelCharUuid,
-              hasFormat: true),
-        ],
-        services: const [
-          ServiceDto(
-            uuid: batteryServiceUuid,
-            name: 'Battery',
-            characteristics: [
-              CharacteristicDto(
-                uuid: batteryLevelCharUuid,
-                name: 'Level',
-                canRead: true,
-                canWrite: false,
-                canNotify: false,
-                commands: [],
-                formatFields: [],
-              ),
-            ],
+              hasFormat: true,
+            ),
+          ],
+          services: const [
+            ServiceDto(
+              uuid: batteryServiceUuid,
+              name: 'Battery',
+              characteristics: [
+                CharacteristicDto(
+                  uuid: batteryLevelCharUuid,
+                  name: 'Level',
+                  canRead: true,
+                  canWrite: false,
+                  canNotify: false,
+                  commands: [],
+                  formatFields: [],
+                ),
+              ],
+            ),
+          ],
+        );
+        final reads = resolveBatteryReads(
+          spec: spec,
+          services: [
+            _discovered(
+              serviceUuid: _svc,
+              charUuid: batteryLevelCharUuid,
+              canRead: true,
+              canWrite: false,
+            ),
+            _discovered(
+              serviceUuid: batteryServiceUuid,
+              charUuid: batteryLevelCharUuid,
+              canRead: true,
+              canWrite: false,
+            ),
+          ],
+        );
+        expect(reads.single.serviceUuid, batteryServiceUuid);
+      },
+    );
+
+    test('a characteristic the spec declares under no service keeps the '
+        'discovery-order fallback', () {
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Temperature',
+            platform: 'sensor',
+            stateCharacteristic: _stateChar,
+            hasFormat: true,
           ),
         ],
       );
-      final reads = resolveBatteryReads(spec: spec, services: [
-        _discovered(
-            serviceUuid: _svc,
-            charUuid: batteryLevelCharUuid,
-            canRead: true,
-            canWrite: false),
-        _discovered(
-            serviceUuid: batteryServiceUuid,
-            charUuid: batteryLevelCharUuid,
-            canRead: true,
-            canWrite: false),
-      ]);
-      expect(reads.single.serviceUuid, batteryServiceUuid);
-    });
-
-    test(
-        'a characteristic the spec declares under no service keeps the '
-        'discovery-order fallback', () {
-      final spec = _spec(entities: [
-        _entity('Temperature',
-            platform: 'sensor',
-            stateCharacteristic: _stateChar,
-            hasFormat: true),
-      ]);
-      final reads = resolveSensorReads(spec: spec, services: [
-        _discovered(charUuid: _stateChar, canRead: true, canWrite: false),
-      ]);
+      final reads = resolveSensorReads(
+        spec: spec,
+        services: [
+          _discovered(charUuid: _stateChar, canRead: true, canWrite: false),
+        ],
+      );
       expect(reads.single.serviceUuid, _svc);
     });
   });
 
   group('resolveSensorReads', () {
     test('caps the snapshot and dedupes variant bindings by name', () {
-      final spec = _spec(entities: [
-        for (var i = 0; i < 10; i++)
-          _entity('Reading $i',
+      final spec = _spec(
+        entities: [
+          for (var i = 0; i < 10; i++)
+            _entity(
+              'Reading $i',
               platform: 'sensor',
               stateCharacteristic: _stateChar,
-              hasFormat: true),
-        _entity('Reading 0', // variant duplicate of the first
+              hasFormat: true,
+            ),
+          _entity(
+            'Reading 0', // variant duplicate of the first
             platform: 'sensor',
             stateCharacteristic: _stateChar,
-            hasFormat: true),
-      ]);
+            hasFormat: true,
+          ),
+        ],
+      );
       final reads = resolveSensorReads(
         spec: spec,
         services: [
@@ -532,41 +683,63 @@ void main() {
         cap: 4,
       );
       expect(reads, hasLength(4));
-      expect([for (final r in reads) r.label],
-          ['Reading 0', 'Reading 1', 'Reading 2', 'Reading 3']);
+      expect(
+        [for (final r in reads) r.label],
+        ['Reading 0', 'Reading 1', 'Reading 2', 'Reading 3'],
+      );
     });
 
     test('battery entities are excluded — they have their own op', () {
-      final spec = _spec(entities: [
-        _entity('Battery',
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Battery',
             platform: 'sensor',
             deviceClass: 'battery',
             stateCharacteristic: _stateChar,
-            hasFormat: true),
-      ]);
+            hasFormat: true,
+          ),
+        ],
+      );
       expect(
-        resolveSensorReads(spec: spec, services: [
-          _discovered(charUuid: _stateChar, canRead: true, canWrite: false),
-        ]),
+        resolveSensorReads(
+          spec: spec,
+          services: [
+            _discovered(charUuid: _stateChar, canRead: true, canWrite: false),
+          ],
+        ),
         isEmpty,
       );
     });
 
-    test('a notify-only characteristic is skipped — group reads are one-shot',
-        () {
-      final spec = _spec(entities: [
-        _entity('Temperature',
-            platform: 'sensor',
-            stateCharacteristic: _stateChar,
-            hasFormat: true),
-      ]);
-      expect(
-        resolveSensorReads(spec: spec, services: [
-          _discovered(charUuid: _stateChar, canRead: false, canWrite: false),
-        ]),
-        isEmpty,
-      );
-    });
+    test(
+      'a notify-only characteristic is skipped — group reads are one-shot',
+      () {
+        final spec = _spec(
+          entities: [
+            _entity(
+              'Temperature',
+              platform: 'sensor',
+              stateCharacteristic: _stateChar,
+              hasFormat: true,
+            ),
+          ],
+        );
+        expect(
+          resolveSensorReads(
+            spec: spec,
+            services: [
+              _discovered(
+                charUuid: _stateChar,
+                canRead: false,
+                canWrite: false,
+              ),
+            ],
+          ),
+          isEmpty,
+        );
+      },
+    );
   });
 
   group('groupReadingDisplay', () {
@@ -588,12 +761,14 @@ void main() {
         serviceUuid: _svc,
         charUuid: _stateChar,
         specBased: true,
-        entity: _entity('Temperature',
-            platform: 'sensor',
-            stateCharacteristic: _stateChar,
-            hasFormat: true,
-            valueField: 'temperature',
-            unit: '°C'),
+        entity: _entity(
+          'Temperature',
+          platform: 'sensor',
+          stateCharacteristic: _stateChar,
+          hasFormat: true,
+          valueField: 'temperature',
+          unit: '°C',
+        ),
         label: 'Temperature',
       );
       final display = groupReadingDisplay(read, [
@@ -608,15 +783,18 @@ void main() {
         serviceUuid: _svc,
         charUuid: _stateChar,
         specBased: true,
-        entity: _entity('State',
-            platform: 'sensor',
-            stateCharacteristic: _stateChar,
-            hasFormat: true),
+        entity: _entity(
+          'State',
+          platform: 'sensor',
+          stateCharacteristic: _stateChar,
+          hasFormat: true,
+        ),
         label: 'State',
       );
       expect(
-        groupReadingDisplay(
-            read, [_decoded('state', uintValue: 5, valueLabel: 'heating')]),
+        groupReadingDisplay(read, [
+          _decoded('state', uintValue: 5, valueLabel: 'heating'),
+        ]),
         'heating',
       );
     });
@@ -626,15 +804,19 @@ void main() {
         serviceUuid: _svc,
         charUuid: _stateChar,
         specBased: true,
-        entity: _entity('Ghost',
-            platform: 'sensor',
-            stateCharacteristic: _stateChar,
-            hasFormat: true,
-            valueField: 'missing'),
+        entity: _entity(
+          'Ghost',
+          platform: 'sensor',
+          stateCharacteristic: _stateChar,
+          hasFormat: true,
+          valueField: 'missing',
+        ),
         label: 'Ghost',
       );
       expect(
-          groupReadingDisplay(read, [_decoded('other', uintValue: 1)]), isNull);
+        groupReadingDisplay(read, [_decoded('other', uintValue: 1)]),
+        isNull,
+      );
       expect(groupReadingDisplay(read, const []), isNull);
     });
   });

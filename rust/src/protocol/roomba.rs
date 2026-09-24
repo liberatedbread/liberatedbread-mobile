@@ -408,7 +408,11 @@ fn flatten(value: &serde_json::Value, prefix: String, out: &mut BTreeMap<String,
 
 /// CONNECT as this robot expects it: the BLID is both the client id and the
 /// username, and a client id of anything else is refused.
-pub fn connect_packet(blid: &str, password: &str) -> Vec<u8> {
+///
+/// Fallible for the reason [`crate::protocol::mqtt::connect_packet`] is: the
+/// BLID and the password are length-prefixed strings, and one past 65535 bytes
+/// has no encoding.
+pub fn connect_packet(blid: &str, password: &str) -> Result<Vec<u8>, ProtocolError> {
     crate::protocol::mqtt::connect_packet(&crate::protocol::mqtt::ConnectOptions::with_credentials(
         blid, blid, password,
     ))

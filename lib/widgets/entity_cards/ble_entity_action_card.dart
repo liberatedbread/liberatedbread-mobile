@@ -54,6 +54,17 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   double? _assumed;
   List<DecodedValueDto>? _assumedBaseline;
 
+  /// The fan slider's position while a drag is in progress, cleared when the
+  /// gesture ends and the value is sent. Kept apart from [_assumed] because
+  /// [_buildCard] clears that whenever the live value's decode is not the
+  /// one it was set against — and during a drag it never is: the baseline is
+  /// only recorded at release. Routing the drag through [_assumed] meant
+  /// every `onChanged` was undone by the rebuild it triggered, so the thumb
+  /// sat pinned at the device's reported speed for the whole gesture and
+  /// only the release value went out. A live value never supersedes a drag
+  /// the user's finger is still on.
+  double? _dragging;
+
   EntityActionDto? _action(String role) =>
       widget.entity.actions.where((a) => a.role == role).firstOrNull;
 
@@ -61,9 +72,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   /// A role with no user parameter is a fixed command, which is drawable as a
   /// button without knowing anything else about the role.
   List<({String role, bool takesValue})> get _resolvedActions => [
-        for (final action in widget.entity.actions)
-          (role: action.role, takesValue: action.userParams.isNotEmpty),
-      ];
+    for (final action in widget.entity.actions)
+      (role: action.role, takesValue: action.userParams.isNotEmpty),
+  ];
 
   /// Whatever the platform's own builder below did not draw. Each of the four
   /// builders knows one role set, and the table resolves roles none of them
@@ -97,14 +108,27 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
     await _send(action);
   }
 
-  Future<void> _send(EntityActionDto action,
-      {Map<String, double> params = const {}, double? assume}) async {
+  Future<void> _send(
+    EntityActionDto action, {
+    Map<String, double> params = const {},
+    double? assume,
+  }) async {
     final commandName = action.commandName;
     if (commandName == null) return;
+    // [assume] is applied HERE, not on success, and rolled back to this
+    // snapshot if the write is refused. This setState is what rebuilds the
+    // card for the "sending" state, and it lands long before the write
+    // resolves: applying the value afterwards left every control that has no
+    // readable state characteristic drawing its fallback for the length of a
+    // BLE write — a fan slider at `min`, a select with no chip lit — and then
+    // jumping. The caller records the baseline this is measured against
+    // (`_assumedBaseline`) right before calling.
+    final priorAssumed = _assumed;
     setState(() {
       _sendingRole = action.role;
       _status = null;
       _failed = false;
+      if (assume != null) _assumed = assume;
     });
     try {
       final codec = ref.read(specCodecProvider);
@@ -114,7 +138,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         commandName: commandName,
         params: params,
       );
-      await ref.read(bleServiceProvider).writeCharacteristic(
+      await ref
+          .read(bleServiceProvider)
+          .writeCharacteristic(
             widget.deviceId,
             action.serviceUuid,
             action.characteristicUuid,
@@ -125,7 +151,6 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         _sendingRole = null;
         _status = 'Sent';
         _failed = false;
-        if (assume != null) _assumed = assume;
       });
     } catch (e) {
       if (!mounted) return;
@@ -138,9 +163,22 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         _sendingRole = null;
         _status = text;
         _failed = true;
+        // Rolled back to what was on screen before this send. The optimistic
+        // value goes in above, BEFORE the write, so the control does not fall
+        // through to `min` (or to no chip at all) for the length of a BLE
+        // write; a device that refused the command is not at that value, and
+        // an entity whose spec declares no readable state characteristic has
+        // nothing that would ever correct it — the thumb would sit at a speed
+        // the fan is not running at for the life of the screen, under a red
+        // "did not accept that command". Only when this send is the one that
+        // put a value there: a send with no `assume` may have had [_assumed]
+        // cleared under it by a live value arriving mid-write, and restoring
+        // the snapshot would put that stale assumption back.
+        if (assume != null) _assumed = priorAssumed;
       });
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(text)));
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(text)));
     }
   }
 
@@ -207,8 +245,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                   children: [
                     Text(
                       widget.entity.name,
-                      style: text.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -270,9 +309,13 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                         if (raw == null) return;
                         _assumedBaseline = value?.decoded;
                         final param = action.userParams.firstOrNull;
-                        unawaited(_send(action,
+                        unawaited(
+                          _send(
+                            action,
                             params: param == null ? const {} : {param: raw},
-                            assume: raw));
+                            assume: raw,
+                          ),
+                        );
                       },
               ),
           ],
@@ -290,7 +333,7 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
     final busy = _sendingRole != null;
     final min = percentage?.min ?? 0;
     final max = percentage?.max ?? 100;
-    final speed = _assumed ?? value?.decodedNumber;
+    final speed = _dragging ?? _assumed ?? value?.decodedNumber;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,17 +361,30 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
             value: (speed ?? min).clamp(min, max),
             min: min,
             max: max,
-            onChanged: busy ? null : (v) => setState(() => _assumed = v),
+            onChanged: busy ? null : (v) => setState(() => _dragging = v),
             onChangeEnd: busy
                 ? null
                 : (v) {
                     final param = percentage.userParams.firstOrNull;
+                    _dragging = null;
+                    // The baseline the released position is measured against,
+                    // recorded in the same breath as the `assume:` below that
+                    // _send applies before the write — with _dragging already
+                    // cleared and nothing assumed, a fan whose spec declares
+                    // no readable state characteristic (value == null) fell
+                    // through to `speed ?? min` and the thumb slammed to the
+                    // minimum for the length of the BLE write before jumping
+                    // back to where the finger left it.
                     _assumedBaseline = value?.decoded;
-                    unawaited(_send(percentage,
+                    unawaited(
+                      _send(
+                        percentage,
                         params: param == null
                             ? const {}
                             : {param: v.roundToDouble()},
-                        assume: v));
+                        assume: v,
+                      ),
+                    );
                   },
           ),
         if (oscillating != null)
@@ -344,9 +400,12 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                         ? null
                         : () {
                             final param = oscillating.userParams.firstOrNull;
-                            unawaited(_send(oscillating,
-                                params:
-                                    param == null ? const {} : {param: raw}));
+                            unawaited(
+                              _send(
+                                oscillating,
+                                params: param == null ? const {} : {param: raw},
+                              ),
+                            );
                           },
                     child: Text(label),
                   ),
@@ -411,11 +470,15 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
                 : (v) {
                     final param = position.userParams.firstOrNull;
                     _assumedBaseline = value?.decoded;
-                    unawaited(_send(position,
+                    unawaited(
+                      _send(
+                        position,
                         params: param == null
                             ? const {}
                             : {param: v.roundToDouble()},
-                        assume: v));
+                        assume: v,
+                      ),
+                    );
                   },
           ),
         _unclaimed(const {
@@ -429,32 +492,43 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   }
 
   Widget _stateLine(
-      EntityLiveValue? value, ColorScheme scheme, TextTheme text) {
+    EntityLiveValue? value,
+    ColorScheme scheme,
+    TextTheme text,
+  ) {
     final style = text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
     if (_sendingRole != null) return Text('Sending...', style: style);
     if (_status != null && _failed) {
-      return Text(_status!,
-          style: text.bodySmall?.copyWith(color: scheme.error));
+      return Text(
+        _status!,
+        style: text.bodySmall?.copyWith(color: scheme.error),
+      );
     }
     if (_status != null) return Text(_status!, style: style);
     if (value == null) {
       // A button is momentary and never claimed state; anything else without
       // a binding says so instead of implying its controls reflect anything.
       return Text(
-          widget.entity.platform == 'button'
-              ? 'Momentary'
-              : 'State unknown — commands send blind',
-          style: style);
+        widget.entity.platform == 'button'
+            ? 'Momentary'
+            : 'State unknown — commands send blind',
+        style: style,
+      );
     }
     return switch (value.status) {
       EntityValueStatus.unavailable => Text(
-          'State not decodable yet (no format block in the spec).',
-          style: style),
+        'State not decodable yet (no format block in the spec).',
+        style: style,
+      ),
       EntityValueStatus.loading => Text('Reading...', style: style),
-      EntityValueStatus.error =>
-        Text(value.error ?? 'Could not read state.', style: style),
-      EntityValueStatus.live =>
-        Text(value.display ?? 'State unreadable', style: style),
+      EntityValueStatus.error => Text(
+        value.error ?? 'Could not read state.',
+        style: style,
+      ),
+      EntityValueStatus.live => Text(
+        value.display ?? 'State unreadable',
+        style: style,
+      ),
     };
   }
 }

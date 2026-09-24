@@ -49,6 +49,12 @@ pub struct DeviceSpec {
     /// [`DeviceSpec::protocol_handler`] naming an implemented handler.
     #[serde(default)]
     pub features: Vec<Feature>,
+    /// Top-level `initialization:` — the device-wide half of the handshake a
+    /// spec wants run after connecting and before any normal command.
+    /// Promoted out of [`Self::extensions`], where it sat unexecuted, because
+    /// a consumer now runs it: see [`crate::spec::initialization::handshake`].
+    #[serde(default, deserialize_with = "tolerant_initialization")]
+    pub initialization: Vec<InitializationStep>,
     /// Top-level `commands:` — named invocations for a device with no GATT
     /// characteristic to hang a command on.
     ///
@@ -361,6 +367,21 @@ pub struct SpecCommand {
     /// are — Roku's whole control surface is the path (`/keypress/PowerOn`).
     #[serde(default)]
     pub path: Option<String>,
+    /// A SECOND path for this same invocation, tried only when the primary
+    /// answers an unambiguous "no such thing" — an HTTP 404, never a timeout,
+    /// a refusal or a 5xx.
+    ///
+    /// Exists because a device family can address the same entity two ways
+    /// across firmware generations: ESPHome up to 2025.12 names a cover by
+    /// its slugified object_id (`/cover/door/open`), 2026.7 and later by the
+    /// percent-encoded entity name (`/cover/Door/open`), and a ratgdo board
+    /// in the field may be either. A spec covering that fleet has two correct
+    /// paths and no way to know which board it is talking to until it asks,
+    /// so both are rendered (see [`crate::protocol::http::HttpRequest`]) and
+    /// the sender asks. Never a blind second send: a command that acts twice
+    /// because the first send was merely slow is worse than the 404.
+    #[serde(default)]
+    pub path_fallback: Option<String>,
     /// HTTP method of a `transport: http` command, spelled as the wire wants
     /// it. Stated on the command so it is sendable without joining the
     /// endpoint catalogue by name.
@@ -372,6 +393,20 @@ pub struct SpecCommand {
     /// placeholders substituted from `parameters`, exactly as they are.
     #[serde(default)]
     pub body: Option<String>,
+    /// Request headers a `transport: http` command sends, name → value, in
+    /// declared order. A value may carry `{name}` placeholders filled from
+    /// `parameters` exactly as a `body` template's are — which is how a
+    /// header-borne credential is declared: `headers: {AUTH: "{auth_token}"}`
+    /// with `auth_token: {source: "credential:auth_token"}`, so the same
+    /// credential machinery that fills a body fills the header, and the
+    /// credentials card asks for it. A declared `Content-Type` overrides the
+    /// one the sender would otherwise infer from the body's first character.
+    ///
+    /// Not in the vendored schema yet (its command objects are open, so the
+    /// key parses); Vizio SmartCast is the spec that needs it — every key
+    /// press is a PUT with a JSON body and an `AUTH` header.
+    #[serde(default)]
+    pub headers: IndexMap<String, serde_yaml::Value>,
     /// Argument name → value as both go on the wire. `"{name}"` is substituted
     /// from the like-named parameter; anything else is a literal this
     /// invocation has already decided.
@@ -500,6 +535,36 @@ impl SpecCommandParameter {
     /// The parameter's code table as (raw, label) pairs in declaration order.
     pub fn value_table(&self) -> Vec<(String, String)> {
         value_table(self.values.as_ref())
+    }
+
+    /// Every value this parameter accepts, as (raw, label) pairs in
+    /// declaration order — the choices a control offers for it, or empty when
+    /// it takes a range rather than a set.
+    ///
+    /// The catalogue states this two ways and a consumer must not care which.
+    /// `values` is a code table, raw → label (Wemo's `set_cook_mode`:
+    /// `50: warm`). `enum` is a bare list of accepted values with no labels
+    /// (Frigidaire's `fan_mode`: `[AUTO, HIGH, …]`), so each entry labels
+    /// itself — which is right, because those entries ARE the words the
+    /// device speaks. Both are read here so neither spelling is the one that
+    /// renders as a blank picker.
+    ///
+    /// A `values` table wins where a parameter writes both: it says strictly
+    /// more (the same values, plus what each means), and no catalogue
+    /// parameter disagrees between the two.
+    pub fn code_table(&self) -> Vec<(String, String)> {
+        let table = self.value_table();
+        if !table.is_empty() {
+            return table;
+        }
+        let Some(serde_yaml::Value::Sequence(values)) = self.extensions.get("enum") else {
+            return Vec::new();
+        };
+        values
+            .iter()
+            .filter_map(scalar_to_string)
+            .map(|raw| (raw.clone(), raw))
+            .collect()
     }
 }
 
@@ -658,6 +723,14 @@ pub struct Entity {
     /// response body.
     #[serde(default)]
     pub state_topic: Option<String>,
+    /// A SECOND [`Self::state_topic`] for the same reading, on exactly the
+    /// terms a command's [`SpecCommand::path_fallback`] carries: read the
+    /// primary, and fall back only when the device answers that it is not
+    /// there (an HTTP 404). For one family whose firmware generations name
+    /// the same entity differently — never for two genuinely different
+    /// readings, which are two entities.
+    #[serde(default)]
+    pub state_topic_fallback: Option<String>,
     /// Where the reading sits inside what `state_command` returns, when the
     /// returned value is a structure rather than the value itself.
     #[serde(default)]
@@ -1120,6 +1193,86 @@ pub struct NameMatch {
     pub values: Option<Vec<String>>,
 }
 
+/// One `discovery.methods[].udp_broadcast` block: a vendor's LAN probe, as the
+/// spec states it.
+///
+/// Thirteen specs declare one of these and the app executed none of them — it
+/// carried eight probes as Dart constants instead, so six devices whose spec
+/// is complete were undiscoverable and adding a ninth meant editing a
+/// 2700-line service. This is the block read as data, so the catalogue can
+/// answer "what do I send, where, and what does the reply mean".
+///
+/// Deliberately tolerant: every field is optional and a malformed entry is
+/// skipped rather than fatal, the same rule the rest of this block follows.
+/// A spec that states only `port` and `passive_ok: true` is a device that
+/// announces itself unprompted, which is a complete declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct UdpBroadcastProbe {
+    pub port: Option<u16>,
+    /// Where the probe goes. A subnet broadcast (`255.255.255.255`) for most,
+    /// but Aqara states a multicast group (`230.0.0.1`) in the same field, so
+    /// this is an address rather than a flag.
+    #[serde(default)]
+    pub broadcast_address: Option<String>,
+    /// The probe payload as hex. Absent means listen-only.
+    #[serde(default)]
+    pub probe_hex: Option<String>,
+    /// Whether the device announces itself without being asked.
+    #[serde(default)]
+    pub passive_ok: Option<bool>,
+    /// `json` | `json_xor` | `json_aes` | `tlv` | `binary` | `http`, as the
+    /// schema names them. Absent means the reply needs no decoding beyond
+    /// what `identity_mapping` asks for.
+    #[serde(default)]
+    pub response_format: Option<String>,
+    #[serde(default)]
+    pub identity_mapping: Option<UdpIdentityMapping>,
+}
+
+/// How to lift an identity out of a probe reply.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+pub struct UdpIdentityMapping {
+    #[serde(default)]
+    pub stable_keys: Vec<UdpIdentityField>,
+    #[serde(default)]
+    pub display: Option<UdpIdentityField>,
+}
+
+/// One field lifted from a reply: where it is, and what to call it.
+///
+/// `source` carries a dialect prefix — `json:<dotted.path>`, `tlv:<name>`,
+/// `csv:<index>`, or the bare `payload` for a reply whose whole body is the
+/// value. The catalogue uses all four today.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct UdpIdentityField {
+    pub source: String,
+    /// What to file the value under. Absent means the source's own last
+    /// segment names it.
+    #[serde(default)]
+    pub key: Option<String>,
+}
+
+impl UdpIdentityField {
+    /// The dialect and its argument: `json:a.b` -> `("json", "a.b")`, and a
+    /// bare `payload` -> `("payload", "")`.
+    pub fn dialect(&self) -> (&str, &str) {
+        match self.source.split_once(':') {
+            Some((prefix, rest)) => (prefix, rest),
+            None => (self.source.as_str(), ""),
+        }
+    }
+
+    /// What this field should be filed under: the stated key, else the last
+    /// segment of the source path.
+    pub fn name(&self) -> String {
+        if let Some(key) = self.key.as_ref().filter(|k| !k.is_empty()) {
+            return key.clone();
+        }
+        let (_, rest) = self.dialect();
+        rest.rsplit('.').next().unwrap_or(rest).to_string()
+    }
+}
+
 impl NameMatch {
     /// Every needle this matcher offers, singular and plural forms together.
     pub fn needles(&self) -> Vec<String> {
@@ -1142,6 +1295,19 @@ impl DeviceInfo {
             .and_then(|m| m.as_sequence())
             .into_iter()
             .flatten()
+    }
+
+    /// Every `udp_broadcast` probe this spec declares.
+    ///
+    /// A malformed entry is skipped rather than fatal: the block is advisory
+    /// to every other reader of this core, and a spec whose probe cannot be
+    /// parsed should still identify its device over mDNS or SSDP.
+    pub fn udp_broadcast_probes(&self) -> Vec<UdpBroadcastProbe> {
+        self.discovery_methods()
+            .filter(|m| m.get("type").and_then(|t| t.as_str()) == Some("udp_broadcast"))
+            .filter_map(|m| m.get("udp_broadcast"))
+            .filter_map(|v| serde_yaml::from_value(v.clone()).ok())
+            .collect()
     }
 
     /// Every BLE local-name matcher the discovery block declares (one per
@@ -1707,6 +1873,95 @@ pub struct Service {
     /// Free-form documentation about the service.
     #[serde(default)]
     pub notes: Option<String>,
+    /// Ordered handshake steps this service wants run after connecting and
+    /// before any normal command — the per-service half of the schema's
+    /// `initialization`. Typed rather than swept into [`Self::extensions`]
+    /// because it is executed: see
+    /// [`crate::spec::initialization::handshake`].
+    #[serde(default, deserialize_with = "tolerant_initialization")]
+    pub initialization: Vec<InitializationStep>,
+    /// Unknown keys, kept verbatim so the doc comment above is true — the
+    /// struct claimed a sweep it did not have, which is how
+    /// `services[].initialization` was silently dropped for six devices.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// One step of a spec's `initialization` handshake.
+///
+/// The schema's words: "Ordered handshake / setup steps executed after
+/// connecting and before normal commands", allowed at the top level and
+/// per-service. A step names a characteristic and then says what to do with
+/// it — write these bytes, read it, subscribe to it — optionally waiting
+/// afterwards.
+///
+/// A step that says none of those three is PROSE, not an instruction:
+/// schlage's session resumption describes a SPAKE2 exchange whose bytes are
+/// fresh per session and cannot be written from a spec. Those are counted and
+/// reported rather than executed or silently dropped — see
+/// [`crate::spec::initialization::Handshake`].
+/// `initialization:` read one step at a time: a step that does not parse is
+/// dropped, and the rest — and the device — stay.
+///
+/// Every other advisory block on a spec is read this way (`udp_broadcast`,
+/// `local_name`, `mdns`: `filter_map(..ok())`), and this one was not. The
+/// schema lets `write` carry any integer, so a pack installed from a URL that
+/// writes `[0, 256]`, or says `delay_ms: -1`, or omits `characteristic`, used
+/// to fail the whole spec's parse and make the device unmatchable, although
+/// every command and format in it was fine. A step lost here is a step the
+/// handshake will not run — the device may ignore its first command, which
+/// is what an un-handshaken device did before any of this existed — not a
+/// device the catalogue has never heard of.
+fn tolerant_initialization<'de, D>(deserializer: D) -> Result<Vec<InitializationStep>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_yaml::Value::deserialize(deserializer)?;
+    Ok(match raw {
+        serde_yaml::Value::Sequence(steps) => steps
+            .into_iter()
+            .filter_map(|v| serde_yaml::from_value(v).ok())
+            .collect(),
+        _ => Vec::new(),
+    })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InitializationStep {
+    /// The GATT characteristic this step acts on, as the spec spells it
+    /// (case is not significant — hyperice writes it upper-case).
+    pub characteristic: String,
+    /// Bytes to write in this step.
+    #[serde(default)]
+    pub write: Option<Vec<u8>>,
+    /// Read the characteristic in this step — e.g. to capture a handshake
+    /// response or an encryption seed.
+    #[serde(default)]
+    pub read: bool,
+    /// Subscribe to the characteristic's notifications in this step, before
+    /// anything is sent (smartdawn wants both of its notify channels open
+    /// first).
+    #[serde(default)]
+    pub subscribe: bool,
+    /// Milliseconds to wait after this step.
+    #[serde(default)]
+    pub delay_ms: Option<u32>,
+    /// What the step does, when the spec can only say it in prose.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+impl InitializationStep {
+    /// Whether this step states an action a GATT client can carry out.
+    ///
+    /// The gate between the two kinds of step the catalogue actually holds:
+    /// spotled's three fixed writes, which are executable, and schlage's
+    /// procedural crypto, which is not.
+    pub fn is_executable(&self) -> bool {
+        self.write.is_some() || self.read || self.subscribe
+    }
 }
 
 /// A BLE GATT characteristic.
@@ -1987,12 +2242,11 @@ impl<'de> Deserialize<'de> for TemplateElement {
 
 /// A command parameter definition.
 ///
-/// Unknown keys sweep into `extensions`: specs annotate parameters with
-/// `description`, which documents the parameter without changing how it
-/// encodes. `type`/`min`/`max` still bound the encoded value, so
-/// a typo here should fail loudly. `allowed`/`labels`/`notes` are documented
+/// Unrecognised keys are ignored rather than swept into an extensions bag:
+/// `type`/`min`/`max` bound the encoded value, so a typo in one should fail
+/// loudly. `allowed`/`labels`/`values`/`notes`/`description` are documented
 /// optional extensions (admore declares enumerated allowed values with UI
-/// labels); they are parsed and preserved but do not yet drive validation.
+/// labels); they do not change how a value encodes, only how it is offered.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Parameter {
     #[serde(rename = "type")]
@@ -2005,14 +2259,47 @@ pub struct Parameter {
     /// `set_brightness` takes `seq`, `light_mode` and `flag` alongside the
     /// brightness itself, and the spec defaults all three, so a brightness
     /// slider only needs to provide `brightness`.
+    ///
+    /// `f64` because the schema types this key `number` while it types
+    /// `min`/`max` `integer`. Read as an integer, the perfectly ordinary
+    /// `default: 2.0` — the same raw value written with a decimal point —
+    /// was a serde type error, and a type error here fails the WHOLE spec:
+    /// one punctuation choice cost a device. Carried as a number instead, a
+    /// fractional default costs only the send that relies on it, where
+    /// `coerce_param` already refuses a fractional value by name.
     #[serde(default)]
-    pub default: Option<i64>,
+    pub default: Option<f64>,
     /// Enumerated set of allowed integer values (admore setting_id commands).
     #[serde(default)]
     pub allowed: Option<Vec<i64>>,
     /// Human-readable labels paired with `allowed`, for UI display.
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Code table for a parameter whose raw numbers are really an
+    /// enumeration: raw value → label, exactly as [`FormatField::values`]
+    /// spells the same idea on the decode side.
+    ///
+    /// Nine catalogue parameters carry one — elk-bledom's `state`
+    /// (`0: off, 1: on`), wl-smartled's `light_mode` (`0: all, 1: RGB, …`) —
+    /// and dropping it drew each of them as a raw 0..255 slider with no hint
+    /// that only two or four values mean anything. The schema does not
+    /// declare the key on a BLE parameter (it spells the same table
+    /// `allowed` + `labels`), which is filed in SPECS_TO_FIX.md; the
+    /// catalogue writes `values` regardless, and reading what the catalogue
+    /// says is cheaper than a device rendered as a mystery number.
+    ///
+    /// See [`Self::allowed_with_labels`] for how the two spellings fold into
+    /// the one pair a control surface draws.
+    #[serde(default, deserialize_with = "de_value_table")]
+    pub values: Option<IndexMap<String, String>>,
+    /// What this parameter means, in the spec author's own words.
+    ///
+    /// Parsed because it is the sentence a client shows when it has to ask a
+    /// person for the value: [`crate::spec::credentials`] reads it off a
+    /// `source: credential:<name>` parameter, which is the BLE half of the
+    /// join it already does for network commands.
+    #[serde(default)]
+    pub description: Option<String>,
     /// Number semantics of the value this parameter carries, shared with
     /// [`FormatField`]: the client encodes by inverting
     /// `raw = round((value - value_offset) / scale)`, which is why the
@@ -2142,6 +2429,8 @@ impl Default for Parameter {
             default: None,
             allowed: None,
             labels: None,
+            values: None,
+            description: None,
             scale: None,
             value_offset: None,
             unit: None,
@@ -2175,6 +2464,57 @@ impl Parameter {
     /// `source`, which nothing parsed.
     pub fn is_user_settable(&self) -> bool {
         self.auto.is_none() && self.default.is_none() && self.source.is_none()
+    }
+
+    /// The choices this parameter offers, as (raw value, label) pairs in the
+    /// order the spec declares them — or `None` when it offers a range rather
+    /// than a set.
+    ///
+    /// The catalogue states the same fact two ways and a control surface must
+    /// not care which: `allowed` (+ optional `labels`) is what the schema
+    /// declares, `values` is the raw→label code table nine parameters write
+    /// instead. `allowed` wins where both are present, because it is the one
+    /// the schema defines and the one the parser bounds-checks; the `values`
+    /// table then only supplies labels for the values `allowed` lists.
+    ///
+    /// A label is never paired by guesswork: `labels` shorter or longer than
+    /// `allowed` is dropped entirely rather than zipped, because mislabelling
+    /// a value the device really acts on is worse than showing the number.
+    /// That is why the label is an `Option` per value and not a parallel
+    /// list — a value nobody named says so, and a consumer shows the number.
+    ///
+    /// Entries outside the declared type are NOT filtered here — the parser
+    /// rejects such a spec outright (`AllowedValueOutsideBounds`), so by the
+    /// time anything asks, every entry is sendable.
+    pub fn allowed_with_labels(&self) -> Option<Vec<(i64, Option<String>)>> {
+        if let Some(allowed) = self.allowed.as_ref().filter(|a| !a.is_empty()) {
+            let paired = match &self.labels {
+                Some(labels) if labels.len() == allowed.len() => Some(labels),
+                _ => None,
+            };
+            return Some(
+                allowed
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &value)| {
+                        let label = paired
+                            .map(|labels| labels[i].clone())
+                            .or_else(|| self.values.as_ref()?.get(&value.to_string()).cloned());
+                        (value, label)
+                    })
+                    .collect(),
+            );
+        }
+        // A `values` table on its own IS the set: the keys are the raw values
+        // the device accepts. A key that is not an integer is not a raw wire
+        // value — `de_value_table` keeps `default:`-style keys verbatim — so
+        // it is skipped rather than allowed to collapse the table.
+        let table = self.values.as_ref().filter(|t| !t.is_empty())?;
+        let pairs: Vec<(i64, Option<String>)> = table
+            .iter()
+            .filter_map(|(raw, label)| Some((raw.parse::<i64>().ok()?, Some(label.clone()))))
+            .collect();
+        (!pairs.is_empty()).then_some(pairs)
     }
 
     /// Whether this parameter states the meaning of its value rather than

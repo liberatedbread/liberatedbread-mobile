@@ -14,9 +14,9 @@ class PowerStripIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox.square(
-        dimension: size,
-        child: CustomPaint(painter: _PowerStripPainter(color)),
-      );
+    dimension: size,
+    child: CustomPaint(painter: _PowerStripPainter(color)),
+  );
 }
 
 class _PowerStripPainter extends CustomPainter {
@@ -45,9 +45,10 @@ class _PowerStripPainter extends CustomPainter {
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromCenter(
-            center: Offset(s * 0.20, s * 0.85),
-            width: s * 0.12,
-            height: s * 0.09),
+          center: Offset(s * 0.20, s * 0.85),
+          width: s * 0.12,
+          height: s * 0.09,
+        ),
         Radius.circular(s * 0.02),
       ),
       fill,
@@ -69,9 +70,10 @@ class _PowerStripPainter extends CustomPainter {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
             Rect.fromCenter(
-                center: Offset(cxo + dx, s * 0.43),
-                width: s * 0.022,
-                height: s * 0.10),
+              center: Offset(cxo + dx, s * 0.43),
+              width: s * 0.022,
+              height: s * 0.10,
+            ),
             Radius.circular(s * 0.011),
           ),
           hole,

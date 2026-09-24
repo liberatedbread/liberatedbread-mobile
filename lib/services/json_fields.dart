@@ -13,9 +13,12 @@ import 'package:xml/xml.dart';
 /// dots: `{"emeter":{"get_realtime":{"voltage":120.4}}}` flattens to
 /// `emeter.get_realtime.voltage` → `'120.4'`, and the Envoy's flat reply key
 /// `wattsNow` stays `wattsNow`. Maps recurse; strings, numbers and booleans
-/// stringify. Arrays and nulls are dropped — a dotted path cannot name an
-/// array entry, which is the same reason a spec whose values live in an
-/// array (the Envoy's `/production.json`) declares no entities for them.
+/// stringify; an array is kept whole, as its JSON text, under its own path
+/// (R-043: what the Kasa flattener always did, so one `state_mapping`
+/// convention holds on both transports). A dotted path still cannot name an
+/// entry INSIDE an array, which is the same reason a spec whose values live
+/// in one (the Envoy's `/production.json`) declares no entities for them.
+/// Nulls are dropped.
 ///
 /// An unparseable or non-object reply yields an empty map, which reads as
 /// "no state here" — the same answer the SOAP path gives a reply that did
@@ -42,6 +45,13 @@ Map<String, String> jsonStateFields(String replyJson) {
         walk(path, value, depth + 1);
       } else if (value is String || value is num || value is bool) {
         out[path] = value.toString();
+      } else if (value is List) {
+        // R-043: kept as its JSON text, which is what the Kasa flattener has
+        // always done. The two are one `state_mapping` convention, and they
+        // disagreed: a path naming an array resolved on a Kasa plug and
+        // resolved to nothing over HTTP, so the same spec key worked on one
+        // transport and silently did not on the other.
+        out[path] = jsonEncode(value);
       }
     });
   }
@@ -91,8 +101,9 @@ Map<String, String> xmlStateFields(String replyXml) {
   void walk(String prefix, XmlElement element, int depth) {
     if (depth > 32) return;
     for (final child in element.childElements) {
-      final path =
-          prefix.isEmpty ? child.localName : '$prefix.${child.localName}';
+      final path = prefix.isEmpty
+          ? child.localName
+          : '$prefix.${child.localName}';
       if (child.childElements.isEmpty) {
         // A leaf: its text is the value. First sibling wins.
         out.putIfAbsent(path, () => child.innerText.trim());

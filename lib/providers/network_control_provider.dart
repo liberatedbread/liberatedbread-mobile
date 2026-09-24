@@ -27,8 +27,9 @@ import 'spec_codec_provider.dart';
 
 /// The SOAP transport, as a provider so tests can substitute an http client
 /// that answers from canned XML instead of a network.
-final soapControlClientProvider =
-    Provider<SoapControlClient>((ref) => SoapControlClient());
+final soapControlClientProvider = Provider<SoapControlClient>(
+  (ref) => SoapControlClient(),
+);
 
 /// The plain-HTTP transport — same substitution rule, for tests that answer
 /// a keypress with a canned 200 instead of a Roku.
@@ -51,32 +52,37 @@ final tlsTrustProvider = Provider<TlsTrust>(
 /// The ECP2 signed-session transport — the Roku-only fallback for when plain
 /// ECP is refused (the "Limited" control-by-mobile-apps gate). Same
 /// substitution rule: tests drive it from a scripted socket, not a network.
-final ecp2ControlServiceProvider =
-    Provider<Ecp2ControlService>((ref) => Ecp2ControlService());
+final ecp2ControlServiceProvider = Provider<Ecp2ControlService>(
+  (ref) => Ecp2ControlService(),
+);
 
 /// The LIFX binary-UDP transport — same substitution rule, for tests that
 /// answer (or drop) a datagram with a fake socket instead of a real strip.
-final lifxControlClientProvider =
-    Provider<LifxControlClient>((ref) => LifxControlClient());
+final lifxControlClientProvider = Provider<LifxControlClient>(
+  (ref) => LifxControlClient(),
+);
 
 /// The Kasa TCP-JSON transport. Depends on the codec because the XOR cipher
 /// and length framing live in Rust; tests substitute a client with a fake
 /// socket exchange (and a fake codec) instead of a real plug.
 final kasaControlClientProvider = Provider<KasaControlClient>(
-    (ref) => KasaControlClient(ref.watch(specCodecProvider)));
+  (ref) => KasaControlClient(ref.watch(specCodecProvider)),
+);
 
 /// The Rabbit Air per-device user keys, on the same secure settings store the
 /// Hue bridge credentials use — a long-lived LAN secret, never in plain
 /// preferences. Tests override [settingsStoreProvider] with an in-memory fake
 /// and get an isolated store for free.
 final rabbitAirKeyStoreProvider = Provider<RabbitAirKeyStore>(
-    (ref) => RabbitAirKeyStore(ref.watch(settingsStoreProvider)));
+  (ref) => RabbitAirKeyStore(ref.watch(settingsStoreProvider)),
+);
 
 /// The generic per-device credential store — whatever a spec's own
 /// `credential:` parameters name, on the same secure settings store the three
 /// device-specific stores above use.
 final deviceCredentialStoreProvider = Provider<DeviceCredentialStore>(
-    (ref) => DeviceCredentialStore(ref.watch(settingsStoreProvider)));
+  (ref) => DeviceCredentialStore(ref.watch(settingsStoreProvider)),
+);
 
 /// What one device's spec says a client must hold before it can be driven.
 ///
@@ -85,22 +91,25 @@ final deviceCredentialStoreProvider = Provider<DeviceCredentialStore>(
 /// so far. Keyed by the spec text because that is what determines it.
 final deviceCredentialsProvider = FutureProvider.autoDispose
     .family<List<NetworkCredentialDto>, String>((ref, specYaml) async {
-  try {
-    return await ref.watch(specCodecProvider).credentialsForDevice(specYaml);
-  } catch (e) {
-    // A spec this cannot read must not break the screen that asked; it means
-    // "nothing declared", the same as a spec that names no credential.
-    Log.net.debug('credential requirements unreadable: $e');
-    return const [];
-  }
-});
+      try {
+        return await ref
+            .watch(specCodecProvider)
+            .credentialsForDevice(specYaml);
+      } catch (e) {
+        // A spec this cannot read must not break the screen that asked; it means
+        // "nothing declared", the same as a spec that names no credential.
+        Log.net.debug('credential requirements unreadable: $e');
+        return const [];
+      }
+    });
 
 /// The Rabbit Air encrypted-UDP transport. Depends on the codec because the
 /// envelope rendering and the AES-128-CBC datagram crypto live in Rust; tests
 /// substitute a client with a fake exchange (and a fake codec) instead of a
 /// real purifier.
 final rabbitAirControlClientProvider = Provider<RabbitAirControlClient>(
-    (ref) => RabbitAirControlClient(ref.watch(specCodecProvider)));
+  (ref) => RabbitAirControlClient(ref.watch(specCodecProvider)),
+);
 
 /// The Rabbit Air entity surface of a BLE-matched spec, or null when the
 /// matched spec is not a Rabbit Air purifier. Decided exactly the way
@@ -109,69 +118,73 @@ final rabbitAirControlClientProvider = Provider<RabbitAirControlClient>(
 /// Rabbit Air panel over the BLE transport instead of the raw GATT browser.
 final rabbitAirBleControlsProvider = FutureProvider.autoDispose
     .family<List<NetworkEntityDto>?, String>((ref, specYaml) async {
-  final codec = ref.watch(specCodecProvider);
-  try {
-    final entities = (await codec.networkEntitiesForDevice(
-      specYaml: specYaml,
-      ssdpTargets: const [],
-    ))
-        .entities;
-    final isRabbitAir = entities.any((e) =>
-        e.transport == 'udp' || e.actions.any((a) => a.transport == 'udp'));
-    return isRabbitAir ? entities : null;
-  } catch (e) {
-    Log.spec.warning('rabbit air BLE surface failed to resolve', error: e);
-    return null;
-  }
-});
+      final codec = ref.watch(specCodecProvider);
+      try {
+        final entities = (await codec.networkEntitiesForDevice(
+          specYaml: specYaml,
+          ssdpTargets: const [],
+        )).entities;
+        final isRabbitAir = entities.any(
+          (e) =>
+              e.transport == 'udp' ||
+              e.actions.any((a) => a.transport == 'udp'),
+        );
+        return isRabbitAir ? entities : null;
+      } catch (e) {
+        Log.spec.warning('rabbit air BLE surface failed to resolve', error: e);
+        return null;
+      }
+    });
 
 /// The Rabbit Air spec's YAML and entity surface, resolved from the
 /// catalogue by its mDNS service type rather than by a device match: a
 /// setup-mode purifier ("RabbitAirSetup") is met before it can be matched,
 /// and it IS this spec. Null when the catalogue carries no Rabbit Air spec.
-final rabbitAirSpecSurfaceProvider = FutureProvider.autoDispose<
-    ({String specYaml, List<NetworkEntityDto> entities})?>((ref) async {
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  final spec = parsed
-      // The spec is selected by the protocol handler this app implements —
-      // the same join the Rust admission gate trusts — not by a discovery
-      // string that could move.
-      .where((p) => p.spec.protocolHandler == 'rabbit_air_lan')
-      .firstOrNull;
-  if (spec == null) return null;
-  final codec = ref.watch(specCodecProvider);
-  try {
-    final entities = (await codec.networkEntitiesForDevice(
-      specYaml: spec.yaml,
-      ssdpTargets: const [],
-    ))
-        .entities;
-    return (specYaml: spec.yaml, entities: entities);
-  } catch (e) {
-    Log.spec.warning('rabbit air spec surface failed to resolve', error: e);
-    return null;
-  }
-});
+final rabbitAirSpecSurfaceProvider =
+    FutureProvider.autoDispose<
+      ({String specYaml, List<NetworkEntityDto> entities})?
+    >((ref) async {
+      final catalogue = await ref.watch(specCatalogueProvider.future);
+      final spec = catalogue.specs
+          // The spec is selected by the protocol handler this app implements —
+          // the same join the Rust admission gate trusts — not by a discovery
+          // string that could move.
+          .where((p) => p.protocolHandler == 'rabbit_air_lan')
+          .firstOrNull;
+      if (spec == null) return null;
+      final codec = ref.watch(specCodecProvider);
+      try {
+        final entities = (await codec.networkEntitiesForDevice(
+          specYaml: spec.yaml,
+          ssdpTargets: const [],
+        )).entities;
+        return (specYaml: spec.yaml, entities: entities);
+      } catch (e) {
+        Log.spec.warning('rabbit air spec surface failed to resolve', error: e);
+        return null;
+      }
+    });
 
 /// The Rabbit Air BLE provisioning service. The link factory builds a client
 /// on the app's [BleService]; the default verifier watches the network scan
 /// for the Thing ID's mDNS hostname and proves the freshly pushed key with a
 /// clock sync and a state read over the LAN protocol. Tests override the
 /// whole provider with a service wired to fakes.
-final rabbitAirProvisionServiceProvider =
-    Provider<RabbitAirProvisionService>((ref) {
+final rabbitAirProvisionServiceProvider = Provider<RabbitAirProvisionService>((
+  ref,
+) {
   final codec = ref.watch(specCodecProvider);
   return RabbitAirProvisionService(
     codec: codec,
     keyStore: ref.watch(rabbitAirKeyStoreProvider),
     linkFactory: () => RabbitAirBleClient(ref.watch(bleServiceProvider), codec),
     verifier: ({required thingId, required userKey}) async {
-      final parsed = await ref.read(parsedDeviceSpecsProvider.future);
-      final spec = parsed
+      final catalogue = await ref.read(specCatalogueProvider.future);
+      final spec = catalogue.specs
           // The spec is selected by the protocol handler this app implements —
           // the same join the Rust admission gate trusts — not by a discovery
           // string that could move.
-          .where((p) => p.spec.protocolHandler == 'rabbit_air_lan')
+          .where((p) => p.protocolHandler == 'rabbit_air_lan')
           .firstOrNull;
       if (spec == null) return false;
       final scanner = ref.read(networkScanServiceProvider);
@@ -183,8 +196,9 @@ final rabbitAirProvisionServiceProvider =
       // Six 10 s windows outlast the service's verifyTimeout.
       for (var window = 0; window < 6; window++) {
         NetworkDevice? found;
-        await for (final device
-            in scanner.scan(timeout: const Duration(seconds: 10))) {
+        await for (final device in scanner.scan(
+          timeout: const Duration(seconds: 10),
+        )) {
           final hostname = device.hostname;
           if (hostname != null && hostname.startsWith(thingId)) {
             found = device;
@@ -193,8 +207,12 @@ final rabbitAirProvisionServiceProvider =
         }
         if (found == null) continue;
         final port = found.port ?? RabbitAirControlClient.defaultPort;
-        await client.syncClock(found.host, port,
-            specYaml: spec.yaml, userKey: userKey);
+        await client.syncClock(
+          found.host,
+          port,
+          specYaml: spec.yaml,
+          userKey: userKey,
+        );
         final request = await codec.renderNetworkRabbitAirStateRequest(
           specYaml: spec.yaml,
           stateCommand: 'get_state',
@@ -224,42 +242,43 @@ final rabbitAirProvisionServiceProvider =
 
 final networkCommandSenderFactoryProvider =
     Provider<NetworkCommandSenderFactory>((ref) {
-  return ({
-    required NetworkDevice device,
-    required String specYaml,
-    NetworkCapabilitiesDto? capabilities,
-  }) {
-    // What a pairing issues at runtime is persisted HERE, in the factory,
-    // because the sender is the only thing that knows the credential's
-    // spec-given name and the store is the only thing that survives the
-    // screen. Without this wiring every value a television issued was
-    // discarded on dispose, and each screen open raised the set's Allow
-    // prompt again — the parameters existed and were passed only by tests.
-    final store = ref.read(deviceCredentialStoreProvider);
-    final identity = device.credentialIdentity;
-    return NetworkCommandSender(
-      host: device.host,
-      // The one handle that survives a DHCP lease, for the certificate pin.
-      deviceMac: device.advertisedMac,
-      discoveredControlPort: device.controlPort,
-      devicePort: device.port,
-      ssdpTargets: device.ssdpTargets,
-      specYaml: specYaml,
-      capabilities: capabilities,
-      codec: ref.read(specCodecProvider),
-      http: ref.read(httpControlClientProvider),
-      soap: ref.read(soapControlClientProvider),
-      kasa: ref.read(kasaControlClientProvider),
-      rabbitAir: ref.read(rabbitAirControlClientProvider),
-      ecp2: ref.read(ecp2ControlServiceProvider),
-      // Returned, not fire-and-forgotten: the sender awaits the save before
-      // re-reading the store (so the token it just filed is findable) and
-      // logs a keystore failure instead of letting it become an unhandled
-      // zone error that also silently loses the freshly issued token.
-      onCredentialIssued: (name, value) => store.save(identity, name, value),
-    );
-  };
-});
+      return ({
+        required NetworkDevice device,
+        required String specYaml,
+        NetworkCapabilitiesDto? capabilities,
+      }) {
+        // What a pairing issues at runtime is persisted HERE, in the factory,
+        // because the sender is the only thing that knows the credential's
+        // spec-given name and the store is the only thing that survives the
+        // screen. Without this wiring every value a television issued was
+        // discarded on dispose, and each screen open raised the set's Allow
+        // prompt again — the parameters existed and were passed only by tests.
+        final store = ref.read(deviceCredentialStoreProvider);
+        final identity = device.credentialIdentity;
+        return NetworkCommandSender(
+          host: device.host,
+          // The one handle that survives a DHCP lease, for the certificate pin.
+          deviceMac: device.advertisedMac,
+          discoveredControlPort: device.controlPort,
+          devicePort: device.port,
+          ssdpTargets: device.ssdpTargets,
+          specYaml: specYaml,
+          capabilities: capabilities,
+          codec: ref.read(specCodecProvider),
+          http: ref.read(httpControlClientProvider),
+          soap: ref.read(soapControlClientProvider),
+          kasa: ref.read(kasaControlClientProvider),
+          rabbitAir: ref.read(rabbitAirControlClientProvider),
+          ecp2: ref.read(ecp2ControlServiceProvider),
+          // Returned, not fire-and-forgotten: the sender awaits the save before
+          // re-reading the store (so the token it just filed is findable) and
+          // logs a keystore failure instead of letting it become an unhandled
+          // zone error that also silently loses the freshly issued token.
+          onCredentialIssued: (name, value) =>
+              store.save(identity, name, value),
+        );
+      };
+    });
 
 /// Identity of one network device the control layer is asked about.
 ///
@@ -342,7 +361,8 @@ class NetworkControls {
   /// the only signal left for an entity with no actions at all — a per-outlet
   /// energy reading is instanced, but it is not a hub.
   bool get isHub => entities.any(
-      (e) => e.isInstanced && e.actions.any((a) => a.credentials.isNotEmpty));
+    (e) => e.isInstanced && e.actions.any((a) => a.credentials.isNotEmpty),
+  );
 }
 
 /// Resolve what the catalogue lets us control on one network device.
@@ -353,39 +373,44 @@ class NetworkControls {
 /// details sheet, not break the scan list that asked.
 final networkControlsProvider = FutureProvider.autoDispose
     .family<NetworkControls?, NetworkControlRequest>((ref, request) async {
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  final match = parsed
-      .where((p) =>
-          p.spec.deviceName == request.deviceName &&
-          p.spec.manufacturer == request.manufacturer)
-      .toList();
-  if (match.isEmpty) return null;
+      final catalogue = await ref.watch(specCatalogueProvider.future);
+      final match = catalogue.specs
+          .where(
+            (p) =>
+                p.deviceName == request.deviceName &&
+                p.manufacturer == request.manufacturer,
+          )
+          .toList();
+      if (match.isEmpty) return null;
 
-  final codec = ref.watch(specCodecProvider);
-  try {
-    final surface = await codec.networkEntitiesForDevice(
-      specYaml: match.first.yaml,
-      ssdpTargets: request.ssdpTargets,
-    );
-    // A raster label printer (Brother QL) resolves no entities — its surface is
-    // a raster byte stream, not commands — so admit it on its protocol_handler
-    // rather than letting the empty-entity check drop it to the details sheet.
-    final rasterPrintHandler =
-        match.first.spec.protocolHandler == 'brother_ql_raster'
-            ? match.first.spec.protocolHandler
+      final codec = ref.watch(specCodecProvider);
+      try {
+        final surface = await codec.networkEntitiesForDevice(
+          specYaml: match.first.yaml,
+          ssdpTargets: request.ssdpTargets,
+        );
+        // A raster label printer (Brother QL) resolves no entities — its surface is
+        // a raster byte stream, not commands — so admit it on its protocol_handler
+        // rather than letting the empty-entity check drop it to the details sheet.
+        final rasterPrintHandler =
+            match.first.protocolHandler == 'brother_ql_raster'
+            ? match.first.protocolHandler
             : null;
-    if (surface.entities.isEmpty && rasterPrintHandler == null) return null;
-    return NetworkControls(
-      specYaml: match.first.yaml,
-      entities: surface.entities,
-      hiddenNames: surface.hiddenNames,
-      capabilities: await codec.networkCapabilities(specYaml: match.first.yaml),
-      rasterPrintHandler: rasterPrintHandler,
-    );
-  } catch (e) {
-    Log.spec.warning(
-        'network controls failed to resolve for "${request.deviceName}"',
-        error: e);
-    return null;
-  }
-});
+        if (surface.entities.isEmpty && rasterPrintHandler == null) return null;
+        return NetworkControls(
+          specYaml: match.first.yaml,
+          entities: surface.entities,
+          hiddenNames: surface.hiddenNames,
+          capabilities: await codec.networkCapabilities(
+            specYaml: match.first.yaml,
+          ),
+          rasterPrintHandler: rasterPrintHandler,
+        );
+      } catch (e) {
+        Log.spec.warning(
+          'network controls failed to resolve for "${request.deviceName}"',
+          error: e,
+        );
+        return null;
+      }
+    });

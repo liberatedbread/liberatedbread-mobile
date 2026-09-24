@@ -108,8 +108,11 @@ void main() {
       expect(sawHost, '10.0.0.7');
       expect(sawPort, roombaPort, reason: '8883, the robot\'s own broker port');
       expect(robot.written.single, await codec.roombaPasswordProbe());
-      expect(robot.closed, isTrue,
-          reason: 'the disclosure socket is released either way');
+      expect(
+        robot.closed,
+        isTrue,
+        reason: 'the disclosure socket is released either way',
+      );
     });
 
     /// The inviting mistake: Roomba passwords start with ':' and contain ':',
@@ -119,7 +122,7 @@ void main() {
       final robot = _ScriptedRobot();
       final service = RoombaPasswordService(
         codec: codec,
-        connect: (_, __, ___) async {
+        connect: (_, _, _) async {
           scheduleMicrotask(() => robot.send(_passwordReply(password)));
           return robot;
         },
@@ -139,7 +142,7 @@ void main() {
 
       final service = RoombaPasswordService(
         codec: codec,
-        connect: (_, __, ___) async {
+        connect: (_, _, _) async {
           connects++;
           if (connects < 3) {
             throw const RoombaConnectionException('connection reset');
@@ -157,8 +160,11 @@ void main() {
 
       expect(recovered, password);
       expect(connects, 3);
-      expect(attempts, [1, 2, 3],
-          reason: 'the wizard drives progress off this');
+      expect(attempts, [
+        1,
+        2,
+        3,
+      ], reason: 'the wizard drives progress off this');
     });
 
     /// A cipher failure fails identically every time, so retrying only burns
@@ -167,7 +173,7 @@ void main() {
       var connects = 0;
       final service = RoombaPasswordService(
         codec: codec,
-        connect: (_, __, ___) async {
+        connect: (_, _, _) async {
           connects++;
           throw const RoombaConnectionException(
             'handshake failed',
@@ -178,8 +184,13 @@ void main() {
 
       await expectLater(
         service.fetchPassword('10.0.0.7'),
-        throwsA(isA<RoombaConnectionException>()
-            .having((e) => e.legacyTlsSuspected, 'legacyTlsSuspected', isTrue)),
+        throwsA(
+          isA<RoombaConnectionException>().having(
+            (e) => e.legacyTlsSuspected,
+            'legacyTlsSuspected',
+            isTrue,
+          ),
+        ),
       );
       expect(connects, 1, reason: 'retrying a cipher gap cannot help');
     });
@@ -188,36 +199,41 @@ void main() {
     /// spending four retry intervals on it is only a slower way to reach the
     /// same dead end. The Rust codec names the account route in that error;
     /// `rust/tests/roomba_control.rs` pins the other end of this coupling.
-    test('does not retry a robot that says it cannot disclose locally',
-        () async {
-      var connects = 0;
-      final service = RoombaPasswordService(
-        codec: codec,
-        connect: (_, __, ___) async {
-          connects++;
-          final robot = _ScriptedRobot();
-          // The documented "unsupported" reply.
-          scheduleMicrotask(
-              () => robot.send([0xf0, 0x05, 0xef, 0xcc, 0x3b, 0x29, 0x03]));
-          return robot;
-        },
-      );
+    test(
+      'does not retry a robot that says it cannot disclose locally',
+      () async {
+        var connects = 0;
+        final service = RoombaPasswordService(
+          codec: codec,
+          connect: (_, _, _) async {
+            connects++;
+            final robot = _ScriptedRobot();
+            // The documented "unsupported" reply.
+            scheduleMicrotask(
+              () => robot.send([0xf0, 0x05, 0xef, 0xcc, 0x3b, 0x29, 0x03]),
+            );
+            return robot;
+          },
+        );
 
-      await expectLater(
-        service.fetchPassword('10.0.0.7'),
-        throwsA(isA<RoombaPasswordException>()
-            .having((e) => e.retryable, 'retryable', isFalse)
-            .having((e) => e.message, 'message', contains('account'))),
-      );
-      expect(connects, 1, reason: 'no point asking again');
-    });
+        await expectLater(
+          service.fetchPassword('10.0.0.7'),
+          throwsA(
+            isA<RoombaPasswordException>()
+                .having((e) => e.retryable, 'retryable', isFalse)
+                .having((e) => e.message, 'message', contains('account')),
+          ),
+        );
+        expect(connects, 1, reason: 'no point asking again');
+      },
+    );
 
     /// The failure users actually hit: they did not hold HOME long enough. The
     /// message has to name that, or they go looking at their network.
     test('a short reply reports that the robot was not disclosing', () async {
       final service = RoombaPasswordService(
         codec: codec,
-        connect: (_, __, ___) async {
+        connect: (_, _, _) async {
           final robot = _ScriptedRobot();
           // A COMPLETE frame that is simply too short to carry a password:
           // 0xf0, a declared payload length of 1, then that one byte. The read
@@ -231,8 +247,13 @@ void main() {
 
       await expectLater(
         service.fetchPassword('10.0.0.7', attempts: 2),
-        throwsA(isA<RoombaPasswordException>()
-            .having((e) => e.message, 'message', contains('HOME'))),
+        throwsA(
+          isA<RoombaPasswordException>().having(
+            (e) => e.message,
+            'message',
+            contains('HOME'),
+          ),
+        ),
       );
     });
   });
@@ -243,12 +264,13 @@ void main() {
       password: password,
     );
 
-    Future<(RoombaMqttClient, _ScriptedRobot)> connected(
-        {SpecCodec? using}) async {
+    Future<(RoombaMqttClient, _ScriptedRobot)> connected({
+      SpecCodec? using,
+    }) async {
       final robot = _ScriptedRobot();
       final client = RoombaMqttClient(
         codec: using ?? codec,
-        connect: (_, __, ___) async {
+        connect: (_, _, _) async {
           // CONNACK, accepted.
           scheduleMicrotask(() => robot.send([0x20, 0x02, 0x00, 0x00]));
           return robot;
@@ -273,11 +295,9 @@ void main() {
       // not settled, so subscribing to everything is the only reading that
       // works on all of them.
       expect(
-          robot.written[1],
-          await codec.mqttSubscribePacket(
-            topic: '#',
-            packetId: 1,
-          ));
+        robot.written[1],
+        await codec.mqttSubscribePacket(topic: '#', packetId: 1),
+      );
       expect(client.isConnected, isTrue);
     });
 
@@ -310,7 +330,8 @@ void main() {
       final (client, robot) = await connected();
       addTearDown(client.dispose);
 
-      const payload = '{"state":{"reported":{"batPct":94,'
+      const payload =
+          '{"state":{"reported":{"batPct":94,'
           '"bin":{"full":false},'
           '"cleanMissionStatus":{"phase":"run"}}}}';
       final push = await codec.mqttPublishPacket(
@@ -341,37 +362,109 @@ void main() {
     ///
     /// Pushing back-to-back with no await between the two `add`s is what makes
     /// the events land in the same turn; a delay would hide the bug entirely.
-    test('two pushes arriving together are decoded once each, in order',
-        () async {
-      final (client, robot) = await connected(using: _SlowParseCodec());
+    test(
+      'two pushes arriving together are decoded once each, in order',
+      () async {
+        final (client, robot) = await connected(using: _SlowParseCodec());
+        addTearDown(client.dispose);
+
+        String pushFor(int battery, String phase) =>
+            '{"state":{"reported":'
+            '{"batPct":$battery,"cleanMissionStatus":{"phase":"$phase"}}}}';
+
+        final first = await codec.mqttPublishPacket(
+          topic: 'delta',
+          payload: pushFor(94, 'run'),
+        );
+        final second = await codec.mqttPublishPacket(
+          topic: 'delta',
+          payload: pushFor(93, 'hmMidMsn'),
+        );
+
+        final seen = <Map<String, String>>[];
+        final errors = <Object>[];
+        final sub = client.state.listen(seen.add, onError: errors.add);
+        addTearDown(sub.cancel);
+
+        robot.send(first);
+        robot.send(second);
+        // Let the whole chain drain — several microtask turns, since each chunk
+        // awaits the codec.
+        for (var i = 0; i < 10; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        expect(errors, isEmpty);
+        expect(
+          seen,
+          hasLength(2),
+          reason: 'a push was dropped or decoded twice',
+        );
+        expect(seen[0]['state.reported.batPct'], '94');
+        expect(seen[1]['state.reported.batPct'], '93');
+        expect(seen[1]['state.reported.cleanMissionStatus.phase'], 'hmMidMsn');
+      },
+    );
+
+    /// Reconnecting after the robot hangs up.
+    ///
+    /// The robot serves ONE local client and a new connection evicts the old,
+    /// so a hang-up is the ordinary end of a session here — the iRobot app or
+    /// Home Assistant taking the slot — and reconnecting is what the screen
+    /// does next. `connect()` returns early only while the session is still
+    /// connected, so on that path it ran again with the previous
+    /// subscription still live, and `session.messages` is a BROADCAST stream:
+    /// both listeners then decoded every push and added it to `state`. The
+    /// contents looked right, so only the COUNT catches it — and it grows by
+    /// one more copy per reconnect.
+    test('reconnecting does not leave a second listener behind', () async {
+      final robots = <_ScriptedRobot>[];
+      final client = RoombaMqttClient(
+        codec: codec,
+        connect: (_, _, _) async {
+          final robot = _ScriptedRobot();
+          robots.add(robot);
+          scheduleMicrotask(() => robot.send([0x20, 0x02, 0x00, 0x00]));
+          return robot;
+        },
+      );
       addTearDown(client.dispose);
 
-      String pushFor(int battery, String phase) => '{"state":{"reported":'
-          '{"batPct":$battery,"cleanMissionStatus":{"phase":"$phase"}}}}';
+      await client.connect('10.0.0.7', credentials);
+      // The eviction, as it looks from here: the socket simply closes.
+      await robots.first.hangUp();
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(client.isConnected, isFalse);
 
-      final first = await codec.mqttPublishPacket(
-          topic: 'delta', payload: pushFor(94, 'run'));
-      final second = await codec.mqttPublishPacket(
-          topic: 'delta', payload: pushFor(93, 'hmMidMsn'));
+      await client.connect('10.0.0.7', credentials);
+      expect(robots, hasLength(2));
 
       final seen = <Map<String, String>>[];
       final errors = <Object>[];
       final sub = client.state.listen(seen.add, onError: errors.add);
       addTearDown(sub.cancel);
 
-      robot.send(first);
-      robot.send(second);
-      // Let the whole chain drain — several microtask turns, since each chunk
-      // awaits the codec.
+      robots.last.send(
+        await codec.mqttPublishPacket(
+          topic: 'delta',
+          payload: '{"state":{"reported":{"batPct":94}}}',
+        ),
+      );
       for (var i = 0; i < 10; i++) {
         await Future<void>.delayed(Duration.zero);
       }
 
       expect(errors, isEmpty);
-      expect(seen, hasLength(2), reason: 'a push was dropped or decoded twice');
-      expect(seen[0]['state.reported.batPct'], '94');
-      expect(seen[1]['state.reported.batPct'], '93');
-      expect(seen[1]['state.reported.cleanMissionStatus.phase'], 'hmMidMsn');
+      expect(
+        seen,
+        hasLength(1),
+        reason:
+            'the previous connect\'s subscription was never cancelled, so '
+            'every state push is decoded and published once per reconnect',
+      );
+      expect(seen.single['state.reported.batPct'], '94');
     });
 
     /// A wrong password must not read like an unreachable robot: the fix is to
@@ -380,7 +473,7 @@ void main() {
       final robot = _ScriptedRobot();
       final client = RoombaMqttClient(
         codec: codec,
-        connect: (_, __, ___) async {
+        connect: (_, _, _) async {
           // 4 = bad username or password.
           scheduleMicrotask(() => robot.send([0x20, 0x02, 0x00, 0x04]));
           return robot;
@@ -390,9 +483,15 @@ void main() {
 
       await expectLater(
         client.connect('10.0.0.7', credentials),
-        throwsA(isA<RoombaAuthException>()
-            .having((e) => e.code, 'code', 4)
-            .having((e) => e.toString(), 'message', contains('factory reset'))),
+        throwsA(
+          isA<RoombaAuthException>()
+              .having((e) => e.code, 'code', 4)
+              .having(
+                (e) => e.toString(),
+                'message',
+                contains('factory reset'),
+              ),
+        ),
       );
     });
 
@@ -420,14 +519,19 @@ void main() {
         for (final message in parsed.packets) {
           if (message.kind != 'publish') continue;
           expect(message.topic, 'cmd');
-          commands
-              .add((jsonDecode(message.payload) as Map)['command'] as String);
+          commands.add(
+            (jsonDecode(message.payload) as Map)['command'] as String,
+          );
         }
       }
 
-      expect(commands, ['stop', 'dock'],
-          reason: 'a send-home button that only sends dock does nothing '
-              'while the robot is cleaning');
+      expect(
+        commands,
+        ['stop', 'dock'],
+        reason:
+            'a send-home button that only sends dock does nothing '
+            'while the robot is cleaning',
+      );
     });
 
     /// The robot serves one client at a time, so letting go is part of the
@@ -462,18 +566,24 @@ void main() {
     /// Nothing to connect to, so this exercises the error mapping rather than
     /// the happy path — specifically that an unreachable port names the 2025
     /// models, which refuse 8883 outright and are the likeliest cause.
-    test('an unreachable robot is a connection error, not a crash', () async {
-      final service = RoombaPasswordService(codec: codec);
-      await expectLater(
-        service.fetchPassword('127.0.0.1', attempts: 1, port: 1),
-        throwsA(anyOf(
-          isA<RoombaPasswordException>(),
-          isA<RoombaConnectionException>(),
-        )),
-      );
-    }, onPlatform: const {
-      'browser': Skip('dart:io sockets are not available on the web'),
-    });
+    test(
+      'an unreachable robot is a connection error, not a crash',
+      () async {
+        final service = RoombaPasswordService(codec: codec);
+        await expectLater(
+          service.fetchPassword('127.0.0.1', attempts: 1, port: 1),
+          throwsA(
+            anyOf(
+              isA<RoombaPasswordException>(),
+              isA<RoombaConnectionException>(),
+            ),
+          ),
+        );
+      },
+      onPlatform: const {
+        'browser': Skip('dart:io sockets are not available on the web'),
+      },
+    );
   });
 
   test('SocketException maps to a message naming the cloud-only models', () {

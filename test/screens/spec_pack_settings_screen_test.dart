@@ -15,23 +15,23 @@ SpecPack _pack({
   String name = 'Demo Pack',
   String version = '3.1.0',
   int specCount = 1,
-}) =>
-    SpecPack(
-      name: name,
-      version: version,
-      sourceUrl: 'https://specs.example.com/pack.json',
-      specFiles: [for (var i = 0; i < specCount; i++) 'spec$i.yaml'],
-      installedAt: DateTime(2026, 7, 11, 9, 30),
-    );
+}) => SpecPack(
+  name: name,
+  version: version,
+  sourceUrl: 'https://specs.example.com/pack.json',
+  specFiles: [for (var i = 0; i < specCount; i++) 'spec$i.yaml'],
+  installedAt: DateTime(2026, 7, 11, 9, 30),
+);
 
 Widget _wrap(FakeSpecPackService service) => ProviderScope(
-      overrides: [
-        prefsSettingsStoreProvider
-            .overrideWith((ref) async => InMemorySettingsStore()),
-        specPackServiceProvider.overrideWithValue(service),
-      ],
-      child: const MaterialApp(home: SpecPackSettingsScreen()),
-    );
+  overrides: [
+    prefsSettingsStoreProvider.overrideWith(
+      (ref) async => InMemorySettingsStore(),
+    ),
+    specPackServiceProvider.overrideWithValue(service),
+  ],
+  child: const MaterialApp(home: SpecPackSettingsScreen()),
+);
 
 void main() {
   testWidgets('seeds the URL field with the default constant', (tester) async {
@@ -71,7 +71,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField), 'https://specs.example.com/pack.json');
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
     await tester.tap(find.text('Install / Refresh'));
     await tester.pumpAndSettle();
 
@@ -81,25 +83,30 @@ void main() {
     expect(find.textContaining('v2.0.0'), findsWidgets);
   });
 
-  testWidgets('surfaces a friendly error when the manifest is malformed',
-      (tester) async {
+  testWidgets('surfaces a friendly error when the manifest is malformed', (
+    tester,
+  ) async {
     final service = FakeSpecPackService(
       nextResult: const InstallFailed(
-          SpecPackError(SpecPackErrorKind.malformedManifest, 'bad manifest')),
+        SpecPackError(SpecPackErrorKind.malformedManifest, 'bad manifest'),
+      ),
     );
     await tester.pumpWidget(_wrap(service));
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField), 'https://specs.example.com/pack.json');
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
     await tester.tap(find.text('Install / Refresh'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('did not return a valid'), findsOneWidget);
   });
 
-  testWidgets('reports partial failures after a successful install',
-      (tester) async {
+  testWidgets('reports partial failures after a successful install', (
+    tester,
+  ) async {
     final service = FakeSpecPackService(
       nextResult: InstallOk(
         _pack(name: 'Partial', specCount: 2),
@@ -110,7 +117,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byType(TextField), 'https://specs.example.com/pack.json');
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
     await tester.tap(find.text('Install / Refresh'));
     await tester.pumpAndSettle();
 
@@ -148,8 +157,9 @@ void main() {
     expect(find.textContaining('v3.1.0'), findsOneWidget);
   });
 
-  testWidgets('refresh button re-downloads from the pack\'s own source URL',
-      (tester) async {
+  testWidgets('refresh button re-downloads from the pack\'s own source URL', (
+    tester,
+  ) async {
     final service = FakeSpecPackService(
       packs: [_pack(name: 'Updatable', version: '1.0.0')],
       nextResult: InstallOk(_pack(name: 'Updatable', version: '1.1.0')),
@@ -166,23 +176,32 @@ void main() {
     expect(find.textContaining('v1.1.0'), findsWidgets);
   });
 
-  testWidgets('surfaces an error state when installed packs cannot be read',
-      (tester) async {
+  testWidgets('surfaces an error state when installed packs cannot be read', (
+    tester,
+  ) async {
     // A service whose listInstalledPacks throws must produce a visible error,
     // not an indistinguishable "No packs installed yet."
     final service = _ThrowingListService();
     await tester.pumpWidget(_wrap(service));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Could not read the installed packs'),
-        findsOneWidget);
+    expect(
+      find.textContaining('Could not read the installed packs'),
+      findsOneWidget,
+    );
     expect(find.textContaining('Bad state'), findsNothing);
     expect(find.text('No packs installed yet.'), findsNothing);
   });
 
-  testWidgets('clear-all removes every pack after confirmation',
-      (tester) async {
-    final service = FakeSpecPackService(packs: [_pack(), _pack(name: 'Two')]);
+  testWidgets('clear-all removes every pack after confirmation', (
+    tester,
+  ) async {
+    final service = FakeSpecPackService(
+      packs: [
+        _pack(),
+        _pack(name: 'Two'),
+      ],
+    );
     await tester.pumpWidget(_wrap(service));
     await tester.pumpAndSettle();
 
@@ -193,6 +212,125 @@ void main() {
 
     expect(find.textContaining('Cleared all'), findsOneWidget);
     expect(find.text('No packs installed yet.'), findsOneWidget);
+  });
+
+  // R-102: clearCache is best-effort and swallows a failed delete, so its
+  // normal return is not evidence anything was removed. The screen used to
+  // print "Cleared all installed packs." directly above the packs it had not
+  // cleared.
+  testWidgets('clear-all reports the packs it could not remove', (
+    tester,
+  ) async {
+    final service = FakeSpecPackService(
+      packs: [
+        _pack(),
+        _pack(name: 'Two'),
+      ],
+      clearCacheSilentlyFails: true,
+    );
+    await tester.pumpWidget(_wrap(service));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear all'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Cleared all'), findsNothing);
+    expect(find.textContaining('2 packs could not be removed'), findsOneWidget);
+  });
+
+  testWidgets('clear-all names the single pack it could not remove', (
+    tester,
+  ) async {
+    final service = FakeSpecPackService(
+      packs: [_pack(name: 'Stubborn')],
+      clearCacheSilentlyFails: true,
+    );
+    await tester.pumpWidget(_wrap(service));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear all'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Could not remove "Stubborn"'), findsOneWidget);
+  });
+  // F-018 / F-055: the explicitly-padded ListView ignored MediaQuery.padding
+  // (so in landscape the field sat under the notch), and the error/success/
+  // empty messages used Colors.red/green/grey literals that fail contrast on
+  // the light surface and ignore dark mode.
+  group('insets and colour roles', () {
+    ColorScheme schemeOf(WidgetTester tester) =>
+        Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+
+    Color? colorOf(WidgetTester tester, Finder finder) =>
+        tester.widget<Text>(finder).style?.color;
+
+    testWidgets('the form is inset from the notch side in landscape', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(667, 375);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            prefsSettingsStoreProvider.overrideWith(
+              (ref) async => InMemorySettingsStore(),
+            ),
+            specPackServiceProvider.overrideWithValue(FakeSpecPackService()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(padding: const EdgeInsets.only(left: 59)),
+                child: const SpecPackSettingsScreen(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The 59 pt inset plus the list's own 16 pt padding.
+      expect(tester.getTopLeft(find.byType(TextField)).dx, closeTo(75, 1));
+    });
+
+    testWidgets('empty, error and success messages use theme roles', (
+      tester,
+    ) async {
+      final service = FakeSpecPackService(
+        nextResult: InstallOk(_pack(name: 'Fresh Pack', version: '2.0.0')),
+      );
+      await tester.pumpWidget(_wrap(service));
+      await tester.pumpAndSettle();
+      final scheme = schemeOf(tester);
+
+      expect(
+        colorOf(tester, find.text('No packs installed yet.')),
+        scheme.onSurfaceVariant,
+      );
+
+      await tester.enterText(find.byType(TextField), 'not-a-url');
+      await tester.tap(find.text('Install / Refresh'));
+      await tester.pumpAndSettle();
+      expect(colorOf(tester, find.textContaining('valid http')), scheme.error);
+
+      await tester.enterText(
+        find.byType(TextField),
+        'https://specs.example.com/pack.json',
+      );
+      await tester.tap(find.text('Install / Refresh'));
+      await tester.pumpAndSettle();
+      expect(
+        colorOf(tester, find.textContaining('Installed "Fresh Pack"')),
+        scheme.tertiary,
+      );
+    });
   });
 }
 

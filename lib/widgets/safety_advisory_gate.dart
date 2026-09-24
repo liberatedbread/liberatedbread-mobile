@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/saved_device_provider.dart';
 import '../services/spec_codec.dart';
+import '../core/web_link.dart';
 
 /// Wraps a device's controls with a physical-safety advisory the spec declares
 /// (`device.safety_advisory` — an IPL hair-removal handset can permanently burn
@@ -77,7 +77,10 @@ class _SafetyAdvisoryGateState extends ConsumerState<SafetyAdvisoryGate> {
     if (_acknowledged) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [banner, Expanded(child: widget.child)],
+        children: [
+          banner,
+          Expanded(child: widget.child),
+        ],
       );
     }
 
@@ -109,26 +112,28 @@ class _SafetyBanner extends StatelessWidget {
   final SafetyAdvisoryDto advisory;
   final bool initiallyExpanded;
 
-  const _SafetyBanner(
-      {required this.advisory, required this.initiallyExpanded});
+  const _SafetyBanner({
+    required this.advisory,
+    required this.initiallyExpanded,
+  });
 
   Color _accent(ColorScheme s) => switch (advisory.severity) {
-        'danger' => s.error,
-        'warning' => s.tertiary,
-        _ => s.secondary,
-      };
+    'danger' => s.error,
+    'warning' => s.tertiary,
+    _ => s.secondary,
+  };
 
   IconData get _icon => switch (advisory.severity) {
-        'danger' => Icons.dangerous_outlined,
-        'warning' => Icons.warning_amber_outlined,
-        _ => Icons.info_outline,
-      };
+    'danger' => Icons.dangerous_outlined,
+    'warning' => Icons.warning_amber_outlined,
+    _ => Icons.info_outline,
+  };
 
   String get _label => switch (advisory.severity) {
-        'danger' => 'Safety warning',
-        'warning' => 'Use with care',
-        _ => 'Safety note',
-      };
+    'danger' => 'Safety warning',
+    'warning' => 'Use with care',
+    _ => 'Safety note',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -164,8 +169,10 @@ class _SafetyBanner extends StatelessWidget {
             leading: Icon(_icon, color: accent),
             title: Text(
               _label,
-              style: text.titleSmall
-                  ?.copyWith(color: accent, fontWeight: FontWeight.w600),
+              style: text.titleSmall?.copyWith(
+                color: accent,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             subtitle: Text(advisory.summary, style: text.bodySmall),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -191,12 +198,9 @@ class _SafetyBanner extends StatelessWidget {
         label: Text(label),
       );
 
-  Future<void> _open(BuildContext context, String url) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final uri = Uri.tryParse(url);
-    if (uri == null ||
-        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      messenger.showSnackBar(SnackBar(content: Text('Could not open $url')));
-    }
-  }
+  // Through the shared guard: advisory and mitigation URLs arrive verbatim
+  // from spec YAML, which a pack URL over plain http can supply, so only a
+  // web link may reach the OS — never shortcuts://, tel:, itms-services://.
+  Future<void> _open(BuildContext context, String url) =>
+      openWebLink(context, url);
 }

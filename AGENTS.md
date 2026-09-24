@@ -89,9 +89,10 @@ optional here — they're a feature.
 - **Keep both transports in mind.** BLE lives in `*ble_service.dart` /
   `rust/src/protocol/profiles/`; Wi-Fi lives in `*network_scan_service.dart`,
   `*_control_service.dart` (HTTP/SOAP), and `rust/src/protocol/{http,soap}.rs`.
-- Adding a *bundled* fallback spec means updating the hardcoded list in
-  `lib/providers/device_spec_provider.dart` **and** the assertion in
-  `rust/tests/vendored_assets.rs`.
+- Bundled specs are discovered from the subtree's `device-specs/index.json`,
+  not a list in Dart: adding a device is a spec refresh, never a Dart edit.
+  `rust/tests/vendored_assets.rs` fails if `device_spec_provider.dart` names a
+  spec file directly (the example bulb is the one permitted fallback literal).
 - Follow existing style: `dart format` / `cargo fmt`, lines ~80 cols, and keep
   `clippy -- -D warnings` clean.
 
@@ -100,5 +101,7 @@ optional here — they're a feature.
 - [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) — build/run/test guide
 - [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) — E2E architecture + spec format
 - [docs/ios-from-linux.md](docs/ios-from-linux.md) — iPhone workflows from Linux
+- [SPECS_TO_FIX.md](SPECS_TO_FIX.md) — problems whose fix is upstream in the
+  vendored spec catalogue; never patched here
 - [docs/GROUP_CONTROL_AND_VOICE.md](docs/GROUP_CONTROL_AND_VOICE.md) — design
   note: group ops across both transports, and a Siri/Shortcuts surface

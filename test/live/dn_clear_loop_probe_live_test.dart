@@ -73,9 +73,9 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
-      const codec = RealSpecCodec();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       if (Platform.environment['LB_LIVE_BLE_DIRECT'] != '1') {
@@ -107,19 +107,23 @@ void main() {
       // Request the effect list and accumulate every entry the device streams
       // back over a short window.
       Future<Map<int, ({int slot, int type, int diy})>> readEffectList(
-          String tag) async {
+        String tag,
+      ) async {
         final map = <int, ({int slot, int type, int diy})>{};
         final sub = notify.listen((bytes) async {
           for (final e in await codec.decodeEffectList(
-              specYaml: specYaml, bytes: bytes)) {
+            specYaml: specYaml,
+            bytes: bytes,
+          )) {
             map[e.cid] = (slot: e.slot, type: e.type, diy: e.diy);
           }
         });
         final el = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'effect_list',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'effect_list',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await write('effect_list($tag)', el);
         await Future<void>.delayed(const Duration(seconds: 4));
         await sub.cancel();
@@ -127,8 +131,10 @@ void main() {
         print('EFFECT_LIST($tag): ${map.length} entries');
         for (final e in map.entries) {
           // ignore: avoid_print
-          print('   cid=${e.key} slot=${e.value.slot} '
-              'type=${e.value.type} diy=${e.value.diy}');
+          print(
+            '   cid=${e.key} slot=${e.value.slot} '
+            'type=${e.value.type} diy=${e.value.diy}',
+          );
         }
         return map;
       }
@@ -136,11 +142,15 @@ void main() {
       try {
         // 1) Inventory + clear every diy==1 effect.
         final before = await readEffectList('before');
-        final diyCids =
-            before.entries.where((e) => e.value.diy == 1).map((e) => e.key);
+        final diyCids = before.entries
+            .where((e) => e.value.diy == 1)
+            .map((e) => e.key);
         for (final cid in diyCids) {
           final rm = await codec.encodeRemoveApp(
-              specYaml: specYaml, cid: cid, sequence: nextSeq());
+            specYaml: specYaml,
+            cid: cid,
+            sequence: nextSeq(),
+          );
           await write('remove_app{$cid}', rm.write.bytes);
           await Future<void>.delayed(const Duration(milliseconds: 250));
         }
@@ -165,18 +175,26 @@ void main() {
             sequence: nextSeq(),
           );
           final done = notify
-              .asyncMap((b) =>
-                  codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b))
+              .asyncMap(
+                (b) =>
+                    codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b),
+              )
               .where((e) => e != null)
               .cast<StoredUploadEventDto>()
-              .firstWhere((e) =>
-                  e.kind == StoredUploadEventKind.complete ||
-                  e.kind == StoredUploadEventKind.failed ||
-                  e.kind == StoredUploadEventKind.startRejected)
+              .firstWhere(
+                (e) =>
+                    e.kind == StoredUploadEventKind.complete ||
+                    e.kind == StoredUploadEventKind.failed ||
+                    e.kind == StoredUploadEventKind.startRejected,
+              )
               .timeout(const Duration(seconds: 30));
           for (final wr in plan.uploadWrites) {
             await ble.writeCharacteristic(
-                deviceId, plan.serviceUuid, wr.characteristicUuid, wr.bytes);
+              deviceId,
+              plan.serviceUuid,
+              wr.characteristicUuid,
+              wr.bytes,
+            );
           }
           final v = await done;
           // ignore: avoid_print
@@ -187,12 +205,16 @@ void main() {
         final after = await readEffectList('after-store');
         final ours = cids.where(after.containsKey).length;
         // ignore: avoid_print
-        print('STORED $ours/$frameCount of our frames registered. '
-            'Total effects on device now: ${after.length}.');
+        print(
+          'STORED $ours/$frameCount of our frames registered. '
+          'Total effects on device now: ${after.length}.',
+        );
         // ignore: avoid_print
-        print('SETUP DONE — disconnecting NOW so the device autoruns. '
-            'WATCH: PASS = only the $frameCount solid colours cycle; '
-            'FAIL = other effects still appear.');
+        print(
+          'SETUP DONE — disconnecting NOW so the device autoruns. '
+          'WATCH: PASS = only the $frameCount solid colours cycle; '
+          'FAIL = other effects still appear.',
+        );
       } finally {
         await notifySub.cancel();
         await ble.disconnect(deviceId);

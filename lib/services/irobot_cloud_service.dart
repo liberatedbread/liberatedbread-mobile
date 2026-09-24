@@ -37,6 +37,12 @@ import 'roomba_credential_store.dart';
 /// the duration of [fetchCredentials] and is gone when that future completes.
 /// `irobot_cloud_service_test.dart` asserts that with a store that fails the
 /// test if anything is written to it.
+///
+/// And that one request is HTTPS or it does not happen. Only
+/// [discoveryHost] is known ahead of time; the address the password is posted
+/// to comes back from that call, so it is attacker-influenceable in exactly
+/// the way a hard-coded URL is not. Every base is checked before it is used
+/// and a non-HTTPS one throws — see [_httpsBase].
 class IRobotCloudService {
   final http.Client _client;
 
@@ -100,9 +106,38 @@ class IRobotCloudService {
     // guessing which they were handed.
     return _Endpoints(
       apiKey: apiKey,
-      gigyaBase:
-          gigyaBase.startsWith('http') ? gigyaBase : 'https://$gigyaBase',
-      httpBase: httpBase.startsWith('http') ? httpBase : 'https://$httpBase',
+      gigyaBase: _httpsBase(gigyaBase, 'sign-in'),
+      httpBase: _httpsBase(httpBase, 'robot list'),
+    );
+  }
+
+  /// A base URL from the endpoint directory, normalised, and HTTPS or nothing.
+  ///
+  /// The directory is a network reply, and its two bases decide where the
+  /// account password and then the Gigya assertion are POSTed. This used to
+  /// accept whatever came back as long as it began with the four letters
+  /// `http`, which is true of `http://` — so a directory reply (or anyone able
+  /// to answer as one: a DNS answer, a captive portal, a proxy) could name a
+  /// plaintext endpoint and the account password would go to it in the clear,
+  /// over the user's own network, with nothing on screen to say so.
+  ///
+  /// Fails closed instead. HTTPS is not a preference here; it is the only
+  /// reason it is acceptable to ask for the password at all, and the
+  /// HOME-button route exists for the user who cannot get a good answer from
+  /// this one.
+  ///
+  /// A bare domain — the shape Gigya's `datacenter_domain` has — is still
+  /// promoted to `https://`, which is what it always meant.
+  static String _httpsBase(String raw, String what) {
+    final value = raw.trim();
+    final scheme = RegExp(r'^([A-Za-z][A-Za-z0-9+.-]*):').firstMatch(value);
+    if (scheme == null) return 'https://$value';
+    if (scheme.group(1)!.toLowerCase() == 'https') return value;
+    throw IRobotCloudException(
+      "iRobot's endpoint directory answered with an insecure address for the "
+      '$what ($value). This sign-in sends your iRobot account password, so it '
+      'is only ever made over HTTPS — nothing was sent. Use the HOME-button '
+      'route instead, which needs no account at all.',
     );
   }
 
@@ -112,19 +147,27 @@ class IRobotCloudService {
     required String password,
   }) async {
     final uri = Uri.parse('${endpoints.gigyaBase}/accounts.login');
-    final body = await _postForm(
-      uri,
-      {
-        'apiKey': endpoints.apiKey,
-        'loginID': email,
-        // The one place the account password appears. It is not logged, not
-        // stored, and not returned; it exists in this map and nowhere else.
-        'password': password,
-        'targetEnv': 'mobile',
-        'format': 'json',
-      },
-      'iRobot sign-in',
-    );
+    // Belt and braces, at the one line that actually carries the password:
+    // [_httpsBase] has already refused a plaintext base, and this refuses a
+    // request that reached here over any other route — a later edit to the
+    // normalisation, a redirect followed into `http`, an interpolation that
+    // produced something Uri parses differently than expected.
+    if (uri.scheme != 'https') {
+      throw const IRobotCloudException(
+        'The iRobot sign-in would not have been encrypted, so your account '
+        'password was not sent. Use the HOME-button route instead, which '
+        'needs no account at all.',
+      );
+    }
+    final body = await _postForm(uri, {
+      'apiKey': endpoints.apiKey,
+      'loginID': email,
+      // The one place the account password appears. It is not logged, not
+      // stored, and not returned; it exists in this map and nowhere else.
+      'password': password,
+      'targetEnv': 'mobile',
+      'format': 'json',
+    }, 'iRobot sign-in');
 
     final errorCode = body['errorCode'];
     if (errorCode is num && errorCode != 0) {
@@ -157,22 +200,18 @@ class IRobotCloudService {
     required _GigyaAssertion assertion,
   }) async {
     final uri = Uri.parse('${endpoints.httpBase}/v2/login');
-    final body = await _postJson(
-      uri,
-      {
-        'app_id': appId,
-        // Read the account's existing robots; do not claim ownership of
-        // anything. Claiming would be a side effect on someone else's account
-        // that this app has no business causing.
-        'assume_robot_ownership': 0,
-        'gigya': {
-          'signature': assertion.signature,
-          'timestamp': assertion.timestamp,
-          'uid': assertion.uid,
-        },
+    final body = await _postJson(uri, {
+      'app_id': appId,
+      // Read the account's existing robots; do not claim ownership of
+      // anything. Claiming would be a side effect on someone else's account
+      // that this app has no business causing.
+      'assume_robot_ownership': 0,
+      'gigya': {
+        'signature': assertion.signature,
+        'timestamp': assertion.timestamp,
+        'uid': assertion.uid,
       },
-      'robot list',
-    );
+    }, 'robot list');
 
     final robots = body['robots'];
     if (robots is! Map) {
@@ -186,12 +225,14 @@ class IRobotCloudService {
       if (value is! Map) return;
       final password = value['password'];
       if (password is! String || password.isEmpty) return;
-      found.add(RoombaCredentials(
-        blid: blid.toString(),
-        password: password,
-        name: value['name']?.toString(),
-        sku: value['sku']?.toString(),
-      ));
+      found.add(
+        RoombaCredentials(
+          blid: blid.toString(),
+          password: password,
+          name: value['name']?.toString(),
+          sku: value['sku']?.toString(),
+        ),
+      );
     });
 
     if (found.isEmpty) {
@@ -215,23 +256,21 @@ class IRobotCloudService {
     Uri uri,
     Map<String, String> fields,
     String what,
-  ) =>
-      _send(() => _client.post(uri, body: fields), uri, what);
+  ) => _send(() => _client.post(uri, body: fields), uri, what);
 
   Future<Map<String, dynamic>> _postJson(
     Uri uri,
     Map<String, Object?> body,
     String what,
-  ) =>
-      _send(
-        () => _client.post(
-          uri,
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode(body),
-        ),
-        uri,
-        what,
-      );
+  ) => _send(
+    () => _client.post(
+      uri,
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    ),
+    uri,
+    what,
+  );
 
   Future<Map<String, dynamic>> _send(
     Future<http.Response> Function() request,

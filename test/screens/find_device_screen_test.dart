@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -20,6 +21,29 @@ import '../fakes/fake_spec_codec.dart';
 
 const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
+
+/// A fake whose two alert writes can be released independently: the ring
+/// write waits on [ringGate], the stop write on a gate nothing completes.
+/// That is the shape R-090 is about — the stack serialises writes, so the
+/// ring's completion arrives while the stop is still outstanding.
+class _GatedAlertBle extends FakeBleService {
+  final Completer<void> ringGate = Completer<void>();
+  final Completer<void> stopGate = Completer<void>();
+
+  _GatedAlertBle({super.rssiValues});
+
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) async {
+    await (value.isNotEmpty && value.first == 0x00 ? stopGate : ringGate)
+        .future;
+    return super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
+  }
+}
 
 const _immediateAlertService = BleDiscoveredService(
   uuid: immediateAlertServiceUuid,
@@ -67,26 +91,30 @@ final _findMeSpec = DeviceSpecDto(
   defaultPort: null,
   entities: <EntityDto>[],
   services: [
-    const ServiceDto(uuid: _svc, name: 'Control', characteristics: [
-      CharacteristicDto(
-        uuid: _chr,
-        name: 'Command',
-        canRead: false,
-        canWrite: true,
-        canNotify: false,
-        commands: [
-          CommandDto(
-            name: 'find_me',
-            description: 'Make the band alert',
-            parameters: [],
-            isFixed: true,
-            isEncodable: true,
-            advanced: false,
-          ),
-        ],
-        formatFields: [],
-      ),
-    ]),
+    const ServiceDto(
+      uuid: _svc,
+      name: 'Control',
+      characteristics: [
+        CharacteristicDto(
+          uuid: _chr,
+          name: 'Command',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: [
+            CommandDto(
+              name: 'find_me',
+              description: 'Make the band alert',
+              parameters: [],
+              isFixed: true,
+              isEncodable: true,
+              advanced: false,
+            ),
+          ],
+          formatFields: [],
+        ),
+      ],
+    ),
   ],
 );
 
@@ -148,16 +176,19 @@ void _useTallSurface(WidgetTester tester) {
 }
 
 void main() {
-  testWidgets('shows the raw RSSI readings and a distance guess',
-      (tester) async {
+  testWidgets('shows the raw RSSI readings and a distance guess', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
     // -59 dBm is exactly the assumed 1 m power, making the guess stable.
     final ble = FakeBleService(rssiValues: const [-59]);
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump(); // initial poll resolves
 
     // Raw values: live, smoothed, strongest and weakest all read -59 dBm.
@@ -173,15 +204,18 @@ void main() {
     expect(find.text('Widget'), findsOneWidget);
   });
 
-  testWidgets('keeps polling on the timer and updates the readings',
-      (tester) async {
+  testWidgets('keeps polling on the timer and updates the readings', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
     final ble = FakeBleService(rssiValues: const [-80, -60]);
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump();
     expect(find.text('-80 dBm'), findsWidgets);
     expect(ble.rssiReadCount, 1);
@@ -193,17 +227,18 @@ void main() {
     expect(find.text('-80 dBm'), findsOneWidget);
   });
 
-  testWidgets(
-      'offers Ring alert for the standard Immediate Alert service '
+  testWidgets('offers Ring alert for the standard Immediate Alert service '
       'and writes the alert levels', (tester) async {
     _unmountOnTeardown(tester);
     _useTallSurface(tester);
     final ble = FakeBleService(rssiValues: const [-60]);
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_immediateAlertService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_immediateAlertService],
+      ),
+    );
     await tester.pump();
 
     expect(find.text('Make it noticeable'), findsOneWidget);
@@ -222,8 +257,46 @@ void main() {
     expect(ble.writes.last.value, [0x00]);
   });
 
-  testWidgets('offers a spec-declared find_me command and encodes it',
-      (tester) async {
+  // R-090: Stop is exempt from the re-entry guard, so it takes the busy key
+  // over from an in-flight ring write. That write's completion then cleared
+  // it unconditionally — every button re-enabled and "Stopping..." vanished
+  // while the stop was still on the wire.
+  testWidgets('a ring write completing does not clear an in-flight Stop', (
+    tester,
+  ) async {
+    _unmountOnTeardown(tester);
+    _useTallSurface(tester);
+    final ble = _GatedAlertBle(rssiValues: const [-60]);
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_immediateAlertService],
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Ring alert'));
+    await tester.pump();
+    await tester.tap(find.text('Stop ring alert'));
+    await tester.pump();
+    expect(find.text('Stopping...'), findsOneWidget);
+
+    // The ring write lands — after the stop was asked for, before it is done.
+    ble.ringGate.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.text('Stopping...'),
+      findsOneWidget,
+      reason: 'the stop has not answered yet',
+    );
+  });
+
+  testWidgets('offers a spec-declared find_me command and encodes it', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
     _useTallSurface(tester);
     final ble = FakeBleService(rssiValues: const [-60]);
@@ -239,12 +312,14 @@ void main() {
       ],
       encoded: Uint8List.fromList(const [0xCD, 0x01]),
     );
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: codec,
-      services: const [_controlService],
-      deviceName: 'Band 7',
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: codec,
+        services: const [_controlService],
+        deviceName: 'Band 7',
+      ),
+    );
     // Let the spec match resolve (async provider chain).
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
@@ -267,11 +342,13 @@ void main() {
   testWidgets('says so when the device has no alert commands', (tester) async {
     _unmountOnTeardown(tester);
     _useTallSurface(tester);
-    await tester.pumpWidget(await _wrap(
-      ble: FakeBleService(rssiValues: const [-60]),
-      codec: FakeSpecCodec(), // parse fails -> no spec matched
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: FakeBleService(rssiValues: const [-60]),
+        codec: FakeSpecCodec(), // parse fails -> no spec matched
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -281,16 +358,17 @@ void main() {
     );
   });
 
-  testWidgets(
-      'declares the signal lost after repeated read failures and '
+  testWidgets('declares the signal lost after repeated read failures and '
       'recovers via Retry', (tester) async {
     _unmountOnTeardown(tester);
     final ble = FakeBleService(rssiError: StateError('gone'));
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump(); // failure 1
     expect(find.text('Signal lost'), findsNothing);
 
@@ -320,8 +398,9 @@ void main() {
     expect(ble.rssiReadCount, greaterThan(readsAfterRetry));
   });
 
-  testWidgets('stops presenting readings as live once the signal is lost',
-      (tester) async {
+  testWidgets('stops presenting readings as live once the signal is lost', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
     _useTallSurface(tester);
     // Two good reads, THEN the link drops — the transition the signal-lost
@@ -331,11 +410,13 @@ void main() {
       rssiError: StateError('gone'),
       rssiErrorAfter: 2,
     );
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     // Readings are live at this point.
@@ -359,15 +440,18 @@ void main() {
     expect(find.text('Strongest'), findsOneWidget);
   });
 
-  testWidgets('silences an alert it raised when the screen is left',
-      (tester) async {
+  testWidgets('silences an alert it raised when the screen is left', (
+    tester,
+  ) async {
     _useTallSurface(tester);
     final ble = FakeBleService(rssiValues: const [-60]);
-    await tester.pumpWidget(await _wrap(
-      ble: ble,
-      codec: FakeSpecCodec(),
-      services: const [_immediateAlertService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: ble,
+        codec: FakeSpecCodec(),
+        services: const [_immediateAlertService],
+      ),
+    );
     await tester.pump();
 
     await tester.tap(find.text('Ring alert'));
@@ -384,14 +468,17 @@ void main() {
     expect(ble.writes.last.charUuid, alertLevelCharUuid);
   });
 
-  testWidgets('does not claim a steady signal before it has samples',
-      (tester) async {
+  testWidgets('does not claim a steady signal before it has samples', (
+    tester,
+  ) async {
     _unmountOnTeardown(tester);
-    await tester.pumpWidget(await _wrap(
-      ble: FakeBleService(rssiValues: const [-60]),
-      codec: FakeSpecCodec(),
-      services: const [_batteryService],
-    ));
+    await tester.pumpWidget(
+      await _wrap(
+        ble: FakeBleService(rssiValues: const [-60]),
+        codec: FakeSpecCodec(),
+        services: const [_batteryService],
+      ),
+    );
     await tester.pump();
 
     // One sample is not a hot/cold verdict.
@@ -405,24 +492,27 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider
-            .overrideWithValue(FakeBleService(rssiValues: const [-59])),
-        specCodecProvider.overrideWithValue(FakeSpecCodec()),
-        deviceSpecsProvider.overrideWith((ref) => {'spec.yaml': 'yaml'}),
-      ],
-      child: const MaterialApp(
-        home: MediaQuery(
-          data: MediaQueryData(textScaler: TextScaler.linear(2.0)),
-          child: FindDeviceScreen(
-            deviceId: '01',
-            deviceName: 'Widget',
-            services: [_batteryService],
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(
+            FakeBleService(rssiValues: const [-59]),
+          ),
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          deviceSpecsProvider.overrideWith((ref) => {'spec.yaml': 'yaml'}),
+        ],
+        child: const MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(2.0)),
+            child: FindDeviceScreen(
+              deviceId: '01',
+              deviceName: 'Widget',
+              services: [_batteryService],
+            ),
           ),
         ),
       ),
-    ));
+    );
     await tester.pump();
 
     // The distance headline and proximity bucket are the whole point of the

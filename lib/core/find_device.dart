@@ -32,8 +32,7 @@ double estimateDistanceMeters(
   double rssi, {
   double measuredPower = kDefaultMeasuredPower,
   double pathLossExponent = kDefaultPathLossExponent,
-}) =>
-    math.pow(10, (measuredPower - rssi) / (10 * pathLossExponent)).toDouble();
+}) => math.pow(10, (measuredPower - rssi) / (10 * pathLossExponent)).toDouble();
 
 /// Render a distance guess honestly: one decimal under 10 m, whole meters to
 /// 20 m, and a flat "20+ m" beyond — the model has no meaningful resolution
@@ -258,7 +257,19 @@ const int _noAlertLevel = 0x00;
 //
 // The guess is kept because spec packs update on their own schedule and the
 // declaration is new, but it is a poor substitute and the size of these lists
-// is the evidence. Across the 350 BLE commands in the vendored catalogue the
+// is the evidence.
+//
+// AND IT BELONGS IN RUST. Command semantics are the catalogue's, and every
+// other question about a command — is it fixed, is it encodable, is it
+// advanced, what does its `locate` say — is already answered across the FFI
+// by `rust/src/protocol`. This is the last one asked on the Dart side, and
+// only because its answer is a guess rather than a reading. The end state is
+// the same one `locate` already describes: every bundled spec declaring it,
+// `classify_alert_command` in Rust for the packs that have not, and these
+// six token sets deleted. Until then they stay HERE, in one named place
+// subordinate to the declaration, rather than spread through the find
+// screen — which is what [classifyAlertCommand] reading `locate` first
+// enforces. Across the 350 BLE commands in the vendored catalogue the
 // positive tokens match three, and four of the six sets below exist purely to
 // take matches away again — `set_flash_count` configures, `silence_alarm`
 // negates, `get_alarm_mode` queries, `flash_firmware` must never be one tap
@@ -323,11 +334,11 @@ const Set<String> _dangerTokens = {
 /// and/or LED" the SIG's high alert level means, which is why the two share a
 /// kind rather than each having their own.
 FindAlertKind? locateAlertKind(String? locate) => switch (locate) {
-      'sound' => FindAlertKind.sound,
-      'flash' => FindAlertKind.flash,
-      'both' => FindAlertKind.alert,
-      _ => null,
-    };
+  'sound' => FindAlertKind.sound,
+  'flash' => FindAlertKind.flash,
+  'both' => FindAlertKind.alert,
+  _ => null,
+};
 
 /// Classify a spec command as an alert trigger, or null when it isn't one.
 ///
@@ -408,8 +419,10 @@ Map<String, ({String serviceUuid, String charUuid})> discoveredWritablePairs(
   for (final service in services) {
     for (final char in service.characteristics) {
       if (!char.canWrite) continue;
-      writable[discoveredPairKey(service.uuid, char.uuid)] =
-          (serviceUuid: service.uuid, charUuid: char.uuid);
+      writable[discoveredPairKey(service.uuid, char.uuid)] = (
+        serviceUuid: service.uuid,
+        charUuid: char.uuid,
+      );
     }
   }
   return writable;
@@ -435,17 +448,21 @@ List<FindAlertAction> detectAlertActions({
           // and defaulting parameters would send values the spec author never
           // blessed as "the alert".
           if (!command.isFixed || !command.isEncodable) continue;
-          final kind =
-              classifyAlertCommand(command.name, locate: command.locate);
+          final kind = classifyAlertCommand(
+            command.name,
+            locate: command.locate,
+          );
           if (kind == null) continue;
-          actions.add(FindAlertAction(
-            kind: kind,
-            label: humanizeName(command.name),
-            serviceUuid: discovered.serviceUuid,
-            charUuid: discovered.charUuid,
-            commandName: command.name,
-            specYaml: specYaml,
-          ));
+          actions.add(
+            FindAlertAction(
+              kind: kind,
+              label: humanizeName(command.name),
+              serviceUuid: discovered.serviceUuid,
+              charUuid: discovered.charUuid,
+              commandName: command.name,
+              specYaml: specYaml,
+            ),
+          );
         }
       }
     }
@@ -454,20 +471,27 @@ List<FindAlertAction> detectAlertActions({
   // Only the Alert Level under the Immediate Alert service itself: 0x2A06
   // hanging off some unrelated service is not the standard profile, and
   // writing alert levels there would hit an unknown endpoint.
-  final alertLevel = writable[
-      discoveredPairKey(immediateAlertServiceUuid, alertLevelCharUuid)];
-  final specCoversAlertLevel = actions.any((a) =>
-      discoveredPairKey(a.serviceUuid, a.charUuid) ==
-      discoveredPairKey(immediateAlertServiceUuid, alertLevelCharUuid));
+  final alertLevel =
+      writable[discoveredPairKey(
+        immediateAlertServiceUuid,
+        alertLevelCharUuid,
+      )];
+  final specCoversAlertLevel = actions.any(
+    (a) =>
+        discoveredPairKey(a.serviceUuid, a.charUuid) ==
+        discoveredPairKey(immediateAlertServiceUuid, alertLevelCharUuid),
+  );
   if (alertLevel != null && !specCoversAlertLevel) {
-    actions.add(FindAlertAction(
-      kind: FindAlertKind.alert,
-      label: 'Ring alert',
-      serviceUuid: alertLevel.serviceUuid,
-      charUuid: alertLevel.charUuid,
-      bytes: const [_highAlertLevel],
-      stopBytes: const [_noAlertLevel],
-    ));
+    actions.add(
+      FindAlertAction(
+        kind: FindAlertKind.alert,
+        label: 'Ring alert',
+        serviceUuid: alertLevel.serviceUuid,
+        charUuid: alertLevel.charUuid,
+        bytes: const [_highAlertLevel],
+        stopBytes: const [_noAlertLevel],
+      ),
+    );
   }
 
   return actions;

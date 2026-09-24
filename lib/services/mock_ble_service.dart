@@ -56,18 +56,20 @@ const _controlService = BleDiscoveredService(
   uuid: '0000fff0-0000-1000-8000-00805f9b34fb',
   characteristics: [
     BleDiscoveredCharacteristic(
-        uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
-        canRead: false,
-        canWrite: true,
-        // Matches typical BLE control chars (write-without-response only) and
-        // keeps the write-mode invariant: a writable char supports >=1 mode.
-        canWriteWithoutResponse: true,
-        canNotify: false),
+      uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
+      canRead: false,
+      canWrite: true,
+      // Matches typical BLE control chars (write-without-response only) and
+      // keeps the write-mode invariant: a writable char supports >=1 mode.
+      canWriteWithoutResponse: true,
+      canNotify: false,
+    ),
     BleDiscoveredCharacteristic(
-        uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
-        canRead: true,
-        canWrite: false,
-        canNotify: true),
+      uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
+      canRead: true,
+      canWrite: false,
+      canNotify: true,
+    ),
   ],
 );
 
@@ -75,10 +77,11 @@ const _batteryService = BleDiscoveredService(
   uuid: '0000180f-0000-1000-8000-00805f9b34fb',
   characteristics: [
     BleDiscoveredCharacteristic(
-        uuid: '00002a19-0000-1000-8000-00805f9b34fb',
-        canRead: true,
-        canWrite: false,
-        canNotify: true),
+      uuid: '00002a19-0000-1000-8000-00805f9b34fb',
+      canRead: true,
+      canWrite: false,
+      canNotify: true,
+    ),
   ],
 );
 
@@ -123,16 +126,17 @@ class MockBleService implements BleService {
   MockBleService({
     Future<String> Function()? loadSpec,
     Future<String> Function(String asset)? loadAsset,
-  }) : _loadAsset = loadAsset ??
-            (loadSpec == null ? rootBundle.loadString : ((_) => loadSpec()));
+  }) : _loadAsset =
+           loadAsset ??
+           (loadSpec == null ? rootBundle.loadString : ((_) => loadSpec()));
 
   Future<String> _specForAsset(String asset) async =>
       _specCache[asset] ??= await _loadAsset(asset);
 
   _MockDeviceDef _defFor(String deviceId) => _mockDevices.firstWhere(
-        (d) => d.id == deviceId,
-        orElse: () => throw StateError('Unknown mock device: $deviceId'),
-      );
+    (d) => d.id == deviceId,
+    orElse: () => throw StateError('Unknown mock device: $deviceId'),
+  );
 
   /// True once `RustLib.init()` has successfully loaded the native library.
   /// Exposed as a static so tests and the provider can check initialization.
@@ -235,27 +239,44 @@ class MockBleService implements BleService {
 
   // [intensity] is accepted and ignored: the pretend radio has no duty cycle
   // to trade against, so demo mode behaves identically either way.
+  /// Whether the simulator has been reset for this service instance.
+  ///
+  /// See the note in [scan]: reset once, not once per scan.
+  bool _mockStateReset = false;
+
   @override
   Stream<IoTDevice> scan({
-    Duration? timeout =
-        const Duration(seconds: AppConstants.defaultScanDuration),
+    Duration? timeout = const Duration(
+      seconds: AppConstants.defaultScanDuration,
+    ),
     ScanIntensity intensity = ScanIntensity.active,
   }) async* {
-    // Fresh mock state per scan when Rust is driving the simulator.
-    if (rustAvailable) {
+    // R-018: mock state is reset when demo mode STARTS, not on every scan.
+    //
+    // A scan used to wipe everything the user had written — a bulb they had
+    // turned on, a setpoint they had moved — and the scan screen now starts
+    // scans routinely: on the burst downshift, on resume, on coming back
+    // from a device screen. So a demo user turned a light on, went back, and
+    // found it off again, which reads as the app failing to send rather than
+    // as the simulator being reset underneath them. A fresh run still starts
+    // clean, because the flag lives with this instance.
+    if (rustAvailable && !_mockStateReset) {
+      _mockStateReset = true;
       try {
         await rust.mockReset();
-      } catch (_) {/* keep going with Dart fallback */}
+      } catch (_) {
+        /* keep going with Dart fallback */
+      }
     }
     IoTDevice advertise(_MockDeviceDef device) => IoTDevice(
-          id: device.id,
-          name: device.name,
-          rssi: device.rssi + _random.nextInt(10) - 5,
-          isConnectable: true,
-          discoveredAt: DateTime.now(),
-          serviceUuids: device.serviceUuids,
-          companyIds: device.companyIds,
-        );
+      id: device.id,
+      name: device.name,
+      rssi: device.rssi + _random.nextInt(10) - 5,
+      isConnectable: true,
+      discoveredAt: DateTime.now(),
+      serviceUuids: device.serviceUuids,
+      companyIds: device.companyIds,
+    );
 
     for (final device in _mockDevices) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -372,7 +393,9 @@ class MockBleService implements BleService {
             ),
         ];
         return _servicesCache[device.specAsset] = services;
-      } catch (_) {/* fall through to the static tree */}
+      } catch (_) {
+        /* fall through to the static tree */
+      }
     }
     return device.fallbackServices;
   }
@@ -393,7 +416,9 @@ class MockBleService implements BleService {
           specYaml: spec,
         );
         return bytes.toList();
-      } catch (_) {/* fall through to Dart fallback */}
+      } catch (_) {
+        /* fall through to Dart fallback */
+      }
     }
     return _dartFallbackRead(deviceId, charUuid);
   }
@@ -423,7 +448,9 @@ class MockBleService implements BleService {
           value: value,
         );
         return;
-      } catch (_) {/* fall through to Dart fallback */}
+      } catch (_) {
+        /* fall through to Dart fallback */
+      }
     }
     final key = normalizeUuid(charUuid);
     _writtenValues.putIfAbsent(deviceId, () => {});
@@ -507,6 +534,8 @@ class MockBleService implements BleService {
 
   @override
   List<List<int>> recentNotifications(
-          String deviceId, String serviceUuid, String charUuid) =>
-      const [];
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  ) => const [];
 }

@@ -9,20 +9,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/widgets/hub_child_light_card.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
-      home: Scaffold(body: Center(child: child)),
-    );
+  home: Scaffold(body: Center(child: child)),
+);
 
 void main() {
-  testWidgets('shows the light and toggles through the callback',
-      (tester) async {
+  testWidgets('shows the light and toggles through the callback', (
+    tester,
+  ) async {
     final toggles = <bool>[];
-    await tester.pumpWidget(_wrap(HubChildLightCard(
-      label: 'Kitchen counter',
-      isOn: true,
-      brightness: 254,
-      onToggle: toggles.add,
-      onBrightness: (_) {},
-    )));
+    await tester.pumpWidget(
+      _wrap(
+        HubChildLightCard(
+          label: 'Kitchen counter',
+          isOn: true,
+          brightness: 254,
+          onToggle: toggles.add,
+          onBrightness: (_) {},
+        ),
+      ),
+    );
 
     expect(find.text('Kitchen counter'), findsOneWidget);
     expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
@@ -31,15 +36,20 @@ void main() {
     expect(toggles, [false], reason: 'an on light toggles off');
   });
 
-  testWidgets('an unknown state says so instead of inventing off',
-      (tester) async {
-    await tester.pumpWidget(_wrap(HubChildLightCard(
-      label: 'Hallway',
-      isOn: null,
-      brightness: null,
-      onToggle: (_) {},
-      onBrightness: (_) {},
-    )));
+  testWidgets('an unknown state says so instead of inventing off', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        HubChildLightCard(
+          label: 'Hallway',
+          isOn: null,
+          brightness: null,
+          onToggle: (_) {},
+          onBrightness: (_) {},
+        ),
+      ),
+    );
 
     expect(find.text('State unknown'), findsOneWidget);
     // The switch renders (off-looking) but stays usable — the user can still
@@ -47,36 +57,49 @@ void main() {
     expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNotNull);
   });
 
-  testWidgets('the slider commits once, on gesture end, rounded',
-      (tester) async {
+  testWidgets('the slider commits once, on gesture end, rounded', (
+    tester,
+  ) async {
     final commits = <double>[];
-    await tester.pumpWidget(_wrap(HubChildLightCard(
-      label: 'Desk',
-      isOn: true,
-      brightness: 100,
-      onToggle: (_) {},
-      onBrightness: commits.add,
-    )));
+    await tester.pumpWidget(
+      _wrap(
+        HubChildLightCard(
+          label: 'Desk',
+          isOn: true,
+          brightness: 100,
+          onToggle: (_) {},
+          onBrightness: commits.add,
+        ),
+      ),
+    );
 
     await tester.drag(find.byType(Slider), const Offset(80, 0));
     await tester.pump();
 
-    expect(commits, hasLength(1),
-        reason: 'one write per gesture is what keeps a throttling bridge '
-            'happy — never one per drag pixel');
+    expect(
+      commits,
+      hasLength(1),
+      reason:
+          'one write per gesture is what keeps a throttling bridge '
+          'happy — never one per drag pixel',
+    );
     expect(commits.single, commits.single.roundToDouble());
     expect(commits.single, inInclusiveRange(1, 254));
   });
 
   testWidgets('busy disables the controls and shows progress', (tester) async {
-    await tester.pumpWidget(_wrap(HubChildLightCard(
-      label: 'Desk',
-      isOn: false,
-      brightness: 50,
-      busy: true,
-      onToggle: (_) {},
-      onBrightness: (_) {},
-    )));
+    await tester.pumpWidget(
+      _wrap(
+        HubChildLightCard(
+          label: 'Desk',
+          isOn: false,
+          brightness: 50,
+          busy: true,
+          onToggle: (_) {},
+          onBrightness: (_) {},
+        ),
+      ),
+    );
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.byType(Switch), findsNothing);
@@ -84,24 +107,31 @@ void main() {
   });
 
   testWidgets('no brightness action means no slider', (tester) async {
-    await tester.pumpWidget(_wrap(HubChildLightCard(
-      label: 'Plain bulb',
-      isOn: true,
-      brightness: null,
-      onToggle: (_) {},
-    )));
+    await tester.pumpWidget(
+      _wrap(
+        HubChildLightCard(
+          label: 'Plain bulb',
+          isOn: true,
+          brightness: null,
+          onToggle: (_) {},
+        ),
+      ),
+    );
     expect(find.byType(Slider), findsNothing);
   });
 
-  testWidgets('a fresh reading takes the slider back from the drag',
-      (tester) async {
-    Widget at(double brightness) => _wrap(HubChildLightCard(
-          label: 'Desk',
-          isOn: true,
-          brightness: brightness,
-          onToggle: (_) {},
-          onBrightness: (_) {},
-        ));
+  testWidgets('a fresh reading takes the slider back from the drag', (
+    tester,
+  ) async {
+    Widget at(double brightness) => _wrap(
+      HubChildLightCard(
+        label: 'Desk',
+        isOn: true,
+        brightness: brightness,
+        onToggle: (_) {},
+        onBrightness: (_) {},
+      ),
+    );
 
     await tester.pumpWidget(at(100));
     await tester.drag(find.byType(Slider), const Offset(80, 0));
@@ -113,4 +143,44 @@ void main() {
     await tester.pumpWidget(at(200));
     expect(tester.widget<Slider>(find.byType(Slider)).value, 200);
   });
+
+  testWidgets(
+    'a write that failed does not leave the dragged value on screen',
+    (tester) async {
+      // R-126. The slider held the drag until the READING changed — and a
+      // failed write never changes the reading, so the card sat showing a
+      // brightness the light was not at for as long as the screen stayed
+      // open. The end of the send is the other thing that ends the hold.
+      Widget at({required bool busy}) => _wrap(
+        HubChildLightCard(
+          label: 'Desk',
+          isOn: true,
+          brightness: 100,
+          busy: busy,
+          onToggle: (_) {},
+          onBrightness: (_) {},
+        ),
+      );
+
+      await tester.pumpWidget(at(busy: false));
+      await tester.drag(find.byType(Slider), const Offset(80, 0));
+      await tester.pump();
+      final dragged = tester.widget<Slider>(find.byType(Slider)).value;
+      expect(dragged, isNot(100));
+
+      // The screen marks the child busy for the duration of the send: the
+      // dragged value is what the user should still see.
+      await tester.pumpWidget(at(busy: true));
+      expect(tester.widget<Slider>(find.byType(Slider)).value, dragged);
+
+      // The send finished and the reading did not move — the write failed.
+      await tester.pumpWidget(at(busy: false));
+      expect(
+        tester.widget<Slider>(find.byType(Slider)).value,
+        100,
+        reason: 'the device has had its say; the reading owns the slider again',
+      );
+      expect(find.text('100'), findsOneWidget);
+    },
+  );
 }

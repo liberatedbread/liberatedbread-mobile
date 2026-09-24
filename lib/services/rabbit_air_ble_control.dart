@@ -65,8 +65,9 @@ class RabbitAirBleControl implements RabbitAirControlTransport {
   /// Attach once and share the in-flight future — but a FAILED attach is
   /// forgotten, so the next call retries instead of re-awaiting the same
   /// stale error until the screen rebuilds.
-  Future<void> _ensureAttached() => _attaching ??=
-          client.attach(deviceId, services: services).onError<Object>((e, st) {
+  Future<void> _ensureAttached() => _attaching ??= client
+      .attach(deviceId, services: services)
+      .onError<Object>((e, st) {
         _attaching = null;
         throw e;
       });
@@ -104,8 +105,10 @@ class RabbitAirBleControl implements RabbitAirControlTransport {
   }
 
   @override
-  Future<void> syncClock(
-      {required String specYaml, required String userKey}) async {
+  Future<void> syncClock({
+    required String specYaml,
+    required String userKey,
+  }) async {
     if (_clockOffset != null && _syncedKey == userKey) return;
     final request = await codec.renderNetworkRabbitAirStateRequest(
       specYaml: specYaml,
@@ -115,7 +118,9 @@ class RabbitAirBleControl implements RabbitAirControlTransport {
     );
     final reply = await send(request, userKey: userKey);
     _clockOffset = await codec.rabbitAirTimeSyncOffset(
-        replyJson: reply, localNowSecs: _nowSecs());
+      replyJson: reply,
+      localNowSecs: _nowSecs(),
+    );
     _syncedKey = userKey;
     if (!_thingIdAdopted) {
       _thingIdAdopted = true;
@@ -124,18 +129,25 @@ class RabbitAirBleControl implements RabbitAirControlTransport {
   }
 
   @override
-  Future<String> send(RabbitAirRequestDto request,
-      {required String userKey}) async {
+  Future<String> send(
+    RabbitAirRequestDto request, {
+    required String userKey,
+  }) async {
     await _ensureAttached();
     final datagram = await codec.rabbitAirEncryptDatagram(
-        userKey: userKey, plaintext: request.json);
+      userKey: userKey,
+      plaintext: request.json,
+    );
     try {
       final replyBytes = await client.sendCommand(datagram);
       final reply = await codec.rabbitAirDecryptDatagram(
-          userKey: userKey, datagram: replyBytes);
+        userKey: userKey,
+        datagram: replyBytes,
+      );
       if (rabbitAirReplyId(reply) != request.requestId) {
         throw RabbitAirControlException(
-            'the reply did not echo request ${request.requestId}');
+          'the reply did not echo request ${request.requestId}',
+        );
       }
       return reply;
     } catch (_) {
@@ -165,7 +177,9 @@ class RabbitAirBleControl implements RabbitAirControlTransport {
       final id = nextRequestId();
       final reply = await send(
         RabbitAirRequestDto(
-            json: '{"id":$id,"cmd":255,"ts":${deviceTs()}}', requestId: id),
+          json: '{"id":$id,"cmd":255,"ts":${deviceTs()}}',
+          requestId: id,
+        ),
         userKey: userKey,
       );
       final decoded = jsonDecode(reply);

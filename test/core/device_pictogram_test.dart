@@ -12,15 +12,19 @@ void main() {
       expect(DevicePictogram.iconFor('router'), Icons.router_outlined);
       expect(DevicePictogram.iconFor('ip-camera'), Icons.videocam_outlined);
       expect(DevicePictogram.iconFor('nas'), Icons.storage_outlined);
-      expect(DevicePictogram.iconFor('game-console'),
-          Icons.sports_esports_outlined);
+      expect(
+        DevicePictogram.iconFor('game-console'),
+        Icons.sports_esports_outlined,
+      );
       expect(DevicePictogram.iconFor('co2-sensor'), Icons.co2_outlined);
       expect(DevicePictogram.iconFor('garage-door'), Icons.garage_outlined);
     });
 
     test('is case- and whitespace-insensitive', () {
       expect(
-          DevicePictogram.iconFor('  Wifi-AP '), Icons.wifi_tethering_outlined);
+        DevicePictogram.iconFor('  Wifi-AP '),
+        Icons.wifi_tethering_outlined,
+      );
     });
 
     test('returns null for absent, empty, or unknown tokens', () {
@@ -75,28 +79,34 @@ void main() {
       expect(icon, DeviceCategory.camera.icon);
     });
 
-    test('falls back to the supplied fallback when both are unknown/absent',
-        () {
-      final icon = DevicePictogram.forDevice(
-        pictogram: null,
-        category: 'not-a-category',
-        fallback: Icons.bluetooth,
-      );
-      expect(icon, Icons.bluetooth);
-    });
+    test(
+      'falls back to the supplied fallback when both are unknown/absent',
+      () {
+        final icon = DevicePictogram.forDevice(
+          pictogram: null,
+          category: 'not-a-category',
+          fallback: Icons.bluetooth,
+        );
+        expect(icon, Icons.bluetooth);
+      },
+    );
 
     test('uses the generic device icon as the default fallback', () {
       expect(DevicePictogram.forDevice(), unknownDeviceIcon);
     });
 
-    test('a network-category device with no pictogram still draws its category',
-        () {
-      // `network` is a real category; even without a pictogram it should not
-      // collapse to the anonymous fallback.
-      final icon = DevicePictogram.forDevice(
-          category: 'network', fallback: Icons.bluetooth);
-      expect(icon, isNot(Icons.bluetooth));
-      expect(icon, DeviceCategory.parse('network')?.icon);
-    });
+    test(
+      'a network-category device with no pictogram still draws its category',
+      () {
+        // `network` is a real category; even without a pictogram it should not
+        // collapse to the anonymous fallback.
+        final icon = DevicePictogram.forDevice(
+          category: 'network',
+          fallback: Icons.bluetooth,
+        );
+        expect(icon, isNot(Icons.bluetooth));
+        expect(icon, DeviceCategory.parse('network')?.icon);
+      },
+    );
   });
 }

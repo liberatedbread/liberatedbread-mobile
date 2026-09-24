@@ -44,12 +44,17 @@ void main() {
     () async {
       final deviceId = Platform.environment['LB_LIVE_BLE_ID'];
       if (Platform.environment['LB_LIVE_BLE'] != '1' || deviceId == null) {
-        markTestSkipped('live hardware run not requested '
-            '(set LB_LIVE_BLE=1 and LB_LIVE_BLE_ID=<mac>)');
+        markTestSkipped(
+          'live hardware run not requested '
+          '(set LB_LIVE_BLE=1 and LB_LIVE_BLE_ID=<mac>)',
+        );
         return;
       }
-      expect(await initHostRustLib(), isTrue,
-          reason: 'build rust/ for the host first');
+      expect(
+        await initHostRustLib(),
+        isTrue,
+        reason: 'build rust/ for the host first',
+      );
 
       // The desktop app registers the Linux backend at startup; a test VM has
       // to do it itself or flutter_blue_plus falls back to a method channel
@@ -57,9 +62,9 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
-      const codec = RealSpecCodec();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       // Scan until the target advertises, exactly like the app: BlueZ only
@@ -82,8 +87,11 @@ void main() {
         );
 
         final payload = writePayloadForMtu(await ble.mtu(deviceId));
-        expect(payload, greaterThan(20),
-            reason: 'the Linux mtu quirk correction must have kicked in');
+        expect(
+          payload,
+          greaterThan(20),
+          reason: 'the Linux mtu quirk correction must have kicked in',
+        );
 
         final designs = defaultDesigns(_width, _height);
         // The sequence this branch adds: the bi flag proves a new stripe
@@ -143,10 +151,16 @@ void main() {
           speed: 5,
           sequence: 1,
         );
-        expect(stored.playWrite, isNotNull,
-            reason: 'the spec declares play_command — a save must then show');
-        expect(stored.responseCharacteristicUuid, isNotNull,
-            reason: 'the spec names where the device answers the upload');
+        expect(
+          stored.playWrite,
+          isNotNull,
+          reason: 'the spec declares play_command — a save must then show',
+        );
+        expect(
+          stored.responseCharacteristicUuid,
+          isNotNull,
+          reason: 'the spec names where the device answers the upload',
+        );
 
         // Listen for the device's verdict BEFORE the first packet goes out.
         final verdictF = ble
@@ -159,18 +173,26 @@ void main() {
               // Every raw push while the transfer is in flight, for protocol
               // triage when a run times out waiting on the verdict.
               // ignore: avoid_print
-              print('DDP notify: '
-                  '${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+              print(
+                'DDP notify: '
+                '${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}',
+              );
               return bytes;
             })
-            .asyncMap((bytes) =>
-                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: bytes))
+            .asyncMap(
+              (bytes) => codec.decodeStoredUploadEvent(
+                specYaml: specYaml,
+                bytes: bytes,
+              ),
+            )
             .where((e) => e != null)
             .cast<StoredUploadEventDto>()
-            .firstWhere((e) =>
-                e.kind == StoredUploadEventKind.complete ||
-                e.kind == StoredUploadEventKind.failed ||
-                e.kind == StoredUploadEventKind.startRejected)
+            .firstWhere(
+              (e) =>
+                  e.kind == StoredUploadEventKind.complete ||
+                  e.kind == StoredUploadEventKind.failed ||
+                  e.kind == StoredUploadEventKind.startRejected,
+            )
             .timeout(const Duration(seconds: 20));
 
         for (final write in stored.uploadWrites) {
@@ -185,8 +207,11 @@ void main() {
         // The REAL curtain must acknowledge the commit — this is the
         // hardware proof the whole wait-then-play mechanism stands on.
         final verdict = await verdictF;
-        expect(verdict.kind, StoredUploadEventKind.complete,
-            reason: 'the curtain rejected the upload (code ${verdict.code})');
+        expect(
+          verdict.kind,
+          StoredUploadEventKind.complete,
+          reason: 'the curtain rejected the upload (code ${verdict.code})',
+        );
 
         final play = stored.playWrite!;
         await ble.writeCharacteristic(
@@ -202,7 +227,10 @@ void main() {
         // by cid again, no re-upload. A DIFFERENT sequence than the store's
         // play write so a de-duping firmware still restarts it.
         final replay = await codec.encodeStoredPlay(
-            specYaml: specYaml, cid: cid, sequence: 2);
+          specYaml: specYaml,
+          cid: cid,
+          sequence: 2,
+        );
         await ble.writeCharacteristic(
           deviceId,
           replay.serviceUuid,

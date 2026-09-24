@@ -58,20 +58,26 @@ void main() {
       // can be re-tuned freely, but a fixture that collapses to one kind of
       // device (which is what makes a demo screenshot misleading) is rejected.
       expect(
-          devices.expand((d) => d.sources).toSet(),
-          {
-            NetworkDiscoverySource.mdns,
-            NetworkDiscoverySource.ssdp,
-            NetworkDiscoverySource.lanProbe,
-          },
-          reason: 'all three transports must be represented');
+        devices.expand((d) => d.sources).toSet(),
+        {
+          NetworkDiscoverySource.mdns,
+          NetworkDiscoverySource.ssdp,
+          NetworkDiscoverySource.lanProbe,
+        },
+        reason: 'all three transports must be represented',
+      );
       expect(devices.where((d) => d.ssdpTargets.isNotEmpty), hasLength(3));
       expect(devices.where((d) => d.serviceTypes.isNotEmpty), hasLength(3));
-      expect(devices.where((d) => d.name.isNotEmpty), isNotEmpty,
-          reason: 'at least one device names itself outright');
-      expect(devices.where((d) => d.name.isEmpty && d.hostname != null),
-          isNotEmpty,
-          reason: 'and at least one is recognisable only by its hostname');
+      expect(
+        devices.where((d) => d.name.isNotEmpty),
+        isNotEmpty,
+        reason: 'at least one device names itself outright',
+      );
+      expect(
+        devices.where((d) => d.name.isEmpty && d.hostname != null),
+        isNotEmpty,
+        reason: 'and at least one is recognisable only by its hostname',
+      );
     });
 
     test('stopScan during the tail wait closes the stream at once', () async {
@@ -87,42 +93,52 @@ void main() {
       final service = MockNetworkScanService();
       final seen = <NetworkDevice>[];
       final sinceStop = Stopwatch();
-      final done = service.scan(timeout: const Duration(seconds: 8)).forEach(
-        (device) {
-          seen.add(device);
-          if (seen.length == 7) {
-            sinceStop.start();
-            unawaited(service.stopScan());
-          }
-        },
-      );
+      final done = service.scan(timeout: const Duration(seconds: 8)).forEach((
+        device,
+      ) {
+        seen.add(device);
+        if (seen.length == 7) {
+          sinceStop.start();
+          unawaited(service.stopScan());
+        }
+      });
 
       await done.timeout(const Duration(seconds: 6));
 
       expect(seen, hasLength(7));
-      expect(sinceStop.elapsed, lessThan(const Duration(milliseconds: 500)),
-          reason: 'stopScan must wake the tail wait rather than be noticed '
-              'when it expires 2s later. Elapsed after stop: '
-              '${sinceStop.elapsed}');
+      expect(
+        sinceStop.elapsed,
+        lessThan(const Duration(milliseconds: 500)),
+        reason:
+            'stopScan must wake the tail wait rather than be noticed '
+            'when it expires 2s later. Elapsed after stop: '
+            '${sinceStop.elapsed}',
+      );
     });
 
-    test('a stop mid-sleep drops the device that sleep was waiting for',
-        () async {
-      final service = MockNetworkScanService();
-      final seen = <NetworkDevice>[];
-      final done = service
-          .scan(timeout: const Duration(milliseconds: 40))
-          .forEach(seen.add);
+    test(
+      'a stop mid-sleep drops the device that sleep was waiting for',
+      () async {
+        final service = MockNetworkScanService();
+        final seen = <NetworkDevice>[];
+        final done = service
+            .scan(timeout: const Duration(milliseconds: 40))
+            .forEach(seen.add);
 
-      // Inside the first 350ms delay, before anything has been yielded.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      await service.stopScan();
-      await done.timeout(const Duration(seconds: 3));
+        // Inside the first 350ms delay, before anything has been yielded.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await service.stopScan();
+        await done.timeout(const Duration(seconds: 3));
 
-      expect(seen, isEmpty,
-          reason: 'The flag used to be read only at the top of the loop, so a '
-              'stop during a sleep still yielded the device after it.');
-    });
+        expect(
+          seen,
+          isEmpty,
+          reason:
+              'The flag used to be read only at the top of the loop, so a '
+              'stop during a sleep still yielded the device after it.',
+        );
+      },
+    );
 
     test('a second scan runs again after a stop', () async {
       // `_stop` is a Completer, and a completed one stays completed — so the

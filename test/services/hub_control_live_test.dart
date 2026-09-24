@@ -56,26 +56,38 @@ class _VirtualBridge {
     final ready = File('${work.path}/ready');
     _linkFile = File('${work.path}/link');
     final scenario = File('${work.path}/scenario.json');
-    await scenario.writeAsString(jsonEncode([
-      {
-        'name': 'Virtual Hue',
-        'mdns': [
-          {
-            'instance': 'Philips Hue - FCB0',
-            'type': '_hue._tcp.local',
-            'target': 'virtual-hue.local',
-            'port': 443,
-            'txt': {'bridgeid': _bridgeId, 'modelid': 'BSB001'},
-          }
-        ],
-        'hue': {'bridgeid': _bridgeId, 'modelid': 'BSB001'},
-      }
-    ]));
+    await scenario.writeAsString(
+      jsonEncode([
+        {
+          'name': 'Virtual Hue',
+          'mdns': [
+            {
+              'instance': 'Philips Hue - FCB0',
+              'type': '_hue._tcp.local',
+              'target': 'virtual-hue.local',
+              'port': 443,
+              'txt': {'bridgeid': _bridgeId, 'modelid': 'BSB001'},
+            },
+          ],
+          'hue': {'bridgeid': _bridgeId, 'modelid': 'BSB001'},
+        },
+      ]),
+    );
 
     _process = await Process.start('python3', [
       'scripts/net_virtual_device.py',
       '--scenario',
       scenario.path,
+      // Advertised at loopback, ON PURPOSE. The responder's default is this
+      // host's outbound address — the same address every real service on
+      // this Mac advertises — and the scan coalesces sightings by host, so
+      // AirPlay (7000), SMB (445) and SSH (22) merged into the virtual
+      // bridge's row and its `port` came back as whichever answered: this
+      // test failed one run in three on a populated LAN. At 127.0.0.1 the
+      // bridge is alone at its address, and the scan keeps loopback for
+      // exactly this rig (lanInterfaces(includeLoopback: true)).
+      '--address',
+      '127.0.0.1',
       '--ready-file',
       ready.path,
       '--link-file',
@@ -102,7 +114,8 @@ class _VirtualBridge {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     throw StateError(
-        'the virtual bridge did not start within 10s.\n$stderrText');
+      'the virtual bridge did not start within 10s.\n$stderrText',
+    );
   }
 
   /// The button, pressed.
@@ -134,143 +147,173 @@ void main() {
   });
   tearDownAll(bridge.stop);
 
-  test('discover, pair, enumerate, drive, and read it back', () async {
-    if (!rustReady) {
-      markTestSkipped(
-          'host Rust library not built; run scripts/ensure-rust-lib.sh');
-      return;
-    }
-
-    // ── Discovery: the bridge turns up over real mDNS, with its identity.
-    // Up to three windows: multicast resolution on a shared wire can lose a
-    // round when anything else is answering (another suite's responder, a
-    // developer machine's real devices), and a retry is the honest model of
-    // how scanning is used.
-    final service = RealNetworkScanService(
-        multicastLock: MulticastLock(isSupported: false));
-    NetworkDevice? resolved;
-    for (var attempt = 0; attempt < 3 && resolved == null; attempt++) {
-      final found = <NetworkDevice>[];
-      await for (final device in service.scan(timeout: _scanWindow)) {
-        found.add(device);
+  test(
+    'discover, pair, enumerate, drive, and read it back',
+    () async {
+      if (!rustReady) {
+        markTestSkipped(
+          'host Rust library not built; run scripts/ensure-rust-lib.sh',
+        );
+        return;
       }
-      final sightings =
-          found.where((device) => device.txt['bridgeid'] == _bridgeId);
-      if (sightings.isNotEmpty) resolved = sightings.last;
-    }
-    final sighting = resolved ??
-        (throw StateError('the virtual bridge never appeared in three scans'));
-    expect(sighting.port, bridge.port,
-        reason: 'the SRV record must advertise the real listener');
 
-    // ── The controls the spec declares, through the native codec.
-    const codec = RealSpecCodec();
-    final entities = (await codec.networkEntitiesForDevice(
-            specYaml: specYaml, ssdpTargets: const []))
-        .entities;
-    expect(entities, hasLength(1));
-    final light = entities.single;
-    expect(light.transport, 'http');
-    expect(light.isInstanced, isTrue);
-
-    // ── Pairing: poll, press the button mid-window, keep what was issued.
-    final store = HubCredentialStore(InMemorySettingsStore());
-    // No 443 at all on this bridge: an https probe must get connection
-    // refused (a genuinely closed port) and fall back — the BSB001 ladder.
-    final closed = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final closedPort = closed.port;
-    await closed.close();
-    final client = HubHttpClient(
-      credentials: store,
-      httpsPort: closedPort,
-      httpPort: bridge.port,
-    );
-
-    final pairing = HuePairingService(codec: codec, client: client);
-    var pressed = false;
-    final result = await pairing.pair(
-      specYaml: specYaml,
-      host: sighting.host,
-      bridgeId: _bridgeId,
-      window: const Duration(seconds: 20),
-      interval: const Duration(milliseconds: 200),
-      onAttempt: (attempt) {
-        // The first poll proves the 101 path; then the button is pressed.
-        if (attempt == 2 && !pressed) {
-          pressed = true;
-          bridge.pressLinkButton();
+      // ── Discovery: the bridge turns up over real mDNS, with its identity.
+      // Up to three windows: multicast resolution on a shared wire can lose a
+      // round when anything else is answering (another suite's responder, a
+      // developer machine's real devices), and a retry is the honest model of
+      // how scanning is used.
+      final service = RealNetworkScanService(
+        multicastLock: MulticastLock(isSupported: false),
+      );
+      NetworkDevice? resolved;
+      for (var attempt = 0; attempt < 3 && resolved == null; attempt++) {
+        final found = <NetworkDevice>[];
+        await for (final device in service.scan(timeout: _scanWindow)) {
+          found.add(device);
         }
-      },
-    );
-    expect(result.username, isNotEmpty);
-    expect(result.clientKey, isNotEmpty,
-        reason: 'generateclientkey rides along unconditionally');
-    await store.saveCredentials(_bridgeId,
-        HubCredentials(username: result.username, clientKey: result.clientKey));
-    expect(await store.scheme(_bridgeId), 'http',
-        reason: 'the no-443 fallback is remembered, not re-probed');
+        final sightings = found.where(
+          (device) => device.txt['bridgeid'] == _bridgeId,
+        );
+        if (sightings.isNotEmpty) resolved = sightings.last;
+      }
+      final sighting =
+          resolved ??
+          (throw StateError(
+            'the virtual bridge never appeared in three scans',
+          ));
+      expect(
+        sighting.port,
+        bridge.port,
+        reason: 'the SRV record must advertise the real listener',
+      );
 
-    // ── Enumerate: one GET carries every light and all their state.
-    Future<(List<NetworkInstanceDto>, String)> readLights() async {
-      final request = await codec.renderNetworkHttpStateRequest(
+      // ── The controls the spec declares, through the native codec.
+      final codec = RealSpecCodec();
+      final entities = (await codec.networkEntitiesForDevice(
+        specYaml: specYaml,
+        ssdpTargets: const [],
+      )).entities;
+      expect(entities, hasLength(1));
+      final light = entities.single;
+      expect(light.transport, 'http');
+      expect(light.isInstanced, isTrue);
+
+      // ── Pairing: poll, press the button mid-window, keep what was issued.
+      final store = HubCredentialStore(InMemorySettingsStore());
+      // No 443 at all on this bridge: an https probe must get connection
+      // refused (a genuinely closed port) and fall back — the BSB001 ladder.
+      final closed = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final closedPort = closed.port;
+      await closed.close();
+      final client = HubHttpClient(
+        credentials: store,
+        httpsPort: closedPort,
+        httpPort: bridge.port,
+      );
+
+      final pairing = HuePairingService(codec: codec, client: client);
+      var pressed = false;
+      final result = await pairing.pair(
+        specYaml: specYaml,
+        host: sighting.host,
+        bridgeId: _bridgeId,
+        window: const Duration(seconds: 20),
+        interval: const Duration(milliseconds: 200),
+        onAttempt: (attempt) {
+          // The first poll proves the 101 path; then the button is pressed.
+          if (attempt == 2 && !pressed) {
+            pressed = true;
+            bridge.pressLinkButton();
+          }
+        },
+      );
+      expect(result.username, isNotEmpty);
+      expect(
+        result.clientKey,
+        isNotEmpty,
+        reason: 'generateclientkey rides along unconditionally',
+      );
+      await store.saveCredentials(
+        _bridgeId,
+        HubCredentials(username: result.username, clientKey: result.clientKey),
+      );
+      expect(
+        await store.scheme(_bridgeId),
+        'http',
+        reason: 'the no-443 fallback is remembered, not re-probed',
+      );
+
+      // ── Enumerate: one GET carries every light and all their state.
+      Future<(List<NetworkInstanceDto>, String)> readLights() async {
+        final request = await codec.renderNetworkHttpStateRequest(
+          specYaml: specYaml,
+          stateCommand: light.stateCommand,
+          values: {'username': result.username},
+        );
+        final body = await client.send(sighting.host, _bridgeId, request);
+        final children = await codec.listNetworkInstances(
+          specYaml: specYaml,
+          entityName: light.name,
+          stateReply: body,
+        );
+        return (children, body);
+      }
+
+      var (children, body) = await readLights();
+      expect(children.map((c) => c.label), ['Kitchen counter', 'Hallway']);
+
+      Future<Map<String, NetworkReadingDto>> readingsOf(
+        String body,
+        String id,
+      ) async {
+        final readings = await codec.readNetworkInstance(
+          specYaml: specYaml,
+          entityName: light.name,
+          stateReply: body,
+          instanceId: id,
+        );
+        return {for (final r in readings) r.role: r.reading};
+      }
+
+      var hallway = await readingsOf(body, '2');
+      expect(hallway['is_on']?.isOn, isFalse);
+      expect(hallway['brightness']?.number, 77);
+
+      // ── Drive: turn the hallway light on, then set its brightness.
+      Future<void> send(String command, Map<String, String> extra) async {
+        final request = await codec.renderNetworkHttpCommand(
+          specYaml: specYaml,
+          commandName: command,
+          values: {'username': result.username, 'id': '2', ...extra},
+        );
+        await client.send(sighting.host, _bridgeId, request);
+      }
+
+      await send('light_turn_on', const {});
+      (children, body) = await readLights();
+      hallway = await readingsOf(body, '2');
+      expect(
+        hallway['is_on']?.isOn,
+        isTrue,
+        reason: 'the write acknowledged; the re-read is what proves it',
+      );
+
+      await send('light_set_brightness', const {'bri': '200'});
+      (children, body) = await readLights();
+      hallway = await readingsOf(body, '2');
+      expect(hallway['brightness']?.number, 200);
+
+      // ── And the visible failure: a stale credential answers error 1.
+      final stale = await codec.renderNetworkHttpStateRequest(
         specYaml: specYaml,
         stateCommand: light.stateCommand,
-        values: {'username': result.username},
+        values: const {'username': 'somebody-else'},
       );
-      final body = await client.send(sighting.host, _bridgeId, request);
-      final children = await codec.listNetworkInstances(
-          specYaml: specYaml, entityName: light.name, stateReply: body);
-      return (children, body);
-    }
-
-    var (children, body) = await readLights();
-    expect(children.map((c) => c.label), ['Kitchen counter', 'Hallway']);
-
-    Future<Map<String, NetworkReadingDto>> readingsOf(
-        String body, String id) async {
-      final readings = await codec.readNetworkInstance(
-        specYaml: specYaml,
-        entityName: light.name,
-        stateReply: body,
-        instanceId: id,
+      await expectLater(
+        client.send(sighting.host, _bridgeId, stale),
+        throwsA(isA<HubAuthException>()),
       );
-      return {for (final r in readings) r.role: r.reading};
-    }
-
-    var hallway = await readingsOf(body, '2');
-    expect(hallway['is_on']?.isOn, isFalse);
-    expect(hallway['brightness']?.number, 77);
-
-    // ── Drive: turn the hallway light on, then set its brightness.
-    Future<void> send(String command, Map<String, String> extra) async {
-      final request = await codec.renderNetworkHttpCommand(
-        specYaml: specYaml,
-        commandName: command,
-        values: {'username': result.username, 'id': '2', ...extra},
-      );
-      await client.send(sighting.host, _bridgeId, request);
-    }
-
-    await send('light_turn_on', const {});
-    (children, body) = await readLights();
-    hallway = await readingsOf(body, '2');
-    expect(hallway['is_on']?.isOn, isTrue,
-        reason: 'the write acknowledged; the re-read is what proves it');
-
-    await send('light_set_brightness', const {'bri': '200'});
-    (children, body) = await readLights();
-    hallway = await readingsOf(body, '2');
-    expect(hallway['brightness']?.number, 200);
-
-    // ── And the visible failure: a stale credential answers error 1.
-    final stale = await codec.renderNetworkHttpStateRequest(
-      specYaml: specYaml,
-      stateCommand: light.stateCommand,
-      values: const {'username': 'somebody-else'},
-    );
-    await expectLater(
-      client.send(sighting.host, _bridgeId, stale),
-      throwsA(isA<HubAuthException>()),
-    );
-  }, timeout: const Timeout(Duration(minutes: 2)));
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }

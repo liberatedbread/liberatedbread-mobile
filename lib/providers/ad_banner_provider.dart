@@ -44,11 +44,8 @@ class AdBannerState {
   /// The best banner for a device with [category]/[specKey], or null. A
   /// spec-key match beats a category match beats the global banner; dismissed
   /// promotions are skipped at every tier.
-  AdBanner? bannerFor({String? category, String? specKey}) => config.bestFor(
-        category: category,
-        specKey: specKey,
-        exclude: dismissed,
-      );
+  AdBanner? bannerFor({String? category, String? specKey}) =>
+      config.bestFor(category: category, specKey: specKey, exclude: dismissed);
 
   AdBannerState copyWith({AdBannerConfig? config, Set<String>? dismissed}) =>
       AdBannerState(
@@ -79,23 +76,27 @@ class DeviceAdContext {
 
 /// The whole ad state. Seeds synchronously (cache or bundled) so the first
 /// frame never waits on IO, then refreshes in the background.
-final adBannerStateProvider =
-    NotifierProvider<AdBannerNotifier, AdBannerState>(AdBannerNotifier.new);
+final adBannerStateProvider = NotifierProvider<AdBannerNotifier, AdBannerState>(
+  AdBannerNotifier.new,
+);
 
 /// The banner to show at the bottom of the scan screen, or null for none.
 ///
 /// A thin view over [adBannerStateProvider] kept at its old name and type so
 /// the scan screen and its tests read it unchanged.
-final adBannerProvider =
-    Provider<AdBanner?>((ref) => ref.watch(adBannerStateProvider).globalBanner);
+final adBannerProvider = Provider<AdBanner?>(
+  (ref) => ref.watch(adBannerStateProvider).globalBanner,
+);
 
 /// The banner to show against a specific device (its device screen), or null.
 ///
 /// Falls back to the global banner when nothing targets the device, so a device
 /// screen always shows the most relevant promotion available — a label printer
 /// its label-supply promo, an unmatched device the general shop banner.
-final deviceAdBannerProvider =
-    Provider.family<AdBanner?, DeviceAdContext>((ref, context) {
+final deviceAdBannerProvider = Provider.family<AdBanner?, DeviceAdContext>((
+  ref,
+  context,
+) {
   final state = ref.watch(adBannerStateProvider);
   return state.bannerFor(category: context.category, specKey: context.specKey);
 });
@@ -198,7 +199,7 @@ class AdBannerNotifier extends Notifier<AdBannerState> {
         if (decoded is List) {
           return {
             for (final e in decoded)
-              if (e is String) e
+              if (e is String) e,
           };
         }
       } catch (_) {

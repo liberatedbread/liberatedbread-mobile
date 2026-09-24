@@ -66,37 +66,40 @@ ScanMatch _match(
   MatchConfidence confidence, {
   int specIndex = 0,
   String deviceName = 'Ember Mug',
-}) =>
-    ScanMatch(
-      specIndex: specIndex,
-      deviceName: deviceName,
-      manufacturer: 'Ember',
-      category: 'appliance',
-      pictogram: null,
-      integration: null,
-      securityAdvisory: null,
-      confidence: confidence,
-      matchedByNamePrefix: true,
-      matchedServiceUuids: const [],
-      matchedCompanyIds: Uint16List(0),
-      matchedMacPrefix: null,
-      matchedServiceTypes: const [],
-    );
+}) => ScanMatch(
+  specIndex: specIndex,
+  deviceName: deviceName,
+  manufacturer: 'Ember',
+  category: 'appliance',
+  pictogram: null,
+  integration: null,
+  securityAdvisory: null,
+  confidence: confidence,
+  matchedByNamePrefix: true,
+  matchedServiceUuids: const [],
+  matchedCompanyIds: Uint16List(0),
+  matchedMacPrefix: null,
+  matchedServiceTypes: const [],
+);
 
 // IoTDevice.discoveredAt is required and non-null, so build it in a helper.
 IoTDevice _dev() => IoTDevice(
-      id: 'FF:34:1C:4D:71:62',
-      name: 'Ember Ceramic Mug',
-      rssi: -50,
-      isConnectable: true,
-      discoveredAt: DateTime(2026, 8, 19),
-    );
+  id: 'FF:34:1C:4D:71:62',
+  name: 'Ember Ceramic Mug',
+  rssi: -50,
+  isConnectable: true,
+  discoveredAt: DateTime(2026, 8, 19),
+);
 
 ProviderContainer _container(FakeSpecCodec codec) {
-  final c = ProviderContainer(overrides: [
-    specCodecProvider.overrideWithValue(codec),
-    deviceSpecsProvider.overrideWith((ref) => {'ember-mug.yaml': 'ember-yaml'}),
-  ]);
+  final c = ProviderContainer(
+    overrides: [
+      specCodecProvider.overrideWithValue(codec),
+      deviceSpecsProvider.overrideWith(
+        (ref) => {'ember-mug.yaml': 'ember-yaml'},
+      ),
+    ],
+  );
   addTearDown(c.dispose);
   return c;
 }
@@ -109,8 +112,9 @@ void main() {
     )..setupInstructionsFor = (_) => _instructions;
     final c = _container(codec);
 
-    final help =
-        await c.read(deviceSetupHelpProvider(ScanIdentity.of(_dev())).future);
+    final help = await c.read(
+      deviceSetupHelpProvider(ScanIdentity.of(_dev())).future,
+    );
 
     expect(help, isNotNull);
     expect(help!.deviceName, 'Ember Mug');
@@ -119,21 +123,24 @@ void main() {
     expect(codec.setupInstructionsCalls, ['ember-yaml']);
   });
 
-  test('a possible (OUI-only) match names no product, so no help is offered',
-      () async {
-    final codec = FakeSpecCodec(
-      spec: _spec,
-      scanMatches: (_) => [_match(MatchConfidence.possible)],
-    )..setupInstructionsFor = (_) => _instructions;
-    final c = _container(codec);
+  test(
+    'a possible (OUI-only) match names no product, so no help is offered',
+    () async {
+      final codec = FakeSpecCodec(
+        spec: _spec,
+        scanMatches: (_) => [_match(MatchConfidence.possible)],
+      )..setupInstructionsFor = (_) => _instructions;
+      final c = _container(codec);
 
-    final help =
-        await c.read(deviceSetupHelpProvider(ScanIdentity.of(_dev())).future);
+      final help = await c.read(
+        deviceSetupHelpProvider(ScanIdentity.of(_dev())).future,
+      );
 
-    expect(help, isNull);
-    // Never even asked for the instructions: the guess did not name a product.
-    expect(codec.setupInstructionsCalls, isEmpty);
-  });
+      expect(help, isNull);
+      // Never even asked for the instructions: the guess did not name a product.
+      expect(codec.setupInstructionsCalls, isEmpty);
+    },
+  );
 
   test('a matched spec with no setup prose yields no help', () async {
     final codec = FakeSpecCodec(
@@ -142,22 +149,22 @@ void main() {
     )..setupInstructionsFor = (_) => null;
     final c = _container(codec);
 
-    final help =
-        await c.read(deviceSetupHelpProvider(ScanIdentity.of(_dev())).future);
+    final help = await c.read(
+      deviceSetupHelpProvider(ScanIdentity.of(_dev())).future,
+    );
 
     expect(help, isNull);
     expect(codec.setupInstructionsCalls, ['ember-yaml']);
   });
 
   test('no match at all yields no help', () async {
-    final codec = FakeSpecCodec(
-      spec: _spec,
-      scanMatches: (_) => const [],
-    )..setupInstructionsFor = (_) => _instructions;
+    final codec = FakeSpecCodec(spec: _spec, scanMatches: (_) => const [])
+      ..setupInstructionsFor = (_) => _instructions;
     final c = _container(codec);
 
-    final help =
-        await c.read(deviceSetupHelpProvider(ScanIdentity.of(_dev())).future);
+    final help = await c.read(
+      deviceSetupHelpProvider(ScanIdentity.of(_dev())).future,
+    );
 
     expect(help, isNull);
   });
@@ -169,8 +176,9 @@ void main() {
     )..setupInstructionsFor = (_) => _instructions;
     final c = _container(codec);
 
-    final help =
-        await c.read(deviceSetupHelpProvider(ScanIdentity.of(_dev())).future);
+    final help = await c.read(
+      deviceSetupHelpProvider(ScanIdentity.of(_dev())).future,
+    );
 
     expect(help, isNull);
   });

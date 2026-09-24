@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/ha_url.dart' show isPrivateIpv4;
 import '../core/log.dart';
 
 /// Downloads and caches a "pack" of device-spec YAML files described by a remote
@@ -117,12 +118,12 @@ class SpecPack {
   int get specCount => specFiles.length;
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'version': version,
-        'source_url': sourceUrl,
-        'spec_files': specFiles,
-        'installed_at': installedAt.toIso8601String(),
-      };
+    'name': name,
+    'version': version,
+    'source_url': sourceUrl,
+    'spec_files': specFiles,
+    'installed_at': installedAt.toIso8601String(),
+  };
 
   static SpecPack? tryFromJson(String jsonText) {
     Object? decoded;
@@ -145,8 +146,9 @@ class SpecPack {
     for (final f in specFiles) {
       if (f is String) files.add(f);
     }
-    final parsedAt =
-        installedAt is String ? DateTime.tryParse(installedAt) : null;
+    final parsedAt = installedAt is String
+        ? DateTime.tryParse(installedAt)
+        : null;
     return SpecPack(
       name: name,
       version: version,
@@ -159,7 +161,10 @@ class SpecPack {
 
 /// Why an install failed, for the UI to render a friendly message.
 enum SpecPackErrorKind {
-  /// The manifest URL is not a valid http/https URL.
+  /// The manifest URL is not one an install accepts: malformed, not
+  /// http(s), or plain `http://` to a host off the local network. The
+  /// [SpecPackError.message] says which — see
+  /// [SpecPackService.manifestUrlProblem].
   invalidUrl,
 
   /// A request exceeded the timeout.
@@ -231,41 +236,104 @@ class SpecPackService {
   final Duration timeout;
 
   SpecPackService({
-    required http.Client client,
+    required this._client,
     required CacheDirResolver cacheDirResolver,
     SpecValidator? specValidator,
     this.timeout = const Duration(seconds: 15),
-  })  : _client = client,
-        _resolveCacheDir = cacheDirResolver,
-        _validateSpec = specValidator;
+  }) : _resolveCacheDir = cacheDirResolver,
+       _validateSpec = specValidator;
 
-  /// Whether [input] is a usable http/https manifest URL.
-  static bool isValidManifestUrl(String input) {
+  /// Whether [input] is a manifest URL an install would accept — see
+  /// [manifestUrlProblem] for the reason when it is not.
+  static bool isValidManifestUrl(String input) =>
+      manifestUrlProblem(input) == null;
+
+  /// Why [input] cannot be installed from, or null when it can.
+  ///
+  /// A well-formed `https://` URL always can. A plain `http://` one can only
+  /// when its host is on the user's own network (loopback, RFC 1918,
+  /// link-local — the address of a laptop serving a pack under development),
+  /// because a pack decides what the app sends to LAN devices, which
+  /// stored credentials fill the requests, and each device's TLS policy —
+  /// and nothing on the install path checks a hash or a signature. Fetched
+  /// in clear across the internet, all of that is whatever the network on
+  /// the way chose to hand over; the banner check, which decides far less,
+  /// has refused non-https since it was written. Redirects are followed only
+  /// to the same origin ([_fetch]), so an https install cannot be downgraded
+  /// on the way either.
+  static SpecPackError? manifestUrlProblem(String input) {
+    const invalid = SpecPackError(
+      SpecPackErrorKind.invalidUrl,
+      'Enter a valid http(s) URL.',
+    );
     final trimmed = input.trim();
-    if (trimmed.isEmpty || trimmed.contains(RegExp(r'\s'))) return false;
+    if (trimmed.isEmpty || trimmed.contains(RegExp(r'\s'))) return invalid;
     final uri = Uri.tryParse(trimmed);
-    return uri != null &&
-        (uri.scheme == 'http' || uri.scheme == 'https') &&
-        uri.host.isNotEmpty;
+    if (uri == null || uri.host.isEmpty) return invalid;
+    switch (uri.scheme) {
+      case 'https':
+        return null;
+      case 'http':
+        if (isLocalNetworkHost(uri.host)) return null;
+        return const SpecPackError(
+          SpecPackErrorKind.invalidUrl,
+          'Spec packs are installed over https only. A plain http:// address '
+          'is accepted just for a server on your own network (a private or '
+          'loopback address such as 192.168.x.x or localhost).',
+        );
+      default:
+        return invalid;
+    }
+  }
+
+  /// Whether [host] (as [Uri.host] spells it — an IPv6 literal without its
+  /// brackets) names something on the user's own network: `localhost`, an
+  /// RFC 1918 / loopback / link-local IPv4 literal, or an IPv6 loopback,
+  /// unique-local or link-local literal. A DNS name other than `localhost`
+  /// is not, whatever it resolves to: the resolution is the attacker's too.
+  @visibleForTesting
+  static bool isLocalNetworkHost(String host) {
+    final lower = host.toLowerCase();
+    if (lower == 'localhost' || lower.endsWith('.localhost')) return true;
+    if (isPrivateIpv4(lower)) return true;
+    // An IPv6 literal, with any zone id (`fe80::1%en0`) set aside.
+    final address = InternetAddress.tryParse(lower.split('%').first);
+    if (address == null || address.type != InternetAddressType.IPv6) {
+      return false;
+    }
+    if (address.isLoopback || address.isLinkLocal) return true;
+    // fc00::/7 — unique local.
+    return (address.rawAddress[0] & 0xfe) == 0xfc;
   }
 
   /// Fetch [manifestUrl], download the specs it lists, and cache the lot. Any
   /// previously-cached pack with the same name is replaced. Never throws.
   Future<InstallResult> install(String manifestUrl) async {
     final url = manifestUrl.trim();
-    if (!isValidManifestUrl(url)) {
-      Log.packs.warning('install refused: not a valid http(s) URL');
-      return const InstallFailed(SpecPackError(
-          SpecPackErrorKind.invalidUrl, 'Enter a valid http(s) URL.'));
+    final problem = manifestUrlProblem(url);
+    if (problem != null) {
+      Log.packs.warning('install refused: ${problem.kind.name}');
+      return InstallFailed(problem);
     }
     final manifestUri = Uri.parse(url);
     Log.packs.info('installing from ${logSafeUrl(manifestUri)}');
 
     // 1. Fetch the manifest.
     final Uint8List manifestBytes;
+    // Where the manifest was actually SERVED from. A same-origin redirect
+    // that moves the path (/pack.json -> /v2/pack.json, a canonicalised
+    // trailing slash) changes the base every relative spec entry resolves
+    // against; resolving against the URL the user typed fetched from the
+    // wrong directory and reported that none of the specs could be
+    // downloaded. The same-origin guard below still uses the original.
+    final Uri manifestBase;
     try {
-      manifestBytes =
-          await _fetch(manifestUri, SpecPackLimits.maxManifestBytes);
+      final fetched = await _fetch(
+        manifestUri,
+        SpecPackLimits.maxManifestBytes,
+      );
+      manifestBytes = fetched.bytes;
+      manifestBase = fetched.uri;
     } on _FetchException catch (e) {
       Log.packs.warning('manifest fetch failed: ${e.error.message}');
       return InstallFailed(e.toError());
@@ -275,18 +343,26 @@ class SpecPackService {
       manifest = SpecPackManifest.tryParse(utf8.decode(manifestBytes));
     } on FormatException {
       Log.packs.warning('manifest rejected: not valid UTF-8 text');
-      return const InstallFailed(SpecPackError(
+      return const InstallFailed(
+        SpecPackError(
           SpecPackErrorKind.malformedManifest,
-          'The manifest was not valid UTF-8 text.'));
+          'The manifest was not valid UTF-8 text.',
+        ),
+      );
     }
     if (manifest == null) {
       Log.packs.warning('manifest rejected: not a valid spec-pack manifest');
-      return const InstallFailed(SpecPackError(
+      return const InstallFailed(
+        SpecPackError(
           SpecPackErrorKind.malformedManifest,
-          'The manifest is not a valid spec-pack manifest.'));
+          'The manifest is not a valid spec-pack manifest.',
+        ),
+      );
     }
-    Log.packs.debug('manifest "${manifest.name}" v${manifest.version} lists '
-        '${manifest.specs.length} spec(s)');
+    Log.packs.debug(
+      'manifest "${manifest.name}" v${manifest.version} lists '
+      '${manifest.specs.length} spec(s)',
+    );
 
     // 2. Download each spec, capping per-file and total size.
     final downloaded = <String, Uint8List>{};
@@ -300,31 +376,37 @@ class SpecPackService {
       if (specFile.contains('://') ||
           specFile.startsWith('/') ||
           specFile.startsWith('\\')) {
-        failures.add(SpecDownloadFailure(
-            specFile, 'spec path must be relative and same-origin'));
+        failures.add(
+          SpecDownloadFailure(
+            specFile,
+            'spec path must be relative and same-origin',
+          ),
+        );
         continue;
       }
-      final specUri = manifestUri.resolve(specFile);
+      final specUri = manifestBase.resolve(specFile);
       if (specUri.scheme != 'http' && specUri.scheme != 'https') {
         failures.add(SpecDownloadFailure(specFile, 'unsupported URL scheme'));
         continue;
       }
       if (!_sameOrigin(manifestUri, specUri)) {
         failures.add(
-            SpecDownloadFailure(specFile, 'cross-origin spec URL rejected'));
+          SpecDownloadFailure(specFile, 'cross-origin spec URL rejected'),
+        );
         continue;
       }
       final remaining = SpecPackLimits.maxTotalBytes - totalBytes;
       if (remaining <= 0) {
         failures.add(
-            SpecDownloadFailure(specFile, 'total download size cap reached'));
+          SpecDownloadFailure(specFile, 'total download size cap reached'),
+        );
         continue;
       }
       final cap = remaining < SpecPackLimits.maxSpecBytes
           ? remaining
           : SpecPackLimits.maxSpecBytes;
       try {
-        final bytes = await _fetch(specUri, cap);
+        final bytes = (await _fetch(specUri, cap)).bytes;
         // Reject content that is not decodable UTF-8 text (a corrupt/binary
         // "YAML" file); the Rust codec parses YAML later, but must get text.
         final String text;
@@ -349,8 +431,9 @@ class SpecPackService {
             valid = false;
           }
           if (!valid) {
-            failures
-                .add(SpecDownloadFailure(specFile, 'not a valid device spec'));
+            failures.add(
+              SpecDownloadFailure(specFile, 'not a valid device spec'),
+            );
             continue;
           }
         }
@@ -362,11 +445,16 @@ class SpecPackService {
     }
 
     if (downloaded.isEmpty) {
-      Log.packs.warning('install failed: none of the ${manifest.specs.length} '
-          'spec(s) could be downloaded — ${_summarize(failures)}');
-      return const InstallFailed(SpecPackError(
+      Log.packs.warning(
+        'install failed: none of the ${manifest.specs.length} '
+        'spec(s) could be downloaded — ${_summarize(failures)}',
+      );
+      return const InstallFailed(
+        SpecPackError(
           SpecPackErrorKind.noSpecsInstalled,
-          'None of the specs in the manifest could be downloaded.'));
+          'None of the specs in the manifest could be downloaded.',
+        ),
+      );
     }
 
     // 3. Persist to the cache (replace any same-named pack).
@@ -377,23 +465,35 @@ class SpecPackService {
       // Specs dropped at write time (on-disk name collisions) join the
       // download-time partial failures so the UI can surface every skip.
       failures.addAll(persisted.failures);
+    } on _PackNameCollision catch (e) {
+      Log.packs.warning('install refused: ${e.message}');
+      return InstallFailed(SpecPackError(SpecPackErrorKind.cacheIo, e.message));
     } on Object catch (e) {
       // cacheIo is the one error kind whose message the settings screen shows
       // verbatim, so it has to read like a sentence; the raw failure (a path,
       // an errno) is for the log, not the user.
-      Log.packs.error('install failed: could not write the pack to storage',
-          error: e);
-      return const InstallFailed(SpecPackError(SpecPackErrorKind.cacheIo,
-          'Could not save the pack to this device\'s storage.'));
+      Log.packs.error(
+        'install failed: could not write the pack to storage',
+        error: e,
+      );
+      return const InstallFailed(
+        SpecPackError(
+          SpecPackErrorKind.cacheIo,
+          'Could not save the pack to this device\'s storage.',
+        ),
+      );
     }
     // One aggregate line, not one per spec: a manifest may list up to
     // SpecPackLimits.maxSpecCount entries and this must not become a wall.
     if (failures.isNotEmpty) {
       Log.packs.warning(
-          '${failures.length} spec(s) skipped: ${_summarize(failures)}');
+        '${failures.length} spec(s) skipped: ${_summarize(failures)}',
+      );
     }
-    Log.packs.info('installed "${pack.name}" v${pack.version}: '
-        '${pack.specCount} spec(s) cached');
+    Log.packs.info(
+      'installed "${pack.name}" v${pack.version}: '
+      '${pack.specCount} spec(s) cached',
+    );
     return InstallOk(pack, partialFailures: failures);
   }
 
@@ -432,14 +532,16 @@ class SpecPackService {
         if (pack != null) {
           packs.add(pack);
         } else {
-          Log.packs
-              .warning('skipping corrupt pack record ${manifestFile.path}');
+          Log.packs.warning(
+            'skipping corrupt pack record ${manifestFile.path}',
+          );
         }
       } catch (e) {
         // Skip an unreadable/corrupt pack record, but make the drop visible.
         Log.packs.warning(
-            'skipping unreadable pack record ${manifestFile.path}',
-            error: e);
+          'skipping unreadable pack record ${manifestFile.path}',
+          error: e,
+        );
       }
     }
     packs.sort((a, b) => b.installedAt.compareTo(a.installedAt));
@@ -460,8 +562,9 @@ class SpecPackService {
       packs = await listInstalledPacks();
     } catch (e) {
       Log.packs.warning(
-          'could not list cached packs; falling back to bundled specs only',
-          error: e);
+        'could not list cached packs; falling back to bundled specs only',
+        error: e,
+      );
       return result;
     }
     if (packs.isEmpty) return result;
@@ -476,17 +579,21 @@ class SpecPackService {
             result['pack:${pack.name}/$file'] = await f.readAsString();
           } else {
             Log.packs.warning(
-                'cached spec missing on disk: pack:${pack.name}/$file');
+              'cached spec missing on disk: pack:${pack.name}/$file',
+            );
           }
         } catch (e) {
           Log.packs.warning(
-              'skipping unreadable cached spec pack:${pack.name}/$file',
-              error: e);
+            'skipping unreadable cached spec pack:${pack.name}/$file',
+            error: e,
+          );
         }
       }
     }
-    Log.packs.debug('loaded ${result.length} cached spec(s) from '
-        '${packs.length} pack(s)');
+    Log.packs.debug(
+      'loaded ${result.length} cached spec(s) from '
+      '${packs.length} pack(s)',
+    );
     return result;
   }
 
@@ -551,18 +658,35 @@ class SpecPackService {
       try {
         final stored = SpecPack.tryFromJson(await manifestFile.readAsString());
         if (stored != null && stored.name != manifest.name) {
-          throw StateError(
-              'Pack "${manifest.name}" collides with existing "${stored.name}" at ${dir.path}');
+          // R-062: a real answer, not a storage failure. Two pack names can
+          // reduce to the same directory slug ("My Pack" and "My/Pack"), and
+          // the user was told their device could not save the pack — which
+          // is untrue, unactionable, and sends them looking at free space.
+          throw _PackNameCollision(manifest.name, stored.name);
         }
       } catch (e) {
-        if (e is StateError) rethrow;
+        // Only a manifest we could not READ is "corrupt: delete and replace".
+        // An answer this method deliberately raised — the unsafe-directory
+        // StateError above, or the name collision — has to travel: swallowing
+        // _PackNameCollision here let _persist carry on and recursively delete
+        // the OTHER pack's directory, which is exactly what it exists to
+        // prevent, and made the `on _PackNameCollision` handler in install()
+        // unreachable.
+        if (e is StateError || e is _PackNameCollision) rethrow;
         // Corrupt manifest: delete and replace.
       }
     }
 
     // Write into a staging directory and swap atomically so a partial write
     // never replaces a valid cached pack.
-    final stagingDir = Directory('${dir.path}.staging');
+    //
+    // R-062: the staging name is dot-prefixed, which `_slug` strips, so no
+    // pack can ever be given this directory. It used to be `<slug>.staging`,
+    // a name a pack could hold itself — installing "foo" then deleted the
+    // installed pack "foo.staging" without a word.
+    final stagingDir = Directory(
+      '${root.path}/.staging-${_slug(manifest.name)}',
+    );
     if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
     final specsDir = Directory('${stagingDir.path}/specs');
     await specsDir.create(recursive: true);
@@ -574,12 +698,22 @@ class SpecPackService {
     // while both keys survived in metadata, so loadCachedSpecs would return the
     // wrong content for one of them. Track used names and skip (annotate)
     // collisions instead of silently clobbering.
+    //
+    // R-061: compared case-INSENSITIVELY, because the volume this writes to
+    // is. On iOS and macOS the app's Application Support directory is
+    // case-insensitive, so "Bulb.yaml" and "bulb.yaml" passed a
+    // case-sensitive check and then clobbered each other on disk, leaving
+    // both keys in the metadata and one of them serving the other's spec.
     final usedNames = <String>{};
     for (final entry in specs.entries) {
       final safeName = _safeFileName(entry.key);
-      if (!usedNames.add(safeName)) {
-        failures.add(SpecDownloadFailure(entry.key,
-            'on-disk name "$safeName" collides with another spec in this pack'));
+      if (!usedNames.add(safeName.toLowerCase())) {
+        failures.add(
+          SpecDownloadFailure(
+            entry.key,
+            'on-disk name "$safeName" collides with another spec in this pack',
+          ),
+        );
         continue;
       }
       final file = File('${specsDir.path}/$safeName');
@@ -602,8 +736,9 @@ class SpecPackService {
       specFiles: storedFiles,
       installedAt: DateTime.now(),
     );
-    await File('${stagingDir.path}/manifest.json')
-        .writeAsString(jsonEncode(pack.toJson()), flush: true);
+    await File(
+      '${stagingDir.path}/manifest.json',
+    ).writeAsString(jsonEncode(pack.toJson()), flush: true);
 
     // Atomic swap: only after all writes succeed.
     if (await dir.exists()) await dir.delete(recursive: true);
@@ -614,31 +749,83 @@ class SpecPackService {
   /// Largest number of redirect hops we will follow (all same-origin).
   static const int _maxRedirects = 5;
 
+  /// Where the pack cache lives, moving it once out of where it used to.
+  ///
+  /// Packs were cached under the app's Documents directory, which iOS backs
+  /// up to iCloud and Finder and which Apple reserves for user-created data;
+  /// a pack is app-managed, re-downloadable content (up to 4 MB each, no
+  /// count limit). Application Support is the directory for exactly that.
+  /// Caches would not be backed up at all, but the system may purge it, and
+  /// a pack the user installed vanishing between launches is worse than a
+  /// few megabytes in a backup.
+  ///
+  /// The move is a rename, so it is atomic on the same volume and costs
+  /// nothing after the first launch; a rename that fails leaves the packs
+  /// where they were and the resolver keeps answering the old location, so
+  /// nothing is lost either way. Pure over its two inputs, so the unit test
+  /// can run it against temp directories.
+  static Future<Directory> migrateCacheDir({
+    required Directory legacyBase,
+    required Directory base,
+  }) async {
+    final legacy = Directory('${legacyBase.path}/spec_packs');
+    final target = Directory('${base.path}/spec_packs');
+    if (await legacy.exists() && !await target.exists()) {
+      try {
+        await base.create(recursive: true);
+        await legacy.rename(target.path);
+        Log.packs.info('moved the spec-pack cache out of Documents');
+      } catch (e) {
+        Log.packs.warning(
+          'could not move the spec-pack cache; keeping it '
+          'where it is',
+          error: e,
+        );
+        return legacyBase;
+      }
+    }
+    return base;
+  }
+
   /// GET [uri], enforcing [timeout] and a [maxBytes] size cap. Redirects are NOT
   /// auto-followed by the client; we follow them manually and ONLY when they
   /// stay on the original origin, so a redirect can't be used to reach a
   /// cross-origin/internal host. Translates every failure into a
-  /// [_FetchException].
-  Future<Uint8List> _fetch(Uri uri, int maxBytes) async {
+  /// [_FetchException]. Returns the bytes with the URI they were finally
+  /// served from, which after a redirect is not [uri].
+  Future<({Uint8List bytes, Uri uri})> _fetch(Uri uri, int maxBytes) async {
     final origin = uri;
     var current = uri;
-    for (var hop = 0;; hop++) {
+    for (var hop = 0; ; hop++) {
       http.StreamedResponse response;
       try {
         final request = http.Request('GET', current)..followRedirects = false;
         response = await _client.send(request).timeout(timeout);
       } on TimeoutException {
-        throw _FetchException(const SpecPackError(
-            SpecPackErrorKind.timeout, 'The request timed out.'));
+        throw _FetchException(
+          const SpecPackError(
+            SpecPackErrorKind.timeout,
+            'The request timed out.',
+          ),
+        );
       } on http.ClientException catch (e) {
-        throw _FetchException(SpecPackError(
-            SpecPackErrorKind.network, 'Could not connect: ${e.message}'));
+        throw _FetchException(
+          SpecPackError(
+            SpecPackErrorKind.network,
+            'Could not connect: ${e.message}',
+          ),
+        );
       } on SocketException catch (e) {
-        throw _FetchException(SpecPackError(
-            SpecPackErrorKind.network, 'Could not connect: ${e.message}'));
+        throw _FetchException(
+          SpecPackError(
+            SpecPackErrorKind.network,
+            'Could not connect: ${e.message}',
+          ),
+        );
       } on Object catch (e) {
         throw _FetchException(
-            SpecPackError(SpecPackErrorKind.network, 'Request failed: $e'));
+          SpecPackError(SpecPackErrorKind.network, 'Request failed: $e'),
+        );
       }
 
       // Manual, same-origin-only redirect handling.
@@ -646,17 +833,29 @@ class SpecPackService {
         unawaited(response.stream.drain<void>().catchError((_) {}));
         final location = response.headers['location'];
         if (location == null || location.isEmpty) {
-          throw _FetchException(SpecPackError(SpecPackErrorKind.http,
-              'Redirect (HTTP ${response.statusCode}) without a location.'));
+          throw _FetchException(
+            SpecPackError(
+              SpecPackErrorKind.http,
+              'Redirect (HTTP ${response.statusCode}) without a location.',
+            ),
+          );
         }
         if (hop >= _maxRedirects) {
-          throw _FetchException(const SpecPackError(
-              SpecPackErrorKind.network, 'Too many redirects.'));
+          throw _FetchException(
+            const SpecPackError(
+              SpecPackErrorKind.network,
+              'Too many redirects.',
+            ),
+          );
         }
         final next = current.resolve(location);
         if (!_sameOrigin(origin, next)) {
-          throw _FetchException(const SpecPackError(
-              SpecPackErrorKind.network, 'Refused a cross-origin redirect.'));
+          throw _FetchException(
+            const SpecPackError(
+              SpecPackErrorKind.network,
+              'Refused a cross-origin redirect.',
+            ),
+          );
         }
         current = next;
         continue;
@@ -665,15 +864,23 @@ class SpecPackService {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         // Drain so the connection can be reused/closed cleanly.
         unawaited(response.stream.drain<void>().catchError((_) {}));
-        throw _FetchException(SpecPackError(SpecPackErrorKind.http,
-            'Server returned HTTP ${response.statusCode}.'));
+        throw _FetchException(
+          SpecPackError(
+            SpecPackErrorKind.http,
+            'Server returned HTTP ${response.statusCode}.',
+          ),
+        );
       }
 
       final contentLength = response.contentLength;
       if (contentLength != null && contentLength > maxBytes) {
         unawaited(response.stream.drain<void>().catchError((_) {}));
-        throw _FetchException(const SpecPackError(
-            SpecPackErrorKind.tooLarge, 'The file is larger than allowed.'));
+        throw _FetchException(
+          const SpecPackError(
+            SpecPackErrorKind.tooLarge,
+            'The file is larger than allowed.',
+          ),
+        );
       }
 
       final bytes = <int>[];
@@ -681,21 +888,29 @@ class SpecPackService {
         await for (final chunk in response.stream.timeout(timeout)) {
           bytes.addAll(chunk);
           if (bytes.length > maxBytes) {
-            throw _FetchException(const SpecPackError(
+            throw _FetchException(
+              const SpecPackError(
                 SpecPackErrorKind.tooLarge,
-                'The file is larger than allowed.'));
+                'The file is larger than allowed.',
+              ),
+            );
           }
         }
       } on _FetchException {
         rethrow;
       } on TimeoutException {
-        throw _FetchException(const SpecPackError(
-            SpecPackErrorKind.timeout, 'The download stalled.'));
+        throw _FetchException(
+          const SpecPackError(
+            SpecPackErrorKind.timeout,
+            'The download stalled.',
+          ),
+        );
       } on Object catch (e) {
         throw _FetchException(
-            SpecPackError(SpecPackErrorKind.network, 'Download failed: $e'));
+          SpecPackError(SpecPackErrorKind.network, 'Download failed: $e'),
+        );
       }
-      return Uint8List.fromList(bytes);
+      return (bytes: Uint8List.fromList(bytes), uri: current);
     }
   }
 
@@ -768,4 +983,24 @@ class _FetchException implements Exception {
   final SpecPackError error;
   _FetchException(this.error);
   SpecPackError toError() => error;
+}
+
+/// Two pack names that reduce to the same cache directory.
+///
+/// Its own type so the install path can tell it from a storage failure: the
+/// device is fine, the two packs simply cannot both be called what they are
+/// called (R-062).
+class _PackNameCollision implements Exception {
+  final String incoming;
+  final String existing;
+
+  const _PackNameCollision(this.incoming, this.existing);
+
+  String get message =>
+      'A pack called "$existing" is already installed under the same name on '
+      'disk, so "$incoming" cannot be installed alongside it. Remove the '
+      'other pack first.';
+
+  @override
+  String toString() => message;
 }

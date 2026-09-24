@@ -22,9 +22,9 @@ void main() {
     calls = [];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(MulticastLock.channel, (call) async {
-      calls.add(call.method);
-      return null;
-    });
+          calls.add(call.method);
+          return null;
+        });
   });
 
   tearDown(() {
@@ -52,8 +52,8 @@ void main() {
   test('a platform failure does not propagate', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(MulticastLock.channel, (call) async {
-      throw PlatformException(code: 'no-wifi-service');
-    });
+          throw PlatformException(code: 'no-wifi-service');
+        });
     final lock = MulticastLock(isSupported: true);
     // A scan that comes back empty beats a scan that fails outright, so the
     // lock never takes the scan down with it.
@@ -61,7 +61,18 @@ void main() {
     await expectLater(lock.release(), completes);
   });
 
-  test('a scan takes the lock and gives it back', () async {
+  // The two below drive RealNetworkScanService.scan() for real, and carry
+  // the tag per test because flutter_test's group() takes none. The service
+  // has no transport seam — mDNS, SSDP and every vendor probe are `dart:io`
+  // sockets opened inside scan() — so there is no way to run its lock
+  // handling without binding 5353/1900 and waiting real seconds (the SSDP
+  // half alone spaces its two sends 500ms apart, and the second test sleeps
+  // 800ms of wall time on purpose). That is exactly what the `netdisco` tag
+  // exists to keep out of the unit lane: scripts/ci-netdisco-tests.sh runs
+  // these, serially, alongside the other on-the-wire suites. The three
+  // tests above stay in the unit lane because they never leave the mocked
+  // method channel.
+  test('a scan takes the lock and gives it back', tags: ['netdisco'], () async {
     final lock = MulticastLock(isSupported: true);
     final service = RealNetworkScanService(multicastLock: lock);
 
@@ -76,43 +87,51 @@ void main() {
     expect(
       calls,
       containsAllInOrder(['acquire', 'release']),
-      reason: 'the lock must be held before the queries go out and released '
+      reason:
+          'the lock must be held before the queries go out and released '
           'when the scan ends, or it costs battery for the whole device',
     );
     expect(calls.where((c) => c == 'release'), isNotEmpty);
   });
 
-  test('a cancelled scan finishing does not release a newer scan\'s lock',
-      () async {
-    // `networkScanServiceProvider` hands out one shared instance, and the scan
-    // lifecycle used to live on its fields. Cancel a scan and start another
-    // and the first was still parked in the mDNS resolution window; when it
-    // came back, its teardown released the lock the *second* scan was relying
-    // on and closed its client and socket. The second scan then reported both
-    // transports silent, which on iOS and macOS reads as "Local Network access
-    // is off" to a user whose permission was never the problem.
-    final lock = MulticastLock(isSupported: true);
-    final service = RealNetworkScanService(multicastLock: lock);
+  test(
+    'a cancelled scan finishing does not release a newer scan\'s lock',
+    tags: ['netdisco'],
+    () async {
+      // `networkScanServiceProvider` hands out one shared instance, and the scan
+      // lifecycle used to live on its fields. Cancel a scan and start another
+      // and the first was still parked in the mDNS resolution window; when it
+      // came back, its teardown released the lock the *second* scan was relying
+      // on and closed its client and socket. The second scan then reported both
+      // transports silent, which on iOS and macOS reads as "Local Network access
+      // is off" to a user whose permission was never the problem.
+      final lock = MulticastLock(isSupported: true);
+      final service = RealNetworkScanService(multicastLock: lock);
 
-    // Cancelling stops the first scan's transports, but its body runs on and
-    // reaches its own teardown some time later — the SSDP half alone spends
-    // 500ms spacing its two M-SEARCH sends, which no cancel interrupts. That
-    // lands it around half a second in, well inside the second scan's window.
-    final first = service
-        .scan(timeout: const Duration(milliseconds: 80))
-        .listen((_) {}, onError: (Object _) {});
-    await first.cancel();
-    calls.clear();
+      // Cancelling stops the first scan's transports, but its body runs on and
+      // reaches its own teardown some time later — the SSDP half alone spends
+      // 500ms spacing its two M-SEARCH sends, which no cancel interrupts. That
+      // lands it around half a second in, well inside the second scan's window.
+      final first = service
+          .scan(timeout: const Duration(milliseconds: 80))
+          .listen((_) {}, onError: (Object _) {});
+      await first.cancel();
+      calls.clear();
 
-    final second = service
-        .scan(timeout: const Duration(seconds: 4))
-        .listen((_) {}, onError: (Object _) {});
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    expect(calls, ['acquire'],
-        reason: 'the second scan holds the lock; the abandoned first one may '
-            'not release it out from under it');
+      final second = service
+          .scan(timeout: const Duration(seconds: 4))
+          .listen((_) {}, onError: (Object _) {});
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      expect(
+        calls,
+        ['acquire'],
+        reason:
+            'the second scan holds the lock; the abandoned first one may '
+            'not release it out from under it',
+      );
 
-    await second.cancel();
-    expect(calls, ['acquire', 'release']);
-  });
+      await second.cancel();
+      expect(calls, ['acquire', 'release']);
+    },
+  );
 }

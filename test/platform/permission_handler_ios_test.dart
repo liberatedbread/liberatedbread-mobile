@@ -45,23 +45,22 @@ Map<String, String> _libSources() {
   return {
     for (final entity in lib.listSync(recursive: true))
       if (entity is File && entity.path.endsWith('.dart'))
-        entity.path.substring(repoRoot.path.length + 1):
-            entity.readAsStringSync(),
+        entity.path.substring(repoRoot.path.length + 1): entity
+            .readAsStringSync(),
   };
 }
 
 /// iOS-reachable `Permission.bluetooth` references across `lib/`.
 List<String> _iosReachableBluetoothRequests() => [
-      for (final entry in _libSources().entries)
-        for (final usage in findPermissionUsages(entry.value))
-          if (usage.name == 'bluetooth' && !usage.androidGuarded)
-            '${entry.key}:${usage.line}',
-    ];
+  for (final entry in _libSources().entries)
+    for (final usage in findPermissionUsages(entry.value))
+      if (usage.name == 'bluetooth' && !usage.androidGuarded)
+        '${entry.key}:${usage.line}',
+];
 
 void main() {
   group('permission_handler iOS Bluetooth invariant', () {
-    test(
-        'an iOS-reachable Permission.bluetooth request requires ios/Podfile '
+    test('an iOS-reachable Permission.bluetooth request requires ios/Podfile '
         'with PERMISSION_BLUETOOTH=1', () {
       final callSites = _iosReachableBluetoothRequests();
       if (callSites.isEmpty) {
@@ -75,7 +74,8 @@ void main() {
       expect(
         podfile.existsSync(),
         isTrue,
-        reason: '$callSites asks permission_handler for Bluetooth on a code '
+        reason:
+            '$callSites asks permission_handler for Bluetooth on a code '
             'path that runs on iOS, but $_podfilePath does not exist. '
             'permission_handler_apple defaults PERMISSION_BLUETOOTH to 0, '
             'which compiles its Bluetooth strategy out and makes it an '
@@ -93,7 +93,8 @@ void main() {
       expect(
         podfile.readAsStringSync(),
         matches(RegExp(r'PERMISSION_BLUETOOTH\s*=\s*1')),
-        reason: '$callSites asks permission_handler for Bluetooth on iOS, and '
+        reason:
+            '$callSites asks permission_handler for Bluetooth on iOS, and '
             '$_podfilePath exists but never defines PERMISSION_BLUETOOTH=1. '
             'Without that macro in the post_install '
             'GCC_PREPROCESSOR_DEFINITIONS, permission_handler_apple compiles '
@@ -110,14 +111,16 @@ void main() {
       final usages = findPermissionUsages(
         readRepoFile(
           _bleServicePath,
-          consequence: 'It is where the iOS Bluetooth permission decision '
+          consequence:
+              'It is where the iOS Bluetooth permission decision '
               'lives.',
         ),
       );
       expect(
         usages.where((u) => u.name == 'bluetooth' && !u.androidGuarded),
         isEmpty,
-        reason: '$_bleServicePath must not ask permission_handler for '
+        reason:
+            '$_bleServicePath must not ask permission_handler for '
             'Permission.bluetooth outside the Platform.isAndroid branch. iOS '
             'gets its prompt from CoreBluetooth (raised by flutter_blue_plus '
             'on first scan, backed by the Info.plist usage strings), and a '
@@ -151,7 +154,8 @@ class S {
       expect(
         findPermissionUsages(source).where((u) => u.name == 'bluetooth'),
         isEmpty,
-        reason: 'Comments that merely name Permission.bluetooth (as the '
+        reason:
+            'Comments that merely name Permission.bluetooth (as the '
             'explanatory block in $_bleServicePath does) must not be reported '
             'as calls, or the invariant test would demand an ios/Podfile that '
             'the code does not need.',
@@ -178,12 +182,17 @@ class S {
   }
 }
 ''';
-      final found =
-          findPermissionUsages(source).where((u) => u.name == 'bluetooth');
-      expect(found, hasLength(1),
-          reason: 'A genuine Permission.bluetooth call must be detected — '
-              'otherwise the Podfile invariant can never fire and the iOS BLE '
-              'outage can be reintroduced unnoticed.');
+      final found = findPermissionUsages(
+        source,
+      ).where((u) => u.name == 'bluetooth');
+      expect(
+        found,
+        hasLength(1),
+        reason:
+            'A genuine Permission.bluetooth call must be detected — '
+            'otherwise the Podfile invariant can never fire and the iOS BLE '
+            'outage can be reintroduced unnoticed.',
+      );
       expect(found.single.androidGuarded, isFalse);
       // Dart drops the newline immediately after ''' , so `class S {` is line 1
       // and the request is on line 3. Pinned so failure messages keep pointing
@@ -203,13 +212,15 @@ class S {
   }
 }
 ''';
-      final found =
-          findPermissionUsages(source).where((u) => u.name == 'bluetooth');
+      final found = findPermissionUsages(
+        source,
+      ).where((u) => u.name == 'bluetooth');
       expect(found, hasLength(1));
       expect(
         found.single.androidGuarded,
         isTrue,
-        reason: 'An Android-guarded request cannot run on iOS, so it must not '
+        reason:
+            'An Android-guarded request cannot run on iOS, so it must not '
             'make the Podfile mandatory.',
       );
     });
@@ -226,7 +237,8 @@ final statuses = await [
       expect(
         names,
         isNot(contains('bluetooth')),
-        reason: 'Prefix-matching Permission.bluetooth against '
+        reason:
+            'Prefix-matching Permission.bluetooth against '
             'Permission.bluetoothScan would demand an ios/Podfile for the '
             'Android-only scan permissions the app legitimately requests.',
       );
@@ -244,7 +256,8 @@ final statuses = await [
       expect(
         source,
         contains('Permission.bluetooth'),
-        reason: 'Expected $_bleServicePath to still discuss '
+        reason:
+            'Expected $_bleServicePath to still discuss '
             'Permission.bluetooth somewhere (today: the comment explaining '
             'why it must not be called on iOS). If that text is gone, this '
             'self-test no longer proves the comment-stripping works and '
@@ -254,14 +267,16 @@ final statuses = await [
       expect(
         usages.map((u) => u.name),
         containsAll(<String>['bluetoothScan', 'bluetoothConnect']),
-        reason: 'The scanner must still find the real Android requests in '
+        reason:
+            'The scanner must still find the real Android requests in '
             '$_bleServicePath; finding nothing would make every derived '
             'assertion vacuous.',
       );
       expect(
         usages.where((u) => u.name == 'bluetooth'),
         isEmpty,
-        reason: 'The Permission.bluetooth mention in $_bleServicePath is '
+        reason:
+            'The Permission.bluetooth mention in $_bleServicePath is '
             'inside a comment and must not be counted as a call.',
       );
     });

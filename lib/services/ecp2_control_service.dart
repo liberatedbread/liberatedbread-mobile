@@ -30,7 +30,7 @@ class Ecp2ControlService {
   final Duration timeout;
 
   Ecp2ControlService({Ecp2SocketConnector? connector, this.timeout = _timeout})
-      : _connector = connector ?? _defaultConnector;
+    : _connector = connector ?? _defaultConnector;
 
   static const _timeout = Duration(seconds: 10);
 
@@ -73,8 +73,8 @@ abstract class Ecp2Socket {
   Future<void> close();
 }
 
-typedef Ecp2SocketConnector = Future<Ecp2Socket> Function(
-    String host, int port);
+typedef Ecp2SocketConnector =
+    Future<Ecp2Socket> Function(String host, int port);
 
 class _WebSocketEcp2Socket implements Ecp2Socket {
   final WebSocket _socket;
@@ -106,6 +106,12 @@ class Ecp2Session {
   var _nextId = 0;
   var _closed = false;
 
+  /// Whether the socket has gone under this session — the device dropped it
+  /// (a reboot, sleep, a Wi-Fi blip) or [close] ran. A closed session fails
+  /// every request at once, so a holder that sees this must reopen rather
+  /// than keep it.
+  bool get isClosed => _closed;
+
   /// Whether a text field is focused on the device right now — the signal that
   /// makes the on-screen keyboard usable. Fed by [queryTextEditFocused] and by
   /// the device's unsolicited `textedit` notices; broadcast so the screen can
@@ -117,8 +123,11 @@ class Ecp2Session {
   Stream<bool> get textEditFocusChanges => _textEditFocus.stream;
 
   Ecp2Session._(this._socket, this._timeout) {
-    _subscription = _socket.stream
-        .listen(_onFrame, onError: _failAll, onDone: () => _failAll(null));
+    _subscription = _socket.stream.listen(
+      _onFrame,
+      onError: _failAll,
+      onDone: () => _failAll(null),
+    );
   }
 
   /// The client id the official APK ships (jw/b.java), and the shift that
@@ -171,36 +180,74 @@ class Ecp2Session {
     if (completer == null) return;
     final status = '${decoded['status']}';
     final data64 = decoded['content-data'];
-    completer.complete((
-      status: status,
-      body: data64 is String
-          ? utf8.decode(base64.decode(data64), allowMalformed: true)
-          : '',
-    ));
+    final String body;
+    if (data64 is String) {
+      final text = _tryBase64Utf8(data64);
+      if (text == null) {
+        // The frame IS this request's answer, and its payload is unreadable.
+        // Failing it here is the whole point: decoding unguarded threw inside
+        // the socket's onData, where the request learned nothing and sat out
+        // its full deadline before reporting a device that had in fact
+        // replied — while the FormatException went to the zone uncaught.
+        completer.completeError(
+          const Ecp2Exception('the device sent an unreadable content-data'),
+        );
+        return;
+      }
+      body = text;
+    } else {
+      body = '';
+    }
+    completer.complete((status: status, body: body));
+  }
+
+  /// The UTF-8 text a base64 `content-data` carries, or null when the device
+  /// did not send canonical base64.
+  ///
+  /// `base64.decode` throws a FormatException on a payload that is not
+  /// canonical — bad padding, a stray character, a final quantum with
+  /// non-zero unused bits — and every one of those arrives straight off a
+  /// socket, from firmware this protocol was reverse-engineered from. Malformed
+  /// UTF-8 *inside* valid base64 still passes through as replacement
+  /// characters (`allowMalformed`), which is the right answer for a body that
+  /// is merely mis-encoded; a frame that is not base64 at all is not.
+  static String? _tryBase64Utf8(String data64) {
+    try {
+      return utf8.decode(base64.decode(data64), allowMalformed: true);
+    } on FormatException {
+      return null;
+    }
   }
 
   void _failAll(Object? error) {
     _closed = true;
     final failure = error is Exception ? error : null;
     if (!_challenge.isCompleted) {
-      _challenge.completeError(failure ??
-          const Ecp2Exception('the session closed before authenticating'));
+      _challenge.completeError(
+        failure ??
+            const Ecp2Exception('the session closed before authenticating'),
+      );
     }
     for (final completer in _pending.values) {
       if (!completer.isCompleted) {
         completer.completeError(
-            failure ?? const Ecp2Exception('the session closed mid-request'));
+          failure ?? const Ecp2Exception('the session closed mid-request'),
+        );
       }
     }
     _pending.clear();
   }
 
   Future<void> _authenticate() async {
-    final challenge = await _challenge.future.timeout(_timeout, onTimeout: () {
-      throw const Ecp2Exception('the device sent no authenticate challenge');
+    final challenge = await _challenge.future.timeout(
+      _timeout,
+      onTimeout: () {
+        throw const Ecp2Exception('the device sent no authenticate challenge');
+      },
+    );
+    final result = await _roundTrip('authenticate', {
+      'param-response': paramResponse(challenge),
     });
-    final result = await _roundTrip(
-        'authenticate', {'param-response': paramResponse(challenge)});
     if (result.status != '200') {
       throw Ecp2Exception('authenticate answered status ${result.status}');
     }
@@ -208,16 +255,21 @@ class Ecp2Session {
 
   /// Send one request and wait for the response carrying its request-id.
   Future<({String status, String body})> _roundTrip(
-      String request, Map<String, Object?> params) {
+    String request,
+    Map<String, Object?> params,
+  ) {
     if (_closed) throw const Ecp2Exception('the session is closed');
     final id = '${++_nextId}';
     final completer = Completer<({String status, String body})>();
     _pending[id] = completer;
     _socket.add(jsonEncode({'request': request, 'request-id': id, ...params}));
-    return completer.future.timeout(_timeout, onTimeout: () {
-      _pending.remove(id);
-      throw Ecp2Exception('$request: no answer within $_timeout');
-    });
+    return completer.future.timeout(
+      _timeout,
+      onTimeout: () {
+        _pending.remove(id);
+        throw Ecp2Exception('$request: no answer within $_timeout');
+      },
+    );
   }
 
   /// Send one rendered ECP request down the session, translating the ECP path
@@ -310,8 +362,12 @@ class Ecp2Session {
     if (direct != null) return direct;
     final data64 = frame['content-data'];
     if (data64 is String) {
-      return _focusFromTextEditState(
-          _tryJson(utf8.decode(base64.decode(data64), allowMalformed: true)));
+      final text = _tryBase64Utf8(data64);
+      // Not base64 at all: this frame simply carries no focus news. Read
+      // defensively, like everything else about a notice whose shape is
+      // firmware-dependent — and never throw, because this runs in onData.
+      if (text == null) return null;
+      return _focusFromTextEditState(_tryJson(text));
     }
     return null;
   }

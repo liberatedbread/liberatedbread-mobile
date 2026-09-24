@@ -3,18 +3,59 @@
 <!--
   App-level privacy manifest for Liberated Bread.
 
-  The app collects no data and tracks no one. Its only outbound request is an
-  anonymous GET for the promotional banner config
-  (https://liberatedbread.com/app/banner.json, see lib/core/constants.dart);
-  everything else is direct local-network device control (BLE and LAN) and, when
-  the user configures it, their own Home Assistant server. No advertising SDK,
-  no analytics, no identifiers leave the device.
+  The app collects no data and tracks no one: no advertising SDK, no analytics,
+  no identifiers leave the device, and nothing about what the user controls is
+  reported anywhere.
 
-  Required-reason APIs (NSPrivacyAccessedAPITypes) used by bundled plugins
-  (UserDefaults via shared_preferences, file-timestamp via path_provider, etc.)
-  are declared in those plugins' OWN privacy manifests, which travel in their
-  frameworks (the Podfile uses use_frameworks!). This app's first-party code
-  (ios/Runner/AppDelegate.swift) uses none, so the app-level list is empty.
+  It is not, however, offline-only, and the previous wording here ("its only
+  outbound request is an anonymous GET for the banner config") was wrong. Every
+  connection beyond the user's own devices, so that this list and the App
+  Privacy answers can be checked against the code:
+
+    * the banner config GET (lib/core/constants.dart) — anonymous;
+    * a device-profile pack download, if the user installs one
+      (lib/services/spec_pack_service.dart) — from GitHub or a URL they enter;
+    * the user's own Home Assistant server, if they configure it;
+    * a one-time sign-in to iRobot's cloud IF the user chooses the account
+      route for a robot vacuum rather than typing its details in by hand
+      (lib/services/irobot_cloud_service.dart) — this posts their vendor
+      account credentials to the vendor to read the robot's LOCAL password,
+      which is what makes local control possible afterwards. Disclosed on the
+      form that asks for them.
+
+  None of these is a collection of data BY this app, which is why
+  NSPrivacyCollectedDataTypes stays empty; they are listed because a privacy
+  manifest that quietly understates a network surface is worse than one that
+  does not mention it.
+
+  Required-reason APIs (NSPrivacyAccessedAPITypes). Most are declared in the
+  bundled plugins' OWN privacy manifests, which travel in their frameworks (the
+  Podfile uses use_frameworks!): Flutter, flutter_secure_storage,
+  shared_preferences_foundation, url_launcher_ios and permission_handler_apple
+  each ship one.
+
+  The app-level list here covers what those do NOT: an embedded binary with no
+  manifest of its own. That is liberated_bread_core.framework, the Rust core.
+  cargokit builds it from a bare podspec (rust_builder/ios/*.podspec) with no
+  Resources, and `nm -u` on the built framework lists _stat, _fstat, _lstat and
+  _fstatat — all four in Apple's NSPrivacyAccessedAPICategoryFileTimestamp
+  list. They come in through Rust std's unix fs layer and the `backtrace`
+  crate that flutter_rust_bridge depends on, NOT from any deliberate file I/O
+  in rust/src (the only std::fs use there is test-only). C617.1 is the
+  container-files reason, the same one Flutter declares for the same symbols.
+
+  This matters because it is an automated gate, not a review opinion: App Store
+  Connect scans every Mach-O in the bundle on upload and answers a missing
+  declaration with ITMS-91053, before a human sees the build. Without the entry
+  below, docs/APP_STORE_SUBMISSION.md Step 5 cannot complete.
+
+  ios/Runner/AppDelegate.swift itself still uses none. If the Rust core ever
+  grows real file I/O, or a new dependency pulls in another required-reason
+  category, re-run `nm -u` on the release framework and extend this list.
+  Nothing automated catches a NEW category: test/platform/
+  ios_privacy_manifest_test.dart pins that the FileTimestamp entry declared
+  here stays declared, it does not inspect the binary — the first thing that
+  notices an undeclared category is App Store Connect, at upload.
 
   This file IS a member of the "Runner" target's Copy Bundle Resources build
   phase — wired directly in ios/Runner.xcodeproj/project.pbxproj (search that
@@ -32,6 +73,15 @@
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array/>
 	<key>NSPrivacyAccessedAPITypes</key>
-	<array/>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

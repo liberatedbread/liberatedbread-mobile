@@ -31,20 +31,25 @@ void main() {
     });
     final scanner = WifiNetworkScanner(isSupported: false);
     expect(await scanner.visibleSsids(), isEmpty);
-    expect(called, isFalse,
-        reason: 'must not invoke the channel where it cannot work');
+    expect(
+      called,
+      isFalse,
+      reason: 'must not invoke the channel where it cannot work',
+    );
   });
 
-  test('returns the SSIDs the channel reports, trimmed and de-duplicated',
-      () async {
-    handle((call) async {
-      expect(call.method, 'scanResults');
-      return <String>['Wemo.Mini.4A2', '  LIFX Z 04A3C1  ', 'Wemo.Mini.4A2'];
-    });
-    final scanner = WifiNetworkScanner(isSupported: true);
-    final ssids = await scanner.visibleSsids();
-    expect(ssids, ['Wemo.Mini.4A2', 'LIFX Z 04A3C1']);
-  });
+  test(
+    'returns the SSIDs the channel reports, trimmed and de-duplicated',
+    () async {
+      handle((call) async {
+        expect(call.method, 'scanResults');
+        return <String>['Wemo.Mini.4A2', '  LIFX Z 04A3C1  ', 'Wemo.Mini.4A2'];
+      });
+      final scanner = WifiNetworkScanner(isSupported: true);
+      final ssids = await scanner.visibleSsids();
+      expect(ssids, ['Wemo.Mini.4A2', 'LIFX Z 04A3C1']);
+    },
+  );
 
   test('drops blank SSIDs (hidden networks report an empty name)', () async {
     handle((call) async => <String>['', '   ', 'HomeNet']);
@@ -61,8 +66,10 @@ void main() {
   test('a platform error is swallowed into an empty list', () async {
     // The real failure in the field: getScanResults throws SecurityException
     // when the location permission is absent. A hint is not worth a crash.
-    handle((call) async =>
-        throw PlatformException(code: 'PERMISSION', message: 'no location'));
+    handle(
+      (call) async =>
+          throw PlatformException(code: 'PERMISSION', message: 'no location'),
+    );
     final scanner = WifiNetworkScanner(isSupported: true);
     expect(await scanner.visibleSsids(), isEmpty);
   });

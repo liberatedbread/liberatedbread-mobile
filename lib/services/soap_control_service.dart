@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
+import 'http_control_service.dart' show decodeDeviceBody;
 import 'spec_codec.dart' show SoapRequestDto;
 
 /// The transport half of network device control: fetch a UPnP device
@@ -34,7 +35,7 @@ class SoapControlClient {
   static const maxResponseBytes = 512 * 1024;
 
   SoapControlClient({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+    : _http = httpClient ?? http.Client();
 
   /// Send [request] and buffer its body, refusing past [maxResponseBytes].
   ///
@@ -59,8 +60,9 @@ class SoapControlClient {
         bytes.add(chunk);
         if (bytes.length > maxResponseBytes) {
           throw SoapTransportException(
-              '${request.url} sent more than $maxResponseBytes bytes; '
-              'refusing to buffer further');
+            '${request.url} sent more than $maxResponseBytes bytes; '
+            'refusing to buffer further',
+          );
         }
       }
       return http.Response.bytes(
@@ -70,12 +72,12 @@ class SoapControlClient {
         headers: streamed.headers,
         reasonPhrase: streamed.reasonPhrase,
       );
-    }()
-        .timeout(
+    }().timeout(
       timeout,
       onTimeout: () => throw SoapTransportException(
-          '$what timed out after ${timeout.inSeconds}s '
-          '(${request.url})'),
+        '$what timed out after ${timeout.inSeconds}s '
+        '(${request.url})',
+      ),
     );
   }
 
@@ -87,16 +89,29 @@ class SoapControlClient {
   /// the spec repeats more than any other. Its own path comes from the SSDP
   /// LOCATION the device advertised ([path]); `/setup.xml` is only the
   /// default, for a caller whose sighting predates that being recorded.
-  Future<SoapDeviceDescription> fetchDescription(String host, int port,
-      {String path = '/setup.xml'}) async {
+  Future<SoapDeviceDescription> fetchDescription(
+    String host,
+    int port, {
+    String path = '/setup.xml',
+  }) async {
     final uri = Uri(scheme: 'http', host: host, port: port, path: path);
-    final response =
-        await _bounded(http.Request('GET', uri), 'description fetch');
+    final response = await _bounded(
+      http.Request('GET', uri),
+      'description fetch',
+    );
     if (response.statusCode != 200) {
       throw SoapTransportException(
-          'description fetch failed: HTTP ${response.statusCode} from $uri');
+        'description fetch failed: HTTP ${response.statusCode} from $uri',
+      );
     }
-    return SoapDeviceDescription.parse(response.body, host: host, port: port);
+    // Read as UTF-8 when the bytes are UTF-8 — a friendlyName is the first
+    // thing the user sees, and "Küche" arriving as "KÃ¼che" is the whole of
+    // what Latin-1-by-default does. See [decodeDeviceBody].
+    return SoapDeviceDescription.parse(
+      decodeDeviceBody(response),
+      host: host,
+      port: port,
+    );
   }
 
   /// POST one rendered request to the device and return the response values.
@@ -108,9 +123,18 @@ class SoapControlClient {
     String host,
     int port,
     String controlPath,
-    SoapRequestDto request,
-  ) async {
-    final uri = Uri(scheme: 'http', host: host, port: port, path: controlPath);
+    SoapRequestDto request, {
+
+    /// The description's `URLBase`, when it declared one. Passed per call
+    /// rather than held: one client serves every device on the network.
+    String? urlBase,
+  }) async {
+    final uri = resolveControlUri(
+      host: host,
+      port: port,
+      controlUrl: controlPath,
+      urlBase: urlBase,
+    );
     final httpRequest = http.Request('POST', uri)
       ..headers.addAll({
         // The quotes in SOAPACTION are part of the value; the DTO carries
@@ -120,13 +144,14 @@ class SoapControlClient {
       })
       ..body = request.body;
     final response = await _bounded(httpRequest, request.action);
+    final body = decodeDeviceBody(response);
     if (response.statusCode != 200) {
       // UPnP delivers action-level errors as HTTP 500 with a Fault body,
       // and that fault detail is the only diagnostics the device offers —
       // read it before writing the reply off as a transport failure.
       if (response.statusCode == 500) {
         try {
-          parseSoapResponse(response.body, action: request.action);
+          parseSoapResponse(body, action: request.action);
         } on SoapFaultException {
           rethrow;
         } catch (_) {
@@ -134,9 +159,10 @@ class SoapControlClient {
         }
       }
       throw SoapTransportException(
-          '${request.action} failed: HTTP ${response.statusCode} from $uri');
+        '${request.action} failed: HTTP ${response.statusCode} from $uri',
+      );
     }
-    return parseSoapResponse(response.body, action: request.action);
+    return parseSoapResponse(body, action: request.action);
   }
 
   /// Parse a SOAP response envelope into its named return values.
@@ -145,8 +171,10 @@ class SoapControlClient {
   /// `{child.tag: child.text}`, matching on local names because namespace
   /// prefixes vary. A Body whose child is a Fault is an error, and the fault
   /// text is worth surfacing — it is the only diagnostics the device offers.
-  static Map<String, String> parseSoapResponse(String xml,
-      {required String action}) {
+  static Map<String, String> parseSoapResponse(
+    String xml, {
+    required String action,
+  }) {
     final XmlDocument document;
     try {
       document = XmlDocument.parse(xml);
@@ -194,10 +222,16 @@ class SoapDeviceDescription {
   /// serviceType URN → controlURL, exactly as the device stated them.
   final Map<String, String> controlUrls;
 
+  /// The description's `URLBase`, when it declared one. UDA 1.0 lets relative
+  /// `controlURL`s resolve against it; 1.1 deprecated it, so this is usually
+  /// null and the description's own address is the base.
+  final String? urlBase;
+
   const SoapDeviceDescription({
     required this.host,
     required this.port,
     required this.controlUrls,
+    this.urlBase,
     this.friendlyName,
     this.deviceType,
     this.udn,
@@ -212,8 +246,11 @@ class SoapDeviceDescription {
   /// Matches on local element names throughout: the spec records that some
   /// firmware serves the document without the UPnP namespace, and requiring
   /// it would lose exactly those devices.
-  factory SoapDeviceDescription.parse(String xml,
-      {required String host, required int port}) {
+  factory SoapDeviceDescription.parse(
+    String xml, {
+    required String host,
+    required int port,
+  }) {
     final XmlDocument document;
     try {
       document = XmlDocument.parse(xml);
@@ -246,8 +283,9 @@ class SoapDeviceDescription {
     }
 
     final controlUrls = <String, String>{};
-    for (final service
-        in device.descendantElements.where((e) => e.localName == 'service')) {
+    for (final service in device.descendantElements.where(
+      (e) => e.localName == 'service',
+    )) {
       String? field(String name) => service.childElements
           .where((e) => e.localName == name)
           .firstOrNull
@@ -263,6 +301,7 @@ class SoapDeviceDescription {
     return SoapDeviceDescription(
       host: host,
       port: port,
+      urlBase: text('URLBase'),
       friendlyName: text('friendlyName'),
       deviceType: text('deviceType'),
       udn: text('UDN'),
@@ -284,6 +323,50 @@ class SoapDeviceDescription {
       controlUrls[request.service] ?? request.path;
 }
 
+/// Where a `controlURL` from a device description actually points.
+///
+/// UDA 1.0 allows a service's `controlURL` to be an absolute URL, and
+/// Sony/Panasonic-era firmware writes them that way; it also allows a
+/// `URLBase` element that relative URLs resolve against. Treated as a bare
+/// path — which is what this client did — an absolute one became
+/// `http://<host>:<port>/http://<host>/control`, a URL the device answers
+/// with 404, reported to the user as the device refusing the command.
+///
+/// An absolute URL is honoured only when it names the device we are already
+/// talking to. A description that points its control endpoint at some OTHER
+/// host is either broken or someone else's business: the path is taken and
+/// the host is not, rather than POSTing a command — with whatever it carries
+/// — to an address the user never chose. (The same rule as the discovery
+/// path applies for the same reason.)
+Uri resolveControlUri({
+  required String host,
+  required int port,
+  required String controlUrl,
+  String? urlBase,
+}) {
+  final device = Uri(scheme: 'http', host: host, port: port, path: '/');
+  final base = (urlBase == null || urlBase.trim().isEmpty)
+      ? device
+      : (Uri.tryParse(urlBase.trim()) ?? device);
+  final resolved = base.hasScheme
+      ? base.resolve(controlUrl)
+      : device.resolve(controlUrl);
+  if (resolved.host.isEmpty) {
+    return device.resolve(controlUrl);
+  }
+  if (resolved.host != host) {
+    // Keep the path, drop the host it tried to send us to.
+    return Uri(
+      scheme: 'http',
+      host: host,
+      port: port,
+      path: resolved.path,
+      query: resolved.query.isEmpty ? null : resolved.query,
+    );
+  }
+  return resolved;
+}
+
 /// The transport failed: unreachable host, non-200, unparseable reply.
 class SoapTransportException implements Exception {
   final String message;
@@ -299,7 +382,8 @@ class SoapFaultException implements Exception {
   final String detail;
   const SoapFaultException({required this.action, required this.detail});
   @override
-  String toString() => 'SoapFaultException: $action was refused'
+  String toString() =>
+      'SoapFaultException: $action was refused'
       '${detail.isEmpty ? '' : ' ($detail)'}';
 }
 

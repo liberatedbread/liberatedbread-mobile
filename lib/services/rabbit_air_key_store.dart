@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import '../core/log.dart';
 import 'settings_store.dart';
 
 /// The per-device user key a Rabbit Air purifier's LAN protocol encrypts
@@ -32,10 +33,17 @@ class RabbitAirKeyStore {
   static bool isValidUserKey(String key) =>
       RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(key.trim());
 
-  Future<String?> userKey(String deviceId) => _store.read(_key(deviceId));
+  Future<String?> userKey(String deviceId) async {
+    final key = await _store.read(_key(deviceId));
+    Log.registerSecret(key);
+    return key;
+  }
 
-  Future<void> saveUserKey(String deviceId, String key) =>
-      _store.write(_key(deviceId), key.trim().toLowerCase());
+  Future<void> saveUserKey(String deviceId, String key) {
+    final normalised = key.trim().toLowerCase();
+    Log.registerSecret(normalised);
+    return _store.write(_key(deviceId), normalised);
+  }
 
   /// Every stored user key, for a caller that meets a purifier before it can
   /// learn which scope the key was filed under — the BLE control path, which

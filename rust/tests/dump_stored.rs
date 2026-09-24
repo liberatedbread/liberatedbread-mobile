@@ -77,6 +77,7 @@ fn dump_stored_picture_and_animation() {
     let red_2x2: Vec<u8> = vec![255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0];
     let pic = encode_stored_image(
         yaml.clone(),
+        None,
         2,
         2,
         red_2x2,
@@ -116,6 +117,7 @@ fn dump_stored_picture_and_animation() {
     let blue: Vec<u8> = vec![0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255];
     let anim = encode_stored_animation(
         yaml.clone(),
+        None,
         2,
         2,
         vec![red, green, blue],
@@ -269,6 +271,7 @@ fn solid_stills_are_byte_uniform_across_colours() {
     let container = |rgb: Vec<u8>| {
         let p = encode_stored_image(
             yaml.clone(),
+            None,
             20,
             20,
             rgb,

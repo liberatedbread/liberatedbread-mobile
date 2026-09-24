@@ -22,14 +22,14 @@ const _xmlFiles = <String, String>{
       'the Android manifest merger fails the build outright, naming no line',
   'ios/Runner/Info.plist':
       'Xcode cannot read the app\'s Info.plist, so the build fails and no '
-          'usage-description string reaches the OS',
+      'usage-description string reaches the OS',
   'ios/Runner/Runner.entitlements':
       'codesign cannot read the entitlements, so the iOS app ships without '
-          'the multicast entitlement and the Wi-Fi scan silently finds '
-          'nothing',
+      'the multicast entitlement and the Wi-Fi scan silently finds '
+      'nothing',
   'macos/Runner/Info.plist':
       'macOS cannot read the app\'s Info.plist, so no usage-description '
-          'string reaches the local-network and Bluetooth prompts',
+      'string reaches the local-network and Bluetooth prompts',
   'macos/Runner/DebugProfile.entitlements':
       'the debug macOS build loses its entitlements',
   'macos/Runner/Release.entitlements':
@@ -44,7 +44,8 @@ void main() {
         expect(
           xmlCommentsWithDoubleHyphen(source),
           isEmpty,
-          reason: 'XML forbids "--" inside a comment — it is the first half of '
+          reason:
+              'XML forbids "--" inside a comment — it is the first half of '
               'the comment terminator. Writing an em-dash as two hyphens in a '
               'prose comment is the usual cause. Consequence if shipped: '
               '$consequence.',
@@ -56,8 +57,9 @@ void main() {
         // tag is closed, and nothing closes that was never opened. Catches a
         // hand-edit that drops a `</array>` or a `/>`, which the attribute
         // reader in this directory would also happily ignore.
-        final source =
-            stripXmlComments(readRepoFile(path, consequence: consequence));
+        final source = stripXmlComments(
+          readRepoFile(path, consequence: consequence),
+        );
         final tags = RegExp(r'<(/?)([\w:.\-]+)([^>]*?)(/?)>')
             .allMatches(source)
             .where((m) => !m.group(2)!.startsWith('?'))
@@ -70,16 +72,25 @@ void main() {
           final name = tag.group(2)!;
           if (isSelfClosing) continue;
           if (isClosing) {
-            expect(stack, isNotEmpty,
-                reason: '$path: </$name> closes a tag that was never opened.');
-            expect(stack.removeLast(), name,
-                reason: '$path: </$name> does not close the innermost tag.');
+            expect(
+              stack,
+              isNotEmpty,
+              reason: '$path: </$name> closes a tag that was never opened.',
+            );
+            expect(
+              stack.removeLast(),
+              name,
+              reason: '$path: </$name> does not close the innermost tag.',
+            );
           } else {
             stack.add(name);
           }
         }
-        expect(stack, isEmpty,
-            reason: '$path: unclosed tag(s): ${stack.join(", ")}.');
+        expect(
+          stack,
+          isEmpty,
+          reason: '$path: unclosed tag(s): ${stack.join(", ")}.',
+        );
       });
     });
   });

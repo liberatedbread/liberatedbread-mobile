@@ -64,6 +64,12 @@
 #   LB_EMULATOR_ATTEMPTS               Attempt count (default 2). Set to 1 to
 #                                      reproduce a failure without waiting out
 #                                      a retry.
+#   LB_EMULATOR_KILL_GRACE             How long `timeout` waits after SIGTERM
+#                                      before SIGKILL (default 30s). A knob so
+#                                      scripts/ci-emulator-tests-selftest.sh
+#                                      can prove the escalation happens without
+#                                      spending half a minute per attempt
+#                                      doing it; CI uses the default.
 
 set -u
 
@@ -76,6 +82,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
 # check would ever run.
 : "${ANDROID_EMULATOR_ATTEMPT_TIMEOUT:?must be set in the top-level env block of ci.yml}"
 ATTEMPTS="${LB_EMULATOR_ATTEMPTS:-2}"
+KILL_GRACE="${LB_EMULATOR_KILL_GRACE:-30s}"
 
 # ci_all_test.dart, NOT the integration_test directory: every file handed to
 # `flutter test` on a device is its own kernel compile + native build + install
@@ -115,7 +122,18 @@ run_tests() {
   # swiftshader with two cores is slow. It cannot extend the load phase, whose
   # 12-minute limit is hardcoded in package:test_core's synthetic load suite;
   # keeping loading inside that limit is the warm-up build step's job.
-  timeout "$ANDROID_EMULATOR_ATTEMPT_TIMEOUT" \
+  #
+  # --kill-after is load-bearing, not tidiness. Plain `timeout` sends ONE
+  # SIGTERM and then waits forever for the process to go away — and the process
+  # this fires on is, by definition, one that has stopped behaving. A
+  # flutter_tools wedged on a VM service that never appeared can sit through
+  # the TERM, and then `timeout` never returns, the retry below never runs, and
+  # the job dies on its own timeout-minutes with no second attempt: exactly the
+  # outcome this script exists to prevent. TERM first so the tool can tear the
+  # app down, KILL $KILL_GRACE later if it will not. (GNU timeout signals the whole
+  # process group by default, so the reach was never the missing part — the
+  # escalation was.)
+  timeout --kill-after="$KILL_GRACE" "$ANDROID_EMULATOR_ATTEMPT_TIMEOUT" \
     flutter test "$TARGET" \
       --exclude-tags=e2e \
       --timeout 1200s \
@@ -147,10 +165,12 @@ while : ; do
     exit "$status"
   fi
 
-  # 124 is `timeout`'s "I killed it" code — i.e. the hang above, not a test
-  # that ran and reported failures. Worth naming, because the two look
-  # identical in the step log: both produce no Dart output at all.
-  if [ "$status" -eq 124 ]; then
+  # 124 is `timeout`'s "I killed it" code, and 137 (128+SIGKILL) is the same
+  # thing one escalation later: the TERM was ignored and --kill-after finished
+  # the job. Either way it is the hang above, not a test that ran and reported
+  # failures. Worth naming, because the two look identical in the step log:
+  # both produce no Dart output at all.
+  if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
     echo "::warning::Integration tests hit the ${ANDROID_EMULATOR_ATTEMPT_TIMEOUT} attempt timeout with no result — the known symptom of the app launching before the emulator settled. Retrying."
   else
     echo "::warning::Integration tests failed (exit ${status}). Retrying."

@@ -38,12 +38,51 @@ class _RecordingForwarder extends HaSensorForwarder {
   final Map<String, String> noted = {};
 
   _RecordingForwarder()
-      : super(api: FakeHaApiClient(), readConfig: () async => null);
+    : super(api: FakeHaApiClient(), readConfig: () async => null);
 
   @override
   void noteDeviceName(String deviceId, String name) {
     noted[deviceId] = name;
     super.noteDeviceName(deviceId, name);
+  }
+}
+
+/// [FakeBleService] that records every connect ATTEMPT, not just the ones that
+/// succeeded. `connectedIds` is written after the error is thrown, so with a
+/// failing connect it stays empty however many times the screen tries — and a
+/// retry test has nothing else to look at.
+class _CountingBleService extends FakeBleService {
+  _CountingBleService({super.connectError});
+
+  final List<String> connectAttempts = [];
+
+  @override
+  Future<void> connect(String deviceId) {
+    connectAttempts.add(deviceId);
+    return super.connect(deviceId);
+  }
+}
+
+/// A [FakeBleService] whose connects are held open, one completer per call,
+/// so a test can overlap two of the screen's connect attempts and choose
+/// which resolves first — and which of them fails.
+class _GatedBleService extends FakeBleService {
+  _GatedBleService({super.servicesToReturn});
+
+  /// One gate per connect() call, in call order. The test completes them.
+  final List<Completer<void>> gates = [];
+
+  /// Call indexes whose connect throws once its gate opens.
+  final Set<int> failAt = {};
+
+  @override
+  Future<void> connect(String deviceId) async {
+    final index = gates.length;
+    final gate = Completer<void>();
+    gates.add(gate);
+    await gate.future;
+    if (failAt.contains(index)) throw StateError('connect $index failed');
+    return super.connect(deviceId);
   }
 }
 
@@ -71,22 +110,26 @@ final _registry = NumberRegistry(
   addressBlocks: [
     RegistryTable.parse(_table({'B894D9': 'Texas Instruments'}), keyWidth: 6),
   ],
-  companyIds:
-      RegistryTable.parse(_table({'00961': 'Ember Technologies'}), keyWidth: 5),
-  serviceUuids:
-      RegistryTable.parse(_table({'180f': 'Battery Service'}), keyWidth: 4),
+  companyIds: RegistryTable.parse(
+    _table({'00961': 'Ember Technologies'}),
+    keyWidth: 5,
+  ),
+  serviceUuids: RegistryTable.parse(
+    _table({'180f': 'Battery Service'}),
+    keyWidth: 4,
+  ),
 );
 
 Widget _wrap(FakeBleService fake, {IoTDevice? device}) => ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(fake),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        // Without this the provider indexes the real vendored registry off
-        // rootBundle, so an assertion here would depend on IEEE's data.
-        numberRegistryProvider.overrideWith((ref) async => _registry),
-      ],
-      child: MaterialApp(home: DeviceScreen(device: device ?? _device)),
-    );
+  overrides: [
+    bleServiceProvider.overrideWithValue(fake),
+    sharedPreferencesProvider.overrideWithValue(_prefs),
+    // Without this the provider indexes the real vendored registry off
+    // rootBundle, so an assertion here would depend on IEEE's data.
+    numberRegistryProvider.overrideWith((ref) async => _registry),
+  ],
+  child: MaterialApp(home: DeviceScreen(device: device ?? _device)),
+);
 
 void main() {
   setUp(() async {
@@ -103,26 +146,33 @@ void main() {
   });
 
   testWidgets('renders services after discovery succeeds', (tester) async {
-    final fake = FakeBleService(servicesToReturn: const [
-      BleDiscoveredService(
-          uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
-    ]);
+    final fake = FakeBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
+      ],
+    );
     await tester.pumpWidget(_wrap(fake));
     await tester.pumpAndSettle();
 
     expect(find.text('Battery Service'), findsOneWidget);
   });
 
-  testWidgets('reports the device name to the HA forwarder on connect',
-      (tester) async {
+  testWidgets('reports the device name to the HA forwarder on connect', (
+    tester,
+  ) async {
     final forwarder = _RecordingForwarder();
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        haForwarderProvider.overrideWithValue(forwarder),
-      ],
-      child: MaterialApp(home: DeviceScreen(device: _device)),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(FakeBleService()),
+          haForwarderProvider.overrideWithValue(forwarder),
+        ],
+        child: MaterialApp(home: DeviceScreen(device: _device)),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(forwarder.noted, {'01': 'ACME_A'});
@@ -133,8 +183,10 @@ void main() {
     await tester.pumpWidget(_wrap(fake));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Could not connect to this device'),
-        findsOneWidget);
+    expect(
+      find.textContaining('Could not connect to this device'),
+      findsOneWidget,
+    );
     expect(find.textContaining('no BLE'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
     expect(find.text('Retry'), findsOneWidget);
@@ -142,29 +194,57 @@ void main() {
   });
 
   testWidgets('retry re-attempts connection', (tester) async {
-    final fake = FakeBleService(connectError: StateError('boom'));
+    // What this has to prove is that the tap reaches the SERVICE. It used to
+    // leave connectError sticky and then assert the error card was still on
+    // screen — which is the state the screen was already in, and is exactly
+    // what a Retry button wired to nothing at all would show. So: count the
+    // attempts, and then let the second one succeed, which no amount of
+    // rebuilding the error card can fake.
+    final fake = _CountingBleService(connectError: StateError('boom'));
     await tester.pumpWidget(_wrap(fake));
     await tester.pumpAndSettle();
+    expect(fake.connectAttempts, ['01']);
     expect(fake.connectedIds, isEmpty);
 
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
-    // Still errors (connectError is sticky) but we've attempted again.
-    expect(find.textContaining('Could not connect to this device'),
-        findsOneWidget);
+    // A second attempt was made, and it still failed, so the error state and
+    // the button are still there for a third.
+    expect(fake.connectAttempts, ['01', '01']);
+    expect(
+      find.textContaining('Could not connect to this device'),
+      findsOneWidget,
+    );
     expect(find.textContaining('Bad state'), findsNothing);
+
+    // And when the retry succeeds, the screen leaves the error state — the
+    // half of "re-attempts" that a sticky error can never show.
+    fake.connectError = null;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(fake.connectAttempts, ['01', '01', '01']);
+    expect(fake.connectedIds, ['01']);
+    expect(
+      find.textContaining('Could not connect to this device'),
+      findsNothing,
+    );
+    expect(find.text('Retry'), findsNothing);
   });
 
-  testWidgets('discovery failure disconnects the half-open peripheral',
-      (tester) async {
+  testWidgets('discovery failure disconnects the half-open peripheral', (
+    tester,
+  ) async {
     final fake = FakeBleService(discoverError: StateError('gatt fail'));
     await tester.pumpWidget(_wrap(fake));
     await tester.pumpAndSettle();
 
     // Error surfaced — as guidance, not as the raw GATT exception...
-    expect(find.textContaining('Could not connect to this device'),
-        findsOneWidget);
+    expect(
+      find.textContaining('Could not connect to this device'),
+      findsOneWidget,
+    );
     expect(find.textContaining('gatt fail'), findsNothing);
     expect(find.textContaining('Bad state'), findsNothing);
     expect(find.text('Retry'), findsOneWidget);
@@ -174,8 +254,9 @@ void main() {
     expect(fake.disconnectedIds, ['01']);
   });
 
-  testWidgets('unmount during pending connect still disconnects (no leak)',
-      (tester) async {
+  testWidgets('unmount during pending connect still disconnects (no leak)', (
+    tester,
+  ) async {
     // Hold connect() in flight so we can dispose the screen mid-connect.
     final connectGate = Completer<void>();
     final fake = FakeBleService(connectGate: connectGate);
@@ -188,8 +269,9 @@ void main() {
     // Deterministically unmount the DeviceScreen (dispose() runs synchronously
     // during this pump) while connect() is still in flight. The peripheral
     // isn't connected yet, so nothing should be disconnected at this point.
-    await tester
-        .pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SizedBox())),
+    );
     expect(fake.events, isEmpty);
 
     // Now let connect() resolve. The (unmounted) _connect() must tear down the
@@ -204,12 +286,71 @@ void main() {
     expect(fake.events, ['connect:01', 'disconnect:01']);
   });
 
-  testWidgets('Find device opens the find screen for the connected device',
-      (tester) async {
+  testWidgets('a stale connect attempt cannot tear down the newer link', (
+    tester,
+  ) async {
+    // R-084. Nothing stopped two _connect() calls from overlapping, and the
+    // older one carried on as though it owned the screen: its catch called
+    // _cleanupConnection(), which disconnected the peripheral the NEWER
+    // attempt had just connected, and then painted "Could not connect to
+    // this device" over a screen that was working.
+    final fake = _GatedBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
+      ],
+    );
+    fake.failAt.addAll({0, 1});
+
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump();
+    // The opening attempt fails, leaving the error state and its buttons.
+    fake.gates[0].complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
+
+    // Two taps before the rebuild greys the button out: attempt 1 (which
+    // will fail) and attempt 2 (which will not). This is the race — two
+    // live attempts against one peripheral.
+    await tester.tap(find.text('Retry'));
+    await tester.tap(find.text('Retry'), warnIfMissed: false);
+    await tester.pump();
+    expect(fake.gates, hasLength(3));
+
+    // The newer attempt lands first and takes the screen to ready.
+    fake.gates[2].complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Battery Service'), findsOneWidget);
+    expect(fake.connectedIds, ['01']);
+
+    // Now the stale attempt fails. It must do nothing at all.
+    fake.gates[1].complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Could not connect to this device'),
+      findsNothing,
+      reason: 'a superseded attempt does not own the error state',
+    );
+    expect(find.text('Battery Service'), findsOneWidget);
+    expect(
+      fake.disconnectedIds,
+      isEmpty,
+      reason: 'the live link belongs to the newer attempt',
+    );
+  });
+
+  testWidgets('Find device opens the find screen for the connected device', (
+    tester,
+  ) async {
     final fake = FakeBleService(
       servicesToReturn: const [
         BleDiscoveredService(
-            uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
       ],
       rssiValues: const [-58],
     );
@@ -232,8 +373,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets(
-      'the failed state offers Try to find, and it lands in the find '
+  testWidgets('the failed state offers Try to find, and it lands in the find '
       'screen once the connect succeeds', (tester) async {
     // A failed connect usually MEANS out of range or powered off — "where is
     // it?" is the question that state poses, so the find affordance belongs
@@ -255,8 +395,7 @@ void main() {
     expect(find.byType(FindDeviceScreen), findsOneWidget);
   });
 
-  testWidgets(
-      'a failed Try to find stays on the error state, and a later '
+  testWidgets('a failed Try to find stays on the error state, and a later '
       'plain Retry does not surprise-open the find screen', (tester) async {
     final fake = FakeBleService(connectError: StateError('still out of range'));
     await tester.pumpWidget(_wrap(fake));
@@ -274,8 +413,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(FindDeviceScreen), findsNothing);
-    expect(find.text('Find device'), findsOneWidget,
-        reason: 'the ready header, with its usual find button');
+    expect(
+      find.text('Find device'),
+      findsOneWidget,
+      reason: 'the ready header, with its usual find button',
+    );
   });
 
   testWidgets('the disconnected state offers Try to find too', (tester) async {
@@ -296,14 +438,17 @@ void main() {
     expect(find.byType(FindDeviceScreen), findsOneWidget);
   });
 
-  testWidgets('an unexpected disconnect flips to the reconnect state',
-      (tester) async {
+  testWidgets('an unexpected disconnect flips to the reconnect state', (
+    tester,
+  ) async {
     final conn = StreamController<BleConnectionState>.broadcast();
     addTearDown(conn.close);
     final fake = FakeBleService(
       servicesToReturn: const [
         BleDiscoveredService(
-            uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
       ],
       connectionStateStream: conn.stream,
     );
@@ -322,40 +467,48 @@ void main() {
     expect(find.text('Battery Service'), findsNothing);
   });
 
-  testWidgets('Disconnect tears down the link and returns to the listing',
-      (tester) async {
+  testWidgets('Disconnect tears down the link and returns to the listing', (
+    tester,
+  ) async {
     // The deliberate counterpart to the unexpected-disconnect test above: a
     // chosen disconnect means "done with this device", so it pops back to the
     // listing the screen was pushed from instead of parking on the reconnect
     // state. Mounted behind a pushable route — the way scan_screen and
     // saved_devices_screen actually open it — so the pop has somewhere to land.
-    final fake = FakeBleService(servicesToReturn: const [
-      BleDiscoveredService(
-          uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
-    ]);
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(fake),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        numberRegistryProvider.overrideWith((ref) async => _registry),
+    final fake = FakeBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
       ],
-      child: MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: ElevatedButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                      builder: (_) => DeviceScreen(device: _device)),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(fake),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          numberRegistryProvider.overrideWith((ref) async => _registry),
+        ],
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => DeviceScreen(device: _device),
+                    ),
+                  ),
+                  child: const Text('The listing'),
                 ),
-                child: const Text('The listing'),
               ),
             ),
           ),
         ),
       ),
-    ));
+    );
 
     await tester.tap(find.text('The listing'));
     await tester.pumpAndSettle();
@@ -371,29 +524,130 @@ void main() {
     expect(find.text('The listing'), findsOneWidget);
   });
 
+  testWidgets(
+    'a second Disconnect tap while the first is tearing down does not pop the listing',
+    (tester) async {
+      // The deliberate counterpart to the unexpected-disconnect test above: a
+      // chosen disconnect means "done with this device", so it pops back to the
+      // listing the screen was pushed from instead of parking on the reconnect
+      // state. Mounted behind a pushable route — the way scan_screen and
+      // saved_devices_screen actually open it — so the pop has somewhere to land.
+      final fake = _GatedDisconnectFakeBleService(
+        servicesToReturn: const [
+          BleDiscoveredService(
+            uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+            characteristics: [],
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+            numberRegistryProvider.overrideWith((ref) async => _registry),
+          ],
+          child: MaterialApp(
+            // Three routes deep ON PURPOSE. With the device screen pushed
+            // straight over the root, Navigator.canPop() alone refuses the
+            // second pop and the latch under test is never what saves the
+            // listing — which is how this test stayed green with the latch
+            // deleted. Here the listing sits over a home route, so a second
+            // pop has somewhere to go.
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (context) => Scaffold(
+                          body: Center(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) => DeviceScreen(device: _device),
+                                ),
+                              ),
+                              child: const Text('The listing'),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    child: const Text('Home'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Home'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('The listing'));
+      await tester.pumpAndSettle();
+      expect(find.text('Battery Service'), findsOneWidget);
+
+      // Two taps before the first one's teardown finishes: the second used to
+      // pop again after the screen was gone, taking the listing (the root
+      // route) with it and leaving an empty Navigator.
+      // The first tap starts a teardown the fake HOLDS, so the route is still
+      // up and pointer-live when the second tap arrives. The old version let
+      // the fake's disconnect complete in a microtask: after `pump()` the
+      // route was already animating out under IgnorePointer, the second tap
+      // hit nothing, and the assertions held with the `_leaving` latch
+      // deleted — the double-pop regression shipped green.
+      await tester.tap(find.text('Disconnect'));
+      await tester.pump();
+      expect(find.byType(DeviceScreen), findsOneWidget);
+      await tester.tap(find.text('Disconnect'));
+      await tester.pump();
+      fake.release();
+      await tester.pumpAndSettle();
+
+      // The link was actually dropped (exactly once), and we are back on the
+      // listing route rather than a "Device disconnected" dead end.
+      expect(fake.disconnectedIds, ['01']);
+      expect(find.byType(DeviceScreen), findsNothing);
+      expect(
+        find.text('The listing'),
+        findsOneWidget,
+        reason: 'a second pop takes the listing with it',
+      );
+      expect(find.text('Home'), findsNothing);
+    },
+  );
+
   group('identity rows', () {
     IoTDevice deviceWith({
       String id = 'B8:94:D9:11:22:33',
       List<int> companyIds = const [],
-    }) =>
-        IoTDevice(
-          id: id,
-          name: 'ACME_A',
-          rssi: -40,
-          isConnectable: true,
-          discoveredAt: DateTime(2026),
-          companyIds: companyIds,
-        );
+    }) => IoTDevice(
+      id: id,
+      name: 'ACME_A',
+      rssi: -40,
+      isConnectable: true,
+      discoveredAt: DateTime(2026),
+      companyIds: companyIds,
+    );
 
     Future<void> pumpReady(WidgetTester tester, IoTDevice device) async {
-      await tester.pumpWidget(_wrap(
-        FakeBleService(servicesToReturn: const [
-          BleDiscoveredService(
-              uuid: '0000180f-0000-1000-8000-00805f9b34fb',
-              characteristics: []),
-        ]),
-        device: device,
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          FakeBleService(
+            servicesToReturn: const [
+              BleDiscoveredService(
+                uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+                characteristics: [],
+              ),
+            ],
+          ),
+          device: device,
+        ),
+      );
       await tester.pumpAndSettle();
     }
 
@@ -406,8 +660,9 @@ void main() {
       expect(find.text('Texas Instruments'), findsOneWidget);
     });
 
-    testWidgets('keeps the advertised company distinct from the block',
-        (tester) async {
+    testWidgets('keeps the advertised company distinct from the block', (
+      tester,
+    ) async {
       // The Caseta bridge in miniature: the address block is the radio
       // module's vendor and the company ID is the product's. Collapsing them
       // into one "manufacturer" line would report Texas Instruments as the
@@ -427,22 +682,26 @@ void main() {
       expect(find.text('Address block'), findsNothing);
     });
 
-    testWidgets('a CoreBluetooth UUID is not offered as an address',
-        (tester) async {
+    testWidgets('a CoreBluetooth UUID is not offered as an address', (
+      tester,
+    ) async {
       // Apple platforms substitute a per-host UUID for the hardware address.
       // It is not a MAC, so there is no block to look up and nothing to show —
       // printing the UUID under "Address" would invite a registry lookup that
       // can only ever be wrong.
       await pumpReady(
-          tester, deviceWith(id: 'C47C8DAB-1234-5678-9ABC-DEF012345678'));
+        tester,
+        deviceWith(id: 'C47C8DAB-1234-5678-9ABC-DEF012345678'),
+      );
 
       expect(find.text('Address'), findsNothing);
       expect(find.text('Address block'), findsNothing);
     });
   });
 
-  testWidgets('a resolved spec match lands on the saved-device record',
-      (tester) async {
+  testWidgets('a resolved spec match lands on the saved-device record', (
+    tester,
+  ) async {
     final matched = DeviceSpecDto(
       nameMatchers: const [],
       platformFallbackTypes: const [],
@@ -464,20 +723,28 @@ void main() {
       services: const [],
       entities: const [],
     );
-    final fake = FakeBleService(servicesToReturn: const [
-      BleDiscoveredService(
-          uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
-    ]);
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(fake),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        numberRegistryProvider.overrideWith((ref) async => _registry),
-        matchedDeviceSpecProvider.overrideWith((ref, request) async =>
-            SpecMatchOutcome.auto(MatchedSpec(spec: matched, yaml: 'yaml'))),
+    final fake = FakeBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+          characteristics: [],
+        ),
       ],
-      child: MaterialApp(home: DeviceScreen(device: _device)),
-    ));
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(fake),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          numberRegistryProvider.overrideWith((ref) async => _registry),
+          matchedDeviceSpecProvider.overrideWith(
+            (ref, request) async =>
+                SpecMatchOutcome.auto(MatchedSpec(spec: matched, yaml: 'yaml')),
+          ),
+        ],
+        child: MaterialApp(home: DeviceScreen(device: _device)),
+      ),
+    );
     await tester.pumpAndSettle();
 
     final element = tester.element(find.byType(DeviceScreen));
@@ -490,143 +757,159 @@ void main() {
   });
 
   testWidgets(
-      'a matched spec with a safety advisory wraps the controls in the gate',
-      (tester) async {
-    // The IPL wiring: when the resolved spec declares a safety_advisory, the
-    // control panel is wrapped in SafetyAdvisoryGate — and with
-    // acknowledge_required and no stored acknowledgement, the controls stay
-    // behind the consent step.
-    final matched = DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Zappy IPL',
-      manufacturer: 'Acme',
-      manufacturerStatus: 'active',
-      protocol: 'ble',
-      category: 'personal_care',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      services: const [],
-      entities: const [],
-      safetyAdvisory: const SafetyAdvisoryDto(
-        severity: 'danger',
-        summary: 'Intense light pulses can permanently burn skin.',
-        acknowledgeRequired: true,
-      ),
-    );
-    final fake = FakeBleService(servicesToReturn: const [
-      BleDiscoveredService(
-          uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
-    ]);
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(fake),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        numberRegistryProvider.overrideWith((ref) async => _registry),
-        matchedDeviceSpecProvider.overrideWith((ref, request) async =>
-            SpecMatchOutcome.auto(MatchedSpec(spec: matched, yaml: 'yaml'))),
-      ],
-      child: MaterialApp(home: DeviceScreen(device: _device)),
-    ));
-    await tester.pumpAndSettle();
+    'a matched spec with a safety advisory wraps the controls in the gate',
+    (tester) async {
+      // The IPL wiring: when the resolved spec declares a safety_advisory, the
+      // control panel is wrapped in SafetyAdvisoryGate — and with
+      // acknowledge_required and no stored acknowledgement, the controls stay
+      // behind the consent step.
+      final matched = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'Zappy IPL',
+        manufacturer: 'Acme',
+        manufacturerStatus: 'active',
+        protocol: 'ble',
+        category: 'personal_care',
+        localNamePrefixes: const [],
+        localNames: const [],
+        serviceUuids: const [],
+        companyIds: Uint16List(0),
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        services: const [],
+        entities: const [],
+        safetyAdvisory: const SafetyAdvisoryDto(
+          severity: 'danger',
+          summary: 'Intense light pulses can permanently burn skin.',
+          acknowledgeRequired: true,
+        ),
+      );
+      final fake = FakeBleService(
+        servicesToReturn: const [
+          BleDiscoveredService(
+            uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+            characteristics: [],
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+            numberRegistryProvider.overrideWith((ref) async => _registry),
+            matchedDeviceSpecProvider.overrideWith(
+              (ref, request) async => SpecMatchOutcome.auto(
+                MatchedSpec(spec: matched, yaml: 'yaml'),
+              ),
+            ),
+          ],
+          child: MaterialApp(home: DeviceScreen(device: _device)),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.byType(SafetyAdvisoryGate), findsOneWidget);
-    expect(find.text('Safety warning'), findsOneWidget);
-    // acknowledge_required + nothing stored: the consent step gates the panel.
-    expect(find.textContaining('I understand'), findsOneWidget);
-  });
+      expect(find.byType(SafetyAdvisoryGate), findsOneWidget);
+      expect(find.text('Safety warning'), findsOneWidget);
+      // acknowledge_required + nothing stored: the consent step gates the panel.
+      expect(find.textContaining('I understand'), findsOneWidget);
+    },
+  );
 
   testWidgets(
-      'a failed connect offers "How to connect" when the catalogue names the '
-      'device, and it opens the setup screen', (tester) async {
-    final specSpec = DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Ember Mug',
-      manufacturer: 'Ember',
-      manufacturerStatus: 'active',
-      protocol: 'ble',
-      category: 'appliance',
-      localNamePrefixes: const ['Ember'],
-      localNames: const [],
-      serviceUuids: const [],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      services: const [],
-      entities: const [],
-    );
-    final codec = FakeSpecCodec(
-      spec: specSpec,
-      scanMatches: (_) => [
-        ScanMatch(
-          specIndex: 0,
-          deviceName: 'Ember Mug',
-          manufacturer: 'Ember',
-          category: 'appliance',
-          pictogram: null,
-          integration: null,
-          securityAdvisory: null,
-          confidence: MatchConfidence.strong,
-          matchedByNamePrefix: true,
-          matchedServiceUuids: const [],
-          matchedCompanyIds: Uint16List(0),
-          matchedMacPrefix: null,
-          matchedServiceTypes: const [],
+    'a failed connect offers "How to connect" when the catalogue names the '
+    'device, and it opens the setup screen',
+    (tester) async {
+      final specSpec = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'Ember Mug',
+        manufacturer: 'Ember',
+        manufacturerStatus: 'active',
+        protocol: 'ble',
+        category: 'appliance',
+        localNamePrefixes: const ['Ember'],
+        localNames: const [],
+        serviceUuids: const [],
+        companyIds: Uint16List(0),
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        services: const [],
+        entities: const [],
+      );
+      final codec =
+          FakeSpecCodec(
+              spec: specSpec,
+              scanMatches: (_) => [
+                ScanMatch(
+                  specIndex: 0,
+                  deviceName: 'Ember Mug',
+                  manufacturer: 'Ember',
+                  category: 'appliance',
+                  pictogram: null,
+                  integration: null,
+                  securityAdvisory: null,
+                  confidence: MatchConfidence.strong,
+                  matchedByNamePrefix: true,
+                  matchedServiceUuids: const [],
+                  matchedCompanyIds: Uint16List(0),
+                  matchedMacPrefix: null,
+                  matchedServiceTypes: const [],
+                ),
+              ],
+            )
+            ..setupInstructionsFor = (_) => const SetupInstructionsDto(
+              notes: null,
+              methods: [],
+              factoryReset: null,
+              rejoin: RejoinDto(
+                inPlaceSupported: true,
+                requiresFactoryReset: false,
+                notes: 'Close the other client that is holding the connection.',
+              ),
+            );
+
+      final fake = FakeBleService(connectError: StateError('out of range'));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+            numberRegistryProvider.overrideWith((ref) async => _registry),
+            specCodecProvider.overrideWithValue(codec),
+            deviceSpecsProvider.overrideWith(
+              (ref) => {'ember.yaml': 'ember-yaml'},
+            ),
+          ],
+          child: MaterialApp(home: DeviceScreen(device: _device)),
         ),
-      ],
-    )..setupInstructionsFor = (_) => const SetupInstructionsDto(
-          notes: null,
-          methods: [],
-          factoryReset: null,
-          rejoin: RejoinDto(
-            inPlaceSupported: true,
-            requiresFactoryReset: false,
-            notes: 'Close the other client that is holding the connection.',
-          ),
-        );
+      );
+      await tester.pumpAndSettle();
 
-    final fake = FakeBleService(connectError: StateError('out of range'));
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(fake),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        numberRegistryProvider.overrideWith((ref) async => _registry),
-        specCodecProvider.overrideWithValue(codec),
-        deviceSpecsProvider.overrideWith((ref) => {'ember.yaml': 'ember-yaml'}),
-      ],
-      child: MaterialApp(home: DeviceScreen(device: _device)),
-    ));
-    await tester.pumpAndSettle();
+      expect(find.text('Connection failed'), findsNWidgets(2));
+      final howTo = find.text('How to connect');
+      expect(howTo, findsOneWidget);
 
-    expect(find.text('Connection failed'), findsNWidgets(2));
-    final howTo = find.text('How to connect');
-    expect(howTo, findsOneWidget);
+      await tester.tap(howTo);
+      await tester.pumpAndSettle();
 
-    await tester.tap(howTo);
-    await tester.pumpAndSettle();
+      expect(find.byType(SetupInstructionsScreen), findsOneWidget);
+      expect(find.textContaining('Close the other client'), findsOneWidget);
+    },
+  );
 
-    expect(find.byType(SetupInstructionsScreen), findsOneWidget);
-    expect(
-      find.textContaining('Close the other client'),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('a failed connect hides "How to connect" when nothing matches',
-      (tester) async {
+  testWidgets('a failed connect hides "How to connect" when nothing matches', (
+    tester,
+  ) async {
     final codec = FakeSpecCodec(
       spec: DeviceSpecDto(
         nameMatchers: const [],
@@ -652,16 +935,18 @@ void main() {
     );
 
     final fake = FakeBleService(connectError: StateError('out of range'));
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(fake),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        numberRegistryProvider.overrideWith((ref) async => _registry),
-        specCodecProvider.overrideWithValue(codec),
-        deviceSpecsProvider.overrideWith((ref) => {'x.yaml': 'x-yaml'}),
-      ],
-      child: MaterialApp(home: DeviceScreen(device: _device)),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(fake),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          numberRegistryProvider.overrideWith((ref) async => _registry),
+          specCodecProvider.overrideWithValue(codec),
+          deviceSpecsProvider.overrideWith((ref) => {'x.yaml': 'x-yaml'}),
+        ],
+        child: MaterialApp(home: DeviceScreen(device: _device)),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Connection failed'), findsNWidgets(2));
@@ -703,23 +988,28 @@ void main() {
     /// test asserts the way IN, not the conversation.
     RabbitAirProvisionService quietService() => _QuietProvisionService();
 
-    testWidgets(
-        'a RabbitAirSetup device gets a Set up Wi-Fi card that opens '
+    testWidgets('a RabbitAirSetup device gets a Set up Wi-Fi card that opens '
         'the setup flow', (tester) async {
-      final fake = FakeBleService(servicesToReturn: const [
-        BleDiscoveredService(
-            uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
-      ]);
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          bleServiceProvider.overrideWithValue(fake),
-          sharedPreferencesProvider.overrideWithValue(_prefs),
-          numberRegistryProvider.overrideWith((ref) async => _registry),
-          rabbitAirProvisionServiceProvider.overrideWithValue(quietService()),
-          ...catalogueOverrides,
+      final fake = FakeBleService(
+        servicesToReturn: const [
+          BleDiscoveredService(
+            uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+            characteristics: [],
+          ),
         ],
-        child: MaterialApp(home: DeviceScreen(device: setupDevice)),
-      ));
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+            numberRegistryProvider.overrideWith((ref) async => _registry),
+            rabbitAirProvisionServiceProvider.overrideWithValue(quietService()),
+            ...catalogueOverrides,
+          ],
+          child: MaterialApp(home: DeviceScreen(device: setupDevice)),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Finish setting up this purifier'), findsOneWidget);
@@ -735,8 +1025,9 @@ void main() {
       expect(find.text('Find the purifier'), findsNothing);
     });
 
-    testWidgets('a provisioned purifier (plain "RabbitAir") gets no card',
-        (tester) async {
+    testWidgets('a provisioned purifier (plain "RabbitAir") gets no card', (
+      tester,
+    ) async {
       final provisioned = IoTDevice(
         id: '08',
         name: 'RabbitAir',
@@ -744,26 +1035,156 @@ void main() {
         isConnectable: true,
         discoveredAt: DateTime(2026),
       );
-      final fake = FakeBleService(servicesToReturn: const [
-        BleDiscoveredService(
-            uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
-      ]);
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          bleServiceProvider.overrideWithValue(fake),
-          sharedPreferencesProvider.overrideWithValue(_prefs),
-          numberRegistryProvider.overrideWith((ref) async => _registry),
-          rabbitAirProvisionServiceProvider.overrideWithValue(quietService()),
-          ...catalogueOverrides,
+      final fake = FakeBleService(
+        servicesToReturn: const [
+          BleDiscoveredService(
+            uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+            characteristics: [],
+          ),
         ],
-        child: MaterialApp(home: DeviceScreen(device: provisioned)),
-      ));
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+            numberRegistryProvider.overrideWith((ref) async => _registry),
+            rabbitAirProvisionServiceProvider.overrideWithValue(quietService()),
+            ...catalogueOverrides,
+          ],
+          child: MaterialApp(home: DeviceScreen(device: provisioned)),
+        ),
+      );
       await tester.pumpAndSettle();
 
       // The catalogue IS installed here — a plain "RabbitAir" is simply not a
       // setup-mode name, which is the distinction under test.
       expect(find.text('Finish setting up this purifier'), findsNothing);
       expect(find.text('Set up Wi-Fi'), findsNothing);
+    });
+  });
+  // F-016 / F-018: the full-screen connecting and failed states were bare
+  // centred Columns with no SafeArea. In landscape (declared for iPhone) the
+  // body is ~300 pt tall and those stacks need ~400, so Retry and "Try to
+  // find device" were pushed off-screen; at an accessibility text size the
+  // same happened in portrait; and the padding sat under the notch.
+  group('small surfaces', () {
+    Widget wrapAt(
+      FakeBleService fake, {
+      EdgeInsets padding = EdgeInsets.zero,
+      double textScale = 1.0,
+    }) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
+      ],
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              padding: padding,
+              textScaler: TextScaler.linear(textScale),
+            ),
+            child: DeviceScreen(device: _device),
+          ),
+        ),
+      ),
+    );
+
+    void surface(WidgetTester tester, Size size) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    const landscape = Size(667, 375);
+    const portrait = Size(375, 667);
+
+    // The gate is never released, so the screen stays on its connecting
+    // state for the whole test instead of racing the fake's instant connect.
+    testWidgets('the connecting state does not overflow in landscape', (
+      tester,
+    ) async {
+      surface(tester, landscape);
+      await tester.pumpWidget(
+        wrapAt(FakeBleService(connectGate: Completer<void>())),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('Connecting...'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the connecting steps do not overflow at 3x text', (
+      tester,
+    ) async {
+      surface(tester, portrait);
+      await tester.pumpWidget(
+        wrapAt(FakeBleService(connectGate: Completer<void>()), textScale: 3.0),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('Discovering services'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the failed state scrolls in landscape, keeping every action '
+        'reachable', (tester) async {
+      surface(tester, landscape);
+      await tester.pumpWidget(
+        wrapAt(FakeBleService(connectError: StateError('out of range'))),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Try to find device'), findsOneWidget);
+      // The quietest action sits at the bottom; scrolling to it must work,
+      // and tapping Retry afterwards must still land.
+      await tester.ensureVisible(find.text('Try to find device'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Retry'));
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Retry'), findsOneWidget);
+    });
+
+    testWidgets('the failed state does not overflow at 3x text in portrait', (
+      tester,
+    ) async {
+      surface(tester, portrait);
+      await tester.pumpWidget(
+        wrapAt(
+          FakeBleService(connectError: StateError('out of range')),
+          textScale: 3.0,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      await tester.ensureVisible(find.text('Try to find device'));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the body is inset from the notch side and the home '
+        'indicator', (tester) async {
+      surface(tester, landscape);
+      await tester.pumpWidget(
+        wrapAt(
+          FakeBleService(connectError: StateError('out of range')),
+          padding: const EdgeInsets.only(left: 59, bottom: 34),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final body = tester.getRect(find.byType(SingleChildScrollView));
+      // Centred within the 608 pt right of the notch inset, not the full
+      // 667 — which is where it sat without the SafeArea.
+      expect(body.center.dx, closeTo(59 + (667 - 59) / 2, 1));
+      // And it stops above the home indicator rather than running under it.
+      expect(body.bottom, closeTo(375 - 34, 1));
     });
   });
 }
@@ -798,11 +1219,11 @@ final _rabbitAirSpec = DeviceSpecDto(
 /// begin() with a held "connecting" state, never touches the radio.
 class _QuietProvisionService extends RabbitAirProvisionService {
   _QuietProvisionService()
-      : super(
-          codec: FakeSpecCodec(),
-          keyStore: RabbitAirKeyStore(InMemorySettingsStore()),
-          linkFactory: () => throw UnimplementedError('no link in this fake'),
-        );
+    : super(
+        codec: FakeSpecCodec(),
+        keyStore: RabbitAirKeyStore(InMemorySettingsStore()),
+        linkFactory: () => throw UnimplementedError('no link in this fake'),
+      );
 
   @override
   Future<void> begin(String deviceId) async {
@@ -815,4 +1236,24 @@ class _QuietProvisionService extends RabbitAirProvisionService {
     required String passphrase,
     required int security,
   }) async {}
+}
+
+/// A [FakeBleService] whose [disconnect] waits for [release], so a test can
+/// land a second tap while the first teardown is still in flight — the only
+/// window in which the screen's `_leaving` latch has anything to do.
+class _GatedDisconnectFakeBleService extends FakeBleService {
+  Completer<void>? _gate = Completer<void>();
+
+  _GatedDisconnectFakeBleService({super.servicesToReturn});
+
+  void release() {
+    _gate?.complete();
+    _gate = null;
+  }
+
+  @override
+  Future<void> disconnect(String deviceId) async {
+    await _gate?.future;
+    return super.disconnect(deviceId);
+  }
 }

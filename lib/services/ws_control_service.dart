@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../core/constants.dart';
 import '../core/error_text.dart';
@@ -41,12 +42,28 @@ abstract class WsSocket {
 }
 
 /// Opens one socket. Injected so a test answers from canned frames.
-typedef WsConnect = Future<WsSocket> Function(
-  String url,
-  Map<String, String> headers,
-);
+typedef WsConnect =
+    Future<WsSocket> Function(String url, Map<String, String> headers);
 
 /// The socket could not be opened, or the device hung up.
+/// A WebSocket URL with its query string removed, for messages and logs.
+///
+/// Samsung's pairing token travels as a query parameter of the socket URL,
+/// and the three connection failures below used to quote the whole URL into
+/// a WsConnectionException — which the screen shows and the info log keeps.
+String redactUrl(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return '<url>';
+  if (!uri.hasQuery) return uri.toString();
+  final bare = Uri(
+    scheme: uri.scheme,
+    host: uri.host,
+    port: uri.hasPort ? uri.port : null,
+    path: uri.path,
+  );
+  return '$bare?…';
+}
+
 class WsConnectionException implements UserFacingException {
   @override
   final String message;
@@ -89,7 +106,7 @@ WsConnect _connectorFor(WebSocketSurfaceDto surface) {
   return (String url, Map<String, String> headers) async {
     final client = HttpClient();
     if (permissive) {
-      client.badCertificateCallback = (_, __, ___) => true;
+      client.badCertificateCallback = (_, _, _) => true;
     }
     try {
       // ignore: close_sinks — ownership passes to the session, which closes it.
@@ -101,14 +118,19 @@ WsConnect _connectorFor(WebSocketSurfaceDto surface) {
       return _RealWsSocket(socket, client);
     } on SocketException catch (e) {
       client.close(force: true);
-      throw WsConnectionException('Could not reach $url — ${e.message}');
+      throw WsConnectionException(
+        'Could not reach ${redactUrl(url)} — ${e.message}',
+      );
     } on WebSocketException catch (e) {
       client.close(force: true);
       throw WsConnectionException(
-          '$url refused the WebSocket upgrade — ${e.message}');
+        '${redactUrl(url)} refused the WebSocket upgrade — ${e.message}',
+      );
     } on HandshakeException catch (e) {
       client.close(force: true);
-      throw WsConnectionException('The TLS handshake with $url failed ($e).');
+      throw WsConnectionException(
+        'The TLS handshake with ${redactUrl(url)} failed ($e).',
+      );
     }
   };
 }
@@ -166,7 +188,20 @@ class WsSession {
   /// a runtime socket share ONE open instead of each opening their own and
   /// leaking whichever lost the map write.
   final _channelOpening = <String, Future<WsSocket>>{};
-  final _channelSubscriptions = <StreamSubscription<dynamic>>[];
+
+  /// The drain subscription per channel socket, keyed like [_channelSockets].
+  ///
+  /// A list here grew one dead entry per idle-close and reopen: the set drops
+  /// an idle button socket, the next press opens another, and the old
+  /// subscription stayed in the list for the session's life. Keyed by channel,
+  /// the reopen replaces its own.
+  final _channelSubscriptions = <String, StreamSubscription<dynamic>>{};
+
+  /// How many channel drains are live. A leak here is invisible from the
+  /// outside — the session keeps working — so the count is the only way a
+  /// test can hold it to one per channel.
+  @visibleForTesting
+  int get debugChannelDrainCount => _channelSubscriptions.length;
 
   var _requestId = 0;
 
@@ -177,19 +212,23 @@ class WsSession {
   /// pressing accept.
   static const pairingTimeout = Duration(seconds: 60);
 
+  /// The pairing wait in flight, so [close] can end it.
+  ///
+  /// Pairing waits a full minute for the user to accept the prompt on the
+  /// device. Closing the session in the meantime — the user leaving the
+  /// screen — left that minute running and then reported "the device never
+  /// authorised this app", an accusation about a device that was never asked.
+  Completer<String>? _pairingWait;
+
   WsSession({
-    required SpecCodec codec,
-    required String specYaml,
-    required String host,
+    required this._codec,
+    required this._specYaml,
+    required this._host,
     required WebSocketSurfaceDto surface,
-    String? credential,
+    this._credential,
     WsConnect? connect,
-  })  : _codec = codec,
-        _specYaml = specYaml,
-        _host = host,
-        _surface = surface,
-        _credential = credential,
-        _connect = connect ?? _connectorFor(surface);
+  }) : _surface = surface,
+       _connect = connect ?? _connectorFor(surface);
 
   bool get isConnected => _socket != null;
 
@@ -218,14 +257,29 @@ class WsSession {
     Object? lastFailure;
     for (final (port, scheme, path) in addresses) {
       try {
-        _socket = await _connect(
-          '$scheme://$_host:$port${_fillPath(path)}',
-          {for (final h in _surface.headers) h.name: h.value},
-        ).timeout(connectTimeout);
+        final pending = _connect('$scheme://$_host:$port${_fillPath(path)}', {
+          for (final h in _surface.headers) h.name: h.value,
+        });
+        // The timeout abandons the future, it does not cancel the connect —
+        // so a set that answers on the eleventh second hands back a live
+        // socket with nobody holding it: never listened to, never closed, and
+        // with it the HttpClient underneath. Close whatever turns up late.
+        _socket = await pending.timeout(
+          connectTimeout,
+          onTimeout: () {
+            unawaited(
+              pending
+                  .then((late) => late.close())
+                  .catchError((Object _) => null),
+            );
+            throw TimeoutException('ws connect', connectTimeout);
+          },
+        );
         break;
       } on TimeoutException catch (e) {
         lastFailure = WsConnectionException(
-            '$_host:$port did not answer within ${connectTimeout.inSeconds}s.');
+          '$_host:$port did not answer within ${connectTimeout.inSeconds}s.',
+        );
         Log.net.debug('ws $_host:$port timed out ($e)');
       } catch (e) {
         // A refusal on the plain port is the ordinary case on late firmware,
@@ -257,7 +311,8 @@ class WsSession {
       onDone: () {
         if (!_frames.isClosed) {
           _frames.addError(
-              const WsConnectionException('The device closed the connection.'));
+            const WsConnectionException('The device closed the connection.'),
+          );
         }
         // The device hung up, so the session must stop LOOKING connected:
         // with `_socket` still set, `isConnected` stayed true, the sender
@@ -294,8 +349,9 @@ class WsSession {
   /// precedent, recorded in the spec's own protocol_details). The whole
   /// Samsung flow keys on this string — a client that changes it is a new
   /// stranger and the TV prompts again — so it is a constant, not a setting.
-  static final String _clientName =
-      base64.encode(utf8.encode(AppConstants.appName));
+  static final String _clientName = base64.encode(
+    utf8.encode(AppConstants.appName),
+  );
 
   /// Fill the connect path's placeholders and query-encode what goes in.
   ///
@@ -308,18 +364,37 @@ class WsSession {
   /// was handled — left the name placeholder as literal braces on the wire, and
   /// filling ONLY `{token}` misses a spec whose path spells the credential name
   /// directly; so all three are substituted and pairing works either way.
+  /// R-156: one left-to-right pass, so a value that itself contains braces
+  /// cannot be re-scanned as a placeholder. Chained `replaceAll` calls meant
+  /// a credential spelled `{client_name}` — device-chosen, stored verbatim —
+  /// had this client's name substituted into it on the next line.
   String _fillPath(String path) {
-    final credential = _credential ?? '';
-    var filled = path;
-    final name = _surface.credentialName;
-    if (name != null) {
-      filled =
-          filled.replaceAll('{$name}', Uri.encodeQueryComponent(credential));
+    final credential = Uri.encodeQueryComponent(_credential ?? '');
+    final values = <String, String>{
+      ?_surface.credentialName: credential,
+      'token': credential,
+      'client_name': Uri.encodeQueryComponent(_clientName),
+    };
+    final filled = StringBuffer();
+    for (var i = 0; i < path.length;) {
+      if (path[i] != '{') {
+        filled.write(path[i++]);
+        continue;
+      }
+      final close = path.indexOf('}', i + 1);
+      if (close < 0) {
+        filled.write(path.substring(i));
+        break;
+      }
+      final key = path.substring(i + 1, close);
+      final value = values[key];
+      // An unknown placeholder is left exactly as written: it is not this
+      // client's to invent, and a literal brace pair reads better on the
+      // wire than a silently emptied parameter.
+      filled.write(value ?? path.substring(i, close + 1));
+      i = close + 1;
     }
-    filled = filled
-        .replaceAll('{token}', Uri.encodeQueryComponent(credential))
-        .replaceAll('{client_name}', Uri.encodeQueryComponent(_clientName));
-    return _dropEmptyQueryPairs(filled);
+    return _dropEmptyQueryPairs(filled.toString());
   }
 
   /// Remove query parameters whose value resolved empty — the first pairing,
@@ -374,9 +449,17 @@ class WsSession {
     }
   }
 
-  /// The registration frame, with the stored credential spliced in — or the
+  /// The registration frame, with the stored credential put in — or the
   /// placeholder removed entirely on a first pairing, which is what tells the
   /// device to raise its prompt.
+  ///
+  /// R-156: the credential is placed INTO THE DECODED DOCUMENT, not spliced
+  /// into the template's text. A client key is a value the device chose and
+  /// the app stored verbatim; pasted into a JSON template it only had to
+  /// contain a quote or a backslash to produce a frame that is no longer
+  /// valid JSON — a set answers that with a parse error or a silent drop, and
+  /// the user is told pairing timed out. Replacing the value after decoding
+  /// means jsonEncode does the escaping, which is its job.
   String _registerFrame() {
     final frame = _surface.registerFrame;
     if (frame == null) {
@@ -386,17 +469,42 @@ class WsSession {
       );
     }
     final credential = _credential;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(frame);
+    } on FormatException {
+      // A spec whose frame is not JSON at all: nothing to decode into, so
+      // fall back to the textual form rather than refusing to pair.
+      return credential == null || credential.isEmpty
+          ? frame
+          : frame.replaceAll('{credential}', credential);
+    }
+    if (decoded is! Map<String, dynamic>) return frame;
     if (credential != null && credential.isNotEmpty) {
-      return frame.replaceAll('{credential}', credential);
-    }
-    // No key yet: send the frame without the field rather than with an empty
-    // string, which some devices read as a key and reject.
-    final decoded = jsonDecode(frame);
-    if (decoded is Map<String, dynamic>) {
+      _fillCredentialPlaceholder(decoded, credential);
+    } else {
+      // No key yet: send the frame without the field rather than with an
+      // empty string, which some devices read as a key and reject.
       _stripCredentialPlaceholder(decoded);
-      return jsonEncode(decoded);
     }
-    return frame;
+    return jsonEncode(decoded);
+  }
+
+  static void _fillCredentialPlaceholder(
+    Map<String, dynamic> node,
+    String credential,
+  ) {
+    for (final key in node.keys.toList()) {
+      final value = node[key];
+      if (value == '{credential}') {
+        node[key] = credential;
+      } else if (value is String && value.contains('{credential}')) {
+        // A placeholder embedded in a longer string ("Bearer {credential}").
+        node[key] = value.replaceAll('{credential}', credential);
+      } else if (value is Map<String, dynamic>) {
+        _fillCredentialPlaceholder(value, credential);
+      }
+    }
   }
 
   static void _stripCredentialPlaceholder(Map<String, dynamic> node) {
@@ -424,19 +532,22 @@ class WsSession {
     }
 
     final issued = Completer<String>();
-    final watching = _frames.stream.listen((frame) {
-      if (issued.isCompleted) return;
-      final Object? decoded;
-      try {
-        decoded = jsonDecode(frame);
-      } on FormatException {
-        return; // Not the frame we are waiting for.
-      }
-      final value = _atPath(decoded, path);
-      if (value != null && value.isNotEmpty) issued.complete(value);
-    }, onError: (Object e) {
-      if (!issued.isCompleted) issued.completeError(e);
-    });
+    final watching = _frames.stream.listen(
+      (frame) {
+        if (issued.isCompleted) return;
+        final Object? decoded;
+        try {
+          decoded = jsonDecode(frame);
+        } on FormatException {
+          return; // Not the frame we are waiting for.
+        }
+        final value = _atPath(decoded, path);
+        if (value != null && value.isNotEmpty) issued.complete(value);
+      },
+      onError: (Object e) {
+        if (!issued.isCompleted) issued.completeError(e);
+      },
+    );
 
     try {
       // Sent after the listener is up, and only once the socket exists: a
@@ -446,6 +557,7 @@ class WsSession {
         await Future<void>.delayed(Duration.zero);
         _socket?.add(send);
       }
+      _pairingWait = issued;
       _credential = await issued.future.timeout(pairingTimeout);
       Log.net.debug('ws $_host: authorised');
     } on TimeoutException {
@@ -454,6 +566,7 @@ class WsSession {
         promptNotes: _surface.promptNotes,
       );
     } finally {
+      _pairingWait = null;
       await watching.cancel();
     }
   }
@@ -510,7 +623,8 @@ class WsSession {
       // means the surface and the renderer disagree — which is a bug, not a
       // device problem.
       orElse: () => throw WsConnectionException(
-          'The spec declares no channel named "$channelName".'),
+        'The spec declares no channel named "$channelName".',
+      ),
     );
     final obtainedBy = channel.obtainedBy;
     if (obtainedBy == null) return main;
@@ -542,7 +656,8 @@ class WsSession {
     final addressPath = channel.addressPath;
     if (addressPath == null) {
       throw WsConnectionException(
-          'The "$channelName" socket has no declared address path.');
+        'The "$channelName" socket has no declared address path.',
+      );
     }
 
     // Ask on the main socket, and read the address out of the reply.
@@ -586,7 +701,8 @@ class WsSession {
         socket.stream.listen((_) {}, onError: (_) {}, cancelOnError: false);
         unawaited(socket.close().then((_) {}, onError: (_) {}));
         throw const WsConnectionException(
-            'The session closed while the socket was being opened.');
+          'The session closed while the socket was being opened.',
+        );
       }
       // Drained even though nothing reads it: a socket whose stream has no
       // listener never delivers its done event, so closing it later would
@@ -596,7 +712,8 @@ class WsSession {
       // idle-closes this socket, and a cached corpse would be served to
       // every later press with add() silently dropping, every button on the
       // channel dead until the whole session died.
-      _channelSubscriptions.add(socket.stream.listen(
+      unawaited(_channelSubscriptions.remove(channelName)?.cancel());
+      _channelSubscriptions[channelName] = socket.stream.listen(
         (_) {},
         onError: (Object e) =>
             Log.net.debug('ws $_host "$channelName" socket: $e'),
@@ -606,13 +723,14 @@ class WsSession {
           }
         },
         cancelOnError: false,
-      ));
+      );
       // The protocol keepalive the main socket gets, for the same reason:
       // an idle button socket a set would otherwise time out.
       final heartbeat = _surface.heartbeatSeconds;
       if (heartbeat != null && heartbeat > 0) {
-        socket.pingInterval =
-            Duration(milliseconds: (heartbeat * 1000).round());
+        socket.pingInterval = Duration(
+          milliseconds: (heartbeat * 1000).round(),
+        );
       }
       _channelSockets[channelName] = socket;
       return socket;
@@ -627,13 +745,25 @@ class WsSession {
 
   /// Close every socket this session opened. Idempotent.
   Future<void> close() async {
+    // Anyone waiting for the device's prompt is waiting for a session that no
+    // longer exists; tell them that instead of the timeout's accusation.
+    final pairing = _pairingWait;
+    _pairingWait = null;
+    if (pairing != null && !pairing.isCompleted) {
+      pairing.completeError(
+        const WsConnectionException(
+          'The session was closed while waiting for the device to authorise '
+          'this app.',
+        ),
+      );
+    }
     final socket = _socket;
     _socket = null;
     final extras = List.of(_channelSockets.values);
     _channelSockets.clear();
     await _subscription?.cancel();
     _subscription = null;
-    for (final extra in _channelSubscriptions) {
+    for (final extra in _channelSubscriptions.values) {
       await extra.cancel();
     }
     _channelSubscriptions.clear();

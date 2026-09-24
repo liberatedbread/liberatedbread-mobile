@@ -60,7 +60,8 @@ class RegistryTable {
         final key = text.substring(start, start + keyWidth);
         if (previousKey != null && key.compareTo(previousKey) <= 0) {
           throw FormatException(
-              'registry is not sorted: "$key" follows "$previousKey"');
+            'registry is not sorted: "$key" follows "$previousKey"',
+          );
         }
         previousKey = key;
         lineStarts.add(start);
@@ -79,8 +80,9 @@ class RegistryTable {
     while (low <= high) {
       final middle = (low + high) >> 1;
       final start = _lineStarts[middle];
-      final comparison =
-          _text.substring(start, start + keyWidth).compareTo(key);
+      final comparison = _text
+          .substring(start, start + keyWidth)
+          .compareTo(key);
       if (comparison == 0) {
         final end = _text.indexOf('\n', start);
         return _text.substring(start + keyWidth + 1, end);
@@ -177,9 +179,11 @@ class NumberRegistry {
       companyIds: tables[addressBlockAssets.length],
       serviceUuids: tables[addressBlockAssets.length + 1],
     );
-    Log.spec.info('registries: ${blocks.fold(0, (n, t) => n + t.length)} '
-        'address block(s), ${registry.companyIds.length} company id(s), '
-        '${registry.serviceUuids.length} service uuid(s)');
+    Log.spec.info(
+      'registries: ${blocks.fold(0, (n, t) => n + t.length)} '
+      'address block(s), ${registry.companyIds.length} company id(s), '
+      '${registry.serviceUuids.length} service uuid(s)',
+    );
     return registry;
   }
 

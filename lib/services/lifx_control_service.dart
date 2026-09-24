@@ -43,16 +43,47 @@ class LifxControlClient {
     return _sequence;
   }
 
+  /// Bind the sending socket, as a typed failure rather than a raw one.
+  ///
+  /// R-044: this class documents `LifxTransportException` for exactly two
+  /// conditions — a bind that fails and a host that cannot be parsed — and
+  /// then threw neither, so a caller following the contract caught nothing
+  /// and a `SocketException` or `ArgumentError` reached the UI as an
+  /// unclassified error. Both are funnelled here.
+  Future<RawDatagramSocket> _bind() async {
+    try {
+      return await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    } on SocketException catch (e) {
+      throw LifxTransportException(
+        'could not open a socket to talk to the light (${e.message}).',
+      );
+    }
+  }
+
+  /// Parse [host] as an address, as a typed failure. LIFX is addressed by IP
+  /// — discovery reports one — so a name here is a caller error, not a
+  /// lookup to attempt on the device's behalf.
+  static InternetAddress _address(String host) {
+    final address = InternetAddress.tryParse(host);
+    if (address == null) {
+      throw LifxTransportException(
+        '"$host" is not an address this app can '
+        'send to; LIFX devices are reached by IP.',
+      );
+    }
+    return address;
+  }
+
   /// Send [packet] to [host]:56700 and return without waiting for a reply.
   ///
   /// Sent [sends] times (default twice) because a dropped datagram on lossy UDP
   /// would otherwise silently fail a set. Broadcast is enabled so the same
   /// method can drive a `255.255.255.255` provisioning/discovery packet.
   Future<void> send(String host, Uint8List packet, {int sends = 2}) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    final socket = await _bind();
     try {
       socket.broadcastEnabled = true;
-      final dest = InternetAddress(host);
+      final dest = _address(host);
       for (var i = 0; i < sends; i++) {
         socket.send(packet, dest, port);
         if (i + 1 < sends) {
@@ -75,7 +106,7 @@ class LifxControlClient {
     Duration timeout = _defaultTimeout,
     int retries = _defaultRetries,
   }) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    final socket = await _bind();
     // RawDatagramSocket is single-subscription, so listen once for the whole
     // exchange and re-send inside that subscription rather than per attempt.
     final completer = Completer<Uint8List>();
@@ -87,12 +118,20 @@ class LifxControlClient {
       // whose header echoes the sequence we asked with is our answer.
       if (datagram.address.address != host) return;
       final data = datagram.data;
+      // R-160: the 23 is the LIFX header's sequence byte, whose layout lives
+      // in `lifx::parse_header`. It is read here rather than asked for,
+      // deliberately: correlation has to work on a build whose native library
+      // failed to load — main() carries on without it by design — and a
+      // transport that silently stops matching replies in that case is worse
+      // than a restated offset. What the offset must not do is DRIFT, so
+      // `lifx_control_service_test.dart` decodes a crafted frame through Rust
+      // and requires the two to agree; a layout change fails there.
       if (data.length > 23 && data[23] == sequence) {
         completer.complete(Uint8List.fromList(data));
       }
     });
     try {
-      final dest = InternetAddress(host);
+      final dest = _address(host);
       for (var attempt = 0; attempt <= retries; attempt++) {
         socket.send(packet, dest, port);
         try {
@@ -131,7 +170,7 @@ class LifxControlClient {
     int sends = 2,
     bool matchSequence = true,
   }) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    final socket = await _bind();
     socket.broadcastEnabled = true;
     final replies = <Uint8List>[];
     final subscription = socket.listen((event) {
@@ -144,7 +183,7 @@ class LifxControlClient {
       }
     });
     try {
-      final dest = InternetAddress(host);
+      final dest = _address(host);
       for (var i = 0; i < sends; i++) {
         socket.send(packet, dest, port);
         await Future<void>.delayed(const Duration(milliseconds: 250));

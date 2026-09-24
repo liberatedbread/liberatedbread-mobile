@@ -95,32 +95,31 @@ enum DeviceCategory {
   /// Dart member name for [DeviceCategory.switch_] (`switch`, a reserved word)
   /// and [DeviceCategory.personalCare] (the snake_case `personal_care`).
   String get wireName => switch (this) {
-        DeviceCategory.switch_ => 'switch',
-        DeviceCategory.personalCare => 'personal_care',
-        _ => name,
-      };
+    DeviceCategory.switch_ => 'switch',
+    DeviceCategory.personalCare => 'personal_care',
+    _ => name,
+  };
 
   /// [label] pluralized: "Lights" reads right where "Light" would not, in
   /// section titles for the automatic by-kind groups. Categories whose label
   /// is a mass noun keep it.
   String get pluralLabel => switch (this) {
-        DeviceCategory.switch_ => 'Switches',
-        DeviceCategory.mouse => 'Mice',
-        DeviceCategory.climate ||
-        DeviceCategory.energy ||
-        DeviceCategory.fitness ||
-        DeviceCategory.health ||
-        DeviceCategory.irrigation ||
-        // "Personal care" is a mass noun; "Personal cares" reads wrong.
-        DeviceCategory.personalCare ||
-        // "Networks" would name the wrong thing: the group holds routers and
-        // access points, not networks. Same mass-noun treatment as Climate.
-        DeviceCategory.network ||
-        // "Earbuds" is already plural.
-        DeviceCategory.earbuds =>
-          label,
-        _ => '${label}s',
-      };
+    DeviceCategory.switch_ => 'Switches',
+    DeviceCategory.mouse => 'Mice',
+    DeviceCategory.climate ||
+    DeviceCategory.energy ||
+    DeviceCategory.fitness ||
+    DeviceCategory.health ||
+    DeviceCategory.irrigation ||
+    // "Personal care" is a mass noun; "Personal cares" reads wrong.
+    DeviceCategory.personalCare ||
+    // "Networks" would name the wrong thing: the group holds routers and
+    // access points, not networks. Same mass-noun treatment as Climate.
+    DeviceCategory.network ||
+    // "Earbuds" is already plural.
+    DeviceCategory.earbuds => label,
+    _ => '${label}s',
+  };
 
   /// Resolve a `device.category` string, or null when it is absent, empty, or
   /// a value this build does not know.

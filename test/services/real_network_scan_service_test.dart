@@ -12,6 +12,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart'
+    show UdpIdentityFieldDto;
 import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
 
 import '../fakes/fake_spec_codec.dart';
@@ -26,23 +28,24 @@ NetworkDevice _device({
   Map<String, String> txt = const {},
   String? server,
   NetworkDiscoverySource source = NetworkDiscoverySource.mdns,
-}) =>
-    NetworkDevice(
-      host: host,
-      name: name,
-      hostname: hostname,
-      port: port,
-      serviceTypes: serviceTypes,
-      ssdpTargets: ssdpTargets,
-      txt: txt,
-      server: server,
-      sources: {source},
-      discoveredAt: DateTime(2026),
-    );
+}) => NetworkDevice(
+  host: host,
+  name: name,
+  hostname: hostname,
+  port: port,
+  serviceTypes: serviceTypes,
+  ssdpTargets: ssdpTargets,
+  txt: txt,
+  server: server,
+  sources: {source},
+  discoveredAt: DateTime(2026),
+);
 
 void main() {
+  _catalogueProbeTests();
   group('parseSsdpHeaders', () {
-    const response = 'HTTP/1.1 200 OK\r\n'
+    const response =
+        'HTTP/1.1 200 OK\r\n'
         'CACHE-CONTROL: max-age=86400\r\n'
         'LOCATION: http://192.168.1.41:49153/setup.xml\r\n'
         'SERVER: Unspecified, UPnP/1.0, Unspecified\r\n'
@@ -58,14 +61,17 @@ void main() {
 
     test('the status line is not mistaken for a header', () {
       expect(
-          parseSsdpHeaders(response).containsKey('http/1.1 200 ok'), isFalse);
+        parseSsdpHeaders(response).containsKey('http/1.1 200 ok'),
+        isFalse,
+      );
     });
 
     test('tolerates the casing and line endings shipped hardware uses', () {
       // Real SSDP stacks are famously sloppy here, and a strict parser would
       // silently drop real devices.
       final headers = parseSsdpHeaders(
-          'HTTP/1.1 200 OK\nst:   urn:x:1  \r\nLoCaTiOn:http://a/b\r');
+        'HTTP/1.1 200 OK\nst:   urn:x:1  \r\nLoCaTiOn:http://a/b\r',
+      );
       expect(headers['st'], 'urn:x:1');
       expect(headers['location'], 'http://a/b');
     });
@@ -82,8 +88,10 @@ void main() {
       expect(parsed?.port, 49153);
       expect(parsed?.path, '/setup.xml');
       // A Viera advertises its description under its own spelling.
-      expect(parseSsdpLocation('http://192.168.1.41:55000/nrc/ddd.xml')?.path,
-          '/nrc/ddd.xml');
+      expect(
+        parseSsdpLocation('http://192.168.1.41:55000/nrc/ddd.xml')?.path,
+        '/nrc/ddd.xml',
+      );
     });
 
     test('a location with no explicit port reports the scheme default', () {
@@ -104,8 +112,10 @@ void main() {
 
   group('parseTxtRecord', () {
     test('splits key=value entries and lowercases keys', () {
-      final txt =
-          parseTxtRecord(['bridgeid=001788FFFE1234AB', 'ModelId=BSB002']);
+      final txt = parseTxtRecord([
+        'bridgeid=001788FFFE1234AB',
+        'ModelId=BSB002',
+      ]);
       expect(txt['bridgeid'], '001788FFFE1234AB');
       expect(txt['modelid'], 'BSB002');
     });
@@ -136,8 +146,10 @@ void main() {
     test('accepts the alternate keys, preferring ip', () {
       expect(addressFromTxt({'address': '192.168.1.4'}), '192.168.1.4');
       expect(addressFromTxt({'ipv4': '192.168.1.5'}), '192.168.1.5');
-      expect(addressFromTxt({'ip': '10.0.0.1', 'address': '10.0.0.2'}),
-          '10.0.0.1');
+      expect(
+        addressFromTxt({'ip': '10.0.0.1', 'address': '10.0.0.2'}),
+        '10.0.0.1',
+      );
     });
 
     test('ignores a key that is named like an address but is not one', () {
@@ -170,17 +182,20 @@ void main() {
   });
 
   group('normalizeMdnsServiceType', () {
-    test(
-        'strips the trailing dot a spec writes so it dedupes with the '
+    test('strips the trailing dot a spec writes so it dedupes with the '
         'meta-query', () {
       // Specs declare `_snapmaker._tcp.local.`; the enumeration and the
       // `resolving` set carry `_snapmaker._tcp.local`. Without stripping the
       // dot a direct query would re-resolve a type the enumeration found.
-      expect(normalizeMdnsServiceType('_snapmaker._tcp.local.'),
-          '_snapmaker._tcp.local');
+      expect(
+        normalizeMdnsServiceType('_snapmaker._tcp.local.'),
+        '_snapmaker._tcp.local',
+      );
       expect(normalizeMdnsServiceType('_hue._tcp.local'), '_hue._tcp.local');
-      expect(normalizeMdnsServiceType('  _coap._udp.local.  '),
-          '_coap._udp.local');
+      expect(
+        normalizeMdnsServiceType('  _coap._udp.local.  '),
+        '_coap._udp.local',
+      );
     });
 
     test('drops anything not shaped like a DNS-SD service type', () {
@@ -193,23 +208,46 @@ void main() {
   });
 
   group('mDNS source-capture wire helpers', () {
-    test('mdnsPtrQuery encodes the name as length-prefixed labels + PTR/IN',
-        () {
-      final q = mdnsPtrQuery('_snapmaker._tcp.local');
-      // Header: 12 bytes, qdcount 1.
-      expect(q.sublist(0, 12), [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
-      // Labels: <len>_snapmaker <len>_tcp <len>local <root>.
-      expect(q[12], 10); // len("_snapmaker")
-      expect(String.fromCharCodes(q.sublist(13, 23)), '_snapmaker');
-      expect(q[23], 4); // len("_tcp")
-      // Ends with the root label then QTYPE PTR (12) + QCLASS IN (1).
-      expect(q.sublist(q.length - 5), [0, 0, 12, 0, 1]);
+    test(
+      'mdnsPtrQuery encodes the name as length-prefixed labels + PTR/IN',
+      () {
+        final q = mdnsPtrQuery('_snapmaker._tcp.local')!;
+        // Header: 12 bytes, qdcount 1.
+        expect(q.sublist(0, 12), [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+        // Labels: <len>_snapmaker <len>_tcp <len>local <root>.
+        expect(q[12], 10); // len("_snapmaker")
+        expect(String.fromCharCodes(q.sublist(13, 23)), '_snapmaker');
+        expect(q[23], 4); // len("_tcp")
+        // Ends with the root label then QTYPE PTR (12) + QCLASS IN (1).
+        expect(q.sublist(q.length - 5), [0, 0, 12, 0, 1]);
+      },
+    );
+
+    test('mdnsPtrQuery refuses what it cannot put on the wire (R-031)', () {
+      // The source-capture loop used to encode whatever string the catalogue
+      // held, including the ones normalizeMdnsServiceType had already
+      // rejected — so one typo in a spec broadcast a malformed question to
+      // every device on the network, once per scan.
+      expect(mdnsPtrQuery('not-a-service-type'), isNull);
+      expect(mdnsPtrQuery(''), isNull);
+      expect(mdnsPtrQuery('_snapmaker._sctp.local'), isNull);
+      // A label past the DNS limit of 63 bytes, and a name past 255.
+      expect(mdnsPtrQuery('_${'a' * 64}._tcp.local'), isNull);
+      expect(
+        mdnsPtrQuery(
+          '_${'a' * 60}.${'b' * 60}.${'c' * 60}.${'d' * 60}._tcp.local',
+        ),
+        isNull,
+      );
+      // A trailing dot is still the same question.
+      expect(mdnsPtrQuery('_snapmaker._tcp.local.'), isNotNull);
     });
 
     test('mdnsFirstLabelBytes returns the vendor label, or null when tiny', () {
       expect(
-          String.fromCharCodes(mdnsFirstLabelBytes('_snapmaker._tcp.local')!),
-          '_snapmaker');
+        String.fromCharCodes(mdnsFirstLabelBytes('_snapmaker._tcp.local')!),
+        '_snapmaker',
+      );
       // A 2-char label is too weak a discriminator.
       expect(mdnsFirstLabelBytes('_x._tcp.local'), isNull);
     });
@@ -222,7 +260,7 @@ void main() {
         10,
         ...'_snapmaker'.codeUnits,
         4,
-        ...'_tcp'.codeUnits
+        ...'_tcp'.codeUnits,
       ];
       expect(containsBytes(packet, '_snapmaker'.codeUnits), isTrue);
       expect(containsBytes(packet, '_printer'.codeUnits), isFalse);
@@ -248,7 +286,9 @@ void main() {
 
     test('rejects a non-v1 datagram and a truncated one', () {
       expect(
-          parseUbiquitiDiscovery(const [0x02, 0x00, 0x00, 0x00]).mac, isNull);
+        parseUbiquitiDiscovery(const [0x02, 0x00, 0x00, 0x00]).mac,
+        isNull,
+      );
       expect(parseUbiquitiDiscovery(const [0x01]).hostname, isNull);
     });
 
@@ -286,8 +326,10 @@ void main() {
     test('mikrotikPictogram picks switch vs router', () {
       expect(mikrotikPictogram(identity: 'core-switch'), 'network-switch');
       expect(mikrotikPictogram(board: 'CRS328-24P-4S+'), 'network-switch');
-      expect(mikrotikPictogram(board: 'RB4011', identity: 'core-router'),
-          'router');
+      expect(
+        mikrotikPictogram(board: 'RB4011', identity: 'core-router'),
+        'router',
+      );
     });
   });
 
@@ -313,14 +355,17 @@ void main() {
     });
 
     test('a printer type anywhere in the list wins', () {
-      expect(mdnsPictogram(['_http._tcp.local', '_pdl-datastream._tcp.local']),
-          'printer');
+      expect(
+        mdnsPictogram(['_http._tcp.local', '_pdl-datastream._tcp.local']),
+        'printer',
+      );
     });
   });
 
   group('parseWizReply', () {
     test('reads mac / module / firmware from a getSystemConfig reply', () {
-      const reply = '{"method":"getSystemConfig","id":1,"result":'
+      const reply =
+          '{"method":"getSystemConfig","id":1,"result":'
           '{"mac":"a8bb50123456","moduleName":"ESP01_SHRGB1C_31",'
           '"fwVersion":"1.25.0"}}';
       final p = parseWizReply(reply.codeUnits)!;
@@ -331,8 +376,9 @@ void main() {
 
     test('our own probe (method, no result) and non-Wiz JSON are rejected', () {
       expect(
-          parseWizReply('{"method":"getSystemConfig","params":{}}'.codeUnits),
-          isNull);
+        parseWizReply('{"method":"getSystemConfig","params":{}}'.codeUnits),
+        isNull,
+      );
       expect(parseWizReply('{"foo":"bar"}'.codeUnits), isNull);
       expect(parseWizReply('not json'.codeUnits), isNull);
     });
@@ -340,7 +386,8 @@ void main() {
 
   group('parseYeelight', () {
     test('reads id / model / name / location from an M-SEARCH reply', () {
-      const reply = 'HTTP/1.1 200 OK\r\n'
+      const reply =
+          'HTTP/1.1 200 OK\r\n'
           'Location: yeelight://192.168.1.55:55443\r\n'
           'id: 0x0000000012345678\r\n'
           'model: color\r\n'
@@ -352,15 +399,18 @@ void main() {
       expect(p.location, 'yeelight://192.168.1.55:55443');
     });
 
-    test('a payload with neither id nor a yeelight:// location is rejected',
-        () {
-      expect(parseYeelight('HTTP/1.1 200 OK\r\nServer: x\r\n'), isNull);
-    });
+    test(
+      'a payload with neither id nor a yeelight:// location is rejected',
+      () {
+        expect(parseYeelight('HTTP/1.1 200 OK\r\nServer: x\r\n'), isNull);
+      },
+    );
   });
 
   group('parseGoveeReply', () {
     test('reads device / sku / ip from a scan reply', () {
-      const reply = '{"msg":{"cmd":"scan","data":{"ip":"192.168.1.66",'
+      const reply =
+          '{"msg":{"cmd":"scan","data":{"ip":"192.168.1.66",'
           '"device":"AA:BB:CC:DD:EE:FF","sku":"H6159"}}}';
       final p = parseGoveeReply(reply.codeUnits)!;
       expect(p.device, 'AA:BB:CC:DD:EE:FF');
@@ -369,16 +419,21 @@ void main() {
     });
 
     test('the wrong cmd, or no device, is rejected', () {
-      expect(parseGoveeReply('{"msg":{"cmd":"turn","data":{}}}'.codeUnits),
-          isNull);
-      expect(parseGoveeReply('{"msg":{"cmd":"scan","data":{}}}'.codeUnits),
-          isNull);
+      expect(
+        parseGoveeReply('{"msg":{"cmd":"turn","data":{}}}'.codeUnits),
+        isNull,
+      );
+      expect(
+        parseGoveeReply('{"msg":{"cmd":"scan","data":{}}}'.codeUnits),
+        isNull,
+      );
     });
   });
 
   group('parseIrobotReply', () {
     test('reads hostname / robotname / blid from a Roomba reply', () {
-      const reply = '{"ver":"3","hostname":"Roomba-3117C012345678AB",'
+      const reply =
+          '{"ver":"3","hostname":"Roomba-3117C012345678AB",'
           '"robotname":"Living Room","ip":"192.168.1.77",'
           '"mac":"80:91:33:AA:BB:CC","sku":"R980020"}';
       final p = parseIrobotReply(reply.codeUnits)!;
@@ -451,15 +506,16 @@ void main() {
       // A bridge answering both mDNS and SSDP is one device, and the union of
       // what both said is better evidence than either alone.
       final coalescer = NetworkScanCoalescer();
-      coalescer.next(_device(
-        name: 'Hue',
-        serviceTypes: const ['_hue._tcp.local'],
-      ));
-      final merged = coalescer.next(_device(
-        ssdpTargets: const ['urn:schemas-upnp-org:device:Basic:1'],
-        port: 80,
-        source: NetworkDiscoverySource.ssdp,
-      ));
+      coalescer.next(
+        _device(name: 'Hue', serviceTypes: const ['_hue._tcp.local']),
+      );
+      final merged = coalescer.next(
+        _device(
+          ssdpTargets: const ['urn:schemas-upnp-org:device:Basic:1'],
+          port: 80,
+          source: NetworkDiscoverySource.ssdp,
+        ),
+      );
 
       expect(coalescer.deviceCount, 1);
       expect(merged, isNotNull);
@@ -481,14 +537,19 @@ void main() {
       // left the row reading "mDNS" for the rest of the scan.
       final coalescer = NetworkScanCoalescer();
       coalescer.next(_device(serviceTypes: const ['_hue._tcp.local']));
-      final updated = coalescer.next(_device(
-        serviceTypes: const ['_hue._tcp.local'],
-        server: 'Unspecified, UPnP/1.0, Unspecified',
-        source: NetworkDiscoverySource.ssdp,
-      ));
+      final updated = coalescer.next(
+        _device(
+          serviceTypes: const ['_hue._tcp.local'],
+          server: 'Unspecified, UPnP/1.0, Unspecified',
+          source: NetworkDiscoverySource.ssdp,
+        ),
+      );
 
-      expect(updated, isNotNull,
-          reason: 'gaining a transport is a visible change');
+      expect(
+        updated,
+        isNotNull,
+        reason: 'gaining a transport is a visible change',
+      );
       expect(updated!.sources, {
         NetworkDiscoverySource.mdns,
         NetworkDiscoverySource.ssdp,
@@ -499,8 +560,9 @@ void main() {
     test('a newly-learned service type re-emits', () {
       final coalescer = NetworkScanCoalescer();
       coalescer.next(_device(serviceTypes: const ['_hue._tcp.local']));
-      final updated =
-          coalescer.next(_device(serviceTypes: const ['_hap._tcp.local']));
+      final updated = coalescer.next(
+        _device(serviceTypes: const ['_hap._tcp.local']),
+      );
       expect(updated!.serviceTypes, hasLength(2));
     });
 
@@ -513,15 +575,22 @@ void main() {
   });
 
   group('NetworkDevice', () {
-    test('displayName prefers the name, then the hostname, then the address',
-        () {
-      expect(_device(name: 'Hue', hostname: 'a.local').displayName, 'Hue');
-      // The .local suffix is on every hostname and carries no information.
-      expect(_device(hostname: 'Lutron-083e.local').displayName, 'Lutron-083e');
-      expect(
-          _device(hostname: 'Lutron-083e.local.').displayName, 'Lutron-083e');
-      expect(_device(host: '192.168.1.10').displayName, '192.168.1.10');
-    });
+    test(
+      'displayName prefers the name, then the hostname, then the address',
+      () {
+        expect(_device(name: 'Hue', hostname: 'a.local').displayName, 'Hue');
+        // The .local suffix is on every hostname and carries no information.
+        expect(
+          _device(hostname: 'Lutron-083e.local').displayName,
+          'Lutron-083e',
+        );
+        expect(
+          _device(hostname: 'Lutron-083e.local.').displayName,
+          'Lutron-083e',
+        );
+        expect(_device(host: '192.168.1.10').displayName, '192.168.1.10');
+      },
+    );
 
     test('finds a MAC published in a TXT record', () {
       // The one thing on the network side the IEEE registry can name -- and
@@ -551,12 +620,16 @@ void main() {
   });
 
   group('scanFailureFor', () {
-    // The rule that decides what an empty scan means. It used to be
-    // unreachable: both transports reported "did the socket open", which is
-    // true even when the OS is dropping every reply, so the denial branch
-    // could not fire on the one platform that has a denial to report.
+    // The rule that decides what an empty scan means.
     test('a transport that heard something means nothing is wrong', () {
-      for (final other in TransportOutcome.values) {
+      // Anything but a `denied` alongside `heard` — traffic reached us, so
+      // nothing is filtering it.
+      for (final other in [
+        TransportOutcome.heard,
+        TransportOutcome.silent,
+        TransportOutcome.failed,
+        TransportOutcome.skipped,
+      ]) {
         expect(
           scanFailureFor(
             outcomes: [TransportOutcome.heard, other],
@@ -568,7 +641,23 @@ void main() {
       }
     });
 
-    test('neither transport starting is unavailable, on every platform', () {
+    test('an observed EHOSTUNREACH is a denial, and wins outright', () {
+      // A transport that actually saw the OS refuse to send is proof, not a
+      // guess: it points at Settings even when another transport failed for a
+      // different reason (F-001).
+      for (final other in TransportOutcome.values) {
+        expect(
+          scanFailureFor(
+            outcomes: [TransportOutcome.denied, other],
+            isApplePlatform: true,
+          ),
+          isA<LocalNetworkDeniedException>(),
+          reason: 'the observed denial is not inferred from silence',
+        );
+      }
+    });
+
+    test('every probing transport failing is unavailable, everywhere', () {
       for (final apple in [true, false]) {
         expect(
           scanFailureFor(
@@ -576,8 +665,37 @@ void main() {
             isApplePlatform: apple,
           ),
           isA<NetworkUnavailableException>(),
-          reason: 'no interface and no multicast route is not a permission '
+          reason:
+              'no interface and no multicast route is not a permission '
               'question, it is a missing network',
+        );
+        // Skipped transports do not count against the "all failed" test, so a
+        // listen-only transport that could not bind cannot hide the fact that
+        // every transport that actually tried failed (R-023).
+        expect(
+          scanFailureFor(
+            outcomes: const [TransportOutcome.failed, TransportOutcome.skipped],
+            isApplePlatform: apple,
+          ),
+          isA<NetworkUnavailableException>(),
+          reason: 'the only transport that probed failed to send at all',
+        );
+      }
+    });
+
+    test('a scan where nothing probed is not a failure', () {
+      // Everything was skipped (no codec, no service types, refused binds):
+      // there is no evidence either way, so no error — not "unavailable".
+      for (final apple in [true, false]) {
+        expect(
+          scanFailureFor(
+            outcomes: const [
+              TransportOutcome.skipped,
+              TransportOutcome.skipped,
+            ],
+            isApplePlatform: apple,
+          ),
+          isNull,
         );
       }
     });
@@ -590,11 +708,15 @@ void main() {
         ),
         isA<LocalNetworkDeniedException>(),
       );
-      // One started and heard nothing while the other never started at all:
-      // still silence, still the same advice.
+      // One heard nothing, one never started, one had nothing to do: still
+      // silence, still the same advice.
       expect(
         scanFailureFor(
-          outcomes: const [TransportOutcome.silent, TransportOutcome.failed],
+          outcomes: const [
+            TransportOutcome.silent,
+            TransportOutcome.failed,
+            TransportOutcome.skipped,
+          ],
           isApplePlatform: true,
         ),
         isA<LocalNetworkDeniedException>(),
@@ -616,6 +738,169 @@ void main() {
     });
   });
 
+  group('isLocalNetworkDenied', () {
+    SocketException withErrno(int code) =>
+        SocketException('Send failed', osError: OSError('', code));
+
+    test('EHOSTUNREACH (errno 65) on Apple is the local-network gate', () {
+      expect(withErrno(65), predicate<Object>((e) => e is SocketException));
+      expect(
+        isLocalNetworkDenied(withErrno(65), isApplePlatform: true),
+        isTrue,
+      );
+    });
+
+    test('errno 65 is only the gate on Apple', () {
+      // 65 is ENOPKG on Linux, and no other platform has this permission.
+      expect(
+        isLocalNetworkDenied(withErrno(65), isApplePlatform: false),
+        isFalse,
+      );
+    });
+
+    test('a no-network error (ENETUNREACH, 51) is not a denial', () {
+      // Airplane mode is a missing network, not a blocked permission — it must
+      // read as unavailable, not as "check Settings" (R-023).
+      expect(
+        isLocalNetworkDenied(withErrno(51), isApplePlatform: true),
+        isFalse,
+      );
+    });
+
+    test('a non-socket error is never a denial', () {
+      expect(
+        isLocalNetworkDenied(StateError('boom'), isApplePlatform: true),
+        isFalse,
+      );
+    });
+  });
+
+  group('trustedSelfReportedHost', () {
+    test('accepts a private LAN IPv4 literal', () {
+      expect(
+        trustedSelfReportedHost('192.168.1.9', '192.168.1.50'),
+        '192.168.1.9',
+      );
+      expect(trustedSelfReportedHost('10.0.0.9', '10.0.0.1'), '10.0.0.9');
+    });
+
+    test('rejects an off-LAN (public) address and a hostname', () {
+      // The attack: a beacon claims a control host the app can be steered to.
+      expect(trustedSelfReportedHost('8.8.8.8', '192.168.1.50'), isNull);
+      expect(
+        trustedSelfReportedHost('evil.example.net', '192.168.1.50'),
+        isNull,
+      );
+    });
+
+    test('rejects an empty or null value', () {
+      expect(trustedSelfReportedHost('', '192.168.1.50'), isNull);
+      expect(trustedSelfReportedHost(null, '192.168.1.50'), isNull);
+    });
+
+    test('requireLan: false (SSDP) accepts any IP literal, rejects a name', () {
+      // A UPnP LOCATION may legitimately be any IP literal, so the SSDP path
+      // does not demand an RFC1918 range — but a hostname is still refused, so
+      // it cannot be re-pointed off the segment through DNS (R-024).
+      expect(
+        trustedSelfReportedHost(
+          '203.0.113.7',
+          '203.0.113.7',
+          requireLan: false,
+        ),
+        '203.0.113.7',
+      );
+      expect(
+        trustedSelfReportedHost(
+          'device.example.net',
+          '192.168.1.50',
+          requireLan: false,
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('parseMdnsResponse (reflector guard, R-026)', () {
+    // A minimal DNS message builder: header + one question + the given RRs.
+    List<int> message({
+      required bool response,
+      required List<({String name, int type})> records,
+    }) {
+      final b = BytesBuilder();
+      void name(String n) {
+        for (final label in n.split('.')) {
+          if (label.isEmpty) continue;
+          final bytes = utf8.encode(label);
+          b.addByte(bytes.length);
+          b.add(bytes);
+        }
+        b.addByte(0);
+      }
+
+      final an = records.length;
+      b.add([
+        0, 0, // id
+        response ? 0x84 : 0x00, 0x00, // flags (QR set for a response)
+        0, 0, // qdcount 0
+        (an >> 8) & 0xff, an & 0xff, // ancount
+        0, 0, 0, 0, // ns/ar
+      ]);
+      for (final r in records) {
+        name(r.name);
+        b.add([
+          (r.type >> 8) & 0xff, r.type & 0xff, // TYPE
+          0x00, 0x01, // CLASS IN
+          0, 0, 0, 0, // TTL
+          0x00, 0x00, // RDLENGTH 0 (rdata omitted; owner+type is all we read)
+        ]);
+      }
+      return b.toBytes();
+    }
+
+    test('a query is never parsed into a summary', () {
+      final query = message(
+        response: false,
+        records: const [(name: '_snapmaker._tcp.local', type: 12)],
+      );
+      expect(parseMdnsResponse(query), isNull);
+    });
+
+    test('reads owner names and flags an A record', () {
+      final resp = message(
+        response: true,
+        records: const [
+          (name: 'hue._hue._tcp.local', type: 33), // SRV
+          (name: 'hue.local', type: 1), // A
+        ],
+      );
+      final summary = parseMdnsResponse(resp)!;
+      expect(summary.hasAddressRecord, isTrue);
+      expect(summary.ownerNames, contains('hue._hue._tcp.local'));
+    });
+
+    test(
+      'a PTR/SRV-only response (no A) is the source-capture rescue case',
+      () {
+        // Exactly the Snapmaker U1: it answers for its type but publishes no
+        // address, so the source-capture backstop is allowed to mint it.
+        final resp = message(
+          response: true,
+          records: const [
+            (name: '_snaptxt._tcp.local', type: 12), // PTR
+            (name: 'snap._snaptxt._tcp.local', type: 33), // SRV
+          ],
+        );
+        final summary = parseMdnsResponse(resp)!;
+        expect(summary.hasAddressRecord, isFalse);
+        expect(
+          summary.ownerNames.any((n) => n.endsWith('_snaptxt._tcp.local')),
+          isTrue,
+        );
+      },
+    );
+  });
+
   group('LIFX discovery', () {
     test('the probe is a tagged-broadcast GetService, byte for byte', () {
       final probe = lifxGetServiceProbe();
@@ -623,10 +908,16 @@ void main() {
       // a Rust test pins the same values, so the two builders cannot drift.
       expect(probe.length, 36);
       expect(probe.sublist(0, 2), [36, 0], reason: 'size');
-      expect(probe.sublist(2, 4), [0x00, 0x34],
-          reason: 'protocol|addressable|tagged');
-      expect(probe.sublist(4, 8), [0x47, 0x52, 0x42, 0x4C],
-          reason: 'source LBRG');
+      expect(probe.sublist(2, 4), [
+        0x00,
+        0x34,
+      ], reason: 'protocol|addressable|tagged');
+      expect(probe.sublist(4, 8), [
+        0x47,
+        0x52,
+        0x42,
+        0x4C,
+      ], reason: 'source LBRG');
       expect(probe[22], 0x01, reason: 'res_required');
       expect(probe.sublist(32, 34), [2, 0], reason: 'GetService type');
     });
@@ -651,14 +942,19 @@ void main() {
     final codec = FakeSpecCodec();
 
     Datagram datagram(String json, {String from = '192.168.1.103'}) => Datagram(
-        Uint8List.fromList(utf8.encode(json)), InternetAddress(from), 5678);
+      Uint8List.fromList(utf8.encode(json)),
+      InternetAddress(from),
+      5678,
+    );
 
     test('becomes a device keyed by the BLID it announced', () async {
       final device = await roombaDeviceFrom(
-        datagram('{"ver":"3","hostname":"Roomba-3193C60472324700",'
-            '"robotname":"Dorita","ip":"192.168.1.103",'
-            '"mac":"12:12:12:12:12:12","sw":"v2.4.16-126",'
-            '"sku":"R980020","proto":"mqtt"}'),
+        datagram(
+          '{"ver":"3","hostname":"Roomba-3193C60472324700",'
+          '"robotname":"Dorita","ip":"192.168.1.103",'
+          '"mac":"12:12:12:12:12:12","sw":"v2.4.16-126",'
+          '"sku":"R980020","proto":"mqtt"}',
+        ),
         codec,
       );
 
@@ -685,8 +981,11 @@ void main() {
         'not json',
         '[]',
       ]) {
-        expect(await roombaDeviceFrom(datagram(payload), codec), isNull,
-            reason: payload);
+        expect(
+          await roombaDeviceFrom(datagram(payload), codec),
+          isNull,
+          reason: payload,
+        );
       }
     });
 
@@ -708,20 +1007,117 @@ void main() {
 
     /// The robot knows where it is; the datagram only knows where it came
     /// from. They agree in practice, and when they do not the robot wins.
-    test('prefers the announced address, and falls back to the sender',
-        () async {
-      final relayed = await roombaDeviceFrom(
-        datagram('{"hostname":"Roomba-ABC123","ip":"10.0.0.9"}',
-            from: '192.168.1.50'),
-        codec,
-      );
-      expect(relayed!.host, '10.0.0.9');
+    test(
+      'prefers the announced address, and falls back to the sender',
+      () async {
+        final relayed = await roombaDeviceFrom(
+          datagram(
+            '{"hostname":"Roomba-ABC123","ip":"10.0.0.9"}',
+            from: '192.168.1.50',
+          ),
+          codec,
+        );
+        expect(relayed!.host, '10.0.0.9');
 
-      final silent = await roombaDeviceFrom(
-        datagram('{"hostname":"Roomba-ABC123"}', from: '192.168.1.50'),
-        codec,
+        final silent = await roombaDeviceFrom(
+          datagram('{"hostname":"Roomba-ABC123"}', from: '192.168.1.50'),
+          codec,
+        );
+        expect(silent!.host, '192.168.1.50');
+
+        // A hostile or garbage `ip` — off-LAN or not an address — is rejected
+        // and the datagram source is used instead, so the app cannot be steered
+        // to open its MQTT/TLS session (carrying the stored password) at an
+        // arbitrary host (R-024).
+        final spoofed = await roombaDeviceFrom(
+          datagram(
+            '{"hostname":"Roomba-ABC123","ip":"8.8.8.8"}',
+            from: '192.168.1.50',
+          ),
+          codec,
+        );
+        expect(spoofed!.host, '192.168.1.50');
+      },
+    );
+  });
+}
+
+void _catalogueProbeTests() {
+  // The reply reader the catalogue-driven transport runs in place of a
+  // hand-written parser per vendor. What it must get right is not the happy
+  // path — it is refusing to read a field it cannot read, because a value it
+  // invents becomes the identity a device is remembered by.
+  group('readUdpIdentityFields', () {
+    UdpIdentityFieldDto field(String dialect, String path, String name) =>
+        UdpIdentityFieldDto(dialect: dialect, path: path, name: name);
+
+    test('reads the CSV columns a Milight bridge answers with', () {
+      // Hardware-verified in the spec: `ip,mac,module`, one ASCII line.
+      const reply = '192.0.2.194,34EAE7AABBCC,HF-LPB130';
+      final read = readUdpIdentityFields(utf8.encode(reply), [
+        field('csv', '1', 'mac'),
+        field('csv', '2', 'module'),
+      ]);
+
+      expect(read, {'mac': '34EAE7AABBCC', 'module': 'HF-LPB130'});
+    });
+
+    test('a column the reply does not have reads nothing, not empty', () {
+      // The v1-v5 bridges answer `ip,mac,` with the name field empty, and a
+      // column past the end is a different thing again. Neither may become a
+      // key with a blank value: `txt` is what the row is drawn from.
+      final read = readUdpIdentityFields(utf8.encode('192.0.2.194,AABBCC,'), [
+        field('csv', '2', 'module'),
+        field('csv', '7', 'nothing'),
+      ]);
+
+      expect(read, isEmpty);
+    });
+
+    test('reads a dotted JSON path', () {
+      final read = readUdpIdentityFields(
+        utf8.encode('{"result":{"mac":"a1b2c3","fw":42,"on":true}}'),
+        [
+          field('json', 'result.mac', 'mac'),
+          field('json', 'result.fw', 'fw'),
+          field('json', 'result.on', 'on'),
+          field('json', 'result.missing', 'missing'),
+          field('json', 'result.mac.deeper', 'deeper'),
+        ],
       );
-      expect(silent!.host, '192.168.1.50');
+
+      expect(read, {'mac': 'a1b2c3', 'fw': '42', 'on': 'true'});
+    });
+
+    test(
+      'a TLV field reads nothing — the tag numbering is not in the spec',
+      () {
+        // Deliberate: Synology and the UniFi gear declare `tlv:` sources, and
+        // the tag→field mapping is prose. Reading a MAC out of the wrong offset
+        // would be worse than not finding the device (SPECS_TO_FIX.md S-22).
+        final read = readUdpIdentityFields(
+          const [1, 6, 0xAA, 0xBB],
+          [field('tlv', 'mac', 'mac')],
+        );
+
+        expect(read, isEmpty);
+      },
+    );
+
+    test('a binary reply does not parse as text', () {
+      // 0xFF is not valid UTF-8. The reader must say "nothing here" rather
+      // than decode it lossily and hand back replacement characters, which
+      // would read as a perfectly good identity.
+      final read = readUdpIdentityFields(
+        const [0xFF, 0xFE, 0xFF],
+        [field('payload', '', 'raw'), field('csv', '0', 'first')],
+      );
+
+      expect(read, isEmpty);
+    });
+
+    test('no fields declared reads nothing', () {
+      expect(readUdpIdentityFields(utf8.encode('anything'), const []), isEmpty);
     });
   });
 }

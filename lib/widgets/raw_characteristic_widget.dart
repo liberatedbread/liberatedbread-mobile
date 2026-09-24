@@ -7,6 +7,7 @@ import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../providers/ble_provider.dart';
 import '../core/error_text.dart';
+import '../core/mono_text.dart';
 
 /// Raw characteristic widget — shows hex values and provides basic read/write.
 /// This is the fallback for characteristics not matched to a device spec;
@@ -150,24 +151,26 @@ class _RawCharacteristicWidgetState
     final bleService = ref.read(bleServiceProvider);
     _notifySub = bleService
         .subscribeCharacteristic(
-      widget.deviceId,
-      widget.serviceUuid,
-      widget.characteristic.uuid,
-    )
+          widget.deviceId,
+          widget.serviceUuid,
+          widget.characteristic.uuid,
+        )
         .listen(
-      (value) {
-        if (mounted) setState(() => _value = value);
-      },
-      onError: (Object e) {
-        if (mounted) {
-          setState(() => _error = friendlyErrorText(
-                e,
-                context: 'notify ${widget.characteristic.uuid}',
-                fallback: 'Live updates stopped.',
-              ));
-        }
-      },
-    );
+          (value) {
+            if (mounted) setState(() => _value = value);
+          },
+          onError: (Object e) {
+            if (mounted) {
+              setState(
+                () => _error = friendlyErrorText(
+                  e,
+                  context: 'notify ${widget.characteristic.uuid}',
+                  fallback: 'Live updates stopped.',
+                ),
+              );
+            }
+          },
+        );
   }
 
   @override
@@ -186,20 +189,19 @@ class _RawCharacteristicWidgetState
           title: Row(
             children: [
               Expanded(
-                child: Text(
-                  char.uuid,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                child: Text(char.uuid, style: monoTextStyleOf(fontSize: 12)),
+              ),
+              ...properties.map(
+                (p) => Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Chip(
+                    label: Text(p, style: const TextStyle(fontSize: 10)),
+                    padding: EdgeInsets.zero,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ),
               ),
-              ...properties.map((p) => Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Chip(
-                      label: Text(p, style: const TextStyle(fontSize: 10)),
-                      padding: EdgeInsets.zero,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  )),
             ],
           ),
           subtitle: _buildValue(),
@@ -217,6 +219,10 @@ class _RawCharacteristicWidgetState
   }
 
   Widget _buildWriteRow() {
+    // Theme roles, not Colors.* literals: grey and green fail contrast on the
+    // light surface and none of them adapt to dark mode.
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
       child: Column(
@@ -228,7 +234,7 @@ class _RawCharacteristicWidgetState
                 child: TextField(
                   controller: _writeController,
                   enabled: !_writing,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                  style: monoTextStyleOf(fontSize: 13),
                   decoration: const InputDecoration(
                     isDense: true,
                     labelText: 'Write hex',
@@ -255,14 +261,18 @@ class _RawCharacteristicWidgetState
           if (_writeError != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text('Error: $_writeError',
-                  style: const TextStyle(color: Colors.red, fontSize: 12)),
+              child: Text(
+                'Error: $_writeError',
+                style: text.bodySmall?.copyWith(color: scheme.error),
+              ),
             ),
           if (_writeStatus != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(_writeStatus!,
-                  style: const TextStyle(color: Colors.green, fontSize: 12)),
+              child: Text(
+                _writeStatus!,
+                style: text.bodySmall?.copyWith(color: scheme.tertiary),
+              ),
             ),
         ],
       ),
@@ -270,30 +280,35 @@ class _RawCharacteristicWidgetState
   }
 
   Widget _buildValue() {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     if (_loading) {
-      return const Text('Reading...',
-          style: TextStyle(fontStyle: FontStyle.italic));
+      return const Text(
+        'Reading...',
+        style: TextStyle(fontStyle: FontStyle.italic),
+      );
     }
     if (_error != null) {
-      return Text('Error: $_error',
-          style: const TextStyle(color: Colors.red, fontSize: 12));
+      return Text(
+        'Error: $_error',
+        style: text.bodySmall?.copyWith(color: scheme.error),
+      );
     }
     if (_value == null) {
-      return const Text('(no value)',
-          style: TextStyle(color: Colors.grey, fontSize: 12));
+      return Text(
+        '(no value)',
+        style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+      );
     }
     final ascii = asciiPreview(_value!);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          bytesToHex(_value!),
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-        ),
+        Text(bytesToHex(_value!), style: monoTextStyleOf(fontSize: 13)),
         if (ascii != null)
           Text(
             '"$ascii"',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
       ],
     );

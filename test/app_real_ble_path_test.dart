@@ -130,8 +130,9 @@ void main() {
     await ble.reset();
     // Seed the disclaimer as accepted so the app boots past the first-launch
     // gate straight to the BLE path these tests exercise.
-    SharedPreferences.setMockInitialValues(
-        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+    SharedPreferences.setMockInitialValues({
+      AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+    });
     _prefs = await SharedPreferences.getInstance();
   });
 
@@ -151,15 +152,16 @@ void main() {
   }
 
   Widget app() => ProviderScope(
-        // Only SharedPreferences, which main() resolves before runApp.
-        // bleServiceProvider is deliberately left alone: it builds a real
-        // RealBleService, which is the entire point of this file.
-        overrides: [sharedPreferencesProvider.overrideWithValue(_prefs)],
-        child: const LiberatedBreadApp(),
-      );
+    // Only SharedPreferences, which main() resolves before runApp.
+    // bleServiceProvider is deliberately left alone: it builds a real
+    // RealBleService, which is the entire point of this file.
+    overrides: [sharedPreferencesProvider.overrideWithValue(_prefs)],
+    child: const LiberatedBreadApp(),
+  );
 
-  testWidgets('the app scans, connects and discovers over RealBleService',
-      (tester) async {
+  testWidgets('the app scans, connects and discovers over RealBleService', (
+    tester,
+  ) async {
     ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Living_Room'));
 
     useTallSurface(tester);
@@ -175,12 +177,17 @@ void main() {
 
       await tester.tap(find.byType(FloatingActionButton));
       await _pumpUntil(tester, find.text('ACME_Living_Room'));
-      expect(find.text('ACME_Living_Room'), findsOneWidget,
-          reason: 'the emulated advertisement should reach the device list');
+      expect(
+        find.text('ACME_Living_Room'),
+        findsOneWidget,
+        reason: 'the emulated advertisement should reach the device list',
+      );
 
       await tester.tap(find.text('ACME_Living_Room'));
       await _pumpUntil(
-          tester, find.text('0000180f-0000-1000-8000-00805f9b34fb'));
+        tester,
+        find.text('0000180f-0000-1000-8000-00805f9b34fb'),
+      );
 
       // Discovery mapped the GATT tree into the UI. The service card's subtitle
       // is the exact UUID, and its title is "Battery Service" rather than a
@@ -196,15 +203,15 @@ void main() {
   // One test, not three, for the spec journey: matching parses the entire
   // bundled catalogue over FFI, and paying that once is worth more than the
   // isolation three separate cases would buy.
-  testWidgets(
-      'a discovered device matches its spec, and its typed command reaches '
+  testWidgets('a discovered device matches its spec, and its typed command reaches '
       'the peripheral as bytes', (tester) async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded; spec matching needs the FFI codec');
       return;
     }
-    final bulb =
-        ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Living_Room'));
+    final bulb = ble.add(
+      EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Living_Room'),
+    );
 
     useTallSurface(tester);
     await _scenario(tester, () async {
@@ -219,11 +226,18 @@ void main() {
       // catalogue (device-specs/examples/example-bulb.yaml), reached by
       // matching the device's advertised name prefix together with its
       // discovered service UUIDs. Nothing in the app knows what an ACME bulb is.
-      expect(find.text('Control Service'), findsOneWidget,
-          reason: 'the spec names the service; a failed match would leave the '
-              'generic "Service" label');
-      expect(find.text('Power on'), findsWidgets,
-          reason: 'typed command buttons only exist when a spec matched');
+      expect(
+        find.text('Control Service'),
+        findsOneWidget,
+        reason:
+            'the spec names the service; a failed match would leave the '
+            'generic "Service" label',
+      );
+      expect(
+        find.text('Power on'),
+        findsWidgets,
+        reason: 'typed command buttons only exist when a spec matched',
+      );
 
       // The read path, decoded: the peripheral's battery characteristic holds
       // the single byte 85, and the spec is what turns that into a labelled
@@ -232,9 +246,13 @@ void main() {
       await _pumpUntil(tester, find.text('85'));
       expect(find.text('Battery'), findsWidgets);
       expect(find.text('85'), findsWidgets);
-      expect(find.text('Power state: on'), findsOneWidget,
-          reason: 'the state characteristic was read over the real service and '
-              'decoded by the spec');
+      expect(
+        find.text('Power state: on'),
+        findsOneWidget,
+        reason:
+            'the state characteristic was read over the real service and '
+            'decoded by the spec',
+      );
 
       // widgetWithText, not find.text: "Power on" is on screen twice — once as
       // the command's name and once on the button that sends it. ensureVisible
@@ -245,8 +263,11 @@ void main() {
       await _pumpAWhile(tester, rounds: 4);
       await tester.tap(powerOn);
       await _pumpUntil(tester, find.text('Sent'));
-      expect(find.text('Sent'), findsWidgets,
-          reason: 'the button reports the write it made');
+      expect(
+        find.text('Sent'),
+        findsWidgets,
+        reason: 'the button reports the write it made',
+      );
 
       // [0x01, 0x01] is the `power_on` command in the spec's YAML. It travelled
       // spec → Rust encoder → RealBleService → flutter_blue_plus → peripheral,
@@ -271,8 +292,10 @@ void main() {
   // both render the raw characteristic browser — which reads on build, making
   // this the shortest path from "device in range" to "what the user is told".
   // It also means these two cases need no FFI codec and stay fast.
-  EmulatedPeripheral sensor(
-      {required String id, required bool requiresPairing}) {
+  EmulatedPeripheral sensor({
+    required String id,
+    required bool requiresPairing,
+  }) {
     return EmulatedPeripheral(
       id: id,
       name: requiresPairing ? 'Vault Sensor' : 'Open Sensor',
@@ -292,8 +315,7 @@ void main() {
     );
   }
 
-  testWidgets(
-      'a device that needs pairing says so, in words the user can act '
+  testWidgets('a device that needs pairing says so, in words the user can act '
       'on', (tester) async {
     ble.add(sensor(id: _lockId, requiresPairing: true));
 
@@ -309,19 +331,31 @@ void main() {
       // a broken one, and hiding its services would leave the user with nothing
       // to act on.
       await _pumpUntil(tester, find.textContaining('needs to be paired'));
-      expect(find.text('7b2c0001-4f1a-4a3e-9b6d-2f8a1c5e0d31'), findsOneWidget,
-          reason: 'the GATT table still came across; only the read was '
-              'refused');
-      expect(find.textContaining('needs to be paired'), findsWidgets,
-          reason: 'the refusal has to name pairing; the generic fallback '
-              'sends the user looking at the wrong thing');
-      expect(find.textContaining('GATT'), findsNothing,
-          reason: 'the native error code is for the log, not the screen');
+      expect(
+        find.text('7b2c0001-4f1a-4a3e-9b6d-2f8a1c5e0d31'),
+        findsOneWidget,
+        reason:
+            'the GATT table still came across; only the read was '
+            'refused',
+      );
+      expect(
+        find.textContaining('needs to be paired'),
+        findsWidgets,
+        reason:
+            'the refusal has to name pairing; the generic fallback '
+            'sends the user looking at the wrong thing',
+      );
+      expect(
+        find.textContaining('GATT'),
+        findsNothing,
+        reason: 'the native error code is for the log, not the screen',
+      );
     });
   });
 
-  testWidgets('an identical device that needs no pairing just reads',
-      (tester) async {
+  testWidgets('an identical device that needs no pairing just reads', (
+    tester,
+  ) async {
     ble.add(sensor(id: _bulbId, requiresPairing: false));
 
     useTallSurface(tester);
@@ -341,8 +375,9 @@ void main() {
     });
   });
 
-  testWidgets('a radio that is switched off is reported, not swallowed',
-      (tester) async {
+  testWidgets('a radio that is switched off is reported, not swallowed', (
+    tester,
+  ) async {
     ble.adapterState = EmulatedAdapterState.off;
 
     useTallSurface(tester);
@@ -358,8 +393,9 @@ void main() {
     });
   });
 
-  testWidgets('a denied Bluetooth permission gets its own recovery path',
-      (tester) async {
+  testWidgets('a denied Bluetooth permission gets its own recovery path', (
+    tester,
+  ) async {
     ble.adapterState = EmulatedAdapterState.unauthorized;
 
     useTallSurface(tester);

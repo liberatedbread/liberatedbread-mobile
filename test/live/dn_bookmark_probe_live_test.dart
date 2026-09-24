@@ -83,9 +83,9 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
-      const codec = RealSpecCodec();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       if (Platform.environment['LB_LIVE_BLE_DIRECT'] != '1') {
@@ -112,7 +112,11 @@ void main() {
       final notifySub = notify.listen((_) {});
 
       Future<void> write(
-          String label, String svc, String chr, List<int> b) async {
+        String label,
+        String svc,
+        String chr,
+        List<int> b,
+      ) async {
         // ignore: avoid_print
         print('>> $label -> ${_hex(b)}');
         await ble.writeCharacteristic(deviceId, svc, chr, b);
@@ -125,29 +129,39 @@ void main() {
         final inv = <int, int>{}; // cid -> diy
         final invSub = notify.listen((bytes) async {
           for (final e in await codec.decodeEffectList(
-              specYaml: specYaml, bytes: bytes)) {
+            specYaml: specYaml,
+            bytes: bytes,
+          )) {
             inv[e.cid] = e.diy;
           }
         });
         final elClear = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'effect_list',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'effect_list',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await write('effect_list(clear)', _ddpService, _ddpWrite, elClear);
         await Future<void>.delayed(const Duration(seconds: 3));
         await invSub.cancel();
         final diyCids = [
           for (final e in inv.entries)
-            if (e.value == 1) e.key
+            if (e.value == 1) e.key,
         ];
         // ignore: avoid_print
         print('CLEARING ${diyCids.length} diy effect(s): $diyCids');
         for (final cid in diyCids) {
           final rm = await codec.encodeRemoveApp(
-              specYaml: specYaml, cid: cid, sequence: nextSeq());
-          await write('remove_app{$cid}', rm.serviceUuid,
-              rm.write.characteristicUuid, rm.write.bytes);
+            specYaml: specYaml,
+            cid: cid,
+            sequence: nextSeq(),
+          );
+          await write(
+            'remove_app{$cid}',
+            rm.serviceUuid,
+            rm.write.characteristicUuid,
+            rm.write.bytes,
+          );
           await Future<void>.delayed(const Duration(milliseconds: 200));
         }
 
@@ -169,18 +183,26 @@ void main() {
             sequence: nextSeq(),
           );
           final done = notify
-              .asyncMap((b) =>
-                  codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b))
+              .asyncMap(
+                (b) =>
+                    codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b),
+              )
               .where((e) => e != null)
               .cast<StoredUploadEventDto>()
-              .firstWhere((e) =>
-                  e.kind == StoredUploadEventKind.complete ||
-                  e.kind == StoredUploadEventKind.failed ||
-                  e.kind == StoredUploadEventKind.startRejected)
+              .firstWhere(
+                (e) =>
+                    e.kind == StoredUploadEventKind.complete ||
+                    e.kind == StoredUploadEventKind.failed ||
+                    e.kind == StoredUploadEventKind.startRejected,
+              )
               .timeout(const Duration(seconds: 30));
           for (final wr in plan.uploadWrites) {
             await ble.writeCharacteristic(
-                deviceId, plan.serviceUuid, wr.characteristicUuid, wr.bytes);
+              deviceId,
+              plan.serviceUuid,
+              wr.characteristicUuid,
+              wr.bytes,
+            );
           }
           final v = await done;
           // ignore: avoid_print
@@ -192,23 +214,26 @@ void main() {
         final slotByCid = <int, int>{};
         final elDone = notify.listen((bytes) async {
           for (final e in await codec.decodeEffectList(
-              specYaml: specYaml, bytes: bytes)) {
+            specYaml: specYaml,
+            bytes: bytes,
+          )) {
             slotByCid[e.cid] = e.slot;
           }
         });
         final el = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'effect_list',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'effect_list',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await write('effect_list', _ddpService, _ddpWrite, el);
         await Future<void>.delayed(const Duration(seconds: 4));
         await elDone.cancel();
         final slots = [for (final c in cids) slotByCid[c] ?? 0];
         // ignore: avoid_print
-        print('SLOTS ${[
-          for (var i = 0; i < cids.length; i++) '${cids[i]}->${slots[i]}'
-        ].join(', ')}');
+        print(
+          'SLOTS ${[for (var i = 0; i < cids.length; i++) '${cids[i]}->${slots[i]}'].join(', ')}',
+        );
 
         // === The vendor's ACTUAL playlist setup: save → play_next ===
         final pl = await codec.encodeSetPlaylist(
@@ -218,8 +243,12 @@ void main() {
           sequence: nextSeq(),
         );
         for (final wr in pl.writes) {
-          await write('set_playlist(save)', pl.serviceUuid,
-              wr.characteristicUuid, wr.bytes);
+          await write(
+            'set_playlist(save)',
+            pl.serviceUuid,
+            wr.characteristicUuid,
+            wr.bytes,
+          );
           // Wire layout: [frag:4][F0 04][sn:2][len:2][mt:2][ddp-header:12][pb].
           // The vendor sends len=0 and a 12-byte all-zero DDP header for every
           // command; flag it if ours differs (means the spec fix didn't take).
@@ -229,22 +258,27 @@ void main() {
             final header = b.sublist(12, 24);
             final ok = len == 0 && header.every((x) => x == 0);
             // ignore: avoid_print
-            print('   len=$len ddpHeader[12..24]=${_hex(header)} '
-                '${ok ? "== vendor (len=0, all-zero) OK" : "!! DIFFERS from vendor"}');
+            print(
+              '   len=$len ddpHeader[12..24]=${_hex(header)} '
+              '${ok ? "== vendor (len=0, all-zero) OK" : "!! DIFFERS from vendor"}',
+            );
           }
         }
 
         final pn = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'play_next',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'play_next',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await write('play_next', _ddpService, _ddpWrite, pn);
 
         // ignore: avoid_print
-        print('SETUP DONE — WATCH THE PANEL for a $frameCount-frame cycle. '
-            'Holding 20s connected, then disconnecting so disconnect behaviour '
-            'can be observed.');
+        print(
+          'SETUP DONE — WATCH THE PANEL for a $frameCount-frame cycle. '
+          'Holding 20s connected, then disconnecting so disconnect behaviour '
+          'can be observed.',
+        );
         for (var t = 0; t < 20; t++) {
           await Future<void>.delayed(const Duration(seconds: 1));
         }

@@ -41,7 +41,8 @@ void main() {
       entitlements = parsePlist(
         readRepoFile(
           _entitlementsPath,
-          consequence: 'Xcode signs the iOS app with this file. Without it '
+          consequence:
+              'Xcode signs the iOS app with this file. Without it '
               'the app has no multicast entitlement, so iOS 14+ silently '
               'drops every mDNS query and SSDP M-SEARCH the Wi-Fi scan sends '
               'and no network device is ever discovered on iPhone or iPad.',
@@ -54,7 +55,8 @@ void main() {
       expect(
         entitlements['com.apple.developer.networking.multicast'],
         isTrue,
-        reason: 'com.apple.developer.networking.multicast must be <true/> in '
+        reason:
+            'com.apple.developer.networking.multicast must be <true/> in '
             '$_entitlementsPath. Since iOS 14 an app cannot send to or '
             'receive from a multicast or broadcast address over a raw socket '
             'without it. Both halves of the scan in '
@@ -74,22 +76,23 @@ void main() {
     setUpAll(() {
       pbxproj = readRepoFile(
         _pbxprojPath,
-        consequence: 'It is what tells Xcode to sign the app with '
+        consequence:
+            'It is what tells Xcode to sign the app with '
             '$_entitlementsPath; without the project file there is no iOS '
             'build at all.',
       );
     });
 
-    int occurrencesOf(String buildSetting, String value) =>
-        RegExp('$buildSetting\\s*=\\s*${RegExp.escape(value)}\\s*;')
-            .allMatches(pbxproj)
-            .length;
+    int occurrencesOf(String buildSetting, String value) => RegExp(
+      '$buildSetting\\s*=\\s*${RegExp.escape(value)}\\s*;',
+    ).allMatches(pbxproj).length;
 
     test('CODE_SIGN_ENTITLEMENTS points at the committed file', () {
       expect(
         occurrencesOf('CODE_SIGN_ENTITLEMENTS', _entitlementsBuildSetting),
         greaterThan(0),
-        reason: 'No build configuration in $_pbxprojPath sets '
+        reason:
+            'No build configuration in $_pbxprojPath sets '
             'CODE_SIGN_ENTITLEMENTS to "$_entitlementsBuildSetting". The '
             'entitlements file can sit in the repo looking correct while '
             'Xcode never reads it, which produces a signed app with no '
@@ -108,7 +111,8 @@ void main() {
       expect(
         withPlist,
         greaterThan(0),
-        reason: 'No INFOPLIST_FILE = $_infoPlistBuildSetting found in '
+        reason:
+            'No INFOPLIST_FILE = $_infoPlistBuildSetting found in '
             '$_pbxprojPath, so the app target\'s build configurations cannot '
             'be counted and this check cannot be trusted. Fix the project '
             'file or this assertion, not this line alone.',
@@ -116,7 +120,8 @@ void main() {
       expect(
         occurrencesOf('CODE_SIGN_ENTITLEMENTS', _entitlementsBuildSetting),
         withPlist,
-        reason: 'CODE_SIGN_ENTITLEMENTS = $_entitlementsBuildSetting must '
+        reason:
+            'CODE_SIGN_ENTITLEMENTS = $_entitlementsBuildSetting must '
             'appear in all $withPlist build configurations that set '
             'INFOPLIST_FILE = $_infoPlistBuildSetting (Debug, Release and '
             'Profile). A configuration missing it signs an app with no '

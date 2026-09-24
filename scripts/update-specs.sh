@@ -144,12 +144,28 @@ recorded_split() {
 # An interpreter that can actually run upstream's generator. Both imports are
 # upstream's, not ours: the generator validates every spec against schema.json
 # on its way to building the index, which is why jsonschema is not optional.
+#
+# The probe imports Draft202012Validator, not merely `jsonschema`, and that
+# distinction is the whole point. `import jsonschema` succeeds on jsonschema 3.x,
+# which predates draft 2020-12 and has no such class — so an interpreter that
+# passed the old probe went on to fail inside validate_specs.py with an
+# ImportError, which check_specs_validate below then reported as
+# "the vendored catalogue does not validate against its own schema".
+#
+# That is the worst shape a failure can take: it named the wrong culprit
+# (upstream's specs), pointed at the wrong repo to fix it, and blocked
+# ./scripts/test.sh at its gate. Observed on a Mac whose `python3` resolves to
+# an Anaconda 3.8 — a common enough setup that "it works in CI" is no defence.
+# Probing for the symbol the generator actually uses makes such an interpreter
+# simply not a candidate, so the loop falls through to the next one and the
+# no-python message (which names the fix) is what a developer sees.
 python_for_specs() {
   local candidate
   for candidate in "${PYTHON:-}" python3 python; do
     [ -n "$candidate" ] || continue
     command -v "$candidate" >/dev/null 2>&1 || continue
-    "$candidate" -c 'import yaml, jsonschema' >/dev/null 2>&1 || continue
+    "$candidate" -c 'import yaml; from jsonschema import Draft202012Validator' \
+      >/dev/null 2>&1 || continue
     printf '%s\n' "$candidate"
     return 0
   done
@@ -158,7 +174,9 @@ python_for_specs() {
 
 no_python_error() {
   echo "::error::the vendored spec index needs upstream's generator to build, and that" >&2
-  echo "::error::needs a python3 with pyyaml + jsonschema. Install them with:" >&2
+  echo "::error::needs a python3 with pyyaml and jsonschema >= 4.0 (draft 2020-12;" >&2
+  echo "::error::an older jsonschema imports fine but cannot validate these specs)." >&2
+  echo "::error::Install them with:" >&2
   echo "::error::  python3 -m pip install -r $PREFIX/requirements.txt" >&2
   echo "::error::(or set PYTHON=/path/to/python). Nothing else in this repo needs them." >&2
 }
@@ -444,8 +462,12 @@ check_specs_validate() {
   fi
   local python
   if ! python="$(python_for_specs)"; then
-    warn "no python3 with pyyaml + jsonschema; skipping the schema check."
-    warn "CI runs it. Here: python3 -m pip install -r $PREFIX/requirements.txt"
+    warn "no python3 with pyyaml and a jsonschema new enough for draft"
+    warn "2020-12 (>= 4.0); skipping the schema check. An older jsonschema"
+    warn "imports fine but has no Draft202012Validator, so it is not a"
+    warn "candidate. CI runs this check."
+    warn "Here: python3 -m pip install -r $PREFIX/requirements.txt"
+    warn "(or set PYTHON=/path/to/a/newer/python3)"
     return 0
   fi
 
@@ -453,6 +475,23 @@ check_specs_validate() {
   if output="$(cd "$PREFIX" && "$python" scripts/validate_specs.py 2>&1)"; then
     log "$(printf '%s\n' "$output" | tail -n 1)"
     return 0
+  fi
+
+  # A non-zero exit is not proof that a spec is invalid. The validator also
+  # exits non-zero when it cannot run at all — a missing import, an unreadable
+  # schema — and blaming upstream's catalogue for our own broken toolchain
+  # sends someone to the wrong repository entirely. A real validation failure
+  # always prints at least one `FAIL <path>` line, so require one before
+  # claiming the specs are at fault.
+  if ! printf '%s\n' "$output" | grep -q '^FAIL'; then
+    echo "::error::could not RUN the vendored validator ($python). This says" >&2
+    echo "::error::nothing about whether the specs are valid — the tool did not" >&2
+    echo "::error::get far enough to judge them. Its output was:" >&2
+    printf '%s\n' "$output" | sed 's/^/::error::  /' >&2
+    echo "::error::If that is an ImportError, install upstream's requirements:" >&2
+    echo "::error::  python3 -m pip install -r $PREFIX/requirements.txt" >&2
+    echo "::error::(or set PYTHON=/path/to/a/newer/python3)." >&2
+    return 1
   fi
 
   # Each failure is a `FAIL <path>` line followed by its indented reasons, and
@@ -530,12 +569,37 @@ if [ -n "$(git status --porcelain -- "$INDEX_PATH")" ]; then
   fi
 fi
 
-# `git subtree pull` merges, so it refuses to start on a dirty tree — and it
-# refuses *after* fetching, with a message about the merge rather than about
-# the working copy. Say it plainly first.
-if [ -n "$(git status --porcelain)" ]; then
-  echo "::error::working tree is not clean; commit or stash before refreshing the subtree." >&2
-  git status --short >&2
+# `git subtree pull` merges, so it refuses to start on a tree with local
+# changes — and it refuses *after* fetching, with a message about the merge
+# rather than about the working copy. Say it plainly first.
+#
+# TRACKED changes, repo-wide. That is git-subtree's own bar (its ensure_clean
+# is `git diff-index HEAD` plus the cached form), and it has to be repo-wide
+# for a second reason: the merge commit this pull writes takes whatever is in
+# the index, so a staged change anywhere else would be swept into a commit
+# labelled "Update vendored protocol-specs".
+#
+# UNTRACKED files, under the prefix ONLY. This check used to be a bare `git
+# status --porcelain`, which refused to pull over a scratch file in the repo
+# root or an untracked fixture three directories away — stricter than
+# git-subtree itself and for nothing: a merge does not touch a file git has
+# never heard of. Under the prefix it is a different matter and the narrow
+# check stays: an unstaged YAML dropped into device-specs/ is bundled by
+# Flutter at build time exactly like a vendored one, and the pull would leave
+# it sitting there looking vendored.
+dirty_tracked="$(git status --porcelain --untracked-files=no)"
+if [ -n "$dirty_tracked" ]; then
+  echo "::error::tracked files have uncommitted changes; commit or stash before refreshing the subtree." >&2
+  printf '%s\n' "$dirty_tracked" >&2
+  exit 1
+fi
+
+untracked_in_prefix="$(git ls-files --others --exclude-standard -- "$PREFIX")"
+if [ -n "$untracked_in_prefix" ]; then
+  echo "::error::untracked files under $PREFIX; the subtree is vendored unmodified," >&2
+  echo "::error::and Flutter bundles these exactly like a vendored spec. Remove them" >&2
+  echo "::error::(or move the change upstream) before refreshing:" >&2
+  printf '%s\n' "$untracked_in_prefix" | sed 's/^/::error::  /' >&2
   exit 1
 fi
 

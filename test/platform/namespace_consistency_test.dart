@@ -36,12 +36,14 @@ void main() {
         consequence: 'It defines the Android application id.',
       );
       for (final key in const ['applicationId', 'namespace']) {
-        final match =
-            RegExp('$key\\s*=\\s*"([^"]+)"').firstMatch(gradle)?.group(1);
+        final match = RegExp(
+          '$key\\s*=\\s*"([^"]+)"',
+        ).firstMatch(gradle)?.group(1);
         expect(
           match,
           appId,
-          reason: 'android/app/build.gradle $key is "$match", expected '
+          reason:
+              'android/app/build.gradle $key is "$match", expected '
               '"$appId". A mismatched applicationId ships as a different app: '
               'it installs alongside the real one instead of upgrading it, and '
               'it invalidates the Home Assistant device registration keyed on '
@@ -66,7 +68,8 @@ void main() {
       expect(
         ids,
         {appId},
-        reason: 'ios app-target PRODUCT_BUNDLE_IDENTIFIER values are $ids, '
+        reason:
+            'ios app-target PRODUCT_BUNDLE_IDENTIFIER values are $ids, '
             'expected every one to be "$appId". A build configuration that '
             'disagrees stops matching the provisioning profile, so ad-hoc and '
             'App Store builds fail to sign for that configuration only.',
@@ -78,12 +81,16 @@ void main() {
         'macos/Runner/Configs/AppInfo.xcconfig',
         consequence: 'It defines the macOS bundle identifier.',
       );
-      final id = RegExp(r'PRODUCT_BUNDLE_IDENTIFIER\s*=\s*(\S+)')
-          .firstMatch(xcconfig)
-          ?.group(1);
-      expect(id, appId,
-          reason: 'macos AppInfo.xcconfig PRODUCT_BUNDLE_IDENTIFIER is "$id", '
-              'expected "$appId".');
+      final id = RegExp(
+        r'PRODUCT_BUNDLE_IDENTIFIER\s*=\s*(\S+)',
+      ).firstMatch(xcconfig)?.group(1);
+      expect(
+        id,
+        appId,
+        reason:
+            'macos AppInfo.xcconfig PRODUCT_BUNDLE_IDENTIFIER is "$id", '
+            'expected "$appId".',
+      );
     });
 
     test('Linux APPLICATION_ID', () {
@@ -93,13 +100,14 @@ void main() {
         'linux/CMakeLists.txt',
         consequence: 'It defines the Linux desktop application id.',
       );
-      final id = RegExp(r'set\(APPLICATION_ID\s+"([^"]+)"\)')
-          .firstMatch(cmake)
-          ?.group(1);
+      final id = RegExp(
+        r'set\(APPLICATION_ID\s+"([^"]+)"\)',
+      ).firstMatch(cmake)?.group(1);
       expect(
         id,
         appId,
-        reason: 'linux/CMakeLists.txt APPLICATION_ID is "$id", expected '
+        reason:
+            'linux/CMakeLists.txt APPLICATION_ID is "$id", expected '
             '"$appId". flutter create derives this from <org>.<project> '
             '(ca.pigscanfly.$dartPackageName), so re-scaffolding the Linux '
             'target silently reintroduces the wrong value.',
@@ -114,10 +122,14 @@ void main() {
         'lib/core/constants.dart',
         consequence: 'It defines the Home Assistant app id.',
       );
-      final id =
-          RegExp("haAppId\\s*=\\s*'([^']+)'").firstMatch(constants)?.group(1);
-      expect(id, appId,
-          reason: 'AppConstants.haAppId is "$id", expected "$appId".');
+      final id = RegExp(
+        "haAppId\\s*=\\s*'([^']+)'",
+      ).firstMatch(constants)?.group(1);
+      expect(
+        id,
+        appId,
+        reason: 'AppConstants.haAppId is "$id", expected "$appId".',
+      );
     });
   });
 
@@ -151,7 +163,8 @@ void main() {
           expect(
             content,
             isNot(contains(stale)),
-            reason: '$path still contains the cargokit template name '
+            reason:
+                '$path still contains the cargokit template name '
                 '"$stale". Everything under rust_builder/ should identify as '
                 'ca.pigscanfly.liberatedbread.rust (Android) or '
                 'liberated_bread_core (the plugin name). If this appeared '
@@ -164,8 +177,7 @@ void main() {
       });
     }
 
-    test(
-        'the Linux/Windows CMake bundled-libraries variable matches the '
+    test('the Linux/Windows CMake bundled-libraries variable matches the '
         'plugin name', () {
       // Flutter's generated_plugins.cmake looks up
       // ${plugin_name}_bundled_libraries, where plugin_name comes from
@@ -176,23 +188,31 @@ void main() {
         'rust_builder/pubspec.yaml',
         consequence: 'It names the native-build plugin.',
       );
-      final pluginName = RegExp(r'^name:\s*(\S+)', multiLine: true)
-          .firstMatch(pubspec)
-          ?.group(1);
-      expect(pluginName, isNotNull,
-          reason: 'Could not read the plugin name from '
-              'rust_builder/pubspec.yaml.');
+      final pluginName = RegExp(
+        r'^name:\s*(\S+)',
+        multiLine: true,
+      ).firstMatch(pubspec)?.group(1);
+      expect(
+        pluginName,
+        isNotNull,
+        reason:
+            'Could not read the plugin name from '
+            'rust_builder/pubspec.yaml.',
+      );
 
       for (final path in const [
         'rust_builder/linux/CMakeLists.txt',
         'rust_builder/windows/CMakeLists.txt',
       ]) {
-        final cmake = readRepoFile(path,
-            consequence: 'It bundles the Rust library into desktop builds.');
+        final cmake = readRepoFile(
+          path,
+          consequence: 'It bundles the Rust library into desktop builds.',
+        );
         expect(
           cmake,
           contains('${pluginName}_bundled_libraries'),
-          reason: '$path must export '
+          reason:
+              '$path must export '
               '"${pluginName}_bundled_libraries" to match the plugin name in '
               'rust_builder/pubspec.yaml. Flutter reads exactly that variable; '
               'any other name means the Rust library is never bundled and the '

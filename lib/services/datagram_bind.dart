@@ -2,6 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:io';
 
+/// The shape of [bindDatagramSocket] — and of package:multicast_dns's
+/// `RawDatagramSocketFactory` — so the scan service can be handed a binder
+/// that returns a socket behaving like a refused one, without a network.
+/// That case is the one dart:io makes easy to get wrong: `send()` never
+/// throws, the SocketException arrives on the stream, and only a fake that
+/// puts it there can prove a transport meets it where it lands.
+typedef DatagramBinder =
+    Future<RawDatagramSocket> Function(
+      dynamic host,
+      int port, {
+      bool reuseAddress,
+      bool reusePort,
+      int ttl,
+    });
+
 /// Bind a UDP datagram socket, tolerating platforms that reject SO_REUSEPORT.
 ///
 /// Desktop Linux and macOS support SO_REUSEPORT and need it so several listeners
@@ -28,8 +43,13 @@ Future<RawDatagramSocket> bindDatagramSocket(
   int ttl = 1,
 }) {
   Future<RawDatagramSocket> bind({required bool reusePort}) =>
-      RawDatagramSocket.bind(host, port,
-          reuseAddress: reuseAddress, reusePort: reusePort, ttl: ttl);
+      RawDatagramSocket.bind(
+        host,
+        port,
+        reuseAddress: reuseAddress,
+        reusePort: reusePort,
+        ttl: ttl,
+      );
   if (!reusePort) return bind(reusePort: false);
   return withReusePortFallback(bind);
 }
@@ -44,7 +64,8 @@ Future<RawDatagramSocket> bindDatagramSocket(
 /// of the retry itself) propagates unchanged, so a genuinely unavailable port
 /// still surfaces its error instead of being masked.
 Future<T> withReusePortFallback<T>(
-    Future<T> Function({required bool reusePort}) bind) async {
+  Future<T> Function({required bool reusePort}) bind,
+) async {
   try {
     return await bind(reusePort: true);
   } on SocketException {

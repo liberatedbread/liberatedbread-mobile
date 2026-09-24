@@ -14,6 +14,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:liberated_bread_mobile/services/settings_store.dart';
+import 'package:liberated_bread_mobile/services/tls_trust.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
@@ -28,17 +30,19 @@ import '../fakes/fake_ecp2_socket.dart';
 import '../fakes/scripted_ws_socket.dart';
 import '../fakes/fake_spec_codec.dart';
 
-NetworkActionDto action(String role, String command,
-        {String transport = 'http'}) =>
-    NetworkActionDto(
-      role: role,
-      commandName: command,
-      transport: transport,
-      userParams: const [],
-      readBack: const [],
-      credentials: const [],
-      instanceParams: const [],
-    );
+NetworkActionDto action(
+  String role,
+  String command, {
+  String transport = 'http',
+}) => NetworkActionDto(
+  role: role,
+  commandName: command,
+  transport: transport,
+  userParams: const [],
+  readBack: const [],
+  credentials: const [],
+  instanceParams: const [],
+);
 
 void main() {
   final codec = FakeSpecCodec();
@@ -68,98 +72,156 @@ void main() {
     String? wsCredential,
     Future<void> Function(String, String)? onCredentialIssued,
     SpecCodec? withCodec,
-  }) =>
-      NetworkCommandSender(
-        mqttConnect: mqttConnect,
-        wsConnect: wsConnect,
-        wsCredential: wsCredential,
-        onCredentialIssued: onCredentialIssued,
+    TlsTrust? trust,
+  }) => NetworkCommandSender(
+    mqttConnect: mqttConnect,
+    wsConnect: wsConnect,
+    wsCredential: wsCredential,
+    onCredentialIssued: onCredentialIssued,
+    host: '192.0.2.9',
+    discoveredControlPort: discoveredControlPort,
+    devicePort: devicePort,
+    ssdpTargets: ssdpTargets,
+    capabilities: capabilities,
+    specYaml: 'yaml',
+    codec: withCodec ?? codec,
+    http: HttpControlClient(
+      httpClient:
+          httpClient ?? MockClient((request) async => http.Response('', 200)),
+      trust: trust,
+    ),
+    soap: SoapControlClient(
+      httpClient: MockClient(
+        (request) async => fail('no SOAP exchange belongs in this test'),
+      ),
+    ),
+    kasa: KasaControlClient(codec),
+    rabbitAir: RabbitAirControlClient(codec),
+    ecp2:
+        ecp2 ??
+        Ecp2ControlService(
+          connector: (host, port) async =>
+              throw const Ecp2Exception('no ECP2 in this test'),
+        ),
+  )..useCredentials(() async => storedCredentials);
+
+  test(
+    'an http action renders through the codec and posts the result',
+    () async {
+      final received = <http.Request>[];
+      final s = sender(
+        httpClient: MockClient((request) async {
+          received.add(request);
+          return http.Response('', 200);
+        }),
+      );
+      await s.sendAction(action('turn_off', 'press_power_off'), {});
+      expect(received.single.url.path, '/fake/press_power_off');
+    },
+  );
+
+  test(
+    'a roku is driven over the signed session, opened once and reused',
+    () async {
+      final socket = AutoEcp2Socket();
+      var connects = 0;
+      // Render real ECP keypress paths — the session translates the path to
+      // its ECP2 verb, and a path it does not know falls back to plain.
+      final ecpCodec = FakeSpecCodec()
+        ..networkHttpRequest = (name, values) => HttpRequestDto(
+          method: 'POST',
+          path: name == 'press_power_off'
+              ? '/keypress/PowerOff'
+              : '/keypress/PowerOn',
+          body: '',
+        );
+      final s = NetworkCommandSender(
         host: '192.0.2.9',
-        discoveredControlPort: discoveredControlPort,
-        devicePort: devicePort,
-        ssdpTargets: ssdpTargets,
-        capabilities: capabilities,
+        discoveredControlPort: 8060,
+        devicePort: null,
+        ssdpTargets: const ['roku:ecp'],
+        capabilities: rokuCapabilities,
         specYaml: 'yaml',
-        codec: withCodec ?? codec,
+        codec: ecpCodec,
         http: HttpControlClient(
-            httpClient: httpClient ??
-                MockClient((request) async => http.Response('', 200))),
+          httpClient: MockClient((request) async {
+            fail('a Roku must not take the plain path when the session is up');
+          }),
+        ),
         soap: SoapControlClient(
-            httpClient: MockClient((request) async =>
-                fail('no SOAP exchange belongs in this test'))),
-        kasa: KasaControlClient(codec),
-        rabbitAir: RabbitAirControlClient(codec),
-        ecp2: ecp2 ??
-            Ecp2ControlService(
-                connector: (host, port) async =>
-                    throw const Ecp2Exception('no ECP2 in this test')),
-      )..useCredentials(() async => storedCredentials);
+          httpClient: MockClient(
+            (request) async => fail('no SOAP exchange belongs in this test'),
+          ),
+        ),
+        kasa: KasaControlClient(ecpCodec),
+        rabbitAir: RabbitAirControlClient(ecpCodec),
+        ecp2: Ecp2ControlService(
+          connector: (host, port) async {
+            connects++;
+            socket.begin();
+            return socket;
+          },
+        ),
+      );
+      await s.sendAction(action('turn_off', 'press_power_off'), {});
+      await s.sendAction(action('turn_on', 'press_power_on'), {});
+      expect(connects, 1, reason: 'the session is opened once and reused');
+      await s.close();
+    },
+  );
 
-  test('an http action renders through the codec and posts the result',
-      () async {
-    final received = <http.Request>[];
-    final s = sender(httpClient: MockClient((request) async {
-      received.add(request);
-      return http.Response('', 200);
-    }));
-    await s.sendAction(action('turn_off', 'press_power_off'), {});
-    expect(received.single.url.path, '/fake/press_power_off');
-  });
+  test(
+    'a spec that says its announcement lies is pinned to the declared port',
+    () {
+      // A Roku advertised 7250 in the field and serves control only on 8060.
+      expect(sender(discoveredControlPort: 7250).controlPort, 8060);
 
-  test('a roku is driven over the signed session, opened once and reused',
-      () async {
-    final socket = AutoEcp2Socket();
-    var connects = 0;
-    // Render real ECP keypress paths — the session translates the path to
-    // its ECP2 verb, and a path it does not know falls back to plain.
-    final ecpCodec = FakeSpecCodec()
-      ..networkHttpRequest = (name, values) => HttpRequestDto(
-            method: 'POST',
-            path: name == 'press_power_off'
-                ? '/keypress/PowerOff'
-                : '/keypress/PowerOn',
-            body: '',
-          );
-    final s = NetworkCommandSender(
-      host: '192.0.2.9',
-      discoveredControlPort: 8060,
-      devicePort: null,
-      ssdpTargets: const ['roku:ecp'],
-      capabilities: rokuCapabilities,
-      specYaml: 'yaml',
-      codec: ecpCodec,
-      http: HttpControlClient(httpClient: MockClient((request) async {
-        fail('a Roku must not take the plain path when the session is up');
-      })),
-      soap: SoapControlClient(
-          httpClient: MockClient((request) async =>
-              fail('no SOAP exchange belongs in this test'))),
-      kasa: KasaControlClient(ecpCodec),
-      rabbitAir: RabbitAirControlClient(ecpCodec),
-      ecp2: Ecp2ControlService(connector: (host, port) async {
-        connects++;
-        socket.begin();
-        return socket;
-      }),
-    );
-    await s.sendAction(action('turn_off', 'press_power_off'), {});
-    await s.sendAction(action('turn_on', 'press_power_on'), {});
-    expect(connects, 1, reason: 'the session is opened once and reused');
-    await s.close();
-  });
+      // The Envoy is the same fact without the Roku: its mDNS answer still says
+      // 80 while firmware 8.x serves the API only over 443 and refuses 80
+      // outright. Expressing this as "is this a Roku" is what left the one
+      // HTTPS device in the catalogue connecting to a closed port.
+      expect(
+        sender(
+          discoveredControlPort: 80,
+          ssdpTargets: const [],
+          capabilities: const NetworkCapabilitiesDto(
+            mqttClientIdGenerated: false,
+            defaultPort: 443,
+            defaultScheme: 'https',
+            advertisedPortUnreliable: true,
+            tlsSelfSigned: true,
+            tlsVerification: 'trust_on_first_use',
+          ),
+        ).controlPort,
+        443,
+      );
 
-  test('a spec that says its announcement lies is pinned to the declared port',
-      () {
-    // A Roku advertised 7250 in the field and serves control only on 8060.
-    expect(sender(discoveredControlPort: 7250).controlPort, 8060);
+      // And a device whose announcement is trustworthy — the normal case — is
+      // still reached where it said it is.
+      expect(
+        sender(
+          discoveredControlPort: 7250,
+          ssdpTargets: const [],
+          capabilities: null,
+        ).controlPort,
+        7250,
+      );
+    },
+  );
 
-    // The Envoy is the same fact without the Roku: its mDNS answer still says
-    // 80 while firmware 8.x serves the API only over 443 and refuses 80
-    // outright. Expressing this as "is this a Roku" is what left the one
-    // HTTPS device in the catalogue connecting to a closed port.
-    expect(
-      sender(
-        discoveredControlPort: 80,
+  test(
+    'close waits for a TLS registration it is about to release (R-037)',
+    () async {
+      // The sender records its registration BEFORE the registration is made:
+      // the pin read is awaited inside useTlsPolicy. A close landing in that
+      // gap released a registration that had not happened yet — the count went
+      // negative, the entry was dropped, and the registration then landed with
+      // nobody left to release it, keeping a pinned policy and a
+      // blanket-trusted host for the life of the process on a client every
+      // screen shares.
+      final gate = Completer<void>();
+      final s = sender(
+        trust: TlsTrust(CertificatePinStore(_GatedPinStore(gate))),
         ssdpTargets: const [],
         capabilities: const NetworkCapabilitiesDto(
           mqttClientIdGenerated: false,
@@ -169,21 +231,26 @@ void main() {
           tlsSelfSigned: true,
           tlsVerification: 'trust_on_first_use',
         ),
-      ).controlPort,
-      443,
-    );
+      );
 
-    // And a device whose announcement is trustworthy — the normal case — is
-    // still reached where it said it is.
-    expect(
-      sender(
-              discoveredControlPort: 7250,
-              ssdpTargets: const [],
-              capabilities: null)
-          .controlPort,
-      7250,
-    );
-  });
+      final sending = s.sendAction(action('turn_off', 'press_power_off'), {});
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      var closed = false;
+      final closing = s.close().then((_) => closed = true);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(
+        closed,
+        isFalse,
+        reason: 'close cannot release a registration still being made',
+      );
+
+      gate.complete();
+      await sending.catchError((Object _) {});
+      await closing;
+      expect(closed, isTrue);
+    },
+  );
 
   test('a refusal on a non-roku stays a refusal', () async {
     final s = sender(
@@ -201,10 +268,12 @@ void main() {
     var connects = 0;
     final s = sender(
       httpClient: MockClient((request) async => http.Response('denied', 403)),
-      ecp2: Ecp2ControlService(connector: (host, port) async {
-        connects++;
-        throw const Ecp2Exception('TV asleep');
-      }),
+      ecp2: Ecp2ControlService(
+        connector: (host, port) async {
+          connects++;
+          throw const Ecp2Exception('TV asleep');
+        },
+      ),
     );
     for (var i = 0; i < 2; i++) {
       await expectLater(
@@ -215,18 +284,146 @@ void main() {
     expect(connects, 1, reason: 'unavailability is memoized');
   });
 
-  test('a device that advertised no control port fails the http send visibly',
-      () async {
-    final s = sender(
-        discoveredControlPort: null, ssdpTargets: const [], capabilities: null);
-    await expectLater(
-      s.sendAction(action('turn_off', 'press_power_off'), {}),
-      throwsA(isA<SoapTransportException>()),
+  /// The keypress codec the ECP2 tests below share: real ECP paths, which the
+  /// session translates to its verbs.
+  FakeSpecCodec keypressCodec() => FakeSpecCodec()
+    ..networkHttpRequest = (name, values) => HttpRequestDto(
+      method: 'POST',
+      path: name == 'press_power_off' ? '/keypress/PowerOff' : '/keypress/On',
+      body: '',
+    );
+
+  /// A Roku sender whose ECP2 connector hands out a fresh auto-answering
+  /// socket per connect (recorded in [sockets]) and whose plain path counts
+  /// its hits in [plainHits] — 403, as a Limited-mode set answers.
+  NetworkCommandSender rokuSender({
+    required List<AutoEcp2Socket> sockets,
+    required List<int> plainHits,
+    bool Function()? tvUp,
+  }) {
+    final ecpCodec = keypressCodec();
+    return NetworkCommandSender(
+      host: '192.0.2.9',
+      discoveredControlPort: 8060,
+      devicePort: null,
+      ssdpTargets: const ['roku:ecp'],
+      capabilities: rokuCapabilities,
+      specYaml: 'yaml',
+      codec: ecpCodec,
+      http: HttpControlClient(
+        httpClient: MockClient((request) async {
+          plainHits.add(403);
+          return http.Response('denied', 403);
+        }),
+      ),
+      soap: SoapControlClient(
+        httpClient: MockClient(
+          (request) async => fail('no SOAP exchange belongs in this test'),
+        ),
+      ),
+      kasa: KasaControlClient(ecpCodec),
+      rabbitAir: RabbitAirControlClient(ecpCodec),
+      ecp2: Ecp2ControlService(
+        connector: (host, port) async {
+          if (tvUp != null && !tvUp()) {
+            throw const Ecp2Exception(
+              'the device sent no authenticate challenge',
+            );
+          }
+          final socket = AutoEcp2Socket();
+          sockets.add(socket);
+          socket.begin();
+          return socket;
+        },
+      ),
+    );
+  }
+
+  /// The TV reboots, sleeps or the Wi-Fi blips: its WebSocket closes and the
+  /// session marks itself dead. Serving that session anyway sent every later
+  /// press down the plain path, which a Limited-mode set refuses — the set
+  /// was uncontrollable until the screen was closed and reopened.
+  test('a session the device dropped is reopened on the next send', () async {
+    final sockets = <AutoEcp2Socket>[];
+    final plainHits = <int>[];
+    final s = rokuSender(sockets: sockets, plainHits: plainHits);
+    addTearDown(s.close);
+
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+    expect(sockets, hasLength(1));
+
+    // The device's end goes away.
+    await sockets.single.close();
+    await pumpEventQueue();
+
+    await s.sendAction(action('turn_on', 'press_power_on'), {});
+    expect(
+      sockets,
+      hasLength(2),
+      reason: 'the dead session is replaced, not served',
+    );
+    expect(
+      sockets.last.sent.map((f) => f['request']),
+      contains('key-press'),
+      reason: 'the press rode the fresh session',
+    );
+    expect(
+      plainHits,
+      isEmpty,
+      reason: 'a Limited-mode set never sees the plain fallback',
     );
   });
 
-  test('the spec\'s port is the fallback when discovery carried none',
-      () async {
+  /// A device that authenticated once speaks ECP2. Failing to open the
+  /// REPLACEMENT — the TV is still rebooting — must not latch "no ECP2
+  /// here", or the set is back on the permanent fallback the reopen ends.
+  test('a proven device\'s failed reopen is retried, not latched', () async {
+    final sockets = <AutoEcp2Socket>[];
+    final plainHits = <int>[];
+    var tvUp = true;
+    final s = rokuSender(
+      sockets: sockets,
+      plainHits: plainHits,
+      tvUp: () => tvUp,
+    );
+    addTearDown(s.close);
+
+    await s.sendAction(action('turn_off', 'press_power_off'), {});
+    await sockets.single.close();
+    await pumpEventQueue();
+
+    // Still rebooting: the reopen fails and THIS press falls back (and is
+    // refused, honestly).
+    tvUp = false;
+    await expectLater(
+      s.sendAction(action('turn_on', 'press_power_on'), {}),
+      throwsA(isA<ControlRefusedException>()),
+    );
+    expect(plainHits, hasLength(1));
+
+    // Back up: the next press reconnects instead of staying on the fallback.
+    tvUp = true;
+    await s.sendAction(action('turn_on', 'press_power_on'), {});
+    expect(sockets, hasLength(2), reason: 'reopened once the set was back');
+    expect(plainHits, hasLength(1), reason: 'no further fallback');
+  });
+
+  test(
+    'a device that advertised no control port fails the http send visibly',
+    () async {
+      final s = sender(
+        discoveredControlPort: null,
+        ssdpTargets: const [],
+        capabilities: null,
+      );
+      await expectLater(
+        s.sendAction(action('turn_off', 'press_power_off'), {}),
+        throwsA(isA<SoapTransportException>()),
+      );
+    },
+  );
+
+  test('the spec\'s port is the fallback when discovery carried none', () async {
     // 67 specs declare `identification.default_port`, and it was read for
     // nothing but the Roku pin. A device added by hand, or found by a
     // transport that carries an address and no port, failed every send with
@@ -242,10 +439,11 @@ void main() {
       discoveredControlPort: null,
       ssdpTargets: const [],
       capabilities: const NetworkCapabilitiesDto(
-          mqttClientIdGenerated: false,
-          defaultPort: 8081,
-          tlsSelfSigned: false,
-          advertisedPortUnreliable: false),
+        mqttClientIdGenerated: false,
+        defaultPort: 8081,
+        tlsSelfSigned: false,
+        advertisedPortUnreliable: false,
+      ),
     );
     await s.sendAction(action('turn_off', 'press_power_off'), {});
     expect(sent?.port, 8081);
@@ -257,10 +455,11 @@ void main() {
         discoveredControlPort: 7250,
         ssdpTargets: const [],
         capabilities: const NetworkCapabilitiesDto(
-            mqttClientIdGenerated: false,
-            defaultPort: 80,
-            tlsSelfSigned: false,
-            advertisedPortUnreliable: false),
+          mqttClientIdGenerated: false,
+          defaultPort: 80,
+          tlsSelfSigned: false,
+          advertisedPortUnreliable: false,
+        ),
       ).controlPort,
       7250,
     );
@@ -276,21 +475,29 @@ void main() {
 
   test('transport independence matches the soap-serialization rule', () {
     expect(
-        NetworkCommandSender.isIndependentTransport(
-            action('press', 'x', transport: 'http')),
-        isTrue);
+      NetworkCommandSender.isIndependentTransport(
+        action('press', 'x', transport: 'http'),
+      ),
+      isTrue,
+    );
     expect(
-        NetworkCommandSender.isIndependentTransport(
-            action('press', 'x', transport: 'tcp-json')),
-        isTrue);
+      NetworkCommandSender.isIndependentTransport(
+        action('press', 'x', transport: 'tcp-json'),
+      ),
+      isTrue,
+    );
     expect(
-        NetworkCommandSender.isIndependentTransport(
-            action('press', 'x', transport: 'udp')),
-        isTrue);
+      NetworkCommandSender.isIndependentTransport(
+        action('press', 'x', transport: 'udp'),
+      ),
+      isTrue,
+    );
     expect(
-        NetworkCommandSender.isIndependentTransport(
-            action('press', 'x', transport: 'soap')),
-        isFalse);
+      NetworkCommandSender.isIndependentTransport(
+        action('press', 'x', transport: 'soap'),
+      ),
+      isFalse,
+    );
   });
 
   test('close is safe on a sender that never opened a session', () async {
@@ -311,8 +518,10 @@ void main() {
 
     // `.last`, not `.single`: the fake codec is shared across this file's
     // tests and records every render.
-    expect(codec.renderNetworkHttpCommandCalls.last.values,
-        containsPair('username', 'nUP9k2sQ'));
+    expect(
+      codec.renderNetworkHttpCommandCalls.last.values,
+      containsPair('username', 'nUP9k2sQ'),
+    );
   });
 
   test('the caller wins over the store for the same name', () async {
@@ -322,11 +531,14 @@ void main() {
     final s = sender(storedCredentials: const {'level': 'stored'});
     addTearDown(s.close);
 
-    await s.sendAction(
-        action('set_brightness', 'set_level'), const {'level': 'picked'});
+    await s.sendAction(action('set_brightness', 'set_level'), const {
+      'level': 'picked',
+    });
 
-    expect(codec.renderNetworkHttpCommandCalls.last.values,
-        containsPair('level', 'picked'));
+    expect(
+      codec.renderNetworkHttpCommandCalls.last.values,
+      containsPair('level', 'picked'),
+    );
   });
 
   test('a credential entered after the sender was built is used', () async {
@@ -338,19 +550,61 @@ void main() {
     addTearDown(s.close);
 
     await s.sendAction(action('turn_off', 'press_power_off'), {});
-    expect(codec.renderNetworkHttpCommandCalls.last.values,
-        isNot(contains('serial')));
+    expect(
+      codec.renderNetworkHttpCommandCalls.last.values,
+      isNot(contains('serial')),
+    );
 
     held['serial'] = '01P00A123456789';
     await s.sendAction(action('turn_off', 'press_power_off'), {});
-    expect(codec.renderNetworkHttpCommandCalls.last.values,
-        containsPair('serial', '01P00A123456789'));
+    expect(
+      codec.renderNetworkHttpCommandCalls.last.values,
+      containsPair('serial', '01P00A123456789'),
+    );
   });
 
   // ── MQTT ──────────────────────────────────────────────────────────────────
   // A device whose control surface is its own broker: a Hisense set's remote.
   // The session is the device's, not the request's — a broker serving one
   // client at a time is held out by a client that reconnects per keypress.
+
+  test('an HTTP send that starts after close() is refused', () async {
+    // Every other path here — MQTT, WS, ECP2 — had this gate. sendHttpRequest
+    // did not, so a poll or a group-run continuation already past its await
+    // when the screen disposed registered the host's TLS policy again
+    // through `_tlsReady ??=` after close() had done its one forgetHost —
+    // a per-host registration nothing releases, for the life of the process.
+    final s = sender();
+    await s.close();
+
+    await expectLater(
+      s.sendHttpRequest(
+        const HttpRequestDto(method: 'POST', path: '/keypress/Home', body: ''),
+      ),
+      throwsStateError,
+    );
+  });
+
+  test('an HTTP send in flight when close() lands is refused too', () async {
+    // The gate at the top of sendHttpRequest covers a send that STARTS after
+    // close(). This one started before: it is parked on its session attempt
+    // when the screen disposes, resumes with `_tlsReady` still null after
+    // close() has done its one forgetHost, and — without the second gate —
+    // registers the host's TLS policy with nobody left to release it.
+    final s = sender(ssdpTargets: const [], capabilities: null);
+    // The expectation is attached BEFORE the close: the refusal lands while
+    // close() is still awaiting its own teardown, and a future nobody is
+    // listening to by then reports its error as unhandled instead.
+    final refused = expectLater(
+      s.sendHttpRequest(
+        const HttpRequestDto(method: 'POST', path: '/keypress/Home', body: ''),
+      ),
+      throwsStateError,
+    );
+    await s.close();
+
+    await refused;
+  });
 
   group('the mqtt transport', () {
     late _ScriptedBroker broker;
@@ -371,16 +625,15 @@ void main() {
         'username': 'hisenseservice',
         'password': 'multimqttservice',
       },
-    }) =>
-        sender(
-          withCodec: mqttCodec,
-          devicePort: 36669,
-          storedCredentials: credentials,
-          mqttConnect: (host, port, timeout) async {
-            scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
-            return broker;
-          },
-        );
+    }) => sender(
+      withCodec: mqttCodec,
+      devicePort: 36669,
+      storedCredentials: credentials,
+      mqttConnect: (host, port, timeout) async {
+        scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+        return broker;
+      },
+    );
 
     test('renders the command and publishes it', () async {
       final s = mqttSender();
@@ -398,100 +651,125 @@ void main() {
       );
     });
 
-    test('the stored credentials reach both the session and the renderer',
-        () async {
-      final s = mqttSender();
-      addTearDown(s.close);
+    test(
+      'the stored credentials reach both the session and the renderer',
+      () async {
+        final s = mqttSender();
+        addTearDown(s.close);
 
-      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+        await s.sendAction(
+          action('press', 'press_power', transport: 'mqtt'),
+          {},
+        );
 
-      expect(mqttCodec.mqttConnectArgs?.clientId, 'phone');
-      expect(mqttCodec.mqttConnectArgs?.username, 'hisenseservice');
-      // The topic is addressed to the client id, so the renderer needs it too.
-      expect(mqttCodec.mqttRenderCalls.single.values['client_id'], 'phone');
-    });
+        expect(mqttCodec.mqttConnectArgs?.clientId, 'phone');
+        expect(mqttCodec.mqttConnectArgs?.username, 'hisenseservice');
+        // The topic is addressed to the client id, so the renderer needs it too.
+        expect(mqttCodec.mqttRenderCalls.single.values['client_id'], 'phone');
+      },
+    );
 
-    test('a generated-client-id broker connects with a synthesized id',
-        () async {
-      // A Dyson-shaped broker: authenticates on username/password, accepts any
-      // client id, and the user stored no client_id. It must connect (with a
-      // synthesized, host-stable id), not be refused for lack of one.
-      final s = sender(
-        withCodec: mqttCodec,
-        devicePort: 1883,
-        capabilities: const NetworkCapabilitiesDto(
-          defaultPort: 1883,
-          tlsSelfSigned: false,
-          advertisedPortUnreliable: false,
-          mqttClientIdGenerated: true,
-        ),
-        storedCredentials: const {'username': 'serial', 'password': 'derived'},
-        mqttConnect: (host, port, timeout) async {
-          scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
-          return broker;
-        },
-      );
-      addTearDown(s.close);
+    test(
+      'a generated-client-id broker connects with a synthesized id',
+      () async {
+        // A Dyson-shaped broker: authenticates on username/password, accepts any
+        // client id, and the user stored no client_id. It must connect (with a
+        // synthesized, host-stable id), not be refused for lack of one.
+        final s = sender(
+          withCodec: mqttCodec,
+          devicePort: 1883,
+          capabilities: const NetworkCapabilitiesDto(
+            defaultPort: 1883,
+            tlsSelfSigned: false,
+            advertisedPortUnreliable: false,
+            mqttClientIdGenerated: true,
+          ),
+          storedCredentials: const {
+            'username': 'serial',
+            'password': 'derived',
+          },
+          mqttConnect: (host, port, timeout) async {
+            scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+            return broker;
+          },
+        );
+        addTearDown(s.close);
 
-      await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {});
+        await s.sendAction(
+          action('press', 'press_power', transport: 'mqtt'),
+          {},
+        );
 
-      expect(mqttCodec.mqttConnectArgs?.clientId, 'liberatedbread-192.0.2.9');
-      expect(mqttCodec.mqttConnectArgs?.username, 'serial');
-    });
+        expect(mqttCodec.mqttConnectArgs?.clientId, 'liberatedbread-192.0.2.9');
+        expect(mqttCodec.mqttConnectArgs?.username, 'serial');
+      },
+    );
 
-    test('a broker that pairs on a client id is refused when none is stored',
-        () async {
-      // The pre-existing rule stands for sets that pair: no client id, no
-      // session — a generated one would connect and be silently unauthorised.
-      var connectorInvoked = false;
-      final s = sender(
-        withCodec: mqttCodec,
-        devicePort: 8883,
-        capabilities: const NetworkCapabilitiesDto(
-          defaultPort: 8883,
-          tlsSelfSigned: true,
-          advertisedPortUnreliable: false,
-          mqttClientIdGenerated: false,
-        ),
-        storedCredentials: const {'username': 'u', 'password': 'p'},
-        mqttConnect: (host, port, timeout) async {
-          connectorInvoked = true;
-          // Answer CONNACK, so if the guard were gone the connect would SUCCEED
-          // — the test then fails on the assertions below instead of passing on
-          // an incidental ack timeout.
-          scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
-          return broker;
-        },
-      );
-      addTearDown(s.close);
+    test(
+      'a broker that pairs on a client id is refused when none is stored',
+      () async {
+        // The pre-existing rule stands for sets that pair: no client id, no
+        // session — a generated one would connect and be silently unauthorised.
+        var connectorInvoked = false;
+        final s = sender(
+          withCodec: mqttCodec,
+          devicePort: 8883,
+          capabilities: const NetworkCapabilitiesDto(
+            defaultPort: 8883,
+            tlsSelfSigned: true,
+            advertisedPortUnreliable: false,
+            mqttClientIdGenerated: false,
+          ),
+          storedCredentials: const {'username': 'u', 'password': 'p'},
+          mqttConnect: (host, port, timeout) async {
+            connectorInvoked = true;
+            // Answer CONNACK, so if the guard were gone the connect would SUCCEED
+            // — the test then fails on the assertions below instead of passing on
+            // an incidental ack timeout.
+            scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+            return broker;
+          },
+        );
+        addTearDown(s.close);
 
-      await expectLater(
-        s.sendAction(action('press', 'press_power', transport: 'mqtt'), {}),
-        // The refusal IDENTITY, not merely the type: the "not been paired"
-        // message is the guard talking. A different MqttConnectionException
-        // (e.g. an ack timeout) would not have this text.
-        throwsA(isA<MqttConnectionException>()
-            .having((e) => e.message, 'message', contains('paired'))),
-      );
-      // The guard must fire BEFORE opening a socket — no CONNECT reaches the
-      // broker. This is what makes the test fail if the guard is deleted.
-      expect(connectorInvoked, isFalse,
-          reason:
-              'the client id is checked before any connection is attempted');
-      expect(broker.written, isEmpty);
-    });
+        await expectLater(
+          s.sendAction(action('press', 'press_power', transport: 'mqtt'), {}),
+          // The refusal IDENTITY, not merely the type: the "not been paired"
+          // message is the guard talking. A different MqttConnectionException
+          // (e.g. an ack timeout) would not have this text.
+          throwsA(
+            isA<MqttConnectionException>().having(
+              (e) => e.message,
+              'message',
+              contains('paired'),
+            ),
+          ),
+        );
+        // The guard must fire BEFORE opening a socket — no CONNECT reaches the
+        // broker. This is what makes the test fail if the guard is deleted.
+        expect(
+          connectorInvoked,
+          isFalse,
+          reason: 'the client id is checked before any connection is attempted',
+        );
+        expect(broker.written, isEmpty);
+      },
+    );
 
     /// A value the caller set beats a stored credential of the same name:
     /// the caller is the one operating the control.
-    test('a caller value wins over a stored credential of the same name',
-        () async {
-      final s = mqttSender();
-      addTearDown(s.close);
+    test(
+      'a caller value wins over a stored credential of the same name',
+      () async {
+        final s = mqttSender();
+        addTearDown(s.close);
 
-      await s.sendAction(action('press', 'press_power', transport: 'mqtt'),
-          {'client_id': 'other'});
-      expect(mqttCodec.mqttRenderCalls.single.values['client_id'], 'other');
-    });
+        await s.sendAction(action('press', 'press_power', transport: 'mqtt'), {
+          'client_id': 'other',
+        });
+        expect(mqttCodec.mqttRenderCalls.single.values['client_id'], 'other');
+      },
+    );
 
     test('the session is opened once and reused across sends', () async {
       final s = mqttSender();
@@ -512,7 +790,9 @@ void main() {
 
       const topic = '/remoteapp/mobile/broadcast/ui_service/state';
       final stream = await s.subscribeMqttState(
-          action('press', 'press_power', transport: 'mqtt'), const [topic]);
+        action('press', 'press_power', transport: 'mqtt'),
+        const [topic],
+      );
 
       // The SUBSCRIBE reached the broker on the SAME session a send would
       // use — one connection, one client identity for state and commands.
@@ -531,37 +811,46 @@ void main() {
     /// subscription must still work: the login falls back to stored
     /// credentials under the literal names. Requiring an action here is what
     /// left exactly these devices permanently silent.
-    test('a device with no MQTT actions can still subscribe to state',
-        () async {
-      final s = mqttSender();
-      addTearDown(s.close);
+    test(
+      'a device with no MQTT actions can still subscribe to state',
+      () async {
+        final s = mqttSender();
+        addTearDown(s.close);
 
-      const topic = '438/NN2-EU-ABC1234D/status/current';
-      await s.subscribeMqttState(null, const [topic]);
+        const topic = '438/NN2-EU-ABC1234D/status/current';
+        await s.subscribeMqttState(null, const [topic]);
 
-      expect(broker.connects, 1);
-      expect(mqttCodec.mqttConnectArgs?.clientId, 'phone');
-      expect(mqttCodec.mqttConnectArgs?.username, 'hisenseservice');
-      expect(
-        broker.written.last,
-        await mqttCodec.mqttSubscribePacket(topic: topic, packetId: 1),
-      );
-    });
+        expect(broker.connects, 1);
+        expect(mqttCodec.mqttConnectArgs?.clientId, 'phone');
+        expect(mqttCodec.mqttConnectArgs?.username, 'hisenseservice');
+        expect(
+          broker.written.last,
+          await mqttCodec.mqttSubscribePacket(topic: topic, packetId: 1),
+        );
+      },
+    );
 
     /// Every topic is addressed to the client id, so an unpaired device has no
     /// useful session. Refused by name rather than connecting under a
     /// generated id, which would be silently unauthorised on a set that pairs.
-    test('an unpaired device says so instead of improvising an identity',
-        () async {
-      final s = mqttSender(credentials: const {});
-      addTearDown(s.close);
+    test(
+      'an unpaired device says so instead of improvising an identity',
+      () async {
+        final s = mqttSender(credentials: const {});
+        addTearDown(s.close);
 
-      await expectLater(
-        s.sendAction(action('press', 'press_power', transport: 'mqtt'), {}),
-        throwsA(isA<MqttConnectionException>()
-            .having((e) => e.message, 'message', contains('paired'))),
-      );
-    });
+        await expectLater(
+          s.sendAction(action('press', 'press_power', transport: 'mqtt'), {}),
+          throwsA(
+            isA<MqttConnectionException>().having(
+              (e) => e.message,
+              'message',
+              contains('paired'),
+            ),
+          ),
+        );
+      },
+    );
 
     /// MQTT is an independent transport, so the screen deliberately does not
     /// serialize sends: two buttons pressed together arrive together. Without
@@ -625,32 +914,35 @@ void main() {
       wsCodec = FakeSpecCodec()
         ..websocketSurfaceResult = surface
         ..websocketFrameFor = (command, id) => WebSocketFrameDto(
-            channel: 'remote', text: '{"method":"$command","id":$id}');
+          channel: 'remote',
+          text: '{"method":"$command","id":$id}',
+        );
     });
 
     NetworkCommandSender wsSender({
       String? credential = 'stored',
       Future<void> Function(String, String)? onNamedIssue,
       Map<String, String> storedCredentials = const {},
-    }) =>
-        sender(
-          withCodec: wsCodec,
-          wsCredential: credential,
-          onCredentialIssued: onNamedIssue,
-          storedCredentials: storedCredentials,
-          wsConnect: (url, headers) async {
-            tvUrls.add(url);
-            scheduleMicrotask(() => tv.send('{"data":{"token":"issued-1"}}'));
-            return tv;
-          },
-        );
+    }) => sender(
+      withCodec: wsCodec,
+      wsCredential: credential,
+      onCredentialIssued: onNamedIssue,
+      storedCredentials: storedCredentials,
+      wsConnect: (url, headers) async {
+        tvUrls.add(url);
+        scheduleMicrotask(() => tv.send('{"data":{"token":"issued-1"}}'));
+        return tv;
+      },
+    );
 
     test('renders the frame and writes it to the socket', () async {
       final s = wsSender();
       addTearDown(s.close);
 
       await s.sendAction(
-          action('press', 'press_power', transport: 'websocket'), {});
+        action('press', 'press_power', transport: 'websocket'),
+        {},
+      );
 
       expect(wsCodec.websocketRenderCalls.single.commandName, 'press_power');
       expect(tv.written.single, contains('"method":"press_power"'));
@@ -660,10 +952,14 @@ void main() {
       final s = wsSender();
       addTearDown(s.close);
 
-      await s
-          .sendAction(action('press', 'press_up', transport: 'websocket'), {});
       await s.sendAction(
-          action('press', 'press_down', transport: 'websocket'), {});
+        action('press', 'press_up', transport: 'websocket'),
+        {},
+      );
+      await s.sendAction(
+        action('press', 'press_down', transport: 'websocket'),
+        {},
+      );
 
       expect(tvUrls, hasLength(1), reason: 'one socket, not one per press');
       expect(tv.written, hasLength(2));
@@ -687,31 +983,38 @@ void main() {
     test('a newly issued credential is handed back to be stored', () async {
       final issued = <String>[];
       final s = wsSender(
-          credential: null,
-          onNamedIssue: (name, value) async => issued.add(value));
-      addTearDown(s.close);
-
-      await s.sendAction(
-          action('press', 'press_power', transport: 'websocket'), {});
-      expect(issued, ['issued-1']);
-    });
-
-    test("a stored credential is read from the store by the spec's name",
-        () async {
-      // No constructor value: the production factory passes none, and the
-      // token a past pairing issued lives in the ONE store map under the
-      // spec's credential_name. Before this lookup existed, a stored token
-      // was unreachable and every screen open re-raised the Allow prompt.
-      final s = wsSender(
         credential: null,
-        storedCredentials: const {'samsung_token': 'from-store'},
+        onNamedIssue: (name, value) async => issued.add(value),
       );
       addTearDown(s.close);
 
       await s.sendAction(
-          action('press', 'press_power', transport: 'websocket'), {});
-      expect(tvUrls.single, contains('token=from-store'));
+        action('press', 'press_power', transport: 'websocket'),
+        {},
+      );
+      expect(issued, ['issued-1']);
     });
+
+    test(
+      "a stored credential is read from the store by the spec's name",
+      () async {
+        // No constructor value: the production factory passes none, and the
+        // token a past pairing issued lives in the ONE store map under the
+        // spec's credential_name. Before this lookup existed, a stored token
+        // was unreachable and every screen open re-raised the Allow prompt.
+        final s = wsSender(
+          credential: null,
+          storedCredentials: const {'samsung_token': 'from-store'},
+        );
+        addTearDown(s.close);
+
+        await s.sendAction(
+          action('press', 'press_power', transport: 'websocket'),
+          {},
+        );
+        expect(tvUrls.single, contains('token=from-store'));
+      },
+    );
 
     test("an issued credential is reported under the spec's name", () async {
       // The (name, value) pair is what a store can file: the bare-value
@@ -724,7 +1027,9 @@ void main() {
       addTearDown(s.close);
 
       await s.sendAction(
-          action('press', 'press_power', transport: 'websocket'), {});
+        action('press', 'press_power', transport: 'websocket'),
+        {},
+      );
       expect(named, [('samsung_token', 'issued-1')]);
     });
 
@@ -744,9 +1049,14 @@ void main() {
       addTearDown(s.close);
 
       await s.sendAction(
-          action('press', 'press_power', transport: 'websocket'), {});
-      expect(saved, isTrue,
-          reason: 'the send must not resolve ahead of the store write');
+        action('press', 'press_power', transport: 'websocket'),
+        {},
+      );
+      expect(
+        saved,
+        isTrue,
+        reason: 'the send must not resolve ahead of the store write',
+      );
     });
 
     /// A locked keystore costs the NEXT open its token — never this press
@@ -759,10 +1069,14 @@ void main() {
       addTearDown(s.close);
 
       await s.sendAction(
-          action('press', 'press_power', transport: 'websocket'), {});
+        action('press', 'press_power', transport: 'websocket'),
+        {},
+      );
       // The session survived the failed save: the next press rides it.
-      await s
-          .sendAction(action('press', 'press_up', transport: 'websocket'), {});
+      await s.sendAction(
+        action('press', 'press_up', transport: 'websocket'),
+        {},
+      );
       expect(tvUrls, hasLength(1));
       expect(tv.written, hasLength(2));
     });
@@ -772,19 +1086,24 @@ void main() {
     test('an unchanged credential is not reported again', () async {
       final issued = <String>[];
       final s = wsSender(
-          credential: 'issued-1',
-          onNamedIssue: (name, value) async => issued.add(value));
+        credential: 'issued-1',
+        onNamedIssue: (name, value) async => issued.add(value),
+      );
       addTearDown(s.close);
 
       await s.sendAction(
-          action('press', 'press_power', transport: 'websocket'), {});
+        action('press', 'press_power', transport: 'websocket'),
+        {},
+      );
       expect(issued, isEmpty);
     });
 
     test('closing the sender closes the socket', () async {
       final s = wsSender();
       await s.sendAction(
-          action('press', 'press_power', transport: 'websocket'), {});
+        action('press', 'press_power', transport: 'websocket'),
+        {},
+      );
 
       await s.close();
       expect(tv.closed, isTrue);
@@ -818,3 +1137,27 @@ class _ScriptedBroker implements MqttSocket {
 }
 
 /// A scripted television behind the sender's WebSocket seam.
+
+/// A pin store whose reads wait on a gate, so a test can hold a TLS
+/// registration genuinely in flight (R-037).
+class _GatedPinStore implements SettingsStore {
+  final Completer<void> gate;
+  final Map<String, String> _values = {};
+
+  _GatedPinStore(this.gate);
+
+  @override
+  Future<String?> read(String key) async {
+    await gate.future;
+    return _values[key];
+  }
+
+  @override
+  Future<void> write(String key, String value) async => _values[key] = value;
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
+
+  @override
+  Future<Map<String, String>> readAll() async => Map.of(_values);
+}

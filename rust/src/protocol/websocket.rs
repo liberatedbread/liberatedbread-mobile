@@ -195,6 +195,13 @@ pub fn surface(spec: &DeviceSpec) -> Option<Surface> {
     })
 }
 
+/// The spec-wide `device.transport`, which a command with no `transport` of
+/// its own inherits. Untyped on `DeviceInfo` — it is one more key in the
+/// device block, read the way `setup.rs` reads `device.setup`.
+fn device_transport(spec: &DeviceSpec) -> Option<&str> {
+    spec.device.extensions.get("transport")?.as_str()
+}
+
 fn opt_str(value: Option<&serde_yaml::Value>) -> Option<String> {
     value.and_then(|v| v.as_str()).map(str::to_string)
 }
@@ -245,6 +252,26 @@ pub fn render_command(
     values: &BTreeMap<String, String>,
     request_id: i64,
 ) -> Result<Frame, ProtocolError> {
+    // Which transport this command rides, before anything is rendered. Every
+    // sibling renderer refuses a command that is not its own; this one used to
+    // render whatever it was handed, so Samsung's `transport: http`
+    // `launch_app` — declared in the same `commands:` block as the 38 key
+    // presses — came back as a WebSocket frame the TV has no method for.
+    //
+    // An ABSENT `transport` inherits `device.transport`, which is how every
+    // command in both TV catalogues is written; only an explicit value has to
+    // spell `websocket`. `device.transport` is untyped (it lives in the
+    // device block's `extensions`), so it is read by name here.
+    let declared = command
+        .transport
+        .as_deref()
+        .or_else(|| device_transport(spec));
+    if declared != Some(TRANSPORT) {
+        return Err(ProtocolError::UnsupportedCommandEncoding(format!(
+            "{command_name} rides transport {}, not {TRANSPORT:?}",
+            declared.map_or_else(|| "<unstated>".to_string(), |t| format!("{t:?}"))
+        )));
+    }
     let Some(surface) = surface(spec) else {
         return Err(ProtocolError::UnsupportedCommandEncoding(
             "the spec declares no `websocket` block".to_string(),
@@ -447,6 +474,20 @@ commands:
       dy:
         type: "string"
         required: true
+  set_mute:
+    description: "Spells its transport out rather than inheriting it."
+    transport: "websocket"
+    action: "ssap://audio/setMute"
+  launch_app:
+    description: "An HTTP command declared in the same commands block."
+    transport: "http"
+    method: "POST"
+    path: "/api/v2/applications/{app_id}"
+    action: "Launch App"
+    parameters:
+      app_id:
+        type: "string"
+        required: true
 "#;
 
     fn spec() -> DeviceSpec {
@@ -544,6 +585,48 @@ commands:
                 &error,
                 ProtocolError::TextFrameValueInvalid { name, .. } if name == "dx"
             ),
+            "{error}"
+        );
+    }
+
+    /// Every sibling renderer refuses a command that is not its own. This one
+    /// did not, so Samsung's REST `launch_app` — declared beside 38 WebSocket
+    /// key presses — rendered as a frame the TV has no method for.
+    #[test]
+    fn a_command_on_another_transport_is_refused() {
+        let error = render("launch_app", &[("app_id", "org.tizen.browser")])
+            .expect_err("an http command must not render as a frame");
+        match &error {
+            ProtocolError::UnsupportedCommandEncoding(reason) => {
+                assert!(reason.contains("http"), "{reason}");
+            }
+            other => panic!("{other}"),
+        }
+    }
+
+    /// A command that spells `transport: websocket` renders, and so does one
+    /// that says nothing and inherits `device.transport` — every other test
+    /// here exercises the inheriting shape.
+    #[test]
+    fn an_explicitly_declared_websocket_command_renders() {
+        let frame = render("set_mute", &[]).expect("renders");
+        assert_eq!(frame.channel, "ssap");
+        let json: serde_json::Value = serde_json::from_str(&frame.text).expect("valid JSON");
+        assert_eq!(json["uri"], "ssap://audio/setMute");
+    }
+
+    /// With no `device.transport` to inherit, a command that declares none
+    /// cannot claim this renderer either — the rule is "says websocket", not
+    /// "says nothing".
+    #[test]
+    fn a_silent_command_in_a_spec_with_no_device_transport_is_refused() {
+        let yaml = TWO_CHANNEL_TV.replace("\n  transport: \"websocket\"", "");
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let command = spec.commands.get("press_home").expect("declared");
+        let error = render_command(&spec, "press_home", command, &BTreeMap::new(), 12)
+            .expect_err("nothing declares this a websocket command");
+        assert!(
+            matches!(error, ProtocolError::UnsupportedCommandEncoding(_)),
             "{error}"
         );
     }

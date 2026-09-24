@@ -31,14 +31,16 @@ void main() {
       );
     });
 
-    test('disconnecting maps to disconnecting (not collapsed to disconnected)',
-        () {
-      expect(
-        // ignore: deprecated_member_use
-        mapConnectionState(BluetoothConnectionState.disconnecting),
-        BleConnectionState.disconnecting,
-      );
-    });
+    test(
+      'disconnecting maps to disconnecting (not collapsed to disconnected)',
+      () {
+        expect(
+          // ignore: deprecated_member_use
+          mapConnectionState(BluetoothConnectionState.disconnecting),
+          BleConnectionState.disconnecting,
+        );
+      },
+    );
   });
 
   group('adapterStateError (F1: iOS permission denial vs radio off)', () {
@@ -98,12 +100,14 @@ void main() {
   });
 
   group('nextEmptyDiscoveryRetryDelay (BlueZ ServicesResolved race)', () {
-    test('first retry is quick, so the common fast-resolve case barely waits',
-        () {
-      final delay = nextEmptyDiscoveryRetryDelay(0);
-      expect(delay, isNotNull);
-      expect(delay!, lessThanOrEqualTo(const Duration(milliseconds: 500)));
-    });
+    test(
+      'first retry is quick, so the common fast-resolve case barely waits',
+      () {
+        final delay = nextEmptyDiscoveryRetryDelay(0);
+        expect(delay, isNotNull);
+        expect(delay!, lessThanOrEqualTo(const Duration(milliseconds: 500)));
+      },
+    );
 
     test('delays never shrink across the schedule', () {
       var attempt = 0;
@@ -111,32 +115,36 @@ void main() {
       while (true) {
         final delay = nextEmptyDiscoveryRetryDelay(attempt);
         if (delay == null) break;
-        expect(delay, greaterThanOrEqualTo(previous),
-            reason: 'attempt $attempt must not back off less than the last');
+        expect(
+          delay,
+          greaterThanOrEqualTo(previous),
+          reason: 'attempt $attempt must not back off less than the last',
+        );
         previous = delay;
         attempt++;
       }
       expect(attempt, greaterThan(0), reason: 'there must be retries at all');
     });
 
-    test('the schedule ends: a genuinely empty device is accepted as final',
-        () {
-      // Walk past the schedule and require null from then on — the discovery
-      // loop treats null as "stop retrying", so a schedule that never ends
-      // would pin the Discovering screen open forever.
-      var attempt = 0;
-      while (nextEmptyDiscoveryRetryDelay(attempt) != null) {
-        attempt++;
-        expect(attempt, lessThan(100), reason: 'schedule must terminate');
-      }
-      expect(nextEmptyDiscoveryRetryDelay(attempt + 1), isNull);
-    });
-
     test(
-        'total wait is a few seconds: enough for BlueZ, short enough for a '
+      'the schedule ends: a genuinely empty device is accepted as final',
+      () {
+        // Walk past the schedule and require null from then on — the discovery
+        // loop treats null as "stop retrying", so a schedule that never ends
+        // would pin the Discovering screen open forever.
+        var attempt = 0;
+        while (nextEmptyDiscoveryRetryDelay(attempt) != null) {
+          attempt++;
+          expect(attempt, lessThan(100), reason: 'schedule must terminate');
+        }
+        expect(nextEmptyDiscoveryRetryDelay(attempt + 1), isNull);
+      },
+    );
+
+    test('total wait is a few seconds: enough for BlueZ, short enough for a '
         'human watching the Discovering screen', () {
       var total = Duration.zero;
-      for (var attempt = 0;; attempt++) {
+      for (var attempt = 0; ; attempt++) {
         final delay = nextEmptyDiscoveryRetryDelay(attempt);
         if (delay == null) break;
         total += delay;
@@ -167,18 +175,20 @@ void main() {
       );
     });
 
-    test('the identical timeout on other platforms still fails the subscribe',
-        () {
-      // On Android/iOS the CCCD confirmation event is real, so a timeout
-      // means the peripheral truly never acked — that must surface.
-      expect(
-        isSpuriousLinuxNotifyTimeout(
-          fbpError('setNotifyValue', FbpErrorCode.timeout),
-          isLinux: false,
-        ),
-        isFalse,
-      );
-    });
+    test(
+      'the identical timeout on other platforms still fails the subscribe',
+      () {
+        // On Android/iOS the CCCD confirmation event is real, so a timeout
+        // means the peripheral truly never acked — that must surface.
+        expect(
+          isSpuriousLinuxNotifyTimeout(
+            fbpError('setNotifyValue', FbpErrorCode.timeout),
+            isLinux: false,
+          ),
+          isFalse,
+        );
+      },
+    );
 
     test('a timeout from a different fbp call is not swallowed', () {
       expect(
@@ -219,7 +229,9 @@ void main() {
     test('with-response only -> use response (false)', () {
       expect(
         useWriteWithoutResponse(
-            canWriteWithResponse: true, canWriteWithoutResponse: false),
+          canWriteWithResponse: true,
+          canWriteWithoutResponse: false,
+        ),
         isFalse,
       );
     });
@@ -229,7 +241,9 @@ void main() {
       // not be sent a with-response write.
       expect(
         useWriteWithoutResponse(
-            canWriteWithResponse: false, canWriteWithoutResponse: true),
+          canWriteWithResponse: false,
+          canWriteWithoutResponse: true,
+        ),
         isTrue,
       );
     });
@@ -237,7 +251,9 @@ void main() {
     test('both modes -> prefer with-response (false)', () {
       expect(
         useWriteWithoutResponse(
-            canWriteWithResponse: true, canWriteWithoutResponse: true),
+          canWriteWithResponse: true,
+          canWriteWithoutResponse: true,
+        ),
         isFalse,
       );
     });
@@ -245,7 +261,9 @@ void main() {
     test('neither mode -> default to with-response (false)', () {
       expect(
         useWriteWithoutResponse(
-            canWriteWithResponse: false, canWriteWithoutResponse: false),
+          canWriteWithResponse: false,
+          canWriteWithoutResponse: false,
+        ),
         isFalse,
       );
     });
@@ -255,7 +273,11 @@ void main() {
     test('first sighting of a device is emitted', () {
       final coalescer = ScanResultCoalescer();
       final device = coalescer.next(
-          id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+      );
       expect(device, isNotNull);
       expect(device!.id, 'AA');
       expect(device.rssi, -50);
@@ -273,9 +295,17 @@ void main() {
     test('an rssi change re-emits with the first-seen discoveredAt', () {
       final coalescer = ScanResultCoalescer();
       final first = coalescer.next(
-          id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true)!;
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+      )!;
       final updated = coalescer.next(
-          id: 'AA', name: 'Bulb', rssi: -42, isConnectable: true);
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -42,
+        isConnectable: true,
+      );
       expect(updated, isNotNull);
       expect(updated!.rssi, -42);
       // The device did not become "newly discovered" by advertising again.
@@ -286,7 +316,11 @@ void main() {
       final coalescer = ScanResultCoalescer();
       coalescer.next(id: 'AA', name: '', rssi: -50, isConnectable: true);
       final updated = coalescer.next(
-          id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+      );
       expect(updated, isNotNull);
       expect(updated!.name, 'Bulb');
     });
@@ -298,29 +332,32 @@ void main() {
       final start = DateTime(2026, 8, 10, 12);
       final coalescer = ScanResultCoalescer();
       final first = coalescer.next(
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+        seenAt: start,
+      )!;
+
+      expect(
+        coalescer.next(
           id: 'AA',
           name: 'Bulb',
           rssi: -50,
           isConnectable: true,
-          seenAt: start)!;
-
-      expect(
-        coalescer.next(
-            id: 'AA',
-            name: 'Bulb',
-            rssi: -50,
-            isConnectable: true,
-            seenAt: start.add(scanHeartbeat ~/ 2)),
+          seenAt: start.add(scanHeartbeat ~/ 2),
+        ),
         isNull,
         reason: 'inside the heartbeat, an unchanged repeat is still noise',
       );
 
       final beat = coalescer.next(
-          id: 'AA',
-          name: 'Bulb',
-          rssi: -50,
-          isConnectable: true,
-          seenAt: start.add(scanHeartbeat));
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+        seenAt: start.add(scanHeartbeat),
+      );
       expect(beat, isNotNull);
       expect(beat!.lastSeen, start.add(scanHeartbeat));
       expect(beat.discoveredAt, first.discoveredAt);
@@ -334,20 +371,22 @@ void main() {
       final start = DateTime(2026, 8, 10, 12);
       final coalescer = ScanResultCoalescer();
       coalescer.next(
-          id: 'AA',
-          name: 'Bulb',
-          rssi: -50,
-          isConnectable: true,
-          seenAt: start);
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+        seenAt: start,
+      );
 
       // Ten minutes of batches later, the silent device's entry is unchanged.
       expect(
         coalescer.next(
-            id: 'AA',
-            name: 'Bulb',
-            rssi: -50,
-            isConnectable: true,
-            seenAt: start),
+          id: 'AA',
+          name: 'Bulb',
+          rssi: -50,
+          isConnectable: true,
+          seenAt: start,
+        ),
         isNull,
       );
     });
@@ -355,7 +394,11 @@ void main() {
     test('lastSeen defaults to the first-seen time', () {
       final coalescer = ScanResultCoalescer();
       final device = coalescer.next(
-          id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true)!;
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+      )!;
       expect(device.lastSeen, device.discoveredAt);
     });
 
@@ -393,8 +436,9 @@ void main() {
         serviceUuids: const ['0000fff0-0000-1000-8000-00805f9b34fb'],
         companyIds: const [961],
       )!;
-      expect(
-          device.serviceUuids, const ['0000fff0-0000-1000-8000-00805f9b34fb']);
+      expect(device.serviceUuids, const [
+        '0000fff0-0000-1000-8000-00805f9b34fb',
+      ]);
       expect(device.companyIds, const [961]);
     });
 
@@ -443,10 +487,18 @@ void main() {
     test('an active scan listens continuously', () {
       // The user pressed Scan and is watching: discovery latency is the
       // product, so the radio stays in Android's low-latency mode and the
-      // firehose is thinned by the divisor instead.
-      expect(androidScanModeFor(ScanIntensity.active).value,
-          AndroidScanMode.lowLatency.value);
-      expect(continuousDivisorFor(ScanIntensity.active), continuousScanDivisor);
+      // firehose is thinned by the divisor instead — on every platform.
+      expect(
+        androidScanModeFor(ScanIntensity.active).value,
+        AndroidScanMode.lowLatency.value,
+      );
+      for (final isApple in const [false, true]) {
+        expect(
+          continuousDivisorFor(ScanIntensity.active, isApple: isApple),
+          continuousScanDivisor,
+          reason: 'isApple: $isApple',
+        );
+      }
     });
 
     test('an ambient scan duty-cycles and stops thinning receptions', () {
@@ -454,9 +506,70 @@ void main() {
       // biggest energy saving the scan has — and drops the divisor, because
       // the duty cycle has already thinned receptions at the radio and
       // stacking the two would double a sleepy sensor's reception gaps.
-      expect(androidScanModeFor(ScanIntensity.ambient).value,
-          AndroidScanMode.balanced.value);
-      expect(continuousDivisorFor(ScanIntensity.ambient), 1);
+      expect(
+        androidScanModeFor(ScanIntensity.ambient).value,
+        AndroidScanMode.balanced.value,
+      );
+      expect(continuousDivisorFor(ScanIntensity.ambient, isApple: false), 1);
+    });
+
+    test('on Apple platforms the ambient scan thins harder, not less', () {
+      // The regression this pins (F-020): Apple has no scan-mode knob, so the
+      // duty cycle the Android ambient scan leans on does not exist there —
+      // the divisor is the only thinning available, and an undivided ambient
+      // scan was twice as chatty as the burst it is meant to be cheaper than.
+      expect(
+        continuousDivisorFor(ScanIntensity.ambient, isApple: true),
+        appleAmbientScanDivisor,
+      );
+      expect(
+        appleAmbientScanDivisor,
+        greaterThan(continuousScanDivisor),
+        reason: 'the always-on scan must cost less per second than the burst',
+      );
+      // A once-a-second advertiser must still refresh lastSeen inside the
+      // heartbeat, or the coalescer's own re-emit becomes the bottleneck.
+      expect(
+        const Duration(seconds: appleAmbientScanDivisor),
+        lessThanOrEqualTo(scanHeartbeat),
+      );
+    });
+  });
+
+  group('isAdapterStateSettling (F-002: CoreBluetooth reports late)', () {
+    test('unknown and turningOn are states to wait out', () {
+      // CoreBluetooth answers `unknown` until its asynchronous state callback
+      // fires — on a first launch, not until the user has answered the
+      // system Bluetooth prompt. Judging that answer is what put "Bluetooth
+      // is turned off" on screen underneath the permission alert.
+      expect(isAdapterStateSettling(BluetoothAdapterState.unknown), isTrue);
+      expect(isAdapterStateSettling(BluetoothAdapterState.turningOn), isTrue);
+    });
+
+    test('every other state is an answer', () {
+      for (final state in const [
+        BluetoothAdapterState.on,
+        BluetoothAdapterState.off,
+        BluetoothAdapterState.turningOff,
+        BluetoothAdapterState.unavailable,
+        BluetoothAdapterState.unauthorized,
+      ]) {
+        expect(
+          isAdapterStateSettling(state),
+          isFalse,
+          reason: '$state is a settled state',
+        );
+      }
+    });
+
+    test('a state that never settles still reads as unavailable', () {
+      // What the settle wait answers with after its window: the mapping for
+      // `unknown` is unchanged, so a radio that never reports is still
+      // "turned off", just judged after the wait rather than before it.
+      expect(
+        adapterStateError(BluetoothAdapterState.unknown),
+        isA<BleUnavailableException>(),
+      );
     });
   });
 
@@ -467,19 +580,15 @@ void main() {
     final newerSub = Object();
 
     test('stops when our sub is still the active one', () {
-      expect(
-        shouldStopNativeScanOnCancel(active: ownSub, own: ownSub),
-        isTrue,
-      );
+      expect(shouldStopNativeScanOnCancel(active: ownSub, own: ownSub), isTrue);
     });
 
-    test('stops when the active field was already cleared (normal completion)',
-        () {
-      expect(
-        shouldStopNativeScanOnCancel(active: null, own: ownSub),
-        isTrue,
-      );
-    });
+    test(
+      'stops when the active field was already cleared (normal completion)',
+      () {
+        expect(shouldStopNativeScanOnCancel(active: null, own: ownSub), isTrue);
+      },
+    );
 
     test('does NOT stop when a newer scan has replaced us', () {
       // Late cancel of scan A must not stop scan B's native session.
@@ -495,19 +604,26 @@ void main() {
       // stop issued now lands on whatever scan is running by then.
       expect(shouldStopNativeScanOnCancel(active: null, own: null), isFalse);
       expect(
-          shouldStopNativeScanOnCancel(active: newerSub, own: null), isFalse);
+        shouldStopNativeScanOnCancel(active: newerSub, own: null),
+        isFalse,
+      );
     });
   });
 
   group('isPairingRequiredError', () {
     FlutterBluePlusException native(int? code, [String? description]) =>
         FlutterBluePlusException(
-            ErrorPlatform.android, 'readCharacteristic', code, description);
+          ErrorPlatform.android,
+          'readCharacteristic',
+          code,
+          description,
+        );
 
     test('recognizes insufficient authentication (ATT 0x05)', () {
       expect(
-          isPairingRequiredError(native(5, 'GATT_INSUFFICIENT_AUTHENTICATION')),
-          isTrue);
+        isPairingRequiredError(native(5, 'GATT_INSUFFICIENT_AUTHENTICATION')),
+        isTrue,
+      );
     });
 
     test('recognizes insufficient authorization (ATT 0x08)', () {
@@ -520,13 +636,25 @@ void main() {
 
     test('recognizes BlueZ, which reports a name rather than an ATT code', () {
       expect(
-        isPairingRequiredError(FlutterBluePlusException(
-            ErrorPlatform.linux, 'readCharacteristic', 0, 'Not paired')),
+        isPairingRequiredError(
+          FlutterBluePlusException(
+            ErrorPlatform.linux,
+            'readCharacteristic',
+            0,
+            'Not paired',
+          ),
+        ),
         isTrue,
       );
       expect(
-        isPairingRequiredError(FlutterBluePlusException(ErrorPlatform.linux,
-            'writeCharacteristic', null, 'Insufficient Authentication')),
+        isPairingRequiredError(
+          FlutterBluePlusException(
+            ErrorPlatform.linux,
+            'writeCharacteristic',
+            null,
+            'Insufficient Authentication',
+          ),
+        ),
         isTrue,
       );
     });
@@ -543,8 +671,14 @@ void main() {
         FbpErrorCode.serviceNotFound.index,
       ]) {
         expect(
-          isPairingRequiredError(FlutterBluePlusException(
-              ErrorPlatform.fbp, 'readCharacteristic', code, 'internal')),
+          isPairingRequiredError(
+            FlutterBluePlusException(
+              ErrorPlatform.fbp,
+              'readCharacteristic',
+              code,
+              'internal',
+            ),
+          ),
           isFalse,
           reason: 'FbpErrorCode $code is not an ATT code',
         );
@@ -561,15 +695,20 @@ void main() {
     // StartNotify propagate untouched. So a refused SUBSCRIPTION arrives as
     // something this function has never heard of, carrying its meaning only in
     // its text.
-    test('recognizes a raw D-Bus refusal that never became an fbp exception',
-        () {
-      expect(
-        isPairingRequiredError(
-            Exception('DBusMethodResponseException: org.bluez.Error.'
-                'NotPermitted: Not paired')),
-        isTrue,
-      );
-    });
+    test(
+      'recognizes a raw D-Bus refusal that never became an fbp exception',
+      () {
+        expect(
+          isPairingRequiredError(
+            Exception(
+              'DBusMethodResponseException: org.bluez.Error.'
+              'NotPermitted: Not paired',
+            ),
+          ),
+          isTrue,
+        );
+      },
+    );
 
     // Narrow on purpose: BlueZ raises org.bluez.Error.NotPermitted for an
     // ordinary write to a read-only characteristic too, and answering that with
@@ -578,13 +717,89 @@ void main() {
     test('does not claim every NotPermitted is about pairing', () {
       expect(
         isPairingRequiredError(
-            Exception('org.bluez.Error.NotPermitted: Write not permitted')),
+          Exception('org.bluez.Error.NotPermitted: Write not permitted'),
+        ),
         isFalse,
       );
     });
 
     test('ignores an unrelated error', () {
       expect(isPairingRequiredError(StateError('boom')), isFalse);
+    });
+  });
+
+  group('a characteristic that never answers (found on a Schlage lock)', () {
+    // A real BE489WB declares `read` on one of its vendor characteristics and
+    // then does not reply: the operation times out after 15 s with the
+    // plugin's own error, which used to reach the screen verbatim as
+    // "FlutterBluePlusException | readCharacteristic | fbp-code: 1 | Timed
+    // out after 15s". It is neither a refusal (an ATT error would say so and
+    // become a pairing prompt) nor a dropped link.
+    test('the plugin\'s own timeout is recognised', () {
+      expect(
+        isCharacteristicSilentError(
+          FlutterBluePlusException(
+            ErrorPlatform.fbp,
+            'readCharacteristic',
+            FbpErrorCode.timeout.index,
+            'Timed out after 15s',
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('a NATIVE code at the same number is not', () {
+      // The number 1 from the platform is an ATT code, not fbp's timeout —
+      // the same trap the pairing classifier documents.
+      expect(
+        isCharacteristicSilentError(
+          FlutterBluePlusException(
+            ErrorPlatform.apple,
+            'readCharacteristic',
+            FbpErrorCode.timeout.index,
+            'some att error',
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('a link that drops mid-operation is its own answer', () {
+      // The same lock, moments later: having refused one read it hung up,
+      // and the next arrived as "fbp-code: 6 | Device is disconnected".
+      final dropped = FlutterBluePlusException(
+        ErrorPlatform.fbp,
+        'readCharacteristic',
+        FbpErrorCode.deviceIsDisconnected.index,
+        'Device is disconnected',
+      );
+      expect(isLinkDroppedError(dropped), isTrue);
+      expect(isCharacteristicSilentError(dropped), isFalse);
+      expect(isPairingRequiredError(dropped), isFalse);
+      // …and the same number from a native stack is an ATT code, not this.
+      expect(
+        isLinkDroppedError(
+          FlutterBluePlusException(
+            ErrorPlatform.android,
+            'readCharacteristic',
+            FbpErrorCode.deviceIsDisconnected.index,
+            'att',
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('a refusal stays a refusal, not silence', () {
+      final refusal = FlutterBluePlusException(
+        ErrorPlatform.apple,
+        'readCharacteristic',
+        0x05,
+        'insufficient authentication',
+      );
+      expect(isCharacteristicSilentError(refusal), isFalse);
+      expect(isPairingRequiredError(refusal), isTrue);
     });
   });
 }

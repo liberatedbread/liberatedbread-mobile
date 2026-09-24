@@ -28,34 +28,36 @@ EntityDto _entity({
   bool canNotify = false,
   bool hasFormat = true,
   String? stateCharacteristic = _stateChar,
-}) =>
-    EntityDto(
-        options: const [],
-        name: 'Temperature',
-        platform: 'sensor',
-        deviceClass: 'temperature',
-        unit: 'C',
-        stateCharacteristic: stateCharacteristic,
-        canNotify: canNotify,
-        hasFormat: hasFormat,
-        onWhenNonzero: false,
-        actions: const [],
-        variants: const []);
+}) => EntityDto(
+  options: const [],
+  name: 'Temperature',
+  platform: 'sensor',
+  deviceClass: 'temperature',
+  unit: 'C',
+  stateCharacteristic: stateCharacteristic,
+  canNotify: canNotify,
+  hasFormat: hasFormat,
+  onWhenNonzero: false,
+  actions: const [],
+  variants: const [],
+);
 
 /// A discovered characteristic, so `_seed` can consult the real
 /// read/notify flags the way it does on hardware.
 BleDiscoveredService _discovered({
   required bool canRead,
   required bool canNotify,
-}) =>
-    BleDiscoveredService(uuid: _svc, characteristics: [
-      BleDiscoveredCharacteristic(
-        uuid: _stateChar,
-        canRead: canRead,
-        canWrite: false,
-        canNotify: canNotify,
-      ),
-    ]);
+}) => BleDiscoveredService(
+  uuid: _svc,
+  characteristics: [
+    BleDiscoveredCharacteristic(
+      uuid: _stateChar,
+      canRead: canRead,
+      canWrite: false,
+      canNotify: canNotify,
+    ),
+  ],
+);
 
 /// Pump the builder and hand back every value it rendered, in order.
 Future<List<EntityLiveValue>> pumpValues(
@@ -65,24 +67,26 @@ Future<List<EntityLiveValue>> pumpValues(
   required EntityDto entity,
 }) async {
   final seen = <EntityLiveValue>[];
-  await tester.pumpWidget(ProviderScope(
-    overrides: [
-      bleServiceProvider.overrideWithValue(ble),
-      specCodecProvider.overrideWithValue(codec),
-    ],
-    child: MaterialApp(
-      home: EntityValueBuilder(
-        deviceId: 'd',
-        serviceUuid: _svc,
-        entity: entity,
-        specYaml: 'y',
-        builder: (context, value) {
-          seen.add(value);
-          return const SizedBox.shrink();
-        },
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(codec),
+      ],
+      child: MaterialApp(
+        home: EntityValueBuilder(
+          deviceId: 'd',
+          serviceUuid: _svc,
+          entity: entity,
+          specYaml: 'y',
+          builder: (context, value) {
+            seen.add(value);
+            return const SizedBox.shrink();
+          },
+        ),
       ),
     ),
-  ));
+  );
   await tester.pumpAndSettle();
   return seen;
 }
@@ -93,14 +97,19 @@ const _decoded = <DecodedValueDto>[
     valueType: 'int',
     display: '21.5',
     intValue: 215,
+    rawNumber: 215.0,
+    decodedNumber: 21.5,
+    decodedText: '21.5',
+    decimals: 1,
     scale: 0.1,
     unit: 'C',
   ),
 ];
 
 void main() {
-  testWidgets('an entity with no format block reports unavailable, not error',
-      (tester) async {
+  testWidgets('an entity with no format block reports unavailable, not error', (
+    tester,
+  ) async {
     // A spec gap is not a device failure, and the two read differently to a
     // user: one is "we have not written this down yet", the other is "your
     // device did not answer".
@@ -116,8 +125,9 @@ void main() {
     expect(ble.reads, isEmpty, reason: 'nothing to decode, so nothing to read');
   });
 
-  testWidgets('an entity with no state characteristic never reads',
-      (tester) async {
+  testWidgets('an entity with no state characteristic never reads', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final seen = await pumpValues(
       tester,
@@ -130,12 +140,13 @@ void main() {
     expect(ble.reads, isEmpty);
   });
 
-  testWidgets('a readable characteristic seeds the card from one read',
-      (tester) async {
+  testWidgets('a readable characteristic seeds the card from one read', (
+    tester,
+  ) async {
     final ble = FakeBleService(
       servicesToReturn: [_discovered(canRead: true, canNotify: false)],
       readValues: {
-        _stateChar: const [21]
+        _stateChar: const [21],
       },
     );
     final seen = await pumpValues(
@@ -145,15 +156,19 @@ void main() {
       entity: _entity(),
     );
 
-    expect(seen.first.status, EntityValueStatus.loading,
-        reason: 'the first frame renders before the read answers');
+    expect(
+      seen.first.status,
+      EntityValueStatus.loading,
+      reason: 'the first frame renders before the read answers',
+    );
     expect(seen.last.status, EntityValueStatus.live);
     expect(seen.last.decodedNumber, 21.5);
     expect(ble.reads, hasLength(1));
   });
 
-  testWidgets('a notify-only characteristic waits instead of reading',
-      (tester) async {
+  testWidgets('a notify-only characteristic waits instead of reading', (
+    tester,
+  ) async {
     // Reading a characteristic discovery says is notify-only earns a
     // failure the user cannot act on. Waiting in `loading` is honest —
     // and safe, because a subscription exists to end the wait.
@@ -180,8 +195,9 @@ void main() {
     expect(seen.last.decodedNumber, 21.5);
   });
 
-  testWidgets('a failed read keeps the previous reading on screen',
-      (tester) async {
+  testWidgets('a failed read keeps the previous reading on screen', (
+    tester,
+  ) async {
     // A transient failure must not blank a card that was showing a value:
     // the number the device last reported is still the best thing known.
     final notify = StreamController<List<int>>();
@@ -189,7 +205,7 @@ void main() {
     final ble = FakeBleService(
       servicesToReturn: [_discovered(canRead: true, canNotify: true)],
       readValues: {
-        _stateChar: const [21]
+        _stateChar: const [21],
       },
       notifyStream: notify.stream,
     );
@@ -204,13 +220,17 @@ void main() {
     // A notification that fails to decode leaves the good value alone.
     notify.addError(Exception('link dropped'));
     await tester.pumpAndSettle();
-    expect(seen.last.status, EntityValueStatus.live,
-        reason: 'a dropped notify stream must not overwrite a good reading');
+    expect(
+      seen.last.status,
+      EntityValueStatus.live,
+      reason: 'a dropped notify stream must not overwrite a good reading',
+    );
     expect(seen.last.decodedNumber, 21.5);
   });
 
-  testWidgets('a subscription that fails before any value says so',
-      (tester) async {
+  testWidgets('a subscription that fails before any value says so', (
+    tester,
+  ) async {
     // The other half of the same rule: with the seed read skipped, this
     // failure is the card's ONLY signal (a refused CCCD write on a device
     // that wants pairing), so swallowing it would spin forever.
@@ -229,8 +249,9 @@ void main() {
     expect(seen.last.error, isNotNull);
   });
 
-  testWidgets('a read failure surfaces as an error with the reading kept',
-      (tester) async {
+  testWidgets('a read failure surfaces as an error with the reading kept', (
+    tester,
+  ) async {
     final ble = FakeBleService(
       servicesToReturn: [_discovered(canRead: true, canNotify: false)],
       readError: Exception('device is asleep'),
@@ -254,7 +275,7 @@ void main() {
     final ble = FakeBleService(
       servicesToReturn: [_discovered(canRead: true, canNotify: true)],
       readValues: {
-        _stateChar: const [21]
+        _stateChar: const [21],
       },
       notifyStream: notify.stream,
     );
@@ -271,5 +292,98 @@ void main() {
 
     expect(ble.cancelledSubscriptions, contains(_stateChar));
     expect(ble.liveSubscriberCount[_stateChar], 0);
+  });
+
+  testWidgets('a changed entity re-runs the loop against the new binding', (
+    tester,
+  ) async {
+    // R-110. The builder only ever set itself up in initState, so a card
+    // rebuilt with a NEW entity under the same element kept reading,
+    // subscribing to and decoding the characteristic it was first built with
+    // — the title said one thing and the reading came from another, for as
+    // long as the card lived. A refined spec match, a resolved variant and a
+    // screen swapping which entity a card surfaces all do exactly that.
+    const otherChar = '0000fff5-0000-1000-8000-00805f9b34fb';
+    final ble = FakeBleService(
+      readValues: const {
+        _stateChar: [21],
+        otherChar: [42],
+      },
+    );
+    final codec = FakeSpecCodec(decoded: _decoded);
+
+    Widget at(EntityDto entity) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(codec),
+      ],
+      child: MaterialApp(
+        home: EntityValueBuilder(
+          deviceId: 'd',
+          serviceUuid: _svc,
+          entity: entity,
+          specYaml: 'y',
+          builder: (context, value) => Text(
+            value.decoded.firstOrNull?.name ?? value.status.name,
+            textDirection: TextDirection.ltr,
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(at(_entity()));
+    await tester.pumpAndSettle();
+    expect(ble.reads.map((r) => r.charUuid), [_stateChar]);
+
+    await tester.pumpWidget(at(_entity(stateCharacteristic: otherChar)));
+    await tester.pumpAndSettle();
+    expect(
+      ble.reads.map((r) => r.charUuid),
+      [_stateChar, otherChar],
+      reason: 'the new binding is what the card is now showing',
+    );
+  });
+
+  testWidgets('an entity that loses its binding stops claiming a reading', (
+    tester,
+  ) async {
+    final ble = FakeBleService(
+      readValues: const {
+        _stateChar: [21],
+      },
+    );
+    final codec = FakeSpecCodec(decoded: _decoded);
+    final seen = <EntityLiveValue>[];
+
+    Widget at(EntityDto entity) => ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(codec),
+      ],
+      child: MaterialApp(
+        home: EntityValueBuilder(
+          deviceId: 'd',
+          serviceUuid: _svc,
+          entity: entity,
+          specYaml: 'y',
+          builder: (context, value) {
+            seen.add(value);
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(at(_entity()));
+    await tester.pumpAndSettle();
+    expect(seen.last.status, EntityValueStatus.live);
+
+    await tester.pumpWidget(at(_entity(stateCharacteristic: null)));
+    await tester.pumpAndSettle();
+    expect(
+      seen.last.status,
+      EntityValueStatus.unavailable,
+      reason: 'the previous entity\'s reading is not this entity\'s reading',
+    );
   });
 }

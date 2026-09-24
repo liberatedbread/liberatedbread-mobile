@@ -29,11 +29,11 @@ class BinarySensorCard extends StatelessWidget {
   /// one is declared. `problem` inverts the visual emphasis: "on" is the bad
   /// state.
   (String, String) get _labels => switch (entity.deviceClass) {
-        'problem' => ('Problem', 'OK'),
-        'running' => ('Running', 'Stopped'),
-        'battery_charging' => ('Charging', 'Not charging'),
-        _ => ('On', 'Off'),
-      };
+    'problem' => ('Problem', 'OK'),
+    'running' => ('Running', 'Stopped'),
+    'battery_charging' => ('Charging', 'Not charging'),
+    _ => ('On', 'Off'),
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -72,8 +72,8 @@ class BinarySensorCard extends StatelessWidget {
                 child: Icon(
                   active
                       ? (isProblem
-                          ? Icons.warning_amber_rounded
-                          : Icons.check_circle)
+                            ? Icons.warning_amber_rounded
+                            : Icons.check_circle)
                       : Icons.circle_outlined,
                   color: active ? iconColor : scheme.onSecondaryContainer,
                   size: 22,
@@ -89,8 +89,9 @@ class BinarySensorCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             entity.name,
-                            style: text.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w700),
+                            style: text.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -98,8 +99,11 @@ class BinarySensorCard extends StatelessWidget {
                         if (entity.canNotify)
                           Tooltip(
                             message: 'Updates live',
-                            child: Icon(Icons.bolt,
-                                size: 16, color: scheme.onSurfaceVariant),
+                            child: Icon(
+                              Icons.bolt,
+                              size: 16,
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
                       ],
                     ),
@@ -139,9 +143,10 @@ class BinarySensorCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Text('Reading...',
-                style:
-                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            Text(
+              'Reading...',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ],
         );
       case EntityValueStatus.error:

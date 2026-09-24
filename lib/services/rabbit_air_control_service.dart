@@ -15,12 +15,13 @@ import 'spec_codec.dart';
 /// Abstracted so tests can answer from canned bytes instead of a socket, the
 /// way [KasaControlClient] takes an exchange. Replies from other hosts are
 /// filtered out by the default implementation, not the caller.
-typedef RabbitAirExchange = Future<List<Uint8List>> Function(
-  String host,
-  int port,
-  Uint8List datagram,
-  Duration timeout,
-);
+typedef RabbitAirExchange =
+    Future<List<Uint8List>> Function(
+      String host,
+      int port,
+      Uint8List datagram,
+      Duration timeout,
+    );
 
 /// The production exchange shape: every datagram the device sends back, AS
 /// IT ARRIVES, until the window closes or the listener cancels. Streaming
@@ -28,12 +29,13 @@ typedef RabbitAirExchange = Future<List<Uint8List>> Function(
 /// on the first matching reply — a purifier answers in tens of milliseconds,
 /// and waiting out the full window on every exchange cost four seconds on the
 /// first (time-sync then read) and up to six on retries, per toggle.
-typedef RabbitAirReplyStream = Stream<Uint8List> Function(
-  String host,
-  int port,
-  Uint8List datagram,
-  Duration timeout,
-);
+typedef RabbitAirReplyStream =
+    Stream<Uint8List> Function(
+      String host,
+      int port,
+      Uint8List datagram,
+      Duration timeout,
+    );
 
 /// The transport half of Rabbit Air control: encrypted JSON envelopes over
 /// UDP datagrams on port 9009.
@@ -74,13 +76,13 @@ class RabbitAirControlClient {
   /// dropped datagram must not read as a dead purifier.
   static const attempts = 3;
 
-  RabbitAirControlClient(this._codec,
-      {RabbitAirExchange? exchange,
-      RabbitAirReplyStream? replies,
-      Random? random})
-      : _exchange = exchange,
-        _replies = replies ?? _socketReplies,
-        _random = random ?? Random.secure();
+  RabbitAirControlClient(
+    this._codec, {
+    this._exchange,
+    RabbitAirReplyStream? replies,
+    Random? random,
+  }) : _replies = replies ?? _socketReplies,
+       _random = random ?? Random.secure();
 
   /// Learned device-clock offsets (device seconds minus local seconds), keyed
   /// by host. An entry lives until an exchange fails — the re-sync rule above.
@@ -134,14 +136,20 @@ class RabbitAirControlClient {
     RabbitAirRequestDto request, {
     required String userKey,
   }) async {
-    final datagram = Uint8List.fromList(await _codec.rabbitAirEncryptDatagram(
-        userKey: userKey, plaintext: request.json));
+    final datagram = Uint8List.fromList(
+      await _codec.rabbitAirEncryptDatagram(
+        userKey: userKey,
+        plaintext: request.json,
+      ),
+    );
     // The decrypt-and-match rule, applied to each datagram as it arrives.
     Future<String?> matching(Uint8List reply) async {
       final String plaintext;
       try {
         plaintext = await _codec.rabbitAirDecryptDatagram(
-            userKey: userKey, datagram: reply);
+          userKey: userKey,
+          datagram: reply,
+        );
       } catch (_) {
         // Not ours to read — a wrong key, a corrupt datagram, or another
         // conversation's traffic. Unmatched datagrams are ignored.
@@ -172,12 +180,14 @@ class RabbitAirControlClient {
     } on SocketException catch (e) {
       _clockOffsetByHost.remove(host);
       throw RabbitAirControlException(
-          'could not reach $host:$port — ${e.message}');
+        'could not reach $host:$port — ${e.message}',
+      );
     }
     _clockOffsetByHost.remove(host);
     throw RabbitAirControlException(
-        '$host:$port did not answer within ${timeout.inSeconds}s '
-        '($attempts attempts)');
+      '$host:$port did not answer within ${timeout.inSeconds}s '
+      '($attempts attempts)',
+    );
   }
 }
 

@@ -5,14 +5,17 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:multicast_dns/multicast_dns.dart';
 
 import '../core/error_text.dart';
+import '../core/ha_url.dart' show isPrivateIpv4;
 import '../core/log.dart';
 import '../core/stop_signal.dart';
 import '../models/network_device.dart';
 import 'datagram_bind.dart';
 import 'multicast_lock.dart';
+import 'network_interfaces.dart';
 import 'network_scan_service.dart';
 import 'spec_codec.dart';
 
@@ -32,7 +35,15 @@ const _ssdpPort = 1900;
 /// identity. The synthetic search target below is what a matched device is keyed
 /// on, mirrored by the spec's `identification.ssdp_search_targets`.
 const _lifxPort = 56700;
-const _lifxBroadcast = '255.255.255.255';
+
+/// The limited broadcast address. Named for what it is rather than for LIFX:
+/// every broadcast transport here sends to it — LIFX, Kasa, Wiz, Ubiquiti,
+/// MikroTik, Roomba and the catalogue's own broadcast probes — and the
+/// catalogue probe COMPARES against it to decide whether a refused send says
+/// anything about the port (a spec may name a multicast group or a
+/// subnet-directed broadcast, which is refused on its own account and must not
+/// become the whole scan's verdict).
+const _limitedBroadcast = '255.255.255.255';
 const _lifxSearchTarget = 'lifx:udp';
 
 /// mDNS multicast group and port, for the raw source-capture listener that
@@ -102,10 +113,11 @@ String? lifxStateServiceMac(List<int> data) {
       .join(':');
 }
 
-/// TP-Link Kasa discovery: a directed broadcast of the XOR-encoded
-/// get_sysinfo to UDP 9999, which only devices speaking the tplink-smarthome
-/// protocol answer. The protocol token the answer identifies the device by.
-const _kasaBroadcast = '255.255.255.255';
+/// TP-Link Kasa discovery: a limited broadcast of the XOR-encoded get_sysinfo
+/// to UDP 9999, which only devices speaking the tplink-smarthome protocol
+/// answer. The protocol token the answer identifies the device by. The
+/// destination is [_limitedBroadcast], the one address every broadcast
+/// transport here shares.
 const _kasaPort = 9999;
 const _kasaProbeJson = '{"system":{"get_sysinfo":null}}';
 const _kasaProtocol = 'tplink-smarthome';
@@ -122,7 +134,8 @@ const _wizLanProtocol = 'wiz-udp';
 const _yeelightMulticast = '239.255.255.250';
 const _yeelightPort = 1982;
 const _yeelightLanProtocol = 'yeelight-ssdp';
-const _yeelightProbe = 'M-SEARCH * HTTP/1.1\r\n'
+const _yeelightProbe =
+    'M-SEARCH * HTTP/1.1\r\n'
     'HOST: 239.255.255.250:1982\r\n'
     'MAN: "ssdp:discover"\r\n'
     'ST: wifi_bulb\r\n\r\n';
@@ -138,9 +151,12 @@ const _goveeProbe = '{"msg":{"cmd":"scan","data":{"account_topic":"reserve"}}}';
 
 // iRobot Roomba/Braava answer an ASCII probe broadcast to UDP 5678 — the SAME
 // port MikroTik MNDP uses — with a JSON blob. Discovery lives in the roomba
-// transport (`_runRoomba`), which takes its probe from the spec and builds the
-// record carrying the control port; the MNDP socket, bound to the same port,
-// recognises those replies only so it does not log them as junk.
+// transport (`_runRoomba`), which sends `roomba::DISCOVERY_PROBE` from the Rust
+// crate and builds the record carrying the control port; the MNDP socket, bound
+// to the same port, recognises those replies only so it does not log them as
+// junk. (Those nine bytes are ALSO what the spec declares, and a test pins that
+// the two agree — but this transport sends the constant, not the spec. An
+// earlier version of this comment claimed otherwise.)
 
 /// KNXnet/IP routers/interfaces answer a SEARCH_REQUEST multicast to
 /// 224.0.23.12:3671 with a SEARCH_RESPONSE (device-info DIB). The HPAI in the
@@ -162,7 +178,6 @@ const _knxProbe = [
 /// reply parse both live in the Rust codec; this half owns the socket.
 ///
 /// koalazak/dorita980's work, like the rest of the Roomba path.
-const _roombaBroadcast = '255.255.255.255';
 const _roombaDiscoveryPort = 5678;
 const _roombaControlPort = 8883;
 const _roombaProtocol = 'irobot-mqtt';
@@ -174,7 +189,9 @@ const _roombaProtocol = 'irobot-mqtt';
 /// Top-level, like [lifxStateServiceMac] and the SSDP parsers, so the
 /// announcement-to-device mapping is testable without opening a socket.
 Future<NetworkDevice?> roombaDeviceFrom(
-    Datagram datagram, SpecCodec codec) async {
+  Datagram datagram,
+  SpecCodec codec,
+) async {
   final RoombaAnnouncementDto? robot;
   try {
     robot = await codec.roombaParseAnnouncement(datagram: datagram.data);
@@ -184,10 +201,15 @@ Future<NetworkDevice?> roombaDeviceFrom(
   if (robot == null) return null;
 
   String? nonEmpty(String value) => value.isEmpty ? null : value;
-  // The robot's own address, not the datagram's: they agree in practice, and
-  // when they do not (a robot behind a relay) the robot is the one that knows
-  // where it is.
-  final host = nonEmpty(robot.ip) ?? datagram.address.address;
+  // The robot's own address is preferred over the datagram's — but only when
+  // it is a LAN IP literal we can trust. A robot behind a relay knows where it
+  // is; a hostile responder that answered `irobotmcs` with a bogus `ip` would
+  // otherwise point the app's MQTT/TLS session (carrying the stored password)
+  // at an arbitrary, possibly off-LAN, host (R-024). An unusable value falls
+  // back to the datagram source, which is at least reachable.
+  final host =
+      trustedSelfReportedHost(robot.ip, datagram.address.address) ??
+      datagram.address.address;
   return NetworkDevice(
     host: host,
     // The owner's name for it, falling back to the model then the BLID —
@@ -323,15 +345,31 @@ String? normalizeMdnsServiceType(String raw) {
 
 /// Build a raw mDNS PTR query datagram for a service type (`_snapmaker._tcp
 /// .local`), used by the source-capture listener to prompt the responders.
-List<int> mdnsPtrQuery(String serviceType) {
+/// Null when [serviceType] cannot be put on the wire as a question.
+///
+/// R-031: this used to take whatever string the catalogue held and encode it,
+/// including the ones [normalizeMdnsServiceType] had already rejected — so a
+/// spec with a typo made the app broadcast a malformed question to every
+/// device on the network, once per scan. A DNS label is also at most 63
+/// bytes and the name at most 255; a longer one produced a datagram no
+/// responder could parse, which is a query that can only ever waste the
+/// network's time.
+List<int>? mdnsPtrQuery(String serviceType) {
+  final normalised = normalizeMdnsServiceType(serviceType);
+  if (normalised == null) return null;
+  final labels = [
+    for (final label in normalised.split('.'))
+      if (label.isNotEmpty) utf8.encode(label),
+  ];
+  if (labels.any((l) => l.isEmpty || l.length > 63)) return null;
+  // Every label carries a length byte, plus the root label's zero.
+  if (labels.fold<int>(1, (n, l) => n + 1 + l.length) > 255) return null;
   final b = BytesBuilder();
   // Header: id 0, flags 0, qdcount 1, an/ns/ar 0.
   b.add(const [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
-  for (final label in serviceType.split('.')) {
-    if (label.isEmpty) continue;
-    final bytes = utf8.encode(label);
-    b.addByte(bytes.length);
-    b.add(bytes);
+  for (final label in labels) {
+    b.addByte(label.length);
+    b.add(label);
   }
   b.addByte(0); // root label
   b.add(const [0, 12, 0, 1]); // QTYPE PTR, QCLASS IN
@@ -373,6 +411,125 @@ String? mdnsPictogram(Iterable<String> serviceTypes) {
   return null;
 }
 
+/// Where a scan gets the UDP probes the catalogue declares.
+typedef UdpProbeSource = Future<List<UdpProbeDto>> Function();
+
+/// The specs whose `udp_broadcast` probe this file already sends by hand.
+///
+/// Each of these has a transport above that does more than send bytes and read
+/// fields: a cipher over the datagram (Kasa), a bind on the vendor's own port
+/// because the answer comes back broadcast (MikroTik), a TLV reply format the
+/// spec states in prose (Ubiquiti, UniFi Protect), or a JSON reply that is also
+/// the adoption handshake (iRobot). The catalogue transport skips them so a
+/// device is not probed twice and, more to the point, so a reply that the hand
+/// written parser reads fully is not also half-read by the generic one.
+///
+/// Matched on the catalogue key, which is the spec's filename. A spec that is
+/// renamed upstream falls out of this list and gets probed twice — harmless,
+/// and a test pins the four names so it does not pass unnoticed.
+bool _probesWithTheirOwnTransport(String specKey) {
+  const handled = {
+    'tplink-kasa-smart-plug.yaml',
+    'mikrotik-routeros.yaml',
+    'ubiquiti-unifi-device.yaml',
+    'unifi-protect-camera.yaml',
+    'irobot-roomba.yaml',
+  };
+  // Keys are asset paths in production (`assets/specs/<file>.yaml`) and bare
+  // filenames in the Rust tests, so compare on the last segment.
+  return handled.contains(specKey.split('/').last);
+}
+
+/// Read the identity fields a spec's `udp_broadcast.identity_mapping` names
+/// out of one reply datagram.
+///
+/// The counterpart of the hand-written parsers below, for probes that have no
+/// transport of their own: the spec says which dialect its reply speaks and
+/// which field carries the MAC or the model, and this executes that rather
+/// than another vendor function. Returns only the fields it could actually
+/// read, so a caller can tell "this datagram identified nothing" — which is
+/// how a stray packet on a vendor port is rejected instead of becoming a row.
+///
+/// Three of the catalogue's four dialects are read here. `tlv:<field>` is not:
+/// a TLV reply needs the vendor's own tag numbering, which the spec states in
+/// prose and not as data, so those probes keep their hand-written parser
+/// (SPECS_TO_FIX.md S-22).
+@visibleForTesting
+Map<String, String> readUdpIdentityFields(
+  List<int> payload,
+  List<UdpIdentityFieldDto> fields,
+) {
+  if (fields.isEmpty) return const {};
+  String? text;
+  String? asText() {
+    // A reply is decoded at most once, and a binary one decodes to null rather
+    // than to replacement characters that would then "parse".
+    if (text != null) return text;
+    try {
+      return text = utf8.decode(payload);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Object? json;
+  var jsonTried = false;
+  Object? asJson() {
+    if (jsonTried) return json;
+    jsonTried = true;
+    final body = asText();
+    if (body == null) return null;
+    try {
+      return json = jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  final out = <String, String>{};
+  for (final field in fields) {
+    final String? value;
+    switch (field.dialect) {
+      case 'payload':
+        value = asText()?.trim();
+      case 'csv':
+        final body = asText();
+        final column = int.tryParse(field.path);
+        if (body == null || column == null) {
+          value = null;
+        } else {
+          final columns = body.trim().split(',');
+          value = column >= 0 && column < columns.length
+              ? columns[column].trim()
+              : null;
+        }
+      case 'json':
+        Object? node = asJson();
+        for (final segment in field.path.split('.')) {
+          if (node is Map && node.containsKey(segment)) {
+            node = node[segment];
+          } else {
+            node = null;
+            break;
+          }
+        }
+        value = switch (node) {
+          String s => s,
+          num n => '$n',
+          bool b => '$b',
+          _ => null,
+        };
+      default:
+        // An unknown or unexecutable dialect (`tlv:`) reads nothing rather
+        // than guessing — a wrong MAC is worse than no MAC, because it is
+        // what the device is remembered by.
+        value = null;
+    }
+    if (value != null && value.isNotEmpty) out[field.name] = value;
+  }
+  return out;
+}
+
 /// Parse a Ubiquiti discovery reply (UDP 10001) into hostname / MAC / platform.
 ///
 /// Header: version(1) command(1) length(2 BE); then TLVs, each type(1)
@@ -380,7 +537,8 @@ String? mdnsPictogram(Iterable<String> serviceTypes) {
 /// 0x0c = platform/model string ("UVC G4 Pro", "ES-10X", "UFP-UAP-B…"). Only a
 /// v1 (`0x01`) reply is parsed; anything else yields nothing.
 ({String? hostname, String? mac, String? platform}) parseUbiquitiDiscovery(
-    List<int> data) {
+  List<int> data,
+) {
   String? hostname, mac, platform;
   if (data.length < 4 || data[0] != 0x01) {
     return (hostname: null, mac: null, platform: null);
@@ -440,7 +598,8 @@ String? ubiquitiPictogram(String? platform) {
 /// Wireshark's dissector: 0x0001 = MAC (6B), 0x0005 = Identity, 0x0007 =
 /// Version, 0x000c = Board (model, e.g. CRS328, RB4011).
 ({String? identity, String? mac, String? board, String? version}) parseMndp(
-    List<int> data) {
+  List<int> data,
+) {
   String? identity, mac, board, version;
   if (data.length < 8) {
     return (identity: null, mac: null, board: null, version: null);
@@ -492,7 +651,8 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// identity fields (mac may be null), or null for anything that is not a Wiz
 /// JSON reply.
 ({String? mac, String? moduleName, String? fwVersion})? parseWizReply(
-    List<int> data) {
+  List<int> data,
+) {
   Object? decoded;
   try {
     decoded = jsonDecode(utf8.decode(data));
@@ -519,7 +679,8 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// the SSDP header parser reads it. Null when the payload is not a Yeelight
 /// reply (no `id` and no `yeelight://` location).
 ({String? id, String? model, String? name, String? location})? parseYeelight(
-    String payload) {
+  String payload,
+) {
   final h = parseSsdpHeaders(payload);
   final location = h['location'];
   final id = h['id'];
@@ -565,7 +726,7 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// probe echo) — the JSON parse and the `Roomba-`/`iRobot-` hostname prefix are
 /// the guard that keeps the two protocols sharing :5678 apart.
 ({String? hostname, String? robotname, String? blid, String? sku, String? mac})?
-    parseIrobotReply(List<int> data) {
+parseIrobotReply(List<int> data) {
   Object? decoded;
   try {
     decoded = jsonDecode(utf8.decode(data));
@@ -597,7 +758,7 @@ String mikrotikPictogram({String? board, String? identity}) {
 /// 8-byte HPAI, then the 54-byte DIB_DEVICE_INFO. Null for anything that is not
 /// a well-formed SEARCH_RESPONSE.
 ({String? name, String? individualAddress, String? serial, String? mac})?
-    parseKnxSearchResponse(List<int> d) {
+parseKnxSearchResponse(List<int> d) {
   const dib = 14; // 6-byte header + 8-byte HPAI
   if (d.length < dib + 54 || d[0] != 0x06 || d[1] != 0x10) return null;
   if (d[2] != 0x02 || d[3] != 0x02) return null; // SEARCH_RESPONSE
@@ -611,9 +772,9 @@ String mikrotikPictogram({String? board, String? identity}) {
   final mac = hexJoin(d.sublist(dib + 18, dib + 24), ':');
   final nameBytes = d.sublist(dib + 24, dib + 54);
   final nul = nameBytes.indexOf(0);
-  final name =
-      String.fromCharCodes(nul >= 0 ? nameBytes.sublist(0, nul) : nameBytes)
-          .trim();
+  final name = String.fromCharCodes(
+    nul >= 0 ? nameBytes.sublist(0, nul) : nameBytes,
+  ).trim();
   return (
     name: name.isEmpty ? null : name,
     individualAddress: individual,
@@ -635,14 +796,178 @@ bool containsBytes(List<int> haystack, List<int> needle) {
   return false;
 }
 
+/// Whether [error] is the "Local Network access is off, or the first-use
+/// prompt is still up" condition, as opposed to any other socket failure.
+///
+/// On Darwin a denied or still-pending Local Network permission makes a
+/// `sendto()` fail with EHOSTUNREACH — errno 65 — which dart:io surfaces as a
+/// [SocketException] on the socket's stream (and closes the socket). errno 65
+/// means different things on other platforms (ENOPKG on Linux), and no other
+/// platform has this permission gate, so this is only ever true on iOS/macOS.
+/// A no-network condition on Apple is ENETUNREACH (errno 51) instead, which is
+/// deliberately NOT matched here so airplane mode reads as "no network", not
+/// "permission denied".
+///
+/// Pure, so the errno mapping is testable without a socket or a platform.
+bool isLocalNetworkDenied(Object error, {required bool isApplePlatform}) =>
+    isApplePlatform &&
+    error is SocketException &&
+    error.osError?.errorCode == 65;
+
+/// A device-reported address (a Roomba/Tuya/Govee `ip`, an SSDP `LOCATION`
+/// host) is not trusted as the control host verbatim (R-024).
+///
+/// Always rejects anything that is not an IPv4 literal — a hostname in a
+/// `LOCATION`, most of all, since a name lets a hostile responder redirect the
+/// control path off the segment through DNS. When [requireLan] is set (the
+/// active-probe transports, whose reply carries a stored credential to a host
+/// this then opens a session to) it additionally rejects a public address, so
+/// the value must be RFC1918, link-local or loopback. The SSDP path passes
+/// `requireLan: false`: a UPnP `LOCATION` legitimately names any IP literal and
+/// the path/port beside it are kept regardless.
+///
+/// On any rejection the caller falls back to [source], the address the datagram
+/// actually came from. A disagreement between the two is logged.
+///
+/// Returns the reported value when it is trustworthy, else null.
+String? trustedSelfReportedHost(
+  String? reported,
+  String source, {
+  bool requireLan = true,
+}) {
+  if (reported == null || reported.isEmpty) return null;
+  final addr = InternetAddress.tryParse(reported);
+  if (addr == null || addr.type != InternetAddressType.IPv4) {
+    Log.net.debug(
+      'ignoring non-IPv4 self-reported host "$reported" (source $source)',
+    );
+    return null;
+  }
+  if (requireLan &&
+      !addr.isLoopback &&
+      !addr.isLinkLocal &&
+      !isPrivateIpv4(reported)) {
+    Log.net.debug(
+      'ignoring off-LAN self-reported host "$reported" (source $source)',
+    );
+    return null;
+  }
+  if (reported != source) {
+    Log.net.debug(
+      'self-reported host "$reported" differs from datagram source $source',
+    );
+  }
+  return reported;
+}
+
+/// What a parse of an mDNS response datagram found, for the source-capture
+/// backstop's reflector guard (R-026).
+class MdnsResponseSummary {
+  /// The owner name of every resource record, lowercased and without the
+  /// trailing dot (`hue bridge._hue._tcp.local`).
+  final List<String> ownerNames;
+
+  /// Whether any record is an A (type 1) or AAAA (type 28). A responder that
+  /// published its own address does not need the source-address rescue, and a
+  /// reflector/sleep-proxy re-sending a normal device's response always carries
+  /// one — so this is the signal that a source-captured row would be a phantom.
+  final bool hasAddressRecord;
+
+  const MdnsResponseSummary({
+    required this.ownerNames,
+    required this.hasAddressRecord,
+  });
+}
+
+/// Decode a DNS name at [start] in [data], following compression pointers.
+/// Returns the lowercased dotted name and the offset just past the name in the
+/// message (past the pointer, when one was followed), or null when malformed.
+(String, int)? _readDnsName(List<int> data, int start) {
+  final labels = <String>[];
+  var offset = start;
+  int? afterPointer;
+  var hops = 0;
+  while (true) {
+    if (offset >= data.length) return null;
+    final len = data[offset];
+    if (len == 0) {
+      offset += 1;
+      break;
+    }
+    if (len & 0xc0 == 0xc0) {
+      if (offset + 1 >= data.length) return null;
+      final pointer = ((len & 0x3f) << 8) | data[offset + 1];
+      afterPointer ??= offset + 2;
+      offset = pointer;
+      if (++hops > 128) return null; // a pointer loop
+      continue;
+    }
+    if (offset + 1 + len > data.length) return null;
+    labels.add(
+      String.fromCharCodes(data.sublist(offset + 1, offset + 1 + len)),
+    );
+    offset += 1 + len;
+  }
+  return (labels.join('.').toLowerCase(), afterPointer ?? offset);
+}
+
+/// Parse an mDNS RESPONSE datagram into a [MdnsResponseSummary], or null when
+/// it is not a well-formed response (the QR bit is clear, or the message is
+/// truncated). Walks the question section to reach the resource records, then
+/// records each RR's owner name and notes whether any is an address record.
+MdnsResponseSummary? parseMdnsResponse(List<int> data) {
+  if (data.length < 12) return null;
+  if (data[2] & 0x80 == 0) return null; // not a response
+  final qdcount = (data[4] << 8) | data[5];
+  final ancount = (data[6] << 8) | data[7];
+  final nscount = (data[8] << 8) | data[9];
+  final arcount = (data[10] << 8) | data[11];
+  var offset = 12;
+  for (var i = 0; i < qdcount; i++) {
+    final name = _readDnsName(data, offset);
+    if (name == null) return null;
+    offset = name.$2 + 4; // QTYPE + QCLASS
+    if (offset > data.length) return null;
+  }
+  final owners = <String>[];
+  var hasAddress = false;
+  final records = ancount + nscount + arcount;
+  for (var i = 0; i < records; i++) {
+    final name = _readDnsName(data, offset);
+    if (name == null) break;
+    offset = name.$2;
+    if (offset + 10 > data.length) break;
+    final type = (data[offset] << 8) | data[offset + 1];
+    final rdlength = (data[offset + 8] << 8) | data[offset + 9];
+    offset += 10 + rdlength;
+    owners.add(name.$1);
+    if (type == 1 || type == 28) hasAddress = true;
+    if (offset > data.length) break;
+  }
+  return MdnsResponseSummary(ownerNames: owners, hasAddressRecord: hasAddress);
+}
+
 /// What one discovery transport managed to do in a scan window.
 ///
-/// Three states rather than a bool because "the socket opened" and "anything
-/// came back" are different facts, and only the second one tells a quiet
-/// network apart from a blocked one.
+/// More than a bool because "the socket opened", "anything came back" and "the
+/// OS refused to send" are different facts, and only together do they tell a
+/// quiet network apart from a blocked one apart from a missing one.
 enum TransportOutcome {
-  /// Never got off the ground: the client or socket failed to start.
+  /// Never got off the ground: the client or socket failed to start for a
+  /// reason that is not the local-network gate — no interface, no route.
   failed,
+
+  /// Started, but never actually probed and so proves nothing: a passive
+  /// listener whose bind was refused, or a transport with no work to do (no
+  /// service types to ask for). Excluded from the "is anything wrong" verdict
+  /// so a listen-only transport that could not bind cannot make an otherwise
+  /// fine scan look unavailable.
+  skipped,
+
+  /// A send failed with EHOSTUNREACH on Apple — the fingerprint of a denied or
+  /// still-pending Local Network permission. Distinct from [failed] because it
+  /// points the user at Settings rather than at their network.
+  denied,
 
   /// Started, and nothing at all arrived — not a device, not a stray packet.
   silent,
@@ -658,12 +983,15 @@ enum TransportOutcome {
 ///
 /// The distinction that matters is between a network with nothing on it and a
 /// network whose replies are dropped before they reach us. On iOS and macOS a
-/// denied local-network permission is invisible from in here: the sockets bind,
-/// the queries go out, and the answers are filtered silently. So silence on
-/// those platforms earns a message that names that possibility and points at
-/// Settings. Silence anywhere else is just an empty network and gets the
-/// ordinary empty state — Android's multicast filtering is handled by holding a
-/// multicast lock, not by guessing after the fact.
+/// denied (or still-prompting) local-network permission sometimes shows itself
+/// directly — a send fails with EHOSTUNREACH and the transport reports
+/// [TransportOutcome.denied], which wins outright — but often it is
+/// indistinguishable from an empty network, both being plain silence. So a
+/// `denied` outcome names the permission with confidence, while silence on
+/// Apple only offers it as a possibility and points at Settings. Silence
+/// anywhere else is just an empty network and gets the ordinary empty state —
+/// Android's multicast filtering is handled by holding a multicast lock, not by
+/// guessing after the fact.
 ///
 /// Deliberately not keyed off how many devices were found: a network can carry
 /// plenty of mDNS traffic and no device we have a spec for, and calling that a
@@ -672,12 +1000,26 @@ UserFacingException? scanFailureFor({
   required List<TransportOutcome> outcomes,
   required bool isApplePlatform,
 }) {
-  if (outcomes.every((o) => o == TransportOutcome.failed)) {
-    // Neither transport started: a real, platform-independent failure — no
-    // interface, no multicast route, no network.
+  // A transport that actually observed EHOSTUNREACH is proof, not a guess: the
+  // OS refused to send, which on Apple is the local-network gate. It wins over
+  // everything else, because it is the one signal that does not have to infer
+  // a denial from silence (F-001).
+  if (outcomes.contains(TransportOutcome.denied)) {
+    return const LocalNetworkDeniedException();
+  }
+  // Skipped transports never probed, so they cannot vote on what the scan
+  // means; reason only over the ones that tried.
+  final probed = outcomes.where((o) => o != TransportOutcome.skipped).toList();
+  if (probed.isEmpty) return null;
+  if (probed.every((o) => o == TransportOutcome.failed)) {
+    // Every transport that tried failed to even send: a real, platform-
+    // independent failure — no interface, no route, no network.
     return const NetworkUnavailableException();
   }
-  if (outcomes.any((o) => o == TransportOutcome.heard)) return null;
+  if (probed.any((o) => o == TransportOutcome.heard)) return null;
+  // All silence (with perhaps a failed transport or two, but not all failed).
+  // On Apple that is where a denied permission hides; elsewhere it is just an
+  // empty network (Android takes a multicast lock rather than guessing).
   return isApplePlatform ? const LocalNetworkDeniedException() : null;
 }
 
@@ -725,14 +1067,63 @@ class RealNetworkScanService implements NetworkScanService {
   /// through `networkScanServiceProvider`.
   final SpecCodec? codec;
 
-  RealNetworkScanService({MulticastLock? multicastLock, this.codec})
-      : multicastLock = multicastLock ?? MulticastLock();
+  /// How discovery enumerates network interfaces, to pick the Wi-Fi/LAN one
+  /// and to hand [MDnsClient] a filtered list rather than every tunnel and the
+  /// cellular interface (F-014, F-049). Injectable so the selection is provable
+  /// in host tests with fabricated interfaces; defaults to `NetworkInterface
+  /// .list`.
+  final InterfaceLister interfaceLister;
+
+  /// Where the scan gets the UDP probes the catalogue declares.
+  ///
+  /// Injected rather than read from a provider so the socket-level suites can
+  /// hand this service a probe list without standing up the native catalogue,
+  /// and so a scan with no catalogue loaded yet runs its other transports
+  /// unchanged. Null means the catalogue-driven transport is skipped.
+  final UdpProbeSource? probeSource;
+
+  /// Binds every UDP socket this service opens. Injectable so a test can hand
+  /// out a socket that behaves like a REFUSED one — a send that returns 0 and
+  /// delivers its SocketException on the stream a microtask later, closing the
+  /// socket — which is what dart:io does and what five commits on this repo
+  /// assumed it did not. The default is the real bind.
+  final DatagramBinder binder;
+
+  /// Whether a refused send is read the way Apple's Local Network gate makes
+  /// it read. Injectable so the `denied` verdict is testable on the Linux CI
+  /// host, not only on a Mac; the default is the platform.
+  final bool isApplePlatform;
+
+  RealNetworkScanService({
+    MulticastLock? multicastLock,
+    this.codec,
+    this.probeSource,
+    InterfaceLister? interfaceLister,
+    DatagramBinder? binder,
+    bool? isApplePlatform,
+  }) : multicastLock = multicastLock ?? MulticastLock(),
+       interfaceLister = interfaceLister ?? NetworkInterface.list,
+       binder = binder ?? bindDatagramSocket,
+       isApplePlatform =
+           isApplePlatform ?? (Platform.isIOS || Platform.isMacOS);
 
   /// The scan currently entitled to the lock, or null between scans.
   ///
   /// Only ever compared by identity — a finishing scan checks whether it is
   /// still this one before releasing anything shared.
   _ScanSession? _session;
+
+  /// Every scan still running on this instance, newest last.
+  ///
+  /// `networkScanServiceProvider` hands out ONE instance and two callers use
+  /// it — the Wi-Fi tab and the adoption flow's provisioning verifier — so a
+  /// second scan can start while the first is still in its post-enumeration
+  /// wait. [_session] tracks only the newest, which is right for the
+  /// multicast lock (one platform-wide flag, last taker releases it) but
+  /// wrong for stopping: `stopScan()` ended the newest and left the older one
+  /// holding its sockets, so the ports it had bound stayed bound — on Android
+  /// the exclusive binds that makes the NEXT scan fail outright.
+  final Set<_ScanSession> _live = {};
 
   @override
   Stream<NetworkDevice> scan({
@@ -754,6 +1145,7 @@ class RealNetworkScanService implements NetworkScanService {
     // never the problem.
     final session = _ScanSession();
     _session = session;
+    _live.add(session);
 
     void emit(NetworkDevice device) {
       if (controller.isClosed) return;
@@ -768,94 +1160,152 @@ class RealNetworkScanService implements NetworkScanService {
         // without it Android delivers neither mDNS nor SSDP replies, so taking
         // it after the queries go out would be too late for the answers.
         await multicastLock.acquire();
+        // Pick the Wi-Fi/LAN interface's address ONCE, so every multicast
+        // sender can be pointed at it (IP_MULTICAST_IF) instead of following
+        // whatever the OS has made primary — which on an internet-less Wi-Fi
+        // iOS makes cellular (F-014). Null when none can be found, in which
+        // case the senders leave the choice to the OS, as before.
+        session.multicastInterfaceV4 =
+            await primaryLanIpv4(lister: interfaceLister).catchError((
+              Object e,
+            ) {
+              Log.net.debug('interface enumeration failed: $e');
+              return null;
+            });
+        // A denial is only real when a transport observed EHOSTUNREACH; any
+        // other throw is a plain failure. Shared so every transport maps its
+        // error the same way (F-001).
+        final apple = isApplePlatform;
+        TransportOutcome onError(String name, Object e) {
+          if (isLocalNetworkDenied(e, isApplePlatform: apple)) {
+            Log.net.warning(
+              '$name discovery denied: local network blocked (EHOSTUNREACH)',
+              error: e,
+            );
+            return TransportOutcome.denied;
+          }
+          Log.net.warning('$name discovery failed', error: e);
+          return TransportOutcome.failed;
+        }
+
         // Both halves run concurrently and are allowed to fail independently:
         // a platform that blocks one (iOS multicast entitlements, a network
         // with IGMP snooping) should still return what the other found.
         final codec = this.codec;
         final outcomes = await Future.wait([
-          _runMdns(session, emit, timeout, extraMdnsServiceTypes)
-              .catchError((Object e) {
-            Log.net.warning('mDNS discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
+          _runMdns(
+            session,
+            emit,
+            timeout,
+            extraMdnsServiceTypes,
+          ).catchError((Object e) => onError('mDNS', e)),
           // A raw-socket backstop for devices that advertise a catalogue mDNS
           // type but publish no resolvable SRV/A (a Snapmaker U1): emits them at
-          // the response's source IP. Best-effort — a bind clash returns silent.
-          _runMdnsSourceCapture(session, emit, timeout, extraMdnsServiceTypes)
-              .catchError((Object e) {
+          // the response's source IP. Best-effort — a bind clash is `skipped`.
+          _runMdnsSourceCapture(
+            session,
+            emit,
+            timeout,
+            extraMdnsServiceTypes,
+          ).catchError((Object e) {
             Log.net.debug('mDNS source-capture failed: $e');
-            return TransportOutcome.silent;
+            return TransportOutcome.skipped;
           }),
-          _runSsdp(session, emit, timeout, extraSearchTargets)
-              .catchError((Object e) {
-            Log.net.warning('SSDP discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
-          _runLifx(session, emit, timeout).catchError((Object e) {
-            Log.net.warning('LIFX discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
+          _runSsdp(
+            session,
+            emit,
+            timeout,
+            extraSearchTargets,
+          ).catchError((Object e) => onError('SSDP', e)),
+          _runLifx(
+            session,
+            emit,
+            timeout,
+          ).catchError((Object e) => onError('LIFX', e)),
           // Ubiquiti/UniFi devices answer only their own UDP 10001 probe — no
           // mDNS, no SSDP — so a whole fleet of cameras/APs/switches is silent
           // without this.
-          _runUbiquiti(session, emit, timeout).catchError((Object e) {
-            Log.net.warning('Ubiquiti discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
+          _runUbiquiti(
+            session,
+            emit,
+            timeout,
+          ).catchError((Object e) => onError('Ubiquiti', e)),
           // MikroTik RouterOS answers only MNDP on UDP 5678 (no mDNS/SSDP).
-          _runMikrotik(session, emit, timeout, codec).catchError((Object e) {
-            Log.net.warning('MikroTik discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
+          _runMikrotik(
+            session,
+            emit,
+            timeout,
+            codec,
+          ).catchError((Object e) => onError('MikroTik', e)),
           // The Kasa transport, when a codec is wired to run the cipher. Its
           // outcome joins the others, so a granted local-network permission
           // heard over broadcast counts the same as one heard over multicast.
           if (codec != null)
-            _runKasa(session, emit, timeout, codec).catchError((Object e) {
-              Log.net.warning('Kasa discovery failed', error: e);
-              return TransportOutcome.failed;
-            }),
+            _runKasa(
+              session,
+              emit,
+              timeout,
+              codec,
+            ).catchError((Object e) => onError('Kasa', e)),
           // Tuya-based devices beacon on UDP 6666/6667 and nothing else on the
           // LAN; the 6667 datagram's cipher runs in the codec, so this joins
           // Kasa behind the codec gate.
           if (codec != null)
-            _runTuya(session, emit, timeout, codec).catchError((Object e) {
-              Log.net.warning('Tuya discovery failed', error: e);
-              return TransportOutcome.failed;
-            }),
+            _runTuya(
+              session,
+              emit,
+              timeout,
+              codec,
+            ).catchError((Object e) => onError('Tuya', e)),
           // Vendor light protocols that answer only their own UDP probe, each
           // deaf to mDNS/SSDP: Wiz (38899), Yeelight (multicast 1982), Govee
           // LAN (4001/4002). iRobot has a transport of its own, below.
-          _runWiz(session, emit, timeout).catchError((Object e) {
-            Log.net.warning('Wiz discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
-          _runYeelight(session, emit, timeout).catchError((Object e) {
-            Log.net.warning('Yeelight discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
-          _runGovee(session, emit, timeout).catchError((Object e) {
-            Log.net.warning('Govee discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
+          _runWiz(
+            session,
+            emit,
+            timeout,
+          ).catchError((Object e) => onError('Wiz', e)),
+          _runYeelight(
+            session,
+            emit,
+            timeout,
+          ).catchError((Object e) => onError('Yeelight', e)),
+          _runGovee(
+            session,
+            emit,
+            timeout,
+          ).catchError((Object e) => onError('Govee', e)),
           // KNXnet/IP building-automation gateways (multicast 224.0.23.12:3671).
-          _runKnx(session, emit, timeout).catchError((Object e) {
-            Log.net.warning('KNX discovery failed', error: e);
-            return TransportOutcome.failed;
-          }),
+          _runKnx(
+            session,
+            emit,
+            timeout,
+          ).catchError((Object e) => onError('KNX', e)),
           // The Roomba transport, on the same terms as Kasa: a broadcast probe
           // whose answer is itself the identification, so its outcome joins
           // the others.
           if (codec != null)
-            _runRoomba(session, emit, timeout, codec).catchError((Object e) {
-              Log.net.warning('Roomba discovery failed', error: e);
-              return TransportOutcome.failed;
-            }),
+            _runRoomba(
+              session,
+              emit,
+              timeout,
+              codec,
+            ).catchError((Object e) => onError('Roomba', e)),
+          // Everything else the catalogue declares a broadcast probe for. The
+          // transports above are the ones with a reply format this file parses
+          // by hand; this one sends what the specs say and reads the replies
+          // the way the specs say, so a new device of that shape needs no code
+          // here at all.
+          _runCatalogueProbes(
+            session,
+            emit,
+            timeout,
+          ).catchError((Object e) => onError('catalogue probes', e)),
         ]);
 
         final failure = scanFailureFor(
           outcomes: outcomes,
-          isApplePlatform: Platform.isIOS || Platform.isMacOS,
+          isApplePlatform: isApplePlatform,
         );
         if (failure != null) controller.addError(failure);
         // What a reader needs when a scan comes back empty, which is the only
@@ -863,18 +1313,13 @@ class RealNetworkScanService implements NetworkScanService {
         // network from one whose replies never reach us — the outcome tally
         // is exactly that distinction, and the elapsed time says whether the
         // window ran or something bailed early.
-        final heard = outcomes.where((o) => o == TransportOutcome.heard).length;
-        final failed =
-            outcomes.where((o) => o == TransportOutcome.failed).length;
-        Log.net
-            .info('network scan finished in ${formatElapsed(elapsed.elapsed)}: '
-                '${logFields({
-              'devices': coalescer.deviceCount,
-              'transports': outcomes.length,
-              'heard': heard,
-              'silent': outcomes.length - heard - failed,
-              'failed': failed,
-            })}');
+        int count(TransportOutcome o) => outcomes.where((x) => x == o).length;
+        final heard = count(TransportOutcome.heard);
+        final failed = count(TransportOutcome.failed);
+        Log.net.info(
+          'network scan finished in ${formatElapsed(elapsed.elapsed)}: '
+          '${logFields({'devices': coalescer.deviceCount, 'transports': outcomes.length, 'heard': heard, 'silent': count(TransportOutcome.silent), 'denied': count(TransportOutcome.denied), 'skipped': count(TransportOutcome.skipped), 'failed': failed})}',
+        );
       } catch (e, st) {
         if (!controller.isClosed) controller.addError(e, st);
       } finally {
@@ -905,9 +1350,87 @@ class RealNetworkScanService implements NetworkScanService {
     // while SSDP/LIFX/Kasa (no reusePort) kept working. bindDatagramSocket tries
     // reusePort and falls back without it, so mDNS binds on Android too; the
     // multicast group join start() does after the bind is unchanged.
-    final client = MDnsClient(rawDatagramSocketFactory: bindDatagramSocket);
-    await client.start();
+    // Sockets the factory below binds, tracked so a throw from start() can
+    // close them: the package's own stop() is a no-op before it finished
+    // starting, so it leaks whatever it bound before a joinMulticast threw
+    // (F-049).
+    final boundSockets = <RawDatagramSocket>[];
+    // A stream error on the :5353 socket — a send that failed with
+    // EHOSTUNREACH on a denied Local Network, most of all — is routed here
+    // rather than into the zone (F-013). The transport races it against the
+    // enumeration and ends at once on the error instead of timing the whole
+    // budget out with a socket dart:io has already closed underneath it.
+    final streamError = Completer<Object>();
+    void recordStreamError(Object e, [StackTrace? st]) {
+      Log.net.warning('mDNS stream error on :$_mdnsPort', error: e);
+      if (!streamError.isCompleted) streamError.complete(e);
+    }
+
+    final client = MDnsClient(
+      rawDatagramSocketFactory:
+          (
+            dynamic host,
+            int port, {
+            bool reuseAddress = true,
+            bool reusePort = false,
+            int ttl = 1,
+          }) async {
+            final socket = await binder(
+              host,
+              port,
+              reuseAddress: reuseAddress,
+              reusePort: reusePort,
+              ttl: ttl,
+            );
+            // F-014, the egress half. `interfacesFactory` below fixes which
+            // interfaces the package JOINS on, but package:multicast_dns sets
+            // IP_MULTICAST_IF only for IPv6, so an IPv4 query still leaves
+            // over whatever the OS calls primary — `pdp_ip0` on an iPhone
+            // whose Wi-Fi has no internet. Every other transport here pins
+            // the interface the same way; mDNS, the one that finds the most,
+            // was the one still sending over cellular.
+            if (socket.address.type == InternetAddressType.IPv4) {
+              _setMulticastInterface(socket, session);
+            }
+            boundSockets.add(socket);
+            return socket;
+          },
+    );
+    try {
+      // Hand start() only the Wi-Fi/LAN interfaces (loopback kept, so a
+      // single-host test rig's responder still loops back): joining the mDNS
+      // group on a cellular/VPN/link-local interface can be refused by the OS,
+      // and the package joins with no per-interface error isolation, so one
+      // failing join throws out of start() and takes the whole transport down
+      // (F-049). onError installs the stream-error route (F-013).
+      await client.start(
+        interfacesFactory: (type) =>
+            lanInterfaces(type, lister: interfaceLister, includeLoopback: true),
+        onError: recordStreamError,
+      );
+    } catch (e) {
+      for (final socket in boundSockets) {
+        try {
+          socket.close();
+        } catch (_) {}
+      }
+      Log.net.warning('mDNS start failed', error: e);
+      return isLocalNetworkDenied(e, isApplePlatform: isApplePlatform)
+          ? TransportOutcome.denied
+          : TransportOutcome.failed;
+    }
     session.mdns = client;
+    // R-027 for this transport. A stopScan() that lands while start() is
+    // binding and joining finds `session.mdns` still null, so it stops
+    // nothing; every UDP transport asks stoppedDuringBind right after its
+    // bind, and this was the one that did not — the lookup below then ran
+    // out its full phase on a quiet link with :5353 held, which on Android's
+    // exclusive binds is the NEXT scan's mDNS failing to bind.
+    if (session.stopped) {
+      client.stop();
+      session.mdns = null;
+      return TransportOutcome.skipped;
+    }
     var heard = false;
     // A direct-query resolution can be the only thing that hears anything (its
     // service type is deaf to the meta-query), so it has to be able to flip
@@ -935,67 +1458,102 @@ class RealNetworkScanService implements NetworkScanService {
     // bounds a chatty one.
     final deadline = DateTime.now().add(phase);
     try {
-      // Ask for the catalogue's known service types by name, not only through
-      // the `_services._dns-sd._udp.local` meta-query below. The meta-query
-      // only surfaces a type whose responder answers that enumeration; a device
-      // that answers a direct PTR for its own `_vendor._tcp` but is deaf to the
-      // meta-query — or whose meta-query answer is lost, or lands after this
-      // half's budget — is otherwise never resolved even though its exact type
-      // is in a spec we hold. This is the mDNS twin of the SSDP extra search
-      // targets (a Roku is deaf to `ssdp:all` and answers only its own ST); a
-      // Snapmaker U1 is the case that motivated it, advertising `_snapmaker._tcp`
-      // from an embedded responder the meta-query never drew out. Fired off
-      // alongside the enumeration and deduped against it by `resolving`.
-      for (final raw in extraServiceTypes) {
-        final serviceType = normalizeMdnsServiceType(raw);
-        if (serviceType == null || !resolving.add(serviceType)) continue;
-        unawaited(_resolveServiceType(session, client, serviceType, emit, phase,
-                onHeard: markHeard)
-            .catchError((Object e) {
-          Log.net.debug('mDNS direct resolve failed for $serviceType: $e');
-        }));
+      final enumeration = () async {
+        // Ask for the catalogue's known service types by name, not only through
+        // the `_services._dns-sd._udp.local` meta-query below. The meta-query
+        // only surfaces a type whose responder answers that enumeration; a device
+        // that answers a direct PTR for its own `_vendor._tcp` but is deaf to the
+        // meta-query — or whose meta-query answer is lost, or lands after this
+        // half's budget — is otherwise never resolved even though its exact type
+        // is in a spec we hold. This is the mDNS twin of the SSDP extra search
+        // targets (a Roku is deaf to `ssdp:all` and answers only its own ST); a
+        // Snapmaker U1 is the case that motivated it, advertising `_snapmaker._tcp`
+        // from an embedded responder the meta-query never drew out. Fired off
+        // alongside the enumeration and deduped against it by `resolving`.
+        for (final raw in extraServiceTypes) {
+          final serviceType = normalizeMdnsServiceType(raw);
+          if (serviceType == null || !resolving.add(serviceType)) continue;
+          unawaited(
+            _resolveServiceType(
+              session,
+              client,
+              serviceType,
+              emit,
+              phase,
+              onHeard: markHeard,
+            ).catchError((Object e) {
+              Log.net.debug('mDNS direct resolve failed for $serviceType: $e');
+            }),
+          );
+        }
+        await for (final PtrResourceRecord type
+            in client
+                .lookup<PtrResourceRecord>(
+                  ResourceRecordQuery.serverPointer(_serviceEnumerationQuery),
+                  // lookup() has its own internal 5 s default that closes the
+                  // stream regardless of the .timeout below; pass the real
+                  // budget or a long scan is silently capped at 5 s.
+                  timeout: phase,
+                )
+                .timeout(phase, onTimeout: (sink) => sink.close())) {
+          heard = true;
+          if (session.stopped || DateTime.now().isAfter(deadline)) break;
+          // Once per type, not once per announcement. The meta-query is answered
+          // by every responder on the link, so a common type like _http._tcp
+          // arrives once per device; without this each arrival started another
+          // full resolution of the same type, and multicast_dns fans every
+          // incoming record to every pending lookup — so D duplicates cost D
+          // queries and D^2 record deliveries.
+          if (!resolving.add(type.domainName)) continue;
+          // Fire the per-type resolution off rather than awaiting it: a slow or
+          // unanswered service type must not hold up every other one.
+          unawaited(
+            _resolveServiceType(
+              session,
+              client,
+              type.domainName,
+              emit,
+              phase,
+              onHeard: markHeard,
+            ).catchError((Object e) {
+              Log.net.debug('mDNS resolve failed for ${type.domainName}: $e');
+            }),
+          );
+        }
+        // Give the fired-off resolutions the other half of the window — but wake
+        // early if the scan is stopped.
+        //
+        // Unconditionally sleeping here made `stopScan()` a lie: the transports
+        // shut down at once, but this half stayed parked, so `Future.wait` below
+        // did not complete and the app-facing stream did not CLOSE for up to half
+        // the scan window (thirty seconds at a one-minute timeout). A caller that
+        // waits for the stream to end before re-enabling its button — which is
+        // what "stop scanning" looks like from the UI — waits that long for a
+        // scan that already stopped.
+        await session.sleepUnlessStopped(phase);
+        // No separate "heard during resolve" state: a resolution only ever
+        // starts after the enumeration loop has already received a record, so
+        // `heard` is necessarily true by then.
+        return heard;
+      }();
+      // ...and raced against the stop as well: `lookup` checks the flag
+      // only per received record, so on a quiet link a stop during the
+      // enumeration phase was not seen until the phase timed out.
+      final result = await Future.any<Object?>([
+        enumeration,
+        streamError.future,
+        session.whenStopped.then((_) => heard),
+      ]);
+      if (result is bool) {
+        return result ? TransportOutcome.heard : TransportOutcome.silent;
       }
-      await for (final PtrResourceRecord type in client
-          .lookup<PtrResourceRecord>(
-              ResourceRecordQuery.serverPointer(_serviceEnumerationQuery),
-              // lookup() has its own internal 5 s default that closes the
-              // stream regardless of the .timeout below; pass the real
-              // budget or a long scan is silently capped at 5 s.
-              timeout: phase)
-          .timeout(phase, onTimeout: (sink) => sink.close())) {
-        heard = true;
-        if (session.stopped || DateTime.now().isAfter(deadline)) break;
-        // Once per type, not once per announcement. The meta-query is answered
-        // by every responder on the link, so a common type like _http._tcp
-        // arrives once per device; without this each arrival started another
-        // full resolution of the same type, and multicast_dns fans every
-        // incoming record to every pending lookup — so D duplicates cost D
-        // queries and D^2 record deliveries.
-        if (!resolving.add(type.domainName)) continue;
-        // Fire the per-type resolution off rather than awaiting it: a slow or
-        // unanswered service type must not hold up every other one.
-        unawaited(_resolveServiceType(
-                session, client, type.domainName, emit, phase,
-                onHeard: markHeard)
-            .catchError((Object e) {
-          Log.net.debug('mDNS resolve failed for ${type.domainName}: $e');
-        }));
-      }
-      // Give the fired-off resolutions the other half of the window — but wake
-      // early if the scan is stopped.
-      //
-      // Unconditionally sleeping here made `stopScan()` a lie: the transports
-      // shut down at once, but this half stayed parked, so `Future.wait` below
-      // did not complete and the app-facing stream did not CLOSE for up to half
-      // the scan window (thirty seconds at a one-minute timeout). A caller that
-      // waits for the stream to end before re-enabling its button — which is
-      // what "stop scanning" looks like from the UI — waits that long for a
-      // scan that already stopped.
-      await session.sleepUnlessStopped(phase);
-      // No separate "heard during resolve" state: a resolution only ever
-      // starts after the enumeration loop has already received a record, so
-      // `heard` is necessarily true by then.
-      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+      // A stream error won the race. If records already arrived, traffic
+      // reaches us and this is not a denial; otherwise EHOSTUNREACH on Apple
+      // is the local-network gate (F-013/F-001).
+      if (heard) return TransportOutcome.heard;
+      return isLocalNetworkDenied(result!, isApplePlatform: isApplePlatform)
+          ? TransportOutcome.denied
+          : TransportOutcome.failed;
     } finally {
       client.stop();
       session.mdns = null;
@@ -1021,26 +1579,36 @@ class RealNetworkScanService implements NetworkScanService {
     Duration timeout,
     List<String> serviceTypes,
   ) async {
-    // First label per type, for the substring test, keyed by the normalized
-    // type we tag the emitted device with so it matches the spec.
-    final labels = <String, List<int>>{};
+    // The normalized catalogue types this backstop is willing to rescue. The
+    // `mdnsFirstLabelBytes` guard drops a type whose first label is too short
+    // to be a safe discriminator; the type itself is what we match against a
+    // response's owner names (R-026) and tag the emitted device with.
+    final types = <String>{};
     for (final raw in serviceTypes) {
       final type = normalizeMdnsServiceType(raw);
-      final label = type == null ? null : mdnsFirstLabelBytes(type);
-      if (type != null && label != null) labels[type] = label;
+      if (type != null && mdnsFirstLabelBytes(type) != null) types.add(type);
     }
-    if (labels.isEmpty) return TransportOutcome.silent;
+    // Nothing to ask for: this transport never probes, so it is `skipped`, not
+    // `silent` — it cannot vote on whether the network is empty or blocked
+    // (R-023).
+    if (types.isEmpty) return TransportOutcome.skipped;
 
     final RawDatagramSocket socket;
     try {
-      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _mdnsPort,
-          reuseAddress: true, reusePort: true);
+      socket = await binder(
+        InternetAddress.anyIPv4,
+        _mdnsPort,
+        reuseAddress: true,
+        reusePort: true,
+      );
     } catch (e) {
       // reusePort unsupported, or :5353 exclusively held — skip; the normal
-      // mDNS path still runs. Not a failure the user should hear about.
+      // mDNS path still runs. Not a failure the user should hear about, and
+      // never having bound, it has nothing to say about the scan (R-023).
       Log.net.debug('mDNS source-capture unavailable: $e');
-      return TransportOutcome.silent;
+      return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.mdnsCaptureSocket = socket;
     try {
       socket.joinMulticast(InternetAddress(_mdnsMulticast));
@@ -1048,13 +1616,19 @@ class RealNetworkScanService implements NetworkScanService {
       // The group is already joined by another socket on this host; membership
       // is shared, so this is safe to ignore.
     }
+    _setMulticastInterface(socket, session);
 
     var heard = false;
     final seen = <String>{};
     try {
       final target = InternetAddress(_mdnsMulticast);
       for (final raw in serviceTypes) {
-        socket.send(mdnsPtrQuery(raw), target, _mdnsPort);
+        final query = mdnsPtrQuery(raw);
+        if (query == null) {
+          Log.net.debug('not a service type worth asking about: "$raw"');
+          continue;
+        }
+        socket.send(query, target, _mdnsPort);
       }
       final deadline = DateTime.now().add(timeout);
       await for (final event in socket.timeout(
@@ -1064,30 +1638,321 @@ class RealNetworkScanService implements NetworkScanService {
         if (session.stopped || DateTime.now().isAfter(deadline)) break;
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
-        if (datagram == null || datagram.data.length < 12) continue;
-        // Responses only (QR bit in the DNS flags): a query — ours or another
-        // host's — must not be minted into a device.
-        if (datagram.data[2] & 0x80 == 0) continue;
+        if (datagram == null) continue;
+        // Parse the response rather than substring-search it: minting a device
+        // at the SOURCE of any packet that merely CONTAINS a catalogue label
+        // turned every mDNS reflector and sleep proxy into a phantom vendor
+        // row at the gateway's IP, and let a label match a prefix of another
+        // (`_ipp` inside `_ipps`). A query is not a device either (R-026).
+        final response = parseMdnsResponse(datagram.data);
+        if (response == null) continue;
+        // A responder that published its own address does not need the
+        // source-address rescue, and a reflected copy of a normal device's
+        // response always carries one — so any A/AAAA record means "not ours
+        // to mint". This is exactly the Snapmaker-U1 case that motivated the
+        // backstop: it answers PTR/TXT/SRV for its type but NO A record.
+        heard = true;
+        if (response.hasAddressRecord) continue;
         final host = datagram.address.address;
-        for (final entry in labels.entries) {
-          if (!containsBytes(datagram.data, entry.value)) continue;
-          heard = true;
+        for (final type in types) {
+          // Rescue only when an actual resource-record owner name is the
+          // service type or an instance under it — not when the bytes merely
+          // appear somewhere in the packet.
+          final ownsType = response.ownerNames.any(
+            (name) => name == type || name.endsWith('.$type'),
+          );
+          if (!ownsType) continue;
           // Once per (host, type) per scan — a device answers repeatedly.
-          if (!seen.add('$host|${entry.key}')) continue;
-          emit(NetworkDevice(
-            host: host,
-            name: '',
-            serviceTypes: [entry.key],
-            pictogram: mdnsPictogram([entry.key]),
-            sources: const {NetworkDiscoverySource.mdns},
-            discoveredAt: DateTime.now(),
-          ));
+          if (!seen.add('$host|$type')) continue;
+          emit(
+            NetworkDevice(
+              host: host,
+              name: '',
+              serviceTypes: [type],
+              pictogram: mdnsPictogram([type]),
+              sources: const {NetworkDiscoverySource.mdns},
+              discoveredAt: DateTime.now(),
+            ),
+          );
         }
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
       socket.close();
       session.mdnsCaptureSocket = null;
+    }
+  }
+
+  /// [send] now and once more 250 ms later — UDP is lossy — unless the scan
+  /// has stopped by then. The caller cancels the timer in its `finally`.
+  ///
+  /// The point is what does NOT happen in between: the receive loop starts
+  /// immediately. The old shape sent, slept 250 ms, sent again, slept again,
+  /// and only then read the socket — so a destination dart:io refused (the
+  /// socket closes a microtask after the first send) sat through half a
+  /// second of sends into a closed socket before the refusal, already
+  /// buffered on the stream, was read and the transport reported `skipped`.
+  Timer _sendTwice(_ScanSession session, void Function() send) {
+    send();
+    return Timer(const Duration(milliseconds: 250), () {
+      if (!session.stopped) send();
+    });
+  }
+
+  /// Point [socket] at the chosen Wi-Fi/LAN interface for outgoing multicast
+  /// (IP_MULTICAST_IF), so its probes leave over that interface rather than
+  /// whatever the OS has made primary — cellular, on an internet-less Wi-Fi
+  /// (F-014). Best-effort and guarded: when no interface was resolved, or the
+  /// option is refused, the OS default stands, exactly as before.
+  void _setMulticastInterface(RawDatagramSocket socket, _ScanSession session) {
+    final addr = session.multicastInterfaceV4;
+    if (addr == null) return;
+    try {
+      socket.setRawOption(
+        RawSocketOption(
+          RawSocketOption.levelIPv4,
+          RawSocketOption.IPv4MulticastInterface,
+          Uint8List.fromList(addr.rawAddress),
+        ),
+      );
+    } catch (e) {
+      Log.net.debug('IP_MULTICAST_IF not set on ${addr.address}: $e');
+    }
+  }
+
+  /// Send every UDP probe the catalogue declares that no transport above
+  /// already covers, and emit whatever answers.
+  ///
+  /// Ten bundled specs declare a `udp_broadcast` method. Four have a
+  /// hand-written transport here, and until this existed the other six were
+  /// simply not looked for: the payload, the port and the reply's shape were
+  /// all in the spec, and the app read none of it (SPECS_TO_FIX.md S-10).
+  /// Adding a device that answers its own broadcast now takes a spec.
+  ///
+  /// Two deliberate limits. Only probes with a payload run: a `passive_ok`
+  /// block says a device announces itself, but nothing in the block says how
+  /// to recognise its datagram, so binding that port and emitting whatever
+  /// arrived would invent devices out of unrelated traffic. And a reply that
+  /// identifies nothing is dropped, the same rule the Ubiquiti transport
+  /// applies — answering on a vendor port is not by itself a device.
+  Future<TransportOutcome> _runCatalogueProbes(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final source = probeSource;
+    if (source == null) return TransportOutcome.skipped;
+    // Raced against the stop. The source is the catalogue load when a scan
+    // starts before the first screen has finished building it, and nothing
+    // in that load looks at this session: without the race a stopScan()
+    // during it could not end the scan stream, because Future.wait in
+    // startScan waits for this transport and this transport was waiting for
+    // the catalogue.
+    final loaded = await Future.any<List<UdpProbeDto>?>([
+      source(),
+      session.whenStopped.then((_) => null),
+    ]);
+    if (loaded == null) return TransportOutcome.skipped;
+    final probes = loaded
+        .where(
+          (p) => p.probe.isNotEmpty && !_probesWithTheirOwnTransport(p.specKey),
+        )
+        .toList();
+    if (probes.isEmpty) return TransportOutcome.skipped;
+
+    // One socket per DESTINATION (address and port), not per probe and not
+    // per port. The Milight bridge declares two probes to the same broadcast
+    // on 48899 because its firmwares answer different strings, and both
+    // belong on one socket so a reply gets every probe's parse. Two probes
+    // that share a port but not an address must NOT share one: a send dart:io
+    // cannot complete closes the socket it was attempted on, so the one
+    // unreachable group in the bundled catalogue (aqara-hub's 230.0.0.1)
+    // would take the port's broadcast probes and their replies down with it.
+    // Each socket binds an ephemeral port, so there is no clash to avoid.
+    final byDestination = <({String address, int port}), List<UdpProbeDto>>{};
+    for (final probe in probes) {
+      final destination = (address: probe.broadcastAddress, port: probe.port);
+      (byDestination[destination] ??= []).add(probe);
+    }
+    Log.net.debug(
+      'catalogue probes: ${probes.length} to '
+      '${byDestination.keys.map((d) => '${d.address}:${d.port}').join(', ')}',
+    );
+
+    final outcomes = await Future.wait([
+      for (final entry in byDestination.entries)
+        _runCatalogueProbePort(
+          session,
+          emit,
+          timeout,
+          entry.key.address,
+          entry.key.port,
+          entry.value,
+        ).catchError((Object e) {
+          // One destination failing must not take the others, nor the scan:
+          // this whole transport is additive, and everything it finds is
+          // something the app could not find at all before.
+          Log.net.debug(
+            'catalogue probe to ${entry.key.address}:${entry.key.port} '
+            'failed: $e',
+          );
+          // ...but a refusal is not a failure to fold away. On iOS a denied
+          // (or still-prompting) Local Network permission surfaces as the
+          // EHOSTUNREACH SocketException a send to the broadcast address
+          // leaves on the socket's stream, and `skipped` is excluded from the scan's
+          // verdict — so this transport could never contribute the proof the
+          // "Local Network is off" screen is built on, and the outer onError
+          // never saw it either because this handler had consumed it.
+          return isLocalNetworkDenied(e, isApplePlatform: isApplePlatform)
+              ? TransportOutcome.denied
+              : TransportOutcome.skipped;
+        }),
+    ]);
+    // Heard beats denied beats silent: one port that answered proves the
+    // local-network permission the whole scan is judged on, and one port that
+    // could not bind must not read as a denial when another one worked.
+    if (outcomes.contains(TransportOutcome.heard)) {
+      return TransportOutcome.heard;
+    }
+    if (outcomes.contains(TransportOutcome.denied)) {
+      return TransportOutcome.denied;
+    }
+    return outcomes.contains(TransportOutcome.silent)
+        ? TransportOutcome.silent
+        : TransportOutcome.skipped;
+  }
+
+  /// Run the probes that share one destination, on one socket.
+  ///
+  /// Only a send to the LIMITED BROADCAST address is evidence about the
+  /// network. Any other destination a spec can name — a multicast group, a
+  /// subnet-directed broadcast, a unicast literal — is refused on its own
+  /// account (no entitlement, no route to that group or subnet) while
+  /// 255.255.255.255 from another socket still goes out. aqara-hub's
+  /// 230.0.0.1 is the only such address in the bundled catalogue, and packs
+  /// install from arbitrary URLs. Letting that refusal stand for the scan
+  /// would read as `denied` to the caller, and a single `denied` beats every
+  /// `heard` in [scanFailureFor] — so a scan that found devices on every
+  /// other transport would still tell the user Local Network is off. A real
+  /// denial fails the broadcast destinations too, and those still report it.
+  ///
+  /// The refusal is met on the socket's STREAM, not at send():
+  /// `RawDatagramSocket.send` never throws — dart:io returns 0 and, a
+  /// microtask later, delivers the SocketException on the stream and closes
+  /// the socket. A try/catch around the call catches nothing.
+  Future<TransportOutcome> _runCatalogueProbePort(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+    String address,
+    int port,
+    List<UdpProbeDto> probes,
+  ) async {
+    final InternetAddress target;
+    try {
+      target = InternetAddress(address);
+    } on ArgumentError {
+      // A spec naming an address that is not one: this destination never
+      // probed and has no vote; the others are unaffected.
+      Log.net.debug(
+        '${probes.map((p) => p.specKey).join(', ')}: "$address" is not an '
+        'address',
+      );
+      return TransportOutcome.skipped;
+    }
+    final isEvidence = target.address == _limitedBroadcast;
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
+    session.catalogueProbeSockets.add(socket);
+    socket.broadcastEnabled = true;
+    // F-014, like every other transport here: a spec is free to name a
+    // multicast group rather than the broadcast address (aqara-hub declares
+    // 230.0.0.1), and a multicast datagram follows IP_MULTICAST_IF — which
+    // is cellular on an iPhone whose Wi-Fi has no internet — not the LAN.
+    _setMulticastInterface(socket, session);
+    var heard = false;
+    final seen = <String>{};
+    Timer? resend;
+    try {
+      // Twice, like every other broadcast here: UDP is lossy and a dropped
+      // probe means a bridge never heard from.
+      resend = _sendTwice(session, () {
+        for (final probe in probes) {
+          socket.send(probe.probe, target, port);
+        }
+      });
+
+      // A refusal that is evidence travels: the stream error propagates out
+      // of the loop to [_runCatalogueProbes], which classifies it
+      // (EHOSTUNREACH to the broadcast address on Apple is `denied`). One
+      // that is not is handled here: the socket is already closed under it,
+      // so nothing can arrive, and the destination reports `skipped` rather
+      // than `silent` — [scanFailureFor] reasons only over the outcomes that
+      // are not `skipped`, and one bogus `silent` is enough to stop
+      // `probed.every(failed)` holding, which is how a network that is
+      // genuinely unavailable stops being reported as one.
+      var refused = false;
+      final deadline = DateTime.now().add(timeout);
+      await for (final event
+          in socket
+              .timeout(timeout, onTimeout: (sink) => sink.close())
+              .handleError((Object e) {
+                refused = true;
+                Log.net.debug(
+                  'catalogue probe to $address:$port refused on its own '
+                  'account: $e',
+                );
+              }, test: (e) => e is SocketException && !isEvidence)) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+
+        // Every probe on this port gets a look at the reply: which one a
+        // device answered is not knowable from the datagram, and the fields
+        // that read are the ones whose dialect fits.
+        Map<String, String> fields = const {};
+        UdpProbeDto? answered;
+        for (final probe in probes) {
+          final read = readUdpIdentityFields(datagram.data, [
+            ...probe.stableKeys,
+            ?probe.displayField,
+          ]);
+          if (read.length > fields.length) {
+            fields = read;
+            answered = probe;
+          }
+        }
+        if (answered == null || fields.isEmpty) {
+          Log.net.debug(
+            'rejected catalogue :$port datagram from '
+            '${datagram.address.address} (${datagram.data.length}B, '
+            'no id parsed)',
+          );
+          continue;
+        }
+
+        heard = true;
+        final host = datagram.address.address;
+        if (!seen.add(host)) continue;
+        final display = answered.displayField;
+        emit(
+          NetworkDevice(
+            host: host,
+            name: display == null ? '' : fields[display.name] ?? '',
+            answeredLanProtocols: answered.lanProtocols,
+            txt: fields,
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
+      }
+      if (heard) return TransportOutcome.heard;
+      return refused ? TransportOutcome.skipped : TransportOutcome.silent;
+    } finally {
+      resend?.cancel();
+      socket.close();
+      session.catalogueProbeSockets.remove(socket);
     }
   }
 
@@ -1102,19 +1967,20 @@ class RealNetworkScanService implements NetworkScanService {
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.ubiquitiSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
     final seen = <String>{};
     try {
-      final target = InternetAddress(_lifxBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Twice: UDP is lossy and a dropped probe means a camera never heard from.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(_ubiquitiProbe, target, _ubiquitiPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1132,26 +1998,30 @@ class RealNetworkScanService implements NetworkScanService {
         // the same rule the SSDP transport applies. Logged so a device dropped
         // for an unrecognized reply shape is visible, not silent.
         if (parsed.mac == null && parsed.hostname == null) {
-          Log.net.debug('rejected Ubiquiti :$_ubiquitiPort datagram from '
-              '${datagram.address.address} (${datagram.data.length}B, '
-              'no id parsed)');
+          Log.net.debug(
+            'rejected Ubiquiti :$_ubiquitiPort datagram from '
+            '${datagram.address.address} (${datagram.data.length}B, '
+            'no id parsed)',
+          );
           continue;
         }
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: parsed.hostname ?? '',
-          answeredLanProtocols: const [_ubiquitiLanProtocol],
-          pictogram: ubiquitiPictogram(parsed.platform),
-          txt: {
-            if (parsed.mac != null) 'mac': parsed.mac!,
-            if (parsed.platform != null) 'platform': parsed.platform!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: parsed.hostname ?? '',
+            answeredLanProtocols: const [_ubiquitiLanProtocol],
+            pictogram: ubiquitiPictogram(parsed.platform),
+            txt: {
+              if (parsed.mac != null) 'mac': parsed.mac!,
+              if (parsed.platform != null) 'platform': parsed.platform!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1181,27 +2051,34 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(InternetAddress.anyIPv4, _mikrotikPort,
-          reuseAddress: true, reusePort: true);
+      socket = await binder(
+        InternetAddress.anyIPv4,
+        _mikrotikPort,
+        reuseAddress: true,
+        reusePort: true,
+      );
     } catch (e) {
       // :5678 exclusively held, or the bind is otherwise refused — skip.
       Log.net.debug('port 5678 (MNDP/iRobot) bind failed: $e');
-      return TransportOutcome.silent;
+      // Never bound, so it cannot say the network is empty or blocked (R-023).
+      return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.mikrotikSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
     final seen = <String>{};
     try {
-      final target = InternetAddress(_lifxBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Only the MNDP probe goes out here. iRobot shares this port but has
       // its own transport now (_runRoomba), which sends the spec's probe and
       // builds the richer record; sending it from both put two probes on the
       // wire per scan and raced two NetworkDevices for one robot.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(_mikrotikProbe, target, _mikrotikPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1220,20 +2097,24 @@ class RealNetworkScanService implements NetworkScanService {
         if (mndp.identity != null || mndp.mac != null) {
           heard = true;
           if (!seen.add(host)) continue;
-          emit(NetworkDevice(
-            host: host,
-            name: mndp.identity ?? '',
-            answeredLanProtocols: const [_mikrotikLanProtocol],
-            pictogram:
-                mikrotikPictogram(board: mndp.board, identity: mndp.identity),
-            txt: {
-              if (mndp.mac != null) 'mac': mndp.mac!,
-              if (mndp.board != null) 'board': mndp.board!,
-              if (mndp.version != null) 'version': mndp.version!,
-            },
-            sources: const {NetworkDiscoverySource.lanProbe},
-            discoveredAt: DateTime.now(),
-          ));
+          emit(
+            NetworkDevice(
+              host: host,
+              name: mndp.identity ?? '',
+              answeredLanProtocols: const [_mikrotikLanProtocol],
+              pictogram: mikrotikPictogram(
+                board: mndp.board,
+                identity: mndp.identity,
+              ),
+              txt: {
+                if (mndp.mac != null) 'mac': mndp.mac!,
+                if (mndp.board != null) 'board': mndp.board!,
+                if (mndp.version != null) 'version': mndp.version!,
+              },
+              sources: const {NetworkDiscoverySource.lanProbe},
+              discoveredAt: DateTime.now(),
+            ),
+          );
           continue;
         }
         // A JSON iRobot blob on the same port: a robot announcing itself by
@@ -1257,8 +2138,10 @@ class RealNetworkScanService implements NetworkScanService {
         }
         // Neither shape — our own 4-byte MNDP echo, or an unrecognized reply.
         if (datagram.data.length > 4) {
-          Log.net.debug('rejected :5678 datagram from $host '
-              '(${datagram.data.length}B, not MNDP or iRobot)');
+          Log.net.debug(
+            'rejected :5678 datagram from $host '
+            '(${datagram.data.length}B, not MNDP or iRobot)',
+          );
         }
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
@@ -1286,23 +2169,46 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     RawDatagramSocket? plain, encrypted;
     try {
-      plain = await bindDatagramSocket(InternetAddress.anyIPv4, _tuyaPortPlain,
-          reuseAddress: true, reusePort: true);
-      session.tuyaPlainSocket = plain;
+      plain = await binder(
+        InternetAddress.anyIPv4,
+        _tuyaPortPlain,
+        reuseAddress: true,
+        reusePort: true,
+      );
+      // R-027, and Tuya is the worst case for it: this transport sends no
+      // probe, so it has no sleepUnlessStopped to notice a stop with. A stop
+      // landing inside the bind above left the socket on a stopped session,
+      // so nothing closed it and the listen below parked until the scan's
+      // whole budget expired.
+      if (session.stoppedDuringBind(plain)) {
+        plain = null;
+      } else {
+        session.tuyaPlainSocket = plain;
+      }
     } catch (e) {
       Log.net.debug('Tuya :$_tuyaPortPlain bind failed: $e');
     }
+    // A stop the first bind already met is not a reason to take the second
+    // port only to close it again.
+    if (session.stopped) return TransportOutcome.skipped;
     try {
-      encrypted = await bindDatagramSocket(
-          InternetAddress.anyIPv4, _tuyaPortEncrypted,
-          reuseAddress: true, reusePort: true);
-      session.tuyaEncryptedSocket = encrypted;
+      encrypted = await binder(
+        InternetAddress.anyIPv4,
+        _tuyaPortEncrypted,
+        reuseAddress: true,
+        reusePort: true,
+      );
+      if (session.stoppedDuringBind(encrypted)) {
+        encrypted = null;
+      } else {
+        session.tuyaEncryptedSocket = encrypted;
+      }
     } catch (e) {
       Log.net.debug('Tuya :$_tuyaPortEncrypted bind failed: $e');
     }
     // Both ports held by another listener (or unavailable): nothing to do, and
     // the rest of the scan is unaffected.
-    if (plain == null && encrypted == null) return TransportOutcome.silent;
+    if (plain == null && encrypted == null) return TransportOutcome.skipped;
 
     var heard = false;
     // Keyed on the stable gwId so a device beaconing repeatedly — or on both
@@ -1323,29 +2229,35 @@ class RealNetworkScanService implements NetworkScanService {
         // Logged so a genuine Tuya beacon we failed to read (a newer framing,
         // an unreadable cipher) is visible rather than silently dropped.
         if (parsed == null) {
-          Log.net.debug('rejected Tuya :$port datagram from '
-              '${datagram.address.address} (${datagram.data.length}B, '
-              'not a readable broadcast)');
+          Log.net.debug(
+            'rejected Tuya :$port datagram from '
+            '${datagram.address.address} (${datagram.data.length}B, '
+            'not a readable broadcast)',
+          );
           continue;
         }
         heard = true;
-        final host = (parsed.ip?.isNotEmpty ?? false)
-            ? parsed.ip!
-            : datagram.address.address;
+        // The beacon's self-reported ip only when it is a LAN literal; a
+        // bogus or off-LAN value falls back to the datagram source (R-024).
+        final host =
+            trustedSelfReportedHost(parsed.ip, datagram.address.address) ??
+            datagram.address.address;
         final key = (parsed.gwId?.isNotEmpty ?? false) ? parsed.gwId! : host;
         if (!seen.add(key)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: '',
-          answeredLanProtocols: const [_tuyaLanProtocol],
-          txt: {
-            if (parsed.gwId != null) 'gwId': parsed.gwId!,
-            if (parsed.version != null) 'version': parsed.version!,
-            if (parsed.productKey != null) 'productKey': parsed.productKey!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: '',
+            answeredLanProtocols: const [_tuyaLanProtocol],
+            txt: {
+              if (parsed.gwId != null) 'gwId': parsed.gwId!,
+              if (parsed.version != null) 'version': parsed.version!,
+              if (parsed.productKey != null) 'productKey': parsed.productKey!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
     }
 
@@ -1374,22 +2286,23 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
-          reuseAddress: true);
+      socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     } catch (e) {
       Log.net.debug('Wiz bind failed: $e');
-      return TransportOutcome.silent;
+      return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.wizSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
     final seen = <String>{};
     try {
-      final target = InternetAddress(_lifxBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(utf8.encode(_wizProbe), target, _wizPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1409,19 +2322,21 @@ class RealNetworkScanService implements NetworkScanService {
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(parsed.mac ?? host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: '',
-          answeredLanProtocols: const [_wizLanProtocol],
-          pictogram: 'light',
-          txt: {
-            if (parsed.mac != null) 'mac': parsed.mac!,
-            if (parsed.moduleName != null) 'moduleName': parsed.moduleName!,
-            if (parsed.fwVersion != null) 'fwVersion': parsed.fwVersion!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: '',
+            answeredLanProtocols: const [_wizLanProtocol],
+            pictogram: 'light',
+            txt: {
+              if (parsed.mac != null) 'mac': parsed.mac!,
+              if (parsed.moduleName != null) 'moduleName': parsed.moduleName!,
+              if (parsed.fwVersion != null) 'fwVersion': parsed.fwVersion!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1441,55 +2356,76 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
-          reuseAddress: true);
+      socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     } catch (e) {
       Log.net.debug('Yeelight bind failed: $e');
-      return TransportOutcome.silent;
+      return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.yeelightSocket = socket;
     socket.broadcastEnabled = true;
+    _setMulticastInterface(socket, session);
     var heard = false;
     final seen = <String>{};
+    Timer? resend;
     try {
       final target = InternetAddress(_yeelightMulticast);
-      for (var attempt = 0; attempt < 2; attempt++) {
+      resend = _sendTwice(session, () {
         socket.send(utf8.encode(_yeelightProbe), target, _yeelightPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
-          break;
-        }
-      }
+      });
+      // A group this host cannot route is refused on its OWN account, not
+      // the network's — the rule the catalogue probe follows. Reaching the
+      // transport's onError() would classify it `denied`, and one `denied`
+      // beats every `heard` in [scanFailureFor], so a scan that found
+      // devices on mDNS and SSDP would still tell the user Local Network is
+      // off. The _setMulticastInterface pinning above is what makes this
+      // reachable: before it, the send followed the OS default route.
+      //
+      // The refusal is met HERE, not at send(): dart:io never throws from
+      // RawDatagramSocket.send — it returns 0 and, a microtask later,
+      // delivers the SocketException on the socket's stream and closes the
+      // socket. The stream then ends at once, nothing can arrive on it, and
+      // the outcome is `skipped` rather than a `silent` vote the transport
+      // never earned.
+      var refused = false;
       final deadline = DateTime.now().add(timeout);
-      await for (final event in socket.timeout(
-        timeout,
-        onTimeout: (sink) => sink.close(),
-      )) {
+      await for (final event
+          in socket
+              .timeout(timeout, onTimeout: (sink) => sink.close())
+              .handleError((Object e) {
+                refused = true;
+                Log.net.debug('Yeelight probe refused on its own account: $e');
+              }, test: (e) => e is SocketException)) {
         if (session.stopped || DateTime.now().isAfter(deadline)) break;
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
         if (datagram == null) continue;
-        final parsed =
-            parseYeelight(utf8.decode(datagram.data, allowMalformed: true));
+        final parsed = parseYeelight(
+          utf8.decode(datagram.data, allowMalformed: true),
+        );
         if (parsed == null) continue; // our own M-SEARCH echoes; ignore
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(parsed.id ?? host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: parsed.name ?? '',
-          answeredLanProtocols: const [_yeelightLanProtocol],
-          pictogram: 'light',
-          txt: {
-            if (parsed.id != null) 'id': parsed.id!,
-            if (parsed.model != null) 'model': parsed.model!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: parsed.name ?? '',
+            answeredLanProtocols: const [_yeelightLanProtocol],
+            pictogram: 'light',
+            txt: {
+              if (parsed.id != null) 'id': parsed.id!,
+              if (parsed.model != null) 'model': parsed.model!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
-      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+      if (heard) return TransportOutcome.heard;
+      return refused ? TransportOutcome.skipped : TransportOutcome.silent;
     } finally {
+      resend?.cancel();
       socket.close();
       session.yeelightSocket = null;
     }
@@ -1507,32 +2443,67 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket recv;
     try {
-      recv = await bindDatagramSocket(InternetAddress.anyIPv4, _goveeRecvPort,
-          reuseAddress: true, reusePort: true);
+      recv = await binder(
+        InternetAddress.anyIPv4,
+        _goveeRecvPort,
+        reuseAddress: true,
+        reusePort: true,
+      );
     } catch (e) {
       Log.net.debug('Govee :$_goveeRecvPort bind failed: $e');
-      return TransportOutcome.silent;
+      return TransportOutcome.skipped;
     }
+    // R-027: a stop inside the bind above left this socket on a session that
+    // had already run stop(), so nothing ever closed :4002.
+    if (session.stoppedDuringBind(recv)) return TransportOutcome.skipped;
     session.goveeSocket = recv;
     RawDatagramSocket? sender;
     var heard = false;
+    var sent = false;
+    var refused = false;
     final seen = <String>{};
+    Timer? resend;
     try {
       try {
-        sender = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
-            reuseAddress: true);
+        sender = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
         sender.broadcastEnabled = true;
+        _setMulticastInterface(sender, session);
+        // The same rule the other multicast senders follow: a group this
+        // host cannot route is refused on its OWN account, not the
+        // network's, so it must not reach the transport's onError() (which
+        // would call it `denied`, and one `denied` beats every `heard` in
+        // [scanFailureFor]). dart:io never throws from send(): it returns 0
+        // and delivers the SocketException on the SENDER's stream a
+        // microtask later — a stream nothing else here reads, since the
+        // replies come in on :4002 — so it is listened to for that alone.
+        sender.listen(
+          null,
+          onError: (Object e) {
+            refused = true;
+            Log.net.debug('Govee probe refused on its own account: $e');
+          },
+        );
         final target = InternetAddress(_goveeMulticast);
-        for (var attempt = 0; attempt < 2; attempt++) {
-          sender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
-          if (await session
-              .sleepUnlessStopped(const Duration(milliseconds: 250))) {
-            break;
-          }
-        }
+        final probeSender = sender;
+        resend = _sendTwice(session, () {
+          probeSender.send(utf8.encode(_goveeProbe), target, _goveeSendPort);
+        });
+        sent = true;
+        // The refusal, if any, lands on the sender's stream a microtask
+        // after that first send; one turn of the loop is enough to see it.
+        await Future<void>.delayed(Duration.zero);
       } catch (e) {
-        Log.net.debug('Govee probe send failed: $e');
+        // The sender socket itself could not be bound or configured.
+        Log.net.debug('Govee probe socket unavailable: $e');
       }
+      // Nothing went out — no sender socket, or the group refused it — so
+      // nothing can come back: :4002 only ever carries a reply to the scan
+      // this transport just failed to send. Listening out the scan's whole
+      // window would spend the budget on nothing and return a `silent` vote
+      // the transport never earned — and [scanFailureFor] reasons over every
+      // outcome that is not `skipped`, so one bogus `silent` is enough to
+      // stop `probed.every(failed)` holding.
+      if (!sent || refused) return TransportOutcome.skipped;
       final deadline = DateTime.now().add(timeout);
       await for (final event in recv.timeout(
         timeout,
@@ -1545,23 +2516,29 @@ class RealNetworkScanService implements NetworkScanService {
         final parsed = parseGoveeReply(datagram.data);
         if (parsed == null) continue;
         heard = true;
-        final host = parsed.ip ?? datagram.address.address;
+        // The reply's self-reported ip only when it is a LAN literal (R-024).
+        final host =
+            trustedSelfReportedHost(parsed.ip, datagram.address.address) ??
+            datagram.address.address;
         if (!seen.add(parsed.device!)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: '',
-          answeredLanProtocols: const [_goveeLanProtocol],
-          pictogram: 'light',
-          txt: {
-            'device': parsed.device!,
-            if (parsed.sku != null) 'sku': parsed.sku!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: '',
+            answeredLanProtocols: const [_goveeLanProtocol],
+            pictogram: 'light',
+            txt: {
+              'device': parsed.device!,
+              if (parsed.sku != null) 'sku': parsed.sku!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
+      resend?.cancel();
       sender?.close();
       recv.close();
       session.goveeSocket = null;
@@ -1579,59 +2556,81 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket socket;
     try {
-      socket = await bindDatagramSocket(InternetAddress.anyIPv4, 0,
-          reuseAddress: true);
+      socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
     } catch (e) {
       Log.net.debug('KNX bind failed: $e');
-      return TransportOutcome.silent;
+      return TransportOutcome.skipped;
     }
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.knxSocket = socket;
+    _setMulticastInterface(socket, session);
     var heard = false;
     final seen = <String>{};
+    Timer? resend;
     try {
       final target = InternetAddress(_knxMulticast);
-      for (var attempt = 0; attempt < 2; attempt++) {
+      resend = _sendTwice(session, () {
         socket.send(_knxProbe, target, _knxPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
-          break;
-        }
-      }
+      });
+      // A group this host cannot route is refused on its OWN account, not
+      // the network's — the rule the catalogue probe follows. Reaching the
+      // transport's onError() would classify it `denied`, and one `denied`
+      // beats every `heard` in [scanFailureFor], so a scan that found
+      // devices on mDNS and SSDP would still tell the user Local Network is
+      // off. The _setMulticastInterface pinning above is what makes this
+      // reachable: before it, the send followed the OS default route.
+      //
+      // The refusal is met HERE, not at send(): dart:io never throws from
+      // RawDatagramSocket.send — it returns 0 and, a microtask later,
+      // delivers the SocketException on the socket's stream and closes the
+      // socket. The stream then ends at once, nothing can arrive on it, and
+      // the outcome is `skipped` rather than a `silent` vote the transport
+      // never earned.
+      var refused = false;
       final deadline = DateTime.now().add(timeout);
-      await for (final event in socket.timeout(
-        timeout,
-        onTimeout: (sink) => sink.close(),
-      )) {
+      await for (final event
+          in socket
+              .timeout(timeout, onTimeout: (sink) => sink.close())
+              .handleError((Object e) {
+                refused = true;
+                Log.net.debug('KNX probe refused on its own account: $e');
+              }, test: (e) => e is SocketException)) {
         if (session.stopped || DateTime.now().isAfter(deadline)) break;
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
         if (datagram == null) continue;
         final parsed = parseKnxSearchResponse(datagram.data);
         if (parsed == null) {
-          Log.net.debug('rejected KNX :$_knxPort datagram from '
-              '${datagram.address.address} (${datagram.data.length}B)');
+          Log.net.debug(
+            'rejected KNX :$_knxPort datagram from '
+            '${datagram.address.address} (${datagram.data.length}B)',
+          );
           continue;
         }
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(parsed.serial ?? parsed.mac ?? host)) continue;
-        emit(NetworkDevice(
-          host: host,
-          name: parsed.name ?? '',
-          answeredLanProtocols: const [_knxLanProtocol],
-          pictogram: 'smart-device',
-          txt: {
-            if (parsed.individualAddress != null)
-              'knxAddress': parsed.individualAddress!,
-            if (parsed.serial != null) 'serial': parsed.serial!,
-            if (parsed.mac != null) 'mac': parsed.mac!,
-          },
-          sources: const {NetworkDiscoverySource.lanProbe},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: host,
+            name: parsed.name ?? '',
+            answeredLanProtocols: const [_knxLanProtocol],
+            pictogram: 'smart-device',
+            txt: {
+              if (parsed.individualAddress != null)
+                'knxAddress': parsed.individualAddress!,
+              if (parsed.serial != null) 'serial': parsed.serial!,
+              if (parsed.mac != null) 'mac': parsed.mac!,
+            },
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
-      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+      if (heard) return TransportOutcome.heard;
+      return refused ? TransportOutcome.skipped : TransportOutcome.silent;
     } finally {
+      resend?.cancel();
       socket.close();
       session.knxSocket = null;
     }
@@ -1653,11 +2652,13 @@ class RealNetworkScanService implements NetworkScanService {
     // client has nothing left to contribute and should just end.
     bool clientLive() => !session.stopped && identical(session.mdns, client);
     if (!clientLive()) return;
-    await for (final PtrResourceRecord instance in client
-        .lookup<PtrResourceRecord>(
-            ResourceRecordQuery.serverPointer(serviceType),
-            timeout: timeout)
-        .timeout(timeout, onTimeout: (sink) => sink.close())) {
+    await for (final PtrResourceRecord instance
+        in client
+            .lookup<PtrResourceRecord>(
+              ResourceRecordQuery.serverPointer(serviceType),
+              timeout: timeout,
+            )
+            .timeout(timeout, onTimeout: (sink) => sink.close())) {
       if (!clientLive()) return;
       // A PTR answer for this type means a device answered — enough to settle
       // the "did anything reach us" question even before it resolves to a row,
@@ -1673,11 +2674,13 @@ class RealNetworkScanService implements NetworkScanService {
       await Future.wait([
         () async {
           if (!clientLive()) return;
-          await for (final TxtResourceRecord record in client
-              .lookup<TxtResourceRecord>(
-                  ResourceRecordQuery.text(instance.domainName),
-                  timeout: timeout)
-              .timeout(timeout, onTimeout: (sink) => sink.close())) {
+          await for (final TxtResourceRecord record
+              in client
+                  .lookup<TxtResourceRecord>(
+                    ResourceRecordQuery.text(instance.domainName),
+                    timeout: timeout,
+                  )
+                  .timeout(timeout, onTimeout: (sink) => sink.close())) {
             txt.addAll(parseTxtRecord(record.text.split(RegExp(r'[\r\n]+'))));
           }
           // Emit the moment TXT is in, without waiting for the (often absent)
@@ -1691,24 +2694,28 @@ class RealNetworkScanService implements NetworkScanService {
           // port) and with the source-capture backstop.
           final txtHost = addressFromTxt(txt);
           if (txtHost != null) {
-            emit(NetworkDevice(
-              host: txtHost,
-              name: instanceNameOf(instance.domainName),
-              serviceTypes: [serviceTypeOf(instance.domainName)],
-              pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
-              txt: txt,
-              sources: const {NetworkDiscoverySource.mdns},
-              discoveredAt: DateTime.now(),
-            ));
+            emit(
+              NetworkDevice(
+                host: txtHost,
+                name: instanceNameOf(instance.domainName),
+                serviceTypes: [serviceTypeOf(instance.domainName)],
+                pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
+                txt: txt,
+                sources: const {NetworkDiscoverySource.mdns},
+                discoveredAt: DateTime.now(),
+              ),
+            );
           }
         }(),
         () async {
           if (!clientLive()) return;
-          await for (final SrvResourceRecord srv in client
-              .lookup<SrvResourceRecord>(
-                  ResourceRecordQuery.service(instance.domainName),
-                  timeout: timeout)
-              .timeout(timeout, onTimeout: (sink) => sink.close())) {
+          await for (final SrvResourceRecord srv
+              in client
+                  .lookup<SrvResourceRecord>(
+                    ResourceRecordQuery.service(instance.domainName),
+                    timeout: timeout,
+                  )
+                  .timeout(timeout, onTimeout: (sink) => sink.close())) {
             if (session.stopped) return;
             srvRecords.add(srv);
           }
@@ -1717,22 +2724,26 @@ class RealNetworkScanService implements NetworkScanService {
 
       for (final srv in srvRecords) {
         if (!clientLive()) return;
-        await for (final IPAddressResourceRecord address in client
-            .lookup<IPAddressResourceRecord>(
-                ResourceRecordQuery.addressIPv4(srv.target),
-                timeout: timeout)
-            .timeout(timeout, onTimeout: (sink) => sink.close())) {
-          emit(NetworkDevice(
-            host: address.address.address,
-            name: instanceNameOf(instance.domainName),
-            hostname: srv.target,
-            port: srv.port,
-            serviceTypes: [serviceTypeOf(instance.domainName)],
-            pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
-            txt: txt,
-            sources: const {NetworkDiscoverySource.mdns},
-            discoveredAt: DateTime.now(),
-          ));
+        await for (final IPAddressResourceRecord address
+            in client
+                .lookup<IPAddressResourceRecord>(
+                  ResourceRecordQuery.addressIPv4(srv.target),
+                  timeout: timeout,
+                )
+                .timeout(timeout, onTimeout: (sink) => sink.close())) {
+          emit(
+            NetworkDevice(
+              host: address.address.address,
+              name: instanceNameOf(instance.domainName),
+              hostname: srv.target,
+              port: srv.port,
+              serviceTypes: [serviceTypeOf(instance.domainName)],
+              pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
+              txt: txt,
+              sources: const {NetworkDiscoverySource.mdns},
+              discoveredAt: DateTime.now(),
+            ),
+          );
         }
       }
     }
@@ -1749,10 +2760,11 @@ class RealNetworkScanService implements NetworkScanService {
     Duration timeout,
     List<String> extraSearchTargets,
   ) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.ssdpSocket = socket;
     socket.broadcastEnabled = true;
+    _setMulticastInterface(socket, session);
     var heard = false;
     try {
       // `ssdp:all` first — the standard question every conforming UPnP stack
@@ -1770,7 +2782,8 @@ class RealNetworkScanService implements NetworkScanService {
           // MX is the maximum random delay a device waits before replying; it
           // spreads responses out to avoid a storm, so the listen window has
           // to be at least MX seconds or slow-answering devices are missed.
-          final request = 'M-SEARCH * HTTP/1.1\r\n'
+          final request =
+              'M-SEARCH * HTTP/1.1\r\n'
               'HOST: $_ssdpAddress:$_ssdpPort\r\n'
               'MAN: "ssdp:discover"\r\n'
               'MX: 3\r\n'
@@ -1778,7 +2791,16 @@ class RealNetworkScanService implements NetworkScanService {
               '\r\n';
           socket.send(request.codeUnits, target, _ssdpPort);
         }
-        await Future<void>.delayed(const Duration(milliseconds: 250));
+        // Through the session, like every other transport here. A bare
+        // Future.delayed cannot notice a stop, so a stopped scan sat out the
+        // 250 ms and then sent a SECOND round of M-SEARCHes — R-027's
+        // "stopScan() is a lie" in the one transport that was left on a plain
+        // timer.
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
+          break;
+        }
       }
 
       final deadline = DateTime.now().add(timeout);
@@ -1801,24 +2823,39 @@ class RealNetworkScanService implements NetworkScanService {
         if (location == null &&
             searchTarget == null &&
             headers['server'] == null) {
-          Log.net.debug('rejected SSDP datagram from '
-              '${datagram.address.address} (no LOCATION/ST/SERVER)');
+          Log.net.debug(
+            'rejected SSDP datagram from '
+            '${datagram.address.address} (no LOCATION/ST/SERVER)',
+          );
           continue;
         }
-        // Prefer the LOCATION host: a device behind a proxy or on a second
-        // interface answers from an address its own service does not live on.
-        final host = location?.host ?? datagram.address.address;
-        emit(NetworkDevice(
-          host: host,
-          name: '',
-          port: location?.port,
-          ssdpPort: location?.port,
-          ssdpDescriptionPath: location?.path,
-          ssdpTargets: [if (searchTarget != null) searchTarget],
-          server: headers['server'],
-          sources: const {NetworkDiscoverySource.ssdp},
-          discoveredAt: DateTime.now(),
-        ));
+        // Prefer the LOCATION host, but only when it is an IP literal: a
+        // LOCATION naming a hostname must not become the control host, or a
+        // hostile responder could redirect the UPnP control path off the
+        // segment through DNS. A UPnP LOCATION legitimately names any IP
+        // literal (not only RFC1918), so this does not require a LAN range; the
+        // port and description path from the LOCATION are kept regardless
+        // (R-024).
+        final host =
+            trustedSelfReportedHost(
+              location?.host,
+              datagram.address.address,
+              requireLan: false,
+            ) ??
+            datagram.address.address;
+        emit(
+          NetworkDevice(
+            host: host,
+            name: '',
+            port: location?.port,
+            ssdpPort: location?.port,
+            ssdpDescriptionPath: location?.path,
+            ssdpTargets: [?searchTarget],
+            server: headers['server'],
+            sources: const {NetworkDiscoverySource.ssdp},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1840,20 +2877,21 @@ class RealNetworkScanService implements NetworkScanService {
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.lifxSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
     try {
       final probe = lifxGetServiceProbe();
-      final target = InternetAddress(_lifxBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Sent more than once: UDP is lossy, and a dropped probe means a strip
       // that is simply never heard from.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(probe, target, _lifxPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1870,15 +2908,22 @@ class RealNetworkScanService implements NetworkScanService {
         heard = true;
         final mac = lifxStateServiceMac(datagram.data);
         if (mac == null) continue;
-        emit(NetworkDevice(
-          host: datagram.address.address,
-          name: '',
-          port: _lifxPort,
-          ssdpTargets: const [_lifxSearchTarget],
-          txt: {'mac': mac},
-          sources: const {NetworkDiscoverySource.ssdp},
-          discoveredAt: DateTime.now(),
-        ));
+        emit(
+          NetworkDevice(
+            host: datagram.address.address,
+            name: '',
+            port: _lifxPort,
+            ssdpTargets: const [_lifxSearchTarget],
+            txt: {'mac': mac},
+            // R-030: a vendor UDP probe, like Kasa and the robot — nothing
+            // about LIFX is SSDP. The row said SSDP, so the Wi-Fi tab told
+            // the user a bulb had been found by a protocol it does not
+            // speak, and anything keying off the source to decide how to
+            // talk to it was reading a fiction.
+            sources: const {NetworkDiscoverySource.lanProbe},
+            discoveredAt: DateTime.now(),
+          ),
+        );
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
@@ -1901,18 +2946,19 @@ class RealNetworkScanService implements NetworkScanService {
     SpecCodec codec,
   ) async {
     final probe = await codec.kasaEncryptDatagram(json: _kasaProbeJson);
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.kasaSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
     try {
-      final target = InternetAddress(_kasaBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Sent more than once: UDP, and a dropped probe is a plug never heard.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(probe, target, _kasaPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -1937,9 +2983,11 @@ class RealNetworkScanService implements NetworkScanService {
           // A reply reached us but did not decode to a Kasa get_sysinfo — a
           // non-Kasa service on :9999, or a shape we don't read. Logged so it
           // is not a silent drop.
-          Log.net.debug('rejected Kasa :$_kasaPort datagram from '
-              '${datagram.address.address} (${datagram.data.length}B, '
-              'not a get_sysinfo reply)');
+          Log.net.debug(
+            'rejected Kasa :$_kasaPort datagram from '
+            '${datagram.address.address} (${datagram.data.length}B, '
+            'not a get_sysinfo reply)',
+          );
         }
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
@@ -1952,7 +3000,9 @@ class RealNetworkScanService implements NetworkScanService {
   /// Build a device from a Kasa reply datagram, or null when it does not decode
   /// to a get_sysinfo answer (stray UDP noise on the port).
   Future<NetworkDevice?> _kasaDeviceFrom(
-      Datagram datagram, SpecCodec codec) async {
+    Datagram datagram,
+    SpecCodec codec,
+  ) async {
     final String json;
     try {
       json = await codec.kasaDecodeDatagram(datagram: datagram.data);
@@ -1998,11 +3048,7 @@ class RealNetworkScanService implements NetworkScanService {
       port: _kasaPort,
       answeredLanProtocols: const [_kasaProtocol],
       pictogram: pictogram,
-      txt: {
-        if (model != null) 'model': model,
-        if (mac != null) 'mac': mac,
-        if (deviceId != null) 'deviceId': deviceId,
-      },
+      txt: {'model': ?model, 'mac': ?mac, 'deviceId': ?deviceId},
       sources: const {NetworkDiscoverySource.lanProbe},
       discoveredAt: DateTime.now(),
     );
@@ -2028,18 +3074,19 @@ class RealNetworkScanService implements NetworkScanService {
     SpecCodec codec,
   ) async {
     final probe = await codec.roombaDiscoveryProbe();
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
-        reuseAddress: true);
+    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
+    if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.roombaSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
     try {
-      final target = InternetAddress(_roombaBroadcast);
+      final target = InternetAddress(_limitedBroadcast);
       // Sent more than once: UDP, and a dropped probe is a robot never found.
       for (var attempt = 0; attempt < 2; attempt++) {
         socket.send(probe, target, _roombaDiscoveryPort);
-        if (await session
-            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+        if (await session.sleepUnlessStopped(
+          const Duration(milliseconds: 250),
+        )) {
           break;
         }
       }
@@ -2078,15 +3125,23 @@ class RealNetworkScanService implements NetworkScanService {
   /// its own turn comes.
   Future<void> _end(_ScanSession session) async {
     session.stop();
+    _live.remove(session);
     if (!identical(_session, session)) return;
     _session = null;
     await multicastLock.release();
   }
 
+  /// Stops every scan running on this instance, not just the newest.
+  ///
+  /// "Stop scanning" means the radio and the sockets are free afterwards.
+  /// With two callers sharing one instance, ending only the current session
+  /// left an older one alive and its ports bound, which is invisible until
+  /// the next scan cannot bind them.
   @override
   Future<void> stopScan() async {
-    final session = _session;
-    if (session != null) await _end(session);
+    for (final session in _live.toList()) {
+      await _end(session);
+    }
   }
 }
 
@@ -2096,6 +3151,11 @@ class RealNetworkScanService implements NetworkScanService {
 /// service, and `networkScanServiceProvider` hands out a single shared
 /// instance, so an overlapping pair fought over them.
 class _ScanSession {
+  /// The Wi-Fi/LAN interface address discovery sends multicast from, resolved
+  /// once per scan and read by every multicast transport (F-014). Null when
+  /// none could be found, in which case senders leave the choice to the OS.
+  InternetAddress? multicastInterfaceV4;
+
   MDnsClient? mdns;
   RawDatagramSocket? ssdpSocket;
   RawDatagramSocket? lifxSocket;
@@ -2111,6 +3171,11 @@ class _ScanSession {
   RawDatagramSocket? knxSocket;
   RawDatagramSocket? roombaSocket;
 
+  /// One socket per port the catalogue-driven probe transport is using. A list
+  /// rather than a field because the ports come from the specs, not from this
+  /// file, so how many there are is not known here.
+  final List<RawDatagramSocket> catalogueProbeSockets = [];
+
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
   /// transport parked in a delay never looks at a flag.
@@ -2123,6 +3188,21 @@ class _ScanSession {
 
   /// Waits [duration], or until [stop] is called. True when stopped.
   Future<bool> sleepUnlessStopped(Duration duration) => _stop.sleep(duration);
+
+  /// True when this session was stopped while [socket] was being bound.
+  ///
+  /// R-027: binding is an await, and a stop can land inside it. The transport
+  /// then assigned its socket to a session that had already run [stop], so
+  /// nothing ever closed it: the port stayed bound and the stream stayed open
+  /// for the rest of the scan's budget — on Android, where these binds are
+  /// exclusive, long enough to make the NEXT scan fail on a port nothing
+  /// appears to be using. Called immediately after every bind; the caller
+  /// returns without starting.
+  bool stoppedDuringBind(RawDatagramSocket socket) {
+    if (!stopped) return false;
+    socket.close();
+    return true;
+  }
 
   void stop() {
     // Idempotent (StopSignal guards the complete): every path out of a scan
@@ -2156,5 +3236,9 @@ class _ScanSession {
     knxSocket = null;
     roombaSocket?.close();
     roombaSocket = null;
+    for (final socket in catalogueProbeSockets) {
+      socket.close();
+    }
+    catalogueProbeSockets.clear();
   }
 }

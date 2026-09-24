@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
@@ -43,17 +44,21 @@ final _spec = DeviceSpecDto(
   defaultPort: null,
   entities: const <EntityDto>[],
   services: const [
-    ServiceDto(uuid: _svcUuid, name: 'Control Service', characteristics: [
-      CharacteristicDto(
-        uuid: _charUuid,
-        name: 'Command',
-        canRead: false,
-        canWrite: true,
-        canNotify: false,
-        commands: [],
-        formatFields: [],
-      ),
-    ]),
+    ServiceDto(
+      uuid: _svcUuid,
+      name: 'Control Service',
+      characteristics: [
+        CharacteristicDto(
+          uuid: _charUuid,
+          name: 'Command',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: [],
+          formatFields: [],
+        ),
+      ],
+    ),
   ],
 );
 
@@ -64,44 +69,65 @@ Future<ProviderContainer> _container(
 }) async {
   SharedPreferences.setMockInitialValues(initialPrefs);
   final prefs = await SharedPreferences.getInstance();
-  final c = ProviderContainer(overrides: [
-    sharedPreferencesProvider.overrideWithValue(prefs),
-    specCodecProvider.overrideWithValue(codec),
-    deviceSpecsProvider.overrideWith((ref) => specs),
-  ]);
+  final c = ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      specCodecProvider.overrideWithValue(codec),
+      deviceSpecsProvider.overrideWith((ref) => specs),
+    ],
+  );
   addTearDown(c.dispose);
   return c;
 }
+
+/// The catalogue entry a parsed spec would become, so the ranking tests can
+/// state their fixtures as specs (which is how they read) while the functions
+/// under test take what matching now returns: an entry plus the axes that
+/// hit.
+CatalogueSpec _entry(DeviceSpecDto spec, {int index = 0}) => CatalogueSpec(
+  index: index,
+  key: '${spec.deviceName}|${spec.manufacturer}',
+  yaml: '${spec.deviceName}-yaml',
+  identity: specIdentityOf(spec),
+  protocolHandler: spec.protocolHandler,
+  gattServiceUuids: [for (final s in spec.services) s.uuid],
+);
+
+SpecMatch _match(
+  DeviceSpecDto spec, {
+  bool byNamePrefix = false,
+  List<String> serviceUuids = const [],
+  MatchConfidence confidence = MatchConfidence.likely,
+  int index = 0,
+}) => SpecMatch(
+  entry: _entry(spec, index: index),
+  matchedByNamePrefix: byNamePrefix,
+  confidence: confidence,
+  matchedServiceUuids: serviceUuids,
+);
 
 SpecMatchRequest _req({
   String deviceId = 'AA:BB',
   String deviceName = 'ACME_X',
   List<String> serviceUuids = const [_svcUuid],
-}) =>
-    SpecMatchRequest(
-      deviceId: deviceId,
-      deviceName: deviceName,
-      serviceUuids: serviceUuids,
-    );
+}) => SpecMatchRequest(
+  deviceId: deviceId,
+  deviceName: deviceName,
+  serviceUuids: serviceUuids,
+);
 
 void main() {
   group('rank + evidence policy (pure)', () {
-    final nameOnly = MatchResult(
-      spec: _spec,
-      matchedByNamePrefix: true,
-      matchedServiceUuids: const [],
-      confidence: MatchConfidence.likely,
-    );
-    final uuidOnly = MatchResult(
-      spec: _spec,
-      matchedByNamePrefix: false,
-      matchedServiceUuids: const [_svcUuid],
+    final nameOnly = _match(_spec, byNamePrefix: true);
+    final uuidOnly = _match(
+      _spec,
+      serviceUuids: const [_svcUuid],
       confidence: MatchConfidence.strong,
     );
-    final corroborated = MatchResult(
-      spec: _spec,
-      matchedByNamePrefix: true,
-      matchedServiceUuids: const [_svcUuid],
+    final corroborated = _match(
+      _spec,
+      byNamePrefix: true,
+      serviceUuids: const [_svcUuid],
       confidence: MatchConfidence.strong,
     );
 
@@ -110,15 +136,15 @@ void main() {
       expect(matchEvidenceOf(uuidOnly), MatchEvidence.uuidOnly);
       expect(matchEvidenceOf(nameOnly), MatchEvidence.nameOnly);
 
-      final ranked = rankSpecMatches(
-        [nameOnly, uuidOnly, corroborated],
-        discoveredUuids: const [],
-      );
+      final ranked = rankSpecMatches([
+        nameOnly,
+        uuidOnly,
+        corroborated,
+      ], discoveredUuids: const []);
       expect(ranked, [corroborated, uuidOnly, nameOnly]);
     });
 
-    test(
-        'a name-only match is dropped when the device carries none of the '
+    test('a name-only match is dropped when the device carries none of the '
         'spec\'s GATT services (the short-prefix collision case)', () {
       // A device named e.g. "DNS-Widget" trips a two-letter prefix like "DN"
       // but demonstrably lacks the spec's GATT service: not a match. _spec's
@@ -128,14 +154,10 @@ void main() {
         isContradictedNameOnlyMatch(nameOnly, discoveredUuids: discovered),
         isTrue,
       );
-      expect(
-        rankSpecMatches([nameOnly], discoveredUuids: discovered),
-        isEmpty,
-      );
+      expect(rankSpecMatches([nameOnly], discoveredUuids: discovered), isEmpty);
     });
 
-    test(
-        'a name-only match survives when the spec\'s GATT services ARE on '
+    test('a name-only match survives when the spec\'s GATT services ARE on '
         'the device (advertisement-only identification UUIDs)', () {
       // The Govee/Mi-Flora shape: identification.service_uuids carries an
       // advertisement service-data UUID that never appears in a GATT table,
@@ -165,23 +187,21 @@ void main() {
         entities: <EntityDto>[],
         services: [
           const ServiceDto(
-              uuid: _svcUuid, name: 'Real GATT', characteristics: []),
+            uuid: _svcUuid,
+            name: 'Real GATT',
+            characteristics: [],
+          ),
         ],
       );
-      final match = MatchResult(
-        spec: advOnly,
-        matchedByNamePrefix: true,
-        matchedServiceUuids: [], // the adv UUID matched nothing discovered
-        confidence: MatchConfidence.likely,
-      );
+      // The adv UUID matched nothing discovered, so the name is the only axis.
+      final match = _match(advOnly, byNamePrefix: true);
       expect(
         isContradictedNameOnlyMatch(match, discoveredUuids: const [_svcUuid]),
         isFalse,
       );
-      expect(
-        rankSpecMatches([match], discoveredUuids: const [_svcUuid]),
-        [match],
-      );
+      expect(rankSpecMatches([match], discoveredUuids: const [_svcUuid]), [
+        match,
+      ]);
     });
 
     test('a name-only match survives when the spec declares no services', () {
@@ -206,20 +226,14 @@ void main() {
         entities: <EntityDto>[],
         services: [],
       );
-      final match = MatchResult(
-        spec: nameIsOnlyAxis,
-        matchedByNamePrefix: true,
-        matchedServiceUuids: [],
-        confidence: MatchConfidence.likely,
-      );
+      final match = _match(nameIsOnlyAxis, byNamePrefix: true);
       expect(
         isContradictedNameOnlyMatch(match, discoveredUuids: const ['1234']),
         isFalse,
       );
-      expect(
-        rankSpecMatches([match], discoveredUuids: const ['1234']),
-        [match],
-      );
+      expect(rankSpecMatches([match], discoveredUuids: const ['1234']), [
+        match,
+      ]);
     });
 
     test('a name-only match survives when nothing was discovered', () {
@@ -262,38 +276,16 @@ void main() {
     expect(r.chosen!.yaml, 'dummy-yaml');
   });
 
-  test('corroborated (name + uuid) beats uuid-only with more matched uuids',
-      () async {
-    final other = DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Other',
-      manufacturer: 'X',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [_svcUuid],
-      companyIds: _noCompanyIds,
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      defaultPort: null,
-      entities: const <EntityDto>[],
-      services: const [],
-    );
+  test('an installed pack copy shadows the bundled spec it corrects', () async {
+    // Both copies share an identity, so both match; the pack's loads after
+    // the bundled one and must be the copy the screen drives with. Before
+    // matching returned indices this was an explicit `lastWhere` over the
+    // parsed catalogue, and it is still the rule — just expressed as the
+    // last entry under the identity key.
     final codec = FakeSpecCodec(
       spec: _spec,
+      specByYaml: {'bundled-yaml': _spec, 'pack-yaml': _spec},
       matches: [
-        MatchResult(
-          spec: other,
-          matchedByNamePrefix: false,
-          matchedServiceUuids: const [_svcUuid, _charUuid],
-          confidence: MatchConfidence.strong,
-        ),
         MatchResult(
           spec: _spec,
           matchedByNamePrefix: true,
@@ -302,12 +294,65 @@ void main() {
         ),
       ],
     );
-    final c = await _container(codec, const {'bulb.yaml': 'dummy-yaml'});
+    final c = await _container(codec, const {
+      'bulb.yaml': 'bundled-yaml',
+      'pack:corrections/bulb.yaml': 'pack-yaml',
+    });
 
     final r = await c.read(matchedDeviceSpecProvider(_req()).future);
 
-    expect(r.chosen!.spec.deviceName, 'Bulb');
+    expect(r.chosen, isNotNull);
+    expect(r.chosen!.yaml, 'pack-yaml');
   });
+
+  test(
+    'corroborated (name + uuid) beats uuid-only with more matched uuids',
+    () async {
+      final other = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'Other',
+        manufacturer: 'X',
+        manufacturerStatus: 'abandoned',
+        protocol: 'ble',
+        localNamePrefixes: const [],
+        localNames: const [],
+        serviceUuids: const [_svcUuid],
+        companyIds: _noCompanyIds,
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        defaultPort: null,
+        entities: const <EntityDto>[],
+        services: const [],
+      );
+      final codec = FakeSpecCodec(
+        spec: _spec,
+        matches: [
+          MatchResult(
+            spec: other,
+            matchedByNamePrefix: false,
+            matchedServiceUuids: const [_svcUuid, _charUuid],
+            confidence: MatchConfidence.strong,
+          ),
+          MatchResult(
+            spec: _spec,
+            matchedByNamePrefix: true,
+            matchedServiceUuids: const [_svcUuid],
+            confidence: MatchConfidence.strong,
+          ),
+        ],
+      );
+      final c = await _container(codec, const {'bulb.yaml': 'dummy-yaml'});
+
+      final r = await c.read(matchedDeviceSpecProvider(_req()).future);
+
+      expect(r.chosen!.spec.deviceName, 'Bulb');
+    },
+  );
 
   test('uuid evidence beats a bare name-prefix match', () async {
     // The regression this pins: a device whose GATT matched spec A must not
@@ -373,8 +418,10 @@ void main() {
         ),
       ],
     );
-    final c = await _container(
-        codec, const {'right': 'yaml-right', 'name': 'yaml-name'});
+    final c = await _container(codec, const {
+      'right': 'yaml-right',
+      'name': 'yaml-name',
+    });
 
     final r = await c.read(matchedDeviceSpecProvider(_req()).future);
 
@@ -382,8 +429,7 @@ void main() {
     expect(r.chosen!.yaml, 'yaml-right');
   });
 
-  test(
-      'a name-prefix collision alone yields no match when the device lacks '
+  test('a name-prefix collision alone yields no match when the device lacks '
       'the spec\'s services', () async {
     final codec = FakeSpecCodec(
       spec: _spec,
@@ -398,16 +444,17 @@ void main() {
     );
     final c = await _container(codec, const {'bulb.yaml': 'dummy-yaml'});
 
-    final r = await c.read(matchedDeviceSpecProvider(
-      _req(deviceName: 'ACME_lookalike', serviceUuids: const ['1234']),
-    ).future);
+    final r = await c.read(
+      matchedDeviceSpecProvider(
+        _req(deviceName: 'ACME_lookalike', serviceUuids: const ['1234']),
+      ).future,
+    );
 
     expect(r.source, SpecChoiceSource.none);
     expect(r.chosen, isNull);
   });
 
-  test('two specs tying on evidence ask the user instead of guessing',
-      () async {
+  test('two specs tying on evidence ask the user instead of guessing', () async {
     final brandA = DeviceSpecDto(
       nameMatchers: const [],
       platformFallbackTypes: const [],
@@ -469,17 +516,17 @@ void main() {
     );
     final c = await _container(codec, const {'a': 'yaml-a', 'b': 'yaml-b'});
 
-    final r = await c.read(matchedDeviceSpecProvider(
-      _req(deviceName: 'Mystery'),
-    ).future);
+    final r = await c.read(
+      matchedDeviceSpecProvider(_req(deviceName: 'Mystery')).future,
+    );
 
     expect(r.source, SpecChoiceSource.prompt);
     expect(r.needsChoice, isTrue);
     expect(r.chosen, isNull);
-    expect(
-      r.candidates.map((m) => m.spec.deviceName),
-      ['Brand A Lights', 'Brand B Lights'],
-    );
+    expect(r.candidates.map((m) => m.spec.deviceName), [
+      'Brand A Lights',
+      'Brand B Lights',
+    ]);
     // Each candidate carries its own yaml so choosing one can encode commands.
     expect(r.candidates.map((m) => m.yaml), ['yaml-a', 'yaml-b']);
   });
@@ -552,9 +599,9 @@ void main() {
       },
     );
 
-    final r = await c.read(matchedDeviceSpecProvider(
-      _req(deviceName: 'Mystery'),
-    ).future);
+    final r = await c.read(
+      matchedDeviceSpecProvider(_req(deviceName: 'Mystery')).future,
+    );
 
     expect(r.source, SpecChoiceSource.saved);
     expect(r.chosen!.spec.deviceName, 'Brand B Lights');
@@ -591,9 +638,11 @@ void main() {
     final codec = FakeSpecCodec(spec: _spec, matches: []);
     final c = await _container(codec, const {'bulb.yaml': 'dummy'});
 
-    final r = await c.read(matchedDeviceSpecProvider(
-      _req(deviceName: 'Nope', serviceUuids: const ['1234']),
-    ).future);
+    final r = await c.read(
+      matchedDeviceSpecProvider(
+        _req(deviceName: 'Nope', serviceUuids: const ['1234']),
+      ).future,
+    );
 
     expect(r.source, SpecChoiceSource.none);
     expect(r.chosen, isNull);
@@ -609,96 +658,203 @@ void main() {
     expect(r.chosen, isNull);
   });
 
-  test('associates the winning spec with its own yaml, not parsed.first',
-      () async {
-    const svcA = '0000aaa0-0000-1000-8000-00805f9b34fb';
-    const svcB = '0000bbb0-0000-1000-8000-00805f9b34fb';
-    final specA = DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Alpha',
-      manufacturer: 'A',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const ['ALPHA_'],
-      localNames: const [],
-      serviceUuids: const [svcA],
-      companyIds: _noCompanyIds,
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      defaultPort: null,
-      entities: const <EntityDto>[],
-      services: const [],
-    );
-    final specB = DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Beta',
-      manufacturer: 'B',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const ['BETA_'],
-      localNames: const [],
-      serviceUuids: const [svcB],
-      companyIds: _noCompanyIds,
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      defaultPort: null,
-      entities: const <EntityDto>[],
-      services: const [],
-    );
-    // A separate, non-const instance with the same content as specB, simulating
-    // the FFI round-trip. The generated `DeviceSpecDto ==` compares lists by
-    // reference, so this does NOT `==` specB (what the old lookup relied on);
-    // the runtime List.of keeps it a distinct instance.
-    final specBRoundTrip = DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Beta',
-      manufacturer: 'B',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const ['BETA_'],
-      localNames: const [],
-      serviceUuids: List<String>.of(const [svcB]),
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      defaultPort: null,
-      entities: const <EntityDto>[],
-      services: const [],
-    );
-
+  test('an uninitialised bridge is reported once, not once per spec', () async {
+    // With the native library down every parse fails identically. 204
+    // identical warnings drowned the one line that mattered, and any
+    // genuinely malformed spec with it.
+    final records = Log.captureRecords();
+    addTearDown(Log.reset);
     final codec = FakeSpecCodec(
-      specByYaml: {'yaml-a': specA, 'yaml-b': specB},
+      loadError: StateError(
+        'flutter_rust_bridge has not been initialized. Did you call '
+        'RustLib.init()?',
+      ),
+    );
+    final c = await _container(codec, const {
+      'a.yaml': 'a',
+      'b.yaml': 'b',
+      'c.yaml': 'c',
+    });
+
+    final catalogue = await c.read(specCatalogueProvider.future);
+
+    expect(catalogue.specs, isEmpty);
+    final bridgeLines = records
+        .where((r) => r.message.contains('native codec unavailable'))
+        .toList();
+    expect(bridgeLines, hasLength(1));
+    expect(bridgeLines.single.message, contains('3 spec(s) skipped'));
+    expect(
+      records.where((r) => r.message.startsWith('failed to parse spec')),
+      isEmpty,
+      reason: 'the per-spec warning is for real parse failures',
+    );
+  });
+
+  test('a real parse failure is still reported per spec', () async {
+    final records = Log.captureRecords();
+    addTearDown(Log.reset);
+    final codec = FakeSpecCodec(loadError: const FormatException('bad yaml'));
+    final c = await _container(codec, const {'a.yaml': 'a', 'b.yaml': 'b'});
+
+    await c.read(specCatalogueProvider.future);
+
+    expect(
+      records.where((r) => r.message.startsWith('failed to parse spec')),
+      hasLength(2),
+    );
+  });
+
+  test(
+    'associates the winning spec with its own yaml, not parsed.first',
+    () async {
+      const svcA = '0000aaa0-0000-1000-8000-00805f9b34fb';
+      const svcB = '0000bbb0-0000-1000-8000-00805f9b34fb';
+      final specA = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'Alpha',
+        manufacturer: 'A',
+        manufacturerStatus: 'abandoned',
+        protocol: 'ble',
+        localNamePrefixes: const ['ALPHA_'],
+        localNames: const [],
+        serviceUuids: const [svcA],
+        companyIds: _noCompanyIds,
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        defaultPort: null,
+        entities: const <EntityDto>[],
+        services: const [],
+      );
+      final specB = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'Beta',
+        manufacturer: 'B',
+        manufacturerStatus: 'abandoned',
+        protocol: 'ble',
+        localNamePrefixes: const ['BETA_'],
+        localNames: const [],
+        serviceUuids: const [svcB],
+        companyIds: _noCompanyIds,
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        defaultPort: null,
+        entities: const <EntityDto>[],
+        services: const [],
+      );
+      // A separate, non-const instance with the same content as specB, simulating
+      // the FFI round-trip. The generated `DeviceSpecDto ==` compares lists by
+      // reference, so this does NOT `==` specB (what the old lookup relied on);
+      // the runtime List.of keeps it a distinct instance.
+      final specBRoundTrip = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'Beta',
+        manufacturer: 'B',
+        manufacturerStatus: 'abandoned',
+        protocol: 'ble',
+        localNamePrefixes: const ['BETA_'],
+        localNames: const [],
+        serviceUuids: List<String>.of(const [svcB]),
+        companyIds: Uint16List(0),
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        defaultPort: null,
+        entities: const <EntityDto>[],
+        services: const [],
+      );
+
+      final codec = FakeSpecCodec(
+        specByYaml: {'yaml-a': specA, 'yaml-b': specB},
+        matches: [
+          MatchResult(
+            spec: specBRoundTrip,
+            matchedByNamePrefix: true,
+            matchedServiceUuids: const [svcB],
+            confidence: MatchConfidence.strong,
+          ),
+        ],
+      );
+      final c = await _container(codec, const {'a': 'yaml-a', 'b': 'yaml-b'});
+
+      final r = await c.read(
+        matchedDeviceSpecProvider(
+          _req(deviceName: 'BETA_1', serviceUuids: const [svcB]),
+        ).future,
+      );
+
+      expect(r.chosen!.spec.deviceName, 'Beta');
+      expect(r.chosen!.yaml, 'yaml-b');
+    },
+  );
+
+  test('a device nobody is watching does not keep its match (R-070)', () async {
+    // The family key is (device id, name, discovered uuid set), so without
+    // autoDispose every device ever connected in a run kept its match — and
+    // its resolved spec, which now holds a Rust-side parse — for the life of
+    // the process.
+    final codec = FakeSpecCodec(
+      spec: _spec,
       matches: [
         MatchResult(
-          spec: specBRoundTrip,
+          spec: _spec,
           matchedByNamePrefix: true,
-          matchedServiceUuids: const [svcB],
+          matchedServiceUuids: const [_svcUuid],
           confidence: MatchConfidence.strong,
         ),
       ],
     );
-    final c = await _container(codec, const {'a': 'yaml-a', 'b': 'yaml-b'});
+    final c = await _container(codec, const {'bulb.yaml': 'dummy-yaml'});
 
-    final r = await c.read(matchedDeviceSpecProvider(
-      _req(deviceName: 'BETA_1', serviceUuids: const [svcB]),
-    ).future);
+    final sub = c.listen(matchedDeviceSpecProvider(_req()), (_, _) {});
+    await c.read(matchedDeviceSpecProvider(_req()).future);
+    expect(
+      c.exists(matchedDeviceSpecProvider(_req())),
+      isTrue,
+      reason: 'held while something is watching it',
+    );
 
-    expect(r.chosen!.spec.deviceName, 'Beta');
-    expect(r.chosen!.yaml, 'yaml-b');
+    sub.close();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      c.exists(matchedDeviceSpecProvider(_req())),
+      isFalse,
+      reason: 'the last listener going away releases the match',
+    );
+  });
+
+  test('the catalogue load says how long it took (R-081)', () async {
+    // The load the handle redesign was about: it used to block the calling
+    // isolate for most of a second, so "how long on THIS device" is a
+    // question a diagnostics capture should be able to answer rather than
+    // only a benchmark on a desk. Timed through the shared helper, which
+    // until now had no caller at all.
+    final records = Log.captureRecords();
+    Log.minLevel = LogLevel.debug;
+    addTearDown(Log.reset);
+
+    final codec = FakeSpecCodec(spec: _spec);
+    final c = await _container(codec, const {'bulb.yaml': 'dummy-yaml'});
+    await c.read(specCatalogueProvider.future);
+
+    expect(
+      records.map((r) => r.message),
+      contains(allOf(contains('loading 1 spec(s)'), contains('took'))),
+    );
   });
 }

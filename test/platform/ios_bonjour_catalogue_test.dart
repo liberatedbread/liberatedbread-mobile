@@ -37,16 +37,19 @@ const String _generator = 'scripts/regen-bonjour-services.sh';
 /// protocol the vendor superseded (Caséta's deprecated `_lap._tcp`); neither is
 /// an axis anything matches on, and asking iOS for permission on the strength
 /// of a footnote is not something to do by accident.
-final RegExp _deviceBlock =
-    RegExp(r'^device:\n(?:[ \t].*\n|\n)*', multiLine: true);
+final RegExp _deviceBlock = RegExp(
+  r'^device:\n(?:[ \t].*\n|\n)*',
+  multiLine: true,
+);
 
 /// `mdns_service_type:` (the identification axis) and `service_type:` (each
 /// `discovery.methods[].mdns` entry). One value, two spellings, both of them an
 /// instruction to go looking — the scan reads identification, and the discovery
 /// methods are what the catalogue enumerates.
 final RegExp _serviceType = RegExp(
-    r'''^\s*(?:mdns_)?service_type:\s*["']?([^"'\n#]+)''',
-    multiLine: true);
+  r'''^\s*(?:mdns_)?service_type:\s*["']?([^"'\n#]+)''',
+  multiLine: true,
+);
 
 /// Types the app browses that no device spec names, each for a stated reason.
 /// Kept in step with `APP_OWNED` in [_generator].
@@ -75,7 +78,8 @@ void main() {
     final plist = parsePlist(
       readRepoFile(
         _plistPath,
-        consequence: 'Without it the iOS app has no bundle metadata and '
+        consequence:
+            'Without it the iOS app has no bundle metadata and '
             'cannot launch.',
       ),
       label: _plistPath,
@@ -89,16 +93,16 @@ void main() {
     expect(
       specsDir.existsSync(),
       isTrue,
-      reason: '$_devicesDir must exist. It is the vendored protocol-specs '
+      reason:
+          '$_devicesDir must exist. It is the vendored protocol-specs '
           'subtree, and it is what the app bundles as its catalogue — if it '
           'is missing the app ships no specs at all.',
     );
 
     final wanted = <String, List<String>>{};
-    for (final file in specsDir
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.yaml'))) {
+    for (final file in specsDir.listSync().whereType<File>().where(
+      (f) => f.path.endsWith('.yaml'),
+    )) {
       final block = _deviceBlock.firstMatch(file.readAsStringSync());
       if (block == null) continue;
       for (final match in _serviceType.allMatches(block.group(0)!)) {
@@ -114,7 +118,8 @@ void main() {
     expect(
       wanted,
       isNotEmpty,
-      reason: 'No spec in $_devicesDir declares a service type, which means '
+      reason:
+          'No spec in $_devicesDir declares a service type, which means '
           'this check is reading the wrong place and is silently passing '
           'rather than checking anything.',
     );
@@ -124,7 +129,8 @@ void main() {
     expect(
       missing,
       isEmpty,
-      reason: 'These mDNS service types are named by bundled device specs but '
+      reason:
+          'These mDNS service types are named by bundled device specs but '
           'are absent from NSBonjourServices in $_plistPath:\n'
           '${missing.map((t) => '  $t  (${wanted[t]!.join(', ')})').join('\n')}\n'
           'iOS 14+ will not deliver an mDNS answer for an undeclared type and '
@@ -139,14 +145,16 @@ void main() {
     // strength of a line in another spec's evidence block — and once the array
     // is generated, an entry the generator would not produce is proof the file
     // was edited by hand or the generator was not run.
-    final unexplained = declared
-        .where((t) => !wanted.containsKey(t) && !_appOwned.contains(t))
-        .toList()
-      ..sort();
+    final unexplained =
+        declared
+            .where((t) => !wanted.containsKey(t) && !_appOwned.contains(t))
+            .toList()
+          ..sort();
     expect(
       unexplained,
       isEmpty,
-      reason: 'NSBonjourServices in $_plistPath declares service types that no '
+      reason:
+          'NSBonjourServices in $_plistPath declares service types that no '
           'bundled spec names and that are not in the app-owned set:\n'
           '${unexplained.map((t) => '  $t').join('\n')}\n'
           'Either a spec that justified one was removed upstream, or the array '

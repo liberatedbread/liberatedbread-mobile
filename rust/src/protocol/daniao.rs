@@ -580,6 +580,133 @@ mod tests {
         assert!(matches!(err, ProtocolError::CommandNotFound { .. }));
     }
 
+    /// Decode `TUTU_RESTORE` chunks back to pixels, the way the device does:
+    /// per chunk, start at the header's `(x, y)` and walk COLUMN-major,
+    /// painting each run. A run token `(index << 4) | n` with `n > 0` is that
+    /// many pixels; `n == 0` means the count follows as `0xFF` per full 127
+    /// then a terminating remainder byte.
+    ///
+    /// Written as a test rather than shipped: nothing in the app decodes this
+    /// format. It exists because the multi-chunk resume coordinate
+    /// (`chunk_start = run_start` at a flush, i.e. the start of the run whose
+    /// tokens land in the NEXT chunk) is the encoder's one genuinely subtle
+    /// claim, and an off-by-one there is a picture that renders shifted on the
+    /// panel and nowhere else.
+    fn decode_tutu_restore(chunks: &[Vec<u8>], width: usize, height: usize) -> Vec<u8> {
+        let mut canvas = vec![0u8; width * height * 3];
+        for chunk in chunks {
+            let (mut x, mut y) = (chunk[0] as usize, chunk[1] as usize);
+            let count = chunk[2] as usize;
+            let palette: Vec<[u8; 3]> = (0..count)
+                .map(|i| {
+                    let at = 3 + i * 3;
+                    [chunk[at], chunk[at + 1], chunk[at + 2]]
+                })
+                .collect();
+            let mut tokens = &chunk[3 + count * 3..];
+            while let Some((&token, rest)) = tokens.split_first() {
+                let color = palette[(token >> 4) as usize];
+                let short = (token & 0x0F) as usize;
+                let (run, rest) = if short > 0 {
+                    (short, rest)
+                } else {
+                    let mut total = 0usize;
+                    let mut cursor = rest;
+                    loop {
+                        let (&byte, next) = cursor.split_first().expect("a terminated run");
+                        cursor = next;
+                        total += byte as usize;
+                        if byte != 255 {
+                            break;
+                        }
+                        // 0xFF means "127 more", not "255 more".
+                        total -= 255 - 127;
+                    }
+                    (total, cursor)
+                };
+                for _ in 0..run {
+                    assert!(x < width && y < height, "a run ran off the canvas");
+                    canvas[(y * width + x) * 3..(y * width + x) * 3 + 3].copy_from_slice(&color);
+                    y += 1;
+                    if y == height {
+                        y = 0;
+                        x += 1;
+                    }
+                }
+                tokens = rest;
+            }
+        }
+        canvas
+    }
+
+    /// Round-trip: whatever the encoder emits must paint the image back,
+    /// including across a chunk boundary. The 20x20 flag at a small budget
+    /// splits into several chunks, which is the case the resume coordinate
+    /// exists for and the case nothing tested.
+    #[test]
+    fn tutu_restore_chunks_decode_back_to_the_original_pixels() {
+        for (rgb, width, height, budget) in [
+            (tiny(), 2usize, 2usize, DEFAULT_CHUNK_LIMIT),
+            (trans_flag(), 20, 20, DEFAULT_CHUNK_LIMIT),
+            // Small enough to force the flush path several times over.
+            (trans_flag(), 20, 20, 64),
+            (vec![0x11u8; 20 * 20 * 3], 20, 20, DEFAULT_CHUNK_LIMIT),
+            (vec![0x22u8; 127 * 3], 127, 1, DEFAULT_CHUNK_LIMIT),
+        ] {
+            let chunks = encode_tutu_restore(&rgb, width, height, budget).expect("encodes");
+            assert_eq!(
+                decode_tutu_restore(&chunks, width, height),
+                rgb,
+                "{width}x{height} at a {budget}-byte budget ({} chunks)",
+                chunks.len()
+            );
+        }
+    }
+
+    /// The multi-chunk case specifically: each chunk after the first must
+    /// resume at the pixel its own header names, and the 20x20 flag at a
+    /// 64-byte budget really does produce several.
+    #[test]
+    fn a_multi_chunk_canvas_resumes_where_each_chunk_header_says() {
+        let rgb = trans_flag();
+        let chunks = encode_tutu_restore(&rgb, 20, 20, 64).expect("encodes");
+        assert!(chunks.len() > 2, "the fixture must span chunks");
+        assert_eq!(
+            (chunks[0][0], chunks[0][1]),
+            (0, 0),
+            "the first chunk starts at the origin"
+        );
+        // Every later chunk resumes at a strictly later pixel, column-major.
+        let mut previous = 0usize;
+        for chunk in &chunks[1..] {
+            let at = chunk[0] as usize * 20 + chunk[1] as usize;
+            assert!(at > previous, "chunk resumes at {at}, not past {previous}");
+            previous = at;
+        }
+        assert_eq!(decode_tutu_restore(&chunks, 20, 20), rgb);
+    }
+
+    /// R-168's remaining gap: a long run FOLLOWED by another token.
+    ///
+    /// The existing round trip covers a 127-pixel run that ends the stream,
+    /// where a missing terminator is invisible. The encoder's own comment
+    /// names the dangerous case — an exact multiple of 127 with more tokens
+    /// after it, where the decoder would read the next run's token as its
+    /// count and corrupt everything from there on.
+    #[test]
+    fn a_long_run_followed_by_another_survives_the_round_trip() {
+        let width = 127;
+        let mut rgb = vec![0u8; width * 2 * 3];
+        for px in rgb.chunks_exact_mut(3) {
+            px.copy_from_slice(&[10, 20, 30]);
+        }
+        let last = rgb.len() - 3;
+        rgb[last..].copy_from_slice(&[200, 100, 50]);
+
+        let chunks = encode_tutu_restore(&rgb, width, 2, DEFAULT_CHUNK_LIMIT).unwrap();
+        assert_eq!(decode_tutu_restore(&chunks, width, 2), rgb);
+    }
+
     #[test]
     fn long_runs_use_extension_bytes() {
         // A solid 20x20 canvas: one 400-pixel run -> (0<<4) then 255,255,255,19.

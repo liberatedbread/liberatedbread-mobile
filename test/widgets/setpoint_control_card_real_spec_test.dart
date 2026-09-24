@@ -29,7 +29,7 @@ const _commandChar = '0000ffb1-0000-1000-8000-00805f9b34fb';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const codec = RealSpecCodec();
+  final codec = RealSpecCodec();
   late final bool rustReady;
   late final String yaml;
   late final DeviceSpecDto spec;
@@ -37,14 +37,16 @@ void main() {
   setUpAll(() async {
     rustReady = await initHostRustLib();
     yaml = await rootBundle.loadString(
-        'vendor/protocol-specs/device-specs/devices/hotwired-heated-gear.yaml');
+      'vendor/protocol-specs/device-specs/devices/hotwired-heated-gear.yaml',
+    );
     if (rustReady) {
       spec = await codec.loadDeviceSpec(yaml);
     }
   });
 
-  testWidgets('a vendored climate entity arrives with its bounds and action',
-      (tester) async {
+  testWidgets('a vendored climate entity arrives with its bounds and action', (
+    tester,
+  ) async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
       return;
@@ -57,13 +59,17 @@ void main() {
     expect(entity.setpointMin, 0);
     expect(entity.setpointMax, 10);
     final action = entity.actions.where((a) => a.role == 'set_value');
-    expect(action, hasLength(1),
-        reason: 'the explicit set_value -> set_heat binding must resolve');
+    expect(
+      action,
+      hasLength(1),
+      reason: 'the explicit set_value -> set_heat binding must resolve',
+    );
     expect(action.single.characteristicUuid, _commandChar);
   });
 
-  testWidgets('dialling the card writes the real set_heat frame',
-      (tester) async {
+  testWidgets('dialling the card writes the real set_heat frame', (
+    tester,
+  ) async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
       return;
@@ -110,7 +116,15 @@ void main() {
     // The bytes come out of the vendored template, not from any Dart code.
     expect(ble.writes, hasLength(1));
     expect(ble.writes.single.charUuid, _commandChar);
-    expect(ble.writes.single.value,
-        [0xAA, 0x01, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x55]);
+    expect(ble.writes.single.value, [
+      0xAA,
+      0x01,
+      0x0A,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x55,
+    ]);
   });
 }

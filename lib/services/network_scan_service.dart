@@ -9,30 +9,36 @@ import '../core/error_text.dart';
 import '../models/network_device.dart';
 
 /// Raised on the [NetworkScanService.scan] stream when an Apple platform's
-/// scan heard nothing at all.
+/// scan either observed the local-network gate directly or heard nothing at
+/// all.
 ///
 /// iOS 14+ gates multicast and local-network traffic behind a permission the
-/// system prompts for on first use, and a denial is invisible from inside the
-/// app: the sockets bind, the queries go out, and the replies are filtered
-/// away. So the observable fact is silence — not one mDNS record, not one SSDP
-/// datagram — which on a real Wi-Fi network is close to impossible unless
-/// something is dropping it.
+/// system prompts for on first use. Sometimes a denial IS observable: while the
+/// permission is off or the first-use prompt is still up, a `sendto()` fails
+/// with EHOSTUNREACH (errno 65), which the scan detects and reports here with
+/// confidence. But not always — a build signed without the multicast
+/// entitlement, or probes that left over cellular/VPN, produce plain silence
+/// instead, and so does a genuinely empty network. The scan cannot tell those
+/// apart after the fact.
 ///
-/// Close to, not entirely: a genuinely empty network produces the same silence,
-/// which is why the message leads with what was observed and offers the likely
-/// cause rather than asserting a denial. The alternative — staying quiet — puts
-/// a user whose permission really is off in front of an empty list with nothing
-/// to act on, and that is the worse of the two failures.
+/// So the message leads with what was observed ("Nothing answered ...") and
+/// offers the likely cause rather than asserting a denial: staying quiet would
+/// put a user whose permission really is off in front of an empty list with
+/// nothing to act on, and asserting a denial would tell a user on an empty
+/// network to change a setting that is already correct. The UI renders this
+/// message as guidance, not as a headline claim (see WifiScanScreen).
 ///
 /// A separate type from [NetworkUnavailableException] so the UI can offer the
 /// settings path only where that gate exists.
 class LocalNetworkDeniedException implements UserFacingException {
   @override
   final String message;
-  const LocalNetworkDeniedException(
-      [this.message = 'Nothing answered on this network. If Local Network '
-          'access is off for Liberated Bread, the replies are blocked before '
-          'they reach it — check Settings, then scan again.']);
+  const LocalNetworkDeniedException([
+    this.message =
+        'Nothing answered on this network. If Local Network '
+        'access is off for Liberated Bread, the replies are blocked before '
+        'they reach it — check Settings, then scan again.',
+  ]);
 
   @override
   String toString() => message;
@@ -43,8 +49,9 @@ class LocalNetworkDeniedException implements UserFacingException {
 class NetworkUnavailableException implements UserFacingException {
   @override
   final String message;
-  const NetworkUnavailableException(
-      [this.message = 'No Wi-Fi network. Join one, then scan again.']);
+  const NetworkUnavailableException([
+    this.message = 'No Wi-Fi network. Join one, then scan again.',
+  ]);
 
   @override
   String toString() => message;

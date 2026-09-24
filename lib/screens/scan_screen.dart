@@ -23,6 +23,7 @@ import '../widgets/black_hat_icon.dart';
 import '../widgets/device_list_tile.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
+import 'about_screen.dart';
 import 'diagnostics_screen.dart';
 import 'ha_settings_screen.dart';
 import 'security_warning_screen.dart';
@@ -67,8 +68,9 @@ const Duration _ageTick = Duration(seconds: 5);
 /// of the session, and the tab's whole energy story would hinge on nobody
 /// ever pressing its most prominent button. The downshift is a seamless
 /// restart: the device list survives scan restarts by design.
-const Duration _activeBurst =
-    Duration(seconds: AppConstants.defaultScanDuration);
+const Duration _activeBurst = Duration(
+  seconds: AppConstants.defaultScanDuration,
+);
 
 /// How long a switch away from this tab must last before the radio is
 /// actually stopped.
@@ -114,8 +116,7 @@ bool ageTickNeedsRepaint({
   required bool dropped,
   required Set<String> stale,
   required Set<String> previouslyStale,
-}) =>
-    dropped || stale.isNotEmpty || !setEquals(stale, previouslyStale);
+}) => dropped || stale.isNotEmpty || !setEquals(stale, previouslyStale);
 
 class _ScanScreenState extends ConsumerState<ScanScreen>
     with WidgetsBindingObserver {
@@ -159,6 +160,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   // Watches the radio so "Bluetooth is turned off" is a state the screen can
   // leave by itself — see the listener in initState.
   StreamSubscription<bool>? _adapterSub;
+  // Watches for the app losing its Bluetooth permission — see the listener in
+  // initState.
+  StreamSubscription<bool>? _unauthorizedSub;
 
   @override
   void initState() {
@@ -194,7 +198,88 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       // error state must not be able to crash the screen showing it.
       onError: (Object _) {},
     );
+    // A denial that arrives as a transition rather than as a scan's answer:
+    // on iOS the system prompt is raised by the first scan and can be
+    // answered long after it, and a grant can be revoked in Settings later.
+    // The scan in flight hears it too (its adapter wait, or its continuous
+    // watch, reports the permission error), but a screen that is between
+    // scans — stopped by the user, or sitting on an earlier failure — would
+    // otherwise show that older state, with no route to the settings app.
+    // Optional: only a stack that reports authorization through the adapter
+    // state offers it (see BleAuthorizationWatcher).
+    final ble = _bleService;
+    if (ble is BleAuthorizationWatcher) {
+      _unauthorizedSub = ble.adapterUnauthorized().listen(
+        (denied) {
+          if (!mounted) return;
+          if (denied) {
+            _onPermissionDenied();
+          } else if (_permissionDenied) {
+            // The grant, arriving the way the refusal did: on iOS the adapter
+            // leaves `unauthorized` when the user allows Bluetooth in Settings
+            // and comes back.
+            _onPermissionRestored();
+          }
+        },
+        // Same reasoning as the adapterReady watcher: a host with no BLE
+        // stack errors this stream, and scan() is already the messenger.
+        onError: (Object _) {},
+      );
+    }
     if (widget.active) unawaited(_startScan(ScanIntensity.ambient));
+  }
+
+  /// The platform says this app may not use Bluetooth. Whatever the screen
+  /// was doing, the truthful state is now "permission needed", with the
+  /// open-settings shortcut — the same state a scan reports when it hears the
+  /// denial itself, reached without waiting for one to.
+  void _onPermissionDenied() {
+    if (_permissionDenied) return;
+    // The scan, if any, is dead or dying: the adapter watch inside it ends it
+    // with the same error. Drop it here so its late error cannot flip the
+    // screen twice, and so the burst timer does not restart a scan into a
+    // refusal.
+    unawaited(_scanSub?.cancel());
+    _scanSub = null;
+    _burstDownshift?.cancel();
+    _burstDownshift = null;
+    setState(() {
+      _isScanning = false;
+      _hasScanned = true;
+      _permissionDenied = true;
+      _error = null;
+    });
+  }
+
+  /// The platform lets this app use Bluetooth again. The guidance goes, and
+  /// the screen looks again — subject to every other reason [_resumeIfIdle]
+  /// has to stay off, so a user who stopped the scan before going to Settings
+  /// gets the stopped screen back, only without guidance that no longer
+  /// applies.
+  void _onPermissionRestored() {
+    if (!_permissionDenied) return;
+    setState(() => _permissionDenied = false);
+    _resumeIfIdle();
+  }
+
+  /// Back in the foreground on the permission guidance: ask whether the
+  /// refusal still stands, WITHOUT prompting. This is the "coming back from
+  /// Settings" exit the guidance promises. On Android the grant made there
+  /// restarts nothing and streams nothing, so it has to be asked for; a phone
+  /// call answered and ended asks the same harmless question and gets the
+  /// same no. A stack that cannot answer without prompting leaves the state
+  /// to Retry.
+  Future<void> _recheckPermission() async {
+    final ble = _bleService;
+    if (ble is! BleAuthorizationWatcher) return;
+    final bool granted;
+    try {
+      granted = await ble.isAuthorized();
+    } on Object {
+      return;
+    }
+    if (!mounted || !granted) return;
+    _onPermissionRestored();
   }
 
   /// React to the shell switching tabs (see [ScanScreen.active]).
@@ -241,7 +326,23 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// Always ambient: nothing that resumes by itself gets to claim the user
   /// just asked for it — the low-latency burst is the Scan button's alone.
   void _resumeIfIdle() {
-    if (_isScanning || _pausedByUser || !widget.active || _onDeviceScreen) {
+    if (_isScanning ||
+        _pausedByUser ||
+        !widget.active ||
+        _onDeviceScreen ||
+        // A refused permission is the fourth reason to stay off, and it was
+        // missing. Every resume here runs [_startScan], which clears
+        // [_permissionDenied] on its way in — so glancing at another tab and
+        // back, or answering a phone call, replaced "Bluetooth permission
+        // needed" and its Open-settings button with a fresh scan. On Android
+        // that scan asks the platform for the permission again, so a user who
+        // has said no is asked once per tab switch; on a permanent denial the
+        // prompt no longer appears at all and the screen just flickers back
+        // to the same refusal. Leaving this state is a deliberate act — the
+        // Retry button, or coming back from Settings with the grant (which
+        // [_recheckPermission] asks about, without prompting) — not something
+        // that happens because a tab regained focus.
+        _permissionDenied) {
       return;
     }
     unawaited(_startScan(ScanIntensity.ambient));
@@ -262,8 +363,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         // Including out of an error state: the usual reason someone leaves
         // this screen after "Bluetooth is turned off" is to go and turn it on,
         // and coming back to the same dead screen with a Retry button on it
-        // would be a poor reward for having done what it asked.
-        _resumeIfIdle();
+        // would be a poor reward for having done what it asked. The
+        // permission guidance is the one state a resume does not leave by
+        // itself: it asks first, and only a grant leaves it.
+        if (_permissionDenied) {
+          unawaited(_recheckPermission());
+        } else {
+          _resumeIfIdle();
+        }
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
@@ -311,46 +418,49 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         }
       });
     }
-    _scanSub = _bleService.scan(timeout: null, intensity: intensity).listen(
-      (device) {
-        if (!mounted) return;
-        final isNew = _deviceManager.getById(device.id) == null;
-        _deviceManager.addOrUpdate(device);
-        // A new device is worth a frame of its own; an rssi tick on a known
-        // one can wait for the next coalesced repaint.
-        if (isNew) {
-          _repaintNow();
-        } else {
-          _scheduleRepaint();
-        }
-      },
-      onError: (Object e) {
-        if (!mounted) return;
-        setState(() {
-          _isScanning = false;
-          _hasScanned = true;
-          if (e is BlePermissionDeniedException) {
-            _permissionDenied = true;
-            _error = null;
-          } else {
-            _error = friendlyErrorText(
-              e,
-              context: 'BLE scan',
-              fallback: 'Scanning failed. Check that Bluetooth is on, then '
-                  'try again.',
-            );
-          }
-        });
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() {
-          _isScanning = false;
-          _hasScanned = true;
-        });
-      },
-      cancelOnError: true,
-    );
+    _scanSub = _bleService
+        .scan(timeout: null, intensity: intensity)
+        .listen(
+          (device) {
+            if (!mounted) return;
+            final isNew = _deviceManager.getById(device.id) == null;
+            _deviceManager.addOrUpdate(device);
+            // A new device is worth a frame of its own; an rssi tick on a known
+            // one can wait for the next coalesced repaint.
+            if (isNew) {
+              _repaintNow();
+            } else {
+              _scheduleRepaint();
+            }
+          },
+          onError: (Object e) {
+            if (!mounted) return;
+            setState(() {
+              _isScanning = false;
+              _hasScanned = true;
+              if (e is BlePermissionDeniedException) {
+                _permissionDenied = true;
+                _error = null;
+              } else {
+                _error = friendlyErrorText(
+                  e,
+                  context: 'BLE scan',
+                  fallback:
+                      'Scanning failed. Check that Bluetooth is on, then '
+                      'try again.',
+                );
+              }
+            });
+          },
+          onDone: () {
+            if (!mounted) return;
+            setState(() {
+              _isScanning = false;
+              _hasScanned = true;
+            });
+          },
+          cancelOnError: true,
+        );
   }
 
   /// Stop the scan. [byUser] separates "they pressed stop" from the automatic
@@ -408,6 +518,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// connect). Stopping first keeps the native scan from running behind the
   /// pushed route, which otherwise makes connections flaky.
   Future<void> _connect(IoTDevice device) async {
+    // Re-entry guard, and [_onDeviceScreen] is exactly the right flag for it:
+    // it is set for the whole time a device screen is open or being opened,
+    // and cleared in the finally below. The stop underneath is a platform
+    // round trip, so a second tap landing during it — an impatient
+    // double-tap on a row that has not visibly reacted yet — used to push a
+    // SECOND DeviceScreen for the same peripheral, each with its own connect,
+    // over the top of the first.
+    if (_onDeviceScreen) return;
     _onDeviceScreen = true;
     await _stopScan(byUser: false);
     if (!mounted) {
@@ -434,6 +552,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     _offTabStop?.cancel();
     _burstDownshift?.cancel();
     unawaited(_adapterSub?.cancel());
+    unawaited(_unauthorizedSub?.cancel());
     // Fire-and-forget: unawaited() does not swallow errors, so attach a
     // catchError to keep a throw during teardown from surfacing as an
     // unhandled async error.
@@ -456,7 +575,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                  builder: (_) => const SpecPackSettingsScreen()),
+                builder: (_) => const SpecPackSettingsScreen(),
+              ),
             ),
           ),
           IconButton(
@@ -473,7 +593,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                  builder: (_) => const DiagnosticsScreen()),
+                builder: (_) => const DiagnosticsScreen(),
+              ),
+            ),
+          ),
+          // Privacy policy, disclaimer, licences: the Terms gate shows them
+          // once and never again, and App Review wants the privacy policy
+          // reachable from inside the app.
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'About',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
             ),
           ),
           if (isMockMode) const _MockBadge(),
@@ -577,12 +709,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       subtitle: stale
           ? 'Not seen for $age'
           : (device.isConnectable
-              ? _signalLabel(device.rssi)
-              : 'Not connectable'),
+                ? _signalLabel(device.rssi)
+                : 'Not connectable'),
       detail: stale ? 'last ${device.rssi} dBm' : '${device.rssi} dBm',
       rssi: device.rssi,
       stale: stale,
-      staleReason: 'No advertisement for $age — the device may be out of '
+      staleReason:
+          'No advertisement for $age — the device may be out of '
           'range or powered off',
       icon: guess?.iconOr(unknownDeviceIcon) ?? unknownDeviceIcon,
       // A suspected-malicious device (a skimmer) gets the black-hat pictogram,
@@ -593,8 +726,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       iconColor: warning == null
           ? null
           : (guess!.isMalicious || warning.severity == 'vulnerable'
-              ? scheme.error
-              : scheme.tertiary),
+                ? scheme.error
+                : scheme.tertiary),
       badge: warning == null ? guess?.label : _warningBadge(guess!),
       badgeIsClaim: warning == null && entry.isLikelySupported,
       // Only worth saying for a device the badge could not place. Once the
@@ -618,10 +751,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   /// The scan badge for a security-warning row — short, and worded by severity.
   String _warningBadge(ScanGuess guess) => switch (guess.advisory!.severity) {
-        'malicious' => 'Possible skimmer',
-        'vulnerable' => 'Security risk',
-        _ => 'Reported issue',
-      };
+    'malicious' => 'Possible skimmer',
+    'vulnerable' => 'Security risk',
+    _ => 'Reported issue',
+  };
 
   /// Open the warning page for a flagged device — not the control screen. Does
   /// not touch the scan the way [_connect] does: nothing connects, so the scan
@@ -707,8 +840,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           const SizedBox(height: 4),
           Center(
             child: TextButton(
-              onPressed:
-                  _isScanning ? null : () => _startScan(ScanIntensity.active),
+              onPressed: _isScanning
+                  ? null
+                  : () => _startScan(ScanIntensity.active),
               style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
               child: const Text('Retry'),
             ),
@@ -718,8 +852,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           const SizedBox(height: 24),
           Center(
             child: ActionPillButton(
-              onPressed:
-                  _isScanning ? null : () => _startScan(ScanIntensity.active),
+              onPressed: _isScanning
+                  ? null
+                  : () => _startScan(ScanIntensity.active),
               icon: Icons.refresh,
               label: 'Retry',
             ),
@@ -779,11 +914,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// ORDERS by the band as well, a stray third opinion would let a row sort
   /// below one it out-describes.
   static String _signalLabel(int rssi) => switch (signalBars(rssi)) {
-        4 => 'Strong signal',
-        3 => 'Good signal',
-        2 => 'Fair signal',
-        _ => 'Weak signal',
-      };
+    4 => 'Strong signal',
+    3 => 'Good signal',
+    2 => 'Fair signal',
+    _ => 'Weak signal',
+  };
 }
 
 class _MockBadge extends StatelessWidget {
@@ -805,10 +940,10 @@ class _MockBadge extends StatelessWidget {
           child: Text(
             'MOCK',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: fg,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                ),
+              color: fg,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
           ),
         ),
       ),

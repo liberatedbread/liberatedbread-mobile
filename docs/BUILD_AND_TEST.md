@@ -602,6 +602,61 @@ read from the entrypoint only, so what actually keeps this suite off a device
 is that `integration_test/ci_all_test.dart` does not import it
 (`test/platform/integration_aggregate_test.dart` asserts both directions).
 
+### Integration tests on a physical iPhone
+
+The Simulator has no Bluetooth radio, does not implement Local Network
+privacy, ignores entitlements, and its keychain is not the one a shipped app
+gets — so every device job in CI runs in mock mode and proves the state
+machines, not the platform. `integration_test/device_hardware_test.dart` is
+the other half: the shipping services against a real phone's radio, Wi-Fi and
+keychain, with the measurements printed as `[hardware]` lines.
+
+```bash
+./scripts/run-ios-device-tests.sh --list                 # paired iPhones
+./scripts/run-ios-device-tests.sh                        # the hardware suite
+./scripts/run-ios-device-tests.sh --all                  # ...then ci_all_test.dart in mock mode
+./scripts/run-ios-device-tests.sh --expect-lan-devices   # a silent Wi-Fi scan is a failure
+./scripts/run-ios-device-tests.sh --live-ble-name "SD-1234"   # connect to that peripheral too
+./scripts/run-ios-device-tests.sh --live-ble-any         # ...or to the nearest connectable one (read-only)
+./scripts/run-ios-device-tests.sh --if-present           # exit 0 when no phone is paired
+./scripts/run-ios-device-tests.sh --launcher flutter     # `flutter test -d`, see below
+./scripts/run-android-device-tests.sh --all              # the same suite on an attached Android phone
+```
+
+Both runners share the suite and its flags; the Android one needs no
+entitlement handling. The iOS runner has two ways onto the phone. By default
+it builds each suite as the app's Dart target (`flutter build ios
+--config-only -t …`) and runs it with `xcodebuild test` on the `RunnerTests`
+XCTest target, which `ios/RunnerTests/RunnerTests.m` hosts through
+`integration_test`'s `INTEGRATION_TEST_IOS_RUNNER` macro: every Dart test
+becomes its own XCTest case, the `.xcresult` bundle and the full log land in
+`build/ios-device-tests/`, and no Xcode.app session is involved — so it works
+from any shell, CI included. `--launcher flutter` runs `flutter test -d
+<udid>` instead, which streams the output live but, on iOS 17+, attaches its
+debugger through Xcode.app and therefore needs macOS to have granted the
+calling shell control of Xcode (an Automation prompt); without that grant it
+waits forever. The phone must be unlocked for either lane. Xcode needs an
+Apple ID in the app's team signed in once (Xcode ▸ Settings ▸ Accounts) so
+automatic signing can mint the development profile. Each LAN host the scan finds is also put through the
+catalogue matcher and the verdict printed, so a recognised printer or hub on
+the operator's network is the end-to-end proof that discovery, the identity
+projection and the Rust matcher agree on a real device. The device pickers
+behind both runners are covered by `scripts/device-select-selftest.sh`, which
+runs in `./scripts/test.sh`.
+
+The suite is opt-in three ways: its `@Tags(['hardware'])` keeps it out of the
+CI aggregate and the Linux per-file loop, every test skips itself unless the
+build carries `--dart-define=LB_HARDWARE=true`, and it refuses to run on the
+Simulator even then. A fresh install raises the Bluetooth and Local Network
+alerts during the run; the suite waits for them to be answered.
+
+`ios/Runner/Runner.entitlements` carries the multicast entitlement Apple grants
+by request. Until a provisioning profile on the Mac includes it, the script
+builds with the file temporarily emptied (restored on every exit path) and
+tells the suite to expect a silent Wi-Fi scan. `--keep-multicast` and
+`--strip-multicast` override the detection. The checklist these runs sign off
+is kept out of the repo; ask a maintainer for it.
+
 ### Integration tests on the Linux desktop (no emulator)
 
 The flow tests run on the Linux desktop target, which is by far the quickest
@@ -852,13 +907,15 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
-every pull request. Seven jobs:
+every pull request. Nine jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, `scripts/ci-ios-tests-selftest.sh`. Dart only — no Rust toolchain, nothing compiled |
-| `unit-tests` | ubuntu-latest | builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
-| `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
+| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh` (with the shellcheck `scripts/ci-install-shellcheck.sh` fetches at the version pinned in `ci.yml`, not the runner's), then the selftests of the scripts that only ever run on an expensive job — `scripts/ci-ios-tests-selftest.sh`, `scripts/verify-ios-app-selftest.sh`, `scripts/device-select-selftest.sh`, `scripts/ci-emulator-tests-selftest.sh` — and two that guard a check rather than a job: `scripts/ci-format-selftest.sh` (which files the format check covers) and `scripts/net_virtual_device_selftest.py` (the emulated-network responder answers only what was asked). Then `scripts/ci-versions.sh --strict` (the toolchain pins are still readable by the setup scripts, and its fallbacks still say what the workflow says) and `scripts/update-specs.sh --check` (the vendored subtree is unmodified and its assets exist). Checks out full history for that last one, and `pub get --enforce-lockfile` here and nowhere else. Dart only — no Rust toolchain, nothing compiled |
+| `unit-tests` | ubuntu-latest | checks the FRB bindings haven't drifted from `rust/src/api/` (including brand-new untracked generated files), builds the host Rust lib with `scripts/ensure-rust-lib.sh` — in that order, see the comments there — then `flutter test --coverage --exclude-tags=netdisco`, audits the report for files no test imports (`scripts/ci-coverage-audit.sh`), and uploads it to Codecov under the `unit` flag |
+| `network-discovery` | ubuntu-latest | the `netdisco`-tagged suites, via `scripts/ci-netdisco-tests.sh`, against the stdlib responder `scripts/net_virtual_device.py` on ports 5353/1900; uploads their coverage to Codecov under the `netdisco` flag. No Rust toolchain — the code under test is `dart:io` sockets |
+| `rust` | ubuntu-latest | `cargo fmt --all -- --check`, then `cargo clippy --all-targets --all-features --locked -- -D warnings` and `cargo test --all-features --locked` (`--locked` so a forgotten `Cargo.lock` is an error, not a silent update) |
+| `rust-coverage` | ubuntu-latest | `scripts/ci-rust-coverage.sh` — the same suite under `cargo-llvm-cov`, uploaded under the `rust` flag. Gates nothing and is gated by nothing, so a coverage tool never holds up the native matrix |
 | `android-build` | ubuntu-latest | debug **and** release APK, each checked with `scripts/verify_apk.sh`; uploads the debug APK artifact |
 | `android-integration` | ubuntu-latest (API 34 `aosp_atd` emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then runs `integration_test/ci_all_test.dart` on the emulator via `scripts/ci-emulator-tests.sh` — twice if the first attempt hits its per-attempt timeout (see below) |
 | `ios-build` | macos-latest | starts a simulator booting in the background, builds the **test entrypoint** for the simulator (`--target=integration_test/ci_all_test.dart`) so the build inside `flutter test`'s 12-minute loading window is incremental rather than a near-repeat, verifies the pods and the bundle, then runs that entrypoint on the simulator via `scripts/ci-ios-tests.sh` |
@@ -866,6 +923,8 @@ every pull request. Seven jobs:
 
 `analyze` and `rust` are the gate: the four native jobs wait on those two, so a
 change that does not compile or does not lint never reaches a platform build.
+`network-discovery` waits on `analyze` alone; `unit-tests` and `rust-coverage`
+wait on nothing and gate nothing.
 
 `unit-tests` deliberately is **not** part of that gate. It used to be — it was
 the second half of a single `flutter` job — and every native job sat behind its
@@ -897,7 +956,7 @@ matters most on `ios-build`, where the budget is billed at 10x.
 | Cache | Where it comes from | Covers |
 |-------|--------------------|--------|
 | Flutter SDK + `~/.pub-cache` | `subosito/flutter-action` (`cache: true`) | every job |
-| `.dart_tool` | an explicit `actions/cache` step | the `analyze` and `unit-tests` jobs |
+| `.dart_tool` | an explicit `actions/cache` step | the `analyze`, `unit-tests` and `network-discovery` jobs |
 | `~/.cargo/bin/flutter_rust_bridge_codegen` | an `actions/cache` keyed on `FRB_VERSION` | the `unit-tests` job — one file, one key, so a cancelled run cannot leave a half-saved snapshot the way `rust-cache`'s `cache-bin` did |
 | `rust/target/` + `~/.cargo` | `Swatinem/rust-cache` | every job that compiles Rust |
 | Gradle user home | `gradle/actions/setup-gradle` | both Android jobs |
@@ -1077,6 +1136,20 @@ it, which for `scripts/ci-emulator-tests.sh` is forty minutes into the emulator
 job. A missing `#!` is quieter still: executed directly, the file is handed to
 the caller's shell, which on the Ubuntu runners is dash — no `pipefail`, no
 `[[ ]]`.
+
+The shellcheck it runs is a pinned one — `SHELLCHECK_VERSION` in `ci.yml`,
+fetched by `scripts/ci-install-shellcheck.sh` from the upstream release
+tarball and checked against a sha256 in that script — rather than whatever
+the runner or the laptop happens to have. The two happened to differ (0.9.0
+preinstalled on `ubuntu-latest`, the newest from brew), and they file the
+same finding under different codes: a function only reached through `trap`
+is SC2317 in 0.9 and SC2329 from 0.10, and 0.11 does not report it at all.
+So a `# shellcheck disable=` that satisfied the laptop did not satisfy CI,
+and `scripts/test.sh` was green while the job was red. `test.sh` runs the
+installer first (once; the binary lives under `~/.cache/liberatedbread`),
+and `ci-shellcheck.sh` warns when it has to fall back to a PATH shellcheck
+of another version. To bump: hash the four release tarballs, add them to the
+table in the installer, change the pin in `ci.yml`.
 
 There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
 manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its

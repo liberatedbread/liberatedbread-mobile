@@ -24,9 +24,9 @@ class AdBannerService {
   final Duration timeout;
 
   AdBannerService({
-    required http.Client client,
+    required this._client,
     this.timeout = const Duration(seconds: 10),
-  }) : _client = client;
+  });
 
   /// GET [configUrl] and parse it. Never throws.
   Future<AdBannerFetchResult> fetch(String configUrl) async {
@@ -64,8 +64,10 @@ class AdBannerService {
     final contentLength = response.contentLength;
     if (contentLength != null && contentLength > maxConfigBytes) {
       unawaited(response.stream.drain<void>().catchError((_) {}));
-      Log.ads.warning('config rejected: $contentLength bytes '
-          'exceeds the $maxConfigBytes-byte cap');
+      Log.ads.warning(
+        'config rejected: $contentLength bytes '
+        'exceeds the $maxConfigBytes-byte cap',
+      );
       return const AdBannerFetchFailed('config too large');
     }
 
@@ -77,8 +79,10 @@ class AdBannerService {
       await for (final chunk in response.stream.timeout(timeout)) {
         bytes.addAll(chunk);
         if (bytes.length > maxConfigBytes) {
-          Log.ads.warning('config rejected: body exceeds the '
-              '$maxConfigBytes-byte cap');
+          Log.ads.warning(
+            'config rejected: body exceeds the '
+            '$maxConfigBytes-byte cap',
+          );
           return const AdBannerFetchFailed('config too large');
         }
       }
@@ -104,9 +108,11 @@ class AdBannerService {
       Log.ads.warning('config rejected: not a valid banner config');
       return const AdBannerFetchFailed('malformed config');
     }
-    Log.ads.debug(config.banner == null
-        ? 'config fetched: no banner to show'
-        : 'config fetched: banner "${config.banner!.id}"');
+    Log.ads.debug(
+      config.banner == null
+          ? 'config fetched: no banner to show'
+          : 'config fetched: banner "${config.banner!.id}"',
+    );
     return AdBannerFetchOk(config, text);
   }
 }

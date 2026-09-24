@@ -80,14 +80,11 @@ class DirectRoombaController implements RoombaController {
   final RoombaCredentials _credentials;
 
   DirectRoombaController({
-    required RoombaMqttClient client,
-    required String specYaml,
-    required String host,
-    required RoombaCredentials credentials,
-  })  : _client = client,
-        _specYaml = specYaml,
-        _host = host,
-        _credentials = credentials;
+    required this._client,
+    required this._specYaml,
+    required this._host,
+    required this._credentials,
+  });
 
   @override
   Future<void> connect() => _client.connect(_host, _credentials);
@@ -124,16 +121,22 @@ class Rest980Controller implements RoombaController {
   final _state = StreamController<Map<String, String>>.broadcast();
   Timer? _poll;
 
-  Rest980Controller({required Rest980Client client, required String baseUrl})
-      : _client = client,
-        _baseUrl = baseUrl;
+  Rest980Controller({required this._client, required this._baseUrl});
+
+  /// Set by [close]. Checked again AFTER the seed read in [connect], because
+  /// that read can take up to the client's timeout and the device screen
+  /// closes on dispose without waiting for connect to finish: close() found
+  /// no timer to cancel, connect() resumed and installed one, and the poll
+  /// ran every two seconds for the life of the process.
+  bool _closed = false;
 
   @override
   Future<void> connect() async {
-    if (_poll != null) return;
+    if (_poll != null || _closed) return;
     // Poll once up front so the screen has state before the first tick, then
     // settle into the interval.
     await _readState();
+    if (_closed) return;
     _poll = Timer.periodic(pollInterval, (_) => unawaited(_readState()));
   }
 
@@ -173,7 +176,6 @@ class Rest980Controller implements RoombaController {
   bool supports(String commandName) => Rest980Client.supports(commandName);
 
   @override
-
   /// Stop polling and close the stream. Terminal: the interface offers only
   /// `close`, and every caller treats it as the end of the controller —
   /// the device screen closes on dispose and builds a fresh controller to
@@ -181,6 +183,7 @@ class Rest980Controller implements RoombaController {
   /// between `close` and `dispose`) meant it never closed at all, because
   /// nothing ever called `dispose`.
   Future<void> close() async {
+    _closed = true;
     _poll?.cancel();
     _poll = null;
     if (!_state.isClosed) await _state.close();
@@ -215,16 +218,17 @@ class HaRoombaController implements RoombaController {
   /// the safe reading is "the four core commands", not "nothing".
   HaEntityState? _entity;
 
-  HaRoombaController({
-    required HaRoombaClient client,
-    required String entityId,
-  })  : _client = client,
-        _entityId = entityId;
+  HaRoombaController({required this._client, required this._entityId});
+
+  /// See the rest980 controller's note: a close() that lands during the seed
+  /// read must win over the timer connect() is about to install.
+  bool _closed = false;
 
   @override
   Future<void> connect() async {
-    if (_poll != null) return;
+    if (_poll != null || _closed) return;
     await _read();
+    if (_closed) return;
     _poll = Timer.periodic(pollInterval, (_) => unawaited(_read()));
   }
 
@@ -245,11 +249,13 @@ class HaRoombaController implements RoombaController {
         // from an unreachable server and must not read as one: the robot was
         // removed or renamed in HA, and re-adopting is the fix.
         if (!_state.isClosed) {
-          _state.addError(HaServerException(
-            404,
-            'Home Assistant no longer has $_entityId. It may have been '
-            'removed or renamed there.',
-          ));
+          _state.addError(
+            HaServerException(
+              404,
+              'Home Assistant no longer has $_entityId. It may have been '
+              'removed or renamed there.',
+            ),
+          );
         }
         return;
       }
@@ -259,8 +265,7 @@ class HaRoombaController implements RoombaController {
       // common case stays one request per tick.
       HaEntityState? binFull;
       if (vacuum.attributes['bin_full'] is! bool) {
-        final sensors = await _client.binarySensors();
-        binFull = HaRoombaClient.binFullFor(vacuum, sensors);
+        binFull = await _binFull(vacuum);
       }
 
       final fields = HaRoombaClient.stateFields(vacuum, binFull: binFull);
@@ -270,6 +275,49 @@ class HaRoombaController implements RoombaController {
     } finally {
       _reading = false;
     }
+  }
+
+  /// The bin-full sibling's entity id once it has been looked up, and whether
+  /// that lookup has happened. Null-with-resolved means HA has no such sensor
+  /// for this vacuum, which is a fine answer and must not be re-asked every
+  /// two seconds.
+  String? _binFullId;
+  bool _binFullResolved = false;
+
+  /// The bin-full binary_sensor's current state, for a vacuum that does not
+  /// report `bin_full` on itself.
+  ///
+  /// FINDING it needs the whole `binary_sensor` domain, because HA derives an
+  /// entity id from the name at creation and does not track later renames, so
+  /// composing the sibling's id by string surgery is a guess. READING it does
+  /// not. `/api/states` has no domain parameter, so the search downloads Home
+  /// Assistant's entire state machine — every entity, with every attribute —
+  /// and this runs on [pollInterval], two seconds, for as long as the screen
+  /// is open. On an instance with a few hundred entities that is hundreds of
+  /// kilobytes a tick, forever, to learn one boolean, and the Pi the whole
+  /// path exists to be gentle on is serialising all of it.
+  ///
+  /// So the search happens ONCE and the ticks after it ask for the one
+  /// entity. If HA stops knowing that id — the sensor was renamed or removed
+  /// while the screen was open — the next tick searches again rather than
+  /// reporting the bin as unknown forever.
+  Future<HaEntityState?> _binFull(HaEntityState vacuum) async {
+    if (!_binFullResolved) {
+      final found = HaRoombaClient.binFullFor(
+        vacuum,
+        await _client.binarySensors(),
+      );
+      _binFullId = found?.entityId;
+      _binFullResolved = true;
+      // The search already carried the state; asking again in the same tick
+      // would be a second request for what is in hand.
+      return found;
+    }
+    final id = _binFullId;
+    if (id == null) return null;
+    final sensor = await _client.binarySensor(id);
+    if (sensor == null) _binFullResolved = false;
+    return sensor;
   }
 
   /// One service call per command — and deliberately NOT
@@ -296,7 +344,6 @@ class HaRoombaController implements RoombaController {
   }
 
   @override
-
   /// Stop polling and close the stream. Terminal: the interface offers only
   /// `close`, and every caller treats it as the end of the controller —
   /// the device screen closes on dispose and builds a fresh controller to
@@ -304,6 +351,7 @@ class HaRoombaController implements RoombaController {
   /// between `close` and `dispose`) meant it never closed at all, because
   /// nothing ever called `dispose`.
   Future<void> close() async {
+    _closed = true;
     _poll?.cancel();
     _poll = null;
     if (!_state.isClosed) await _state.close();
@@ -345,8 +393,9 @@ RoombaController roombaControllerFor({
   if (entityId != null && entityId.isNotEmpty) {
     final client = haClient?.call();
     if (client != null) {
-      Log.hub
-          .info('roomba ${credentials.blid}: via Home Assistant ($entityId)');
+      Log.hub.info(
+        'roomba ${credentials.blid}: via Home Assistant ($entityId)',
+      );
       return HaRoombaController(client: client, entityId: entityId);
     }
     // The silent fallback. Worth a warning rather than a debug line: the robot
@@ -361,8 +410,9 @@ RoombaController roombaControllerFor({
   final baseUrl = credentials.rest980BaseUrl;
   if (baseUrl != null && baseUrl.isNotEmpty) {
     // Host only, never the URL: Log.hub lines carry no paths (see log.dart).
-    Log.hub
-        .info('roomba ${credentials.blid}: via rest980 at ${_hostOf(baseUrl)}');
+    Log.hub.info(
+      'roomba ${credentials.blid}: via rest980 at ${_hostOf(baseUrl)}',
+    );
     return Rest980Controller(client: restClient(), baseUrl: baseUrl);
   }
   Log.hub.info('roomba ${credentials.blid}: direct to the robot');

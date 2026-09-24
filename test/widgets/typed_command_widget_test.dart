@@ -41,11 +41,12 @@ const _charDto = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-            name: 'brightness',
-            valueType: 'uint8',
-            min: 0,
-            max: 100,
-            userSettable: true),
+          name: 'brightness',
+          valueType: 'uint8',
+          min: 0,
+          max: 100,
+          userSettable: true,
+        ),
       ],
     ),
   ],
@@ -94,11 +95,12 @@ const _malformedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-            name: 'level',
-            valueType: 'uint8',
-            min: 200,
-            max: 50,
-            userSettable: true),
+          name: 'level',
+          valueType: 'uint8',
+          min: 200,
+          max: 50,
+          userSettable: true,
+        ),
       ],
     ),
   ],
@@ -125,17 +127,19 @@ final _allowedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-            name: 'value',
-            valueType: 'int32',
-            allowed: Int64List.fromList([0, 200, 400, 1000]),
-            labels: const ['OFF', 'Low', 'Mid', 'High'],
-            userSettable: true),
+          name: 'value',
+          valueType: 'int32',
+          allowed: Int64List.fromList([0, 200, 400, 1000]),
+          labels: const ['OFF', 'Low', 'Mid', 'High'],
+          userSettable: true,
+        ),
         const ParameterDto(
-            name: 'speed',
-            valueType: 'uint8',
-            min: 0,
-            max: 100,
-            userSettable: true),
+          name: 'speed',
+          valueType: 'uint8',
+          min: 0,
+          max: 100,
+          userSettable: true,
+        ),
       ],
     ),
   ],
@@ -160,19 +164,21 @@ final _defaultedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-            name: 'mode',
-            valueType: 'int32',
-            allowed: Int64List.fromList([0, 200, 400]),
-            labels: const ['OFF', 'Low', 'Mid'],
-            default_: 400,
-            userSettable: false),
+          name: 'mode',
+          valueType: 'int32',
+          allowed: Int64List.fromList([0, 200, 400]),
+          labels: const ['OFF', 'Low', 'Mid'],
+          default_: 400,
+          userSettable: false,
+        ),
         const ParameterDto(
-            name: 'level',
-            valueType: 'uint8',
-            min: 0,
-            max: 100,
-            default_: 42,
-            userSettable: false),
+          name: 'level',
+          valueType: 'uint8',
+          min: 0,
+          max: 100,
+          default_: 42,
+          userSettable: false,
+        ),
       ],
     ),
   ],
@@ -199,10 +205,11 @@ final _unlabeledAllowedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-            name: 'level',
-            valueType: 'uint16',
-            allowed: Int64List.fromList([5, 10]),
-            userSettable: true),
+          name: 'level',
+          valueType: 'uint16',
+          allowed: Int64List.fromList([5, 10]),
+          userSettable: true,
+        ),
       ],
     ),
     CommandDto(
@@ -214,11 +221,12 @@ final _unlabeledAllowedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-            name: 'mode',
-            valueType: 'uint8',
-            allowed: Int64List.fromList([7, 9]),
-            labels: const ['Only'],
-            userSettable: true),
+          name: 'mode',
+          valueType: 'uint8',
+          allowed: Int64List.fromList([7, 9]),
+          labels: const ['Only'],
+          userSettable: true,
+        ),
       ],
     ),
   ],
@@ -243,11 +251,12 @@ final _boolAllowedChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-            name: 'enabled',
-            valueType: 'bool',
-            allowed: Int64List.fromList([0, 1]),
-            labels: const ['Off', 'On'],
-            userSettable: true),
+          name: 'enabled',
+          valueType: 'bool',
+          allowed: Int64List.fromList([0, 1]),
+          labels: const ['Off', 'On'],
+          userSettable: true,
+        ),
       ],
     ),
   ],
@@ -273,18 +282,20 @@ const _scaledAutoChar = CharacteristicDto(
       advanced: false,
       parameters: [
         ParameterDto(
-            name: 'speed',
-            valueType: 'uint8',
-            min: 0,
-            max: 60,
-            scale: 0.1,
-            unit: 'km/h',
-            userSettable: true),
+          name: 'speed',
+          valueType: 'uint8',
+          min: 0,
+          max: 60,
+          scale: 0.1,
+          unit: 'km/h',
+          userSettable: true,
+        ),
         ParameterDto(
-            name: 'checksum',
-            valueType: 'uint8',
-            auto: 'checksum',
-            userSettable: false),
+          name: 'checksum',
+          valueType: 'uint8',
+          auto: 'checksum',
+          userSettable: false,
+        ),
       ],
     ),
   ],
@@ -338,29 +349,29 @@ Widget _wrap({
   required FakeBleService ble,
   required FakeSpecCodec codec,
   CharacteristicDto specChar = _charDto,
-}) =>
-    ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: TypedCommandWidget(
-              deviceId: 'd',
-              serviceUuid: _svc,
-              specYaml: 'yaml',
-              specChar: specChar,
-            ),
-          ),
+}) => ProviderScope(
+  overrides: [
+    bleServiceProvider.overrideWithValue(ble),
+    specCodecProvider.overrideWithValue(codec),
+  ],
+  child: MaterialApp(
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: TypedCommandWidget(
+          deviceId: 'd',
+          serviceUuid: _svc,
+          specYaml: 'yaml',
+          specChar: specChar,
         ),
       ),
-    );
+    ),
+  ),
+);
 
 void main() {
-  testWidgets('fixed command encodes and writes, then shows Sent',
-      (tester) async {
+  testWidgets('fixed command encodes and writes, then shows Sent', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1, 1]));
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
@@ -369,13 +380,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-        codec.encodeCalls.where((c) => c.commandName == 'power_on').length, 1);
+      codec.encodeCalls.where((c) => c.commandName == 'power_on').length,
+      1,
+    );
     expect(ble.writes.single.value, [1, 1]);
     expect(find.text('Sent'), findsOneWidget);
   });
 
-  testWidgets('parameterized command sends the rounded slider value',
-      (tester) async {
+  testWidgets('parameterized command sends the rounded slider value', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([2, 64]));
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
@@ -390,18 +404,21 @@ void main() {
     await tester.tap(find.text('Send'));
     await tester.pumpAndSettle();
 
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_brightness');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_brightness',
+    );
     expect(call.params['brightness'], 64.0);
     expect(ble.writes.single.value, [2, 64]);
   });
 
-  testWidgets('renders a valid Slider for a malformed inverted range',
-      (tester) async {
+  testWidgets('renders a valid Slider for a malformed inverted range', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([3, 0]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _malformedChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _malformedChar),
+    );
 
     // No assertion/throw during build, and the slider gets a well-ordered range.
     expect(tester.takeException(), isNull);
@@ -410,51 +427,57 @@ void main() {
     expect(slider.value, inInclusiveRange(slider.min, slider.max));
   });
 
-  testWidgets('string parameter gets an unsupported row, not a Slider',
-      (tester) async {
+  testWidgets('string parameter gets an unsupported row, not a Slider', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _stringParamChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _stringParamChar),
+    );
 
     expect(find.byType(Slider), findsNothing);
     expect(find.byType(SwitchListTile), findsNothing);
-    expect(find.text('Label: unsupported parameter type (string)'),
-        findsOneWidget);
+    expect(
+      find.text('Label: unsupported parameter type (string)'),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
-      'allowed values render as a labeled dropdown, coexisting with a slider',
-      (tester) async {
-    final ble = FakeBleService();
-    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _allowedChar));
+    'allowed values render as a labeled dropdown, coexisting with a slider',
+    (tester) async {
+      final ble = FakeBleService();
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+      await tester.pumpWidget(
+        _wrap(ble: ble, codec: codec, specChar: _allowedChar),
+      );
 
-    // The enumerated parameter gets a dropdown defaulting to the first
-    // allowed value; the free-range parameter keeps its slider.
-    expect(find.byType(DropdownButtonFormField<int>), findsOneWidget);
-    expect(find.text('OFF (0)'), findsOneWidget);
-    expect(find.byType(Slider), findsOneWidget);
+      // The enumerated parameter gets a dropdown defaulting to the first
+      // allowed value; the free-range parameter keeps its slider.
+      expect(find.byType(DropdownButtonFormField<int>), findsOneWidget);
+      expect(find.text('OFF (0)'), findsOneWidget);
+      expect(find.byType(Slider), findsOneWidget);
 
-    // Opening the menu shows every allowed value with its label.
-    await tester.tap(find.byType(DropdownButtonFormField<int>));
-    await tester.pumpAndSettle();
-    for (final entry in ['Low (200)', 'Mid (400)', 'High (1000)']) {
-      expect(find.text(entry), findsOneWidget);
-    }
-    // Close the menu again to leave the tree settled.
-    await tester.tap(find.text('Low (200)'));
-    await tester.pumpAndSettle();
-  });
+      // Opening the menu shows every allowed value with its label.
+      await tester.tap(find.byType(DropdownButtonFormField<int>));
+      await tester.pumpAndSettle();
+      for (final entry in ['Low (200)', 'Mid (400)', 'High (1000)']) {
+        expect(find.text(entry), findsOneWidget);
+      }
+      // Close the menu again to leave the tree settled.
+      await tester.tap(find.text('Low (200)'));
+      await tester.pumpAndSettle();
+    },
+  );
 
-  testWidgets(
-      'a defaulted parameter gets no control and is never sent — the '
+  testWidgets('a defaulted parameter gets no control and is never sent — the '
       'encoder fills it', (tester) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _defaultedChar),
+    );
 
     // This command's every parameter is defaulted, so it has no blanks the
     // user owns and draws no inputs at all. It used to draw both, seeded at
@@ -473,13 +496,13 @@ void main() {
     // And nothing crosses the FFI for them: the encoder resolves supplied
     // value, then the spec's default, so the bytes on the wire are the same
     // ones the seeded controls used to produce.
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_mode');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_mode',
+    );
     expect(call.params, isEmpty);
   });
 
-  testWidgets(
-      'a defaulted parameter is one tap away, seeded where the spec '
+  testWidgets('a defaulted parameter is one tap away, seeded where the spec '
       'put it', (tester) async {
     // Off the default surface, not gone. Most defaulted parameters are
     // protocol filler nobody should be handed, but some are the second axis of
@@ -487,8 +510,9 @@ void main() {
     // kelvin beside its colour — and this is the only place they can be set.
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _defaultedChar),
+    );
 
     await tester.tap(find.text('2 values the spec fills in'));
     await tester.pumpAndSettle();
@@ -500,22 +524,25 @@ void main() {
 
     await tester.tap(find.text('Send'));
     await tester.pumpAndSettle();
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_mode');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_mode',
+    );
     expect(call.params['level'], 42.0);
     expect(call.params['mode'], 400.0);
   });
 
-  testWidgets('collapsing the defaults takes their values off the wire too',
-      (tester) async {
+  testWidgets('collapsing the defaults takes their values off the wire too', (
+    tester,
+  ) async {
     // Otherwise the label lies: it says the spec fills these in while an
     // edited value rides along with no control anywhere to see or undo it.
     // Collapsed, the encoder resolves each default itself, which puts exactly
     // the bytes on the wire the label promises.
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _defaultedChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _defaultedChar),
+    );
 
     await tester.tap(find.text('2 values the spec fills in'));
     await tester.pumpAndSettle();
@@ -524,43 +551,50 @@ void main() {
 
     await tester.tap(find.text('Send'));
     await tester.pumpAndSettle();
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_mode');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_mode',
+    );
     expect(call.params, isEmpty);
   });
 
-  testWidgets('selecting an allowed entry sends its value, not label or index',
-      (tester) async {
-    final ble = FakeBleService();
-    final codec = FakeSpecCodec(encoded: Uint8List.fromList([9, 232, 3]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _allowedChar));
+  testWidgets(
+    'selecting an allowed entry sends its value, not label or index',
+    (tester) async {
+      final ble = FakeBleService();
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([9, 232, 3]));
+      await tester.pumpWidget(
+        _wrap(ble: ble, codec: codec, specChar: _allowedChar),
+      );
 
-    await tester.tap(find.byType(DropdownButtonFormField<int>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('High (1000)'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<int>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('High (1000)'));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Send'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
 
-    final call = codec.encodeCalls
-        .firstWhere((c) => c.commandName == 'set_tail_brightness');
-    // The wire value is the allowed value itself — 1000 — never the label
-    // ("High") or the dropdown index (3).
-    expect(call.params['value'], 1000.0);
-    // The untouched slider parameter still sends its default.
-    expect(call.params['speed'], 0.0);
-    expect(ble.writes.single.value, [9, 232, 3]);
-    expect(find.text('Sent'), findsOneWidget);
-  });
+      final call = codec.encodeCalls.firstWhere(
+        (c) => c.commandName == 'set_tail_brightness',
+      );
+      // The wire value is the allowed value itself — 1000 — never the label
+      // ("High") or the dropdown index (3).
+      expect(call.params['value'], 1000.0);
+      // The untouched slider parameter still sends its default.
+      expect(call.params['speed'], 0.0);
+      expect(ble.writes.single.value, [9, 232, 3]);
+      expect(find.text('Sent'), findsOneWidget);
+    },
+  );
 
-  testWidgets('allowed without usable labels falls back to raw values',
-      (tester) async {
+  testWidgets('allowed without usable labels falls back to raw values', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0]));
     await tester.pumpWidget(
-        _wrap(ble: ble, codec: codec, specChar: _unlabeledAllowedChar));
+      _wrap(ble: ble, codec: codec, specChar: _unlabeledAllowedChar),
+    );
 
     // Both enumerated parameters render dropdowns seeded with their first
     // allowed value, shown raw.
@@ -577,12 +611,14 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('bool parameter keeps its switch even when allowed is declared',
-      (tester) async {
+  testWidgets('bool parameter keeps its switch even when allowed is declared', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _boolAllowedChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _boolAllowedChar),
+    );
 
     expect(find.byType(SwitchListTile), findsOneWidget);
     expect(find.byType(DropdownButtonFormField<int>), findsNothing);
@@ -602,13 +638,13 @@ void main() {
     expect(ble.writes, isEmpty);
   });
 
-  testWidgets(
-      'an encoder-filled (auto) parameter gets no control and is '
+  testWidgets('an encoder-filled (auto) parameter gets no control and is '
       'never sent', (tester) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _scaledAutoChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _scaledAutoChar),
+    );
 
     // One slider (speed), no checksum control anywhere: offering one would
     // let the user write over a byte the protocol computes.
@@ -618,20 +654,23 @@ void main() {
     await tester.tap(find.text('Send'));
     await tester.pumpAndSettle();
 
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_speed');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_speed',
+    );
     // Only the caller-owned parameter crosses the FFI; the encoder fills the
     // checksum itself.
     expect(call.params.containsKey('checksum'), isFalse);
     expect(call.params.keys, ['speed']);
   });
 
-  testWidgets('a scaled parameter presents in decoded units and sends raw',
-      (tester) async {
+  testWidgets('a scaled parameter presents in decoded units and sends raw', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _scaledAutoChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _scaledAutoChar),
+    );
 
     // Raw range 0..60 at scale 0.1 presents as 0.0..6.0 km/h, seeded at the
     // bottom of the range.
@@ -648,17 +687,20 @@ void main() {
     await tester.tap(find.text('Send'));
     await tester.pumpAndSettle();
 
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_speed');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_speed',
+    );
     expect(call.params['speed'], 30.0);
   });
 
-  testWidgets('advanced commands stay collapsed until the section is opened',
-      (tester) async {
+  testWidgets('advanced commands stay collapsed until the section is opened', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _advancedChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _advancedChar),
+    );
 
     // The ordinary command renders inline; both advanced ones are tucked
     // under the collapsed, warning-marked section rather than sitting between
@@ -673,19 +715,23 @@ void main() {
     await tester.pumpAndSettle();
     // Title and send button both carry the command's name.
     expect(find.text('Calibration mode'), findsWidgets);
-    expect(find.widgetWithText(ElevatedButton, 'Calibration mode'),
-        findsOneWidget);
     expect(
-        find.widgetWithText(ElevatedButton, 'Set max speed'), findsOneWidget);
+      find.widgetWithText(ElevatedButton, 'Calibration mode'),
+      findsOneWidget,
+    );
+    expect(
+      find.widgetWithText(ElevatedButton, 'Set max speed'),
+      findsOneWidget,
+    );
   });
 
-  testWidgets(
-      'the first send of an advanced command confirms with the '
+  testWidgets('the first send of an advanced command confirms with the '
       'spec’s reason; cancel sends nothing', (tester) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _advancedChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _advancedChar),
+    );
 
     await tester.tap(find.text('Advanced commands'));
     await tester.pumpAndSettle();
@@ -695,9 +741,12 @@ void main() {
     // The dialog carries the spec's own reason — the warning that says
     // something — with a way back out.
     expect(
-        find.text('Calibration changes how command values map to real belt '
-            'speed.'),
-        findsOneWidget);
+      find.text(
+        'Calibration changes how command values map to real belt '
+        'speed.',
+      ),
+      findsOneWidget,
+    );
     expect(codec.encodeCalls, isEmpty);
 
     await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
@@ -710,23 +759,27 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Send'));
     await tester.pumpAndSettle();
-    expect(codec.encodeCalls.where((c) => c.commandName == 'calibration_mode'),
-        hasLength(1));
+    expect(
+      codec.encodeCalls.where((c) => c.commandName == 'calibration_mode'),
+      hasLength(1),
+    );
     expect(ble.writes.single.value, [1]);
 
     await tester.tap(find.widgetWithText(ElevatedButton, 'Calibration mode'));
     await tester.pumpAndSettle();
-    expect(codec.encodeCalls.where((c) => c.commandName == 'calibration_mode'),
-        hasLength(2));
+    expect(
+      codec.encodeCalls.where((c) => c.commandName == 'calibration_mode'),
+      hasLength(2),
+    );
   });
 
-  testWidgets(
-      'an advanced command without a reason falls back to a generic '
+  testWidgets('an advanced command without a reason falls back to a generic '
       'warning', (tester) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
-    await tester
-        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _advancedChar));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _advancedChar),
+    );
 
     await tester.tap(find.text('Advanced commands'));
     await tester.pumpAndSettle();
@@ -737,5 +790,44 @@ void main() {
     expect(codec.encodeCalls, isEmpty);
     await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
     await tester.pumpAndSettle();
+  });
+
+  // F-055: the description, status and unsupported-parameter lines used
+  // Colors.grey/red/green literals, which fail contrast on the light surface
+  // and ignore dark mode.
+  testWidgets('description and status lines use theme roles, not literals', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(encoded: Uint8List.fromList([1, 1])),
+      ),
+    );
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Power on'));
+    await tester.pumpAndSettle();
+    final scheme = Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+    expect(
+      tester.widget<Text>(find.text('Turn the bulb on')).style?.color,
+      scheme.onSurfaceVariant,
+    );
+    expect(
+      tester.widget<Text>(find.text('Sent')).style?.color,
+      scheme.tertiary,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(encodeError: StateError('bad param')),
+      ),
+    );
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Power on'));
+    await tester.pumpAndSettle();
+    final status = find.descendant(
+      of: find.byType(Card),
+      matching: find.textContaining('did not accept that command'),
+    );
+    expect(tester.widget<Text>(status).style?.color, scheme.error);
   });
 }

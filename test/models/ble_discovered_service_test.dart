@@ -23,10 +23,7 @@ void main() {
 
     test('supports const construction', () {
       // Verifies const constructors compile and work
-      const service = BleDiscoveredService(
-        uuid: 'test',
-        characteristics: [],
-      );
+      const service = BleDiscoveredService(uuid: 'test', characteristics: []);
       expect(service.characteristics, isEmpty);
     });
   });

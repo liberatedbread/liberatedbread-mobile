@@ -24,7 +24,8 @@ void main() {
     plist = parsePlist(
       readRepoFile(
         _plistPath,
-        consequence: 'Without it the iOS app has no bundle metadata and '
+        consequence:
+            'Without it the iOS app has no bundle metadata and '
             'cannot launch.',
       ),
       label: _plistPath,
@@ -48,7 +49,8 @@ void main() {
     test('NSBluetoothAlwaysUsageDescription is present and non-empty', () {
       expectNonEmptyString(
         'NSBluetoothAlwaysUsageDescription',
-        reason: 'NSBluetoothAlwaysUsageDescription must be a non-empty string '
+        reason:
+            'NSBluetoothAlwaysUsageDescription must be a non-empty string '
             'in $_plistPath. Without it iOS never shows the Bluetooth '
             'permission prompt: the CBCentralManager goes straight to '
             '.unauthorized, adapterStateError() maps that to '
@@ -61,7 +63,8 @@ void main() {
     test('NSBluetoothPeripheralUsageDescription is present and non-empty', () {
       expectNonEmptyString(
         'NSBluetoothPeripheralUsageDescription',
-        reason: 'NSBluetoothPeripheralUsageDescription must be a non-empty '
+        reason:
+            'NSBluetoothPeripheralUsageDescription must be a non-empty '
             'string in $_plistPath. It is the key iOS 12 and earlier consult, '
             'and the one App Store review checks for any binary linking '
             'CoreBluetooth; omitting it means no Bluetooth prompt on older '
@@ -74,7 +77,8 @@ void main() {
     test('NSLocalNetworkUsageDescription is present and non-empty', () {
       expectNonEmptyString(
         'NSLocalNetworkUsageDescription',
-        reason: 'NSLocalNetworkUsageDescription must be a non-empty string in '
+        reason:
+            'NSLocalNetworkUsageDescription must be a non-empty string in '
             '$_plistPath. iOS 14+ requires it before an app may talk to a '
             'device on the local network; without it the local-network prompt '
             'never appears and every request to a LAN Home Assistant '
@@ -89,49 +93,78 @@ void main() {
       expect(
         services,
         isA<List<Object?>>(),
-        reason: 'NSBonjourServices must be an array in $_plistPath. iOS 14+ '
-            'will not deliver an mDNS answer for a service type absent from '
-            'it, and does so SILENTLY -- the scan just returns nothing.',
+        reason:
+            'NSBonjourServices must be an array in $_plistPath. It is '
+            'kept in sync with the vendored catalogue so that the day '
+            'discovery moves to the Bonjour APIs (NWBrowser/NetService) the '
+            'declaration is already right. It does NOT gate the scan as it '
+            'stands: this app does mDNS itself over RawDatagramSocket, and '
+            'the key applies only to browsing performed through those APIs. '
+            'What gates the raw sockets is the multicast entitlement -- see '
+            'ios_entitlements_test.dart, which is the file that had this '
+            'right while the comments here did not.',
       );
       expect(
         services as List<Object?>,
         contains('_services._dns-sd._udp'),
-        reason: 'The DNS-SD meta-query is how the Wi-Fi scan enumerates '
+        reason:
+            'The DNS-SD meta-query is how the Wi-Fi scan enumerates '
             'service types it has no spec for (see the enumeration query in '
-            'lib/services/real_network_scan_service.dart). Without it '
-            'declared, iOS discovers only the specific types listed and the '
-            'scan can never find unknown hardware.',
+            'lib/services/real_network_scan_service.dart). It belongs in the '
+            'list for the same forward-looking reason as the rest: under a '
+            'Bonjour-API implementation, omitting it would mean discovering '
+            'only the specific types named and never unknown hardware.',
       );
     });
 
     test('NSAppTransportSecurity enables NSAllowsLocalNetworking', () {
       expect(
-        plistValue(
-            plist, ['NSAppTransportSecurity', 'NSAllowsLocalNetworking']),
+        plistValue(plist, [
+          'NSAppTransportSecurity',
+          'NSAllowsLocalNetworking',
+        ]),
         isTrue,
-        reason: 'NSAppTransportSecurity > NSAllowsLocalNetworking must be '
-            '<true/> in $_plistPath. App Transport Security blocks plain '
-            'http:// by default, so without this exemption every POST to a '
-            'LAN Home Assistant is refused before it leaves the device and HA '
-            'registration fails with a connection error the user cannot fix.',
+        reason:
+            'NSAppTransportSecurity > NSAllowsLocalNetworking must be '
+            '<true/> in $_plistPath. Note what this does and does not do: ATS '
+            'is enforced inside CFNetwork/NSURLSession and WKWebView, and '
+            'every network call in this app is dart:io (HttpClient, '
+            'WebSocket.connect, SecureSocket) which does not go through '
+            'either. So the LAN Home Assistant POST would succeed with or '
+            'without this key. It is kept because it declares the intent '
+            'accurately -- cleartext to the local network only -- and because '
+            'a future move to a platform HTTP stack would need it. Do not '
+            'remove it on the grounds that it is inert, and do not rely on it '
+            'as a control.',
       );
     });
 
     test('NSAppTransportSecurity does NOT set NSAllowsArbitraryLoads', () {
-      // NSAllowsLocalNetworking is the scoped exemption: it re-enables
-      // cleartext for LAN destinations only. NSAllowsArbitraryLoads disables
-      // ATS for the whole internet, buys nothing extra for this app's use
-      // case, and triggers an App Store justification review.
+      // NSAllowsLocalNetworking is the scoped declaration: cleartext to LAN
+      // destinations only. NSAllowsArbitraryLoads would declare it for the
+      // whole internet, buys nothing for this app's use case, and triggers an
+      // App Store justification review.
+      //
+      // What it does NOT do is protect anything here. Because this app's
+      // traffic is dart:io, ATS governs none of it, so neither key is a
+      // control over where a Home Assistant token can be sent. If that
+      // property is wanted it has to be enforced in Dart -- refusing
+      // HaUrlKind.publicHttp at registration -- because no OS layer is doing
+      // it. Keeping the key out is still correct: it is an accurate
+      // declaration and avoids a review question.
       expect(
-        plistHasKey(
-            plist, ['NSAppTransportSecurity', 'NSAllowsArbitraryLoads']),
+        plistHasKey(plist, [
+          'NSAppTransportSecurity',
+          'NSAllowsArbitraryLoads',
+        ]),
         isFalse,
-        reason: 'NSAppTransportSecurity > NSAllowsArbitraryLoads must not be '
-            'set in $_plistPath. NSAllowsLocalNetworking already covers the '
-            'LAN Home Assistant case; NSAllowsArbitraryLoads additionally '
-            'disables transport security for every public host — so a '
-            'user\'s remote HA token could be sent over unencrypted http to '
-            'the internet — and it forces an App Store review justification.',
+        reason:
+            'NSAppTransportSecurity > NSAllowsArbitraryLoads must not be '
+            'set in $_plistPath. NSAllowsLocalNetworking already declares the '
+            'LAN Home Assistant case, and the broader key forces an App Store '
+            'review justification for a permission this app does not use. It '
+            'is a declaration, not a safeguard: ATS does not see dart:io '
+            'traffic, so removing it protects no token by itself.',
       );
     });
   });
@@ -142,7 +175,8 @@ void main() {
       expect(
         identifier,
         isA<String>(),
-        reason: 'CFBundleIdentifier must be present in $_plistPath; iOS will '
+        reason:
+            'CFBundleIdentifier must be present in $_plistPath; iOS will '
             'not install a bundle without one.',
       );
       final value = identifier! as String;
@@ -152,7 +186,8 @@ void main() {
         expect(
           value,
           _expectedBundleId,
-          reason: 'CFBundleIdentifier in $_plistPath is hard-coded to "$value" '
+          reason:
+              'CFBundleIdentifier in $_plistPath is hard-coded to "$value" '
               'rather than "$_expectedBundleId". A bundle id mismatch breaks '
               'provisioning-profile matching (the build fails to sign) and, '
               'once shipped, orphans every existing install\'s keychain items '
@@ -166,7 +201,8 @@ void main() {
       // their own suffixed id; only the app target must match.
       final pbxproj = readRepoFile(
         _pbxprojPath,
-        consequence: 'CFBundleIdentifier in $_plistPath expands '
+        consequence:
+            'CFBundleIdentifier in $_plistPath expands '
             r'$(PRODUCT_BUNDLE_IDENTIFIER), which is defined there, so the '
             'app id cannot be verified without it.',
       );
@@ -179,7 +215,8 @@ void main() {
       expect(
         ids,
         isNotEmpty,
-        reason: 'CFBundleIdentifier in $_plistPath expands '
+        reason:
+            'CFBundleIdentifier in $_plistPath expands '
             r'$(PRODUCT_BUNDLE_IDENTIFIER), but no PRODUCT_BUNDLE_IDENTIFIER '
             'build setting was found in $_pbxprojPath, so the shipped bundle '
             'id is unverifiable and could be anything.',
@@ -187,7 +224,8 @@ void main() {
       expect(
         ids,
         {_expectedBundleId},
-        reason: 'The iOS app target must build as "$_expectedBundleId" '
+        reason:
+            'The iOS app target must build as "$_expectedBundleId" '
             '(found: $ids in $_pbxprojPath). A bundle id mismatch breaks '
             'provisioning-profile matching at signing time and, once shipped, '
             'changes the keychain service scope — every existing install '

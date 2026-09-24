@@ -15,10 +15,19 @@ import 'spec_codec.dart' show HttpRequestDto;
 /// bridge, verifying its TLS certificate the way the spec says a Hue bridge
 /// must be verified, and hand the reply body back for the Rust codec to read.
 ///
-/// Deliberately knows nothing about any device beyond the spec's stated TLS
-/// shape. What to send and what a reply means live in the spec and are
-/// answered by the Rust codec; this class only moves bytes — the same
-/// division as SOAP and BLE.
+/// Moves bytes, and — for one format — reads them. What to send and what a
+/// reply MEANS live in the spec and are answered by the Rust codec, the same
+/// division as SOAP and BLE, with a single stated exception:
+/// [checkV1Envelope] below, which understands Hue's v1 outcome envelope.
+///
+/// R-053: that exception used to be denied by this comment, which claimed
+/// the class knew nothing device-specific. It is named here instead, because
+/// the reason it is here is not laziness: the spec declares the envelope
+/// under `payload_formats.V1Envelope` as `parse_rules`, six sentences of
+/// English, and a decoder cannot follow English. Until the schema can state
+/// the shape — the ask is recorded in SPECS_TO_FIX.md — the rules live in
+/// one named place with the spec's own wording beside them rather than
+/// scattered through the callers.
 ///
 /// TLS, per the spec's own TLS note: the bridge's certificate is a per-device
 /// leaf whose subject CN is the bridgeid (lowercase), issued by Signify's
@@ -43,7 +52,8 @@ class HubHttpClient {
   final HubCredentialStore _credentials;
   final http.Client Function(
     bool Function(X509Certificate cert, String host, int port) evaluate,
-  ) _secureClientFactory;
+  )
+  _secureClientFactory;
   final http.Client Function()? _plainClientFactory;
 
   /// The bridge's real ports. Overridable because the loopback TLS tests and
@@ -55,18 +65,18 @@ class HubHttpClient {
   static const timeout = Duration(seconds: 10);
 
   HubHttpClient({
-    required HubCredentialStore credentials,
+    required this._credentials,
     http.Client Function(
       bool Function(X509Certificate cert, String host, int port) evaluate,
-    )? secureClientFactory,
-    http.Client Function()? plainClientFactory,
+    )?
+    secureClientFactory,
+    this._plainClientFactory,
     this.httpsPort = 443,
     this.httpPort = 80,
-  })  : _credentials = credentials,
-        _secureClientFactory = secureClientFactory ??
-            ((evaluate) =>
-                IOClient(HttpClient()..badCertificateCallback = evaluate)),
-        _plainClientFactory = plainClientFactory;
+  }) : _secureClientFactory =
+           secureClientFactory ??
+           ((evaluate) =>
+               IOClient(HttpClient()..badCertificateCallback = evaluate));
 
   /// Send one rendered request to the bridge and return the raw reply body.
   ///
@@ -92,16 +102,17 @@ class HubHttpClient {
     String host,
     String bridgeId,
     HttpRequestDto request,
-  ) =>
-      _sendRaw(host, bridgeId, request);
+  ) => _sendRaw(host, bridgeId, request);
 
   /// Fetch the unauthenticated `/api/config` identity, over whichever scheme
   /// answers. Used before pairing (and for an SSDP-only sighting that never
   /// carried a bridgeid), so [expectedBridgeId] may be null — the TLS check
   /// then records what it saw instead of matching, and the caller must
   /// cross-check the returned bridgeid against [observedCn].
-  Future<HubConfigProbe> fetchConfig(String host,
-      {String? expectedBridgeId}) async {
+  Future<HubConfigProbe> fetchConfig(
+    String host, {
+    String? expectedBridgeId,
+  }) async {
     String? observedCn;
     final body = await _sendRaw(
       host,
@@ -118,8 +129,9 @@ class HubHttpClient {
     HttpRequestDto request, {
     void Function(String cn)? onCn,
   }) async {
-    final remembered =
-        bridgeId == null ? null : await _credentials.scheme(bridgeId);
+    final remembered = bridgeId == null
+        ? null
+        : await _credentials.scheme(bridgeId);
     if (remembered == 'http') {
       return _sendPlain(host, request);
     }
@@ -149,8 +161,9 @@ class HubHttpClient {
         // or a downgrade attempt, and either way not a reason to go clear.
         throw HubTransportException('bridge unreachable over https: $e');
       }
-      Log.hub
-          .info('no https listener on $host; trying plain http (BSB001 path)');
+      Log.hub.info(
+        'no https listener on $host; trying plain http (BSB001 path)',
+      );
       final body = await _sendPlain(host, request);
       if (bridgeId != null) {
         await _credentials.saveScheme(bridgeId, 'http');
@@ -165,8 +178,9 @@ class HubHttpClient {
     HttpRequestDto request, {
     void Function(String cn)? onCn,
   }) async {
-    final pinned =
-        bridgeId == null ? null : await _credentials.certPin(bridgeId);
+    final pinned = bridgeId == null
+        ? null
+        : await _credentials.certPin(bridgeId);
     String? tlsFailure;
     String? observedPin;
 
@@ -177,7 +191,8 @@ class HubHttpClient {
 
       if (pinned != null) {
         if (fingerprint != pinned) {
-          tlsFailure = 'certificate changed: pinned '
+          tlsFailure =
+              'certificate changed: pinned '
               '${_shortPin(pinned)}, presented ${_shortPin(fingerprint)}';
           return false;
         }
@@ -246,15 +261,18 @@ class HubHttpClient {
     try {
       response = switch (request.method) {
         'GET' => await client.get(uri).timeout(timeout),
-        'POST' => await client
-            .post(uri, headers: headers, body: hasBody ? request.body : null)
-            .timeout(timeout),
-        'PUT' => await client
-            .put(uri, headers: headers, body: hasBody ? request.body : null)
-            .timeout(timeout),
+        'POST' =>
+          await client
+              .post(uri, headers: headers, body: hasBody ? request.body : null)
+              .timeout(timeout),
+        'PUT' =>
+          await client
+              .put(uri, headers: headers, body: hasBody ? request.body : null)
+              .timeout(timeout),
         'DELETE' => await client.delete(uri).timeout(timeout),
-        _ =>
-          throw HubTransportException('unsupported method ${request.method}'),
+        _ => throw HubTransportException(
+          'unsupported method ${request.method}',
+        ),
       };
     } on http.ClientException catch (e) {
       // package:http wraps connection failures; unwrap the socket-level
@@ -265,7 +283,8 @@ class HubHttpClient {
     if (response.statusCode != 200) {
       // No path in the message: on this device the path is the credential.
       throw HubTransportException(
-          '${request.method} to $host answered HTTP ${response.statusCode}');
+        '${request.method} to $host answered HTTP ${response.statusCode}',
+      );
     }
     return response.body;
   }
@@ -354,9 +373,9 @@ class HueApiError {
   const HueApiError({required this.type, required this.description});
 
   factory HueApiError.fromJson(Map<String, dynamic> json) => HueApiError(
-        type: json['type'] is int ? json['type'] as int : -1,
-        description: json['description']?.toString() ?? '',
-      );
+    type: json['type'] is int ? json['type'] as int : -1,
+    description: json['description']?.toString() ?? '',
+  );
 
   /// create_user's keep-waiting signal — not a failure.
   bool get isLinkButtonNotPressed => type == 101;

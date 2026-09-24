@@ -1,7 +1,9 @@
 package ca.pigscanfly.liberatedbread
 
 import android.content.Context
+import android.content.Intent
 import android.net.wifi.WifiManager
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -42,6 +44,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "scanResults" -> result.success(wifiScanResults())
+                    "openWifiSettings" -> result.success(openWifiSettings())
                     else -> result.notImplemented()
                 }
             }
@@ -70,6 +73,20 @@ class MainActivity : FlutterActivity() {
             emptyList()
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * The system Wi-Fi list, for the adopt flow's "join the setup network"
+     * step. False when no activity handles the intent, which the Dart side
+     * treats as "tell the user how to get there by hand".
+     */
+    private fun openWifiSettings(): Boolean {
+        return try {
+            startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 

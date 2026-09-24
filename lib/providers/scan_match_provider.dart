@@ -100,16 +100,19 @@ class ScanGuess {
   static ScanGuess? fromMatches(List<ScanMatch> matches) {
     if (matches.isEmpty) return null;
     final best = matches.first;
-    final tied =
-        matches.skip(1).where((m) => m.confidence == best.confidence).toList();
+    final tied = matches
+        .skip(1)
+        .where((m) => m.confidence == best.confidence)
+        .toList();
     final category = DeviceCategory.parse(best.category);
     return ScanGuess(
       deviceName: best.deviceName,
       manufacturer: best.manufacturer,
       confidence: best.confidence,
       otherMatches: tied.length,
-      manufacturerAgreed:
-          tied.every((m) => m.manufacturer == best.manufacturer),
+      manufacturerAgreed: tied.every(
+        (m) => m.manufacturer == best.manufacturer,
+      ),
       category: tied.every((m) => DeviceCategory.parse(m.category) == category)
           ? category
           : null,
@@ -189,10 +192,10 @@ class ScanIdentity {
   });
 
   ScanIdentity.of(IoTDevice device)
-      : name = device.name,
-        serviceUuids = device.serviceUuids,
-        companyIds = device.companyIds,
-        macAddress = device.macAddress;
+    : name = device.name,
+      serviceUuids = device.serviceUuids,
+      companyIds = device.companyIds,
+      macAddress = device.macAddress;
 
   @override
   bool operator ==(Object other) =>
@@ -203,8 +206,12 @@ class ScanIdentity {
       listEquals(other.companyIds, companyIds);
 
   @override
-  int get hashCode => Object.hash(name, macAddress,
-      Object.hashAll(serviceUuids), Object.hashAll(companyIds));
+  int get hashCode => Object.hash(
+    name,
+    macAddress,
+    Object.hashAll(serviceUuids),
+    Object.hashAll(companyIds),
+  );
 }
 
 /// The catalogue reduced to its identifying fields, derived once.
@@ -213,32 +220,19 @@ class ScanIdentity {
 /// Passing full [DeviceSpecDto]s each time would push every service,
 /// characteristic and entity across the FFI boundary per device; the identity
 /// projection is a few strings per spec.
-final specIdentitiesProvider =
-    FutureProvider<List<SpecIdentityDto>>((ref) async {
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  return [
-    for (final p in parsed)
-      SpecIdentityDto(
-        deviceName: p.spec.deviceName,
-        manufacturer: p.spec.manufacturer,
-        category: p.spec.category,
-        pictogram: p.spec.pictogram,
-        adminUrl: p.spec.adminUrl,
-        integration: p.spec.integration,
-        localNamePrefixes: p.spec.localNamePrefixes,
-        localNames: p.spec.localNames,
-        serviceUuids: p.spec.serviceUuids,
-        companyIds: p.spec.companyIds,
-        macPrefixes: p.spec.macPrefixes,
-        mdnsServiceTypes: p.spec.mdnsServiceTypes,
-        ssdpSearchTargets: p.spec.ssdpSearchTargets,
-        lanProtocols: p.spec.lanProtocols,
-        defaultPort: p.spec.defaultPort,
-        nameMatchers: p.spec.nameMatchers,
-        txtMatchGroups: p.spec.txtMatchGroups,
-        platformFallbackTypes: p.spec.platformFallbackTypes,
-      ),
-  ];
+final specIdentitiesProvider = FutureProvider<List<SpecIdentityDto>>((
+  ref,
+) async {
+  final catalogue = await ref.watch(specCatalogueProvider.future);
+  // The projection is the catalogue's own — built once where the specs were
+  // parsed (in Rust, on the production codec), not rebuilt per spec here out
+  // of a DTO that no longer crosses. The scan-list badge, the warning screen
+  // and the malicious-device alert all read the advisory off the identity the
+  // matcher returns, so a field dropped from this projection makes a whole
+  // feature inert in production while its widget tests (which build
+  // identities by hand) stay green; the golden test compares the projection
+  // to the by-value one over the entire vendored catalogue.
+  return [for (final entry in catalogue.specs) entry.identity];
 });
 
 /// What the catalogue makes of one scanned device, or `null` when nothing
@@ -252,29 +246,32 @@ final specIdentitiesProvider =
 /// keep their entry alive by watching it.
 final scanGuessProvider = FutureProvider.autoDispose
     .family<ScanGuess?, ScanIdentity>((ref, identity) async {
-  final codec = ref.watch(specCodecProvider);
-  final identities = await ref.watch(specIdentitiesProvider.future);
-  if (identities.isEmpty) return null;
+      final codec = ref.watch(specCodecProvider);
+      final identities = await ref.watch(specIdentitiesProvider.future);
+      if (identities.isEmpty) return null;
 
-  final List<ScanMatch> matches;
-  try {
-    matches = await codec.matchScannedDevice(
-      identities: identities,
-      device: ScannedDeviceDto(
-        name: identity.name,
-        serviceUuids: identity.serviceUuids,
-        companyIds: Uint16List.fromList(identity.companyIds),
-        macAddress: identity.macAddress,
-      ),
-    );
-  } catch (e) {
-    // A scan must not fail because matching did. The device still lists, just
-    // without a guess against its name.
-    Log.spec.warning('scan matching failed for "${identity.name}"', error: e);
-    return null;
-  }
-  return ScanGuess.fromMatches(matches);
-});
+      final List<ScanMatch> matches;
+      try {
+        matches = await codec.matchScannedDevice(
+          identities: identities,
+          device: ScannedDeviceDto(
+            name: identity.name,
+            serviceUuids: identity.serviceUuids,
+            companyIds: Uint16List.fromList(identity.companyIds),
+            macAddress: identity.macAddress,
+          ),
+        );
+      } catch (e) {
+        // A scan must not fail because matching did. The device still lists, just
+        // without a guess against its name.
+        Log.spec.warning(
+          'scan matching failed for "${identity.name}"',
+          error: e,
+        );
+        return null;
+      }
+      return ScanGuess.fromMatches(matches);
+    });
 
 /// A device paired with what the catalogue makes of it.
 @immutable
@@ -349,27 +346,19 @@ typedef RankedDevice = Ranked<IoTDevice>;
 /// it means the row under a finger can change between deciding to tap and
 /// tapping. Both remaining keys are things that do not move, so a row only
 /// changes position when the device genuinely does.
-({
-  List<RankedDevice> likelySupported,
-  List<RankedDevice> other
-}) rankScannedDevices(
+({List<RankedDevice> likelySupported, List<RankedDevice> other})
+rankScannedDevices(
   List<IoTDevice> devices,
   ScanGuess? Function(IoTDevice device) guessFor, {
   bool Function(IoTDevice device)? isStale,
-}) =>
-    rankDevices(
-      devices,
-      guessFor,
-      (a, b) {
-        final aStale = isStale?.call(a.device) ?? false;
-        final bStale = isStale?.call(b.device) ?? false;
-        if (aStale != bStale) return aStale ? 1 : -1;
-        final band =
-            signalBars(b.device.rssi).compareTo(signalBars(a.device.rssi));
-        if (band != 0) return band;
-        final found = a.device.discoveredAt.compareTo(b.device.discoveredAt);
-        // Same band, same instant (a single scan batch can deliver both):
-        // the id is arbitrary but stable, which is the whole requirement.
-        return found != 0 ? found : a.device.id.compareTo(b.device.id);
-      },
-    );
+}) => rankDevices(devices, guessFor, (a, b) {
+  final aStale = isStale?.call(a.device) ?? false;
+  final bStale = isStale?.call(b.device) ?? false;
+  if (aStale != bStale) return aStale ? 1 : -1;
+  final band = signalBars(b.device.rssi).compareTo(signalBars(a.device.rssi));
+  if (band != 0) return band;
+  final found = a.device.discoveredAt.compareTo(b.device.discoveredAt);
+  // Same band, same instant (a single scan batch can deliver both):
+  // the id is arbitrary but stable, which is the whole requirement.
+  return found != 0 ? found : a.device.id.compareTo(b.device.id);
+});

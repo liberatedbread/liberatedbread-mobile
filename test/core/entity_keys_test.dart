@@ -11,11 +11,8 @@ import 'package:liberated_bread_mobile/core/entity_keys.dart';
 
 typedef _E = ({String? key, String name});
 
-EntityKeyIndex<_E> _index(List<_E> entities) => EntityKeyIndex<_E>(
-      entities,
-      keyOf: (e) => e.key,
-      nameOf: (e) => e.name,
-    );
+EntityKeyIndex<_E> _index(List<_E> entities) =>
+    EntityKeyIndex<_E>(entities, keyOf: (e) => e.key, nameOf: (e) => e.name);
 
 void main() {
   test('the spec key wins over the display-name table', () {
@@ -92,7 +89,8 @@ void main() {
     expect(
       source.existsSync(),
       isTrue,
-      reason: '${source.path} is the vendored home of ENTITY_KEY_VOCABULARY. '
+      reason:
+          '${source.path} is the vendored home of ENTITY_KEY_VOCABULARY. '
           'If upstream moved it, this test must follow rather than quietly '
           'stop checking.',
     );
@@ -103,21 +101,26 @@ void main() {
     expect(
       block,
       isNotNull,
-      reason: 'ENTITY_KEY_VOCABULARY is no longer a frozenset literal in '
+      reason:
+          'ENTITY_KEY_VOCABULARY is no longer a frozenset literal in '
           '${source.path}; this test cannot read it and is silently passing.',
     );
-    final upstream = RegExp('"([a-z0-9_]+)"')
-        .allMatches(block!.group(1)!)
-        .map((m) => m.group(1)!)
-        .toSet();
-    expect(upstream.length, greaterThan(20),
-        reason: 'read ${upstream.length} tokens, which is not a vocabulary — '
-            'the pattern above has stopped matching');
+    final upstream = RegExp(
+      '"([a-z0-9_]+)"',
+    ).allMatches(block!.group(1)!).map((m) => m.group(1)!).toSet();
+    expect(
+      upstream.length,
+      greaterThan(20),
+      reason:
+          'read ${upstream.length} tokens, which is not a vocabulary — '
+          'the pattern above has stopped matching',
+    );
 
     // Placed by a layout, or claimed by a surface that does not go through
     // the index at all — each named, so removing one is a decision.
     const exempt = <String, String>{
-      'keyboard': 'the text-entry field is found by its `text` platform, not '
+      'keyboard':
+          'the text-entry field is found by its `text` platform, not '
           'by key: it is a TextField beside the remote, not a key in it.',
     };
 
@@ -128,7 +131,8 @@ void main() {
     expect(
       unplaced,
       isEmpty,
-      reason: 'These keys are in upstream\'s vocabulary and no layout here '
+      reason:
+          'These keys are in upstream\'s vocabulary and no layout here '
           'places them: $unplaced. A spec that emits one gets a control in '
           'the leftover wrap rather than where a hand would look. Give each '
           'a slot, or add it to `exempt` above with the reason.',

@@ -126,12 +126,17 @@ void main() {
       // Writes are framed chunks: strip the 2-byte length prefix.
       final request =
           jsonDecode(utf8.decode(ble.writes[answered].value.sublist(2))) as Map;
-      final body = utf8.encode(jsonEncode({
-        'id': request['id'],
-        'data': request['cmd'] == 255 ? infoData : stateData,
-      }));
-      notifications
-          .add([body.length & 0xFF, (body.length >> 8) & 0xFF, ...body]);
+      final body = utf8.encode(
+        jsonEncode({
+          'id': request['id'],
+          'data': request['cmd'] == 255 ? infoData : stateData,
+        }),
+      );
+      notifications.add([
+        body.length & 0xFF,
+        (body.length >> 8) & 0xFF,
+        ...body,
+      ]);
     }
     await tester.pump();
   }
@@ -142,7 +147,8 @@ void main() {
           bleServiceProvider.overrideWithValue(ble),
           specCodecProvider.overrideWithValue(codec),
           rabbitAirSpecSurfaceProvider.overrideWith(
-              (ref) async => (specYaml: 'yaml', entities: entities)),
+            (ref) async => (specYaml: 'yaml', entities: entities),
+          ),
         ],
         child: MaterialApp(
           home: Scaffold(
@@ -184,7 +190,10 @@ void main() {
         if (entity == 'Power') {
           final on = raw == 'true';
           return NetworkReadingDto(
-              kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+            kind: NetworkReadingKind.onOff,
+            isOn: on,
+            raw: on ? '1' : '0',
+          );
         }
         if (entity == 'Mode' || entity == 'Air Quality') {
           final options = entities.firstWhere((e) => e.name == entity).options;
@@ -193,12 +202,16 @@ void main() {
               .map((o) => o.label)
               .firstOrNull;
           return NetworkReadingDto(
-              kind: NetworkReadingKind.option, label: label, raw: raw);
+            kind: NetworkReadingKind.option,
+            label: label,
+            raw: raw,
+          );
         }
         return NetworkReadingDto(
-            kind: NetworkReadingKind.number,
-            number: double.parse(raw),
-            raw: raw);
+          kind: NetworkReadingKind.number,
+          number: double.parse(raw),
+          raw: raw,
+        );
       },
     );
   });
@@ -213,8 +226,7 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets(
-      'renders the info card and the live state, read-only, with '
+  testWidgets('renders the info card and the live state, read-only, with '
       'the setup CTA', (tester) async {
     await tester.pumpWidget(wrap());
     await answerNewWrites(tester); // cmd 255
@@ -265,8 +277,9 @@ void main() {
     expect(find.text('4300 min'), findsOneWidget);
     expect(
       ble.writes
-          .map((w) =>
-              (jsonDecode(utf8.decode(w.value.sublist(2))) as Map)['cmd'])
+          .map(
+            (w) => (jsonDecode(utf8.decode(w.value.sublist(2))) as Map)['cmd'],
+          )
           .toList(),
       [255, 4, 4],
     );
@@ -274,8 +287,7 @@ void main() {
     await unmount(tester);
   });
 
-  testWidgets(
-      'a device without the command characteristic shows a '
+  testWidgets('a device without the command characteristic shows a '
       'non-fatal error with retry and the CTA', (tester) async {
     await tester.pumpWidget(wrap(services: const []));
     await tester.pumpAndSettle();
@@ -286,8 +298,7 @@ void main() {
     // No poll timer was ever started, so nothing more to clean up.
   });
 
-  testWidgets(
-      'a purifier that stops answering keeps the last readings and '
+  testWidgets('a purifier that stops answering keeps the last readings and '
       'says so', (tester) async {
     await tester.pumpWidget(wrap());
     await answerNewWrites(tester);
@@ -306,5 +317,50 @@ void main() {
     expect(find.text('abcdef1234_000000000000000000'), findsOneWidget);
 
     await unmount(tester);
+  });
+
+  testWidgets('leaving during a retry does not touch the defunct panel', (
+    tester,
+  ) async {
+    // R-128. A retry tears the previous client down before re-seeding its
+    // own state, and that teardown is an await — so the panel can be gone
+    // by the time it returns. Everything after it ran unguarded: setState on
+    // a defunct State, and `ref.read` through a disposed ref.
+    final cancelGate = Completer<void>();
+    await notifications.close();
+    notifications = StreamController<List<int>>.broadcast(
+      onCancel: () => cancelGate.future,
+    );
+    ble = FakeBleService(
+      servicesToReturn: const [_rabbitService],
+      notifyStream: notifications.stream,
+      mtuToReturn: 515,
+    );
+
+    await tester.pumpWidget(wrap());
+    await answerNewWrites(tester); // cmd 255
+    await answerNewWrites(tester); // cmd 4
+    await tester.pumpAndSettle();
+
+    // Let a poll go unanswered so the retry affordance appears.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.text('Try again'), findsOneWidget);
+
+    // The retry's teardown hangs on cancelling the notify subscription...
+    await tester.tap(find.text('Try again'));
+    await tester.pump();
+    // ...and the user backs out while it is still in flight.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump();
+    cancelGate.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'the retry must notice the panel is gone, not setState on it',
+    );
   });
 }

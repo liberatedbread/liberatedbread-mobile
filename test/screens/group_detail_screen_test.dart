@@ -53,29 +53,30 @@ final _bulbSpec = DeviceSpecDto(
   services: const [],
   entities: const [
     EntityDto(
-        options: [],
-        name: 'Bulb',
-        platform: 'light',
-        canNotify: false,
-        hasFormat: false,
-        onWhenNonzero: false,
-        actions: [
-          EntityActionDto(
-            role: 'turn_on',
-            serviceUuid: _svc,
-            characteristicUuid: _chr,
-            commandName: 'power_on',
-            userParams: [],
-          ),
-          EntityActionDto(
-            role: 'turn_off',
-            serviceUuid: _svc,
-            characteristicUuid: _chr,
-            commandName: 'power_off',
-            userParams: [],
-          ),
-        ],
-        variants: []),
+      options: [],
+      name: 'Bulb',
+      platform: 'light',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        EntityActionDto(
+          role: 'turn_on',
+          serviceUuid: _svc,
+          characteristicUuid: _chr,
+          commandName: 'power_on',
+          userParams: [],
+        ),
+        EntityActionDto(
+          role: 'turn_off',
+          serviceUuid: _svc,
+          characteristicUuid: _chr,
+          commandName: 'power_off',
+          userParams: [],
+        ),
+      ],
+      variants: [],
+    ),
   ],
 );
 
@@ -84,26 +85,28 @@ late SharedPreferences _prefs;
 /// FilledButton.tonalIcon builds a private FilledButton subclass, so match
 /// by predicate rather than exact runtimeType.
 FilledButton _buttonWith(WidgetTester tester, String label) =>
-    tester.widget<FilledButton>(find.ancestor(
-      of: find.textContaining(label),
-      matching: find.byWidgetPredicate((w) => w is FilledButton),
-    ));
+    tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.textContaining(label),
+        matching: find.byWidgetPredicate((w) => w is FilledButton),
+      ),
+    );
 
 Map<String, Object> _twoBulbs() => {
-      'saved_devices_v1': jsonEncode([
-        for (final (id, name) in [
-          ('AA:BB:CC:DD:EE:01', 'ACME_Living_Room'),
-          ('AA:BB:CC:DD:EE:02', 'ACME_Bedroom'),
-        ])
-          {
-            'id': id,
-            'name': name,
-            'lastSeen': '2026-08-11T10:00:00.000',
-            'category': 'light',
-            'specKey': 'Example Smart Bulb|Acme Corp',
-          },
-      ]),
-    };
+  'saved_devices_v1': jsonEncode([
+    for (final (id, name) in [
+      ('AA:BB:CC:DD:EE:01', 'ACME_Living_Room'),
+      ('AA:BB:CC:DD:EE:02', 'ACME_Bedroom'),
+    ])
+      {
+        'id': id,
+        'name': name,
+        'lastSeen': '2026-08-11T10:00:00.000',
+        'category': 'light',
+        'specKey': 'Example Smart Bulb|Acme Corp',
+      },
+  ]),
+};
 
 /// A runner whose every run is a stream ERROR — the bug path the screen's
 /// stream accounting must survive (per-device failures are events, not
@@ -124,22 +127,28 @@ class _ErroringRunner extends GroupRunner {
   }
 }
 
-Widget _wrap(FakeBleService ble, FakeSpecCodec codec,
-        {List<Override> overrides = const []}) =>
-    ProviderScope(
-      overrides: [
-        ...overrides,
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-        scanGuessProvider.overrideWith((ref, identity) async => null),
-        parsedDeviceSpecsProvider.overrideWith(
-            (ref) async => [(spec: _bulbSpec, yaml: 'bulb-yaml')]),
-      ],
-      child: const MaterialApp(
-        home: GroupDetailScreen(category: DeviceCategory.light),
+Widget _wrap(
+  FakeBleService ble,
+  FakeSpecCodec codec, {
+  List<Override> overrides = const [],
+}) => ProviderScope(
+  overrides: [
+    ...overrides,
+    sharedPreferencesProvider.overrideWithValue(_prefs),
+    bleServiceProvider.overrideWithValue(ble),
+    specCodecProvider.overrideWithValue(codec),
+    scanGuessProvider.overrideWith((ref, identity) async => null),
+    specCatalogueProvider.overrideWith(
+      (ref) async => FallbackSpecCatalogue.fromParsed(
+        ref.watch(specCodecProvider),
+        [(spec: _bulbSpec, yaml: 'bulb-yaml')],
       ),
-    );
+    ),
+  ],
+  child: const MaterialApp(
+    home: GroupDetailScreen(category: DeviceCategory.light),
+  ),
+);
 
 void main() {
   setUp(() async {
@@ -147,16 +156,21 @@ void main() {
     _prefs = await SharedPreferences.getInstance();
   });
 
-  FakeBleService writableBle() => FakeBleService(servicesToReturn: const [
-        BleDiscoveredService(uuid: _svc, characteristics: [
+  FakeBleService writableBle() => FakeBleService(
+    servicesToReturn: const [
+      BleDiscoveredService(
+        uuid: _svc,
+        characteristics: [
           BleDiscoveredCharacteristic(
             uuid: _chr,
             canRead: false,
             canWrite: true,
             canNotify: false,
           ),
-        ]),
-      ]);
+        ],
+      ),
+    ],
+  );
 
   testWidgets('shows members with their supported operations', (tester) async {
     await tester.pumpWidget(_wrap(writableBle(), FakeSpecCodec()));
@@ -169,8 +183,7 @@ void main() {
     expect(find.text('Turn all on · Turn all off'), findsNWidgets(2));
   });
 
-  testWidgets(
-      'brightness is disabled when no member resolves it, '
+  testWidgets('brightness is disabled when no member resolves it, '
       'battery is always offered', (tester) async {
     await tester.pumpWidget(_wrap(writableBle(), FakeSpecCodec()));
     await tester.pumpAndSettle();
@@ -180,8 +193,9 @@ void main() {
     expect(_buttonWith(tester, 'Read batteries').onPressed, isNotNull);
   });
 
-  testWidgets('commands stay enabled while a member may match on connect',
-      (tester) async {
+  testWidgets('commands stay enabled while a member may match on connect', (
+    tester,
+  ) async {
     // One member with no stored spec at all: its row promises a match on
     // connect, so the verbs must stay tappable — the runner reports the
     // honest per-device skip if the match never comes.
@@ -205,8 +219,9 @@ void main() {
     expect(find.text('Set brightness · 0 of 1'), findsOneWidget);
   });
 
-  testWidgets('resolving guesses read as waiting, not as forgotten members',
-      (tester) async {
+  testWidgets('resolving guesses read as waiting, not as forgotten members', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({
       'saved_devices_v1': jsonEncode([
         {
@@ -218,18 +233,25 @@ void main() {
     });
     _prefs = await SharedPreferences.getInstance();
     final never = Completer<ScanGuess?>();
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        bleServiceProvider.overrideWithValue(writableBle()),
-        specCodecProvider.overrideWithValue(FakeSpecCodec()),
-        scanGuessProvider.overrideWith((ref, identity) => never.future),
-        parsedDeviceSpecsProvider.overrideWith((ref) async => []),
-      ],
-      child: const MaterialApp(
-        home: GroupDetailScreen(category: DeviceCategory.light),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          bleServiceProvider.overrideWithValue(writableBle()),
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          scanGuessProvider.overrideWith((ref, identity) => never.future),
+          specCatalogueProvider.overrideWith(
+            (ref) async => FallbackSpecCatalogue.fromParsed(
+              ref.watch(specCodecProvider),
+              const [],
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          home: GroupDetailScreen(category: DeviceCategory.light),
+        ),
       ),
-    ));
+    );
     // pump, not pumpAndSettle: the spinner animates for as long as the guess
     // pass is in flight, which here is forever.
     await tester.pump();
@@ -239,8 +261,9 @@ void main() {
     expect(find.textContaining('may have been forgotten'), findsNothing);
   });
 
-  testWidgets('a failed guess pass gets an error and a retry, not a spinner',
-      (tester) async {
+  testWidgets('a failed guess pass gets an error and a retry, not a spinner', (
+    tester,
+  ) async {
     // autoGroupsProvider is not autoDispose: once it settles in error,
     // nothing re-runs it short of an explicit refresh — so a settled error
     // must render as an error with a retry, never as an eternal spinner or
@@ -256,21 +279,28 @@ void main() {
     });
     _prefs = await SharedPreferences.getInstance();
     var failGuesses = true;
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        bleServiceProvider.overrideWithValue(writableBle()),
-        specCodecProvider.overrideWithValue(FakeSpecCodec()),
-        scanGuessProvider.overrideWith((ref, identity) async {
-          if (failGuesses) throw Exception('catalogue unavailable');
-          return null;
-        }),
-        parsedDeviceSpecsProvider.overrideWith((ref) async => []),
-      ],
-      child: const MaterialApp(
-        home: GroupDetailScreen(category: DeviceCategory.light),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          bleServiceProvider.overrideWithValue(writableBle()),
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          scanGuessProvider.overrideWith((ref, identity) async {
+            if (failGuesses) throw Exception('catalogue unavailable');
+            return null;
+          }),
+          specCatalogueProvider.overrideWith(
+            (ref) async => FallbackSpecCatalogue.fromParsed(
+              ref.watch(specCodecProvider),
+              const [],
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          home: GroupDetailScreen(category: DeviceCategory.light),
+        ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -286,8 +316,9 @@ void main() {
     expect(find.textContaining('may have been forgotten'), findsOneWidget);
   });
 
-  testWidgets('turn all off runs the group and reports per-device outcomes',
-      (tester) async {
+  testWidgets('turn all off runs the group and reports per-device outcomes', (
+    tester,
+  ) async {
     final ble = writableBle();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList(const [9, 9]));
     await tester.pumpWidget(_wrap(ble, codec));
@@ -309,16 +340,22 @@ void main() {
     expect(find.text('1 command sent'), findsNWidgets(2));
   });
 
-  testWidgets('a stream error releases the buttons for the next run',
-      (tester) async {
+  testWidgets('a stream error releases the buttons for the next run', (
+    tester,
+  ) async {
     // An error is followed by done on the same stream; decrementing the
     // live-stream count on both drove it negative and latched the screen
     // in "running" forever — one runner bug, no way to try again.
     final ble = writableBle();
     final codec = FakeSpecCodec();
     final runner = _ErroringRunner(ble: ble, codec: codec);
-    await tester.pumpWidget(_wrap(ble, codec,
-        overrides: [groupRunnerProvider.overrideWithValue(runner)]));
+    await tester.pumpWidget(
+      _wrap(
+        ble,
+        codec,
+        overrides: [groupRunnerProvider.overrideWithValue(runner)],
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Turn all off'));
@@ -330,8 +367,9 @@ void main() {
     expect(runner.runs, 2);
   });
 
-  testWidgets('a device the run cannot reach reads as failed, not silent',
-      (tester) async {
+  testWidgets('a device the run cannot reach reads as failed, not silent', (
+    tester,
+  ) async {
     final ble = writableBle()..connectError = Exception('nope');
     await tester.pumpWidget(_wrap(ble, FakeSpecCodec()));
     await tester.pumpAndSettle();
@@ -344,110 +382,124 @@ void main() {
   });
 
   testWidgets(
-      'a mixed group runs both transports: BLE writes and a network send '
-      'from one tap', (tester) async {
-    // One saved bulb (BLE) and one saved Wi-Fi light in the same category
-    // bucket — the arbitrary-grouping case, on the automatic group.
-    SharedPreferences.setMockInitialValues({
-      ..._twoBulbs(),
-      'saved_network_devices_v1': jsonEncode([
-        {
-          'id': 'hn:strip.local',
-          'name': 'Wifi Strip',
-          'lastSeen': '2026-08-11T10:00:00.000',
-          'host': '192.0.2.9',
-          'ssdpPort': 8060,
-          'category': 'light',
-          'specKey': 'Wifi Strip|Acme Corp',
-        },
-      ]),
-    });
-    _prefs = await SharedPreferences.getInstance();
+    'a mixed group runs both transports: BLE writes and a network send '
+    'from one tap',
+    (tester) async {
+      // One saved bulb (BLE) and one saved Wi-Fi light in the same category
+      // bucket — the arbitrary-grouping case, on the automatic group.
+      SharedPreferences.setMockInitialValues({
+        ..._twoBulbs(),
+        'saved_network_devices_v1': jsonEncode([
+          {
+            'id': 'hn:strip.local',
+            'name': 'Wifi Strip',
+            'lastSeen': '2026-08-11T10:00:00.000',
+            'host': '192.0.2.9',
+            'ssdpPort': 8060,
+            'category': 'light',
+            'specKey': 'Wifi Strip|Acme Corp',
+          },
+        ]),
+      });
+      _prefs = await SharedPreferences.getInstance();
 
-    final wifiSpec = DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Wifi Strip',
-      manufacturer: 'Acme Corp',
-      manufacturerStatus: 'active',
-      protocol: 'wifi',
-      category: 'light',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      services: const [],
-      entities: const [],
-    );
-    const wifiPower = NetworkEntityDto(
-      name: 'Power',
-      platform: 'light',
-      stateCommand: '',
-      transport: 'http',
-      isInstanced: false,
-      options: [],
-      actions: [
-        NetworkActionDto(
-          role: 'turn_off',
-          commandName: 'strip_off',
-          transport: 'http',
-          userParams: [],
-          readBack: [],
-          credentials: [],
-          instanceParams: [],
+      final wifiSpec = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'Wifi Strip',
+        manufacturer: 'Acme Corp',
+        manufacturerStatus: 'active',
+        protocol: 'wifi',
+        category: 'light',
+        localNamePrefixes: const [],
+        localNames: const [],
+        serviceUuids: const [],
+        companyIds: Uint16List(0),
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        services: const [],
+        entities: const [],
+      );
+      const wifiPower = NetworkEntityDto(
+        name: 'Power',
+        platform: 'light',
+        stateCommand: '',
+        transport: 'http',
+        isInstanced: false,
+        options: [],
+        actions: [
+          NetworkActionDto(
+            role: 'turn_off',
+            commandName: 'strip_off',
+            transport: 'http',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [],
+          ),
+        ],
+      );
+
+      final received = <Uri>[];
+      final ble = writableBle();
+      final codec = FakeSpecCodec(
+        spec: _bulbSpec,
+        networkEntities: (targets) => const [wifiPower],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+            bleServiceProvider.overrideWithValue(ble),
+            specCodecProvider.overrideWithValue(codec),
+            scanGuessProvider.overrideWith((ref, identity) async => null),
+            specCatalogueProvider.overrideWith(
+              (ref) async => FallbackSpecCatalogue.fromParsed(
+                ref.watch(specCodecProvider),
+                [
+                  (spec: _bulbSpec, yaml: 'bulb-yaml'),
+                  (spec: wifiSpec, yaml: 'wifi-yaml'),
+                ],
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(
+                httpClient: MockClient((request) async {
+                  received.add(request.url);
+                  return http.Response('', 200);
+                }),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: GroupDetailScreen(category: DeviceCategory.light),
+          ),
         ),
-      ],
-    );
+      );
+      await tester.pumpAndSettle();
 
-    final received = <Uri>[];
-    final ble = writableBle();
-    final codec = FakeSpecCodec(
-      spec: _bulbSpec,
-      networkEntities: (targets) => const [wifiPower],
-    );
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-        scanGuessProvider.overrideWith((ref, identity) async => null),
-        parsedDeviceSpecsProvider.overrideWith((ref) async => [
-              (spec: _bulbSpec, yaml: 'bulb-yaml'),
-              (spec: wifiSpec, yaml: 'wifi-yaml'),
-            ]),
-        httpControlClientProvider.overrideWithValue(
-            HttpControlClient(httpClient: MockClient((request) async {
-          received.add(request.url);
-          return http.Response('', 200);
-        }))),
-      ],
-      child: const MaterialApp(
-        home: GroupDetailScreen(category: DeviceCategory.light),
-      ),
-    ));
-    await tester.pumpAndSettle();
+      // Both transports' members render in the one group.
+      expect(find.text('ACME_Living_Room'), findsOneWidget);
+      expect(find.text('Wifi Strip'), findsOneWidget);
 
-    // Both transports' members render in the one group.
-    expect(find.text('ACME_Living_Room'), findsOneWidget);
-    expect(find.text('Wifi Strip'), findsOneWidget);
+      // The strip's pre-run summary also reads "Turn all off", so target the
+      // button explicitly.
+      await tester.tap(
+        find.ancestor(
+          of: find.text('Turn all off'),
+          matching: find.byWidgetPredicate((w) => w is FilledButton),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // The strip's pre-run summary also reads "Turn all off", so target the
-    // button explicitly.
-    await tester.tap(find.ancestor(
-      of: find.text('Turn all off'),
-      matching: find.byWidgetPredicate((w) => w is FilledButton),
-    ));
-    await tester.pumpAndSettle();
-
-    // The bulbs got their GATT writes, the strip its HTTP POST — one tap.
-    expect(ble.writes, hasLength(2));
-    expect(received.single.path, '/fake/strip_off');
-    expect(find.text('1 command sent'), findsNWidgets(3));
-  });
+      // The bulbs got their GATT writes, the strip its HTTP POST — one tap.
+      expect(ble.writes, hasLength(2));
+      expect(received.single.path, '/fake/strip_off');
+      expect(find.text('1 command sent'), findsNWidgets(3));
+    },
+  );
 }

@@ -40,20 +40,20 @@ class SavedDevice {
   /// clear a field, which is exactly why `recordMatch` replaces the whole
   /// record instead — dead parameters here would invite that trap back.
   SavedDevice copyWith({String? name, DateTime? lastSeen}) => SavedDevice(
-        id: id,
-        name: name ?? this.name,
-        lastSeen: lastSeen ?? this.lastSeen,
-        category: category,
-        specKey: specKey,
-      );
+    id: id,
+    name: name ?? this.name,
+    lastSeen: lastSeen ?? this.lastSeen,
+    category: category,
+    specKey: specKey,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'lastSeen': lastSeen.toIso8601String(),
-        if (category != null) 'category': category,
-        if (specKey != null) 'specKey': specKey,
-      };
+    'id': id,
+    'name': name,
+    'lastSeen': lastSeen.toIso8601String(),
+    if (category != null) 'category': category,
+    if (specKey != null) 'specKey': specKey,
+  };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
   /// take the whole saved-device list down with it.

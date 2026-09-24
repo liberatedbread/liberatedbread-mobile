@@ -11,6 +11,7 @@ use flutter_rust_bridge::frb;
 use crate::codec::types::DecodedValue;
 use crate::protocol::dispatch::select_protocol;
 use crate::protocol::profiles;
+use crate::protocol::profiles::normalize_uuid;
 use crate::protocol::traits::DeviceProtocol;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
@@ -516,13 +517,24 @@ pub struct ParameterDto {
     /// Enumerated set of allowed values. When present (and non-empty) the
     /// device accepts only these values, so the UI should offer a choice
     /// among them instead of a free min..max range.
+    ///
+    /// Resolved by [`Parameter::allowed_with_labels`], so the two spellings
+    /// the catalogue uses for one fact arrive here as one list: the schema's
+    /// `allowed` (+ `labels`), and the `values` raw→label code table nine
+    /// BLE parameters write instead. A consumer sees a choice either way.
     pub allowed: Option<Vec<i64>>,
-    /// Human-readable labels for `allowed`, paired 1:1 by index (the upstream
-    /// spec-format contract). Only present when `allowed` is present and the
-    /// lengths match exactly — a mismatched spec keeps its `allowed` values
-    /// but has its labels dropped rather than mispaired (see the `From`
-    /// conversion below).
+    /// Human-readable labels for `allowed`, paired 1:1 by index — and
+    /// present ONLY when every allowed value has one. A spec that labels
+    /// some values and not others ships `allowed` and no `labels` at all,
+    /// so the consumer renders every choice as its number rather than
+    /// pairing a short list off by position (all or nothing; see the `From`
+    /// impl, and `mismatched_labels_are_dropped_at_dto_boundary_but_allowed_kept`
+    /// in rust/tests/spec_tolerance.rs). Absent whenever `allowed` is.
     pub labels: Option<Vec<String>>,
+    /// What this parameter means, in the spec's own words — the sentence a
+    /// control surface can show beside a knob whose name is `flag` or `mcu`.
+    /// `None` when the spec says nothing.
+    pub description: Option<String>,
     /// Multiplier of the parameter's linear transform, when the spec declares
     /// one. A treadmill's `speed` is wire-units with `scale: 0.1` and
     /// `unit: km/h`: the UI works in km/h and the encoder inverts the
@@ -539,7 +551,11 @@ pub struct ParameterDto {
     /// Value the encoder substitutes when the caller supplies nothing — the
     /// reason a speed slider does not need to know the protocol's `flag`
     /// byte. Surfaced so the UI can pre-fill or omit the control entirely.
-    pub default: Option<i64>,
+    ///
+    /// A number, like `min` and `max` beside it, because the schema types the
+    /// key `number`: a spec writing `default: 2.0` used to fail to parse at
+    /// all, taking the whole device with it.
+    pub default: Option<f64>,
     /// Transport role the encoder fills rather than the caller
     /// (`packet_length` | `sequence` | `checksum`), rendered as the spec's
     /// snake_case wire string. When set, the UI must NOT offer a control for
@@ -601,6 +617,39 @@ pub struct DecodedValueDto {
     /// iBBQ sends whichever unit the device is currently set to, so a UI must
     /// not present [`Self::unit`] as fact when this reads `device_setting`.
     pub unit_source: Option<String>,
+    /// The raw integer this field carries, as a float — `None` for a bool, a
+    /// string or a byte blob (see [`DecodedValue::as_number`] for why a bool
+    /// is not a number here).
+    ///
+    /// Unlike [`Self::uint_value`] this is NOT clamped into `i64` range: a
+    /// `u64` above `i64::MAX` arrives here as the value the device really
+    /// sent, so a control seeded from it is seeded from the truth.
+    pub raw_number: Option<f64>,
+    /// [`Self::raw_number`] through the spec's linear transform — the number
+    /// a person is reading, and the one to forward to Home Assistant.
+    ///
+    /// Computed here, by [`crate::codec::number`], rather than left for each
+    /// consumer to derive from [`Self::scale`] and [`Self::value_offset`]:
+    /// three consumers derived it three different ways, and one of them wrote
+    /// centidegrees into somebody's long-term statistics.
+    pub decoded_number: Option<f64>,
+    /// The reading as text: [`Self::decoded_number`] at the decimal places
+    /// the transform implies, or the codec's own rendering for a non-numeric
+    /// field. Never carries the unit or the `values:` label — those are
+    /// separate statements ([`Self::unit`], [`Self::value_label`]) a caller
+    /// combines as its layout needs.
+    pub decoded_text: Option<String>,
+    /// Decimal places [`Self::decoded_text`] was rendered at, for a consumer
+    /// that has to re-render the number itself (Home Assistant wants a JSON
+    /// number, not a string, and an untransformed field must stay an integer).
+    pub decimals: Option<u32>,
+    /// Whether this field on its own reads as "on": a bool speaks for itself,
+    /// and a number is on when it is nonzero. `None` for a string or a blob.
+    ///
+    /// The entity layer can overrule this with `state_mapping.on_value`, which
+    /// names a specific code as the only "on"; this is the answer when it does
+    /// not.
+    pub is_on: Option<bool>,
 }
 
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever
@@ -1226,10 +1275,18 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
             .is_some()
             .then(|| entity.state_characteristic.clone())
             .flatten(),
+        // Indicate counts: it is the same subscription from the app's side
+        // (the CCCD write differs by one bit, and the platform handles it)
+        // and several SIG profiles — Blood Pressure Measurement 0x2A35 among
+        // them — are indicate-only. Reporting those as not subscribable
+        // left the entity on a permanent read error.
         can_notify: state.is_some_and(|(_, characteristic)| {
-            characteristic
-                .properties
-                .contains(&CharacteristicProperty::Notify)
+            characteristic.properties.iter().any(|p| {
+                matches!(
+                    p,
+                    CharacteristicProperty::Notify | CharacteristicProperty::Indicate
+                )
+            })
         }),
         // Whether the bound characteristic declares a byte layout. Without
         // one there is nothing to decode the payload with, so the UI shows
@@ -1353,25 +1410,37 @@ impl From<(&Characteristic, &str, &Command)> for CommandDto {
 
 impl From<(&str, &Parameter)> for ParameterDto {
     fn from((name, p): (&str, &Parameter)) -> Self {
-        // Labels pair with `allowed` 1:1 by index. Specs are loaded from
-        // untrusted packs, so a mismatch must not panic; and mispairing
-        // (zipping short, or padding) would silently attach the wrong label
-        // to a value the device really acts on. Decision: keep `allowed`
-        // (it is what the device accepts) and drop `labels` entirely unless
-        // both are present with exactly equal lengths. Labels without
-        // `allowed` have nothing to pair with and are dropped for the same
-        // reason.
-        let labels = match (&p.allowed, &p.labels) {
-            (Some(allowed), Some(labels)) if allowed.len() == labels.len() => Some(labels.clone()),
-            _ => None,
+        // The choice set and its labels are resolved once, in the spec
+        // layer, so `allowed` + `labels` + `values` cannot be read three
+        // different ways by three consumers. `allowed_with_labels` is also
+        // where mispairing is refused: specs load from untrusted packs, and
+        // zipping a short `labels` list would silently attach the wrong name
+        // to a value the device really acts on.
+        let (allowed, labels) = match p.allowed_with_labels() {
+            Some(pairs) => {
+                // All or nothing, as it has always been at this boundary: a
+                // list that names only some of the values would be paired by
+                // index on the far side, and the unnamed ones would read as
+                // their own number twice over ("1 (1)").
+                let labels = pairs
+                    .iter()
+                    .map(|(_, label)| label.clone())
+                    .collect::<Option<Vec<String>>>();
+                (
+                    Some(pairs.into_iter().map(|(value, _)| value).collect()),
+                    labels,
+                )
+            }
+            None => (None, None),
         };
         Self {
             name: name.to_string(),
             value_type: p.value_type.to_string(),
             min: p.min.map(|v| v as f64),
             max: p.max.map(|v| v as f64),
-            allowed: p.allowed.clone(),
+            allowed,
             labels,
+            description: p.description.clone(),
             scale: p.scale,
             value_offset: p.value_offset,
             unit: p.unit.clone(),
@@ -1407,6 +1476,19 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
             unit: None,
             value_label: None,
             unit_source: None,
+            // No `format:` metadata is in hand at this point, so the reading
+            // is its own transform. `decode_value` re-states all four once it
+            // has looked the field's semantics up.
+            raw_number: value.as_number(),
+            decoded_number: value.as_number(),
+            decoded_text: Some(value.display()),
+            decimals: Some(0),
+            is_on: match value {
+                DecodedValue::Bool(v) => Some(*v),
+                _ => value
+                    .as_int()
+                    .map(|raw| crate::codec::number::is_on(raw, None)),
+            },
         };
         match value {
             DecodedValue::Bool(v) => dto.bool_value = Some(*v),
@@ -1442,6 +1524,78 @@ pub fn load_device_spec(yaml: String) -> anyhow::Result<DeviceSpecDto> {
     Ok(DeviceSpecDto::from(&spec))
 }
 
+/// The handshake a spec wants run on every BLE connect, before anything else
+/// is read or written.
+///
+/// The schema has called `initialization` "ordered handshake / setup steps
+/// executed after connecting and before normal commands" since the beginning,
+/// and six vendored specs declare one — a SpotLED panel's three writes to
+/// `ff21`, a SmartDawn's two subscriptions, an xkglow's chained read — but
+/// nothing parsed it, so a user tapped a command the spec says only works
+/// after the sequence and the device ignored it. This is the whole decision
+/// in one call: which steps, in which order, against which service, and which
+/// of them a GATT client can carry out at all. The caller is meant to be a
+/// loop with no opinions.
+///
+/// [`BleHandshakeDto::described`] is the honesty half: schlage's session
+/// resumption is a fresh SPAKE2 exchange per connect, stated in prose because
+/// no YAML can hold its bytes. Those steps are reported, never executed, so a
+/// client that ran the executable prefix knows it did not finish a handshake
+/// rather than believing it did.
+///
+/// Empty steps and empty `described` for the overwhelming majority of the
+/// catalogue, which declares no handshake and must not pay a round trip for
+/// one.
+pub fn spec_ble_handshake(spec_yaml: String) -> anyhow::Result<BleHandshakeDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let handshake = crate::spec::initialization::handshake(&spec);
+    Ok(BleHandshakeDto {
+        steps: handshake
+            .steps
+            .into_iter()
+            .map(|step| BleHandshakeStepDto {
+                service_uuid: step.service_uuid,
+                characteristic_uuid: step.characteristic_uuid,
+                write: step.write,
+                read: step.read,
+                subscribe: step.subscribe,
+                delay_ms: step.delay_ms,
+            })
+            .collect(),
+        described: handshake.described,
+    })
+}
+
+/// A spec's connect-time handshake: what to run, and what it could not say.
+#[derive(Debug, Clone)]
+pub struct BleHandshakeDto {
+    /// The executable steps, in the order they must run.
+    pub steps: Vec<BleHandshakeStepDto>,
+    /// Steps the spec states only in prose, in order — nothing to execute,
+    /// and a warning worth logging rather than a silence.
+    pub described: Vec<String>,
+}
+
+/// One step of a connect-time handshake, addressed and ready to run.
+#[derive(Debug, Clone)]
+pub struct BleHandshakeStepDto {
+    /// The service the characteristic was found under. `None` when no service
+    /// in the spec declares it and the step named no owning service either —
+    /// there is nothing to address the operation to, and a caller must skip
+    /// it rather than guess a service.
+    pub service_uuid: Option<String>,
+    /// The characteristic to act on.
+    pub characteristic_uuid: String,
+    /// Bytes to write, or `None` for a read/subscribe-only step.
+    pub write: Option<Vec<u8>>,
+    /// Read the characteristic once the write (if any) has gone out.
+    pub read: bool,
+    /// Open notifications on the characteristic.
+    pub subscribe: bool,
+    /// Milliseconds to wait after the step; 0 for no wait.
+    pub delay_ms: u32,
+}
+
 /// The bytes that set a `number`/`climate` entity to a value, and where to
 /// write them.
 #[derive(Debug, Clone)]
@@ -1469,13 +1623,23 @@ pub fn encode_entity_value(
     value: f64,
 ) -> anyhow::Result<EntityWriteDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    encode_entity_value_with_spec(&spec, entity_name, value)
+}
+
+/// [`encode_entity_value`] against a spec that is already parsed — the body
+/// both the by-YAML entry point and [`super::spec_handle::LoadedSpec`] run.
+pub(crate) fn encode_entity_value_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    value: f64,
+) -> anyhow::Result<EntityWriteDto> {
     let entity = spec
         .entities
         .iter()
         .find(|e| e.name == entity_name)
         .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
 
-    let actions = bindings::resolve_entity_actions(&spec, entity);
+    let actions = bindings::resolve_entity_actions(spec, entity);
     let action = actions
         .iter()
         .find(|a| a.role == "set_value")
@@ -1497,7 +1661,7 @@ pub fn encode_entity_value(
         }
     }
 
-    let transform = bindings::setpoint_transform(&spec, entity, action);
+    let transform = bindings::setpoint_transform(spec, entity, action);
     let raw = transform.encode(value).ok_or_else(|| {
         anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
     })?;
@@ -2065,8 +2229,11 @@ fn network_surface_for(
                 ),
                 is_instanced: entity.instances.is_some(),
                 value_field: entity.value_field().map(str::to_string),
-                options: entity
-                    .options()
+                // Resolved from the entity's own table when it has one and
+                // from the bound command's parameter when it does not — see
+                // `bindings::entity_options`, which is the one place that
+                // decides it.
+                options: bindings::entity_options(entity, &actions)
                     .into_iter()
                     .map(|(raw, label)| NetworkOptionDto { raw, label })
                     .collect(),
@@ -2267,6 +2434,9 @@ pub fn render_network_command(
 /// The sibling of [`SoapRequestDto`] for transports where the method and the
 /// path ARE the request — Roku ECP's keypresses. The address is the caller's:
 /// discovery already knows the host and port.
+// `#[frb]` on the struct is what lets the field-level `frb(default)` below
+// exist: the attribute macro strips its own field attributes.
+#[frb]
 #[derive(Debug, Clone)]
 pub struct HttpRequestDto {
     /// `GET` | `POST` | …, as the spec spelled it.
@@ -2282,6 +2452,39 @@ pub struct HttpRequestDto {
     /// LAN device carries. Device-level, not per-command: no spec mixes
     /// schemes across commands.
     pub scheme: Option<String>,
+    /// Headers the command declares, rendered — placeholders filled, a
+    /// credential-sourced one from the same stored value a body placeholder
+    /// reads. The sender puts every one on the wire as given; a
+    /// `Content-Type` here wins over the one it would infer from the body.
+    /// Empty for every command that declares none, which is the whole
+    /// catalogue as vendored (Vizio SmartCast's `AUTH` is the first user).
+    /// Defaulted on the Dart side so the many callers that build a request
+    /// by hand — an ECP keypress, a Hue config read — need not name it.
+    #[frb(default = "const []")]
+    pub headers: Vec<HttpHeaderDto>,
+    /// The SECOND spelling of [`Self::path`] this same invocation may be
+    /// addressed by, when the spec declares one (`path_fallback` on a
+    /// command, `state_topic_fallback` on an entity) — rendered here so the
+    /// sender needs no spec knowledge of its own.
+    ///
+    /// The contract is the schema's: send `path`, and fall back to this ONLY
+    /// when the device answers an unambiguous "no such thing" — an HTTP 404 —
+    /// never on a timeout, a refusal, or a 5xx. ESPHome is why it exists:
+    /// firmware up to 2025.12 addresses a ratgdo's cover by slugified
+    /// object_id (`/cover/door/open`) and 2026.7 and later by percent-encoded
+    /// entity name (`/cover/Door/open`), and a spec covering that fleet has
+    /// two correct paths and no way to know which board answered until it
+    /// asks. Defaulted on the Dart side so the callers that build a request
+    /// by hand need not name it.
+    #[frb(default = "null")]
+    pub path_fallback: Option<String>,
+}
+
+/// One rendered request header, name and value as they go on the wire.
+#[derive(Debug, Clone)]
+pub struct HttpHeaderDto {
+    pub name: String,
+    pub value: String,
 }
 
 impl From<crate::protocol::http::HttpRequest> for HttpRequestDto {
@@ -2289,8 +2492,14 @@ impl From<crate::protocol::http::HttpRequest> for HttpRequestDto {
         Self {
             method: request.method,
             path: request.path,
+            path_fallback: request.path_fallback,
             body: request.body,
             scheme: None,
+            headers: request
+                .headers
+                .into_iter()
+                .map(|(name, value)| HttpHeaderDto { name, value })
+                .collect(),
         }
     }
 }
@@ -2861,11 +3070,17 @@ pub fn render_network_mqtt_command(
 /// splice is the same single-pass discipline every other template fill in
 /// this crate uses — a value is data, never template.
 ///
-/// A placeholder nothing fills STAYS in the text, and the caller must treat
-/// a returned topic still carrying `{` as unsubscribable: a literal
-/// `{serial}` on the wire is a topic no broker publishes on, and
-/// subscribing to it is how an entity renders forever-Unknown while the
-/// code claims a stream is filling it.
+/// A placeholder nothing fills is a REFUSAL, not a returned string: a literal
+/// `{serial}` on the wire is a topic no broker publishes on, and subscribing
+/// to it is how an entity renders forever-Unknown while the code claims a
+/// stream is filling it. The rule used to be stated only in this doc comment
+/// and enforced by the caller re-scanning the answer for a `{` — a protocol
+/// rule living in the UI layer, where the next caller would not find it, and
+/// one that could not tell an unfilled placeholder from a brace that arrived
+/// inside a VALUE. Asked of the template instead, the two are never confused,
+/// and the error names the placeholder that went unanswered, so a log says
+/// which value is missing rather than that the topic "still has a
+/// placeholder".
 ///
 /// A value carrying the topic language itself is REFUSED, exactly as the
 /// command-topic renderer refuses it (see [`mqtt::TOPIC_LANGUAGE`]). These
@@ -2877,26 +3092,78 @@ pub fn fill_mqtt_state_topic(
     topic: String,
     values: HashMap<String, String>,
 ) -> anyhow::Result<String> {
-    let mut fills: Vec<(String, String)> = Vec::new();
-    for (name, value) in values {
-        let placeholder = format!("{{{name}}}");
-        // Only what this topic actually uses: a stored credential carrying a
-        // slash is nobody's business here unless the topic names it.
-        if !topic.contains(&placeholder) {
-            continue;
-        }
+    // Walked once, so a value is data and never template: a serial that
+    // happens to contain `{productType}` lands verbatim rather than having
+    // the product type spliced into it on a second pass.
+    let mut unanswered: Option<String> = None;
+    let mut hostile: Option<(String, String)> = None;
+    let filled = crate::protocol::walk_placeholders(&topic, |name| {
+        let Some(value) = values.get(name) else {
+            unanswered.get_or_insert_with(|| name.to_string());
+            return Ok(None);
+        };
+        // Only what this topic actually uses is examined: a stored credential
+        // carrying a slash is nobody's business here unless the topic names
+        // it, which is what walking the template (rather than the store)
+        // buys.
         if value.contains(crate::protocol::mqtt::TOPIC_LANGUAGE) {
-            anyhow::bail!(
-                "the value for {{{name}}} carries a topic separator or \
-                 wildcard ({value:?}); it would rewrite the state topic \
-                 rather than fill it"
-            );
+            hostile.get_or_insert_with(|| (name.to_string(), value.clone()));
+            return Ok(None);
         }
-        fills.push((placeholder, value));
+        Ok(Some(value.clone()))
+    })?;
+    if let Some((name, value)) = hostile {
+        anyhow::bail!(
+            "the value for {{{name}}} carries a topic separator or \
+             wildcard ({value:?}); it would rewrite the state topic \
+             rather than fill it"
+        );
     }
-    // Deterministic order even though exact-key lookup makes ties impossible.
-    fills.sort();
-    Ok(crate::protocol::fill_placeholders_once(&topic, &fills))
+    if let Some(name) = unanswered {
+        anyhow::bail!(
+            "the state topic {topic:?} names {{{name}}}, which nothing this \
+             device is known by answers; it cannot be subscribed until that \
+             value is known"
+        );
+    }
+    Ok(filled)
+}
+
+/// The second spelling of each state topic the spec declares one for.
+///
+/// A `state_topic_fallback` is the MQTT/state-read sibling of a command's
+/// `path_fallback`: one family whose firmware generations name the same
+/// entity two ways, and a client with no way to know which generation
+/// answered until it asks. On the HTTP path the answer is a 404 and the
+/// renderer carries both candidates on the request itself; a subscription has
+/// no 404 to wait for — a topic that is simply never published looks exactly
+/// like a quiet device — so the honest move is to listen on both spellings
+/// and let the device decide which it uses. This hands the caller the pairs
+/// so it can, and reports them as the spec DECLARED them: filling is the
+/// caller's, through [`fill_mqtt_state_topic`], exactly as for the primary.
+///
+/// Empty for every spec that declares no fallback, which is all but ratgdo.
+pub fn spec_state_topic_fallbacks(spec_yaml: String) -> anyhow::Result<Vec<StateTopicFallbackDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(spec
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            Some(StateTopicFallbackDto {
+                topic: entity.state_topic.clone()?,
+                fallback: entity.state_topic_fallback.clone()?,
+            })
+        })
+        .collect())
+}
+
+/// One entity's two spellings of the same state location.
+#[derive(Debug, Clone)]
+pub struct StateTopicFallbackDto {
+    /// The `state_topic` as declared — the spelling to try first.
+    pub topic: String,
+    /// The `state_topic_fallback` as declared.
+    pub fallback: String,
 }
 
 /// MQTT CONNECT for a spec-declared broker.
@@ -2905,18 +3172,23 @@ pub fn fill_mqtt_state_topic(
 /// each sent only when supplied: a broker that expects neither refuses a
 /// CONNECT carrying two empty strings, and one that expects a token takes a
 /// username with no password.
+///
+/// Fails rather than truncating when a client id or credential is longer than
+/// the two-byte length prefix MQTT gives it.
 pub fn mqtt_connect_packet(
     client_id: String,
     username: Option<String>,
     password: Option<String>,
-) -> Vec<u8> {
-    crate::protocol::mqtt::connect_packet(&crate::protocol::mqtt::ConnectOptions {
-        client_id: &client_id,
-        username: username.as_deref(),
-        password: password.as_deref(),
-        keepalive_seconds: crate::protocol::mqtt::KEEPALIVE_SECONDS,
-        clean_session: true,
-    })
+) -> anyhow::Result<Vec<u8>> {
+    Ok(crate::protocol::mqtt::connect_packet(
+        &crate::protocol::mqtt::ConnectOptions {
+            client_id: &client_id,
+            username: username.as_deref(),
+            password: password.as_deref(),
+            keepalive_seconds: crate::protocol::mqtt::KEEPALIVE_SECONDS,
+            clean_session: true,
+        },
+    )?)
 }
 
 /// Render a named `transport: mqtt` command — the Roomba sibling of
@@ -2952,8 +3224,8 @@ pub fn roomba_state_fields(payload: String) -> HashMap<String, String> {
 }
 
 /// MQTT CONNECT, with the BLID as both client id and username.
-pub fn roomba_connect_packet(blid: String, password: String) -> Vec<u8> {
-    crate::protocol::roomba::connect_packet(&blid, &password)
+pub fn roomba_connect_packet(blid: String, password: String) -> anyhow::Result<Vec<u8>> {
+    Ok(crate::protocol::roomba::connect_packet(&blid, &password)?)
 }
 
 /// MQTT SUBSCRIBE at QoS 0.
@@ -2961,15 +3233,15 @@ pub fn roomba_connect_packet(blid: String, password: String) -> Vec<u8> {
 /// The topic filter is the caller's. `#` is a legitimate choice where a spec
 /// cannot say which shape a given firmware publishes on — the Roomba's case —
 /// and a named topic is the ordinary one.
-pub fn mqtt_subscribe_packet(topic: String, packet_id: u16) -> Vec<u8> {
-    crate::protocol::mqtt::subscribe_packet(&topic, packet_id)
+pub fn mqtt_subscribe_packet(topic: String, packet_id: u16) -> anyhow::Result<Vec<u8>> {
+    Ok(crate::protocol::mqtt::subscribe_packet(&topic, packet_id)?)
 }
 
 /// MQTT PUBLISH at QoS 0. No packet id, no acknowledgement: a higher QoS
 /// needs bookkeeping the codec deliberately does not hold, and no device
 /// broker in the catalogue acknowledges commands.
-pub fn mqtt_publish_packet(topic: String, payload: String) -> Vec<u8> {
-    crate::protocol::mqtt::publish_packet(&topic, &payload)
+pub fn mqtt_publish_packet(topic: String, payload: String) -> anyhow::Result<Vec<u8>> {
+    Ok(crate::protocol::mqtt::publish_packet(&topic, &payload)?)
 }
 
 /// MQTT PINGREQ, sent inside the keepalive window to hold the session open.
@@ -3063,7 +3335,17 @@ pub fn render_network_state_request(
     state_command: String,
 ) -> anyhow::Result<SoapRequestDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let request = crate::protocol::soap::render_state_request(&spec, &state_command)?;
+    render_network_state_request_with_spec(&spec, state_command)
+}
+
+/// [`render_network_state_request`] against a spec that is already parsed —
+/// the body both the by-YAML entry point and
+/// [`super::spec_handle::LoadedSpec`] run.
+pub(crate) fn render_network_state_request_with_spec(
+    spec: &DeviceSpec,
+    state_command: String,
+) -> anyhow::Result<SoapRequestDto> {
+    let request = crate::protocol::soap::render_state_request(spec, &state_command)?;
     Ok(SoapRequestDto::from(request))
 }
 
@@ -3088,13 +3370,19 @@ pub fn read_network_entity(
     returned: HashMap<String, String>,
 ) -> anyhow::Result<Option<NetworkReadingDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let entity = spec
-        .entities
-        .iter()
-        .find(|e| e.name == entity_name)
-        .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
+    read_network_entity_with_spec(&spec, entity_name, returned)
+}
+
+/// [`read_network_entity`] against a spec that is already parsed — the body
+/// both the by-YAML entry point and [`super::spec_handle::LoadedSpec`] run.
+pub(crate) fn read_network_entity_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    returned: HashMap<String, String>,
+) -> anyhow::Result<Option<NetworkReadingDto>> {
+    let entity = find_entity(spec, &entity_name)?;
     let returned = returned.into_iter().collect();
-    Ok(crate::protocol::soap::read_entity(&spec, entity, &returned).map(reading_to_dto))
+    Ok(crate::protocol::soap::read_entity(spec, entity, &returned).map(reading_to_dto))
 }
 
 /// One [`EntityReading`] as the DTO Dart draws — shared by the SOAP and HTTP
@@ -3187,13 +3475,25 @@ pub fn render_network_http_state_request(
     values: HashMap<String, String>,
 ) -> anyhow::Result<HttpRequestDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    render_network_http_state_request_with_spec(&spec, state_command, values)
+}
+
+/// [`render_network_http_state_request`] against a spec that is already
+/// parsed — the body both the by-YAML entry point and
+/// [`super::spec_handle::LoadedSpec`] run. This is the 4-second network poll,
+/// so it is the one that most wants the spec to stay on this side.
+pub(crate) fn render_network_http_state_request_with_spec(
+    spec: &DeviceSpec,
+    state_command: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<HttpRequestDto> {
     let request = crate::protocol::http::render_state_request(
-        &spec,
+        spec,
         &state_command,
         &values.into_iter().collect(),
     )?;
     let mut dto = HttpRequestDto::from(request);
-    dto.scheme = http_scheme_of(&spec);
+    dto.scheme = http_scheme_of(spec);
     Ok(dto)
 }
 
@@ -3205,7 +3505,18 @@ pub fn list_network_instances(
     state_reply: String,
 ) -> anyhow::Result<Vec<NetworkInstanceDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let entity = find_entity(&spec, &entity_name)?;
+    list_network_instances_with_spec(&spec, entity_name, state_reply)
+}
+
+/// [`list_network_instances`] against a spec that is already parsed — the
+/// body both the by-YAML entry point and [`super::spec_handle::LoadedSpec`]
+/// run.
+pub(crate) fn list_network_instances_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    state_reply: String,
+) -> anyhow::Result<Vec<NetworkInstanceDto>> {
+    let entity = find_entity(spec, &entity_name)?;
     Ok(crate::protocol::http::list_instances(entity, &state_reply)?
         .into_iter()
         .map(|instance| NetworkInstanceDto {
@@ -3225,7 +3536,18 @@ pub fn read_network_instance(
     instance_id: String,
 ) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let entity = find_entity(&spec, &entity_name)?;
+    read_network_instance_with_spec(&spec, entity_name, state_reply, instance_id)
+}
+
+/// [`read_network_instance`] against a spec that is already parsed — the body
+/// both the by-YAML entry point and [`super::spec_handle::LoadedSpec`] run.
+pub(crate) fn read_network_instance_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    state_reply: String,
+    instance_id: String,
+) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+    let entity = find_entity(spec, &entity_name)?;
     Ok(
         crate::protocol::http::read_instance_entity(entity, &state_reply, &instance_id)?
             .into_iter()
@@ -3349,6 +3671,20 @@ pub fn derive_credential_value(derivation: String, value: String) -> anyhow::Res
 /// not hardcode it separately from the protocol module.
 pub fn lifx_port() -> u16 {
     crate::protocol::lifx::PORT
+}
+
+/// The sequence byte a LIFX reply echoes, or `None` when the datagram is too
+/// short to be a LIFX frame at all.
+///
+/// R-160: the Dart client used to read `data[23]` itself, which is the wire
+/// layout stated twice — once here in `lifx::parse_header` and once as a
+/// magic number in a socket callback. Correlating a reply to the request that
+/// asked for it is the one thing that keeps two bulbs' answers apart, so the
+/// offset being right matters and it should be stated once.
+pub fn lifx_reply_sequence(datagram: Vec<u8>) -> Option<u8> {
+    crate::protocol::lifx::parse_header(&datagram)
+        .ok()
+        .map(|header| header.sequence)
 }
 
 /// Render one LIFX control action into the datagram bytes to send.
@@ -4010,10 +4346,19 @@ fn match_axes(
     let mut service_uuids: Vec<String> = Vec::new();
     let mut shared_service_uuids: Vec<String> = Vec::new();
     for spec_uuid in &identity.service_uuids {
+        // Both sides normalised: a spec writes the 128-bit SIG-base form
+        // ("0000fff0-0000-1000-8000-00805f9b34fb"), the scan path forwards
+        // whatever the platform advertised, and the CONNECT path (Dart's
+        // SpecMatchRequest.forServices) folds discovered UUIDs to the short
+        // form ("fff0") before sending them. A raw case-insensitive compare
+        // therefore never matched a base-form identification UUID after
+        // connect, so any spec identified by service UUID alone fell back
+        // to the raw GATT browser once connected.
+        let spec_norm = normalize_uuid(spec_uuid);
         let matched = device
             .service_uuids
             .iter()
-            .any(|adv| adv.eq_ignore_ascii_case(spec_uuid));
+            .any(|adv| normalize_uuid(adv) == spec_norm);
         if !matched {
             continue;
         }
@@ -4203,7 +4548,11 @@ fn match_network_axes(
             .any(|t| t.eq_ignore_ascii_case(target))
         {
             // SSDP search targets carry no TXT narrowing, so a shared one
-            // (`upnp:rootdevice`) can only ever corroborate.
+            // (`upnp:rootdevice`, a DLNA `MediaRenderer:1`) can only ever
+            // corroborate. The narrowing a spec like hisense-vidaa describes
+            // — a manufacturer or model line in the descriptor at LOCATION
+            // — is prose this matcher does not execute, so such a spec
+            // matches nothing until it names a vendor-specific axis.
             record(target, &normalize_service_type(target), false);
         }
     }
@@ -4296,6 +4645,18 @@ fn is_shared_service_type(normalized: &str) -> bool {
         "upnp:rootdevice"
             | "ssdp:all"
             | "urn:schemas-upnp-org:device:basic:1"
+            // The UPnP AV device classes. `MediaRenderer:1` is what every
+            // DLNA renderer answers — Sonos, Samsung and LG sets, Kodi, an
+            // Xbox, a Denon receiver — and `MediaServer:1` every DLNA
+            // server, from a NAS to Plex. bose-soundtouch and hisense-vidaa
+            // declare the renderer, squeezebox-slimproto the server, and the
+            // scan's `ssdp:all` M-SEARCH collects exactly these STs, so
+            // before this entry every renderer on the link came back a
+            // Strong "Bose SoundTouch" tied with a Strong "Hisense VIDAA
+            // TV". Lower-case because the caller compares the
+            // `normalize_service_type` stem, which folds case.
+            | "urn:schemas-upnp-org:device:mediarenderer:1"
+            | "urn:schemas-upnp-org:device:mediaserver:1"
             // Whole-ecosystem DNS-SD types. HomeKit and AirPlay in particular
             // cover hundreds of unrelated products.
             | "_hap._tcp"
@@ -4361,17 +4722,46 @@ pub fn match_device_to_spec(
     specs
         .into_iter()
         .filter_map(|spec| {
-            let axes = match_axes(&SpecIdentityDto::from(&spec), &device, None);
-            // Built before the struct moves the axes apart.
-            let matched_service_uuids = axes.all_service_uuids();
-            (!axes.is_empty()).then(|| MatchResult {
+            let hit = match_connected_device(&SpecIdentityDto::from(&spec), &device)?;
+            Some(MatchResult {
                 spec,
-                matched_by_name_prefix: axes.by_name_prefix,
-                confidence: axes.confidence(),
-                matched_service_uuids,
+                matched_by_name_prefix: hit.matched_by_name_prefix,
+                confidence: hit.confidence,
+                matched_service_uuids: hit.matched_service_uuids,
             })
         })
         .collect()
+}
+
+/// One catalogue entry's match against a device we are already connected to:
+/// which axes hit, with no spec attached. `None` when nothing matched.
+///
+/// The axes rule for the post-connect path, in one place, so
+/// [`match_device_to_spec`] (which ships whole specs both ways) and
+/// [`super::spec_handle::CatalogueHandle::match_device`] (which ships two
+/// strings and gets indices back) cannot drift apart.
+#[frb(ignore)]
+pub(crate) fn match_connected_device(
+    identity: &SpecIdentityDto,
+    device: &ScannedDeviceDto,
+) -> Option<ConnectedMatch> {
+    let axes = match_axes(identity, device, None);
+    // Built before the struct moves the axes apart.
+    let matched_service_uuids = axes.all_service_uuids();
+    (!axes.is_empty()).then(|| ConnectedMatch {
+        matched_by_name_prefix: axes.by_name_prefix,
+        confidence: axes.confidence(),
+        matched_service_uuids,
+    })
+}
+
+/// What [`match_connected_device`] found. Not an FFI type: the two callers
+/// project it into their own result shape.
+#[frb(ignore)]
+pub(crate) struct ConnectedMatch {
+    pub matched_by_name_prefix: bool,
+    pub confidence: MatchConfidence,
+    pub matched_service_uuids: Vec<String>,
 }
 
 /// Rank the catalogue against a single device found on the local network, best
@@ -4509,12 +4899,28 @@ pub fn encode_command(
     // tables, and a caller naming both halves of the pair (the group runner)
     // must get the pair it named. Spec-only keeps the historical whole-spec
     // search; service-only still selects a standard profile.
-    if let (Some(yaml), Some(service)) = (spec_yaml.as_deref(), &service_uuid) {
+    if let Some(yaml) = spec_yaml.as_deref() {
         let spec = crate::protocol::dispatch::parse_or_cached(yaml)?;
-        let proto = crate::protocol::generic::GenericProtocol::scoped(spec, Some(service.clone()));
-        return Ok(proto.encode_command(&char_uuid, &command_name, &params)?);
+        return encode_command_with_spec(spec, service_uuid, char_uuid, command_name, params);
     }
-    let proto = select_protocol(spec_yaml.as_deref(), service_uuid.as_deref())?;
+    let proto = select_protocol(None, service_uuid.as_deref())?;
+    Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
+}
+
+/// [`encode_command`] against a spec that is already parsed — the body both
+/// the by-YAML entry point and [`super::spec_handle::LoadedSpec`] run.
+///
+/// The scoping rule lives here so it cannot drift between the two: with a
+/// service named, the lookup is confined to that service; without one it is
+/// the historical whole-spec search.
+pub(crate) fn encode_command_with_spec(
+    spec: std::sync::Arc<DeviceSpec>,
+    service_uuid: Option<String>,
+    char_uuid: String,
+    command_name: String,
+    params: HashMap<String, f64>,
+) -> anyhow::Result<Vec<u8>> {
+    let proto = crate::protocol::generic::GenericProtocol::scoped(spec, service_uuid);
     Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
 }
 
@@ -4739,9 +5145,33 @@ pub struct CameraKeepaliveDto {
 /// keepalive); `camera{}` used to be parsed by nothing.
 pub fn camera_for_device(spec_yaml: String) -> anyhow::Result<Option<CameraDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let json = |v: &Option<serde_yaml::Value>| -> Option<String> {
-        v.as_ref()
-            .and_then(|value| serde_json::to_string(value).ok())
+    // A keepalive parameter block that will not serialise is REPORTED, not
+    // dropped. These params are the body of the JSON-RPC call that opens the
+    // camera session (Snapmaker's `startCamera`), so a spec whose block
+    // cannot be rendered — a non-string mapping key, which JSON has no
+    // spelling for — describes a session that cannot be opened. Dropped
+    // silently, the viewer sent `startCamera` with no params, the printer
+    // answered nothing, and the screen showed a black frame with no reason
+    // on it. The failure names the field and the spec's own error.
+    let json = |field: &str, v: &Option<serde_yaml::Value>| -> anyhow::Result<Option<String>> {
+        let Some(value) = v.as_ref() else {
+            return Ok(None);
+        };
+        serde_json::to_string(value).map(Some).map_err(|e| {
+            anyhow::anyhow!("camera keepalive {field} is not representable as JSON: {e}")
+        })
+    };
+    let keepalive = match spec.camera.as_ref().and_then(|c| c.keepalive.as_ref()) {
+        Some(k) => Some(CameraKeepaliveDto {
+            transport: k.transport.clone(),
+            url_template: k.url_template.clone(),
+            start_method: k.start_method.clone(),
+            start_params_json: json("start_params", &k.start_params)?,
+            stop_method: k.stop_method.clone(),
+            stop_params_json: json("stop_params", &k.stop_params)?,
+            interval_seconds: k.interval_seconds,
+        }),
+        None => None,
     };
     Ok(spec.camera.as_ref().map(|c| CameraDto {
         streams: c
@@ -4756,15 +5186,7 @@ pub fn camera_for_device(spec_yaml: String) -> anyhow::Result<Option<CameraDto>>
                 target_fps: s.target_fps,
             })
             .collect(),
-        keepalive: c.keepalive.as_ref().map(|k| CameraKeepaliveDto {
-            transport: k.transport.clone(),
-            url_template: k.url_template.clone(),
-            start_method: k.start_method.clone(),
-            start_params_json: json(&k.start_params),
-            stop_method: k.stop_method.clone(),
-            stop_params_json: json(&k.stop_params),
-            interval_seconds: k.interval_seconds,
-        }),
+        keepalive,
     }))
 }
 
@@ -4822,11 +5244,49 @@ fn brother_ql_test_canvas(width: usize, height: usize) -> Vec<u8> {
 /// Returns the ordered Uploader-characteristic writes plus, when the spec
 /// declares a `play_command`, a fragment-framed write that plays the item
 /// immediately. Errors are typed and user-presentable.
+/// Refuse a stored-design canvas the "DN" container's layer header cannot
+/// describe, before the spec is even parsed.
+///
+/// `daniao_store::package_text` and `package_image` write the layer's
+/// height, width and (for text) `bytes_per_row` into ONE BYTE each,
+/// narrowing with `as u8`, and nothing before this boundary bounded the
+/// canvas: the UI rasterises a marquee at the text's full run, so a long
+/// sentence went out with a wrapped stride or dimension byte, the upload
+/// committed, the app reported "saved", and the panel played noise. The
+/// limits are the container's — `daniao_store::MAX_TEXT_WIDTH` (the stride
+/// byte; the device tolerates a wrapped width byte, the vendor app's own
+/// marquees rely on it) and `daniao_store::MAX_LAYER_DIM` for every other
+/// edge — restated here rather than duplicated as numbers, so the boundary
+/// and the builder can never disagree about what fits. The builder checks
+/// again, which is right: it is `pub` too. This gate exists so the FFI's
+/// answer names the limit in the same breath as the layer, whatever spec
+/// Dart hands over, and the UI can cap or split its rasteriser on it.
+fn check_stored_layer_edges(
+    layer: &str,
+    width: u32,
+    height: u32,
+    max_width: u32,
+    max_height: u32,
+) -> Result<(), crate::error::ProtocolError> {
+    if width > max_width || height > max_height {
+        return Err(crate::error::ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "stored {layer} is {width}x{height} px; the device's stored-design \
+                 container can describe a {layer} of at most {max_width}x{max_height}"
+            ),
+        });
+    }
+    Ok(())
+}
+
 // The flat argument list is the FFI surface flutter_rust_bridge exposes to
 // Dart; grouping into a struct would churn the generated bindings.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_stored_image(
     spec_yaml: String,
+    // Usable bytes per BLE write on the live link (MTU - 3), or None to size
+    // frames from the spec alone; see stored_upload::assemble_plan.
+    max_write: Option<u32>,
     width: u32,
     height: u32,
     rgb: Vec<u8>,
@@ -4837,7 +5297,8 @@ pub fn encode_stored_image(
     speed: u32,
     sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
-    use crate::protocol::daniao_store::{ImageLayer, StoredProgram};
+    use crate::protocol::daniao_store::{ImageLayer, StoredProgram, MAX_LAYER_DIM};
+    check_stored_layer_edges("image", width, height, MAX_LAYER_DIM, MAX_LAYER_DIM)?;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let program = StoredProgram {
         name: &name,
@@ -4853,8 +5314,12 @@ pub fn encode_stored_image(
             rgb: &rgb,
         },
     };
-    let plan =
-        crate::protocol::stored_upload::encode_stored_image(&spec, &program, sequence as u16)?;
+    let plan = crate::protocol::stored_upload::encode_stored_image(
+        &spec,
+        max_write.map(|n| n as usize),
+        &program,
+        sequence as u16,
+    )?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -4862,11 +5327,16 @@ pub fn encode_stored_image(
 ///
 /// `bits` is the rendered text bitmap — one byte per pixel (`0` off, non-zero
 /// lit), row-major, `text_width * text_height` bytes. The width is usually
-/// wider than the panel so the text scrolls. The caller (the UI) rasterises the
-/// string; everything else matches [`encode_stored_image`].
+/// wider than the panel so the text scrolls, but never wider than
+/// `daniao_store::MAX_TEXT_WIDTH` — a longer run is refused, not wrapped.
+/// The caller (the UI) rasterises the string; everything else matches
+/// [`encode_stored_image`].
 #[allow(clippy::too_many_arguments)]
 pub fn encode_stored_text(
     spec_yaml: String,
+    // Usable bytes per BLE write on the live link (MTU - 3), or None to size
+    // frames from the spec alone; see stored_upload::assemble_plan.
+    max_write: Option<u32>,
     text_width: u32,
     text_height: u32,
     bits: Vec<u8>,
@@ -4877,7 +5347,14 @@ pub fn encode_stored_text(
     speed: u32,
     sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
-    use crate::protocol::daniao_store::{StoredText, TextContent};
+    use crate::protocol::daniao_store::{StoredText, TextContent, MAX_LAYER_DIM, MAX_TEXT_WIDTH};
+    check_stored_layer_edges(
+        "text",
+        text_width,
+        text_height,
+        MAX_TEXT_WIDTH,
+        MAX_LAYER_DIM,
+    )?;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let program = StoredText {
         name: &name,
@@ -4891,8 +5368,12 @@ pub fn encode_stored_text(
             bits: &bits,
         },
     };
-    let plan =
-        crate::protocol::stored_upload::encode_stored_text(&spec, &program, sequence as u16)?;
+    let plan = crate::protocol::stored_upload::encode_stored_text(
+        &spec,
+        max_write.map(|n| n as usize),
+        &program,
+        sequence as u16,
+    )?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -4913,6 +5394,9 @@ pub fn encode_stored_text(
 #[allow(clippy::too_many_arguments)]
 pub fn encode_stored_animation(
     spec_yaml: String,
+    // Usable bytes per BLE write on the live link (MTU - 3), or None to size
+    // frames from the spec alone; see stored_upload::assemble_plan.
+    max_write: Option<u32>,
     width: u32,
     height: u32,
     frames: Vec<Vec<u8>>,
@@ -4944,8 +5428,12 @@ pub fn encode_stored_animation(
         frames: &frame_refs,
         timestamp,
     };
-    let plan =
-        crate::protocol::stored_upload::encode_stored_animation(&spec, &anim, sequence as u16)?;
+    let plan = crate::protocol::stored_upload::encode_stored_animation(
+        &spec,
+        max_write.map(|n| n as usize),
+        &anim,
+        sequence as u16,
+    )?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -4996,6 +5484,41 @@ pub fn decode_stored_upload_event(
             progress: 0,
         },
     }))
+}
+
+/// The same, over a WINDOW of notifications: fragments are reassembled by
+/// serial first ([`reassemble_notifications`]), then every completed packet
+/// is read. Events come back in SERIAL order (the reassembly groups by the
+/// 8-bit serial), which is arrival order unless the serial wraps inside the
+/// window.
+///
+/// [`decode_stored_upload_event`] reads ONE notification, and a packet a
+/// 23-byte MTU splits in two never arrives in one: its first fragment stops
+/// short of the SimpleMessage, the parser hands back `None` rather than a
+/// verdict it invented, and nothing downstream reassembled — so on an
+/// unnegotiated link the M_UPLOAD_COMPLETE the device did send was never
+/// decoded, the completer never fired, and every save timed out as
+/// "unconfirmed". The caller keeps the recent notifications and asks this.
+pub fn decode_stored_upload_events(
+    spec_yaml: String,
+    notifications: Vec<Vec<u8>>,
+) -> anyhow::Result<Vec<StoredUploadEventDto>> {
+    use crate::protocol::daniao::FRAG_HEADER_LEN;
+    use crate::protocol::daniao_upload::reassemble_notifications;
+    let mut out = Vec::new();
+    for frame in reassemble_notifications(&notifications) {
+        // A reassembled frame is the DNX payload with every fragment header
+        // stripped; the single-notification parser expects one in front, so
+        // it is handed a synthetic single-fragment header (total 1,
+        // remaining 0).
+        let mut packet = vec![0u8; FRAG_HEADER_LEN];
+        packet[1] = 1;
+        packet.extend_from_slice(&frame);
+        if let Some(event) = decode_stored_upload_event(spec_yaml.clone(), packet)? {
+            out.push(event);
+        }
+    }
+    Ok(out)
 }
 
 /// Encode the play-by-cid command for RE-triggering a previously stored item
@@ -5229,11 +5752,22 @@ pub fn decode_value(
     bytes: Vec<u8>,
 ) -> anyhow::Result<Vec<DecodedValueDto>> {
     let proto = select_protocol(spec_yaml.as_deref(), service_uuid.as_deref())?;
-    let decoded = proto.decode_value(&char_uuid, &bytes)?;
+    decode_with_protocol(proto.as_ref(), &char_uuid, &bytes)
+}
+
+/// [`decode_value`] once a protocol has been selected — the body both the
+/// by-YAML entry point and [`super::spec_handle::LoadedSpec`] run, so a
+/// decode means the same thing whichever one asked.
+pub(crate) fn decode_with_protocol(
+    proto: &dyn DeviceProtocol,
+    char_uuid: &str,
+    bytes: &[u8],
+) -> anyhow::Result<Vec<DecodedValueDto>> {
+    let decoded = proto.decode_value(char_uuid, bytes)?;
     // Presentation metadata is looked up by field name rather than by position:
     // `decode_all_fields` collapses a repeated field name into one entry, so the
     // two lists are not guaranteed to line up index for index.
-    let meta = proto.field_meta_for_characteristic(&char_uuid);
+    let meta = proto.field_meta_for_characteristic(char_uuid);
     Ok(decoded
         .iter()
         .map(|(name, value)| {
@@ -5250,6 +5784,17 @@ pub fn decode_value(
                     let raw = dto.int_value.or(dto.uint_value)?;
                     table.get(&raw.to_string()).cloned()
                 });
+                // The field's number semantics, evaluated once, here. The
+                // caller gets the answer rather than the ingredients — see
+                // `crate::codec::number` for why the ingredients used to
+                // produce three different answers.
+                let semantics =
+                    crate::codec::number::NumberSemantics::from_field(m.scale, m.value_offset);
+                if let Some(raw) = dto.raw_number {
+                    dto.decoded_number = Some(semantics.transform(raw));
+                    dto.decoded_text = Some(semantics.render(raw));
+                    dto.decimals = Some(semantics.decimals());
+                }
             }
             dto
         })
@@ -6091,6 +6636,57 @@ services:
         assert_eq!(set_speed.advanced_reason, None);
     }
 
+    /// A `values` code table is nine catalogue parameters' way of saying
+    /// "these are the only values that mean anything". Dropped, each drew a
+    /// 0..255 slider over a two- or four-value switch; read, it is the same
+    /// choice `allowed`/`labels` describes, so it crosses the FFI in the one
+    /// pair the control surface already draws.
+    #[test]
+    fn a_values_code_table_reaches_the_dto_as_a_labelled_choice() {
+        const CODED: &str = r#"
+device:
+  name: "Coded Strip"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          set_light_on_off:
+            description: "Power"
+            template: [0x7E, 0x00, 0x04, "{state}"]
+            parameters:
+              state:
+                type: uint8
+                description: "0 off, 1 on."
+                values:
+                  0: "off"
+                  1: "on"
+"#;
+        let dto = load_device_spec(CODED.into()).unwrap();
+        let state = dto.services[0].characteristics[0].commands[0]
+            .parameters
+            .iter()
+            .find(|p| p.name == "state")
+            .expect("the parameter reaches the DTO");
+        assert_eq!(state.allowed, Some(vec![0, 1]));
+        assert_eq!(
+            state.labels,
+            Some(vec!["off".to_string(), "on".to_string()]),
+            "a choice the user can read, not two raw numbers"
+        );
+        assert_eq!(
+            state.description.as_deref(),
+            Some("0 off, 1 on."),
+            "the spec's own sentence about the parameter"
+        );
+    }
+
     #[test]
     fn advanced_command_flags_reach_the_dto() {
         let dto = load_device_spec(TREADMILL_YAML.into()).unwrap();
@@ -6140,6 +6736,31 @@ device:
         assert!(match_device_to_spec(vec![dto], "HC-05Foo".into(), vec![])
             .iter()
             .all(|m| !m.matched_by_name_prefix));
+    }
+
+    #[test]
+    fn match_by_service_uuid_accepts_the_short_form_the_connect_path_sends() {
+        // Dart's SpecMatchRequest.forServices folds every discovered UUID to
+        // the short form before sending it, while the spec writes the 128-bit
+        // SIG-base form. A raw compare matched neither way after connect, so
+        // a spec identified by service UUID alone fell back to the raw GATT
+        // browser once connected.
+        let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        let results =
+            match_device_to_spec(vec![dto.clone()], "Unknown".into(), vec!["fff0".into()]);
+        assert_eq!(
+            results.len(),
+            1,
+            "short form must match the base-form spec UUID"
+        );
+        assert_eq!(
+            results[0].matched_service_uuids,
+            vec!["0000fff0-0000-1000-8000-00805f9b34fb".to_string()],
+            "the report keeps the spec's own spelling"
+        );
+        // Leading zeros and case on the short form are folded too.
+        let results = match_device_to_spec(vec![dto], "Unknown".into(), vec!["0000FFF0".into()]);
+        assert_eq!(results.len(), 1);
     }
 
     #[test]
@@ -7268,11 +7889,15 @@ device:
             .unwrap(),
             "455/NN2-EU-ABC1234D/status/current"
         );
-        // A placeholder the store cannot answer stays visible — the caller's
-        // signal to badge the entity instead of subscribing to a literal.
-        assert_eq!(
-            fill_mqtt_state_topic("{productType}/{unknown}/x".into(), values).unwrap(),
-            "455/{unknown}/x"
+        // A placeholder the store cannot answer is a refusal, not a returned
+        // literal: `{unknown}` is a topic level no broker publishes on, and
+        // subscribing to it is how an entity looks live and reads Unknown
+        // forever. The message names the value that is missing.
+        let refused = fill_mqtt_state_topic("{productType}/{unknown}/x".into(), values)
+            .expect_err("an unanswered placeholder must not reach a subscription");
+        assert!(
+            refused.to_string().contains("{unknown}"),
+            "the refusal should name the placeholder: {refused}"
         );
         // A value is data: one containing braces lands verbatim and is never
         // re-scanned as template.
@@ -7525,6 +8150,51 @@ device:
         assert!(match_network_device(vec![identity], device).is_empty());
     }
 
+    /// The UPnP AV device classes are the same shape as `upnp:rootdevice`
+    /// one level down: bose-soundtouch and hisense-vidaa both declare
+    /// `MediaRenderer:1`, squeezebox declares `MediaServer:1`, and every
+    /// Sonos, smart TV and NAS on the link answers one of them. A host whose
+    /// only signal is such a class is a renderer or a server, not a product.
+    #[test]
+    fn a_generic_upnp_device_class_alone_is_not_evidence() {
+        for shared in [
+            "urn:schemas-upnp-org:device:MediaRenderer:1",
+            "urn:schemas-upnp-org:device:MediaServer:1",
+        ] {
+            let mut identity = network_identity();
+            identity.mdns_service_types.clear();
+            identity.ssdp_search_targets = vec![shared.into()];
+            identity.local_name_prefix_clear();
+
+            let device = NetworkDeviceDto {
+                ssdp_targets: vec![shared.into()],
+                ..anonymous_host()
+            };
+            assert!(
+                match_network_device(vec![identity], device).is_empty(),
+                "{shared} is answered by a whole category of hardware"
+            );
+        }
+    }
+
+    /// The other half: a spec that also names a vendor type still matches,
+    /// at Strong, and the shared class is reported beside it — it
+    /// corroborates, it just never carries the match by itself.
+    #[test]
+    fn a_generic_upnp_device_class_still_corroborates_a_vendor_type() {
+        let mut identity = network_identity();
+        identity.ssdp_search_targets = vec!["urn:schemas-upnp-org:device:MediaRenderer:1".into()];
+
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ssdp_targets: vec!["urn:schemas-upnp-org:device:MediaRenderer:1".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(matches[0].matched_service_types.len(), 2);
+    }
+
     #[test]
     fn a_shared_mdns_type_alone_is_not_evidence() {
         // roku-ecp declares `_airplay._tcp`, lifx-z and rachio declare
@@ -7707,6 +8377,202 @@ device:
         );
     }
 
+    // ── Brother QL test label ───────────────────────────────────────────────
+
+    /// A QL-shaped spec with the real QL-1110NWB head (1296 dots / 162 bytes
+    /// a row), so the geometry under test is the geometry that ships.
+    fn brother_spec_yaml(head_dots: u32) -> String {
+        format!(
+            r#"
+device:
+  name: "Brother QL-1110NWB Label Printer"
+  manufacturer: "Brother Industries"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "printer"
+  transport: "tcp-raw"
+  identification:
+    default_port: 9100
+  features:
+    - type: "image_upload"
+      max_width: {head_dots}
+      max_height: 35434
+      format: "1bit-bitmap"
+  protocol_handler: "brother_ql_raster"
+"#
+        )
+    }
+
+    /// The job header a QL raster job opens with: 4 bytes of mode, 200 of
+    /// invalidate, 2 of init, then `ESC i z` and its ten bytes. Everything
+    /// this test reads is at a fixed offset, so the header is decoded rather
+    /// than matched byte-for-byte — a change to the cut or margin commands
+    /// after it should not rewrite these tests.
+    fn brother_job_header(job: &[u8]) -> (u8, u8, u8, u32) {
+        const MEDIA_AND_QUALITY: usize = 4 + 200 + 2;
+        assert_eq!(
+            &job[MEDIA_AND_QUALITY..MEDIA_AND_QUALITY + 3],
+            &[0x1B, 0x69, 0x7A],
+            "the media/quality command should open the job"
+        );
+        let b = &job[MEDIA_AND_QUALITY + 3..];
+        let rows = u32::from_le_bytes([b[4], b[5], b[6], b[7]]);
+        (b[1], b[2], b[3], rows) // media type, width mm, length mm, rows
+    }
+
+    /// The dots the first raster row lights, as (leftmost dot index from the
+    /// head's left edge, count). The test label's first row is its top
+    /// border, so every dot of the canvas is black there — which makes the
+    /// row a direct readout of the canvas width and where it sits on the
+    /// head.
+    fn brother_first_row_span(job: &[u8], head_dots: usize) -> (usize, usize) {
+        let start = job
+            .windows(2)
+            .position(|w| w == [0x67, 0x00])
+            .expect("the job should carry at least one raster row");
+        let row_bytes = head_dots / 8;
+        // `g 0x00 n <data>`: the marker carries the length's high byte, so the
+        // count is the ONE byte after it.
+        assert_eq!(
+            job[start + 2] as usize,
+            row_bytes,
+            "a raster row is one full head width"
+        );
+        let row = &job[start + 3..start + 3 + row_bytes];
+        let lit: Vec<usize> = (0..head_dots)
+            .filter(|i| row[i / 8] & (0x80 >> (i % 8)) != 0)
+            .collect();
+        let first = *lit.first().expect("the border row is not blank");
+        // Contiguous by construction — a border row is solid — and asserting
+        // it is what makes "count" mean "width".
+        assert_eq!(
+            lit,
+            (first..first + lit.len()).collect::<Vec<_>>(),
+            "the top border should be one solid run"
+        );
+        // The encoder mirrors the canvas, so canvas column 0 lands at the
+        // head's LAST dot index. Reported from the left edge of the printed
+        // run, which is what the geometry is stated in.
+        (head_dots - first - lit.len(), lit.len())
+    }
+
+    /// Continuous tape: the canvas is the media width in dots at 300 dpi, and
+    /// the strip is the fixed 400 rows a tape with no label boundary can
+    /// safely take.
+    #[test]
+    fn a_continuous_test_label_is_the_media_width_in_dots_by_a_fixed_strip() {
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                media_width_mm: 62,
+                media_length_mm: 0,
+                media_die_cut: false,
+                auto_cut: true,
+            },
+        )
+        .expect("a 62mm continuous test label should encode");
+        let (media_type, width_mm, length_mm, rows) = brother_job_header(&job);
+        assert_eq!(media_type, 0x0A, "continuous");
+        assert_eq!((width_mm, length_mm), (62, 0));
+        assert_eq!(rows, 400, "continuous tape takes the fixed strip");
+        // 62 mm at 300 dpi is 732 dots, comfortably inside the 1296-dot head.
+        let (_, width) = brother_first_row_span(&job, 1296);
+        assert_eq!(width, 732);
+    }
+
+    /// The ~44-dot dead zone at the right of the head. A media width wider
+    /// than the head can print is capped at what prints, or the box's right
+    /// edge simply is not on the label.
+    #[test]
+    fn a_test_label_stays_off_the_heads_dead_zone() {
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                // 111 mm is 1311 dots — wider than the whole head.
+                media_width_mm: 111,
+                media_length_mm: 0,
+                media_die_cut: false,
+                auto_cut: false,
+            },
+        )
+        .expect("an over-wide media should still encode, capped");
+        let (_, width) = brother_first_row_span(&job, 1296);
+        assert_eq!(width, 1296 - 44, "capped at what the head actually prints");
+    }
+
+    /// A die-cut label HAS a boundary, and the raw mm→dots length overshoots
+    /// it by the inter-label gap. The canvas undershoots by ~1/8 so the test
+    /// box stays inside one label instead of running onto the next.
+    #[test]
+    fn a_die_cut_test_label_undershoots_the_label_length() {
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                media_width_mm: 29,
+                media_length_mm: 90,
+                media_die_cut: true,
+                auto_cut: true,
+            },
+        )
+        .expect("a 29x90 die-cut test label should encode");
+        let (media_type, width_mm, length_mm, rows) = brother_job_header(&job);
+        assert_eq!(media_type, 0x0B, "die-cut");
+        assert_eq!((width_mm, length_mm), (29, 90));
+        // 90 mm at 300 dpi is 1062 dots; 1062 - 1062/8 = 930.
+        assert_eq!(rows, 930);
+        assert!(
+            rows < 1062,
+            "the box must end before the label does, not at the gap"
+        );
+    }
+
+    /// The two `.max(8)` clamps, which are `max` and not `clamp` precisely
+    /// because a malformed spec can cross their bounds. A head narrower than
+    /// its own dead zone, and a zero media width, must both produce a small
+    /// label rather than a panic or an empty canvas.
+    #[test]
+    fn a_degenerate_head_or_media_clamps_instead_of_panicking() {
+        // A 16-dot head: `1296 - 44` has nothing to give, so the printable
+        // width floors at 8 rather than at 0 (or underflowing).
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(16),
+            BrotherQlJobParamsDto {
+                media_width_mm: 12,
+                media_length_mm: 0,
+                media_die_cut: false,
+                auto_cut: false,
+            },
+        )
+        .expect("a tiny head should clamp, not crash");
+        assert_eq!(brother_first_row_span(&job, 16).1, 8);
+
+        // Zero media width (no media loaded, or a status reply that said so).
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                media_width_mm: 0,
+                media_length_mm: 0,
+                media_die_cut: false,
+                auto_cut: false,
+            },
+        )
+        .expect("a zero media width should clamp, not crash");
+        assert_eq!(brother_first_row_span(&job, 1296).1, 8);
+
+        // A die-cut label of zero length: one row, not zero and not a panic.
+        let job = render_brother_ql_test_label(
+            brother_spec_yaml(1296),
+            BrotherQlJobParamsDto {
+                media_width_mm: 29,
+                media_length_mm: 0,
+                media_die_cut: true,
+                auto_cut: false,
+            },
+        )
+        .expect("a zero-length die-cut label should clamp, not crash");
+        assert_eq!(brother_job_header(&job).3, 1);
+    }
+
     /// `camera_for_device` parses the `camera:` block into the typed feed +
     /// keepalive the viewer consumes (it used to be parsed by nothing), and
     /// serialises the WebSocket keepalive params to JSON for the FFI.
@@ -7764,6 +8630,39 @@ camera:
         assert_eq!(params["expect_pw"], false);
         let stop: serde_json::Value = serde_json::from_str(&k.stop_params_json.unwrap()).unwrap();
         assert_eq!(stop["domain"], "lan");
+    }
+
+    /// A keepalive block that cannot be rendered as JSON is REPORTED. These
+    /// params are the body of the call that opens the camera session, so
+    /// dropping them silently sent `camera.start_monitor` with no arguments
+    /// and left a black frame with no reason on it.
+    #[test]
+    fn camera_keepalive_params_that_cannot_be_json_are_refused_by_name() {
+        let yaml = r#"
+device:
+  name: "Snapmaker-ish"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "printer"
+camera:
+  streams:
+    - transport: "mjpeg_snapshot_poll"
+      url_template: "http://{address}/monitor.jpg"
+  keepalive:
+    transport: "websocket_jsonrpc"
+    url_template: "ws://{address}/websocket"
+    start_method: "camera.start_monitor"
+    start_params:
+      ? [lan, 0]
+      : "a sequence key, which JSON has no spelling for"
+"#;
+        let err = camera_for_device(yaml.to_string())
+            .expect_err("an unrenderable keepalive must not pass as a working one");
+        assert!(
+            err.to_string().contains("start_params"),
+            "the failure should name the field: {err}"
+        );
     }
 
     /// A spec with no camera block yields None (not an error).
@@ -8121,6 +9020,111 @@ services:
         let dto = DecodedValueDto::from(("counter", &DecodedValue::Uint(u64::MAX)));
         assert_eq!(dto.uint_value, Some(i64::MAX));
         assert_eq!(dto.string_value, Some(u64::MAX.to_string()));
+    }
+
+    #[test]
+    fn a_decoded_reading_arrives_already_transformed() {
+        // The DTO carries the answer, not the ingredients: the consumer that
+        // derived `raw * scale + value_offset` for itself is the one that put
+        // centidegrees into Home Assistant's long-term statistics.
+        let yaml = r#"
+device:
+  name: "Thermo"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  identification:
+    local_name_prefix: "T_"
+services:
+  - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
+    name: "Environmental Sensing"
+    characteristics:
+      - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
+        name: "temperature"
+        properties: ["read"]
+        format:
+          - name: "temperature"
+            type: "int16"
+            offset: 0
+            length: 2
+            scale: 0.01
+            unit: "C"
+"#;
+        let values = decode_value(
+            Some(yaml.to_string()),
+            None,
+            "00002a6e-0000-1000-8000-00805f9b34fb".to_string(),
+            2350i16.to_le_bytes().to_vec(),
+        )
+        .unwrap();
+
+        assert_eq!(values[0].raw_number, Some(2350.0));
+        assert_eq!(values[0].decoded_number, Some(23.5));
+        assert_eq!(values[0].decoded_text.as_deref(), Some("23.50"));
+        assert_eq!(values[0].decimals, Some(2));
+        // The raw reading is still there beside it: decoding stays lossless.
+        assert_eq!(values[0].int_value, Some(2350));
+    }
+
+    #[test]
+    fn an_untransformed_reading_renders_as_the_integer_it_is() {
+        let values = decode_value(
+            Some(TEST_YAML.to_string()),
+            None,
+            "0000fff2-0000-1000-8000-00805f9b34fb".to_string(),
+            vec![1, 80],
+        )
+        .unwrap();
+        // No scale declared, so no decimals invented — "80", not "80.00".
+        assert!(values
+            .iter()
+            .all(|v| v.decimals == Some(0) && v.decoded_number == v.raw_number));
+    }
+
+    #[test]
+    fn a_uint_above_i64_max_reports_the_truthful_number_not_the_clamp() {
+        // uint_value is clamped because FRB has no u64; raw_number and the
+        // rendered text are not, so what a person reads is what the device
+        // sent.
+        let dto = DecodedValueDto::from(("counter", &DecodedValue::Uint(u64::MAX)));
+        assert_eq!(dto.raw_number, Some(u64::MAX as f64));
+        assert_eq!(dto.decoded_text, Some(u64::MAX.to_string()));
+        assert!(dto.raw_number.unwrap() > i64::MAX as f64);
+    }
+
+    #[test]
+    fn the_on_off_verdict_crosses_with_the_reading() {
+        let on = DecodedValueDto::from(("power", &DecodedValue::Bool(true)));
+        assert_eq!(on.is_on, Some(true));
+        let off = DecodedValueDto::from(("power", &DecodedValue::Bool(false)));
+        assert_eq!(off.is_on, Some(false));
+        // A number is on when it is nonzero; the entity layer can still name
+        // a specific `on_value` and overrule that.
+        assert_eq!(
+            DecodedValueDto::from(("level", &DecodedValue::Uint(5))).is_on,
+            Some(true)
+        );
+        assert_eq!(
+            DecodedValueDto::from(("level", &DecodedValue::Uint(0))).is_on,
+            Some(false)
+        );
+        // Neither a string nor a blob has an on/off verdict to give.
+        assert_eq!(
+            DecodedValueDto::from(("mode", &DecodedValue::String("eco".into()))).is_on,
+            None
+        );
+        assert_eq!(
+            DecodedValueDto::from(("blob", &DecodedValue::Bytes(vec![1, 2]))).is_on,
+            None
+        );
+    }
+
+    #[test]
+    fn a_bool_is_not_a_number_and_renders_as_a_word() {
+        let dto = DecodedValueDto::from(("power", &DecodedValue::Bool(true)));
+        assert_eq!(dto.raw_number, None);
+        assert_eq!(dto.decoded_number, None);
+        assert_eq!(dto.decoded_text.as_deref(), Some("on"));
     }
 
     #[test]

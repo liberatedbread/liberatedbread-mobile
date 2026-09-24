@@ -57,14 +57,13 @@ class RabbitAirProvisionState {
     String? thingId,
     bool? verified,
     String? message,
-  }) =>
-      RabbitAirProvisionState(
-        step ?? this.step,
-        networks: networks ?? this.networks,
-        thingId: thingId ?? this.thingId,
-        verified: verified ?? this.verified,
-        message: message ?? this.message,
-      );
+  }) => RabbitAirProvisionState(
+    step ?? this.step,
+    networks: networks ?? this.networks,
+    thingId: thingId ?? this.thingId,
+    verified: verified ?? this.verified,
+    message: message ?? this.message,
+  );
 }
 
 /// The best-effort LAN confirmation after the purifier leaves setup mode:
@@ -72,10 +71,8 @@ class RabbitAirProvisionState {
 /// default watches the network scan for the Thing ID's mDNS hostname and runs
 /// a clock sync + state read; a timeout is NOT a failure — the join may still
 /// be in flight — so the seam answers false rather than throwing.
-typedef RabbitAirVerifier = Future<bool> Function({
-  required String thingId,
-  required String userKey,
-});
+typedef RabbitAirVerifier =
+    Future<bool> Function({required String thingId, required String userKey});
 
 /// Drives the Rabbit Air BLE provisioning conversation, the setup sibling of
 /// [AdoptService]: what to send comes from the codec (cleartext
@@ -114,13 +111,12 @@ class RabbitAirProvisionService {
   RabbitAirProvisionService({
     required this.codec,
     required this.keyStore,
-    required RabbitAirBleLink Function() linkFactory,
-    RabbitAirVerifier? verifier,
+    required this._linkFactory,
+    this._verifier,
     this.networkPollInterval = const Duration(milliseconds: 1500),
     this.networkPollAttempts = 15,
     this.verifyTimeout = const Duration(seconds: 50),
-  })  : _linkFactory = linkFactory,
-        _verifier = verifier;
+  });
 
   /// The oldest Wi-Fi firmware that accepts a user key (cmd 5, type 4).
   static const keyPushMinMcu = 24;
@@ -135,8 +131,9 @@ class RabbitAirProvisionService {
   /// the current position.
   Stream<RabbitAirProvisionState> get states => _states.stream;
 
-  RabbitAirProvisionState _state =
-      const RabbitAirProvisionState(RabbitAirProvisionStep.connecting);
+  RabbitAirProvisionState _state = const RabbitAirProvisionState(
+    RabbitAirProvisionStep.connecting,
+  );
   RabbitAirProvisionState get state => _state;
 
   RabbitAirBleLink? _link;
@@ -187,11 +184,16 @@ class RabbitAirProvisionService {
       }
       if (networks.isEmpty) {
         throw const RabbitAirProvisionException(
-            'the purifier reports no Wi-Fi networks nearby. Move it closer '
-            'to your router and try again.');
+          'the purifier reports no Wi-Fi networks nearby. Move it closer '
+          'to your router and try again.',
+        );
       }
-      emit(RabbitAirProvisionState(RabbitAirProvisionStep.awaitingNetworkChoice,
-          networks: networks));
+      emit(
+        RabbitAirProvisionState(
+          RabbitAirProvisionStep.awaitingNetworkChoice,
+          networks: networks,
+        ),
+      );
     } catch (e) {
       _fail(e);
     }
@@ -218,23 +220,32 @@ class RabbitAirProvisionService {
       final mcu = _mcu;
       if (mcu != null && mcu < keyPushMinMcu) {
         throw RabbitAirProvisionException(
-            "this purifier's Wi-Fi firmware (v$mcu) is too old to accept a "
-            'user key — update it to v$keyPushMinMcu or newer with the '
-            'Rabbit Air app, then set up again.');
+          "this purifier's Wi-Fi firmware (v$mcu) is too old to accept a "
+          'user key — update it to v$keyPushMinMcu or newer with the '
+          'Rabbit Air app, then set up again.',
+        );
       }
       await _exchange(5, {'type': 4, 'value': key});
 
-      emit(_state.copyWith(step: RabbitAirProvisionStep.leaving));
-      await _exchange(2);
-
-      // The key is the whole point of the exercise: file it where the LAN
-      // control path looks — under the mDNS hostname, which is the Thing ID
-      // when the vendor cloud flow ran, and RabbitAir-<WIFI MAC>.local when
-      // it did not (hardware-verified). A purifier that answered cmd 255
-      // with neither name nor mac falls back to the BLE identity, which
-      // strands the key from LAN use but keeps BLE control working.
+      // The key is the whole point of the exercise, and from this moment the
+      // purifier REQUIRES it — so it is filed now, before the unit is told to
+      // leave setup mode, not after. The key exists nowhere but this local:
+      // when the leave-setup ack's indication was lost (the link drops as the
+      // unit joins Wi-Fi), the screen backed out mid-join (its dispose drops
+      // the link, which fails the exchange), or the app was killed in
+      // between, the old order left a unit that had left setup mode with a
+      // key nobody stored — recoverable only by a factory reset. Filed where
+      // the LAN control path looks: under the mDNS hostname, which is the
+      // Thing ID when the vendor cloud flow ran, and RabbitAir-<WIFI
+      // MAC>.local when it did not (hardware-verified). A purifier that
+      // answered cmd 255 with neither name nor mac falls back to the BLE
+      // identity, which strands the key from LAN use but keeps BLE control
+      // working.
       final scope = _thingId ?? _fallbackHostname ?? 'ble-$_deviceId';
       await keyStore.saveUserKey(scope, key);
+
+      emit(_state.copyWith(step: RabbitAirProvisionStep.leaving));
+      await _exchange(2);
 
       var verified = false;
       final verifier = _verifier;
@@ -242,14 +253,21 @@ class RabbitAirProvisionService {
       if (verifier != null && discoveryName != null) {
         emit(_state.copyWith(step: RabbitAirProvisionStep.verifying));
         try {
-          verified = await verifier(thingId: discoveryName, userKey: key)
-              .timeout(verifyTimeout, onTimeout: () => false);
+          verified = await verifier(
+            thingId: discoveryName,
+            userKey: key,
+          ).timeout(verifyTimeout, onTimeout: () => false);
         } catch (e) {
           Log.ble.debug('rabbit air verification failed: $e');
         }
       }
-      emit(RabbitAirProvisionState(RabbitAirProvisionStep.done,
-          thingId: _thingId, verified: verified));
+      emit(
+        RabbitAirProvisionState(
+          RabbitAirProvisionStep.done,
+          thingId: _thingId,
+          verified: verified,
+        ),
+      );
     } catch (e) {
       _fail(e);
     }
@@ -259,10 +277,11 @@ class RabbitAirProvisionService {
     final message = error is RabbitAirProvisionException
         ? error.message
         : 'the purifier did not answer as expected ($error). Check it is '
-            'still in setup mode and try again.';
+              'still in setup mode and try again.';
     Log.ble.warning('rabbit air provisioning failed at ${_state.step}: $error');
     emit(
-        _state.copyWith(step: RabbitAirProvisionStep.failed, message: message));
+      _state.copyWith(step: RabbitAirProvisionStep.failed, message: message),
+    );
   }
 
   /// Read the network list once: cmd 0's `data.networks`, each entry's
@@ -285,11 +304,22 @@ class RabbitAirProvisionService {
   }
 
   /// One cleartext setup exchange: render the envelope with the next id,
-  /// send it, parse the reply's `data`. A reply carrying a truthy `error` is
-  /// the device refusing the step — surfaced with the step's state, since
-  /// the id is positional here (one exchange in flight).
-  Future<Map<String, Object?>?> _exchange(int cmd,
-      [Map<String, Object?>? data]) async {
+  /// send it, check the reply is the answer to THIS question, parse its
+  /// `data`. A reply carrying a truthy `error` is the device refusing the
+  /// step.
+  ///
+  /// R-010: the echoed id used to be ignored. Only one exchange is in flight
+  /// at a time, but a step that timed out and a purifier that answered it
+  /// late do not cancel each other — the late reply simply arrives while the
+  /// NEXT step is waiting, and was taken as its answer. During provisioning
+  /// that means the network list is read as the join result, or a refusal is
+  /// read as a success, on the one path where getting it wrong leaves a
+  /// purifier half-configured on the user's Wi-Fi. The id is what tells the
+  /// two apart, so it is checked.
+  Future<Map<String, Object?>?> _exchange(
+    int cmd, [
+    Map<String, Object?>? data,
+  ]) async {
     final link = _link;
     if (link == null) {
       throw StateError('RabbitAirProvisionService.join before begin');
@@ -304,12 +334,23 @@ class RabbitAirProvisionService {
     final Object? decoded = jsonDecode(utf8.decode(replyBytes));
     if (decoded is! Map) {
       throw const RabbitAirProvisionException(
-          'the purifier answered with something that is not JSON');
+        'the purifier answered with something that is not JSON',
+      );
+    }
+    final echoed = decoded['id'];
+    final echoedId = echoed is int ? echoed : int.tryParse('$echoed');
+    if (echoedId != null && echoedId != id) {
+      throw RabbitAirProvisionException(
+        'the purifier answered a different question (asked $id, answered '
+        '$echoedId) — a late reply to a step that had already given up. '
+        'Start setup again.',
+      );
     }
     final error = decoded['error'];
     if (error != null && error != false) {
       throw RabbitAirProvisionException(
-          'the purifier refused command $cmd (error: $error)');
+        'the purifier refused command $cmd (error: $error)',
+      );
     }
     final replyData = decoded['data'];
     return replyData is Map ? replyData.cast() : null;

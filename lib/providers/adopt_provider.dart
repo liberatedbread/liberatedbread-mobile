@@ -23,8 +23,9 @@ final adoptServiceProvider = Provider<AdoptService>((ref) {
 });
 
 /// The OS Wi-Fi network reader behind the "a setup network is nearby" hint.
-final wifiNetworkScannerProvider =
-    Provider<WifiNetworkScanner>((ref) => WifiNetworkScanner());
+final wifiNetworkScannerProvider = Provider<WifiNetworkScanner>(
+  (ref) => WifiNetworkScanner(),
+);
 
 /// One adoptable device family, pairing the catalogue's softap profile with the
 /// matched-spec YAML the flow needs to render its setup requests.
@@ -60,32 +61,35 @@ class AdoptableDevice {
 /// here briefly inverted that and silently handed adopt the stale bundled
 /// spec. Loud either way; until the profile DTOs carry a spec key, a
 /// same-name collision between unrelated specs still shadows one of them.
-Map<String, ({DeviceSpecDto spec, String yaml})> _specsByDeviceName(
-    List<({DeviceSpecDto spec, String yaml})> parsed) {
-  final byName = <String, ({DeviceSpecDto spec, String yaml})>{};
+Map<String, CatalogueSpec> _specsByDeviceName(List<CatalogueSpec> parsed) {
+  final byName = <String, CatalogueSpec>{};
   for (final entry in parsed) {
-    final name = entry.spec.deviceName;
+    final name = entry.deviceName;
     if (byName.containsKey(name)) {
-      Log.spec.warning('two specs share device name "$name"; adopt takes the '
-          'later copy (an installed pack overrides the bundled spec)');
+      Log.spec.warning(
+        'two specs share device name "$name"; adopt takes the '
+        'later copy (an installed pack overrides the bundled spec)',
+      );
     }
     byName[name] = entry;
   }
   return byName;
 }
 
-final adoptableDevicesProvider =
-    FutureProvider<List<AdoptableDevice>>((ref) async {
+final adoptableDevicesProvider = FutureProvider<List<AdoptableDevice>>((
+  ref,
+) async {
   final codec = ref.watch(specCodecProvider);
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  final byName = _specsByDeviceName(parsed);
+  final catalogue = await ref.watch(specCatalogueProvider.future);
+  final byName = _specsByDeviceName(catalogue.specs);
   // Profiles come from the WINNING copies only. Generating them from every
   // parsed copy paired a card's profile (SSID prefix, gateway, ports) with a
   // different copy's YAML: the dedupe below keeps the first profile it sees
   // — the bundled one — while the name join hands back the pack's YAML, so an
   // installed pack override was shown wearing the bundled spec's identity.
-  final profiles =
-      await codec.softApProfiles([for (final e in byName.values) e.yaml]);
+  final profiles = await codec.softApProfiles([
+    for (final e in byName.values) e.yaml,
+  ]);
 
   final devices = <AdoptableDevice>[];
   final seen = <String>{};
@@ -97,11 +101,9 @@ final adoptableDevicesProvider =
     // and the picker each list a family once.
     if (family == null || yaml == null) continue;
     if (!seen.add(profile.ssidPrefix.toLowerCase())) continue;
-    devices.add(AdoptableDevice(
-      profile: profile,
-      specYaml: yaml,
-      family: family,
-    ));
+    devices.add(
+      AdoptableDevice(profile: profile, specYaml: yaml, family: family),
+    );
   }
   return devices;
 });
@@ -138,16 +140,18 @@ class BleAdoptableDevice {
 /// drive: a card is only rendered for a family whose handler the adopt screen
 /// knows, and that decision belongs to the screen (which owns the routing
 /// table), not here.
-final bleAdoptableDevicesProvider =
-    FutureProvider<List<BleAdoptableDevice>>((ref) async {
+final bleAdoptableDevicesProvider = FutureProvider<List<BleAdoptableDevice>>((
+  ref,
+) async {
   final codec = ref.watch(specCodecProvider);
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
+  final catalogue = await ref.watch(specCatalogueProvider.future);
   // The same join, the same shadowing rule — one definition for both flows.
-  final byName = _specsByDeviceName(parsed);
+  final byName = _specsByDeviceName(catalogue.specs);
   // Winning copies only, for the reason the softap join above gives: a
   // profile and the YAML beside it must come from the same spec.
-  final profiles = await codec
-      .bleProvisioningProfiles([for (final e in byName.values) e.yaml]);
+  final profiles = await codec.bleProvisioningProfiles([
+    for (final e in byName.values) e.yaml,
+  ]);
 
   final devices = <BleAdoptableDevice>[];
   final seen = <String>{};
@@ -157,11 +161,13 @@ final bleAdoptableDevicesProvider =
     // One card per advertised name: two specs in a product family that share a
     // setup peripheral are one thing to the user.
     if (!seen.add(profile.advertisedName.toLowerCase())) continue;
-    devices.add(BleAdoptableDevice(
-      profile: profile,
-      specYaml: spec.yaml,
-      protocolHandler: spec.spec.protocolHandler,
-    ));
+    devices.add(
+      BleAdoptableDevice(
+        profile: profile,
+        specYaml: spec.yaml,
+        protocolHandler: spec.protocolHandler,
+      ),
+    );
   }
   return devices;
 });
@@ -184,17 +190,25 @@ final bleAdoptableDevicesProvider =
 /// in-flight read and a scan's worth of re-asks, then lets it go.
 final bleSetupModeMatchProvider = FutureProvider.autoDispose
     .family<BleAdoptableDevice?, String>((ref, advertisedName) async {
-  final link = ref.keepAlive();
-  final expiry = Timer(const Duration(minutes: 5), link.close);
-  ref.onDispose(expiry.cancel);
-  final devices = await ref.watch(bleAdoptableDevicesProvider.future);
-  if (devices.isEmpty) return null;
-  final index = await ref.watch(specCodecProvider).matchBleProvisioningName(
-        profiles: devices.map((d) => d.profile).toList(),
-        advertisedName: advertisedName,
-      );
-  return index == null ? null : devices[index];
-});
+      final link = ref.keepAlive();
+      final expiry = Timer(const Duration(minutes: 5), link.close);
+      ref.onDispose(expiry.cancel);
+      final devices = await ref.watch(bleAdoptableDevicesProvider.future);
+      if (devices.isEmpty) return null;
+      final index = await ref
+          .watch(specCodecProvider)
+          .matchBleProvisioningName(
+            profiles: devices.map((d) => d.profile).toList(),
+            advertisedName: advertisedName,
+          );
+      return index == null ? null : devices[index];
+    });
+
+/// How often [nearbySetupNetworkProvider] re-reads the OS Wi-Fi list. A
+/// provider so a test can shorten it; production never overrides it.
+final nearbySetupPollIntervalProvider = Provider<Duration>(
+  (ref) => const Duration(seconds: 5),
+);
 
 /// The adoptable family whose setup network the OS can currently see, or null.
 ///
@@ -203,14 +217,26 @@ final bleSetupModeMatchProvider = FutureProvider.autoDispose
 /// something in the air. Emits null immediately and forever on a platform that
 /// cannot enumerate Wi-Fi (iOS, desktop), so the icon simply never animates
 /// there rather than misleading.
-final nearbySetupNetworkProvider =
-    StreamProvider.autoDispose<AdoptableDevice?>((ref) async* {
+final nearbySetupNetworkProvider = StreamProvider.autoDispose<AdoptableDevice?>((
+  ref,
+) async* {
   final scanner = ref.watch(wifiNetworkScannerProvider);
   if (!scanner.isSupported) {
     yield null;
     return;
   }
   final codec = ref.watch(specCodecProvider);
+  final interval = ref.watch(nearbySetupPollIntervalProvider);
+  // Observed by the polling loop below. Cancelling an async* generator only
+  // takes effect at its next `yield`, and this one yields only when the match
+  // CHANGES — so once the provider was disposed with a stable answer (no setup
+  // network in sight is the common one) the loop never reached a yield, the
+  // periodic stream underneath it was never cancelled, and the Wi-Fi scan
+  // channel was polled every five seconds for the life of the process, once
+  // more per visit to the adopt screen. The flag ends the periodic stream at
+  // its next tick instead, which cancels its timer.
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
   final devices = await ref.watch(adoptableDevicesProvider.future);
   if (devices.isEmpty) {
     yield null;
@@ -229,13 +255,15 @@ final nearbySetupNetworkProvider =
 
   // Emit the first poll now, then re-poll on a slow cadence — a cheap cache
   // read, not a scan — emitting only when the match changes so a listener does
-  // not rebuild every interval for a hint that has not moved. The generator is
-  // torn down when the provider auto-disposes, which ends the periodic stream.
+  // not rebuild every interval for a hint that has not moved.
   var match = await poll();
   yield match;
   var lastPrefix = match?.profile.ssidPrefix;
-  await for (final _ in Stream<void>.periodic(const Duration(seconds: 5))) {
+  await for (final _ in Stream<void>.periodic(
+    interval,
+  ).takeWhile((_) => !disposed)) {
     match = await poll();
+    if (disposed) return;
     final prefix = match?.profile.ssidPrefix;
     if (prefix != lastPrefix) {
       lastPrefix = prefix;

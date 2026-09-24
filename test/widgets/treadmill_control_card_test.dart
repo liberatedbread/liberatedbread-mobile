@@ -43,66 +43,73 @@ final _treadmillSpec = DeviceSpecDto(
   defaultPort: null,
   entities: const <EntityDto>[],
   services: const [
-    ServiceDto(uuid: _svc, name: 'WiLink treadmill service', characteristics: [
-      CharacteristicDto(
-        uuid: _char,
-        name: 'Command write',
-        canRead: false,
-        canWrite: true,
-        canNotify: false,
-        commands: [
-          CommandDto(
-            name: 'start_belt',
-            description: 'Start the belt',
-            parameters: [],
-            isFixed: true,
-            isEncodable: true,
-            unsupportedEncoding: null,
-            advanced: false,
-          ),
-          CommandDto(
-            name: 'set_speed',
-            description: 'Set belt speed',
-            isFixed: false,
-            isEncodable: true,
-            unsupportedEncoding: null,
-            advanced: false,
-            parameters: [
-              ParameterDto(
+    ServiceDto(
+      uuid: _svc,
+      name: 'WiLink treadmill service',
+      characteristics: [
+        CharacteristicDto(
+          uuid: _char,
+          name: 'Command write',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: [
+            CommandDto(
+              name: 'start_belt',
+              description: 'Start the belt',
+              parameters: [],
+              isFixed: true,
+              isEncodable: true,
+              unsupportedEncoding: null,
+              advanced: false,
+            ),
+            CommandDto(
+              name: 'set_speed',
+              description: 'Set belt speed',
+              isFixed: false,
+              isEncodable: true,
+              unsupportedEncoding: null,
+              advanced: false,
+              parameters: [
+                ParameterDto(
                   name: 'speed',
                   valueType: 'uint8',
                   min: 0,
                   max: 60,
                   scale: 0.1,
                   unit: 'km/h',
-                  userSettable: true),
-              ParameterDto(
+                  userSettable: true,
+                ),
+                ParameterDto(
                   name: 'checksum',
                   valueType: 'uint8',
                   auto: 'checksum',
-                  userSettable: false),
-            ],
-          ),
-          CommandDto(
-            name: 'stop_or_pause',
-            description: 'Stop or pause',
-            isFixed: false,
-            isEncodable: true,
-            unsupportedEncoding: null,
-            advanced: false,
-            parameters: [
-              ParameterDto(
+                  userSettable: false,
+                ),
+              ],
+            ),
+            CommandDto(
+              name: 'stop_or_pause',
+              description: 'Stop or pause',
+              isFixed: false,
+              isEncodable: true,
+              unsupportedEncoding: null,
+              advanced: false,
+              parameters: [
+                ParameterDto(
                   name: 'action',
                   valueType: 'uint8',
                   min: 1,
                   max: 2,
-                  userSettable: true),
-            ],
-          ),
-        ],
-        formatFields: [],
-      ),
-    ]),
+                  userSettable: true,
+                ),
+              ],
+            ),
+          ],
+          formatFields: [],
+        ),
+      ],
+    ),
   ],
 );
 
@@ -130,30 +137,58 @@ Widget _wrap({
   // The variant-narrowed entities the panel hands over. Defaults to the whole
   // spec's, which is what a single-generation device gets.
   List<EntityDto>? entities,
-}) =>
-    ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: TreadmillControlCard(
-              deviceId: 'd',
-              specYaml: 'yaml',
-              spec: spec ?? _treadmillSpec,
-              services: services,
-              entities: entities ?? (spec ?? _treadmillSpec).entities,
-            ),
-          ),
+}) => ProviderScope(
+  overrides: [
+    bleServiceProvider.overrideWithValue(ble),
+    specCodecProvider.overrideWithValue(codec),
+  ],
+  child: MaterialApp(
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: TreadmillControlCard(
+          deviceId: 'd',
+          specYaml: 'yaml',
+          spec: spec ?? _treadmillSpec,
+          services: services,
+          entities: entities ?? (spec ?? _treadmillSpec).entities,
         ),
       ),
-    );
+    ),
+  ),
+);
 
 void main() {
-  testWidgets('renders the transport buttons and the speed control',
-      (tester) async {
+  group('R-112: the presentation transform is stated once', () {
+    // The card used to spell `scale == null || scale == 0 ? 1.0 : scale!`
+    // out three times — mapping the range, mapping a dialled speed back, and
+    // counting decimals — so a fix to one was a fix to one. The arithmetic
+    // now runs through `displayValueFor`/`rawValueFor`; the only thing left
+    // here is which scale to use.
+    ParameterDto param({double? scale}) => ParameterDto(
+      name: 'speed',
+      valueType: 'uint16',
+      scale: scale,
+      userSettable: true,
+    );
+
+    test('a declared scale is used as declared', () {
+      expect(speedScaleOf(param(scale: 0.1)), 0.1);
+      expect(speedScaleOf(param(scale: -0.5)), -0.5);
+    });
+
+    test('no scale is the identity', () {
+      expect(speedScaleOf(param()), 1.0);
+    });
+
+    test('a malformed zero scale is the identity, never a divisor', () {
+      // Dividing a dialled speed by it would hand the encoder Infinity.
+      expect(speedScaleOf(param(scale: 0)), 1.0);
+    });
+  });
+
+  testWidgets('renders the transport buttons and the speed control', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
@@ -182,12 +217,17 @@ void main() {
     // so the card asks first, every time.
     expect(find.text('Start the belt?'), findsOneWidget);
     expect(codec.encodeCalls, isEmpty);
-    await tester.tap(find.descendant(
-        of: find.byType(AlertDialog), matching: find.text('Start')));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Start'),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'start_belt');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'start_belt',
+    );
     expect(call.params, isEmpty);
     expect(call.charUuid, _char);
     expect(ble.writes.single.value, [0xF7, 0xA7]);
@@ -195,8 +235,7 @@ void main() {
     expect(find.text('Sent Start belt'), findsWidgets);
   });
 
-  testWidgets(
-      'the shared stop-or-pause opcode splits into Pause and Stop '
+  testWidgets('the shared stop-or-pause opcode splits into Pause and Stop '
       'through its action byte', (tester) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x08, 0x02]));
@@ -204,8 +243,9 @@ void main() {
 
     await tester.tap(find.text('Pause'));
     await tester.pumpAndSettle();
-    var call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'stop_or_pause');
+    var call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'stop_or_pause',
+    );
     expect(call.params, {'action': 2.0});
 
     await tester.tap(find.text('Stop'));
@@ -215,8 +255,9 @@ void main() {
     expect(ble.writes, hasLength(2));
   });
 
-  testWidgets('Stop stays live while another write is in flight',
-      (tester) async {
+  testWidgets('Stop stays live while another write is in flight', (
+    tester,
+  ) async {
     // A speed write can stall for many seconds behind the BLE stack; that is
     // exactly when the belt is moving under someone, so the one control that
     // halts it must not grey out with the rest.
@@ -228,8 +269,11 @@ void main() {
     // Hold a speed write in flight.
     await tester.tap(find.byIcon(Icons.add));
     await tester.pump();
-    expect(tester.widget<Slider>(find.byType(Slider)).onChanged, isNull,
-        reason: 'the ordinary controls disable during a send');
+    expect(
+      tester.widget<Slider>(find.byType(Slider)).onChanged,
+      isNull,
+      reason: 'the ordinary controls disable during a send',
+    );
 
     await tester.tap(find.text('Stop'));
     await tester.pump();
@@ -239,11 +283,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(ble.writes, hasLength(2));
     expect(
-        codec.encodeCalls.map((c) => c.commandName), contains('stop_or_pause'));
+      codec.encodeCalls.map((c) => c.commandName),
+      contains('stop_or_pause'),
+    );
   });
 
-  testWidgets('the speed stepper commits immediately, in raw wire units',
-      (tester) async {
+  testWidgets('the speed stepper commits immediately, in raw wire units', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
@@ -254,14 +301,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('0.5 km/h'), findsOneWidget);
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_speed');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_speed',
+    );
     expect(call.params, {'speed': 5.0});
     expect(ble.writes.single.value, [0xF7, 0xFD]);
   });
 
-  testWidgets('the slider commits on release, not on every drag tick',
-      (tester) async {
+  testWidgets('the slider commits on release, not on every drag tick', (
+    tester,
+  ) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
@@ -278,33 +327,37 @@ void main() {
 
     slider.onChangeEnd!(3.0);
     await tester.pumpAndSettle();
-    final call =
-        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_speed');
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_speed',
+    );
     expect(call.params, {'speed': 30.0});
   });
 
-  testWidgets(
-      'an encode failure surfaces as the status text; nothing is '
+  testWidgets('an encode failure surfaces as the status text; nothing is '
       'written and no value is fabricated', (tester) async {
     // The graceful path for a speed command with a second caller-owned
     // parameter (a slope byte): the encoder refuses with ParameterMissing
     // rather than the card inventing a value.
     final ble = FakeBleService();
-    final codec =
-        FakeSpecCodec(encodeError: StateError('ParameterMissing: slope'));
+    final codec = FakeSpecCodec(
+      encodeError: StateError('ParameterMissing: slope'),
+    );
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
 
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
 
     expect(
-        find.text('The treadmill did not accept that command.'), findsWidgets);
+      find.text('The treadmill did not accept that command.'),
+      findsWidgets,
+    );
     expect(find.textContaining('ParameterMissing'), findsNothing);
     expect(ble.writes, isEmpty);
   });
 
-  testWidgets('renders nothing when no verb resolves for the spec',
-      (tester) async {
+  testWidgets('renders nothing when no verb resolves for the spec', (
+    tester,
+  ) async {
     // A treadmill-category spec whose commands use none of the known
     // spellings: the card steps aside and the per-characteristic command
     // widgets below remain the control surface.
@@ -329,34 +382,36 @@ void main() {
       defaultPort: null,
       entities: const <EntityDto>[],
       services: const [
-        ServiceDto(uuid: _svc, name: 'Service', characteristics: [
-          CharacteristicDto(
-            uuid: _char,
-            name: 'Command write',
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
-            commands: [
-              CommandDto(
-                name: 'query_status',
-                description: 'Poll',
-                parameters: [],
-                isFixed: true,
-                isEncodable: true,
-                unsupportedEncoding: null,
-                advanced: false,
-              ),
-            ],
-            formatFields: [],
-          ),
-        ]),
+        ServiceDto(
+          uuid: _svc,
+          name: 'Service',
+          characteristics: [
+            CharacteristicDto(
+              uuid: _char,
+              name: 'Command write',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              commands: [
+                CommandDto(
+                  name: 'query_status',
+                  description: 'Poll',
+                  parameters: [],
+                  isFixed: true,
+                  isEncodable: true,
+                  unsupportedEncoding: null,
+                  advanced: false,
+                ),
+              ],
+              formatFields: [],
+            ),
+          ],
+        ),
       ],
     );
-    await tester.pumpWidget(_wrap(
-      ble: FakeBleService(),
-      codec: FakeSpecCodec(),
-      spec: spec,
-    ));
+    await tester.pumpWidget(
+      _wrap(ble: FakeBleService(), codec: FakeSpecCodec(), spec: spec),
+    );
 
     expect(find.text('Start'), findsNothing);
     expect(find.text('Stop'), findsNothing);
@@ -364,24 +419,22 @@ void main() {
     expect(find.byType(Card), findsNothing);
   });
 
-  testWidgets(
-      'commands on characteristics the device does not carry do not '
+  testWidgets('commands on characteristics the device does not carry do not '
       'resolve', (tester) async {
     // The spec describes the full WiLink command set, but this unit's GATT
     // table has no such service — same discovery check the panel applies to
     // entity actions.
-    await tester.pumpWidget(_wrap(
-      ble: FakeBleService(),
-      codec: FakeSpecCodec(),
-      services: const [],
-    ));
+    await tester.pumpWidget(
+      _wrap(ble: FakeBleService(), codec: FakeSpecCodec(), services: const []),
+    );
 
     expect(find.text('Start'), findsNothing);
     expect(find.byType(Card), findsNothing);
   });
 
-  testWidgets("KingSmith's stop_belt resolves as the Stop verb",
-      (tester) async {
+  testWidgets("KingSmith's stop_belt resolves as the Stop verb", (
+    tester,
+  ) async {
     // The WiLink belt has no stop opcode; stop_belt is the speed-0 frame the
     // spec names so the card has a Stop to bind to.
     final spec = _spedSpec(const [
@@ -457,23 +510,26 @@ void main() {
         advanced: false,
         parameters: [
           ParameterDto(
-              name: 'speed',
-              valueType: 'uint8',
-              min: 0,
-              max: 255,
-              userSettable: true),
+            name: 'speed',
+            valueType: 'uint8',
+            min: 0,
+            max: 255,
+            userSettable: true,
+          ),
           // The slope defaults to 0 in the spec, so the card sends speed alone.
           ParameterDto(
-              name: 'slope',
-              valueType: 'uint8',
-              min: 0,
-              max: 255,
-              userSettable: true),
+            name: 'slope',
+            valueType: 'uint8',
+            min: 0,
+            max: 255,
+            userSettable: true,
+          ),
           ParameterDto(
-              name: 'checksum',
-              valueType: 'uint8',
-              auto: 'checksum',
-              userSettable: false),
+            name: 'checksum',
+            valueType: 'uint8',
+            auto: 'checksum',
+            userSettable: false,
+          ),
         ],
       ),
     ]);
@@ -484,8 +540,11 @@ void main() {
     expect(find.text('Start'), findsOneWidget);
     expect(find.text('Pause'), findsOneWidget);
     expect(find.text('Stop'), findsOneWidget);
-    expect(find.byType(Slider), findsOneWidget,
-        reason: 'the speed+slope write is the card speed control');
+    expect(
+      find.byType(Slider),
+      findsOneWidget,
+      reason: 'the speed+slope write is the card speed control',
+    );
 
     // Stop resolves to the UR stop, and it is not gated behind a confirm.
     await tester.tap(find.text('Stop'));
@@ -496,12 +555,14 @@ void main() {
     // default, so nothing here fabricates an incline the pad does not have.
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
-    final speedCall = codec.encodeCalls
-        .lastWhere((c) => c.commandName == 'ur_set_speed_and_slope');
+    final speedCall = codec.encodeCalls.lastWhere(
+      (c) => c.commandName == 'ur_set_speed_and_slope',
+    );
     expect(speedCall.params.keys, ['speed']);
   });
-  testWidgets('an entity-bound verb beats the command-name list',
-      (tester) async {
+  testWidgets('an entity-bound verb beats the command-name list', (
+    tester,
+  ) async {
     // The spec binds Start through its entity layer to a command of its own
     // naming — while ALSO declaring a command called start_belt that the
     // historical name list would pick. The entity binding must win.
@@ -526,55 +587,60 @@ void main() {
       defaultPort: null,
       entities: const [
         EntityDto(
-            options: [],
-            name: 'Start',
-            key: 'start',
-            platform: 'button',
-            canNotify: false,
-            hasFormat: false,
-            onWhenNonzero: false,
-            actions: [
-              EntityActionDto(
-                role: 'press',
-                serviceUuid: _svc,
-                characteristicUuid: _char,
-                commandName: 'vendor_go',
-                userParams: [],
-              ),
-            ],
-            variants: []),
+          options: [],
+          name: 'Start',
+          key: 'start',
+          platform: 'button',
+          canNotify: false,
+          hasFormat: false,
+          onWhenNonzero: false,
+          actions: [
+            EntityActionDto(
+              role: 'press',
+              serviceUuid: _svc,
+              characteristicUuid: _char,
+              commandName: 'vendor_go',
+              userParams: [],
+            ),
+          ],
+          variants: [],
+        ),
       ],
       services: const [
-        ServiceDto(uuid: _svc, name: 'svc', characteristics: [
-          CharacteristicDto(
-            uuid: _char,
-            name: 'Command write',
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
-            formatFields: [],
-            commands: [
-              CommandDto(
-                name: 'start_belt',
-                description: 'The decoy the name list would pick',
-                parameters: [],
-                isFixed: true,
-                isEncodable: true,
-                unsupportedEncoding: null,
-                advanced: false,
-              ),
-              CommandDto(
-                name: 'vendor_go',
-                description: 'The entity-bound start',
-                parameters: [],
-                isFixed: true,
-                isEncodable: true,
-                unsupportedEncoding: null,
-                advanced: false,
-              ),
-            ],
-          ),
-        ]),
+        ServiceDto(
+          uuid: _svc,
+          name: 'svc',
+          characteristics: [
+            CharacteristicDto(
+              uuid: _char,
+              name: 'Command write',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              formatFields: [],
+              commands: [
+                CommandDto(
+                  name: 'start_belt',
+                  description: 'The decoy the name list would pick',
+                  parameters: [],
+                  isFixed: true,
+                  isEncodable: true,
+                  unsupportedEncoding: null,
+                  advanced: false,
+                ),
+                CommandDto(
+                  name: 'vendor_go',
+                  description: 'The entity-bound start',
+                  parameters: [],
+                  isFixed: true,
+                  isEncodable: true,
+                  unsupportedEncoding: null,
+                  advanced: false,
+                ),
+              ],
+            ),
+          ],
+        ),
       ],
     );
     final ble = FakeBleService();
@@ -583,15 +649,20 @@ void main() {
 
     await tester.tap(find.text('Start'));
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(
-        of: find.byType(AlertDialog), matching: find.text('Start')));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Start'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(codec.encodeCalls.single.commandName, 'vendor_go');
   });
 
-  testWidgets('a two-generation pad is driven by the generation in front of us',
-      (tester) async {
+  testWidgets('a two-generation pad is driven by the generation in front of us', (
+    tester,
+  ) async {
     // The KingSmith shape, and the bug this card had. One spec covers two
     // protocol generations — the private 0xFE00 `WiLink` service and the
     // standard `FTMS` Fitness Machine Service — and declares a Start for EACH,
@@ -607,38 +678,42 @@ void main() {
     const ftmsChar = '00002ad9-0000-1000-8000-00805f9b34fb';
 
     EntityDto start(
-            String commandName, String svc, String chr, String variant) =>
-        EntityDto(
-            options: const [],
-            name: 'Start',
-            key: 'start',
-            platform: 'button',
-            canNotify: false,
-            hasFormat: false,
-            onWhenNonzero: false,
-            actions: [
-              EntityActionDto(
-                role: 'press',
-                serviceUuid: svc,
-                characteristicUuid: chr,
-                commandName: commandName,
-                userParams: const [],
-              ),
-            ],
-            variants: [variant]);
+      String commandName,
+      String svc,
+      String chr,
+      String variant,
+    ) => EntityDto(
+      options: const [],
+      name: 'Start',
+      key: 'start',
+      platform: 'button',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        EntityActionDto(
+          role: 'press',
+          serviceUuid: svc,
+          characteristicUuid: chr,
+          commandName: commandName,
+          userParams: const [],
+        ),
+      ],
+      variants: [variant],
+    );
 
     final wilinkStart = start('wilink_start', _svc, _char, 'WiLink');
     final ftmsStart = start('ftms_start', ftmsSvc, ftmsChar, 'FTMS');
 
     CommandDto command(String name) => CommandDto(
-          name: name,
-          description: name,
-          parameters: const [],
-          isFixed: true,
-          isEncodable: true,
-          unsupportedEncoding: null,
-          advanced: false,
-        );
+      name: name,
+      description: name,
+      parameters: const [],
+      isFixed: true,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: false,
+    );
 
     final spec = DeviceSpecDto(
       nameMatchers: const [],
@@ -662,99 +737,149 @@ void main() {
       // WiLink first, which is what made the old index pick it.
       entities: [wilinkStart, ftmsStart],
       services: [
-        ServiceDto(uuid: _svc, name: 'wilink', characteristics: [
-          CharacteristicDto(
-            uuid: _char,
-            name: 'WiLink write',
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
-            formatFields: const [],
-            commands: [command('wilink_start')],
-          ),
-        ]),
-        ServiceDto(uuid: ftmsSvc, name: 'ftms', characteristics: [
-          CharacteristicDto(
-            uuid: ftmsChar,
-            name: 'Treadmill Control Point',
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
-            formatFields: const [],
-            commands: [command('ftms_start')],
-          ),
-        ]),
+        ServiceDto(
+          uuid: _svc,
+          name: 'wilink',
+          characteristics: [
+            CharacteristicDto(
+              uuid: _char,
+              name: 'WiLink write',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              formatFields: const [],
+              commands: [command('wilink_start')],
+            ),
+          ],
+        ),
+        ServiceDto(
+          uuid: ftmsSvc,
+          name: 'ftms',
+          characteristics: [
+            CharacteristicDto(
+              uuid: ftmsChar,
+              name: 'Treadmill Control Point',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              formatFields: const [],
+              commands: [command('ftms_start')],
+            ),
+          ],
+        ),
       ],
     );
 
     // The device in front of us is an FTMS unit: only its service is
     // discovered, and the panel narrowed the entities to that generation.
     const services = [
-      BleDiscoveredService(uuid: ftmsSvc, characteristics: [
-        BleDiscoveredCharacteristic(
-          uuid: ftmsChar,
-          canRead: false,
-          canWrite: true,
-          canWriteWithoutResponse: true,
-          canNotify: false,
-        ),
-      ]),
+      BleDiscoveredService(
+        uuid: ftmsSvc,
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: ftmsChar,
+            canRead: false,
+            canWrite: true,
+            canWriteWithoutResponse: true,
+            canNotify: false,
+          ),
+        ],
+      ),
     ];
 
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
-    await tester.pumpWidget(_wrap(
-      ble: ble,
-      codec: codec,
-      spec: spec,
-      services: services,
-      entities: [ftmsStart],
-    ));
+    await tester.pumpWidget(
+      _wrap(
+        ble: ble,
+        codec: codec,
+        spec: spec,
+        services: services,
+        entities: [ftmsStart],
+      ),
+    );
 
     await tester.tap(find.text('Start'));
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(
-        of: find.byType(AlertDialog), matching: find.text('Start')));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Start'),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(codec.encodeCalls.single.commandName, 'ftms_start',
-        reason: 'the belt in front of us is the FTMS generation');
+    expect(
+      codec.encodeCalls.single.commandName,
+      'ftms_start',
+      reason: 'the belt in front of us is the FTMS generation',
+    );
+  });
+
+  // F-055: the sent-status line used a Colors.green literal, which fails
+  // contrast on the light surface and ignores dark mode.
+  testWidgets('the sent status uses the theme role, not a literal', (
+    tester,
+  ) async {
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xA7]));
+    await tester.pumpWidget(_wrap(ble: FakeBleService(), codec: codec));
+
+    await tester.tap(find.text('Start'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Start'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scheme = Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+    final status = find.descendant(
+      of: find.byType(TreadmillControlCard),
+      matching: find.text('Sent Start belt'),
+    );
+    expect(tester.widget<Text>(status).style?.color, scheme.tertiary);
   });
 }
 
 /// A treadmill-category spec whose one write characteristic carries [commands]
 /// — the shape most of these tests need with a different command set each.
 DeviceSpecDto _spedSpec(List<CommandDto> commands) => DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: 'Treadmill',
-      manufacturer: 'Acme Fitness',
-      manufacturerStatus: 'active',
-      protocol: 'ble',
-      category: 'treadmill',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [_svc],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      defaultPort: null,
-      entities: const <EntityDto>[],
-      services: [
-        ServiceDto(uuid: _svc, name: 'Service', characteristics: [
-          CharacteristicDto(
-            uuid: _char,
-            name: 'Command write',
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
-            commands: commands,
-            formatFields: const [],
-          ),
-        ]),
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Treadmill',
+  manufacturer: 'Acme Fitness',
+  manufacturerStatus: 'active',
+  protocol: 'ble',
+  category: 'treadmill',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [_svc],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  defaultPort: null,
+  entities: const <EntityDto>[],
+  services: [
+    ServiceDto(
+      uuid: _svc,
+      name: 'Service',
+      characteristics: [
+        CharacteristicDto(
+          uuid: _char,
+          name: 'Command write',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: commands,
+          formatFields: const [],
+        ),
       ],
-    );
+    ),
+  ],
+);

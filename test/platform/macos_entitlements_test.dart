@@ -18,9 +18,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'platform_config_reader.dart';
 
 const Map<String, String> _entitlementFiles = {
-  'macos/Runner/DebugProfile.entitlements': 'debug and profile builds '
+  'macos/Runner/DebugProfile.entitlements':
+      'debug and profile builds '
       '(flutter run -d macos, and every developer\'s local testing)',
-  'macos/Runner/Release.entitlements': 'release builds — what users actually '
+  'macos/Runner/Release.entitlements':
+      'release builds — what users actually '
       'install',
 };
 
@@ -38,7 +40,8 @@ void main() {
           entitlements = parsePlist(
             readRepoFile(
               path,
-              consequence: 'Xcode signs the macOS app with this file; without '
+              consequence:
+                  'Xcode signs the macOS app with this file; without '
                   'it the sandboxed app has no Bluetooth, no network and no '
                   'keychain access, so both BLE scanning and Home Assistant '
                   'are dead in $audience.',
@@ -51,7 +54,8 @@ void main() {
           expect(
             entitlements['com.apple.security.device.bluetooth'],
             isTrue,
-            reason: 'com.apple.security.device.bluetooth must be <true/> in '
+            reason:
+                'com.apple.security.device.bluetooth must be <true/> in '
                 '$path. The App Sandbox denies Bluetooth hardware to an app '
                 'without it, so CBCentralManager reports .unauthorized, '
                 'adapterStateError() turns that into '
@@ -64,7 +68,8 @@ void main() {
           expect(
             entitlements.containsKey('keychain-access-groups'),
             isTrue,
-            reason: 'keychain-access-groups must be declared in $path (an '
+            reason:
+                'keychain-access-groups must be declared in $path (an '
                 'empty <array/> is enough — it makes the app use its own '
                 'default access group). Without the key, flutter_secure_'
                 'storage 9.x fails every SecItem* call under the App Sandbox '
@@ -77,7 +82,8 @@ void main() {
           expect(
             entitlements['keychain-access-groups'],
             anyOf(isA<List<Object?>>(), isA<String>()),
-            reason: 'keychain-access-groups in $path must be an <array> (or a '
+            reason:
+                'keychain-access-groups in $path must be an <array> (or a '
                 'string); any other value is not a shape codesign accepts and '
                 'the entitlement is dropped, reintroducing the -34018 '
                 'keychain failure.',
@@ -88,7 +94,8 @@ void main() {
           expect(
             entitlements['com.apple.security.network.client'],
             isTrue,
-            reason: 'com.apple.security.network.client must be <true/> in '
+            reason:
+                'com.apple.security.network.client must be <true/> in '
                 '$path. It is what lets a sandboxed app open outbound '
                 'connections; without it every Home Assistant request (see '
                 'lib/services/http_ha_api_client.dart) fails immediately with '
@@ -126,14 +133,14 @@ void main() {
           ),
       };
       for (final key in required) {
-        final missing =
-            byFile.entries.where((e) => !e.value.containsKey(key)).map(
-                  (e) => e.key,
-                );
+        final missing = byFile.entries
+            .where((e) => !e.value.containsKey(key))
+            .map((e) => e.key);
         expect(
           missing,
           isEmpty,
-          reason: '$key is granted in some macOS entitlement files but missing '
+          reason:
+              '$key is granted in some macOS entitlement files but missing '
               'from $missing. A capability present in only one configuration '
               'is the classic ship-broken bug: it works throughout '
               'development and then fails for every user (or vice versa, '
@@ -150,7 +157,8 @@ void main() {
       plist = parsePlist(
         readRepoFile(
           _macosPlistPath,
-          consequence: 'Without it the macOS app has no bundle metadata and '
+          consequence:
+              'Without it the macOS app has no bundle metadata and '
               'cannot launch.',
         ),
         label: _macosPlistPath,
@@ -166,7 +174,8 @@ void main() {
     test('NSBluetoothAlwaysUsageDescription is present and non-empty', () {
       expectNonEmptyString(
         'NSBluetoothAlwaysUsageDescription',
-        reason: 'NSBluetoothAlwaysUsageDescription must be a non-empty string '
+        reason:
+            'NSBluetoothAlwaysUsageDescription must be a non-empty string '
             'in $_macosPlistPath. macOS 11+ requires it before it will show '
             'the Bluetooth consent alert; without it the app is denied '
             'Bluetooth outright and scanning returns nothing, with the '
@@ -177,7 +186,8 @@ void main() {
     test('NSBluetoothPeripheralUsageDescription is present and non-empty', () {
       expectNonEmptyString(
         'NSBluetoothPeripheralUsageDescription',
-        reason: 'NSBluetoothPeripheralUsageDescription must be a non-empty '
+        reason:
+            'NSBluetoothPeripheralUsageDescription must be a non-empty '
             'string in $_macosPlistPath. It is the key older macOS releases '
             'consult and the one notarisation/App Store review expects from a '
             'CoreBluetooth-linking binary.',
@@ -187,7 +197,8 @@ void main() {
     test('NSLocalNetworkUsageDescription is present and non-empty', () {
       expectNonEmptyString(
         'NSLocalNetworkUsageDescription',
-        reason: 'NSLocalNetworkUsageDescription must be a non-empty string in '
+        reason:
+            'NSLocalNetworkUsageDescription must be a non-empty string in '
             '$_macosPlistPath. macOS Sequoia gates local-network access on '
             'it, so without it requests to a LAN Home Assistant '
             '(http://192.168.x.x:8123 or http://homeassistant.local:8123) are '
@@ -202,7 +213,8 @@ void main() {
       // so the assertable value lives in the xcconfig.
       final xcconfig = readRepoFile(
         _appInfoPath,
-        consequence: 'It defines PRODUCT_BUNDLE_IDENTIFIER, which '
+        consequence:
+            'It defines PRODUCT_BUNDLE_IDENTIFIER, which '
             '$_macosPlistPath expands for CFBundleIdentifier; without it the '
             'macOS app has no bundle id.',
       );
@@ -213,13 +225,15 @@ void main() {
       expect(
         match,
         isNotNull,
-        reason: '$_appInfoPath must define PRODUCT_BUNDLE_IDENTIFIER; '
+        reason:
+            '$_appInfoPath must define PRODUCT_BUNDLE_IDENTIFIER; '
             '$_macosPlistPath expands it for CFBundleIdentifier.',
       );
       expect(
         match!.group(1),
         _expectedBundleId,
-        reason: 'The macOS bundle id must be "$_expectedBundleId". Changing '
+        reason:
+            'The macOS bundle id must be "$_expectedBundleId". Changing '
             'it changes the keychain service scope, so every existing install '
             'silently loses its stored Home Assistant token and has to '
             're-register, and it breaks signing against the existing '

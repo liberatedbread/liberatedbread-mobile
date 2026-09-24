@@ -183,8 +183,10 @@ void _ensureHostBuild() {
   final reason = debug.existsSync()
       ? 'is older than the sources it was built from'
       : 'has not been built yet';
-  stdout.writeln('[host_rust_lib] ${debug.path} $reason; running cargo build. '
-      'Set LIBERATED_BREAD_NO_RUST_BUILD=1 to skip this.');
+  stdout.writeln(
+    '[host_rust_lib] ${debug.path} $reason; running cargo build. '
+    'Set LIBERATED_BREAD_NO_RUST_BUILD=1 to skip this.',
+  );
 
   final ProcessResult result;
   try {
@@ -195,14 +197,17 @@ void _ensureHostBuild() {
     result = Process.runSync('cargo', ['build'], workingDirectory: 'rust');
   } on ProcessException catch (e) {
     stdout.writeln(
-        '[host_rust_lib] cargo is not available ($e); the FFI-backed '
-        'tests in this file will skip. Install it with ./scripts/setup.sh.');
+      '[host_rust_lib] cargo is not available ($e); the FFI-backed '
+      'tests in this file will skip. Install it with ./scripts/setup.sh.',
+    );
     return;
   }
   if (result.exitCode != 0) {
-    stdout.writeln('[host_rust_lib] cargo build failed (exit '
-        '${result.exitCode}); the FFI-backed tests in this file will skip or '
-        'run against a stale library.\n${result.stdout}\n${result.stderr}');
+    stdout.writeln(
+      '[host_rust_lib] cargo build failed (exit '
+      '${result.exitCode}); the FFI-backed tests in this file will skip or '
+      'run against a stale library.\n${result.stdout}\n${result.stderr}',
+    );
   }
 }
 

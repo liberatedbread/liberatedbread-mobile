@@ -18,63 +18,69 @@ import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/device_group_store.dart';
 import 'package:liberated_bread_mobile/services/group_runner.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/services/saved_device_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_spec_codec.dart';
+import '../fakes/in_memory_settings_store.dart';
 
 const _svc = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _chr = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 DeviceSpecDto _bulbSpec({String name = 'Example Smart Bulb'}) => DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: name,
-      manufacturer: 'Acme Corp',
-      manufacturerStatus: 'abandoned',
-      protocol: 'ble',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [_svc],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const [],
-      lanProtocols: const [],
-      services: const [],
-      entities: const [
-        EntityDto(
-            options: [],
-            name: 'Bulb',
-            platform: 'light',
-            canNotify: false,
-            hasFormat: false,
-            onWhenNonzero: false,
-            actions: [
-              EntityActionDto(
-                role: 'turn_off',
-                serviceUuid: _svc,
-                characteristicUuid: _chr,
-                commandName: 'power_off',
-                userParams: [],
-              ),
-            ],
-            variants: []),
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: name,
+  manufacturer: 'Acme Corp',
+  manufacturerStatus: 'abandoned',
+  protocol: 'ble',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [_svc],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  services: const [],
+  entities: const [
+    EntityDto(
+      options: [],
+      name: 'Bulb',
+      platform: 'light',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        EntityActionDto(
+          role: 'turn_off',
+          serviceUuid: _svc,
+          characteristicUuid: _chr,
+          commandName: 'power_off',
+          userParams: [],
+        ),
       ],
-    );
+      variants: [],
+    ),
+  ],
+);
 
-Future<ProviderContainer> _container(
-    {List<Override> overrides = const []}) async {
+Future<ProviderContainer> _container({
+  List<Override> overrides = const [],
+}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
-  final container = ProviderContainer(overrides: [
-    sharedPreferencesProvider.overrideWithValue(prefs),
-    ...overrides,
-  ]);
+  final container = ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      ...overrides,
+    ],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -89,8 +95,10 @@ void main() {
       final container = await _container();
       final notifier = container.read(deviceGroupsProvider.notifier);
 
-      final group =
-          await notifier.create(name: 'Living Room', deviceIds: ['A', 'B']);
+      final group = await notifier.create(
+        name: 'Living Room',
+        deviceIds: ['A', 'B'],
+      );
       expect(container.read(deviceGroupsProvider).single.name, 'Living Room');
 
       await notifier.update(group.copyWith(deviceIds: ['A']));
@@ -111,27 +119,38 @@ void main() {
 
   group('autoGroupsProvider', () {
     ScanGuess guess(DeviceCategory category) => ScanGuess(
-          deviceName: 'Guessed',
-          manufacturer: 'Acme',
-          confidence: MatchConfidence.likely,
-          otherMatches: 0,
-          manufacturerAgreed: true,
-          category: category,
-        );
+      deviceName: 'Guessed',
+      manufacturer: 'Acme',
+      confidence: MatchConfidence.likely,
+      otherMatches: 0,
+      manufacturerAgreed: true,
+      category: category,
+    );
 
     test('buckets stored categories and excludes non-groupable ones', () async {
-      final container = await _container(overrides: [
-        scanGuessProvider.overrideWith((ref, identity) async => null),
-      ]);
+      final container = await _container(
+        overrides: [
+          scanGuessProvider.overrideWith((ref, identity) async => null),
+        ],
+      );
       final saved = container.read(savedDevicesProvider.notifier);
-      await saved.save(SavedDevice(
-          id: 'L1', name: 'Bulb', lastSeen: seen, category: 'light'));
-      await saved.save(SavedDevice(
-          id: 'L2', name: 'Bulb 2', lastSeen: seen, category: 'light'));
-      await saved.save(SavedDevice(
-          id: 'S1', name: 'Wave', lastSeen: seen, category: 'sensor'));
-      await saved.save(SavedDevice(
-          id: 'V1', name: 'OBD', lastSeen: seen, category: 'vehicle'));
+      await saved.save(
+        SavedDevice(id: 'L1', name: 'Bulb', lastSeen: seen, category: 'light'),
+      );
+      await saved.save(
+        SavedDevice(
+          id: 'L2',
+          name: 'Bulb 2',
+          lastSeen: seen,
+          category: 'light',
+        ),
+      );
+      await saved.save(
+        SavedDevice(id: 'S1', name: 'Wave', lastSeen: seen, category: 'sensor'),
+      );
+      await saved.save(
+        SavedDevice(id: 'V1', name: 'OBD', lastSeen: seen, category: 'vehicle'),
+      );
 
       final auto = await container.read(autoGroupsProvider.future);
       expect(auto.groups, hasLength(2));
@@ -144,10 +163,15 @@ void main() {
     });
 
     test('a record without a category gets a display-only guess', () async {
-      final container = await _container(overrides: [
-        scanGuessProvider.overrideWith((ref, identity) async =>
-            identity.name == 'ACME_Old' ? guess(DeviceCategory.light) : null),
-      ]);
+      final container = await _container(
+        overrides: [
+          scanGuessProvider.overrideWith(
+            (ref, identity) async => identity.name == 'ACME_Old'
+                ? guess(DeviceCategory.light)
+                : null,
+          ),
+        ],
+      );
       final saved = container.read(savedDevicesProvider.notifier);
       await saved.save(SavedDevice(id: 'A', name: 'ACME_Old', lastSeen: seen));
       await saved.save(SavedDevice(id: 'B', name: 'Mystery', lastSeen: seen));
@@ -166,32 +190,40 @@ void main() {
       );
     });
 
-    test('offers the saved id to the matcher as a MAC only when it is one',
-        () async {
-      final identities = <ScanIdentity>[];
-      final container = await _container(overrides: [
-        scanGuessProvider.overrideWith((ref, identity) async {
-          identities.add(identity);
-          return null;
-        }),
-      ]);
-      final saved = container.read(savedDevicesProvider.notifier);
-      await saved.save(
-          SavedDevice(id: 'AA:BB:CC:DD:EE:01', name: 'Mac', lastSeen: seen));
-      // A CoreBluetooth UUID must not be offered as an address.
-      await saved.save(SavedDevice(
-          id: '4bb63e02-91b5-4a4f-9d63-cd0324a1a1ba',
-          name: 'Apple',
-          lastSeen: seen));
+    test(
+      'offers the saved id to the matcher as a MAC only when it is one',
+      () async {
+        final identities = <ScanIdentity>[];
+        final container = await _container(
+          overrides: [
+            scanGuessProvider.overrideWith((ref, identity) async {
+              identities.add(identity);
+              return null;
+            }),
+          ],
+        );
+        final saved = container.read(savedDevicesProvider.notifier);
+        await saved.save(
+          SavedDevice(id: 'AA:BB:CC:DD:EE:01', name: 'Mac', lastSeen: seen),
+        );
+        // A CoreBluetooth UUID must not be offered as an address.
+        await saved.save(
+          SavedDevice(
+            id: '4bb63e02-91b5-4a4f-9d63-cd0324a1a1ba',
+            name: 'Apple',
+            lastSeen: seen,
+          ),
+        );
 
-      await container.read(autoGroupsProvider.future);
+        await container.read(autoGroupsProvider.future);
 
-      final byName = {
-        for (final identity in identities) identity.name: identity
-      };
-      expect(byName['Mac']!.macAddress, 'AA:BB:CC:DD:EE:01');
-      expect(byName['Apple']!.macAddress, isNull);
-    });
+        final byName = {
+          for (final identity in identities) identity.name: identity,
+        };
+        expect(byName['Mac']!.macAddress, 'AA:BB:CC:DD:EE:01');
+        expect(byName['Apple']!.macAddress, isNull);
+      },
+    );
 
     test('guesses for unclassified records resolve concurrently', () async {
       final started = <String>[];
@@ -199,13 +231,15 @@ void main() {
       addTearDown(() {
         if (!gate.isCompleted) gate.complete();
       });
-      final container = await _container(overrides: [
-        scanGuessProvider.overrideWith((ref, identity) async {
-          started.add(identity.name);
-          await gate.future;
-          return guess(DeviceCategory.light);
-        }),
-      ]);
+      final container = await _container(
+        overrides: [
+          scanGuessProvider.overrideWith((ref, identity) async {
+            started.add(identity.name);
+            await gate.future;
+            return guess(DeviceCategory.light);
+          }),
+        ],
+      );
       final saved = container.read(savedDevicesProvider.notifier);
       await saved.save(SavedDevice(id: 'A', name: 'One', lastSeen: seen));
       await saved.save(SavedDevice(id: 'B', name: 'Two', lastSeen: seen));
@@ -241,16 +275,21 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
       final calls = <String>[];
-      final savedNotifier =
-          _RecordingSavedDevices(SavedDeviceStore(prefs), calls);
+      final savedNotifier = _RecordingSavedDevices(
+        SavedDeviceStore(prefs),
+        calls,
+      );
       final groupsNotifier = _RecordingGroups(DeviceGroupStore(prefs), calls);
-      final container = ProviderContainer(overrides: [
-        savedDevicesProvider.overrideWith((ref) => savedNotifier),
-        deviceGroupsProvider.overrideWith((ref) => groupsNotifier),
-      ]);
+      final container = ProviderContainer(
+        overrides: [
+          savedDevicesProvider.overrideWith((ref) => savedNotifier),
+          deviceGroupsProvider.overrideWith((ref) => groupsNotifier),
+        ],
+      );
       addTearDown(container.dispose);
-      await savedNotifier
-          .save(SavedDevice(id: 'A', name: 'Bulb', lastSeen: seen));
+      await savedNotifier.save(
+        SavedDevice(id: 'A', name: 'Bulb', lastSeen: seen),
+      );
       await groupsNotifier.create(name: 'Room', deviceIds: ['A']);
 
       await forgetDevice(
@@ -265,31 +304,67 @@ void main() {
       expect(container.read(savedDevicesProvider), isEmpty);
       expect(container.read(deviceGroupsProvider).single.deviceIds, isEmpty);
     });
+
+    /// A Rabbit Air driven over BLE files its AES user key under the BLE
+    /// identity, and nothing else ever clears that scope.
+    test('forgets the Rabbit Air key filed under the BLE scope', () async {
+      final container = await _container();
+      final savedNotifier = container.read(savedDevicesProvider.notifier);
+      await savedNotifier.save(
+        SavedDevice(id: 'AA:BB', name: 'Purifier', lastSeen: seen),
+      );
+      final settings = InMemorySettingsStore({
+        'rabbitair.ble-AA:BB.userkey': '0123456789abcdef0123456789abcdef',
+        'rabbitair.ble-CC:DD.userkey': 'ffffffffffffffffffffffffffffffff',
+      });
+
+      await forgetDevice(
+        savedDevices: savedNotifier,
+        groups: container.read(deviceGroupsProvider.notifier),
+        deviceId: 'AA:BB',
+        rabbitAir: RabbitAirKeyStore(settings),
+      );
+
+      expect(
+        settings.values.keys,
+        ['rabbitair.ble-CC:DD.userkey'],
+        reason: 'this purifier\'s key is gone; another\'s stays',
+      );
+    });
   });
 
   group('groupMembersProvider', () {
     test('resolves specs by choice first, then the saved match', () async {
       final chosen = _bulbSpec(name: 'Chosen Bulb');
       final recorded = _bulbSpec(name: 'Recorded Bulb');
-      final container = await _container(overrides: [
-        parsedDeviceSpecsProvider.overrideWith((ref) async => [
-              (spec: chosen, yaml: 'chosen-yaml'),
-              (spec: recorded, yaml: 'recorded-yaml'),
-            ]),
-      ]);
+      final container = await _container(
+        overrides: [
+          specCatalogueProvider.overrideWith(
+            (ref) async =>
+                FallbackSpecCatalogue.fromParsed(ref.watch(specCodecProvider), [
+                  (spec: chosen, yaml: 'chosen-yaml'),
+                  (spec: recorded, yaml: 'recorded-yaml'),
+                ]),
+          ),
+        ],
+      );
       final saved = container.read(savedDevicesProvider.notifier);
-      await saved.save(SavedDevice(
-        id: 'A',
-        name: 'Bulb A',
-        lastSeen: seen,
-        specKey: specKeyFor(recorded),
-      ));
-      await saved.save(SavedDevice(
-        id: 'B',
-        name: 'Bulb B',
-        lastSeen: seen,
-        specKey: specKeyFor(recorded),
-      ));
+      await saved.save(
+        SavedDevice(
+          id: 'A',
+          name: 'Bulb A',
+          lastSeen: seen,
+          specKey: specKeyFor(recorded),
+        ),
+      );
+      await saved.save(
+        SavedDevice(
+          id: 'B',
+          name: 'Bulb B',
+          lastSeen: seen,
+          specKey: specKeyFor(recorded),
+        ),
+      );
       // The user explicitly picked a different spec for A.
       await container
           .read(specChoicesProvider.notifier)
@@ -306,9 +381,16 @@ void main() {
     });
 
     test('drops forgotten ids and carries members with no spec', () async {
-      final container = await _container(overrides: [
-        parsedDeviceSpecsProvider.overrideWith((ref) async => []),
-      ]);
+      final container = await _container(
+        overrides: [
+          specCatalogueProvider.overrideWith(
+            (ref) async => FallbackSpecCatalogue.fromParsed(
+              ref.watch(specCodecProvider),
+              const [],
+            ),
+          ),
+        ],
+      );
       final saved = container.read(savedDevicesProvider.notifier);
       await saved.save(SavedDevice(id: 'A', name: 'Known', lastSeen: seen));
 
@@ -320,24 +402,40 @@ void main() {
       expect(members.network, isEmpty);
     });
 
-    test('a member that recorded a non-groupable category stops running',
-        () async {
-      // An unidentified member that later turns out to be an OBD dongle must
-      // not keep taking part through its stale group membership.
-      final container = await _container(overrides: [
-        parsedDeviceSpecsProvider.overrideWith((ref) async => []),
-      ]);
-      final saved = container.read(savedDevicesProvider.notifier);
-      await saved.save(SavedDevice(
-          id: 'A', name: 'Dongle', lastSeen: seen, category: 'vehicle'));
-      await saved.save(SavedDevice(
-          id: 'B', name: 'Bulb', lastSeen: seen, category: 'light'));
+    test(
+      'a member that recorded a non-groupable category stops running',
+      () async {
+        // An unidentified member that later turns out to be an OBD dongle must
+        // not keep taking part through its stale group membership.
+        final container = await _container(
+          overrides: [
+            specCatalogueProvider.overrideWith(
+              (ref) async => FallbackSpecCatalogue.fromParsed(
+                ref.watch(specCodecProvider),
+                const [],
+              ),
+            ),
+          ],
+        );
+        final saved = container.read(savedDevicesProvider.notifier);
+        await saved.save(
+          SavedDevice(
+            id: 'A',
+            name: 'Dongle',
+            lastSeen: seen,
+            category: 'vehicle',
+          ),
+        );
+        await saved.save(
+          SavedDevice(id: 'B', name: 'Bulb', lastSeen: seen, category: 'light'),
+        );
 
-      final members = await container.read(
-        groupMembersProvider(const GroupMembersRequest(['A', 'B'])).future,
-      );
-      expect(members.ble.single.id, 'B');
-    });
+        final members = await container.read(
+          groupMembersProvider(const GroupMembersRequest(['A', 'B'])).future,
+        );
+        expect(members.ble.single.id, 'B');
+      },
+    );
 
     test('pruneDevice drops a device from every stored group', () async {
       final container = await _container();
@@ -355,33 +453,39 @@ void main() {
 
   group('groupRunnerProvider', () {
     test('wires the post-discovery resolver through spec matching', () async {
-      final ble = FakeBleService(servicesToReturn: const [
-        BleDiscoveredService(uuid: _svc, characteristics: [
-          BleDiscoveredCharacteristic(
-            uuid: _chr,
-            canRead: false,
-            canWrite: true,
-            canNotify: false,
+      final ble = FakeBleService(
+        servicesToReturn: const [
+          BleDiscoveredService(
+            uuid: _svc,
+            characteristics: [
+              BleDiscoveredCharacteristic(
+                uuid: _chr,
+                canRead: false,
+                canWrite: true,
+                canNotify: false,
+              ),
+            ],
           ),
-        ]),
-      ]);
-      final container = await _container(overrides: [
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(
-            FakeSpecCodec(encoded: Uint8List.fromList([0x01]))),
-        matchedDeviceSpecProvider.overrideWith((ref, request) async =>
-            SpecMatchOutcome.auto(
-                MatchedSpec(spec: _bulbSpec(), yaml: 'matched-yaml'))),
-      ]);
+        ],
+      );
+      final container = await _container(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble),
+          specCodecProvider.overrideWithValue(
+            FakeSpecCodec(encoded: Uint8List.fromList([0x01])),
+          ),
+          matchedDeviceSpecProvider.overrideWith(
+            (ref, request) async => SpecMatchOutcome.auto(
+              MatchedSpec(spec: _bulbSpec(), yaml: 'matched-yaml'),
+            ),
+          ),
+        ],
+      );
 
       final runner = container.read(groupRunnerProvider);
-      final events = await runner
-          .run(
-            GroupOp.turnOff,
-            [GroupMember(id: 'A', name: 'Bulb')],
-            stop: StopSignal(),
-          )
-          .toList();
+      final events = await runner.run(GroupOp.turnOff, [
+        GroupMember(id: 'A', name: 'Bulb'),
+      ], stop: StopSignal()).toList();
 
       expect(events.last.status, GroupDeviceStatus.ok);
       expect(ble.writes.single.value, [0x01]);

@@ -17,9 +17,9 @@ class _ThrowingSpecPackService extends FakeSpecPackService {
 }
 
 ProviderContainer _container(InMemorySettingsStore store) {
-  final container = ProviderContainer(overrides: [
-    prefsSettingsStoreProvider.overrideWith((ref) async => store),
-  ]);
+  final container = ProviderContainer(
+    overrides: [prefsSettingsStoreProvider.overrideWith((ref) async => store)],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -96,14 +96,20 @@ void main() {
   });
 
   group('cachedSpecPacksProvider', () {
-    test('a cache-read failure degrades to an empty map, not an error',
-        () async {
-      final container = ProviderContainer(overrides: [
-        specPackServiceProvider.overrideWithValue(_ThrowingSpecPackService()),
-      ]);
-      addTearDown(container.dispose);
+    test(
+      'a cache-read failure degrades to an empty map, not an error',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            specPackServiceProvider.overrideWithValue(
+              _ThrowingSpecPackService(),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
 
-      expect(await container.read(cachedSpecPacksProvider.future), isEmpty);
-    });
+        expect(await container.read(cachedSpecPacksProvider.future), isEmpty);
+      },
+    );
   });
 }

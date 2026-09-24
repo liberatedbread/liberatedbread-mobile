@@ -56,8 +56,7 @@ IconData? _byDeviceClass(String? deviceClass, IconData? fallback) =>
       // Air-quality readings (the Airthings family: radon rides under the
       // VOC-parts class upstream, CO₂ under its own).
       'volatile_organic_compounds' ||
-      'volatile_organic_compounds_parts' =>
-        Icons.science_outlined,
+      'volatile_organic_compounds_parts' => Icons.science_outlined,
       'pm1' || 'pm25' || 'pm10' => Icons.grain,
       'illuminance' => Icons.light_mode_outlined,
       _ => fallback,
@@ -79,9 +78,10 @@ IconData? _byDeviceClass(String? deviceClass, IconData? fallback) =>
 /// reading over one would be a poor trade.
 IconData entityIcon(EntityDto entity, {IconData fallback = Icons.sensors}) =>
     entityIconFor(
-        icon: entity.icon,
-        deviceClass: entity.deviceClass,
-        fallback: fallback)!;
+      icon: entity.icon,
+      deviceClass: entity.deviceClass,
+      fallback: fallback,
+    )!;
 
 /// [entityIcon] for callers holding the fields rather than a BLE [EntityDto] —
 /// the network entity DTO carries the same `icon`/`device_class` pair under a

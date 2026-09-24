@@ -50,13 +50,36 @@ enum TlsPolicy {
   /// A spec that states NOTHING is a different case and the caller decides it:
   /// see [TlsTrust.evaluator]'s `fallback`.
   static TlsPolicy? parse(String? verification) => switch (verification) {
-        null => null,
-        'standard' => TlsPolicy.standard,
-        'trust_on_first_use' => TlsPolicy.trustOnFirstUse,
-        'vendor_ca' => TlsPolicy.vendorCa,
-        'none' => TlsPolicy.none,
-        _ => TlsPolicy.trustOnFirstUse,
-      };
+    null => null,
+    'standard' => TlsPolicy.standard,
+    'trust_on_first_use' => TlsPolicy.trustOnFirstUse,
+    'vendor_ca' => TlsPolicy.vendorCa,
+    'none' => TlsPolicy.none,
+    _ => TlsPolicy.trustOnFirstUse,
+  };
+}
+
+/// Why a policy refused a handshake.
+///
+/// `badCertificateCallback` returns a bool, so the reason has to be recorded
+/// on the side or it is gone — and the three are NOT the same news. Reporting
+/// all of them as "the device is presenting a different certificate than
+/// before" was wrong twice: [unverifiableChain] pins nothing, so there is no
+/// "before" to differ from, and [pinUnreadable] says nothing about the
+/// certificate at all. Each one points at a different action, which is the
+/// only reason a user-facing message exists.
+enum TlsRefusal {
+  /// A pinned device presented a leaf that is not the pinned one. Re-pair, or
+  /// find out what is answering at that address.
+  certificateChanged,
+
+  /// The spec asked for `standard` validation and the chain does not reach a
+  /// trusted root. Nothing was pinned; nothing changed.
+  unverifiableChain,
+
+  /// The device is pinned but the stored fingerprint could not be READ, so
+  /// first-contact trust would overwrite it. The certificate may be fine.
+  pinUnreadable,
 }
 
 /// Remembers which certificate a device presented the first time, so a later
@@ -100,8 +123,8 @@ class CertificatePinStore {
 /// two ways is a pin nothing can erase.
 String identityFor({String? mac, String? host}) =>
     (mac != null && mac.isNotEmpty)
-        ? 'mac:${mac.toLowerCase()}'
-        : 'host:${host ?? ''}';
+    ? 'mac:${mac.toLowerCase()}'
+    : 'host:${host ?? ''}';
 
 /// The one spelling of "this scanned device's store identity".
 ///
@@ -122,18 +145,22 @@ String certificateFingerprint(X509Certificate certificate) =>
 
 /// Builds the `badCertificateCallback` a policy implies.
 ///
-/// Written for three callers and wired into one so far.
+/// Written for three callers and wired into two.
 ///
 /// `HttpControlClient` reads it, and both specs that ask to be pinned ride
 /// plain HTTP, so the policy reaches every device that currently declares one.
-/// `WsSession` and `MqttSession` still answer this question themselves with an
-/// unconditional yes — honest today, because the specs on those transports
+/// The MQTT transport reads it through `pinnedTlsConnect`, and the Roomba —
+/// whose spec says "validate by pinning on first sight" and whose password
+/// crosses every reconnect — pins under `roomba:<BLID>` through it; the other
+/// MQTT specs declare `verification: none` and keep the accept-anything
+/// connector. `WsSession` still answers this question itself with an
+/// unconditional yes — honest today, because the specs on that transport
 /// declare `verification: none` and mean it (a television's certificate is
-/// self-signed with no chain, and the Roomba regenerates its own), but it is
-/// their answer rather than the spec's. Rust already parses
-/// `websocket.connect.tls.verification` and carries it across the FFI, where
-/// no Dart reads it; the day a spec pairs `trust_on_first_use` with a socket,
-/// that is the wiring to do, and this class is what it wires into.
+/// self-signed with no chain), but it is its answer rather than the spec's.
+/// Rust already parses `websocket.connect.tls.verification` and carries it
+/// across the FFI, where no Dart reads it; the day a spec pairs
+/// `trust_on_first_use` with a socket, that is the wiring to do, and this
+/// class is what it wires into.
 class TlsTrust {
   final CertificatePinStore _pins;
 
@@ -159,7 +186,11 @@ class TlsTrust {
   /// host for the same reason. It used to be cleared wholesale by [forget],
   /// which meant forgetting device A erased device B's recorded refusal and
   /// B's next failure reported as a plain unreachable.
-  final Set<String> _refused = <String>{};
+  ///
+  /// The VALUE is which refusal it was: a bare set could only say "the policy
+  /// said no", and the caller then had one sentence for three different
+  /// situations.
+  final Map<String, TlsRefusal> _refused = <String, TlsRefusal>{};
 
   /// Identities whose stored pin could not be read.
   ///
@@ -173,7 +204,22 @@ class TlsTrust {
 
   /// Whether the last handshake with [host] was refused BY THIS POLICY rather
   /// than by the network.
-  bool refused(String host) => _refused.contains(host);
+  bool refused(String host) => _refused.containsKey(host);
+
+  /// WHICH refusal the last handshake with [host] was, or null when the
+  /// policy did not refuse it. The caller turns this into the one sentence
+  /// that names the action the user can take.
+  TlsRefusal? refusalReason(String host) => _refused[host];
+
+  /// Forget [host]'s recorded refusal, before a handshake begins.
+  ///
+  /// The record is written only when the certificate callback runs, and read
+  /// on ANY HandshakeException. A handshake that fails before the callback —
+  /// the broker rejecting at ServerHello over a cipher gap — used to report
+  /// the PREVIOUS attempt's reason: a locked keychain on attempt one, and on
+  /// the retry after unlocking, "unlock the phone and try again" for a
+  /// failure unlocking cannot fix. Every connector clears before it opens.
+  void clearRefusal(String host) => _refused.remove(host);
 
   /// Load [identity]'s pin so [evaluator] can answer synchronously. Call
   /// before opening the connection.
@@ -226,7 +272,7 @@ class TlsTrust {
     required String identity,
     required TlsPolicy? policy,
     required bool Function(X509Certificate cert, String host, int port)
-        fallback,
+    fallback,
   }) {
     return (cert, host, port) {
       switch (policy) {
@@ -240,7 +286,7 @@ class TlsTrust {
           // Recorded like any other policy refusal. Without it the caller
           // reports "not reachable — try scanning again", which is advice that
           // cannot help for a failure that is not about reachability.
-          _refused.add(host);
+          _refused[host] = TlsRefusal.unverifiableChain;
           return false;
         case TlsPolicy.none:
           return true;
@@ -253,7 +299,7 @@ class TlsTrust {
               'stored fingerprint could not be read, so first-contact trust '
               'would overwrite it',
             );
-            _refused.add(host);
+            _refused[host] = TlsRefusal.pinUnreadable;
             return false;
           }
           final pinned = _known[identity];
@@ -263,10 +309,14 @@ class TlsTrust {
             // rather than awaited — the handshake cannot wait, and a pin that
             // fails to persist costs a re-pin, not a wrong answer.
             _known[identity] = fingerprint;
-            unawaited(_pins.save(identity, fingerprint).catchError(
-                  (Object e) =>
-                      Log.net.warning('could not persist a pin', error: e),
-                ));
+            unawaited(
+              _pins
+                  .save(identity, fingerprint)
+                  .catchError(
+                    (Object e) =>
+                        Log.net.warning('could not persist a pin', error: e),
+                  ),
+            );
             return true;
           }
           if (pinned == fingerprint) {
@@ -281,7 +331,7 @@ class TlsTrust {
             'TLS refused for $host:$port: the certificate changed since this '
             'device was first seen. Re-pair it if the device was reset.',
           );
-          _refused.add(host);
+          _refused[host] = TlsRefusal.certificateChanged;
           return false;
         case null:
           return fallback(cert, host, port);

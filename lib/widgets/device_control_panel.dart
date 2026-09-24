@@ -26,6 +26,7 @@ import 'setpoint_control_card.dart';
 import 'switch_control_card.dart';
 import 'treadmill_control_card.dart';
 import 'typed_characteristic_widget.dart';
+import '../core/mono_text.dart';
 
 /// Displays the services/characteristics of a connected device. When the device
 /// matches a bundled device spec, characteristics are rendered as typed
@@ -53,9 +54,7 @@ class DeviceControlPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (services.isEmpty) {
-      return const Center(
-        child: Text('No services found on this device.'),
-      );
+      return const Center(child: Text('No services found on this device.'));
     }
 
     // Names standard services the spec does not describe. Watched, not read:
@@ -91,10 +90,10 @@ class DeviceControlPanel extends ConsumerWidget {
     final matchedVariants = match == null
         ? null
         : ref
-            .watch(bleVariantNamesProvider(
-              (request: request, yaml: match.yaml),
-            ))
-            .valueOrNull;
+              .watch(
+                bleVariantNamesProvider((request: request, yaml: match.yaml)),
+              )
+              .valueOrNull;
 
     /// Whether [entity] belongs to the model in front of us. An unscoped
     /// entity always does; a scoped one does when the narrowing picked one of
@@ -154,12 +153,12 @@ class DeviceControlPanel extends ConsumerWidget {
       final owningState = stateChar == null
           ? null
           : services
-              .where(
-                (s) => s.characteristics.any(
-                  (c) => normalizeUuid(c.uuid) == normalizeUuid(stateChar),
-                ),
-              )
-              .firstOrNull;
+                .where(
+                  (s) => s.characteristics.any(
+                    (c) => normalizeUuid(c.uuid) == normalizeUuid(stateChar),
+                  ),
+                )
+                .firstOrNull;
 
       switch (entity.platform) {
         case null || 'sensor' || 'binary_sensor':
@@ -167,13 +166,13 @@ class DeviceControlPanel extends ConsumerWidget {
           if (!seen.add('${entity.platform}|${entity.name}')) continue;
           readings.add((entity: entity, serviceUuid: owningState.uuid));
         case 'switch' ||
-              'light' ||
-              'number' ||
-              'climate' ||
-              'button' ||
-              'select' ||
-              'fan' ||
-              'cover':
+            'light' ||
+            'number' ||
+            'climate' ||
+            'button' ||
+            'select' ||
+            'fan' ||
+            'cover':
           // At least one action must target a characteristic this device
           // actually has; a switch or setpoint may instead ride on readable
           // state alone (ember's temperature control has no sendable command,
@@ -191,7 +190,8 @@ class DeviceControlPanel extends ConsumerWidget {
           // A button/select/fan/cover without a resolved action on discovered
           // hardware is a dead control, not a reading — hide it (the count
           // below says so) rather than draw something that cannot send.
-          final stateOnly = owningState != null &&
+          final stateOnly =
+              owningState != null &&
               switch (entity.platform) {
                 'light' || 'button' || 'select' || 'fan' || 'cover' => false,
                 _ => true,
@@ -228,7 +228,8 @@ class DeviceControlPanel extends ConsumerWidget {
     // plumbing. When the matched spec says this is a sensor and its readings
     // are on screen, the raw service cards start folded so the first screen
     // is radon and CO₂, not the OAD firmware service — still one tap away.
-    final foldRawServices = readings.isNotEmpty &&
+    final foldRawServices =
+        readings.isNotEmpty &&
         DeviceCategory.parse(match?.spec.category) == DeviceCategory.sensor;
 
     // Leading slots above the raw service list: the spec chooser when several
@@ -333,8 +334,7 @@ class DeviceControlPanel extends ConsumerWidget {
     // field. `findChildIndexCallback` closes that: the delegate looks the key
     // up, finds the child at its new index, and updates it in place.
     final childIndexByKey = <Key, int>{
-      for (var i = 0; i < leading.length; i++)
-        if (leading[i].key case final key?) key: i,
+      for (var i = 0; i < leading.length; i++) ?leading[i].key: i,
       // The index is part of the key, not just the value. GATT permits a
       // peripheral to expose several instances of one service UUID, and a
       // UUID-only key made those instances collide: two children built with
@@ -383,9 +383,14 @@ class DeviceControlPanel extends ConsumerWidget {
 /// still render for this session, they simply will not be remembered. Same
 /// shape as the `savedDevicesProvider` write in `device_screen.dart`.
 void _remember(Future<void> write, String deviceId) {
-  unawaited(write.catchError((Object e) {
-    Log.spec.warning('could not save the spec choice for $deviceId', error: e);
-  }));
+  unawaited(
+    write.catchError((Object e) {
+      Log.spec.warning(
+        'could not save the spec choice for $deviceId',
+        error: e,
+      );
+    }),
+  );
 }
 
 /// Names the spec the app matched this device to, and what kind of device that
@@ -431,8 +436,9 @@ class _MatchedSpecHeader extends StatelessWidget {
                 children: [
                   Text(
                     chosen.spec.deviceName,
-                    style:
-                        text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                    style: text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -445,8 +451,9 @@ class _MatchedSpecHeader extends StatelessWidget {
                       if (category != null) category.label,
                       chosen.spec.manufacturer,
                     ].join(' · '),
-                    style: text.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -473,8 +480,11 @@ class _SavedChoiceBanner extends ConsumerWidget {
   final String deviceId;
   final MatchedSpec chosen;
 
-  const _SavedChoiceBanner(
-      {super.key, required this.deviceId, required this.chosen});
+  const _SavedChoiceBanner({
+    super.key,
+    required this.deviceId,
+    required this.chosen,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -495,15 +505,17 @@ class _SavedChoiceBanner extends ConsumerWidget {
                 children: [
                   Text(
                     chosen.spec.deviceName,
-                    style:
-                        text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                    style: text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
                     'Device type you picked',
-                    style: text.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -511,8 +523,9 @@ class _SavedChoiceBanner extends ConsumerWidget {
             TextButton(
               style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
               onPressed: () => _remember(
-                  ref.read(specChoicesProvider.notifier).clear(deviceId),
-                  deviceId),
+                ref.read(specChoicesProvider.notifier).clear(deviceId),
+                deviceId,
+              ),
               child: const Text('Change'),
             ),
           ],
@@ -534,8 +547,11 @@ class _SpecChoicePrompt extends ConsumerWidget {
   final String deviceId;
   final List<MatchedSpec> candidates;
 
-  const _SpecChoicePrompt(
-      {super.key, required this.deviceId, required this.candidates});
+  const _SpecChoicePrompt({
+    super.key,
+    required this.deviceId,
+    required this.candidates,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -556,8 +572,9 @@ class _SpecChoicePrompt extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     'Which device is this?',
-                    style:
-                        text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    style: text.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
@@ -581,10 +598,11 @@ class _SpecChoicePrompt extends ConsumerWidget {
                       alignment: Alignment.centerLeft,
                     ),
                     onPressed: () => _remember(
-                        ref
-                            .read(specChoicesProvider.notifier)
-                            .choose(deviceId, specKeyFor(candidate.spec)),
-                        deviceId),
+                      ref
+                          .read(specChoicesProvider.notifier)
+                          .choose(deviceId, specKeyFor(candidate.spec)),
+                      deviceId,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
@@ -592,8 +610,9 @@ class _SpecChoicePrompt extends ConsumerWidget {
                         Text(candidate.spec.deviceName),
                         Text(
                           candidate.spec.manufacturer,
-                          style: text.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant),
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
@@ -635,10 +654,10 @@ class _HiddenEntitiesNote extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final label = names.length == 1
         ? '1 declared control is not available on this device yet '
-            '(${names.single}).'
+              '(${names.single}).'
         : '${names.length} declared controls are not available on this '
-            'device yet '
-            '(${names.take(4).join(', ')}${names.length > 4 ? ', …' : ''}).';
+              'device yet '
+              '(${names.take(4).join(', ')}${names.length > 4 ? ', …' : ''}).';
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
       child: Row(
@@ -647,9 +666,10 @@ class _HiddenEntitiesNote extends StatelessWidget {
           Icon(Icons.info_outline, size: 16, color: scheme.onSurfaceVariant),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(label,
-                style:
-                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            child: Text(
+              label,
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ),
         ],
       ),
@@ -801,29 +821,29 @@ class _ControlsSection extends StatelessWidget {
           for (final control in controls) ...[
             switch (control.entity.platform) {
               'light' => LightControlCard(
-                  deviceId: deviceId,
-                  stateServiceUuid: control.stateServiceUuid,
-                  entity: control.entity,
-                  specYaml: specYaml,
-                ),
+                deviceId: deviceId,
+                stateServiceUuid: control.stateServiceUuid,
+                entity: control.entity,
+                specYaml: specYaml,
+              ),
               'number' || 'climate' => SetpointControlCard(
-                  deviceId: deviceId,
-                  stateServiceUuid: control.stateServiceUuid,
-                  entity: control.entity,
-                  specYaml: specYaml,
-                ),
+                deviceId: deviceId,
+                stateServiceUuid: control.stateServiceUuid,
+                entity: control.entity,
+                specYaml: specYaml,
+              ),
               'button' || 'select' || 'fan' || 'cover' => BleEntityActionCard(
-                  deviceId: deviceId,
-                  stateServiceUuid: control.stateServiceUuid,
-                  entity: control.entity,
-                  specYaml: specYaml,
-                ),
+                deviceId: deviceId,
+                stateServiceUuid: control.stateServiceUuid,
+                entity: control.entity,
+                specYaml: specYaml,
+              ),
               _ => SwitchControlCard(
-                  deviceId: deviceId,
-                  stateServiceUuid: control.stateServiceUuid,
-                  entity: control.entity,
-                  specYaml: specYaml,
-                ),
+                deviceId: deviceId,
+                stateServiceUuid: control.stateServiceUuid,
+                entity: control.entity,
+                specYaml: specYaml,
+              ),
             },
             const SizedBox(height: 10),
           ],
@@ -895,8 +915,9 @@ class _ServiceCardState extends State<_ServiceCard> {
   Widget build(BuildContext context) {
     final matched = widget.matched;
     final service = widget.service;
-    final specService =
-        matched == null ? null : findServiceForUuid(matched.spec, service.uuid);
+    final specService = matched == null
+        ? null
+        : findServiceForUuid(matched.spec, service.uuid);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -907,10 +928,7 @@ class _ServiceCardState extends State<_ServiceCard> {
           specService?.name ?? _serviceDisplayName(service.uuid),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text(
-          service.uuid,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-        ),
+        subtitle: Text(service.uuid, style: monoTextStyleOf(fontSize: 11)),
         initiallyExpanded: !widget.foldedForReadings,
         // Collapsing must hide the children, never dispose them. Notify-capable
         // characteristic widgets subscribe in initState and cancel in dispose,

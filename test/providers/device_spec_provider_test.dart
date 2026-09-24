@@ -16,33 +16,37 @@ void main() {
 
     final specs = await container.read(deviceSpecsProvider.future);
     expect(
-        specs,
-        contains(
-            'vendor/protocol-specs/device-specs/examples/example-bulb.yaml'));
+      specs,
+      contains('vendor/protocol-specs/device-specs/examples/example-bulb.yaml'),
+    );
     expect(
-        specs['vendor/protocol-specs/device-specs/examples/example-bulb.yaml'],
-        isNotEmpty);
+      specs['vendor/protocol-specs/device-specs/examples/example-bulb.yaml'],
+      isNotEmpty,
+    );
   });
 
-  test('loads a spec that the committed index.json omits, via the temp index',
-      () async {
-    // The IPP printer spec was added after the branch's index.json was last
-    // rebuilt, so a build that read index.json alone never loaded it (its
-    // pictogram silently missing). The gitignored index-temp.json, rebuilt from
-    // the vendored specs by the run/vendor scripts, restores it.
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
+  test(
+    'loads a spec that the committed index.json omits, via the temp index',
+    () async {
+      // The IPP printer spec was added after the branch's index.json was last
+      // rebuilt, so a build that read index.json alone never loaded it (its
+      // pictogram silently missing). The gitignored index-temp.json, rebuilt from
+      // the vendored specs by the run/vendor scripts, restores it.
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
 
-    final specs = await container.read(deviceSpecsProvider.future);
-    expect(
+      final specs = await container.read(deviceSpecsProvider.future);
+      expect(
         specs,
         contains(
-            'vendor/protocol-specs/device-specs/devices/ipp-network-printer.yaml'),
-        reason: 'the temp index must surface specs absent from index.json');
-  });
+          'vendor/protocol-specs/device-specs/devices/ipp-network-printer.yaml',
+        ),
+        reason: 'the temp index must surface specs absent from index.json',
+      );
+    },
+  );
 
-  testWidgets(
-      'the catalogue never probes an absent asset, even when the load '
+  testWidgets('the catalogue never probes an absent asset, even when the load '
       'outlives the test body', (tester) async {
     // Regression. `rootBundle.loadString` on an absent asset raises through
     // FlutterError, and flutter_test fails the CURRENT test on any such error
@@ -71,19 +75,21 @@ void main() {
   });
 
   test('merges bundled specs with cached remote packs', () async {
-    final container = ProviderContainer(overrides: [
-      cachedSpecPacksProvider.overrideWith((ref) async => {
-            'pack:Acme/bulb.yaml': 'device_name: Remote Bulb',
-          }),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        cachedSpecPacksProvider.overrideWith(
+          (ref) async => {'pack:Acme/bulb.yaml': 'device_name: Remote Bulb'},
+        ),
+      ],
+    );
     addTearDown(container.dispose);
 
     final specs = await container.read(deviceSpecsProvider.future);
     // Bundled asset is still present as a fallback...
     expect(
-        specs,
-        contains(
-            'vendor/protocol-specs/device-specs/examples/example-bulb.yaml'));
+      specs,
+      contains('vendor/protocol-specs/device-specs/examples/example-bulb.yaml'),
+    );
     // ...alongside the namespaced remote spec.
     expect(specs['pack:Acme/bulb.yaml'], 'device_name: Remote Bulb');
   });
@@ -96,11 +102,13 @@ void main() {
     // shadowed by one. Neither is visible at runtime -- you would just get the
     // wrong YAML for a device -- so pin the invariant rather than trusting the
     // prefixes to stay different by luck.
-    final container = ProviderContainer(overrides: [
-      cachedSpecPacksProvider.overrideWith((ref) async => {
-            'pack:Acme/bulb.yaml': 'device_name: Remote Bulb',
-          }),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        cachedSpecPacksProvider.overrideWith(
+          (ref) async => {'pack:Acme/bulb.yaml': 'device_name: Remote Bulb'},
+        ),
+      ],
+    );
     addTearDown(container.dispose);
 
     final specs = await container.read(deviceSpecsProvider.future);
@@ -110,8 +118,11 @@ void main() {
     expect(bundled, isNotEmpty);
     expect(remote, ['pack:Acme/bulb.yaml']);
     for (final key in bundled) {
-      expect(key, startsWith('$specsRoot/'),
-          reason: 'every bundled spec must be keyed by its subtree asset path');
+      expect(
+        key,
+        startsWith('$specsRoot/'),
+        reason: 'every bundled spec must be keyed by its subtree asset path',
+      );
     }
   });
 
@@ -119,12 +130,16 @@ void main() {
     // The bundled half swallows its own per-file errors. Make sure that
     // swallowing cannot take the remote half with it: even when NO bundled spec
     // resolves, an installed pack must still reach the catalogue.
-    final container = ProviderContainer(overrides: [
-      cachedSpecPacksProvider.overrideWith((ref) async => {
+    final container = ProviderContainer(
+      overrides: [
+        cachedSpecPacksProvider.overrideWith(
+          (ref) async => {
             'pack:Acme/one.yaml': 'device_name: One',
             'pack:Acme/two.yaml': 'device_name: Two',
-          }),
-    ]);
+          },
+        ),
+      ],
+    );
     addTearDown(container.dispose);
 
     final specs = await container.read(deviceSpecsProvider.future);
@@ -133,17 +148,19 @@ void main() {
   });
 
   test('bundled specs survive when remote packs fail to load', () async {
-    final container = ProviderContainer(overrides: [
-      // Simulate the cached-pack provider itself yielding nothing (its own
-      // errors are swallowed to {} in production).
-      cachedSpecPacksProvider.overrideWith((ref) async => const {}),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        // Simulate the cached-pack provider itself yielding nothing (its own
+        // errors are swallowed to {} in production).
+        cachedSpecPacksProvider.overrideWith((ref) async => const {}),
+      ],
+    );
     addTearDown(container.dispose);
 
     final specs = await container.read(deviceSpecsProvider.future);
     expect(
-        specs,
-        contains(
-            'vendor/protocol-specs/device-specs/examples/example-bulb.yaml'));
+      specs,
+      contains('vendor/protocol-specs/device-specs/examples/example-bulb.yaml'),
+    );
   });
 }

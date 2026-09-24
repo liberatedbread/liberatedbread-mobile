@@ -11,12 +11,7 @@ import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 
 /// Connection state for a BLE device.
-enum BleConnectionState {
-  disconnected,
-  connecting,
-  connected,
-  disconnecting,
-}
+enum BleConnectionState { disconnected, connecting, connected, disconnecting }
 
 /// Raised on the [BleService.scan] stream when BLE permissions were denied.
 ///
@@ -26,10 +21,11 @@ enum BleConnectionState {
 class BlePermissionDeniedException implements UserFacingException {
   @override
   final String message;
-  const BlePermissionDeniedException(
-      [this.message =
-          'Bluetooth permission denied. Grant Bluetooth (and, on Android, '
-              'nearby-devices/location) access to scan for devices.']);
+  const BlePermissionDeniedException([
+    this.message =
+        'Bluetooth permission denied. Grant Bluetooth (and, on Android, '
+        'nearby-devices/location) access to scan for devices.',
+  ]);
 
   @override
   String toString() => message;
@@ -44,9 +40,11 @@ class BlePermissionDeniedException implements UserFacingException {
 class BleUnavailableException implements UserFacingException {
   @override
   final String message;
-  const BleUnavailableException(
-      [this.message = 'Bluetooth is turned off. Turn it on to scan for '
-          'devices.']);
+  const BleUnavailableException([
+    this.message =
+        'Bluetooth is turned off. Turn it on to scan for '
+        'devices.',
+  ]);
 
   @override
   String toString() => message;
@@ -66,10 +64,111 @@ class BleUnavailableException implements UserFacingException {
 class BlePairingRequiredException implements UserFacingException {
   @override
   final String message;
-  const BlePairingRequiredException(
-      [this.message = 'This device needs to be paired before it will share '
-          'data. Accept the pairing request from your system Bluetooth '
-          'settings, then try again.']);
+  const BlePairingRequiredException([
+    this.message =
+        'This device needs to be paired before it will share '
+        'data. Accept the pairing request from your system Bluetooth '
+        'settings, then try again.',
+  ]);
+
+  /// The same refusal, worded for where the prompt actually appears.
+  ///
+  /// The default message says "from your system Bluetooth settings", which is
+  /// true on Android and BlueZ and wrong on Apple platforms. CoreBluetooth
+  /// raises its own "Bluetooth Pairing Request" alert directly over the app in
+  /// response to the failed operation, and an unbonded BLE peripheral does not
+  /// appear under Settings > Bluetooth at all — so on iOS the original text
+  /// sent the user to a screen that shows nothing, at the moment the alert
+  /// they needed was on top of the one they left.
+  ///
+  /// Kept as a factory on the exception rather than resolved at the throw site
+  /// so the wording lives next to the type that carries it, and so tests can
+  /// construct either form without faking a platform.
+  factory BlePairingRequiredException.forPlatform({required bool isApple}) =>
+      isApple
+      ? const BlePairingRequiredException(
+          'This device needs to be paired before it will share data. '
+          'Tap Pair on the Bluetooth Pairing Request, then try again. '
+          'If you already dismissed it, retrying brings it back.',
+        )
+      : const BlePairingRequiredException();
+
+  @override
+  String toString() => message;
+}
+
+/// A saved device the system has no record of any more.
+///
+/// Distinct from "connect timed out" because the remedy is different, and the
+/// generic advice ("move closer, then retry") is actively wrong here. On Apple
+/// platforms a device id is a system-minted per-app UUID rather than a MAC,
+/// and CoreBluetooth drops it for an unbonded peripheral after a Bluetooth
+/// reset or reboot, or when the peripheral's random address rotated. The link
+/// cannot be opened at any distance until the device advertises again and the
+/// system re-registers it — so the useful instruction is "make sure it is
+/// powered on and in range, then scan", not "move closer".
+/// A characteristic the device never answered.
+///
+/// Found on a real Schlage lock (2026-09-17): one of its vendor
+/// characteristics declares `read` and then simply does not reply, so the
+/// operation times out after 15 s. That is not a refusal — an ATT error would
+/// say "insufficient authentication" and become a
+/// [BlePairingRequiredException] — and it is not the device being out of
+/// range, because the link is up and every other characteristic answered. It
+/// is a characteristic that advertises a capability it will not honour for
+/// this central, which on a lock usually means the real conversation happens
+/// through its write/notify pair after a pairing exchange this app has not
+/// done.
+///
+/// Typed because the alternative is what shipped: the plugin's own
+/// `FlutterBluePlusException | readCharacteristic | fbp-code: 1 | Timed out
+/// after 15s` reaching the screen verbatim.
+class BleCharacteristicSilentException implements UserFacingException {
+  @override
+  final String message;
+  const BleCharacteristicSilentException([
+    this.message =
+        'The device did not answer that reading. It may need to be paired '
+        'with this phone first, or that value may not be readable the way '
+        'the device advertises it.',
+  ]);
+
+  @override
+  String toString() => message;
+}
+
+/// The link dropped while an operation was in flight.
+///
+/// Found on the same Schlage lock (2026-09-17): after refusing one read it
+/// hung up, and the next read arrived as the plugin's
+/// `fbp-code: 6 | Device is disconnected`. A security device dropping a
+/// central that asked for something it should not have is ordinary behaviour,
+/// not a bug — but "Device is disconnected" is the plugin talking to a
+/// developer, and the user needs to know the device went away and a retry
+/// reconnects.
+class BleLinkDroppedException implements UserFacingException {
+  @override
+  final String message;
+  const BleLinkDroppedException([
+    this.message =
+        'The device disconnected before it answered. Some devices hang up '
+        'when asked for something they will not share. Try again to '
+        'reconnect.',
+  ]);
+
+  @override
+  String toString() => message;
+}
+
+class BleDeviceUnheardException implements UserFacingException {
+  @override
+  final String message;
+  const BleDeviceUnheardException([
+    this.message =
+        'This device has not been seen since Bluetooth last '
+        'restarted, so it cannot be reconnected directly. Make sure it is '
+        'powered on and in range, then scan for it again.',
+  ]);
 
   @override
   String toString() => message;
@@ -114,8 +213,9 @@ abstract class BleService {
   /// to [ScanIntensity.active], which is the pre-dial behaviour, so a caller
   /// that has not opted into duty-cycling never gets it by surprise.
   Stream<IoTDevice> scan({
-    Duration? timeout =
-        const Duration(seconds: AppConstants.defaultScanDuration),
+    Duration? timeout = const Duration(
+      seconds: AppConstants.defaultScanDuration,
+    ),
     ScanIntensity intensity = ScanIntensity.active,
   });
 
@@ -197,4 +297,35 @@ abstract class BleService {
   /// is the one place its RSSI can still be measured. Throws when the device
   /// is not connected.
   Future<int> readRssi(String deviceId);
+}
+
+/// An optional [BleService] capability: the platform can tell this app it may
+/// not use Bluetooth, and can do so AFTER the fact.
+///
+/// iOS reports a denied CoreBluetooth authorization as an adapter STATE
+/// (`unauthorized`), and it arrives as a transition: the user answers the
+/// system prompt long after the scan that raised it asked, or revokes the
+/// grant in Settings. The scan screen needs to hear that as "permission
+/// needed", with its open-settings shortcut — not as [BleService.adapterReady]
+/// going false, which it cannot tell apart from the radio being switched off.
+///
+/// A separate interface rather than a member of [BleService], because only a
+/// stack that reports authorization through the adapter state has anything to
+/// say here; a consumer checks for it with `is` and does without otherwise.
+/// Declared as a [BleService] so that check promotes the service in place.
+abstract interface class BleAuthorizationWatcher implements BleService {
+  /// Whether the platform has refused this app permission to use Bluetooth —
+  /// the current answer on listen, then every change.
+  Stream<bool> adapterUnauthorized();
+
+  /// Whether the platform lets this app use Bluetooth RIGHT NOW, asked
+  /// without raising a prompt.
+  ///
+  /// The question the scan screen asks when it comes back to the foreground
+  /// on the permission guidance: on Android a grant made in Settings restarts
+  /// nothing and streams nothing, so nobody tells the screen unless it asks.
+  /// A no leaves the guidance where it was; only a yes clears it. Must not
+  /// prompt — a screen that re-asked on every resume would be the flicker the
+  /// guidance exists to stop.
+  Future<bool> isAuthorized();
 }

@@ -15,65 +15,110 @@ void main() {
     prefs = await SharedPreferences.getInstance();
   });
 
-  test('an animation round-trips its frame pixels so replay can re-upload',
-      () async {
+  test('replaceAll keeps exactly the survivors, in one write', () async {
+    // Forgetting the designs a loop wiped off the device used to be clear()
+    // and then one save() per survivor; a throw between them left survivors
+    // — designs still on the device — gone from the list. replaceAll is one
+    // setString, so the list is either the old one or the new one.
     final store = SavedDesignsStore(prefs);
-    final design = SavedDesign(
-      name: 'anim',
-      cid: 100,
-      kind: 'animation',
-      contentHash: 'h',
-      savedAt: DateTime(2026, 1, 2),
-      frameCids: const [100, 101],
-      frameSlots: const [1, 2],
-      frames: [
-        Uint8List.fromList(const [1, 2, 3, 4, 5, 6]),
-        Uint8List.fromList(const [7, 8, 9, 10, 11, 12]),
-      ],
-      width: 2,
-      height: 1,
-      frameMs: 200,
+    SavedDesign design(int cid, DateTime at) => SavedDesign(
+      name: 'd$cid',
+      cid: cid,
+      kind: 'picture',
+      contentHash: 'h$cid',
+      savedAt: at,
+      frameCids: [cid],
+      frameSlots: const [1],
+      frames: const [],
     );
-    await store.save('AA:BB', design);
+    await store.save('AA:BB', design(1, DateTime(2026, 1, 1)));
+    await store.save('AA:BB', design(2, DateTime(2026, 1, 2)));
+    await store.save('AA:BB', design(3, DateTime(2026, 1, 3)));
 
-    final loaded = store.load('AA:BB').single;
-    expect(loaded.frames.map((f) => f.toList()), [
-      [1, 2, 3, 4, 5, 6],
-      [7, 8, 9, 10, 11, 12],
+    await store.replaceAll('AA:BB', [
+      design(1, DateTime(2026, 1, 1)),
+      design(3, DateTime(2026, 1, 3)),
     ]);
-    expect((loaded.width, loaded.height, loaded.frameMs), (2, 1, 200));
-    expect(loaded.frameCids, const [100, 101]);
-    expect(loaded.frameSlots, const [1, 2]);
+
+    expect(store.load('AA:BB').map((d) => d.cid), [
+      3,
+      1,
+    ], reason: 'newest first');
+    expect(
+      prefs.getKeys().where((k) => k.contains('AA:BB')),
+      hasLength(1),
+      reason: 'one key, one write',
+    );
+
+    await store.replaceAll('AA:BB', const []);
+    expect(store.load('AA:BB'), isEmpty);
+    expect(prefs.getKeys().where((k) => k.contains('AA:BB')), isEmpty);
   });
 
-  test('a record with no pixels loads with empty frames (legacy fallback)',
-      () async {
-    final store = SavedDesignsStore(prefs);
-    await store.save(
-      'AA:BB',
-      SavedDesign(
-        name: 'old',
-        cid: 5,
+  test(
+    'an animation round-trips its frame pixels so replay can re-upload',
+    () async {
+      final store = SavedDesignsStore(prefs);
+      final design = SavedDesign(
+        name: 'anim',
+        cid: 100,
         kind: 'animation',
         contentHash: 'h',
-        savedAt: DateTime(2026),
-        frameCids: const [5, 6],
-        frameSlots: const [0, 1],
-      ),
-    );
-    final loaded = store.load('AA:BB').single;
-    expect(loaded.frames, isEmpty);
-    expect(loaded.width, 0);
-    expect(loaded.frameCids, const [5, 6]);
-  });
+        savedAt: DateTime(2026, 1, 2),
+        frameCids: const [100, 101],
+        frameSlots: const [1, 2],
+        frames: [
+          Uint8List.fromList(const [1, 2, 3, 4, 5, 6]),
+          Uint8List.fromList(const [7, 8, 9, 10, 11, 12]),
+        ],
+        width: 2,
+        height: 1,
+        frameMs: 200,
+      );
+      await store.save('AA:BB', design);
 
-  test('a damaged frame drops re-upload rather than replaying a short loop',
-      () async {
-    // Half a frame list is worse than none: replay would put a SHORTER
-    // animation on the panel and look like the device lost frames. Fall all
-    // the way back to cid-replay instead.
-    for (final bad in <Object?>[null, 42, 'not base64!!']) {
-      await prefs.setString(
+      final loaded = store.load('AA:BB').single;
+      expect(loaded.frames.map((f) => f.toList()), [
+        [1, 2, 3, 4, 5, 6],
+        [7, 8, 9, 10, 11, 12],
+      ]);
+      expect((loaded.width, loaded.height, loaded.frameMs), (2, 1, 200));
+      expect(loaded.frameCids, const [100, 101]);
+      expect(loaded.frameSlots, const [1, 2]);
+    },
+  );
+
+  test(
+    'a record with no pixels loads with empty frames (legacy fallback)',
+    () async {
+      final store = SavedDesignsStore(prefs);
+      await store.save(
+        'AA:BB',
+        SavedDesign(
+          name: 'old',
+          cid: 5,
+          kind: 'animation',
+          contentHash: 'h',
+          savedAt: DateTime(2026),
+          frameCids: const [5, 6],
+          frameSlots: const [0, 1],
+        ),
+      );
+      final loaded = store.load('AA:BB').single;
+      expect(loaded.frames, isEmpty);
+      expect(loaded.width, 0);
+      expect(loaded.frameCids, const [5, 6]);
+    },
+  );
+
+  test(
+    'a damaged frame drops re-upload rather than replaying a short loop',
+    () async {
+      // Half a frame list is worse than none: replay would put a SHORTER
+      // animation on the panel and look like the device lost frames. Fall all
+      // the way back to cid-replay instead.
+      for (final bad in <Object?>[null, 42, 'not base64!!']) {
+        await prefs.setString(
           'saved_designs_v1:AA:BB',
           jsonEncode([
             {
@@ -85,18 +130,22 @@ void main() {
               'frameCids': [100, 101],
               'frames': [
                 base64Encode(const [1, 2, 3]),
-                bad
+                bad,
               ],
               'width': 1,
               'height': 1,
               'frameMs': 200,
-            }
-          ]));
+            },
+          ]),
+        );
 
-      final loaded = SavedDesignsStore(prefs).load('AA:BB').single;
-      expect(loaded.frames, isEmpty, reason: 'bad entry: $bad');
-      expect(loaded.frameCids, const [100, 101],
-          reason: 'cid-replay must survive: $bad');
-    }
-  });
+        final loaded = SavedDesignsStore(prefs).load('AA:BB').single;
+        expect(loaded.frames, isEmpty, reason: 'bad entry: $bad');
+        expect(loaded.frameCids, const [
+          100,
+          101,
+        ], reason: 'cid-replay must survive: $bad');
+      }
+    },
+  );
 }

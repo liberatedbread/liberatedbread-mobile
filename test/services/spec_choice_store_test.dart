@@ -25,10 +25,7 @@ void main() {
     await store.save('CC:DD', 'Other|X');
     await store.save('AA:BB', 'SuperPix|Daniao'); // user changed their mind
 
-    expect(store.load(), {
-      'AA:BB': 'SuperPix|Daniao',
-      'CC:DD': 'Other|X',
-    });
+    expect(store.load(), {'AA:BB': 'SuperPix|Daniao', 'CC:DD': 'Other|X'});
   });
 
   test('remove forgets one device and keeps the rest', () async {
@@ -40,11 +37,13 @@ void main() {
     expect(store.load(), {'CC:DD': 'B|B'});
   });
 
-  test('a corrupt blob loads as empty instead of throwing at startup',
-      () async {
-    final store = await _store({'spec_choices_v1': 'not-json{'});
-    expect(store.load(), isEmpty);
-  });
+  test(
+    'a corrupt blob loads as empty instead of throwing at startup',
+    () async {
+      final store = await _store({'spec_choices_v1': 'not-json{'});
+      expect(store.load(), isEmpty);
+    },
+  );
 
   test('non-map json and non-string values are ignored', () async {
     expect((await _store({'spec_choices_v1': '[1,2]'})).load(), isEmpty);

@@ -18,8 +18,10 @@ void main() {
     // released version makes support logs lie. flutter test runs from the
     // package root, so pubspec.yaml resolves relatively.
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    final match =
-        RegExp(r'^version:\s*(\S+)', multiLine: true).firstMatch(pubspec);
+    final match = RegExp(
+      r'^version:\s*(\S+)',
+      multiLine: true,
+    ).firstMatch(pubspec);
     expect(match, isNotNull, reason: 'pubspec.yaml must declare a version');
     // The '+buildNumber' suffix is not part of the human-facing version.
     final version = match!.group(1)!.split('+').first;

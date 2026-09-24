@@ -30,6 +30,21 @@ class CameraFeedService {
   /// How long to wait before re-opening a keepalive socket the device closed.
   final Duration reconnectDelay;
 
+  /// Largest single frame this service will buffer.
+  ///
+  /// Same rule as the SOAP and Kasa clients: the DEVICE decides how many
+  /// bytes come back, and the fetch loop runs up to five times a second, so
+  /// an uncapped read is a repeated allocation something on the LAN sizes.
+  /// A snapshot JPEG from the cameras this path exists for is tens to a few
+  /// hundred KB — four megabytes is a 4K still, well past anything this
+  /// renders, and a body that keeps going past it is not a frame at all.
+  /// The tick that trips it logs and keeps polling, exactly like a timeout.
+  ///
+  /// A constant rather than a constructor argument on purpose: this class is
+  /// the Provider's type and the test fakes implement it, so every knob added
+  /// here is a knob every fake has to grow. Nothing needs to vary it.
+  static const maxFrameBytes = 4 * 1024 * 1024;
+
   const CameraFeedService({
     this.connectTimeout = const Duration(seconds: 6),
     this.fetchTimeout = const Duration(seconds: 5),
@@ -88,7 +103,7 @@ String buildJsonRpcFrame(String method, String? paramsJson, int id) {
   return jsonEncode({
     'jsonrpc': '2.0',
     'method': method,
-    if (params != null) 'params': params,
+    'params': ?params,
     'id': id,
   });
 }
@@ -151,8 +166,9 @@ class _FeedSession {
     if (urlTemplate == null || startMethod == null) return;
     final WebSocket ws;
     try {
-      ws = await WebSocket.connect(fillCameraUrl(urlTemplate, host))
-          .timeout(connectTimeout);
+      ws = await WebSocket.connect(
+        fillCameraUrl(urlTemplate, host),
+      ).timeout(connectTimeout);
     } on Object catch (e) {
       Log.spec.debug('camera keepalive connect failed', error: e);
       // An INITIAL failure does not loop — some firmware refreshes without the
@@ -263,6 +279,18 @@ class _FeedSession {
   Future<Uint8List> _collect(HttpClientResponse resp) async {
     final b = BytesBuilder(copy: false);
     await for (final chunk in resp) {
+      // Before the append, so a chunk that would carry the frame past the cap
+      // is never retained on the way to the exception: the bound is on what
+      // this service holds, and dart:io has already allocated the chunk.
+      if (b.length + chunk.length > CameraFeedService.maxFrameBytes) {
+        // Throwing out of the `await for` cancels the subscription, and the
+        // catch in _tick aborts the request — so the socket goes back rather
+        // than feeding a buffer nothing will ever render.
+        throw HttpException(
+          'camera frame exceeded ${CameraFeedService.maxFrameBytes} bytes',
+          uri: resp.redirects.isEmpty ? null : resp.redirects.last.location,
+        );
+      }
       b.add(chunk);
     }
     return b.toBytes();
@@ -292,5 +320,6 @@ class _FeedSession {
 }
 
 /// The camera feed transport. Tests override with a fake.
-final cameraFeedServiceProvider =
-    Provider<CameraFeedService>((ref) => const CameraFeedService());
+final cameraFeedServiceProvider = Provider<CameraFeedService>(
+  (ref) => const CameraFeedService(),
+);

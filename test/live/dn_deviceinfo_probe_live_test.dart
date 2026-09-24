@@ -40,9 +40,9 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
-      const codec = RealSpecCodec();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       if (Platform.environment['LB_LIVE_BLE_DIRECT'] != '1') {
@@ -84,13 +84,18 @@ void main() {
 
       final res = await codec.deviceInfoResolution(notifications: collected);
       // ignore: avoid_print
-      print(res == null
-          ? '!! DeviceInfo did NOT decode (no resolution)'
-          : 'DeviceInfo resolution = ${res.width}x${res.height}');
+      print(
+        res == null
+            ? '!! DeviceInfo did NOT decode (no resolution)'
+            : 'DeviceInfo resolution = ${res.width}x${res.height}',
+      );
 
       await ble.disconnect(deviceId);
-      expect(res, isNotNull,
-          reason: 'the DeviceInfo push should decode to a resolution');
+      expect(
+        res,
+        isNotNull,
+        reason: 'the DeviceInfo push should decode to a resolution',
+      );
       expect((res!.width, res.height), (20, 20));
     },
     timeout: const Timeout(Duration(minutes: 6)),

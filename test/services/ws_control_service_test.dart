@@ -10,6 +10,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -72,45 +73,66 @@ void main() {
     ],
   );
 
-  test('opens the declared address and stores the token the TV issues',
-      () async {
-    final tv = ScriptedWsSocket();
-    final urls = <String>[];
-    final session = WsSession(
-      codec: codec,
-      specYaml: 'yaml',
-      host: '10.0.0.4',
-      surface: samsungSurface,
-      connect: (url, headers) async {
-        urls.add(url);
-        // The set speaks first: a good connection delivers the token.
-        scheduleMicrotask(() => tv.send(jsonEncode({
-              'event': 'ms.channel.connect',
-              'data': {'token': '12345678'},
-            })));
-        return tv;
-      },
-    );
-    addTearDown(session.dispose);
-
-    await session.open();
-
-    expect(urls.single, startsWith('wss://10.0.0.4:8002/api/v2/channels/'));
-    // No placeholder survives to the wire: the pairing keys on the client
-    // NAME in the URL, and a literal "{client_name}" is a client the viewer
-    // never approved.
-    expect(urls.single, isNot(contains('{')));
-    // The name rides as standard base64 of the UTF-8 display name.
+  test('connection failures never quote the pairing token', () {
+    // Samsung's token rides in the socket URL's query string, and the three
+    // connection failures used to interpolate the whole URL into a
+    // WsConnectionException — shown on screen and kept in the info log.
     expect(
-      urls.single,
-      contains('name=${base64.encode(utf8.encode(AppConstants.appName))}'),
+      redactUrl(
+        'wss://tv.local:8002/api/v2/channels/samsung.remote.control'
+        '?name=TGliZXJhdGVk&token=12345678',
+      ),
+      'wss://tv.local:8002/api/v2/channels/samsung.remote.control?…',
     );
-    // No token yet on a first connection: the pair is DROPPED, not sent
-    // empty — some sets read `token=` as a key and refuse it.
-    expect(urls.single, isNot(contains('token')));
-    // And the issued one is now available for the caller to store.
-    expect(session.credential, '12345678');
+    expect(redactUrl('ws://tv.local:8001/api/v2'), 'ws://tv.local:8001/api/v2');
+    expect(redactUrl('not a url ::'), isNot(contains('token')));
   });
+
+  test(
+    'opens the declared address and stores the token the TV issues',
+    () async {
+      final tv = ScriptedWsSocket();
+      final urls = <String>[];
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.4',
+        surface: samsungSurface,
+        connect: (url, headers) async {
+          urls.add(url);
+          // The set speaks first: a good connection delivers the token.
+          scheduleMicrotask(
+            () => tv.send(
+              jsonEncode({
+                'event': 'ms.channel.connect',
+                'data': {'token': '12345678'},
+              }),
+            ),
+          );
+          return tv;
+        },
+      );
+      addTearDown(session.dispose);
+
+      await session.open();
+
+      expect(urls.single, startsWith('wss://10.0.0.4:8002/api/v2/channels/'));
+      // No placeholder survives to the wire: the pairing keys on the client
+      // NAME in the URL, and a literal "{client_name}" is a client the viewer
+      // never approved.
+      expect(urls.single, isNot(contains('{')));
+      // The name rides as standard base64 of the UTF-8 display name.
+      expect(
+        urls.single,
+        contains('name=${base64.encode(utf8.encode(AppConstants.appName))}'),
+      );
+      // No token yet on a first connection: the pair is DROPPED, not sent
+      // empty — some sets read `token=` as a key and refuse it.
+      expect(urls.single, isNot(contains('token')));
+      // And the issued one is now available for the caller to store.
+      expect(session.credential, '12345678');
+    },
+  );
 
   test('carries a stored token into the connect path', () async {
     final tv = ScriptedWsSocket();
@@ -123,10 +145,14 @@ void main() {
       credential: 'stored-token',
       connect: (url, headers) async {
         urls.add(url);
-        scheduleMicrotask(() => tv.send(jsonEncode({
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
               'event': 'ms.channel.connect',
               'data': {'token': 'stored-token'},
-            })));
+            }),
+          ),
+        );
         return tv;
       },
     );
@@ -152,9 +178,13 @@ void main() {
         if (urls.length == 1) {
           throw const WsConnectionException('refused');
         }
-        scheduleMicrotask(() => tv.send(jsonEncode({
-              'data': {'token': 't'}
-            })));
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
+              'data': {'token': 't'},
+            }),
+          ),
+        );
         return tv;
       },
     );
@@ -216,32 +246,38 @@ void main() {
 
   /// A first pairing has no key, and sending the field as an empty string is
   /// not the same message: some devices read that as a key and reject it.
-  test('a first pairing sends the register frame without the key field',
-      () async {
-    final tv = ScriptedWsSocket();
-    final session = WsSession(
-      codec: codec,
-      specYaml: 'yaml',
-      host: '10.0.0.5',
-      surface: lgSurface,
-      connect: (url, headers) async {
-        scheduleMicrotask(() => tv.send(jsonEncode({
-              'type': 'registered',
-              'payload': {'client-key': 'abc123'},
-            })));
-        return tv;
-      },
-    );
-    addTearDown(session.dispose);
+  test(
+    'a first pairing sends the register frame without the key field',
+    () async {
+      final tv = ScriptedWsSocket();
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.5',
+        surface: lgSurface,
+        connect: (url, headers) async {
+          scheduleMicrotask(
+            () => tv.send(
+              jsonEncode({
+                'type': 'registered',
+                'payload': {'client-key': 'abc123'},
+              }),
+            ),
+          );
+          return tv;
+        },
+      );
+      addTearDown(session.dispose);
 
-    await session.open();
+      await session.open();
 
-    final sent = jsonDecode(tv.written.single) as Map<String, dynamic>;
-    final payload = sent['payload'] as Map<String, dynamic>;
-    expect(payload.containsKey('client-key'), isFalse);
-    expect(payload['pairingType'], 'PROMPT');
-    expect(session.credential, 'abc123');
-  });
+      final sent = jsonDecode(tv.written.single) as Map<String, dynamic>;
+      final payload = sent['payload'] as Map<String, dynamic>;
+      expect(payload.containsKey('client-key'), isFalse);
+      expect(payload['pairingType'], 'PROMPT');
+      expect(session.credential, 'abc123');
+    },
+  );
 
   test('a repeat pairing sends the stored key', () async {
     final tv = ScriptedWsSocket();
@@ -252,10 +288,14 @@ void main() {
       surface: lgSurface,
       credential: 'abc123',
       connect: (url, headers) async {
-        scheduleMicrotask(() => tv.send(jsonEncode({
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
               'type': 'registered',
               'payload': {'client-key': 'abc123'},
-            })));
+            }),
+          ),
+        );
         return tv;
       },
     );
@@ -275,17 +315,19 @@ void main() {
     final urls = <String>[];
 
     codec.websocketFrameFor = (command, id) => switch (command) {
-          'get_pointer_socket' => WebSocketFrameDto(
-              channel: 'ssap',
-              text: jsonEncode({
-                'id': id,
-                'type': 'request',
-                'uri':
-                    'ssap://com.webos.service.networkinput/getPointerInputSocket',
-              })),
-          _ => const WebSocketFrameDto(
-              channel: 'pointer', text: 'type:button\nname:HOME\n\n'),
-        };
+      'get_pointer_socket' => WebSocketFrameDto(
+        channel: 'ssap',
+        text: jsonEncode({
+          'id': id,
+          'type': 'request',
+          'uri': 'ssap://com.webos.service.networkinput/getPointerInputSocket',
+        }),
+      ),
+      _ => const WebSocketFrameDto(
+        channel: 'pointer',
+        text: 'type:button\nname:HOME\n\n',
+      ),
+    };
 
     final session = WsSession(
       codec: codec,
@@ -296,10 +338,14 @@ void main() {
       connect: (url, headers) async {
         urls.add(url);
         if (urls.length == 1) {
-          scheduleMicrotask(() => main.send(jsonEncode({
+          scheduleMicrotask(
+            () => main.send(
+              jsonEncode({
                 'type': 'registered',
                 'payload': {'client-key': 'abc123'},
-              })));
+              }),
+            ),
+          );
           return main;
         }
         return pointer;
@@ -312,9 +358,11 @@ void main() {
     // the TV answers with it.
     final pressing = session.send('press_home', const {});
     await Future<void>.delayed(Duration.zero);
-    main.send(jsonEncode({
-      'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'}
-    }));
+    main.send(
+      jsonEncode({
+        'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'},
+      }),
+    );
     await pressing;
 
     expect(urls, hasLength(2));
@@ -332,7 +380,9 @@ void main() {
   test('an ssap request goes to the main socket with a fresh id', () async {
     final tv = ScriptedWsSocket();
     codec.websocketFrameFor = (command, id) => WebSocketFrameDto(
-        channel: 'ssap', text: jsonEncode({'id': id, 'uri': command}));
+      channel: 'ssap',
+      text: jsonEncode({'id': id, 'uri': command}),
+    );
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -340,9 +390,13 @@ void main() {
       surface: lgSurface,
       credential: 'abc123',
       connect: (url, headers) async {
-        scheduleMicrotask(() => tv.send(jsonEncode({
-              'payload': {'client-key': 'abc123'}
-            })));
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
+              'payload': {'client-key': 'abc123'},
+            }),
+          ),
+        );
         return tv;
       },
     );
@@ -396,9 +450,13 @@ void main() {
       connect: (url, headers) async {
         opened++;
         if (opened == 1) {
-          scheduleMicrotask(() => main.send(jsonEncode({
-                'payload': {'client-key': 'k'}
-              })));
+          scheduleMicrotask(
+            () => main.send(
+              jsonEncode({
+                'payload': {'client-key': 'k'},
+              }),
+            ),
+          );
           return main;
         }
         return pointer;
@@ -407,16 +465,21 @@ void main() {
     await session.open();
     unawaited(session.send('press_home', const {}));
     await Future<void>.delayed(Duration.zero);
-    main.send(jsonEncode({
-      'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'}
-    }));
+    main.send(
+      jsonEncode({
+        'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'},
+      }),
+    );
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);
 
     await session.close();
     expect(main.closed, isTrue);
-    expect(pointer.closed, isTrue,
-        reason: 'the runtime socket leaks otherwise');
+    expect(
+      pointer.closed,
+      isTrue,
+      reason: 'the runtime socket leaks otherwise',
+    );
     expect(session.isConnected, isFalse);
     await session.dispose();
   });
@@ -438,7 +501,7 @@ void main() {
         tlsSelfSigned: false,
         pairingMode: 'some_future_scheme',
         channels: [
-          WebSocketChannelDto(name: 'main', isDefault: true, encoding: 'json')
+          WebSocketChannelDto(name: 'main', isDefault: true, encoding: 'json'),
         ],
       ),
       connect: (url, headers) async => tv,
@@ -447,8 +510,13 @@ void main() {
 
     await expectLater(
       session.open(),
-      throwsA(isA<WsPairingException>()
-          .having((e) => e.message, 'message', contains('some_future_scheme'))),
+      throwsA(
+        isA<WsPairingException>().having(
+          (e) => e.message,
+          'message',
+          contains('some_future_scheme'),
+        ),
+      ),
     );
   });
 
@@ -467,7 +535,7 @@ void main() {
         headers: [],
         tlsSelfSigned: false,
         channels: [
-          WebSocketChannelDto(name: 'main', isDefault: true, encoding: 'json')
+          WebSocketChannelDto(name: 'main', isDefault: true, encoding: 'json'),
         ],
       ),
       connect: (url, headers) async => tv,
@@ -489,9 +557,13 @@ void main() {
       host: '10.0.0.4',
       surface: samsungSurface,
       connect: (url, headers) async {
-        scheduleMicrotask(() => tv.send(jsonEncode({
-              'data': {'token': 't'}
-            })));
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
+              'data': {'token': 't'},
+            }),
+          ),
+        );
         return tv;
       },
     );
@@ -544,45 +616,57 @@ void main() {
     expect(session.isConnected, isFalse);
   });
 
-  test("the spec's heartbeat rides the protocol ping, not an empty frame",
-      () async {
-    const withHeartbeat = WebSocketSurfaceDto(
-      port: 8002,
-      scheme: 'wss',
-      path: '/api',
-      headers: [],
-      tlsSelfSigned: true,
-      tlsVerification: 'none',
-      heartbeatSeconds: 5,
-      channels: [
-        WebSocketChannelDto(name: 'remote', isDefault: true, encoding: 'json'),
-      ],
-    );
-    final tv = ScriptedWsSocket();
-    final session = WsSession(
-      codec: codec,
-      specYaml: 'yaml',
-      host: '10.0.0.4',
-      surface: withHeartbeat,
-      connect: (url, headers) async => tv,
-    );
-    addTearDown(session.dispose);
-    await session.open();
+  test(
+    "the spec's heartbeat rides the protocol ping, not an empty frame",
+    () async {
+      const withHeartbeat = WebSocketSurfaceDto(
+        port: 8002,
+        scheme: 'wss',
+        path: '/api',
+        headers: [],
+        tlsSelfSigned: true,
+        tlsVerification: 'none',
+        heartbeatSeconds: 5,
+        channels: [
+          WebSocketChannelDto(
+            name: 'remote',
+            isDefault: true,
+            encoding: 'json',
+          ),
+        ],
+      );
+      final tv = ScriptedWsSocket();
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.4',
+        surface: withHeartbeat,
+        connect: (url, headers) async => tv,
+      );
+      addTearDown(session.dispose);
+      await session.open();
 
-    expect(tv.pings, const Duration(seconds: 5));
-    expect(tv.written, isEmpty,
-        reason: 'an empty TEXT frame is not a keepalive — LG\'s dispatcher '
-            'reads it as a malformed request');
-  });
+      expect(tv.pings, const Duration(seconds: 5));
+      expect(
+        tv.written,
+        isEmpty,
+        reason:
+            'an empty TEXT frame is not a keepalive — LG\'s dispatcher '
+            'reads it as a malformed request',
+      );
+    },
+  );
 
   test('a runtime socket on a foreign host is refused', () async {
     final main = ScriptedWsSocket();
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
-          'get_pointer_socket' => WebSocketFrameDto(
-              channel: 'ssap', text: jsonEncode({'id': id, 'uri': command})),
-          _ => const WebSocketFrameDto(channel: 'pointer', text: 'x'),
-        };
+      'get_pointer_socket' => WebSocketFrameDto(
+        channel: 'ssap',
+        text: jsonEncode({'id': id, 'uri': command}),
+      ),
+      _ => const WebSocketFrameDto(channel: 'pointer', text: 'x'),
+    };
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -591,9 +675,13 @@ void main() {
       credential: 'abc123',
       connect: (url, headers) async {
         urls.add(url);
-        scheduleMicrotask(() => main.send(jsonEncode({
-              'payload': {'client-key': 'abc123'}
-            })));
+        scheduleMicrotask(
+          () => main.send(
+            jsonEncode({
+              'payload': {'client-key': 'abc123'},
+            }),
+          ),
+        );
         return main;
       },
     );
@@ -603,9 +691,11 @@ void main() {
     final pressing = session.send('press_home', const {});
     await Future<void>.delayed(Duration.zero);
     // The "TV" answers with an address that is not this device at all.
-    main.send(jsonEncode({
-      'payload': {'socketPath': 'wss://attacker.example:443/collect'}
-    }));
+    main.send(
+      jsonEncode({
+        'payload': {'socketPath': 'wss://attacker.example:443/collect'},
+      }),
+    );
     await expectLater(pressing, throwsA(isA<WsConnectionException>()));
     // And nothing ever connected to it.
     expect(urls, hasLength(1));
@@ -616,10 +706,12 @@ void main() {
     final pointer = ScriptedWsSocket();
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
-          'get_pointer_socket' => WebSocketFrameDto(
-              channel: 'ssap', text: jsonEncode({'id': id, 'uri': command})),
-          _ => WebSocketFrameDto(channel: 'pointer', text: 'name:$command\n'),
-        };
+      'get_pointer_socket' => WebSocketFrameDto(
+        channel: 'ssap',
+        text: jsonEncode({'id': id, 'uri': command}),
+      ),
+      _ => WebSocketFrameDto(channel: 'pointer', text: 'name:$command\n'),
+    };
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -629,9 +721,13 @@ void main() {
       connect: (url, headers) async {
         urls.add(url);
         if (urls.length == 1) {
-          scheduleMicrotask(() => main.send(jsonEncode({
-                'payload': {'client-key': 'abc123'}
-              })));
+          scheduleMicrotask(
+            () => main.send(
+              jsonEncode({
+                'payload': {'client-key': 'abc123'},
+              }),
+            ),
+          );
           return main;
         }
         return pointer;
@@ -646,9 +742,11 @@ void main() {
     final first = session.send('press_home', const {});
     final second = session.send('press_back', const {});
     await Future<void>.delayed(Duration.zero);
-    main.send(jsonEncode({
-      'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'}
-    }));
+    main.send(
+      jsonEncode({
+        'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'},
+      }),
+    );
     await first;
     await second;
 
@@ -682,9 +780,13 @@ void main() {
       surface: surface,
       connect: (url, headers) async {
         urls.add(url);
-        scheduleMicrotask(() => tv.send(jsonEncode({
-              'data': {'token': 't'}
-            })));
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
+              'data': {'token': 't'},
+            }),
+          ),
+        );
         return tv;
       },
     );
@@ -692,39 +794,48 @@ void main() {
     await session.open();
 
     expect(urls.single, contains('fmt=YmFzZTY0='));
-    expect(urls.single, isNot(contains('token=')),
-        reason: 'the genuinely empty pair still drops');
+    expect(
+      urls.single,
+      isNot(contains('token=')),
+      reason: 'the genuinely empty pair still drops',
+    );
   });
 
   /// The TV hangs up exactly while send() is awaiting its render. The entry
   /// guard has already passed, so the socket must be re-read afterwards —
   /// this used to surface as a raw null-check TypeError no catch knows.
-  test('a hang-up during a send reads as the device closing, not a crash',
-      () async {
-    final gated = _GatedRenderCodec();
-    final tv = ScriptedWsSocket();
-    final session = WsSession(
-      codec: gated,
-      specYaml: 'yaml',
-      host: '10.0.0.4',
-      surface: samsungSurface,
-      connect: (url, headers) async {
-        scheduleMicrotask(() => tv.send(jsonEncode({
-              'data': {'token': 't'}
-            })));
-        return tv;
-      },
-    );
-    addTearDown(session.dispose);
-    await session.open();
+  test(
+    'a hang-up during a send reads as the device closing, not a crash',
+    () async {
+      final gated = _GatedRenderCodec();
+      final tv = ScriptedWsSocket();
+      final session = WsSession(
+        codec: gated,
+        specYaml: 'yaml',
+        host: '10.0.0.4',
+        surface: samsungSurface,
+        connect: (url, headers) async {
+          scheduleMicrotask(
+            () => tv.send(
+              jsonEncode({
+                'data': {'token': 't'},
+              }),
+            ),
+          );
+          return tv;
+        },
+      );
+      addTearDown(session.dispose);
+      await session.open();
 
-    final pressing = session.send('press_power', const {});
-    await tv.hangUp();
-    await pumpEventQueue();
-    gated.gate.complete();
+      final pressing = session.send('press_power', const {});
+      await tv.hangUp();
+      await pumpEventQueue();
+      gated.gate.complete();
 
-    await expectLater(pressing, throwsA(isA<WsConnectionException>()));
-  });
+      await expectLater(pressing, throwsA(isA<WsConnectionException>()));
+    },
+  );
 
   /// The set idle-closes its button socket. A cached corpse would be served
   /// to every later press, add() silently dropping — the eviction is what
@@ -734,10 +845,12 @@ void main() {
     final pointers = <ScriptedWsSocket>[];
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
-          'get_pointer_socket' => WebSocketFrameDto(
-              channel: 'ssap', text: jsonEncode({'id': id, 'uri': command})),
-          _ => WebSocketFrameDto(channel: 'pointer', text: 'name:$command\n'),
-        };
+      'get_pointer_socket' => WebSocketFrameDto(
+        channel: 'ssap',
+        text: jsonEncode({'id': id, 'uri': command}),
+      ),
+      _ => WebSocketFrameDto(channel: 'pointer', text: 'name:$command\n'),
+    };
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -747,9 +860,13 @@ void main() {
       connect: (url, headers) async {
         urls.add(url);
         if (urls.length == 1) {
-          scheduleMicrotask(() => main.send(jsonEncode({
-                'payload': {'client-key': 'abc123'}
-              })));
+          scheduleMicrotask(
+            () => main.send(
+              jsonEncode({
+                'payload': {'client-key': 'abc123'},
+              }),
+            ),
+          );
           return main;
         }
         final pointer = ScriptedWsSocket();
@@ -763,9 +880,11 @@ void main() {
     Future<void> press() async {
       final pressing = session.send('press_home', const {});
       await Future<void>.delayed(Duration.zero);
-      main.send(jsonEncode({
-        'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'}
-      }));
+      main.send(
+        jsonEncode({
+          'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'},
+        }),
+      );
       await pressing;
     }
 
@@ -777,62 +896,78 @@ void main() {
     await pumpEventQueue();
 
     await press();
-    expect(pointers, hasLength(2),
-        reason: 'the dead socket must be re-requested, not served');
+    expect(
+      pointers,
+      hasLength(2),
+      reason: 'the dead socket must be re-requested, not served',
+    );
     expect(pointers.last.written, hasLength(1));
   });
 
   /// close() races a channel open still in flight: the socket that connect
   /// hands back afterwards must be closed, never cached on the spent
   /// session — nothing else would ever close it.
-  test('a runtime socket resolving after close is closed, not cached',
-      () async {
-    final main = ScriptedWsSocket();
-    final pointer = ScriptedWsSocket();
-    final pointerGate = Completer<void>();
-    final urls = <String>[];
-    codec.websocketFrameFor = (command, id) => switch (command) {
-          'get_pointer_socket' => WebSocketFrameDto(
-              channel: 'ssap', text: jsonEncode({'id': id, 'uri': command})),
-          _ => const WebSocketFrameDto(channel: 'pointer', text: 'x'),
-        };
-    final session = WsSession(
-      codec: codec,
-      specYaml: 'yaml',
-      host: '10.0.0.5',
-      surface: lgSurface,
-      credential: 'abc123',
-      connect: (url, headers) async {
-        urls.add(url);
-        if (urls.length == 1) {
-          scheduleMicrotask(() => main.send(jsonEncode({
-                'payload': {'client-key': 'abc123'}
-              })));
-          return main;
-        }
-        await pointerGate.future;
-        return pointer;
-      },
-    );
-    await session.open();
+  test(
+    'a runtime socket resolving after close is closed, not cached',
+    () async {
+      final main = ScriptedWsSocket();
+      final pointer = ScriptedWsSocket();
+      final pointerGate = Completer<void>();
+      final urls = <String>[];
+      codec.websocketFrameFor = (command, id) => switch (command) {
+        'get_pointer_socket' => WebSocketFrameDto(
+          channel: 'ssap',
+          text: jsonEncode({'id': id, 'uri': command}),
+        ),
+        _ => const WebSocketFrameDto(channel: 'pointer', text: 'x'),
+      };
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.5',
+        surface: lgSurface,
+        credential: 'abc123',
+        connect: (url, headers) async {
+          urls.add(url);
+          if (urls.length == 1) {
+            scheduleMicrotask(
+              () => main.send(
+                jsonEncode({
+                  'payload': {'client-key': 'abc123'},
+                }),
+              ),
+            );
+            return main;
+          }
+          await pointerGate.future;
+          return pointer;
+        },
+      );
+      await session.open();
 
-    final pressing = session.send('press_home', const {});
-    await Future<void>.delayed(Duration.zero);
-    main.send(jsonEncode({
-      'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'}
-    }));
-    await pumpEventQueue();
-    expect(urls, hasLength(2), reason: 'the channel connect is in flight');
+      final pressing = session.send('press_home', const {});
+      await Future<void>.delayed(Duration.zero);
+      main.send(
+        jsonEncode({
+          'payload': {'socketPath': 'ws://10.0.0.5:3000/pointer'},
+        }),
+      );
+      await pumpEventQueue();
+      expect(urls, hasLength(2), reason: 'the channel connect is in flight');
 
-    await session.close();
-    pointerGate.complete();
+      await session.close();
+      pointerGate.complete();
 
-    await expectLater(pressing, throwsA(isA<WsConnectionException>()));
-    await pumpEventQueue();
-    expect(pointer.closed, isTrue,
-        reason: 'a socket born after close must be closed, not cached');
-    await session.dispose();
-  });
+      await expectLater(pressing, throwsA(isA<WsConnectionException>()));
+      await pumpEventQueue();
+      expect(
+        pointer.closed,
+        isTrue,
+        reason: 'a socket born after close must be closed, not cached',
+      );
+      await session.dispose();
+    },
+  );
 
   /// Uri.parse lowercases the host; discovery may have recorded it in the
   /// case the device advertises. The comparison must not care.
@@ -841,10 +976,12 @@ void main() {
     final pointer = ScriptedWsSocket();
     final urls = <String>[];
     codec.websocketFrameFor = (command, id) => switch (command) {
-          'get_pointer_socket' => WebSocketFrameDto(
-              channel: 'ssap', text: jsonEncode({'id': id, 'uri': command})),
-          _ => const WebSocketFrameDto(channel: 'pointer', text: 'x'),
-        };
+      'get_pointer_socket' => WebSocketFrameDto(
+        channel: 'ssap',
+        text: jsonEncode({'id': id, 'uri': command}),
+      ),
+      _ => const WebSocketFrameDto(channel: 'pointer', text: 'x'),
+    };
     final session = WsSession(
       codec: codec,
       specYaml: 'yaml',
@@ -854,9 +991,13 @@ void main() {
       connect: (url, headers) async {
         urls.add(url);
         if (urls.length == 1) {
-          scheduleMicrotask(() => main.send(jsonEncode({
-                'payload': {'client-key': 'abc123'}
-              })));
+          scheduleMicrotask(
+            () => main.send(
+              jsonEncode({
+                'payload': {'client-key': 'abc123'},
+              }),
+            ),
+          );
           return main;
         }
         return pointer;
@@ -867,13 +1008,243 @@ void main() {
 
     final pressing = session.send('press_home', const {});
     await Future<void>.delayed(Duration.zero);
-    main.send(jsonEncode({
-      'payload': {'socketPath': 'ws://LGwebOSTV.local:3000/pointer'}
-    }));
+    main.send(
+      jsonEncode({
+        'payload': {'socketPath': 'ws://LGwebOSTV.local:3000/pointer'},
+      }),
+    );
     await pressing;
 
-    expect(urls, hasLength(2),
-        reason: 'the same set, spelled as it advertises, is not refused');
+    expect(
+      urls,
+      hasLength(2),
+      reason: 'the same set, spelled as it advertises, is not refused',
+    );
     expect(pointer.written, hasLength(1));
   });
+
+  // ── Putting values into a frame and a path (R-156) ───────────────────────
+
+  test(
+    'a credential with JSON punctuation still produces a valid frame',
+    () async {
+      // A client key is a value the device chose and the app stored verbatim.
+      // Pasted into a JSON template it only had to contain a quote or a
+      // backslash to produce a frame that is no longer JSON — the set answers
+      // with a parse error or silence, and the user is told pairing timed out.
+      final tv = ScriptedWsSocket();
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.5',
+        surface: lgSurface,
+        credential: r'ab"c\d',
+        connect: (url, headers) async {
+          scheduleMicrotask(
+            () => tv.send(
+              jsonEncode({
+                'payload': {'client-key': r'ab"c\d'},
+              }),
+            ),
+          );
+          return tv;
+        },
+      );
+      addTearDown(session.dispose);
+
+      await session.open();
+
+      final sent = jsonDecode(tv.written.single);
+      expect(
+        sent,
+        isA<Map<String, dynamic>>(),
+        reason: 'the frame has to still be JSON',
+      );
+      // …and the key arrived whole, not truncated at the quote.
+      expect(jsonEncode(sent), contains(r'ab\"c'));
+    },
+  );
+
+  test('a path placeholder is filled once, not re-scanned', () async {
+    // Chained replaceAll meant a credential that itself spelled a
+    // placeholder had the NEXT substitution run inside it.
+    final tv = ScriptedWsSocket();
+    final urls = <String>[];
+    final session = WsSession(
+      codec: codec,
+      specYaml: 'yaml',
+      host: '10.0.0.4',
+      surface: samsungSurface,
+      credential: '{client_name}',
+      connect: (url, headers) async {
+        urls.add(url);
+        scheduleMicrotask(
+          () => tv.send(
+            jsonEncode({
+              'event': 'ms.channel.connect',
+              'data': {'token': 'ok'},
+            }),
+          ),
+        );
+        return tv;
+      },
+    );
+    addTearDown(session.dispose);
+
+    await session.open();
+
+    expect(
+      urls.single,
+      contains(Uri.encodeQueryComponent('{client_name}')),
+      reason: 'the stored credential goes out as itself',
+    );
+  });
+
+  // ── What a session leaves behind ─────────────────────────────────────────
+
+  test('a socket that connects after the timeout is closed, not abandoned', () {
+    // R-191/R-047: `Future.timeout` abandons its future, it does not cancel
+    // the connect. A set that answers on the eleventh second handed back a
+    // live socket nobody held — never listened to, never closed, taking its
+    // HttpClient with it — once per attempt, for the life of the app.
+    fakeAsync((async) {
+      final late0 = ScriptedWsSocket();
+      final late1 = ScriptedWsSocket();
+      final slow = [late0, late1];
+      var index = 0;
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.4',
+        surface: samsungSurface,
+        connect: (url, headers) {
+          final socket = slow[index++];
+          // Answers well after WsSession.connectTimeout.
+          return Future<WsSocket>.delayed(
+            const Duration(seconds: 30),
+            () => socket,
+          );
+        },
+      );
+
+      Object? failure;
+      session.open().catchError((Object e) => failure = e);
+      // Both the declared address and the fallback time out.
+      async.elapse(const Duration(seconds: 25));
+      expect(failure, isA<WsConnectionException>());
+
+      // …and then both sets finally answer.
+      async.elapse(const Duration(seconds: 40));
+      expect(
+        [late0.closed, late1.closed],
+        [true, true],
+        reason: 'a socket that arrives late still has to be closed',
+      );
+    });
+  });
+
+  test('closing during pairing ends the wait, and says who hung up', () async {
+    // R-048: pairing waits a full minute for the viewer to accept the prompt
+    // on the set. Closing the session in between left that minute running and
+    // then reported "the device never authorised this app" — an accusation
+    // about a set that was never asked, delivered long after the user had
+    // left the screen. The two-second guard is the test: without the fix this
+    // future does not complete for a minute.
+    final tv = ScriptedWsSocket();
+    final session = WsSession(
+      codec: codec,
+      specYaml: 'yaml',
+      host: '10.0.0.4',
+      surface: samsungSurface,
+      connect: (url, headers) async => tv,
+    );
+    addTearDown(session.dispose);
+
+    final opening = session.open();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await session.close();
+
+    Object? failure;
+    try {
+      await opening.timeout(const Duration(seconds: 2));
+    } catch (e) {
+      failure = e;
+    }
+
+    expect(
+      failure,
+      isA<WsConnectionException>(),
+      reason: 'a pairing wait outliving its session is the leak',
+    );
+    expect('$failure', contains('closed while waiting'));
+    expect(
+      '$failure',
+      isNot(contains('never authorised')),
+      reason: 'the set did nothing wrong; the app hung up',
+    );
+  });
+
+  test(
+    'a channel socket that idle-closes and reopens leaves one drain',
+    () async {
+      // R-057: the set drops an idle button socket, the next press opens
+      // another, and the old drain stayed in the list for the session's life —
+      // one dead subscription per press cycle.
+      final main = ScriptedWsSocket();
+      final pointers = <ScriptedWsSocket>[];
+      codec.websocketFrameFor = (command, id) => command == 'get_pointer_socket'
+          ? WebSocketFrameDto(channel: 'ssap', text: jsonEncode({'id': id}))
+          : const WebSocketFrameDto(channel: 'pointer', text: 'x');
+      final session = WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.7',
+        surface: lgSurface,
+        credential: 'k',
+        connect: (url, headers) async {
+          if (url.contains('/pointer')) {
+            final pointer = ScriptedWsSocket();
+            pointers.add(pointer);
+            return pointer;
+          }
+          scheduleMicrotask(
+            () => main.send(
+              jsonEncode({
+                'payload': {'client-key': 'k'},
+              }),
+            ),
+          );
+          return main;
+        },
+      );
+      addTearDown(session.dispose);
+      await session.open();
+
+      Future<void> press() async {
+        final pressing = session.send('press_home', const {});
+        await Future<void>.delayed(Duration.zero);
+        main.send(
+          jsonEncode({
+            'payload': {'socketPath': 'ws://10.0.0.7:3000/pointer'},
+          }),
+        );
+        await pressing;
+      }
+
+      await press();
+      expect(session.debugChannelDrainCount, 1);
+
+      // The set times the button socket out; the next press opens a new one.
+      await pointers.single.close();
+      await Future<void>.delayed(Duration.zero);
+      await press();
+
+      expect(pointers, hasLength(2));
+      expect(
+        session.debugChannelDrainCount,
+        1,
+        reason: 'the reopened channel replaces its own drain',
+      );
+    },
+  );
 }

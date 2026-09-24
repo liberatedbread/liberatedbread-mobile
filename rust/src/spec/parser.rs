@@ -44,11 +44,58 @@ const MAX_FIELD_EXTENT: usize = 65_536;
 /// - An `auto` role must fit the parameter's declared `type` — a two-byte
 ///   `crc16_modbus` on a `uint8` would compute fine and then fail encoding
 ///   on every send, complaining about a value the author never wrote.
+///
+/// One normalisation runs alongside: a command declaring both `value` and
+/// `template` keeps the template and loses the value
+/// ([`prefer_template_over_value`]).
 pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec, SpecError> {
     let mut spec: DeviceSpec = serde_yaml::from_str(yaml)?;
     hoist_device_nested_capabilities(&mut spec);
+    prefer_template_over_value(&mut spec);
     validate_spec(&spec)?;
     Ok(spec)
+}
+
+/// Drop the `value` of any command that also declares a `template`.
+///
+/// The two are rival envelopes for the same bytes, and every consumer used
+/// to settle the rivalry on its own: the encoder sent `value`, the entity
+/// binder called the command fixed, and the DTO still listed the template's
+/// parameters — so the raw command browser drew zone/red/green/blue sliders
+/// for xkglow-chrome's `set_rgb_color` and Send wrote the fixed bytes
+/// (zone 0, pure red) whatever the user chose. Deciding it once, here, is
+/// what makes those consumers agree.
+///
+/// Template over value, and normalising rather than rejecting, because:
+/// - The template is the fuller statement. It says what varies and how,
+///   and the parameters beside it are the author's promise that a user can
+///   choose those bytes. A `value` beside it can only ever be one filling
+///   of the template — xkglow's is exactly the template with zone 0 and
+///   red 255 — so nothing the author wrote is lost.
+/// - Rejecting would cost the whole spec for one redundant line. The
+///   catalogue is vendored unmodified and the Dart loader skips an
+///   unparseable spec, so a load-time error here is a missing device, not
+///   a corrected one. The remaining damage — the light entity's `turn_on`
+///   role, which the fixed bytes used to serve, now needs a parameter the
+///   spec gives no default for and stops resolving — is the honest reading
+///   of that spec, and the upstream fix (a separate fixed `turn_on`, a
+///   `default` on `zone`) is filed in SPECS_TO_FIX.md.
+///
+/// `codec::types::encode_command_with_bytes` restates the same preference
+/// for a hand-built `Command`, so the two cannot drift.
+fn prefer_template_over_value(spec: &mut DeviceSpec) {
+    for service in &mut spec.services {
+        for characteristic in &mut service.characteristics {
+            let Some(commands) = &mut characteristic.commands else {
+                continue;
+            };
+            for command in commands.values_mut() {
+                if command.template.is_some() {
+                    command.value = None;
+                }
+            }
+        }
+    }
 }
 
 /// Read `features` and `protocol_handler` from under `device:` when the top
@@ -270,8 +317,45 @@ fn validate_auto_role(name: &str, param: &Parameter) -> Result<(), SpecError> {
     Ok(())
 }
 
+/// `default` is mutually exclusive with `source` and with `auto`.
+///
+/// All three answer one question — what goes on the wire when the caller
+/// supplies nothing — and they answer it with different instructions, so a
+/// parameter carrying two of them has no correct reading. The schema states
+/// the `default`/`source` half outright ("a parameter carrying both lets a
+/// renderer quietly substitute the constant when the stored value is
+/// missing — which for a password parameter means sending a wrong password
+/// instead of failing at 'not paired'"). The `auto` half is the same bug
+/// with the encoder in the stored value's place: `encode_command` resolves a
+/// supplied value, then the `auto` role, and never reaches the default — so
+/// a spec that wrote one was describing a frame this crate does not send,
+/// and nothing said so.
+///
+/// Rejected rather than resolved by precedence because there is no honest
+/// precedence to pick: whichever way a consumer breaks the tie, half the
+/// specs written this way get the other one. No vendored spec declares
+/// either pairing today, so this costs the catalogue nothing and catches the
+/// first one at load.
+fn validate_default_exclusivity(name: &str, param: &Parameter) -> Result<(), SpecError> {
+    if param.default.is_none() {
+        return Ok(());
+    }
+    let conflict = if param.source.is_some() {
+        "source"
+    } else if param.auto.is_some() {
+        "auto"
+    } else {
+        return Ok(());
+    };
+    Err(SpecError::DefaultWithConflictingSource {
+        parameter_name: name.to_string(),
+        conflict: conflict.to_string(),
+    })
+}
+
 fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
     validate_auto_role(name, param)?;
+    validate_default_exclusivity(name, param)?;
     let Some((lo, hi)) = param.value_type.integer_range() else {
         // No numeric range (string/bytes): min/max are meaningless here.
         // Reject rather than silently ignore an author's bound. `allowed`
@@ -283,6 +367,7 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
             ("min", param.min.is_some()),
             ("max", param.max.is_some()),
             ("allowed", param.allowed.is_some()),
+            ("values", param.values.is_some()),
             ("default", param.default.is_some()),
         ] {
             if present {
@@ -296,12 +381,17 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
         return Ok(());
     };
     for (label, bound) in [
-        ("min", param.min),
-        ("max", param.max),
+        ("min", param.min.map(|v| v as f64)),
+        ("max", param.max.map(|v| v as f64)),
+        // `default` is a `number` in the schema where `min`/`max` are
+        // `integer`, so it is bounded as one — the comparison is the same,
+        // and a fractional default that sits inside the range is left for
+        // `coerce_param` to refuse by name at send time rather than costing
+        // the whole spec here.
         ("default", param.default),
     ] {
         let Some(value) = bound else { continue };
-        if value < lo || value > hi {
+        if value < lo as f64 || value > hi as f64 {
             return Err(SpecError::ParameterRangeOutsideType {
                 parameter_name: name.to_string(),
                 value_type: param.value_type.clone(),
@@ -326,10 +416,20 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
     // dropdown from it, and every visible choice fails at send time. Checked
     // after the min/max validations above so the effective bounds are known
     // to be coherent.
-    if let Some(allowed) = &param.allowed {
+    //
+    // The `values` code table gets the same treatment, for the same reason:
+    // `Parameter::allowed_with_labels` offers its keys as choices when the
+    // parameter states no `allowed`, so an out-of-range key is a dropdown
+    // entry that fails encoding exactly as an out-of-range `allowed` would.
+    {
         let lo_eff = param.min.unwrap_or(lo);
         let hi_eff = param.max.unwrap_or(hi);
-        for &value in allowed {
+        let offered = param
+            .allowed_with_labels()
+            .into_iter()
+            .flatten()
+            .map(|(value, _)| value);
+        for value in offered {
             if value < lo_eff || value > hi_eff {
                 return Err(SpecError::AllowedValueOutsideBounds {
                     parameter_name: name.to_string(),
@@ -346,7 +446,7 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
     if let Some(default) = param.default {
         let lo_eff = param.min.unwrap_or(lo);
         let hi_eff = param.max.unwrap_or(hi);
-        if default < lo_eff || default > hi_eff {
+        if default < lo_eff as f64 || default > hi_eff as f64 {
             return Err(SpecError::DefaultOutsideBounds {
                 parameter_name: name.to_string(),
                 value: default,
@@ -667,10 +767,251 @@ services:
             }) => {
                 assert_eq!(parameter_name, "brightness");
                 assert_eq!(bound, "max");
-                assert_eq!(value, 300);
+                assert_eq!(value, 300.0);
             }
             other => panic!("expected ParameterRangeOutsideType, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rejects_a_parameter_that_is_both_sourced_and_defaulted() {
+        // The schema forbids the pair outright: `source` says the real value
+        // lives in the credential store and a send without it must FAIL,
+        // `default` says substitute this constant. Accepting both let the
+        // encoder send the constant — a wrong password instead of an honest
+        // "not paired yet".
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          verify_password:
+            description: x
+            template: [0x0a, "{password}"]
+            parameters:
+              password:
+                type: uint8
+                source: "credential:device_password"
+                default: 0"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::DefaultWithConflictingSource {
+                parameter_name,
+                conflict,
+            }) => {
+                assert_eq!(parameter_name, "password");
+                assert_eq!(conflict, "source");
+            }
+            other => panic!("expected DefaultWithConflictingSource, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_a_parameter_that_is_both_auto_and_defaulted() {
+        // Same contradiction with the encoder in the credential store's
+        // place: `encode_command` resolves the auto role and never reaches
+        // the default, so the frame the spec described is not the frame that
+        // goes out, and nothing said so.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          go:
+            description: x
+            template: [0xf7, "{speed}", "{checksum}"]
+            parameters:
+              speed:
+                type: uint8
+              checksum:
+                type: uint8
+                auto: checksum
+                default: 0"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::DefaultWithConflictingSource {
+                parameter_name,
+                conflict,
+            }) => {
+                assert_eq!(parameter_name, "checksum");
+                assert_eq!(conflict, "auto");
+            }
+            other => panic!("expected DefaultWithConflictingSource, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_default_written_as_a_float_parses_and_encodes() {
+        // The schema types `default` a `number`, so `2.0` is the same raw
+        // value as `2` and must not be a type error — one that cost the WHOLE
+        // spec, and with it the device.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_mode:
+            description: x
+            template: [0x01, "{mode}"]
+            parameters:
+              mode:
+                type: uint8
+                default: 2.0"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("a float-spelled default should parse");
+        let command = &spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .expect("commands")["set_mode"];
+        assert_eq!(
+            encode_command(command, &HashMap::new()).expect("encodes from the default"),
+            vec![0x01, 0x02]
+        );
+    }
+
+    #[test]
+    fn a_fractional_default_costs_its_own_send_and_not_the_spec() {
+        // A raw wire value cannot be 2.5, but the spec is still a device: the
+        // parameter fails by name at send time, where the message can say
+        // which one, instead of taking every other command down at load.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_mode:
+            description: x
+            template: [0x01, "{mode}"]
+            parameters:
+              mode:
+                type: uint8
+                default: 2.5"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("the spec should still load");
+        let command = &spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .expect("commands")["set_mode"];
+        let err = encode_command(command, &HashMap::new()).expect_err("2.5 is not a wire value");
+        assert!(
+            err.to_string().contains("mode"),
+            "the failure should name the parameter: {err}"
+        );
+    }
+
+    #[test]
+    fn a_values_code_table_is_read_as_the_parameters_choices() {
+        // Nine catalogue parameters spell their enumeration `values`; read as
+        // nothing, each drew a 0..255 slider over a two-value switch.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_light_on_off:
+            description: x
+            template: [0x04, "{state}"]
+            parameters:
+              state:
+                type: uint8
+                values:
+                  0: "off"
+                  1: "on""#,
+        );
+        let spec = parse_device_spec(&yaml).expect("a values table should parse");
+        let command = &spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .expect("commands")["set_light_on_off"];
+        let state = &command.parameters.as_ref().expect("parameters").params["state"];
+        assert_eq!(
+            state.allowed_with_labels(),
+            Some(vec![
+                (0, Some("off".to_string())),
+                (1, Some("on".to_string()))
+            ])
+        );
+    }
+
+    #[test]
+    fn a_values_key_outside_the_type_is_refused_like_an_allowed_value() {
+        // The keys are offered as choices, so they are held to the same bound
+        // `allowed` is: every visible choice must be one the device accepts.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_mode:
+            description: x
+            template: [0x04, "{mode}"]
+            parameters:
+              mode:
+                type: uint8
+                max: 3
+                values:
+                  0: "auto"
+                  9: "impossible""#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::AllowedValueOutsideBounds { value, max, .. }) => {
+                assert_eq!(value, 9);
+                assert_eq!(max, 3);
+            }
+            other => panic!("expected AllowedValueOutsideBounds, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn allowed_wins_over_values_and_borrows_its_labels() {
+        // `allowed` is the schema's key and the one the bounds check walks;
+        // a `values` table beside it can only supply names.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_mode:
+            description: x
+            template: [0x04, "{mode}"]
+            parameters:
+              mode:
+                type: uint8
+                allowed: [0, 1]
+                values:
+                  0: "auto"
+                  1: "manual"
+                  2: "not offered""#,
+        );
+        let spec = parse_device_spec(&yaml).expect("both spellings together should parse");
+        let command = &spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .expect("commands")["set_mode"];
+        let mode = &command.parameters.as_ref().expect("parameters").params["mode"];
+        assert_eq!(
+            mode.allowed_with_labels(),
+            Some(vec![
+                (0, Some("auto".to_string())),
+                (1, Some("manual".to_string()))
+            ]),
+            "the `values` table labels the values `allowed` lists, and adds none"
+        );
+    }
+
+    #[test]
+    fn mismatched_labels_are_dropped_rather_than_mispaired() {
+        // Zipping short would attach the wrong name to a value the device
+        // really acts on; the raw number is the honest fallback.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_mode:
+            description: x
+            template: [0x04, "{mode}"]
+            parameters:
+              mode:
+                type: uint8
+                allowed: [0, 1, 2]
+                labels: ["auto", "manual"]"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("a mismatched spec still loads");
+        let command = &spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .expect("commands")["set_mode"];
+        let mode = &command.parameters.as_ref().expect("parameters").params["mode"];
+        assert_eq!(
+            mode.allowed_with_labels(),
+            Some(vec![(0, None), (1, None), (2, None)]),
+            "an unpairable label list names nothing, and says so"
+        );
     }
 
     #[test]
@@ -800,7 +1141,7 @@ services:
                 max,
             }) => {
                 assert_eq!(parameter_name, "brightness");
-                assert_eq!(value, 200);
+                assert_eq!(value, 200.0);
                 assert_eq!(min, 0);
                 assert_eq!(max, 100);
             }
@@ -824,7 +1165,7 @@ services:
         match parse_device_spec(&yaml) {
             Err(SpecError::ParameterRangeOutsideType { bound, value, .. }) => {
                 assert_eq!(bound, "default");
-                assert_eq!(value, 300);
+                assert_eq!(value, 300.0);
             }
             other => panic!("expected ParameterRangeOutsideType, got {other:?}"),
         }
@@ -885,7 +1226,7 @@ services:
         match parse_device_spec(&yaml) {
             Err(SpecError::ParameterRangeOutsideType { bound, value, .. }) => {
                 assert_eq!(bound, "min");
-                assert_eq!(value, -1);
+                assert_eq!(value, -1.0);
             }
             other => panic!("expected ParameterRangeOutsideType, got {other:?}"),
         }
@@ -1436,6 +1777,66 @@ services:
         let spec =
             parse_device_spec(&yaml).expect("a descriptive key here must not fail the parse");
         assert_eq!(spec.device.name, "x");
+    }
+
+    /// xkglow-chrome's `set_rgb_color` declares a fixed `value` AND a
+    /// parameterised `template`. The template wins at load time, so every
+    /// consumer downstream sees one parameterised command: the encoder
+    /// fills it from the caller's values instead of writing the fixed
+    /// bytes, and nothing calls it fixed.
+    #[test]
+    fn template_wins_when_a_command_declares_both_value_and_template() {
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_rgb_color:
+            description: Set solid RGB colour for a zone
+            value: [0x00, 0x00, 0x04, 0xFF, 0x00, 0x00]
+            template: [0x00, "{zone}", 0x04, "{red}", "{green}", "{blue}"]
+            parameters:
+              zone: { type: uint8, min: 0, max: 255 }
+              red: { type: uint8, min: 0, max: 255 }
+              green: { type: uint8, min: 0, max: 255 }
+              blue: { type: uint8, min: 0, max: 255 }"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("both envelopes must still load");
+        let cmd = spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .unwrap()
+            .get("set_rgb_color")
+            .unwrap();
+        assert!(cmd.value.is_none(), "the fixed value must be dropped");
+        assert!(cmd.template.is_some());
+
+        let params = HashMap::from([
+            ("zone".to_string(), 1.0),
+            ("red".to_string(), 10.0),
+            ("green".to_string(), 20.0),
+            ("blue".to_string(), 30.0),
+        ]);
+        assert_eq!(
+            encode_command(cmd, &params).unwrap(),
+            vec![0x00, 0x01, 0x04, 10, 20, 30]
+        );
+    }
+
+    /// The normalisation is scoped to the conflict: a plain fixed command
+    /// keeps its `value`, a plain templated one is untouched.
+    #[test]
+    fn a_lone_value_or_template_is_left_alone() {
+        let spec = parse_device_spec(EXAMPLE_BULB_YAML).unwrap();
+        let commands = spec.services[0].characteristics[0]
+            .commands
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            commands.get("power_on").unwrap().value,
+            Some(vec![0x01, 0x01])
+        );
+        let dim = commands.get("set_brightness").unwrap();
+        assert!(dim.value.is_none());
+        assert!(dim.template.is_some());
     }
 
     #[test]

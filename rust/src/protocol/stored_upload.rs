@@ -121,6 +121,7 @@ pub fn encode_stored_play(
 /// `file_type` 3).
 pub fn encode_stored_image(
     spec: &DeviceSpec,
+    max_write: Option<usize>,
     program: &StoredProgram<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
@@ -135,6 +136,7 @@ pub fn encode_stored_image(
         file_type,
         None,
         sequence,
+        max_write,
     )
 }
 
@@ -142,6 +144,7 @@ pub fn encode_stored_image(
 /// image microapp).
 pub fn encode_stored_text(
     spec: &DeviceSpec,
+    max_write: Option<usize>,
     program: &daniao_store::StoredText<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
@@ -156,6 +159,7 @@ pub fn encode_stored_text(
         file_type,
         None,
         sequence,
+        max_write,
     )
 }
 
@@ -167,6 +171,7 @@ pub fn encode_stored_text(
 /// way (by cid).
 pub fn encode_stored_animation(
     spec: &DeviceSpec,
+    max_write: Option<usize>,
     anim: &daniao_store::StoredAnimation<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
@@ -181,6 +186,7 @@ pub fn encode_stored_animation(
         0,
         Some(&path),
         sequence,
+        max_write,
     )
 }
 
@@ -213,11 +219,23 @@ fn assemble_plan(
     file_type: u32,
     path: Option<&str>,
     sequence: u16,
+    max_write: Option<usize>,
 ) -> Result<StoredUploadPlan, ProtocolError> {
-    let frame_size = feature
+    let spec_frame = feature
         .frame_size
         .map(|n| n as usize)
         .unwrap_or(daniao_upload::DEFAULT_FRAME_SIZE);
+    // The spec's frame size is what the vendor app sends over a link it has
+    // negotiated a 512-byte MTU on. Each DATA packet is the frame plus the
+    // 8-byte header, and flutter_blue_plus refuses a write longer than
+    // MTU - 3 outright — so on any link with MTU < 511 (every iPhone that has
+    // not finished negotiating, most Android stacks by default) every save
+    // failed on the first DATA packet. `max_write` is the usable bytes per
+    // write the caller measured on the live link; the frame shrinks to fit.
+    let frame_size = match max_write {
+        Some(budget) => spec_frame.min(budget.saturating_sub(daniao_upload::HEADER_LEN).max(1)),
+        None => spec_frame,
+    };
     // The transfer id is echoed by the device; the low byte of the cid is a
     // fine, stable choice (the vendor uses a rolling counter, which the device
     // only needs to match within one transfer).
@@ -236,6 +254,37 @@ fn assemble_plan(
         Some(command) => Some(build_play_write(spec, command, cid, sequence)?),
         None => None,
     };
+
+    // `max_write` shrank the DATA frames above. The START packet (the header
+    // plus the upload_request protobuf) and the play write are single,
+    // unsplittable packets the frame size does not touch, and on the 20-byte
+    // budget Dart falls back to when the MTU read fails — every iPhone that
+    // has not finished negotiating — the very first write already exceeded
+    // it. The save then died at the first write with the plugin's error, or
+    // sat through the "unconfirmed" timeout. Refused here instead, with the
+    // one thing the user can do.
+    if let Some(budget) = max_write {
+        let over = transfer
+            .writes
+            .first()
+            .filter(|w| w.bytes.len() > budget)
+            .map(|w| ("the upload's START packet", w.bytes.len()))
+            .or_else(|| {
+                play_write
+                    .as_ref()
+                    .filter(|w| w.bytes.len() > budget)
+                    .map(|w| ("the play command", w.bytes.len()))
+            });
+        if let Some((what, len)) = over {
+            return Err(ProtocolError::ImageUploadUnsupported {
+                reason: format!(
+                    "{what} is {len} bytes and this link accepts writes of at most \
+                     {budget}: the MTU has not been negotiated. Reconnect to the \
+                     device and try again"
+                ),
+            });
+        }
+    }
 
     Ok(StoredUploadPlan {
         service_uuid,
@@ -259,7 +308,7 @@ fn build_play_write(
     sequence: u16,
 ) -> Result<EncodedWrite, ProtocolError> {
     let (characteristic, tag) =
-        command_channel(spec, command_name).ok_or_else(|| ProtocolError::CommandNotFound {
+        command_channel(spec, command_name)?.ok_or_else(|| ProtocolError::CommandNotFound {
             uuid: "<any>".to_string(),
             command: command_name.to_string(),
         })?;
@@ -497,7 +546,7 @@ fn build_framed_command(
     sequence: u16,
 ) -> Result<EncodedWrite, ProtocolError> {
     let (characteristic, tag) =
-        command_channel(spec, command_name).ok_or_else(|| ProtocolError::CommandNotFound {
+        command_channel(spec, command_name)?.ok_or_else(|| ProtocolError::CommandNotFound {
             uuid: "<any>".to_string(),
             command: command_name.to_string(),
         })?;
@@ -533,11 +582,20 @@ fn build_framed_command(
 /// Resolves by which characteristic declares the command rather than by a
 /// hardcoded UUID, so the play command can live on whichever channel the spec
 /// puts it. The tag is the characteristic's `framing.channel_tag` (0 for the
-/// Daniao command channel), defaulting to 0 when unstated.
+/// Daniao command channel); an UNSTATED tag is 0, which is the scheme's own
+/// default and the only silence this reads as a value.
+///
+/// A tag that IS stated but is not a byte — `256`, `-1`, `"bulk"` — is an
+/// error, not a 0. `.as_u64().unwrap_or(0) as u8` said 0 for every one of
+/// those: `256` wrapped to the command channel and a misspelled tag fell back
+/// to it, so a write meant for the bulk channel went out framed for the
+/// command one and the device answered nothing. `image_upload::frame_command`
+/// reads the same key through a typed `Option<u8>` and refuses the same
+/// values; the two disagreeing about one YAML key was the whole bug.
 fn command_channel<'a>(
     spec: &'a DeviceSpec,
     command_name: &str,
-) -> Option<(&'a Characteristic, u8)> {
+) -> Result<Option<(&'a Characteristic, u8)>, ProtocolError> {
     for service in &spec.services {
         for characteristic in &service.characteristics {
             let has_command = characteristic
@@ -547,16 +605,26 @@ fn command_channel<'a>(
             if !has_command {
                 continue;
             }
-            let tag = characteristic
+            let declared = characteristic
                 .framing
                 .as_ref()
-                .and_then(|f| f.get("channel_tag"))
-                .and_then(|t| t.as_u64())
-                .unwrap_or(0) as u8;
-            return Some((characteristic, tag));
+                .and_then(|f| f.get("channel_tag"));
+            let tag = match declared {
+                None | Some(serde_yaml::Value::Null) => 0,
+                Some(value) => value
+                    .as_u64()
+                    .and_then(|t| u8::try_from(t).ok())
+                    .ok_or_else(|| ProtocolError::InvalidFraming {
+                        reason: format!(
+                            "characteristic {} declares channel_tag {value:?}, which is not a                              byte; a fragment channel tag is 0..=255",
+                            characteristic.uuid
+                        ),
+                    })?,
+            };
+            return Ok(Some((characteristic, tag)));
         }
     }
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -712,7 +780,7 @@ services:
     #[test]
     fn plan_has_uploader_writes_targeting_the_uploader_characteristic() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let plan = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
         assert!(!plan.upload_writes.is_empty());
         assert!(plan
             .upload_writes
@@ -723,9 +791,37 @@ services:
     }
 
     #[test]
+    fn data_packets_shrink_to_the_write_budget() {
+        // A 2x2 picture is well under one spec frame (500 bytes + 8 header),
+        // so without a budget the whole container rides in one DATA write.
+        // On a link whose usable write is 64 bytes every write has to fit,
+        // header included; the spec's frame size only ever caps it.
+        let rgb = red_2x2();
+        let unbounded = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
+        let bounded = encode_stored_image(&spec(), Some(64), &program(&rgb), 0).unwrap();
+        assert!(bounded.upload_writes.len() > unbounded.upload_writes.len());
+        assert!(bounded.upload_writes.iter().all(|w| w.bytes.len() <= 64));
+        // A budget larger than the spec frame changes nothing.
+        let roomy = encode_stored_image(&spec(), Some(4096), &program(&rgb), 0).unwrap();
+        assert_eq!(roomy.upload_writes.len(), unbounded.upload_writes.len());
+        // An absurd budget is a typed refusal, never a panic and never a plan
+        // whose first write the link cannot carry: the START packet is a
+        // single unsplittable packet, and a budget below it used to produce
+        // DATA frames of a few bytes behind a START the plugin would refuse
+        // on the first write.
+        let Err(tiny) = encode_stored_image(&spec(), Some(3), &program(&rgb), 0) else {
+            panic!("a 3-byte budget cannot carry the START packet");
+        };
+        assert!(
+            matches!(tiny, ProtocolError::ImageUploadUnsupported { ref reason } if reason.contains("START packet")),
+            "{tiny:?}"
+        );
+    }
+
+    #[test]
     fn plan_names_the_response_characteristic_from_the_spec() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let plan = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
         assert_eq!(
             plan.response_characteristic_uuid.as_deref(),
             Some("01010074-1972-1925-3022-077119514e44"),
@@ -736,7 +832,7 @@ services:
     #[test]
     fn stored_play_replays_by_cid_without_an_upload() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let plan = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
         let (service, write) = encode_stored_play(&spec(), 79009, 0).unwrap();
         assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
         // Byte-identical to the play write the upload plan tacks on AT THE SAME
@@ -831,6 +927,42 @@ services:
         );
     }
 
+    /// `framing.channel_tag` was read as `.as_u64().unwrap_or(0) as u8`, so
+    /// every malformed spelling — a value past a byte, a negative, a word —
+    /// silently became 0, the Daniao COMMAND channel. A bulk write framed for
+    /// the command channel is a write the device drops with no error anywhere.
+    /// `image_upload::frame_command` reads the same key through a typed
+    /// `Option<u8>` and has always refused these; the two now agree.
+    #[test]
+    fn a_channel_tag_that_is_not_a_byte_is_refused_not_truncated_to_zero() {
+        for hostile in ["256", "-1", "\"bulk\""] {
+            let yaml = SPEC.replace(
+                r#"framing: { scheme: "daniao_fragment", channel_tag: 0 }"#,
+                &format!(r#"framing: {{ scheme: "daniao_fragment", channel_tag: {hostile} }}"#),
+            );
+            let spec = parse_device_spec(&yaml).expect("fixture parses");
+            let error = encode_bookmark_enable(&spec, 0, 7)
+                .expect_err("a malformed channel tag must not frame as channel 0");
+            assert!(
+                matches!(&error, ProtocolError::InvalidFraming { .. }),
+                "{hostile}: {error}"
+            );
+        }
+    }
+
+    /// An UNSTATED tag is still 0 — that is the scheme's own default and the
+    /// BIN characteristic in this fixture relies on it.
+    #[test]
+    fn an_unstated_channel_tag_is_still_zero() {
+        let yaml = SPEC.replace(
+            r#"framing: { scheme: "daniao_fragment", channel_tag: 0 }"#,
+            r#"framing: { scheme: "daniao_fragment" }"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let (_service, write) = encode_bookmark_enable(&spec, 0, 7).expect("encodes");
+        assert_eq!(write.bytes[3], 0, "the fragment header's tag byte");
+    }
+
     #[test]
     fn autorun_mode_encodes_fixed() {
         // set_autorun_mode {i1: 0} (fixed): F0 04 | sn | len | 09 D0 | header | 08 00
@@ -887,7 +1019,7 @@ services:
     #[test]
     fn play_write_is_fragment_framed_and_plays_by_cid() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let plan = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
         let play = plan.play_write.expect("play_command declared");
         assert_eq!(
             play.characteristic_uuid,
@@ -915,6 +1047,7 @@ services:
         let bits = vec![1u8; 32 * 12];
         let text_plan = encode_stored_text(
             &s,
+            None,
             &StoredText {
                 name: "hi",
                 cid: 900010,
@@ -940,6 +1073,7 @@ services:
         let frames: Vec<&[u8]> = vec![&frame, &frame];
         let anim_plan = encode_stored_animation(
             &s,
+            None,
             &StoredAnimation {
                 name: "a",
                 cid: 900011,
@@ -981,6 +1115,6 @@ services:
         )
         .unwrap();
         let rgb = red_2x2();
-        assert!(encode_stored_image(&bare, &program(&rgb), 0).is_err());
+        assert!(encode_stored_image(&bare, None, &program(&rgb), 0).is_err());
     }
 }

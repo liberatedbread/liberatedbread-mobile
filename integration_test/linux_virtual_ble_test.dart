@@ -63,8 +63,9 @@ void main() {
   late SharedPreferences prefs;
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues(
-        {AppConstants.termsAcceptedKey: AppConstants.termsVersion});
+    SharedPreferences.setMockInitialValues({
+      AppConstants.termsAcceptedKey: AppConstants.termsVersion,
+    });
     prefs = await SharedPreferences.getInstance();
   });
 
@@ -75,22 +76,26 @@ void main() {
   // phase's hardcoded 12-minute cap. The override says what this file wants
   // without disturbing that.
   Widget app() => ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(prefs),
-          bleServiceProvider.overrideWithValue(RealBleService()),
-        ],
-        child: const LiberatedBreadApp(),
-      );
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      bleServiceProvider.overrideWithValue(RealBleService()),
+    ],
+    child: const LiberatedBreadApp(),
+  );
 
-  testWidgets('scans and connects through BlueZ, and reads a characteristic',
-      (tester) async {
+  testWidgets('scans and connects through BlueZ, and reads a characteristic', (
+    tester,
+  ) async {
     await tester.pumpWidget(app());
     await tester.pump(const Duration(milliseconds: 500));
 
     await tester.tap(find.byType(FloatingActionButton));
     await pumpUntil(tester, find.text('ACME_Living_Room'));
-    expect(find.text('ACME_Living_Room'), findsOneWidget,
-        reason: 'BlueZ discovery should surface the virtual peripheral');
+    expect(
+      find.text('ACME_Living_Room'),
+      findsOneWidget,
+      reason: 'BlueZ discovery should surface the virtual peripheral',
+    );
 
     await tester.tap(find.text('ACME_Living_Room'));
     await pumpUntil(tester, find.text('0000180f-0000-1000-8000-00805f9b34fb'));
@@ -102,17 +107,24 @@ void main() {
     // counts the wrong things. The 128-bit spelling is the stronger claim
     // anyway — BlueZ hands over whatever form it likes.
     expect(find.text('0000180f-0000-1000-8000-00805f9b34fb'), findsOneWidget);
-    expect(find.text('Battery Service'), findsWidgets,
-        reason: 'the well-known-UUID lookup recognized it');
+    expect(
+      find.text('Battery Service'),
+      findsWidgets,
+      reason: 'the well-known-UUID lookup recognized it',
+    );
 
     // 0x55 is 85, the battery level the virtual peripheral holds.
     await pumpUntil(tester, find.textContaining('55'));
-    expect(find.textContaining('55'), findsWidgets,
-        reason: 'a real read crossed D-Bus and came back');
+    expect(
+      find.textContaining('55'),
+      findsWidgets,
+      reason: 'a real read crossed D-Bus and came back',
+    );
   });
 
-  testWidgets('a BlueZ device that is not paired asks the user to pair',
-      (tester) async {
+  testWidgets('a BlueZ device that is not paired asks the user to pair', (
+    tester,
+  ) async {
     await tester.pumpWidget(app());
     await tester.pump(const Duration(milliseconds: 500));
 
@@ -126,7 +138,10 @@ void main() {
     // isPairingRequiredError, and this is the only place it runs for real.
     await pumpUntil(tester, find.textContaining('needs to be paired'));
     expect(find.textContaining('needs to be paired'), findsWidgets);
-    expect(find.textContaining('NotPermitted'), findsNothing,
-        reason: 'the D-Bus error name is for the log, not the screen');
+    expect(
+      find.textContaining('NotPermitted'),
+      findsNothing,
+      reason: 'the D-Bus error name is for the log, not the screen',
+    );
   });
 }

@@ -41,8 +41,11 @@ class DeviceAdBannerBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final banner = ref.watch(deviceAdBannerProvider(
-        DeviceAdContext(category: category, specKey: specKey)));
+    final banner = ref.watch(
+      deviceAdBannerProvider(
+        DeviceAdContext(category: category, specKey: specKey),
+      ),
+    );
     return _AdBannerContent(banner: banner);
   }
 }
@@ -92,11 +95,15 @@ class _AdBannerContent extends ConsumerWidget {
                         // Fire-and-forget like every hand-off to the platform in
                         // this app: a browser that fails to open must not become
                         // an unhandled async error.
-                        unawaited(open(banner.url).catchError((Object e) {
-                          Log.ads.warning('could not open ${banner.url}',
-                              error: e);
-                          return false;
-                        }));
+                        unawaited(
+                          open(banner.url).catchError((Object e) {
+                            Log.ads.warning(
+                              'could not open ${banner.url}',
+                              error: e,
+                            );
+                            return false;
+                          }),
+                        );
                       },
                       child: ExcludeSemantics(
                         child: Padding(
@@ -118,8 +125,9 @@ class _AdBannerContent extends ConsumerWidget {
                               // accessibility text) ellipsizes instead of
                               // overflowing — the message must keep some width.
                               ConstrainedBox(
-                                constraints:
-                                    const BoxConstraints(maxWidth: 120),
+                                constraints: const BoxConstraints(
+                                  maxWidth: 120,
+                                ),
                                 child: Text(
                                   banner.cta,
                                   maxLines: 1,
@@ -130,8 +138,11 @@ class _AdBannerContent extends ConsumerWidget {
                                   ),
                                 ),
                               ),
-                              Icon(Icons.chevron_right,
-                                  size: 18, color: scheme.primary),
+                              Icon(
+                                Icons.chevron_right,
+                                size: 18,
+                                color: scheme.primary,
+                              ),
                             ],
                           ),
                         ),
@@ -147,9 +158,9 @@ class _AdBannerContent extends ConsumerWidget {
                 iconSize: 18,
                 color: scheme.onSurfaceVariant,
                 tooltip: 'Dismiss ad',
-                onPressed: () => unawaited(ref
-                    .read(adBannerStateProvider.notifier)
-                    .dismiss(banner.id)),
+                onPressed: () => unawaited(
+                  ref.read(adBannerStateProvider.notifier).dismiss(banner.id),
+                ),
               ),
             ],
           ),

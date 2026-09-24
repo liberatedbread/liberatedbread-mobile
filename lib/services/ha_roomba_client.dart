@@ -27,9 +27,7 @@ class HaRoombaClient {
   final HaApiClient _api;
   final HaConfig _config;
 
-  const HaRoombaClient({required HaApiClient api, required HaConfig config})
-      : _api = api,
-        _config = config;
+  const HaRoombaClient({required this._api, required this._config});
 
   /// Our spec's command names → Home Assistant `vacuum` services.
   ///
@@ -85,10 +83,10 @@ class HaRoombaClient {
 
   /// Every vacuum Home Assistant knows about.
   Future<List<HaEntityState>> vacuums() => _api.entitiesInDomain(
-        baseUrl: _config.baseUrl,
-        token: _config.token,
-        domain: 'vacuum',
-      );
+    baseUrl: _config.baseUrl,
+    token: _config.token,
+    domain: 'vacuum',
+  );
 
   /// Every binary_sensor HA knows about — searched for the bin-full sibling.
   ///
@@ -96,25 +94,44 @@ class HaRoombaClient {
   /// from the name at creation and does not track later renames, so building
   /// the sibling's id by string surgery is a guess. Matching against the real
   /// list is not.
+  ///
+  /// It is also expensive: `/api/states` has no domain parameter, so this
+  /// downloads Home Assistant's WHOLE state machine and filters here. Use it
+  /// to FIND the sibling once; read it afterwards with [binarySensor], which
+  /// asks for the one entity — see [HaRoombaController], which polls every
+  /// two seconds.
   Future<List<HaEntityState>> binarySensors() => _api.entitiesInDomain(
-        baseUrl: _config.baseUrl,
-        token: _config.token,
-        domain: 'binary_sensor',
-      );
+    baseUrl: _config.baseUrl,
+    token: _config.token,
+    domain: 'binary_sensor',
+  );
+
+  /// One binary_sensor's current state, by the id [binFullFor] already found.
+  ///
+  /// `/api/states/<entity_id>`, so the poll costs one entity rather than the
+  /// whole state machine. Null when HA no longer has it — an entity renamed
+  /// in HA stops answering here, and the caller re-resolves.
+  Future<HaEntityState?> binarySensor(String entityId) => _api.entityState(
+    baseUrl: _config.baseUrl,
+    token: _config.token,
+    entityId: entityId,
+  );
 
   /// One vacuum's state, or null when HA no longer has that entity.
   Future<HaEntityState?> vacuum(String entityId) => _api.entityState(
-        baseUrl: _config.baseUrl,
-        token: _config.token,
-        entityId: entityId,
-      );
+    baseUrl: _config.baseUrl,
+    token: _config.token,
+    entityId: entityId,
+  );
 
   /// Call the `vacuum` service [commandName] maps to.
   Future<void> send(String entityId, String commandName) {
     final service = _services[commandName];
     if (service == null) {
       throw HaServerException(
-          400, 'Home Assistant has no vacuum service for "$commandName"');
+        400,
+        'Home Assistant has no vacuum service for "$commandName"',
+      );
     }
     // Which service, against which entity. The token is never near this line;
     // it lives in _config and goes only into an Authorization header.

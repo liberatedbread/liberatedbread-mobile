@@ -50,50 +50,72 @@ void main() {
     () async {
       final host = Platform.environment['LB_LIVE_ROKU_HOST'];
       if (Platform.environment['LB_LIVE_ROKU'] != '1' || host == null) {
-        markTestSkipped('live hardware run not requested '
-            '(set LB_LIVE_ROKU=1 and LB_LIVE_ROKU_HOST=<ip>)');
+        markTestSkipped(
+          'live hardware run not requested '
+          '(set LB_LIVE_ROKU=1 and LB_LIVE_ROKU_HOST=<ip>)',
+        );
         return;
       }
 
       // 1. Discovery, through the app's own scan — the merge of the mDNS and
       //    SSDP sightings is precisely what got the port wrong.
       final scan = RealNetworkScanService(
-          multicastLock: MulticastLock(isSupported: false));
+        multicastLock: MulticastLock(isSupported: false),
+      );
       final found = <String, NetworkDevice>{};
       await for (final device in scan.scan(
         timeout: const Duration(seconds: 12),
         extraSearchTargets: const ['roku:ecp'],
       )) {
         final existing = found[device.host];
-        found[device.host] =
-            existing == null ? device : existing.mergedWith(device);
+        found[device.host] = existing == null
+            ? device
+            : existing.mergedWith(device);
       }
       final roku = found[host];
-      expect(roku, isNotNull,
-          reason: 'no device at $host answered discovery — is the TV awake '
-              'and on this subnet?');
-      expect(roku!.ssdpTargets, contains('roku:ecp'),
-          reason: 'the device at $host is not answering as a Roku');
+      expect(
+        roku,
+        isNotNull,
+        reason:
+            'no device at $host answered discovery — is the TV awake '
+            'and on this subnet?',
+      );
+      expect(
+        roku!.ssdpTargets,
+        contains('roku:ecp'),
+        reason: 'the device at $host is not answering as a Roku',
+      );
 
       final port = roku.controlPort;
       expect(port, isNotNull);
       // The regression itself, stated against real advertisements: whatever
       // service ports this TV publishes over mDNS, control goes to the ECP
       // endpoint the SSDP LOCATION named.
-      expect(port, roku.ssdpPort,
-          reason: 'control must use the SSDP LOCATION port; port=${roku.port} '
-              'is an mDNS service port (${roku.serviceTypes})');
+      expect(
+        port,
+        roku.ssdpPort,
+        reason:
+            'control must use the SSDP LOCATION port; port=${roku.port} '
+            'is an mDNS service port (${roku.serviceTypes})',
+      );
 
       // 2. An ungated query, to prove the port is right independently of the
       //    "Control by mobile apps" gate — device-info answers either way.
       final plain = HttpControlClient();
       final info = await plain.send(
-          host,
-          port!,
-          const HttpRequestDto(
-              method: 'GET', path: '/query/device-info', body: ''));
-      expect(info, contains('<device-info>'),
-          reason: 'port $port did not answer ECP — it is the wrong port');
+        host,
+        port!,
+        const HttpRequestDto(
+          method: 'GET',
+          path: '/query/device-info',
+          body: '',
+        ),
+      );
+      expect(
+        info,
+        contains('<device-info>'),
+        reason: 'port $port did not answer ECP — it is the wrong port',
+      );
 
       // 3. The press, down the same path NetworkDeviceScreen takes: plain
       //    ECP first, the signed session when the TV refuses it.
@@ -101,8 +123,11 @@ void main() {
       var viaSignedSession = false;
       try {
         for (final key in _benignKeys) {
-          final request =
-              HttpRequestDto(method: 'POST', path: '/keypress/$key', body: '');
+          final request = HttpRequestDto(
+            method: 'POST',
+            path: '/keypress/$key',
+            body: '',
+          );
           try {
             await plain.send(host, port, request);
           } on ControlRefusedException {
@@ -120,8 +145,10 @@ void main() {
       // Reaching here means every key was accepted by one path or the other;
       // a wrong port throws long before this, and a gate with no working
       // fallback throws ControlRefusedException out of the loop.
-      printOnFailure('pressed $_benignKeys on $host:$port '
-          '(signed session: $viaSignedSession)');
+      printOnFailure(
+        'pressed $_benignKeys on $host:$port '
+        '(signed session: $viaSignedSession)',
+      );
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );

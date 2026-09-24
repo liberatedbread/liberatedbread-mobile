@@ -142,6 +142,10 @@ class RabbitAirControlsPanelState
   /// Send one action, then re-poll: the reply acknowledges the request, it
   /// does not report the resulting state, so the control snaps to the
   /// purifier's true state whether or not the write took.
+  ///
+  /// The two halves fail differently and say so differently — a refused
+  /// command is "try again", a failed re-poll is "it took, but the values
+  /// below may be stale".
   Future<void> _send(
     NetworkEntityDto entity,
     NetworkActionDto action, {
@@ -156,7 +160,8 @@ class RabbitAirControlsPanelState
       final key = _key;
       if (key == null) {
         throw const RabbitAirControlException(
-            'no user key is stored for this purifier');
+          'no user key is stored for this purifier',
+        );
       }
       final values = <String, String>{};
       if (value != null && action.userParams.isNotEmpty) {
@@ -173,7 +178,26 @@ class RabbitAirControlsPanelState
         deviceTs: transport.deviceTs(),
       );
       await transport.send(request, userKey: key);
-      if (_stateCommands.isNotEmpty) await _refreshState();
+      // The re-poll has its own catch, because by here the purifier HAS
+      // taken the command. Sharing the catch below reported a failed
+      // re-read as "The purifier did not accept that. Try again." — wrong
+      // twice over: it did accept it, and trying again would send the
+      // command a second time. What actually went wrong is that the panel no
+      // longer knows what the purifier is set to.
+      try {
+        if (_stateCommands.isNotEmpty) await _refreshState();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _error = friendlyErrorText(
+            e,
+            context: 'device control read-back',
+            fallback:
+                'The purifier took that, but the app could not read back '
+                'what it did — the values here may be out of date.',
+          );
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -217,9 +241,10 @@ class RabbitAirControlsPanelState
           const Center(child: CircularProgressIndicator()),
           const SizedBox(height: 16),
           Center(
-            child: Text('Asking the device...',
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+            child: Text(
+              'Asking the device...',
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ),
         ] else if (_key == null) ...[
           // Every exchange with this purifier is encrypted under its user
@@ -230,16 +255,12 @@ class RabbitAirControlsPanelState
           // Readings and plain controls first, in the order the spec
           // declares them — but not a select: the mode picker goes last, so
           // the layout keeps a stable position as readings land.
-          for (final entity
-              in entities.where((entity) => entity.platform != 'select')) ...[
-            _entityCard(entity),
-            const SizedBox(height: 12),
-          ],
-          for (final entity
-              in entities.where((entity) => entity.platform == 'select')) ...[
-            _entityCard(entity),
-            const SizedBox(height: 12),
-          ],
+          for (final entity in entities.where(
+            (entity) => entity.platform != 'select',
+          )) ...[_entityCard(entity), const SizedBox(height: 12)],
+          for (final entity in entities.where(
+            (entity) => entity.platform == 'select',
+          )) ...[_entityCard(entity), const SizedBox(height: 12)],
         ],
       ],
     );
@@ -281,8 +302,9 @@ class RabbitAirControlsPanelState
                   child: Text(
                     'This purifier needs its user key',
                     style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSecondaryContainer),
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSecondaryContainer,
+                    ),
                   ),
                 ),
               ],
@@ -293,8 +315,9 @@ class RabbitAirControlsPanelState
               'it in the Rabbit Air app: open the device page, tap the '
               'three-dot menu, choose Rename, then tap the device name — the '
               'screen reveals the Thing ID and the 32-character User key.',
-              style:
-                  text.bodySmall?.copyWith(color: scheme.onSecondaryContainer),
+              style: text.bodySmall?.copyWith(
+                color: scheme.onSecondaryContainer,
+              ),
             ),
             const SizedBox(height: 12),
             Align(
@@ -345,8 +368,10 @@ class RabbitAirControlsPanelState
               onPressed: () {
                 final key = controller.text.trim();
                 if (!RabbitAirKeyStore.isValidUserKey(key)) {
-                  setDialogState(() => validation =
-                      'The user key is exactly 32 hex characters (0-9, a-f).');
+                  setDialogState(
+                    () => validation =
+                        'The user key is exactly 32 hex characters (0-9, a-f).',
+                  );
                   return;
                 }
                 Navigator.of(context).pop(key);
@@ -368,12 +393,12 @@ class RabbitAirControlsPanelState
   }
 
   Widget _card({required Widget child}) => Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: child,
-        ),
-      );
+    margin: EdgeInsets.zero,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: child,
+    ),
+  );
 
   Widget _switchCard(NetworkEntityDto entity) {
     final reading = _readings[entity.name];
@@ -389,29 +414,33 @@ class RabbitAirControlsPanelState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(entity.name,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  entity.name,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 if (isOn == null)
-                  Text('State unknown',
-                      style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    'State unknown',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
               ],
             ),
           ),
           if (busy)
             const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2))
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
           else
             Switch(
               value: isOn ?? false,
               onChanged: (turnOn == null || turnOff == null)
                   ? null
                   : (wantOn) =>
-                      unawaited(_send(entity, wantOn ? turnOn : turnOff)),
+                        unawaited(_send(entity, wantOn ? turnOn : turnOff)),
             ),
         ],
       ),
@@ -424,8 +453,9 @@ class RabbitAirControlsPanelState
     final busy = _sending.contains(entity.name);
     // Rabbit Air selects take their options from the spec's own table, so
     // "which is current" is decoded from a state reading.
-    final currentRaw =
-        reading?.kind == NetworkReadingKind.option ? reading?.raw : null;
+    final currentRaw = reading?.kind == NetworkReadingKind.option
+        ? reading?.raw
+        : null;
 
     return _card(
       child: Column(
@@ -434,17 +464,19 @@ class RabbitAirControlsPanelState
           Row(
             children: [
               Expanded(
-                child: Text(entity.name,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                child: Text(
+                  entity.name,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
               if (busy)
                 const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2)),
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
             ],
           ),
           if (reading?.kind == NetworkReadingKind.unknownOption)
@@ -469,7 +501,7 @@ class RabbitAirControlsPanelState
                   onSelected: (busy || action == null)
                       ? null
                       : (_) =>
-                          unawaited(_send(entity, action, value: option.raw)),
+                            unawaited(_send(entity, action, value: option.raw)),
                 ),
             ],
           ),
@@ -491,11 +523,12 @@ class RabbitAirControlsPanelState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(entity.name,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  entity.name,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 Text(
                   reading == null
                       ? 'Unknown'
@@ -507,9 +540,10 @@ class RabbitAirControlsPanelState
           ),
           if (busy)
             const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2))
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
           else if (action != null)
             IconButton(
               tooltip: 'Set ${entity.name}',
@@ -522,9 +556,12 @@ class RabbitAirControlsPanelState
   }
 
   Future<void> _editNumber(
-      NetworkEntityDto entity, NetworkActionDto action) async {
+    NetworkEntityDto entity,
+    NetworkActionDto action,
+  ) async {
     final controller = TextEditingController(
-        text: _readings[entity.name]?.number?.toStringAsFixed(0) ?? '');
+      text: _readings[entity.name]?.number?.toStringAsFixed(0) ?? '',
+    );
     final min = entity.setpointMin;
     final max = entity.setpointMax;
     final entered = await showDialog<String>(
@@ -557,7 +594,12 @@ class RabbitAirControlsPanelState
         ],
       ),
     );
-    controller.dispose();
+    // NOT disposed here, for the reason _promptRabbitAirKey above gives: the
+    // dialog's pop animation still builds the TextField for a few frames
+    // after showDialog returns, and a focused field schedules a caret frame
+    // that touches the controller — disposed, that is a notifyListeners
+    // assertion in debug and a use-after-dispose in release. Dialog-scoped;
+    // collected with the tree.
     if (entered == null || entered.isEmpty || !mounted) return;
     final value = double.tryParse(entered);
     if (value == null ||
@@ -604,11 +646,12 @@ class RabbitAirReadingCard extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(entity.name,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600)),
+              child: Text(
+                entity.name,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
             ),
             Text(value, style: Theme.of(context).textTheme.bodyLarge),
           ],
@@ -673,13 +716,13 @@ class _RabbitAirBleControlsPanelState
 
   @override
   Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-        children: [
-          RabbitAirControlsPanel(
-            specYaml: widget.specYaml,
-            entities: widget.entities,
-            transport: _transport,
-          ),
-        ],
-      );
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+    children: [
+      RabbitAirControlsPanel(
+        specYaml: widget.specYaml,
+        entities: widget.entities,
+        transport: _transport,
+      ),
+    ],
+  );
 }

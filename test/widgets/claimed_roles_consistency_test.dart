@@ -31,26 +31,35 @@ void main() {
       // leaves alone — and a guard blind to it would wave a genuine drift
       // through green (both extraction sets missing the same role satisfies
       // the equality below vacuously).
-      final lookedUp = RegExp('_action\\([\'"]([a-z_0-9]+)[\'"]\\)')
-          .allMatches(source)
-          .map((m) => m.group(1)!)
-          .toSet();
-      expect(lookedUp, isNotEmpty,
-          reason: 'the card should look roles up via _action');
+      final lookedUp = RegExp(
+        '_action\\([\'"]([a-z_0-9]+)[\'"]\\)',
+      ).allMatches(source).map((m) => m.group(1)!).toSet();
+      expect(
+        lookedUp,
+        isNotEmpty,
+        reason: 'the card should look roles up via _action',
+      );
 
-      final setLiteral =
-          RegExp(r'_claimedRoles = (?:<String>)?\{([^}]*)\}', dotAll: true)
-              .firstMatch(source);
-      expect(setLiteral, isNotNull,
-          reason: 'the card should declare _claimedRoles');
-      final claimed = RegExp('[\'"]([a-z_0-9]+)[\'"]')
-          .allMatches(setLiteral!.group(1)!)
-          .map((m) => m.group(1)!)
-          .toSet();
+      final setLiteral = RegExp(
+        r'_claimedRoles = (?:<String>)?\{([^}]*)\}',
+        dotAll: true,
+      ).firstMatch(source);
+      expect(
+        setLiteral,
+        isNotNull,
+        reason: 'the card should declare _claimedRoles',
+      );
+      final claimed = RegExp(
+        '[\'"]([a-z_0-9]+)[\'"]',
+      ).allMatches(setLiteral!.group(1)!).map((m) => m.group(1)!).toSet();
 
-      expect(claimed, lookedUp.union(entry.value),
-          reason: 'claimed-but-never-looked-up is drawn by nobody; '
-              'looked-up-but-unclaimed is drawn twice via UnclaimedActions');
+      expect(
+        claimed,
+        lookedUp.union(entry.value),
+        reason:
+            'claimed-but-never-looked-up is drawn by nobody; '
+            'looked-up-but-unclaimed is drawn twice via UnclaimedActions',
+      );
     });
   }
 }

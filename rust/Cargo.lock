@@ -504,6 +504,7 @@ dependencies = [
  "flutter_rust_bridge",
  "getrandom",
  "indexmap",
+ "log",
  "md-5",
  "regex",
  "serde",

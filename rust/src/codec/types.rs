@@ -40,6 +40,37 @@ impl DecodedValue {
             DecodedValue::String(v) => v.clone(),
         }
     }
+
+    /// The number this value carries, or `None` when it is not numeric.
+    ///
+    /// A `Bool` is deliberately NOT numeric here. It has no transform worth
+    /// applying (the codec never attaches a `values:` label to one — the code
+    /// table is resolved from integers only) and its own rendering, "on"/
+    /// "off", is already the right answer; treating it as 0/1 would turn every
+    /// power-state row into a bare "1".
+    ///
+    /// A `Uint` converts from the FULL `u64`, not from the `i64` the FFI
+    /// clamps it into: above `i64::MAX` the clamp is a lie, and a reading is
+    /// the one thing here that must not be.
+    pub fn as_number(&self) -> Option<f64> {
+        match self {
+            DecodedValue::Int(v) => Some(*v as f64),
+            DecodedValue::Uint(v) => Some(*v as f64),
+            _ => None,
+        }
+    }
+
+    /// The integer this value carries, for a `values:` code-table lookup or an
+    /// on/off comparison — both of which are exact-match questions a float
+    /// cannot answer. Saturates at `i64::MAX`, which is also what the FFI
+    /// carries; a code table with a key that large does not exist.
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            DecodedValue::Int(v) => Some(*v),
+            DecodedValue::Uint(v) => Some((*v).min(i64::MAX as u64) as i64),
+            _ => None,
+        }
+    }
 }
 
 /// A characteristic's decoded fields, in the order the characteristic lays them
@@ -130,6 +161,18 @@ impl<'a> IntoIterator for &'a DecodedValues {
 /// `parse_device_spec`, so a field slice shorter than the type's fixed width
 /// is reported as [`ProtocolError::BufferTooShort`] (with slice-relative
 /// `needed`/`got`) rather than panicking on the index below.
+///
+/// For `bytes` and `string` fields the declared `length` is a CEILING, not a
+/// size: the field is whatever the device sent between `offset` and the end
+/// of its reply, up to `length`. That is how the catalogue writes them — an
+/// Ember mug's name is `length: 16` and reads five bytes ("EMBER"), a MiFlora
+/// firmware string is `length: 8` at offset 2 of a 7-byte reply — and a
+/// device that answers with fewer bytes than the ceiling has not answered
+/// wrongly. Demanding the full extent turned every such read into
+/// `BufferTooShort`, and because [`decode_all_fields`] stops at the first
+/// error, it also blanked the fixed-width siblings that HAD decoded (the
+/// MiFlora's battery, its only battery source). A reply that ends before the
+/// field even starts is still too short: nothing of it was delivered.
 pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
     let end = field
         .offset
@@ -138,12 +181,28 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
             offset: field.offset,
             length: field.length,
         })?;
-    if bytes.len() < end {
-        return Err(ProtocolError::BufferTooShort {
-            needed: end,
-            got: bytes.len(),
-        });
-    }
+    // Only the two sequence types take the ceiling reading. A `varint` also
+    // has no fixed width, but it is self-delimiting: cutting its slice at the
+    // buffer's end would turn a short read into "malformed varint", blaming
+    // the device's bytes for what was a short reply.
+    let variable_length = matches!(field.field_type, ValueType::Bytes | ValueType::String);
+    let end = if variable_length {
+        if bytes.len() < field.offset {
+            return Err(ProtocolError::BufferTooShort {
+                needed: field.offset,
+                got: bytes.len(),
+            });
+        }
+        end.min(bytes.len())
+    } else {
+        if bytes.len() < end {
+            return Err(ProtocolError::BufferTooShort {
+                needed: end,
+                got: bytes.len(),
+            });
+        }
+        end
+    };
 
     let slice = &bytes[field.offset..end];
 
@@ -446,7 +505,11 @@ pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
     if command.payload.is_some() {
         return Some("structured payload".to_string());
     }
-    None
+    // Nothing at all to send. Reported here rather than at send time
+    // because this is the predicate the UI enables Send on: ~60 vendored
+    // commands (a `read`-only role, a name with only prose) were listed as
+    // encodable and then failed every press with EmptyCommand.
+    Some("nothing to send (no value, template or payload)".to_string())
 }
 
 pub fn encode_command(
@@ -467,7 +530,13 @@ pub fn encode_command_with_bytes(
     params: &HashMap<String, f64>,
     bytes_params: &HashMap<String, Vec<u8>>,
 ) -> Result<Vec<u8>, ProtocolError> {
-    if let Some(ref value) = command.value {
+    // A command declaring BOTH `value` and `template` is encoded from the
+    // template. `parse_device_spec` already drops the `value` of such a
+    // command, so a parsed spec never reaches this branch with both; the
+    // rule is restated here because this encoder is `pub` and a hand-built
+    // `Command` must send the same bytes a parsed one would. See
+    // `spec::parser::prefer_template_over_value` for why template wins.
+    if let (Some(value), None) = (&command.value, &command.template) {
         return pad_to_fixed_length(value.clone(), command);
     }
     if let Some(bytes) = command.payload_bytes() {
@@ -492,8 +561,20 @@ pub fn encode_command_with_bytes(
     // param (a protobuf `varint`) before or after it means the total is not
     // known until every element is emitted. So reserve fixed-width zero
     // placeholders for length fields, then patch them once the packet is built.
+    //
+    // An `auto` CHECKSUM is reserved the same way, and for a sharper reason:
+    // it covers frame bytes, and the frame is not final until the lengths are
+    // patched in and any `fixed_length` padding is laid down. Computed inline
+    // it summed a length field that was still a zero placeholder, so a frame
+    // declaring both roles went out with a checksum over bytes the device
+    // never receives — valid-looking, silently dropped, and impossible to see
+    // from the app. Reserving defers the sum to the finished frame; the span
+    // still ends at the checksum's own offset, so nothing that follows it
+    // (trailing padding included) is folded in.
     let mut bytes = Vec::new();
     let mut length_fixups: Vec<(usize, usize, bool)> = Vec::new(); // (offset, width, be)
+                                                                   // (offset, width, big_endian, role, parameter name)
+    let mut checksum_fixups: Vec<(usize, usize, bool, AutoRole, String)> = Vec::new();
     for element in template {
         match element {
             TemplateElement::Byte(b) => bytes.push(*b),
@@ -538,17 +619,35 @@ pub fn encode_command_with_bytes(
                     Some(
                         role @ (AutoRole::Checksum | AutoRole::XorChecksum | AutoRole::Crc16Modbus),
                     ) => match params.get(name.as_str()) {
+                        // A supplied value is still honoured, so a stateless
+                        // caller that already knows the checksum is not made
+                        // to let the encoder recompute it.
                         Some(v) => *v,
                         None => {
-                            compute_checksum(&bytes, def.expect("auto implies a def"), name, role)?
-                                as f64
+                            let width = def
+                                .map(|d| &d.value_type)
+                                .unwrap_or(&ValueType::Uint8)
+                                .fixed_byte_size()
+                                .ok_or_else(|| ProtocolError::ParameterInvalid {
+                                    name: name.clone(),
+                                    value: 0.0,
+                                    reason: "an auto checksum must be a fixed-width type".into(),
+                                })?;
+                            checksum_fixups.push((
+                                bytes.len(),
+                                width,
+                                big_endian,
+                                role,
+                                name.clone(),
+                            ));
+                            bytes.resize(bytes.len() + width, 0);
+                            continue;
                         }
                     },
                     _ => match params.get(name.as_str()) {
                         Some(v) => *v,
                         None => def
                             .and_then(|d| d.default)
-                            .map(|d| d as f64)
                             .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?,
                     },
                 };
@@ -591,6 +690,26 @@ pub fn encode_command_with_bytes(
             let src = if big_endian { width - 1 - i } else { i };
             bytes[offset + i] = le[src];
         }
+    }
+
+    // Now the frame is what goes on the wire, so the checksums can cover it.
+    // Each spans `checksum_start` up to its own offset — "the bytes already
+    // emitted", exactly as before, but read off the FINISHED frame, so a
+    // patched length is summed as the number the device will see.
+    for (offset, width, big_endian, role, name) in checksum_fixups {
+        let def = param_defs
+            .and_then(|d| d.params.get(name.as_str()))
+            .expect("a reserved checksum implies a def");
+        let sum = compute_checksum(&bytes[..offset], def, &name, role)?;
+        validate_param_range(&name, sum as f64, def)?;
+        let typed = coerce_param(sum as f64, &def.value_type, &name)?;
+        let mut encoded = Vec::with_capacity(width);
+        append_typed(&mut encoded, typed, big_endian);
+        // The reservation was made from the same `fixed_byte_size`, so the
+        // two agree by construction; asserting it here is what keeps a future
+        // widening of one from silently shifting the frame.
+        debug_assert_eq!(encoded.len(), width);
+        bytes[offset..offset + encoded.len()].copy_from_slice(&encoded);
     }
     Ok(bytes)
 }
@@ -1289,6 +1408,117 @@ mod tests {
         );
     }
 
+    /// ember-mug's `Mug Name`: `length: 16`, and the hardware reads five
+    /// bytes. The sixteen is a ceiling, so the five are the value.
+    #[test]
+    fn decode_string_shorter_than_its_declared_length_is_the_bytes_sent() {
+        let field = FormatField {
+            offset: 0,
+            length: 16,
+            name: "name".into(),
+            field_type: ValueType::String,
+            ..Default::default()
+        };
+        assert_eq!(
+            decode_field(b"EMBER", &field).unwrap(),
+            DecodedValue::String("EMBER".into())
+        );
+    }
+
+    #[test]
+    fn decode_bytes_shorter_than_its_declared_length_is_the_bytes_sent() {
+        let field = FormatField {
+            offset: 1,
+            length: 8,
+            name: "payload".into(),
+            field_type: ValueType::Bytes,
+            ..Default::default()
+        };
+        assert_eq!(
+            decode_field(&[0x00, 0xDE, 0xAD], &field).unwrap(),
+            DecodedValue::Bytes(vec![0xDE, 0xAD])
+        );
+        // A reply that stops exactly where the field starts has sent an
+        // empty field, not a short one.
+        assert_eq!(
+            decode_field(&[0x00], &field).unwrap(),
+            DecodedValue::Bytes(vec![])
+        );
+    }
+
+    /// A reply that ends BEFORE a variable-length field starts is still too
+    /// short: the tolerance is for a short field, not an absent one.
+    #[test]
+    fn decode_variable_field_starting_past_the_buffer_is_too_short() {
+        let field = FormatField {
+            offset: 2,
+            length: 8,
+            name: "firmware_version".into(),
+            field_type: ValueType::String,
+            ..Default::default()
+        };
+        match decode_field(&[0x63], &field) {
+            Err(ProtocolError::BufferTooShort { needed, got }) => {
+                assert_eq!(needed, 2);
+                assert_eq!(got, 1);
+            }
+            other => panic!("expected BufferTooShort, got {other:?}"),
+        }
+    }
+
+    /// xiaomi-miflora 0x1a02: `battery` (uint8 at 0) beside
+    /// `firmware_version` (string, offset 2, length 8), and the device
+    /// answers with seven bytes. The string must come back as what was sent
+    /// AND the battery beside it must survive — before, the short string
+    /// aborted the whole decode and the app showed "could not read" for the
+    /// spec's only battery source.
+    #[test]
+    fn decode_all_fields_keeps_fixed_siblings_when_a_trailing_string_is_short() {
+        let fields = vec![
+            FormatField {
+                offset: 0,
+                length: 1,
+                name: "battery".into(),
+                field_type: ValueType::Uint8,
+                ..Default::default()
+            },
+            FormatField {
+                offset: 2,
+                length: 8,
+                name: "firmware_version".into(),
+                field_type: ValueType::String,
+                ..Default::default()
+            },
+        ];
+        let reply = [0x63, 0x27, b'3', b'.', b'2', b'.', b'2'];
+        let decoded = decode_all_fields(&reply, &fields).unwrap();
+        assert_eq!(decoded["battery"], DecodedValue::Uint(99));
+        assert_eq!(
+            decoded["firmware_version"],
+            DecodedValue::String("3.2.2".into())
+        );
+    }
+
+    /// The strict rule stays for fixed-width types: a short `uint16` is a
+    /// short read, not a smaller number.
+    #[test]
+    fn decode_fixed_width_field_short_of_its_extent_is_still_too_short() {
+        let field = FormatField {
+            offset: 1,
+            length: 2,
+            name: "raw".into(),
+            field_type: ValueType::Uint16,
+            ..Default::default()
+        };
+        match decode_field(&[0x00, 0x01], &field) {
+            Err(ProtocolError::BufferTooShort { needed, got }) => {
+                assert_eq!(needed, 3);
+                assert_eq!(got, 2);
+            }
+            other => panic!("expected BufferTooShort, got {other:?}"),
+        }
+    }
+
     #[test]
     fn decode_offset_overflow_returns_typed_error() {
         let field = FormatField {
@@ -1336,6 +1566,49 @@ mod tests {
         };
         let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
+    }
+
+    /// xkglow-chrome's `set_rgb_color` shape: a `value` AND a `template`
+    /// with parameters. The parser strips such a `value`, but this encoder
+    /// is `pub`, so a hand-built command must make the same choice — the
+    /// template, filled from the caller's parameters — rather than sending
+    /// the fixed bytes and discarding the sliders' values.
+    #[test]
+    fn encode_prefers_template_when_a_command_declares_both() {
+        let mut cmd = Command {
+            description: "Set solid RGB colour for a zone".into(),
+            value: Some(vec![0x00, 0x00, 0x04, 0xFF, 0x00, 0x00]),
+            template: Some(vec![
+                TemplateElement::Byte(0x00),
+                TemplateElement::Param("zone".into()),
+                TemplateElement::Byte(0x04),
+                TemplateElement::Param("red".into()),
+                TemplateElement::Param("green".into()),
+                TemplateElement::Param("blue".into()),
+            ]),
+            parameters: None,
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: None,
+        };
+        cmd.parameters = Some(pset([
+            ("zone", param(ValueType::Uint8, None, None)),
+            ("red", param(ValueType::Uint8, None, None)),
+            ("green", param(ValueType::Uint8, None, None)),
+            ("blue", param(ValueType::Uint8, None, None)),
+        ]));
+        let params = HashMap::from([
+            ("zone".to_string(), 2.0),
+            ("red".to_string(), 0.0),
+            ("green".to_string(), 0x80 as f64),
+            ("blue".to_string(), 0xFF as f64),
+        ]);
+        let bytes = encode_command(&cmd, &params).unwrap();
+        assert_eq!(bytes, vec![0x00, 0x02, 0x04, 0x00, 0x80, 0xFF]);
     }
 
     /// A fixed-width frame goes out at its declared width, not the template's.
@@ -1723,6 +1996,90 @@ mod tests {
             }
             other => panic!("expected ParameterInvalid, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_checksum_covers_the_patched_packet_length_not_its_placeholder() {
+        // The one frame shape that made the ordering visible: an
+        // `auto: packet_length` field BEFORE an `auto: checksum`. The length
+        // is not known until the packet is built, so it is emitted as a zero
+        // placeholder and patched at the end — and a checksum computed inline
+        // summed the placeholder. The device sums the real length, so every
+        // such frame went out with a checksum that could not verify.
+        //
+        // Template 02 {len} {b} {chk}: four bytes total, so len = 4. Sum from
+        // index 1 is 04 + 53 = 0x57 — 0x53 alone (0x53) is what the old order
+        // produced.
+        let cmd = Command {
+            description: "x".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x02),
+                TemplateElement::Param("len".into()),
+                TemplateElement::Param("b".into()),
+                TemplateElement::Param("chk".into()),
+            ]),
+            parameters: Some(pset([
+                (
+                    "len",
+                    Parameter {
+                        value_type: ValueType::Uint8,
+                        auto: Some(AutoRole::PacketLength),
+                        ..Default::default()
+                    },
+                ),
+                ("b", param(ValueType::Uint8, None, None)),
+                ("chk", checksum_param()),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: None,
+        };
+        let params = HashMap::from([("b".into(), 0x53 as f64)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0x02, 0x04, 0x53, 0x57]
+        );
+    }
+
+    #[test]
+    fn a_checksum_still_ends_at_its_own_position_when_the_frame_is_padded() {
+        // The other half of the ordering: `fixed_length` pads AFTER the
+        // checksum's slot, and those pad bytes are not part of the span —
+        // "up to but not including this parameter's own position" is a
+        // statement about the checksum's OFFSET, not about the buffer's end.
+        // Govee's frames list their pad bytes in the template for exactly
+        // this reason; a spec that leaves them to `fixed_length` must still
+        // get the checksum of what precedes the byte.
+        let cmd = Command {
+            description: "x".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x33),
+                TemplateElement::Param("b".into()),
+                TemplateElement::Param("chk".into()),
+            ]),
+            parameters: Some(pset([
+                ("b", param(ValueType::Uint8, None, None)),
+                ("chk", checksum_param()),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: Some(6),
+        };
+        let params = HashMap::from([("b".into(), 0x05 as f64)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0x33, 0x05, 0x05, 0x00, 0x00, 0x00]
+        );
     }
 
     // ── auto: xor_checksum ──────────────────────────────────────────────────
@@ -2228,10 +2585,16 @@ mod tests {
     }
 
     #[test]
-    fn encode_command_with_neither_value_nor_template_is_empty_command() {
+    fn encode_command_with_neither_value_nor_template_is_refused_up_front() {
+        // Reported by the same predicate the UI enables Send on, so a
+        // command with nothing to send is listed as unsupported rather than
+        // enabled and then failing every press with EmptyCommand.
+        assert!(unsupported_encoding_kind(&bare_cmd()).is_some());
         match encode_command(&bare_cmd(), &HashMap::new()) {
-            Err(ProtocolError::EmptyCommand) => (),
-            other => panic!("expected EmptyCommand, got {other:?}"),
+            Err(ProtocolError::UnsupportedCommandEncoding(kind)) => {
+                assert!(kind.contains("nothing to send"), "got kind {kind}")
+            }
+            other => panic!("expected UnsupportedCommandEncoding, got {other:?}"),
         }
     }
 
@@ -2301,13 +2664,13 @@ mod tests {
             parameters: Some(pset([
                 ("seq", {
                     let mut p = param(ValueType::Uint8, None, None);
-                    p.default = Some(0);
+                    p.default = Some(0.0);
                     p
                 }),
                 ("brightness", param(ValueType::Uint8, Some(0), Some(100))),
                 ("flag", {
                     let mut p = param(ValueType::Uint8, None, None);
-                    p.default = Some(16);
+                    p.default = Some(16.0);
                     p
                 }),
             ])),

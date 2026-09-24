@@ -14,32 +14,32 @@ import 'package:shared_preferences/shared_preferences.dart';
 late SharedPreferences _prefs;
 
 Map<String, Object> _saved() => {
-      'saved_devices_v1': jsonEncode([
-        {
-          'id': 'AA:01',
-          'name': 'Bulb',
-          'lastSeen': '2026-08-11T10:00:00.000',
-          'category': 'light',
-        },
-        {
-          'id': 'AA:02',
-          'name': 'Wave',
-          'lastSeen': '2026-08-11T09:00:00.000',
-          'category': 'sensor',
-        },
-        {
-          'id': 'AA:03',
-          'name': 'Dongle',
-          'lastSeen': '2026-08-11T08:00:00.000',
-          'category': 'vehicle',
-        },
-      ]),
-    };
+  'saved_devices_v1': jsonEncode([
+    {
+      'id': 'AA:01',
+      'name': 'Bulb',
+      'lastSeen': '2026-08-11T10:00:00.000',
+      'category': 'light',
+    },
+    {
+      'id': 'AA:02',
+      'name': 'Wave',
+      'lastSeen': '2026-08-11T09:00:00.000',
+      'category': 'sensor',
+    },
+    {
+      'id': 'AA:03',
+      'name': 'Dongle',
+      'lastSeen': '2026-08-11T08:00:00.000',
+      'category': 'vehicle',
+    },
+  ]),
+};
 
 Widget _wrap({DeviceGroup? group}) => ProviderScope(
-      overrides: [sharedPreferencesProvider.overrideWithValue(_prefs)],
-      child: MaterialApp(home: GroupEditScreen(group: group)),
-    );
+  overrides: [sharedPreferencesProvider.overrideWithValue(_prefs)],
+  child: MaterialApp(home: GroupEditScreen(group: group)),
+);
 
 void main() {
   setUp(() async {
@@ -47,8 +47,9 @@ void main() {
     _prefs = await SharedPreferences.getInstance();
   });
 
-  testWidgets('offers saved devices minus the non-groupable categories',
-      (tester) async {
+  testWidgets('offers saved devices minus the non-groupable categories', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap());
     await tester.pump();
 
@@ -58,21 +59,25 @@ void main() {
     expect(find.text('Dongle'), findsNothing);
   });
 
-  testWidgets('creating a group needs a name and at least one member',
-      (tester) async {
+  testWidgets('creating a group needs a name and at least one member', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap());
     await tester.pump();
 
     // Captured before saving: the save pops the screen off the navigator, so
     // its element is gone by the time there is a group to assert on.
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(GroupEditScreen)),
-        listen: false);
+      tester.element(find.byType(GroupEditScreen)),
+      listen: false,
+    );
 
-    FilledButton saveButton() => tester.widget<FilledButton>(find.ancestor(
-          of: find.text('Create group'),
-          matching: find.byWidgetPredicate((w) => w is FilledButton),
-        ));
+    FilledButton saveButton() => tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Create group'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton),
+      ),
+    );
 
     expect(saveButton().onPressed, isNull);
 
@@ -109,14 +114,17 @@ void main() {
     await tester.pump();
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(GroupEditScreen)),
-        listen: false);
+      tester.element(find.byType(GroupEditScreen)),
+      listen: false,
+    );
 
     expect(find.text('Old name'), findsOneWidget);
-    final bulbRowCheckbox = tester.widget<Checkbox>(find.descendant(
-      of: find.widgetWithText(InkWell, 'Bulb').first,
-      matching: find.byType(Checkbox),
-    ));
+    final bulbRowCheckbox = tester.widget<Checkbox>(
+      find.descendant(
+        of: find.widgetWithText(InkWell, 'Bulb').first,
+        matching: find.byType(Checkbox),
+      ),
+    );
     expect(bulbRowCheckbox.value, isTrue);
 
     await tester.enterText(find.byType(TextField), 'New name');
@@ -131,8 +139,7 @@ void main() {
     expect(updated.deviceIds, ['AA:01', 'AA:02']);
   });
 
-  testWidgets(
-      'saving purges a member that became non-groupable while '
+  testWidgets('saving purges a member that became non-groupable while '
       'hidden from the checklist', (tester) async {
     // The Wave was in the group when it was unidentified; it has since
     // recorded a vehicle category, so the checklist no longer shows it —
@@ -148,14 +155,18 @@ void main() {
       ]),
     });
     _prefs = await SharedPreferences.getInstance();
-    const group =
-        DeviceGroup(id: 'g1', name: 'Garage', deviceIds: ['AA:01', 'AA:03']);
+    const group = DeviceGroup(
+      id: 'g1',
+      name: 'Garage',
+      deviceIds: ['AA:01', 'AA:03'],
+    );
     await tester.pumpWidget(_wrap(group: group));
     await tester.pump();
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(GroupEditScreen)),
-        listen: false);
+      tester.element(find.byType(GroupEditScreen)),
+      listen: false,
+    );
 
     expect(find.text('Dongle'), findsNothing);
     await tester.tap(find.text('Save'));
@@ -165,14 +176,17 @@ void main() {
   });
 
   testWidgets('a failed save reports and releases the button', (tester) async {
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        deviceGroupsProvider.overrideWith(
-            (ref) => _ExplodingGroupsNotifier(DeviceGroupStore(_prefs))),
-      ],
-      child: const MaterialApp(home: GroupEditScreen()),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          deviceGroupsProvider.overrideWith(
+            (ref) => _ExplodingGroupsNotifier(DeviceGroupStore(_prefs)),
+          ),
+        ],
+        child: const MaterialApp(home: GroupEditScreen()),
+      ),
+    );
     await tester.pump();
 
     await tester.enterText(find.byType(TextField), 'Living Room');
@@ -186,10 +200,12 @@ void main() {
     // popped screen, a silent zone error, or a button stuck on saving.
     expect(find.byType(GroupEditScreen), findsOneWidget);
     expect(find.text('Could not save this group.'), findsOneWidget);
-    final button = tester.widget<FilledButton>(find.ancestor(
-      of: find.text('Create group'),
-      matching: find.byWidgetPredicate((w) => w is FilledButton),
-    ));
+    final button = tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Create group'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton),
+      ),
+    );
     expect(button.onPressed, isNotNull);
   });
 
@@ -210,8 +226,9 @@ void main() {
     await tester.pump();
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(GroupEditScreen)),
-        listen: false);
+      tester.element(find.byType(GroupEditScreen)),
+      listen: false,
+    );
 
     await tester.tap(find.byIcon(Icons.delete_outline));
     await tester.pumpAndSettle();

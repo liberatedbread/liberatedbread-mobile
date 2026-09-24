@@ -331,16 +331,18 @@ fn a_full_session_encodes_and_parses() {
     let blid = "3193C60472324700";
     let password = ":1:1486937829:gktkDoYpWaDxCfGh";
 
-    let connect = roomba_connect_packet(blid.to_string(), password.to_string());
+    let connect = roomba_connect_packet(blid.to_string(), password.to_string())
+        .expect("the BLID and password fit their length prefixes");
     assert_eq!(connect[0], 0x10, "CONNECT");
 
-    let subscribe = mqtt_subscribe_packet("#".to_string(), 1);
+    let subscribe = mqtt_subscribe_packet("#".to_string(), 1).expect("'#' fits");
     assert_eq!(subscribe[0], 0x82, "SUBSCRIBE");
 
     let command =
         render_network_roomba_command(ROOMBA.to_string(), "clean".to_string(), EXAMPLE_EPOCH)
             .expect("renders");
-    let publish = mqtt_publish_packet(command.topic.clone(), command.payload.clone());
+    let publish = mqtt_publish_packet(command.topic.clone(), command.payload.clone())
+        .expect("the rendered topic fits");
     assert_eq!(publish[0], 0x30, "PUBLISH at QoS 0");
 
     assert_eq!(mqtt_disconnect_packet(), vec![0xE0, 0x00]);
@@ -349,7 +351,7 @@ fn a_full_session_encodes_and_parses() {
     let state = r#"{"state":{"reported":{"batPct":94,"bin":{"full":false,"present":true},"cleanMissionStatus":{"phase":"run","cycle":"clean"},"name":"Dorita"}}}"#;
     let mut stream = vec![0x20, 0x02, 0x00, 0x00]; // CONNACK, accepted
     stream.extend([0x90, 0x03, 0x00, 0x01, 0x00]); // SUBACK for packet id 1
-    stream.extend(mqtt_publish_packet("delta".to_string(), state.to_string()));
+    stream.extend(mqtt_publish_packet("delta".to_string(), state.to_string()).expect("fits"));
 
     // Delivered a byte at a time — the worst case a TLS stream can produce.
     let mut buffer: Vec<u8> = Vec::new();

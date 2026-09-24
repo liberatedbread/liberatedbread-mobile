@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -76,7 +78,8 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     setState(() {
       _device = device;
       _stage = _Stage.connecting;
-      _busyLabel = 'Looking for the ${device.profile.specName} on its setup '
+      _busyLabel =
+          'Looking for the ${device.profile.specName} on its setup '
           'network...';
       _error = null;
     });
@@ -84,10 +87,12 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     // The head of every adoption transcript: which family, and the spec-derived
     // address the probe below is about to use. Without it the first line in the
     // log is a probe against an IP with no stated origin.
-    Log.adopt.info('adopt: connecting to a ${device.profile.specName} '
-        '(${device.family.name}) — ssid prefix "${device.profile.ssidPrefix}", '
-        'gateway ${device.profile.gatewayIp ?? '<spec says none>'}, '
-        'ports ${device.profile.ports.isEmpty ? '<spec says none>' : device.profile.ports.join(', ')}');
+    Log.adopt.info(
+      'adopt: connecting to a ${device.profile.specName} '
+      '(${device.family.name}) — ssid prefix "${device.profile.ssidPrefix}", '
+      'gateway ${device.profile.gatewayIp ?? '<spec says none>'}, '
+      'ports ${device.profile.ports.isEmpty ? '<spec says none>' : device.profile.ports.join(', ')}',
+    );
     try {
       final session = await service.connect(
         family: device.family,
@@ -102,11 +107,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         // The service has already logged which of the two causes it was; this
         // line is what closes the stage, so a reader can see the flow returned
         // to the picker rather than hung.
-        Log.adopt.info('adopt: no device answered on the setup network; back '
-            'to the device picker');
+        Log.adopt.info(
+          'adopt: no device answered on the setup network; back '
+          'to the device picker',
+        );
         setState(() {
           _stage = _Stage.pickDevice;
-          _error = "Couldn't reach the device. Make sure you joined its "
+          _error =
+              "Couldn't reach the device. Make sure you joined its "
               '"${device.profile.ssidPrefix}…" Wi-Fi network in Settings, then '
               'try again.';
         });
@@ -118,10 +126,12 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       if (!mounted) return;
       setState(() {
         _stage = _Stage.pickDevice;
-        _error = friendlyErrorText(e,
-            context: 'adopt connect',
-            log: Log.adopt,
-            fallback: 'Something went wrong reaching the device. Try again.');
+        _error = friendlyErrorText(
+          e,
+          context: 'adopt connect',
+          log: Log.adopt,
+          fallback: 'Something went wrong reaching the device. Try again.',
+        );
       });
     }
   }
@@ -151,11 +161,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         // flow, and recovering from it (typing an SSID) means the rest of the
         // transcript is a Wemo join with guessed auth/cipher/channel — which
         // is worth knowing when that join then does not happen.
-        _error = friendlyErrorText(e,
-            context: 'adopt list networks',
-            log: Log.adopt,
-            fallback: "The device didn't return a network list. You can type "
-                'your Wi-Fi name below instead.');
+        _error = friendlyErrorText(
+          e,
+          context: 'adopt list networks',
+          log: Log.adopt,
+          fallback:
+              "The device didn't return a network list. You can type "
+              'your Wi-Fi name below instead.',
+        );
       });
     }
   }
@@ -172,7 +185,7 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
   String? _missingMetaInfoWarning() {
     final session = _session;
     if (session == null ||
-        session.family != AdoptFamily.wemo ||
+        !WemoJoinDefaults.needsMetaInfo(session.family) ||
         session.metaInfo != null) {
       return null;
     }
@@ -200,19 +213,15 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       return;
     }
     // A typed network carries no auth/cipher/channel. For Wemo that is a real
-    // gap — its ConnectHomeNetwork needs them — so a typed SSID is offered only
-    // as a fallback and defaults are filled: WPA2 is what home networks run.
-    Log.adopt.info('adopt: using a typed SSID "$ssid" with assumed '
-        'WPA2PSK/AES and no channel — the device did not supply these, so a '
-        'failed join here may simply mean the assumption is wrong');
-    _chooseNetwork(SetupNetwork(
-      ssid: ssid,
-      joinable: true,
-      isOpen: false,
-      auth: 'WPA2PSK',
-      encrypt: 'AES',
-      channel: '',
-    ));
+    // gap — its ConnectHomeNetwork needs them — so a typed SSID is offered
+    // only as a fallback and the guesses are filled in from one named place.
+    Log.adopt.info(
+      'adopt: using a typed SSID "$ssid" with assumed '
+      '${WemoJoinDefaults.auth}/${WemoJoinDefaults.encrypt} and no channel — '
+      'the device did not supply these, so a failed join here may simply mean '
+      'the assumption is wrong',
+    );
+    _chooseNetwork(WemoJoinDefaults.assumedNetwork(ssid));
   }
 
   Future<void> _provision() async {
@@ -236,10 +245,12 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       if (!mounted) return;
       setState(() {
         _stage = _Stage.credentials;
-        _error = friendlyErrorText(e,
-            context: 'adopt provision failed',
-            log: Log.adopt,
-            fallback: 'Sending the settings failed. Try again.');
+        _error = friendlyErrorText(
+          e,
+          context: 'adopt provision failed',
+          log: Log.adopt,
+          fallback: 'Sending the settings failed. Try again.',
+        );
       });
     }
   }
@@ -272,9 +283,11 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 24),
-            Text(_busyLabel,
-                textAlign: TextAlign.center,
-                style: text.bodyLarge?.copyWith(height: 1.5)),
+            Text(
+              _busyLabel,
+              textAlign: TextAlign.center,
+              style: text.bodyLarge?.copyWith(height: 1.5),
+            ),
           ],
         ),
       ),
@@ -296,34 +309,65 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           child: Icon(Icons.wifi_tethering, size: 56, color: scheme.secondary),
         ),
         const SizedBox(height: 24),
-        Text('Put a reset device on your Wi-Fi',
-            textAlign: TextAlign.center,
-            style: text.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4)),
+        Text(
+          'Put a reset device on your Wi-Fi',
+          textAlign: TextAlign.center,
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
         const SizedBox(height: 12),
         Text(
           'A device that has been factory reset broadcasts its own temporary '
           'Wi-Fi network. Two steps:',
           textAlign: TextAlign.center,
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         const SizedBox(height: 20),
-        _instruction(context, '1',
-            'Factory reset the device so it starts advertising its setup network.'),
         _instruction(
-            context,
-            '2',
-            'Open Settings and join that network. Then come back and pick your '
-                'device below.'),
+          context,
+          '1',
+          'Factory reset the device so it starts advertising its setup network.',
+        ),
+        _instruction(
+          context,
+          '2',
+          _canOpenWifiSettings
+              ? 'Open Wi-Fi settings and join that network. Then come back '
+                    'and pick your device below.'
+              : 'Open the Settings app, tap Wi-Fi and join that network. '
+                    'Then come back and pick your device below.',
+        ),
         const SizedBox(height: 12),
+        // Android can open the Wi-Fi list itself. iOS has no public way to
+        // (App-Prefs:WIFI is a private scheme App Review rejects), and
+        // openAppSettings() lands on the app's own page — Local Network and
+        // Bluetooth toggles, no network picker — so the button used to send
+        // the user somewhere the instruction above did not describe. Now the
+        // label says where it goes, and the copy sends them to Wi-Fi by hand.
         Center(
-          child: TextButton.icon(
-            onPressed: () =>
-                unawaited(openAppSettings().catchError((Object _) => false)),
-            icon: const Icon(Icons.settings),
-            label: const Text('Open Settings'),
-          ),
+          child: _canOpenWifiSettings
+              ? TextButton.icon(
+                  onPressed: () => unawaited(
+                    ref
+                        .read(wifiNetworkScannerProvider)
+                        .openWifiSettings()
+                        .catchError((Object _) => false),
+                  ),
+                  icon: const Icon(Icons.wifi),
+                  label: const Text('Open Wi-Fi settings'),
+                )
+              : TextButton.icon(
+                  onPressed: () => unawaited(
+                    openAppSettings().catchError((Object _) => false),
+                  ),
+                  icon: const Icon(Icons.settings),
+                  label: const Text('Open app settings'),
+                ),
         ),
         if (_error != null) ...[
           const SizedBox(height: 12),
@@ -334,17 +378,20 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         const SizedBox(height: 12),
         devicesAsync.when(
           loading: () => const Center(
-              child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator())),
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          ),
           error: (e, _) =>
               _errorBanner(context, 'Could not read the device catalogue.'),
           data: (devices) {
             if (devices.isEmpty) {
               return Text(
                 'No adoptable device types are in the catalogue yet.',
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               );
             }
             return Column(
@@ -377,7 +424,8 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
   List<Widget> _bleSection(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final devices = ref.watch(bleAdoptableDevicesProvider).valueOrNull ??
+    final devices =
+        ref.watch(bleAdoptableDevicesProvider).valueOrNull ??
         const <BleAdoptableDevice>[];
     final drivable = devices
         .where((d) => _bleSetupScreens.containsKey(d.protocolHandler))
@@ -392,10 +440,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         Card(
           margin: EdgeInsets.zero,
           child: ListTile(
-            leading: Icon(_iconFor(device.profile.category),
-                color: scheme.secondary),
-            title: Text(device.profile.specName,
-                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            leading: Icon(
+              _iconFor(device.profile.category),
+              color: scheme.secondary,
+            ),
+            title: Text(
+              device.profile.specName,
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
             subtitle: Text(
               'No setup network to join — provisioning talks to it over '
               'Bluetooth, while it advertises as '
@@ -426,10 +478,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       margin: EdgeInsets.zero,
       color: isNearby ? scheme.secondaryContainer : null,
       child: ListTile(
-        leading: Icon(_iconFor(device.profile.category),
-            color: isNearby ? scheme.onSecondaryContainer : scheme.secondary),
-        title: Text(device.profile.specName,
-            style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+        leading: Icon(
+          _iconFor(device.profile.category),
+          color: isNearby ? scheme.onSecondaryContainer : scheme.secondary,
+        ),
+        title: Text(
+          device.profile.specName,
+          style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
         subtitle: Text(
           isNearby
               ? 'Setup network "${device.profile.ssidPrefix}…" is in range now'
@@ -457,16 +513,22 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       children: [
-        Text('Choose your home Wi-Fi',
-            style: text.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4)),
+        Text(
+          'Choose your home Wi-Fi',
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
         const SizedBox(height: 8),
         Text(
           'This is the network the ${_device?.profile.specName ?? 'device'} '
           'will join once setup finishes. It must be 2.4 GHz — these radios '
           'do not use 5 GHz.',
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         if (_error != null) ...[
           const SizedBox(height: 16),
@@ -475,7 +537,9 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         const SizedBox(height: 24),
         if (joinable.isNotEmpty) ...[
           SectionHeader(
-              label: 'Networks the device sees', count: joinable.length),
+            label: 'Networks the device sees',
+            count: joinable.length,
+          ),
           const SizedBox(height: 12),
           for (final network in joinable) ...[
             _networkTile(context, network),
@@ -487,6 +551,13 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
         const SizedBox(height: 12),
         TextField(
           controller: _ssidController,
+          // An SSID is a credential-shaped token, and iOS QuickType splits
+          // or "corrects" one on the first space; the same settings every
+          // other credential field in the app uses.
+          autocorrect: false,
+          enableSuggestions: false,
+          keyboardType: TextInputType.visiblePassword,
+          textInputAction: TextInputAction.done,
           decoration: const InputDecoration(
             labelText: 'Wi-Fi network name (SSID)',
             border: OutlineInputBorder(),
@@ -530,8 +601,10 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     return Card(
       margin: EdgeInsets.zero,
       child: ListTile(
-        leading: Icon(network.isOpen ? Icons.lock_open : Icons.lock_outline,
-            color: scheme.secondary),
+        leading: Icon(
+          network.isOpen ? Icons.lock_open : Icons.lock_outline,
+          color: scheme.secondary,
+        ),
         title: Text(network.ssid),
         subtitle: Text(_securityLabel(network)),
         trailing: const Icon(Icons.chevron_right),
@@ -547,21 +620,33 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       children: [
-        Text('Password for "${network.ssid}"',
-            style: text.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4)),
+        Text(
+          'Password for "${network.ssid}"',
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
         const SizedBox(height: 8),
         Text(
           'Sent to the device over its own setup network so it can join your '
           'Wi-Fi. It is not stored by this app.',
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         const SizedBox(height: 24),
         TextField(
           controller: _passwordController,
           obscureText: _obscure,
           autofocus: true,
+          // Once "Show password" turns obscureText off, iOS autocorrect is
+          // live on the password unless it is switched off here.
+          autocorrect: false,
+          enableSuggestions: false,
+          keyboardType: TextInputType.visiblePassword,
+          textInputAction: TextInputAction.done,
           decoration: InputDecoration(
             labelText: 'Wi-Fi password',
             border: const OutlineInputBorder(),
@@ -591,15 +676,19 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final outcome = _outcome!;
-    final good = outcome.status == AdoptStatus.joined ||
+    final good =
+        outcome.status == AdoptStatus.joined ||
         outcome.status == AdoptStatus.sentUnconfirmed;
     return Center(
       child: ListView(
         shrinkWrap: true,
         padding: const EdgeInsets.all(32),
         children: [
-          Icon(good ? Icons.check_circle_outline : Icons.error_outline,
-              size: 64, color: good ? scheme.primary : scheme.error),
+          Icon(
+            good ? Icons.check_circle_outline : Icons.error_outline,
+            size: 64,
+            color: good ? scheme.primary : scheme.error,
+          ),
           const SizedBox(height: 24),
           Text(
             switch (outcome.status) {
@@ -612,10 +701,14 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
             style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
-          Text(outcome.message,
-              textAlign: TextAlign.center,
-              style: text.bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5)),
+          Text(
+            outcome.message,
+            textAlign: TextAlign.center,
+            style: text.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              height: 1.5,
+            ),
+          ),
           const SizedBox(height: 28),
           if (good)
             Center(
@@ -652,10 +745,13 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           CircleAvatar(
             radius: 14,
             backgroundColor: scheme.secondaryContainer,
-            child: Text(number,
-                style: text.labelLarge?.copyWith(
-                    color: scheme.onSecondaryContainer,
-                    fontWeight: FontWeight.w700)),
+            child: Text(
+              number,
+              style: text.labelLarge?.copyWith(
+                color: scheme.onSecondaryContainer,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -665,6 +761,10 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       ),
     );
   }
+
+  /// Only Android can deep-link to the OS Wi-Fi list; see the button below.
+  bool get _canOpenWifiSettings =>
+      defaultTargetPlatform == TargetPlatform.android;
 
   Widget _errorBanner(BuildContext context, String message) {
     final scheme = Theme.of(context).colorScheme;
@@ -680,8 +780,10 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
           Icon(Icons.info_outline, color: scheme.onErrorContainer, size: 20),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(message,
-                style: TextStyle(color: scheme.onErrorContainer, height: 1.4)),
+            child: Text(
+              message,
+              style: TextStyle(color: scheme.onErrorContainer, height: 1.4),
+            ),
           ),
         ],
       ),
@@ -696,9 +798,51 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
   }
 
   static IconData _iconFor(String? category) => switch (category) {
-        'light' => Icons.lightbulb_outline,
-        'switch' => Icons.toggle_on_outlined,
-        'appliance' => Icons.kitchen_outlined,
-        _ => Icons.wifi,
-      };
+    'light' => Icons.lightbulb_outline,
+    'switch' => Icons.toggle_on_outlined,
+    'appliance' => Icons.kitchen_outlined,
+    _ => Icons.wifi,
+  };
+}
+
+/// The Wemo join parameters this screen has to guess, and the one family
+/// check that depends on them, in one place with one reason to change.
+///
+/// BELONGS IN RUST — or, better, in the spec. `WPA2PSK`/`AES` are not facts
+/// about a Flutter screen; they are what Wemo's `ConnectHomeNetwork` wants
+/// when the device's own network scan could not supply them, and the device
+/// that wants them is identified by its spec. Written out inline, they were
+/// a vendor constant in a text field's callback and a family enum compared
+/// in a warning builder — so "which devices need a cipher guessed" was
+/// answerable only by reading the UI. The real fix is the spec declaring the
+/// join parameters its provisioning command needs and Rust filling the
+/// defaults, after which this class goes away.
+///
+/// Kept beside the screen rather than promoted to `lib/core`: it is a debt
+/// with an address, not a utility.
+@visibleForTesting
+class WemoJoinDefaults {
+  const WemoJoinDefaults._();
+
+  /// What home networks run, and therefore the honest guess when the device
+  /// did not say. A wrong guess fails the join visibly — see the log line at
+  /// the only call site.
+  static const String auth = 'WPA2PSK';
+  static const String encrypt = 'AES';
+
+  /// Whether this family's join needs the device metadata that only its own
+  /// setup exchange can supply — the encryption details a secured join
+  /// encrypts the password with. LIFX carries a security byte instead and
+  /// needs none of this.
+  static bool needsMetaInfo(AdoptFamily family) => family == AdoptFamily.wemo;
+
+  /// A typed SSID as a joinable secured network, with the guesses filled in.
+  static SetupNetwork assumedNetwork(String ssid) => SetupNetwork(
+    ssid: ssid,
+    joinable: true,
+    isOpen: false,
+    auth: auth,
+    encrypt: encrypt,
+    channel: '',
+  );
 }

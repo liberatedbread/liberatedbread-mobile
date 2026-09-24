@@ -50,9 +50,9 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
-      const codec = RealSpecCodec();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       if (Platform.environment['LB_LIVE_BLE_DIRECT'] != '1') {
@@ -89,18 +89,29 @@ void main() {
         );
         final f = ble
             .subscribeCharacteristic(
-                deviceId, pic.serviceUuid, pic.responseCharacteristicUuid!)
-            .asyncMap((b) =>
-                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b))
+              deviceId,
+              pic.serviceUuid,
+              pic.responseCharacteristicUuid!,
+            )
+            .asyncMap(
+              (b) =>
+                  codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b),
+            )
             .where((e) => e != null)
             .cast<StoredUploadEventDto>()
-            .firstWhere((e) =>
-                e.kind == StoredUploadEventKind.complete ||
-                e.kind == StoredUploadEventKind.failed)
+            .firstWhere(
+              (e) =>
+                  e.kind == StoredUploadEventKind.complete ||
+                  e.kind == StoredUploadEventKind.failed,
+            )
             .timeout(const Duration(seconds: 40));
         for (final w in pic.uploadWrites) {
           await ble.writeCharacteristic(
-              deviceId, pic.serviceUuid, w.characteristicUuid, w.bytes);
+            deviceId,
+            pic.serviceUuid,
+            w.characteristicUuid,
+            w.bytes,
+          );
         }
         final v = await f;
         // ignore: avoid_print
@@ -118,8 +129,10 @@ void main() {
         ];
         final cid = 905000 + (DateTime.now().millisecondsSinceEpoch % 4000);
         // ignore: avoid_print
-        print('EFF upload cid=$cid (0x${cid.toRadixString(16)}) '
-            '${frames.length} frames as ONE .eff');
+        print(
+          'EFF upload cid=$cid (0x${cid.toRadixString(16)}) '
+          '${frames.length} frames as ONE .eff',
+        );
         final plan = await codec.encodeStoredAnimation(
           specYaml: specYaml,
           width: _w,
@@ -131,24 +144,37 @@ void main() {
           sequence: nextSeq(),
         );
         // ignore: avoid_print
-        print('EFF uploadWrites=${plan.uploadWrites.length} '
-            'playWrite=${plan.playWrite != null}');
+        print(
+          'EFF uploadWrites=${plan.uploadWrites.length} '
+          'playWrite=${plan.playWrite != null}',
+        );
 
         final verdictF = ble
             .subscribeCharacteristic(
-                deviceId, plan.serviceUuid, plan.responseCharacteristicUuid!)
-            .asyncMap((b) =>
-                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b))
+              deviceId,
+              plan.serviceUuid,
+              plan.responseCharacteristicUuid!,
+            )
+            .asyncMap(
+              (b) =>
+                  codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b),
+            )
             .where((e) => e != null)
             .cast<StoredUploadEventDto>()
-            .firstWhere((e) =>
-                e.kind == StoredUploadEventKind.complete ||
-                e.kind == StoredUploadEventKind.failed ||
-                e.kind == StoredUploadEventKind.startRejected)
+            .firstWhere(
+              (e) =>
+                  e.kind == StoredUploadEventKind.complete ||
+                  e.kind == StoredUploadEventKind.failed ||
+                  e.kind == StoredUploadEventKind.startRejected,
+            )
             .timeout(const Duration(seconds: 40));
         for (final w in plan.uploadWrites) {
           await ble.writeCharacteristic(
-              deviceId, plan.serviceUuid, w.characteristicUuid, w.bytes);
+            deviceId,
+            plan.serviceUuid,
+            w.characteristicUuid,
+            w.bytes,
+          );
         }
         final v = await verdictF;
         // ignore: avoid_print
@@ -161,21 +187,24 @@ void main() {
         final sub = ble
             .subscribeCharacteristic(deviceId, _ddpService, _ddpNotify)
             .listen((bytes) async {
-          final decoded =
-              await codec.decodeEffectList(specYaml: specYaml, bytes: bytes);
-          if (decoded.isNotEmpty) notifCount++;
-          for (final e in decoded) {
-            byCid[e.cid] = (slot: e.slot, type: e.type, diy: e.diy);
-          }
-        });
+              final decoded = await codec.decodeEffectList(
+                specYaml: specYaml,
+                bytes: bytes,
+              );
+              if (decoded.isNotEmpty) notifCount++;
+              for (final e in decoded) {
+                byCid[e.cid] = (slot: e.slot, type: e.type, diy: e.diy);
+              }
+            });
         // Ask a few times over a long window — the device answers a list request
         // in a burst of fragments, and one request can under-report.
         for (var r = 0; r < 3; r++) {
           final el = await codec.encodeCommand(
-              specYaml: specYaml,
-              charUuid: _ddpWrite,
-              commandName: 'effect_list',
-              params: {'sn': nextSeq().toDouble()});
+            specYaml: specYaml,
+            charUuid: _ddpWrite,
+            commandName: 'effect_list',
+            params: {'sn': nextSeq().toDouble()},
+          );
           await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, el);
           await Future<void>.delayed(const Duration(seconds: 4));
         }
@@ -186,26 +215,38 @@ void main() {
           final tag = entry.key == cid
               ? '  <-- OUR .eff (type-0)'
               : entry.key == picCid
-                  ? '  <-- CONTROL still (type-3)'
-                  : '';
+              ? '  <-- CONTROL still (type-3)'
+              : '';
           // ignore: avoid_print
-          print('  cid=${entry.key} slot=${entry.value.slot} '
-              'type=${entry.value.type} diy=${entry.value.diy}$tag');
+          print(
+            '  cid=${entry.key} slot=${entry.value.slot} '
+            'type=${entry.value.type} diy=${entry.value.diy}$tag',
+          );
         }
         // ignore: avoid_print
-        print('CONTROL type-3 still cid=$picCid '
-            '${byCid.containsKey(picCid) ? 'REGISTERED' : 'MISSING'}');
+        print(
+          'CONTROL type-3 still cid=$picCid '
+          '${byCid.containsKey(picCid) ? 'REGISTERED' : 'MISSING'}',
+        );
         // ignore: avoid_print
-        print('EFF type-0 .eff cid=$cid '
-            '${byCid.containsKey(cid) ? 'REGISTERED slot=${byCid[cid]!.slot}' : 'MISSING'}');
+        print(
+          'EFF type-0 .eff cid=$cid '
+          '${byCid.containsKey(cid) ? 'REGISTERED slot=${byCid[cid]!.slot}' : 'MISSING'}',
+        );
 
         // Play it by cid (slot 0, as the plan's play write does) and watch.
         final play = plan.playWrite!;
         // ignore: avoid_print
-        print('EFF PLAY (slot 0) -> '
-            '${play.bytes.map((x) => x.toRadixString(16).padLeft(2, '0')).join(' ')}');
+        print(
+          'EFF PLAY (slot 0) -> '
+          '${play.bytes.map((x) => x.toRadixString(16).padLeft(2, '0')).join(' ')}',
+        );
         await ble.writeCharacteristic(
-            deviceId, plan.serviceUuid, play.characteristicUuid, play.bytes);
+          deviceId,
+          plan.serviceUuid,
+          play.characteristicUuid,
+          play.bytes,
+        );
         // ignore: avoid_print
         print('WATCH: does the panel cycle R/G/B (the .eff animating)?');
         await Future<void>.delayed(const Duration(seconds: 12));
@@ -215,18 +256,23 @@ void main() {
         final realSlot = byCid[cid]?.slot;
         if (realSlot != null && realSlot != 0) {
           final bySlot = await codec.encodeCommand(
-              specYaml: specYaml,
-              charUuid: _ddpWrite,
-              commandName: 'play_effect',
-              params: {
-                'sn': nextSeq().toDouble(),
-                'effect_id': cid.toDouble(),
-                'slot': realSlot.toDouble(),
-              });
+            specYaml: specYaml,
+            charUuid: _ddpWrite,
+            commandName: 'play_effect',
+            params: {
+              'sn': nextSeq().toDouble(),
+              'effect_id': cid.toDouble(),
+              'slot': realSlot.toDouble(),
+            },
+          );
           // ignore: avoid_print
           print('EFF PLAY (real slot $realSlot)');
           await ble.writeCharacteristic(
-              deviceId, _ddpService, _ddpWrite, bySlot);
+            deviceId,
+            _ddpService,
+            _ddpWrite,
+            bySlot,
+          );
           await Future<void>.delayed(const Duration(seconds: 12));
         }
       } finally {

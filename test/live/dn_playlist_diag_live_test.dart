@@ -51,9 +51,9 @@ void main() {
       FlutterBluePlusLinux.registerWith();
 
       final specYaml = File(
-              'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml')
-          .readAsStringSync();
-      const codec = RealSpecCodec();
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml',
+      ).readAsStringSync();
+      final codec = RealSpecCodec();
       final ble = RealBleService();
 
       if (Platform.environment['LB_LIVE_BLE_DIRECT'] != '1') {
@@ -91,19 +91,32 @@ void main() {
         );
         final verdictF = ble
             .subscribeCharacteristic(
-                deviceId, plan.serviceUuid, plan.responseCharacteristicUuid!)
-            .asyncMap((bytes) =>
-                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: bytes))
+              deviceId,
+              plan.serviceUuid,
+              plan.responseCharacteristicUuid!,
+            )
+            .asyncMap(
+              (bytes) => codec.decodeStoredUploadEvent(
+                specYaml: specYaml,
+                bytes: bytes,
+              ),
+            )
             .where((e) => e != null)
             .cast<StoredUploadEventDto>()
-            .firstWhere((e) =>
-                e.kind == StoredUploadEventKind.complete ||
-                e.kind == StoredUploadEventKind.failed ||
-                e.kind == StoredUploadEventKind.startRejected)
+            .firstWhere(
+              (e) =>
+                  e.kind == StoredUploadEventKind.complete ||
+                  e.kind == StoredUploadEventKind.failed ||
+                  e.kind == StoredUploadEventKind.startRejected,
+            )
             .timeout(const Duration(seconds: 30));
         for (final w in plan.uploadWrites) {
           await ble.writeCharacteristic(
-              deviceId, plan.serviceUuid, w.characteristicUuid, w.bytes);
+            deviceId,
+            plan.serviceUuid,
+            w.characteristicUuid,
+            w.bytes,
+          );
         }
         final v = await verdictF;
         // ignore: avoid_print
@@ -124,57 +137,69 @@ void main() {
         final elSub = ble
             .subscribeCharacteristic(deviceId, _ddpService, _ddpNotify)
             .listen((bytes) async {
-          for (final e in await codec.decodeEffectList(
-              specYaml: specYaml, bytes: bytes)) {
-            slotByCid[e.cid] = e.slot;
-          }
-        });
+              for (final e in await codec.decodeEffectList(
+                specYaml: specYaml,
+                bytes: bytes,
+              )) {
+                slotByCid[e.cid] = e.slot;
+              }
+            });
         final elCmd = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'effect_list',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'effect_list',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, elCmd);
         await Future<void>.delayed(const Duration(seconds: 5));
         await elSub.cancel();
         // ignore: avoid_print
-        print('SLOTS r=$r->${slotByCid[r]} g=$g->${slotByCid[g]} '
-            'b=$b->${slotByCid[b]}');
+        print(
+          'SLOTS r=$r->${slotByCid[r]} g=$g->${slotByCid[g]} '
+          'b=$b->${slotByCid[b]}',
+        );
 
         // Set the three frames as a looping playlist, addressed by their real
         // device slots (0 fallback when the list didn't include one).
         final pl = await codec.encodeSetPlaylist(
           specYaml: specYaml,
           cids: [r, g, b],
-          slots: [
-            slotByCid[r] ?? 0,
-            slotByCid[g] ?? 0,
-            slotByCid[b] ?? 0,
-          ],
+          slots: [slotByCid[r] ?? 0, slotByCid[g] ?? 0, slotByCid[b] ?? 0],
           sequence: nextSeq(),
         );
         for (final w in pl.writes) {
           // ignore: avoid_print
-          print('PLAYLIST write -> '
-              '${w.bytes.map((x) => x.toRadixString(16).padLeft(2, '0')).join(' ')}');
+          print(
+            'PLAYLIST write -> '
+            '${w.bytes.map((x) => x.toRadixString(16).padLeft(2, '0')).join(' ')}',
+          );
           await ble.writeCharacteristic(
-              deviceId, pl.serviceUuid, w.characteristicUuid, w.bytes);
+            deviceId,
+            pl.serviceUuid,
+            w.characteristicUuid,
+            w.bytes,
+          );
         }
         // Start the loop cycling with play_next — the vendor's bookmark-loop
         // start command, and exactly what the app's _saveAnimationLoop sends.
         // (play_effect/encodeStoredPlay instead PINS one frame while connected.)
-        expect(slotByCid[r], isNotNull,
-            reason: 'a stored type-3 frame must register in the effect list');
+        expect(
+          slotByCid[r],
+          isNotNull,
+          reason: 'a stored type-3 frame must register in the effect list',
+        );
         final pn = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'play_next',
-            params: {'sn': nextSeq().toDouble()});
+          specYaml: specYaml,
+          charUuid: _ddpWrite,
+          commandName: 'play_next',
+          params: {'sn': nextSeq().toDouble()},
+        );
         await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, pn);
         // ignore: avoid_print
         print(
-            'PLAYLIST_SET+PLAY_NEXT at ${DateTime.now().millisecondsSinceEpoch} '
-            '— WATCH THE PANEL NOW for red/green/blue');
+          'PLAYLIST_SET+PLAY_NEXT at ${DateTime.now().millisecondsSinceEpoch} '
+          '— WATCH THE PANEL NOW for red/green/blue',
+        );
 
         // Hold ~15s connected so it can be watched cycling before disconnect.
         for (var t = 0; t < 15; t++) {

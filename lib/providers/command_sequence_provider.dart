@@ -33,6 +33,4 @@ class CommandSequence extends FamilyNotifier<int, String> {
 /// Per-device rolling command sequence. Family-keyed by device id so two
 /// connected devices never share (or reset) each other's counter.
 final commandSequenceProvider =
-    NotifierProvider.family<CommandSequence, int, String>(
-  CommandSequence.new,
-);
+    NotifierProvider.family<CommandSequence, int, String>(CommandSequence.new);

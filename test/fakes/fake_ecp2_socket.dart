@@ -44,10 +44,10 @@ class AutoEcp2Socket extends FakeEcp2Socket {
 
   /// What a real device does on connect: lead with the challenge.
   void begin() => receive({
-        'notify': 'authenticate',
-        'param-challenge': 'QUJDREVGR0hJSg==',
-        'param-methods': ['client-id', 'jwt'],
-      });
+    'notify': 'authenticate',
+    'param-challenge': 'QUJDREVGR0hJSg==',
+    'param-methods': ['client-id', 'jwt'],
+  });
 
   @override
   void add(String frame) {

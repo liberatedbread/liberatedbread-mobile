@@ -55,8 +55,9 @@ import 'package:liberated_bread_mobile/screens/terms_screen.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('the shipped entrypoint boots to the scan screen',
-      (tester) async {
+  testWidgets('the shipped entrypoint boots to the scan screen', (
+    tester,
+  ) async {
     // The launch scan touches the real BLE stack. On Linux that means the
     // SYSTEM D-Bus: with no bus socket at all (a bare dev container — CI
     // runners have one), the Linux BLE plugin leaks its connect failure from
@@ -66,8 +67,10 @@ void main() {
     if (Platform.isLinux &&
         !File('/var/run/dbus/system_bus_socket').existsSync() &&
         !File('/run/dbus/system_bus_socket').existsSync()) {
-      markTestSkipped('no system D-Bus on this host; the shipped Linux app '
-          'cannot initialise its BLE stack here');
+      markTestSkipped(
+        'no system D-Bus on this host; the shipped Linux app '
+        'cannot initialise its BLE stack here',
+      );
       return;
     }
 
@@ -87,11 +90,13 @@ void main() {
     // On a fresh install the first-launch disclaimer gate is shown before the
     // app proper. Accept it so the boot proceeds; where terms were already
     // accepted the gate never appears and this is a no-op.
-    for (var waited = Duration.zero;
-        waited < const Duration(seconds: 20) &&
-            find.byType(TermsScreen).evaluate().isEmpty &&
-            find.byType(ScanScreen).evaluate().isEmpty;
-        waited += step) {
+    for (
+      var waited = Duration.zero;
+      waited < const Duration(seconds: 20) &&
+          find.byType(TermsScreen).evaluate().isEmpty &&
+          find.byType(ScanScreen).evaluate().isEmpty;
+      waited += step
+    ) {
       await tester.pump(step);
     }
     if (find.byType(TermsScreen).evaluate().isNotEmpty) {
@@ -102,10 +107,12 @@ void main() {
       await tester.pump();
     }
 
-    for (var waited = Duration.zero;
-        waited < const Duration(seconds: 20) &&
-            find.byType(ScanScreen).evaluate().isEmpty;
-        waited += step) {
+    for (
+      var waited = Duration.zero;
+      waited < const Duration(seconds: 20) &&
+          find.byType(ScanScreen).evaluate().isEmpty;
+      waited += step
+    ) {
       await tester.pump(step);
     }
 

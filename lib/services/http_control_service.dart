@@ -1,13 +1,16 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import '../core/error_text.dart';
+import '../core/log.dart';
 import 'spec_codec.dart' show HttpRequestDto;
 import 'tls_trust.dart';
 
@@ -44,13 +47,24 @@ class HttpControlClient {
   /// 200.
   static const timeout = Duration(seconds: 10);
 
+  /// Largest response body this client will buffer.
+  ///
+  /// The same rule and the same number as the SOAP client's: a query answer
+  /// is a few KB of XML or JSON, the DEVICE chooses how much it sends, and
+  /// `package:http`'s convenience helpers buffer to completion with no cap —
+  /// so an uncapped read is an allocation something on the LAN decides the
+  /// size of. Half a megabyte is not a device this app can drive, it is a
+  /// broken or hostile host. [_bounded] is where the cap sits, because it has
+  /// to sit on the stream read: by the time a caller could measure a buffered
+  /// body the allocation has already happened.
+  static const maxResponseBytes = 512 * 1024;
+
   HttpControlClient({
     http.Client? httpClient,
     http.Client? httpsClient,
-    TlsTrust? trust,
-  })  : _http = httpClient ?? http.Client(),
-        _injectedHttps = httpsClient,
-        _trust = trust;
+    this._trust,
+  }) : _http = httpClient ?? http.Client(),
+       _injectedHttps = httpsClient;
 
   /// Each device's identity and declared policy, KEYED BY HOST.
   ///
@@ -125,7 +139,8 @@ class HttpControlClient {
 
   /// The TLS client, built on first https use so a plain-http app never pays
   /// for it. Trust is per-host, granted the moment a request names the host.
-  http.Client get _httpsClient => _https ??= _injectedHttps ??
+  http.Client get _httpsClient => _https ??=
+      _injectedHttps ??
       IOClient(HttpClient()..badCertificateCallback = _evaluateCertificate);
 
   /// Whether to accept a certificate the platform refused.
@@ -143,7 +158,7 @@ class HttpControlClient {
       _evaluateCertificate(cert, host, port);
 
   bool _evaluateCertificate(X509Certificate cert, String host, int port) {
-    bool byHost(X509Certificate _, String host, int __) =>
+    bool byHost(X509Certificate _, String host, int _) =>
         _trustedHosts.contains(host);
     final trust = _trust;
     final registered = _policies[host];
@@ -165,7 +180,53 @@ class HttpControlClient {
   /// caller should say so instead of suggesting a rescan. Timeouts and
   /// refused connections are user-facing too: the generic "did not accept
   /// that" fallback blamed the button for what is a sleeping TV.
+  ///
+  /// A 404 is the one status with a second chance, and only when the spec
+  /// asked for one: see [HttpRequestDto.pathFallback].
   Future<String> send(String host, int port, HttpRequestDto request) async {
+    final body = await _sendOnce(host, port, request, request.path);
+    if (body != null) return body;
+    // The primary path answered "no such thing". A spec that declares a
+    // second spelling for this same invocation gets exactly one more try,
+    // against the path Rust rendered beside the first — see
+    // `HttpRequestDto.pathFallback`. ESPHome is why: a ratgdo board running
+    // firmware up to 2025.12 names the cover `/cover/door/open`, 2026.7 and
+    // later `/cover/Door/open`, and only the device knows which it is.
+    final fallback = request.pathFallback;
+    if (fallback == null) {
+      throw HttpControlException(
+        '${request.method} ${request.path} failed: HTTP 404 from $host:$port',
+      );
+    }
+    Log.net.debug(
+      '${request.path} answered 404 on $host; trying the spec\'s second '
+      'spelling $fallback',
+    );
+    final retried = await _sendOnce(host, port, request, fallback);
+    if (retried != null) return retried;
+    // Both spellings are gone. Report the PRIMARY, which is what the spec
+    // says current firmware serves — naming the legacy path would send a
+    // reader looking for the wrong thing.
+    throw HttpControlException(
+      '${request.method} ${request.path} failed: HTTP 404 from $host:$port '
+      '(and its declared fallback $fallback)',
+    );
+  }
+
+  /// Send [request] against [path] and return the body, or `null` for a 404.
+  ///
+  /// A 404 is the ONE status that comes back as a value rather than a throw,
+  /// because it is the one the spec's `path_fallback` contract is written
+  /// against: an unambiguous "there is no such thing here", which a second
+  /// spelling can survive. Every other failure still throws from here — a
+  /// timeout, a refused connection, a 401/403, a 5xx — so a command whose
+  /// first send was merely slow can never be sent twice.
+  Future<String?> _sendOnce(
+    String host,
+    int port,
+    HttpRequestDto request,
+    String path,
+  ) async {
     // Resolved against the device's address rather than assembled with
     // `Uri(path: ...)`, which treats the whole rendered target as path data:
     // a target carrying a query string (the spec's `/input?name=value`) comes
@@ -184,28 +245,50 @@ class HttpControlClient {
       client = _http;
     }
     final scheme = secure ? 'https' : 'http';
-    final uri = Uri.parse('$scheme://$host:$port').resolve(request.path);
+    final uri = Uri.parse('$scheme://$host:$port').resolve(path);
+    final method = request.method.toUpperCase();
+    // Refused before anything is built or opened: a method this transport
+    // does not speak must never reach the device.
+    if (method != 'GET' && method != 'POST' && method != 'PUT') {
+      throw HttpControlException(
+        'unsupported method ${request.method} for $uri',
+      );
+    }
+    // Abortable so the deadline can actually END the exchange — see
+    // [_bounded]. The trigger is per request, never shared: this client is a
+    // Provider one group run drives several devices through at once, and a
+    // shared trigger would cancel a sibling device's request.
+    final abort = Completer<void>();
+    final outgoing = http.AbortableRequest(
+      method,
+      uri,
+      abortTrigger: abort.future,
+    );
+    // The spec's own headers (a Vizio `AUTH` token, rendered by Rust from
+    // the stored credential) over the Content-Type inferred from the body.
+    // Set BEFORE the body, because `Request.body` reads the declared
+    // Content-Type to choose the encoding it writes the bytes in.
+    final headers = headersFor(request);
+    if (headers != null) outgoing.headers.addAll(headers);
+    // GET sends no body at all, as `client.get` did. POST and PUT send the
+    // rendered one verbatim — ECP commands carry an empty string and no
+    // headers of their own; PUT is the Hue bridge's whole write surface and
+    // the Frigidaires', admitted by Rust's SENDABLE_METHODS.
+    if (method != 'GET') outgoing.body = request.body;
+    // The refusal read below is this request's, not an earlier one's: the
+    // record is written only when the certificate callback runs, and a
+    // failure that never reaches it (a device switched off, a broker
+    // rejecting at ServerHello) would otherwise report the last attempt's
+    // reason — "unlock the phone" for a device that is unreachable.
+    _trust?.clearRefusal(host);
     final http.Response response;
     try {
-      switch (request.method.toUpperCase()) {
-        case 'GET':
-          response = await client.get(uri).timeout(timeout);
-        case 'POST':
-          // ECP commands carry an empty body and no headers; a spec that
-          // declares a body gets it sent verbatim.
-          response =
-              await client.post(uri, body: request.body).timeout(timeout);
-        case 'PUT':
-          // The body-carrying sibling of POST — the Hue bridge's whole write
-          // surface, and the Frigidaires'. Rust's SENDABLE_METHODS names it,
-          // so a spec's PUT command renders as a live control; this arm is
-          // what makes the press actually go somewhere.
-          response = await client.put(uri, body: request.body).timeout(timeout);
-        default:
-          throw HttpControlException(
-              'unsupported method ${request.method} for $uri');
-      }
+      response = await _bounded(client, outgoing, abort);
     } on TimeoutException {
+      // A deadline the client raised for itself — an injected one in a test,
+      // or a socket timeout underneath — says the same thing ours does.
+      // [_bounded]'s own deadline already throws ControlTimeoutException,
+      // which is not a TimeoutException and passes straight through here.
       throw const ControlTimeoutException();
     } on HandshakeException {
       // The shape a refused certificate ACTUALLY takes. `package:http`'s
@@ -215,23 +298,16 @@ class HttpControlClient {
       // ControlCertificateChangedException unreachable — the one sentence
       // naming the only recovery there is, never shown, for the exact failure
       // it was written for — and a raw platform exception went to the UI.
-      if (_trust?.refused(host) ?? false) {
-        throw const ControlCertificateChangedException();
-      }
-      throw const ControlUnreachableException();
+      throw _tlsFailure(host);
     } on http.ClientException {
       // A refused certificate arrives here looking exactly like a device that
       // is switched off: `badCertificateCallback` returns a bool, so the
       // handshake failure carries no reason. Asking the policy which it was is
       // the difference between "your Envoy is unreachable" and the one
       // sentence that names the only recovery there is.
-      if (_trust?.refused(host) ?? false) {
-        throw const ControlCertificateChangedException();
-      }
-      // Connection refused, no route, DNS — the device is not there to
-      // answer. Same user question as a timeout, different wording.
-      throw const ControlUnreachableException();
+      throw _tlsFailure(host);
     }
+    final body = decodeDeviceBody(response);
     if (response.statusCode == 403 ||
         // A firmware-gated API answers 401 until a credential rides along —
         // the Envoy's local endpoints since firmware 7 want the entrez JWT.
@@ -242,15 +318,115 @@ class HttpControlClient {
         // 400 and this body instead of 403 (observed both spellings on one
         // OS 15.2.4 fleet, against the same endpoint, minutes apart). It is
         // the same refusal, so it gets the same exception.
-        (response.statusCode == 400 &&
-            response.body.contains('Limited mode'))) {
+        (response.statusCode == 400 && body.contains('Limited mode'))) {
       throw const ControlRefusedException();
     }
+    // The device says there is no such thing here. Handed back as a value so
+    // the caller can try the spec's second spelling of this same invocation
+    // — and ONLY a 404 is: every other non-2xx throws, because a retry after
+    // a timeout or a 5xx could act on a device that already acted.
+    if (response.statusCode == 404) return null;
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpControlException('${request.method} ${request.path} failed: '
-          'HTTP ${response.statusCode} from $uri');
+      throw HttpControlException(
+        '${request.method} $path failed: '
+        'HTTP ${response.statusCode} from $uri',
+      );
     }
-    return response.body;
+    return body;
+  }
+
+  /// Send [request] and buffer its body, refusing past [maxResponseBytes].
+  ///
+  /// The SOAP client's `_bounded` with the one thing that client cannot do.
+  /// Both halves matter and neither was here: the size cap has to sit on the
+  /// stream read, because the convenience helpers buffer the whole body
+  /// before handing it over, and the deadline has to ABORT rather than merely
+  /// stop waiting. A bare `Future.timeout` only abandons the future — the
+  /// request stays in flight, holding a socket and a TLS session until the
+  /// device or the OS gives up, and a control screen that retries on a
+  /// sleeping TV stacks one of those per press. `package:http` 1.6's abort
+  /// trigger is what ends it; the deliberately un-timed `Stream` (rather than
+  /// `Stream.timeout` on the body) is the SOAP client's choice for the SOAP
+  /// client's reason — it never delivers events under fake async.
+  Future<http.Response> _bounded(
+    http.Client client,
+    http.AbortableRequest request,
+    Completer<void> abort,
+  ) {
+    return () async {
+      final streamed = await client.send(request);
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in streamed.stream) {
+        bytes.add(chunk);
+        if (bytes.length > maxResponseBytes) {
+          // Throwing out of the `await for` cancels the subscription, and
+          // that cancellation is what drops the connection. The abort
+          // trigger is deliberately left alone: firing it here would push an
+          // error into a stream already being cancelled.
+          throw HttpControlException(
+            '${request.url} sent more than $maxResponseBytes bytes; '
+            'refusing to buffer further',
+          );
+        }
+      }
+      return http.Response.bytes(
+        bytes.takeBytes(),
+        streamed.statusCode,
+        request: request,
+        headers: streamed.headers,
+        reasonPhrase: streamed.reasonPhrase,
+      );
+    }().timeout(
+      timeout,
+      onTimeout: () {
+        if (!abort.isCompleted) abort.complete();
+        throw const ControlTimeoutException();
+      },
+    );
+  }
+
+  /// What a failed handshake with [host] actually means, in the user's words.
+  ///
+  /// Every refusal used to come back as "presenting a different certificate
+  /// than before", which is only one of the three answers the policy can
+  /// give — and the wrong one twice over. `standard` pins nothing, so there
+  /// is no "before" to differ from; an unreadable pin store says nothing
+  /// about the certificate at all. Telling a user to remove and re-add a
+  /// device is useless advice for either, and alarming advice for the second.
+  UserFacingException _tlsFailure(String host) => switch (_trust?.refusalReason(
+    host,
+  )) {
+    TlsRefusal.certificateChanged => const ControlCertificateChangedException(),
+    TlsRefusal.unverifiableChain =>
+      const ControlCertificateUntrustedException(),
+    TlsRefusal.pinUnreadable =>
+      const ControlCertificatePinUnreadableException(),
+    // Not this policy's doing: connection refused, no route, DNS, or a
+    // handshake the platform failed for its own reasons.
+    null => const ControlUnreachableException(),
+  };
+}
+
+/// A device's response body as text, UTF-8 first.
+///
+/// `package:http` decodes a body whose Content-Type states no charset as
+/// Latin-1 — what RFC 2616 required and RFC 7231 withdrew — so every byte
+/// above 0x7F becomes its own character. A Roku app list naming "Pokémon"
+/// reads "PokÃ©mon", and so does every description, query answer and state
+/// reply from a device that leaves the charset off, which is most of them.
+///
+/// A charset the device DID state is the device's to state and is honoured as
+/// given. Otherwise the bytes decide: valid UTF-8 is read as UTF-8 (the
+/// encoding every one of these devices actually sends), and anything else
+/// falls back to Latin-1, which cannot fail — so a genuinely 8-bit body still
+/// comes through as text rather than throwing on the way to the screen.
+String decodeDeviceBody(http.Response response) {
+  final declared = response.headers['content-type']?.toLowerCase();
+  if (declared != null && declared.contains('charset=')) return response.body;
+  try {
+    return utf8.decode(response.bodyBytes);
+  } on FormatException {
+    return latin1.decode(response.bodyBytes, allowInvalid: true);
   }
 }
 
@@ -264,7 +440,8 @@ class HttpControlClient {
 class ControlTimeoutException implements UserFacingException {
   const ControlTimeoutException();
   @override
-  String get message => 'The device did not answer in time. It may be '
+  String get message =>
+      'The device did not answer in time. It may be '
       'asleep or off the network — wake it and try again.';
 }
 
@@ -272,7 +449,8 @@ class ControlTimeoutException implements UserFacingException {
 class ControlUnreachableException implements UserFacingException {
   const ControlUnreachableException();
   @override
-  String get message => 'The device is not reachable. It may be off or '
+  String get message =>
+      'The device is not reachable. It may be off or '
       'have a new address — try scanning again.';
 }
 
@@ -292,6 +470,41 @@ class ControlCertificateChangedException implements UserFacingException {
       'before. If you reset it or updated its firmware, remove it from Saved '
       'devices and add it again. If you did not, something else may be '
       'answering at its address.';
+}
+
+/// The device's certificate could not be verified, and its spec asked for
+/// the platform's own verification (`tls.verification: standard`).
+///
+/// Nothing was ever pinned here, so nothing CHANGED — telling the user to
+/// remove and re-add the device would be advice for a different failure, and
+/// re-adding it would not help. What did happen is that the chain does not
+/// end at a root this phone trusts, which on a LAN usually means something is
+/// intercepting the connection (a filtering router, a captive portal) or the
+/// spec is claiming a verification level this device cannot actually offer.
+class ControlCertificateUntrustedException implements UserFacingException {
+  const ControlCertificateUntrustedException();
+  @override
+  String get message =>
+      'This device\'s security certificate could not be verified. Nothing '
+      'about it has changed — it simply is not signed by an authority this '
+      'phone trusts. Check that you are on the same network as the device, '
+      'with no proxy or sign-in page in between.';
+}
+
+/// The device is pinned, but its saved fingerprint could not be read.
+///
+/// A locked keystore on a backgrounded app, or a desktop with no keyring.
+/// The certificate may be perfectly fine: the app refuses because trusting it
+/// would mean taking the first-contact branch and OVERWRITING a pin it cannot
+/// see — the exact substitution the pin exists to catch. So the message says
+/// to try again rather than to re-pair, which would throw the good pin away.
+class ControlCertificatePinUnreadableException implements UserFacingException {
+  const ControlCertificatePinUnreadableException();
+  @override
+  String get message =>
+      'The saved security fingerprint for this device could not be read, so '
+      'the app would not guess. Unlock the phone (or reopen the app) and try '
+      'again — there is nothing wrong with the device.';
 }
 
 /// The transport failed: unreachable host, unexpected status, bad method.
@@ -317,4 +530,41 @@ class ControlRefusedException implements UserFacingException {
       'The device refused the command. Look for a "control by mobile apps" '
       'or "network control" setting on the device itself and enable it, '
       'then try again.';
+}
+
+/// The Content-Type a rendered body should travel under, or none for an
+/// empty one.
+///
+/// package:http labels a string body `text/plain; charset=utf-8` unless told
+/// otherwise. WLED tolerates that; a Valetudo (JSON) or a Bose SoundTouch
+/// (XML) endpoint is entitled not to, and until the Rust renderer started
+/// filling literal `body:` templates nothing here ever sent one. The body's
+/// own first character says which of the two it is — the spec vocabulary has
+/// no third kind — and an empty body (Roku ECP, Kasa) keeps sending none.
+Map<String, String>? contentTypeFor(String body) {
+  final trimmed = body.trimLeft();
+  if (trimmed.isEmpty) return null;
+  final type = trimmed.startsWith('<') ? 'text/xml' : 'application/json';
+  return {'Content-Type': '$type; charset=utf-8'};
+}
+
+/// Every header a rendered request goes out with, or none.
+///
+/// The spec's declared headers, already rendered by Rust (placeholders
+/// filled, a `credential:`-sourced one from the same stored value a body
+/// placeholder reads), plus the Content-Type [contentTypeFor] infers from the
+/// body — unless the spec declares its own, in any letter case, which wins:
+/// the author who wrote `Content-Type: application/json` on a PUT knows the
+/// endpoint better than a guess from the body's first character does. Until
+/// this the transport could send no header at all, so Vizio SmartCast's
+/// twenty-two admitted key controls each went out unauthenticated and as
+/// `text/plain`, and the set answered 403 to every one.
+Map<String, String>? headersFor(HttpRequestDto request) {
+  final declared = {for (final h in request.headers) h.name: h.value};
+  final declaresContentType = declared.keys.any(
+    (name) => name.toLowerCase() == 'content-type',
+  );
+  final inferred = declaresContentType ? null : contentTypeFor(request.body);
+  final merged = {...?inferred, ...declared};
+  return merged.isEmpty ? null : merged;
 }

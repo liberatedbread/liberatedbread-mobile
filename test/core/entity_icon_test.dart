@@ -10,15 +10,16 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 /// An entity carrying only what an icon choice looks at.
 EntityDto _entity({String? icon, String? deviceClass}) => EntityDto(
-    options: const [],
-    name: 'Reading',
-    icon: icon,
-    deviceClass: deviceClass,
-    canNotify: false,
-    hasFormat: true,
-    onWhenNonzero: false,
-    actions: const [],
-    variants: const []);
+  options: const [],
+  name: 'Reading',
+  icon: icon,
+  deviceClass: deviceClass,
+  canNotify: false,
+  hasFormat: true,
+  onWhenNonzero: false,
+  actions: const [],
+  variants: const [],
+);
 
 void main() {
   group('entityIcon', () {
@@ -52,27 +53,36 @@ void main() {
       // The overwhelming majority of entities: stating an icon is only worth
       // it when the device class does not already say the right thing.
       expect(entityIcon(_entity(deviceClass: 'temperature')), Icons.thermostat);
-      expect(entityIcon(_entity(deviceClass: 'humidity')),
-          Icons.water_drop_outlined);
+      expect(
+        entityIcon(_entity(deviceClass: 'humidity')),
+        Icons.water_drop_outlined,
+      );
       expect(entityIcon(_entity()), Icons.sensors);
     });
 
-    test('the Airthings family\'s device classes all resolve to real glyphs',
-        () {
-      // Its pressure entity says `atmospheric_pressure` (Home Assistant
-      // spells barometric readings both ways) and its radon entities ride
-      // under the VOC-parts class upstream — none of them may fall to the
-      // anonymous sensor glyph.
-      expect(entityIcon(_entity(deviceClass: 'atmospheric_pressure')),
-          Icons.speed);
-      expect(entityIcon(_entity(deviceClass: 'pressure')), Icons.speed);
-      expect(
+    test(
+      'the Airthings family\'s device classes all resolve to real glyphs',
+      () {
+        // Its pressure entity says `atmospheric_pressure` (Home Assistant
+        // spells barometric readings both ways) and its radon entities ride
+        // under the VOC-parts class upstream — none of them may fall to the
+        // anonymous sensor glyph.
+        expect(
+          entityIcon(_entity(deviceClass: 'atmospheric_pressure')),
+          Icons.speed,
+        );
+        expect(entityIcon(_entity(deviceClass: 'pressure')), Icons.speed);
+        expect(
           entityIcon(_entity(deviceClass: 'volatile_organic_compounds_parts')),
-          Icons.science_outlined);
-      expect(entityIcon(_entity(deviceClass: 'volatile_organic_compounds')),
-          Icons.science_outlined);
-      expect(entityIcon(_entity(deviceClass: 'carbon_dioxide')), Icons.co2);
-    });
+          Icons.science_outlined,
+        );
+        expect(
+          entityIcon(_entity(deviceClass: 'volatile_organic_compounds')),
+          Icons.science_outlined,
+        );
+        expect(entityIcon(_entity(deviceClass: 'carbon_dioxide')), Icons.co2);
+      },
+    );
 
     test('the caller chooses what "nothing to say" looks like', () {
       // A reading with nothing else to say for itself is a sensor; a control
@@ -95,37 +105,47 @@ void main() {
       expect(entityIcon(_entity(icon: 'MDI:Heat-Wave')), Icons.waves);
     });
 
-    test('air-quality classes and icons draw as themselves, not as "sensor"',
-        () {
-      // The Airthings family: radon asks for mdi:radioactive (there is no
-      // radon device class to imply anything), CO₂/VOC/pressure lean on
-      // their classes. All of these rendered as the generic sensors glyph
-      // before, which made a six-tile air dashboard read as six copies of
-      // the same reading.
-      expect(entityIcon(_entity(icon: 'mdi:radioactive')), Icons.blur_on);
-      expect(
-          entityIcon(_entity(icon: 'mdi:water-thermometer')), Icons.dew_point);
-      expect(entityIcon(_entity(icon: 'mdi:molecule-co2')), Icons.co2);
-      expect(entityIcon(_entity(deviceClass: 'carbon_dioxide')), Icons.co2);
-      expect(
-        entityIcon(_entity(deviceClass: 'volatile_organic_compounds_parts')),
-        Icons.science_outlined,
-      );
-      expect(
-        entityIcon(_entity(deviceClass: 'volatile_organic_compounds')),
-        Icons.science_outlined,
-      );
-      expect(entityIcon(_entity(deviceClass: 'atmospheric_pressure')),
-          Icons.speed);
-      expect(entityIcon(_entity(deviceClass: 'pm25')), Icons.grain);
-      expect(entityIcon(_entity(deviceClass: 'illuminance')),
-          Icons.light_mode_outlined);
-      // Ambient light asks for the icon by name because it deliberately
-      // carries no illuminance class (raw counts, not lux) — the glyph must
-      // not depend on a class the entity refuses to claim.
-      expect(entityIcon(_entity(icon: 'mdi:brightness-5')),
-          Icons.light_mode_outlined);
-    });
+    test(
+      'air-quality classes and icons draw as themselves, not as "sensor"',
+      () {
+        // The Airthings family: radon asks for mdi:radioactive (there is no
+        // radon device class to imply anything), CO₂/VOC/pressure lean on
+        // their classes. All of these rendered as the generic sensors glyph
+        // before, which made a six-tile air dashboard read as six copies of
+        // the same reading.
+        expect(entityIcon(_entity(icon: 'mdi:radioactive')), Icons.blur_on);
+        expect(
+          entityIcon(_entity(icon: 'mdi:water-thermometer')),
+          Icons.dew_point,
+        );
+        expect(entityIcon(_entity(icon: 'mdi:molecule-co2')), Icons.co2);
+        expect(entityIcon(_entity(deviceClass: 'carbon_dioxide')), Icons.co2);
+        expect(
+          entityIcon(_entity(deviceClass: 'volatile_organic_compounds_parts')),
+          Icons.science_outlined,
+        );
+        expect(
+          entityIcon(_entity(deviceClass: 'volatile_organic_compounds')),
+          Icons.science_outlined,
+        );
+        expect(
+          entityIcon(_entity(deviceClass: 'atmospheric_pressure')),
+          Icons.speed,
+        );
+        expect(entityIcon(_entity(deviceClass: 'pm25')), Icons.grain);
+        expect(
+          entityIcon(_entity(deviceClass: 'illuminance')),
+          Icons.light_mode_outlined,
+        );
+        // Ambient light asks for the icon by name because it deliberately
+        // carries no illuminance class (raw counts, not lux) — the glyph must
+        // not depend on a class the entity refuses to claim.
+        expect(
+          entityIcon(_entity(icon: 'mdi:brightness-5')),
+          Icons.light_mode_outlined,
+        );
+      },
+    );
   });
 
   group('the glyph tables', () {
@@ -143,8 +163,11 @@ void main() {
       final owner = <String, String>{};
       for (final entry in tables.entries) {
         for (final name in entry.value.keys) {
-          expect(owner[name], isNull,
-              reason: '$name is in both ${owner[name]} and ${entry.key}');
+          expect(
+            owner[name],
+            isNull,
+            reason: '$name is in both ${owner[name]} and ${entry.key}',
+          );
           owner[name] = entry.key;
         }
       }
@@ -156,8 +179,11 @@ void main() {
       // and would present as "the icon I added does nothing".
       for (final table in [sensorGlyphs, applianceGlyphs, remoteGlyphs]) {
         for (final name in table.keys) {
-          expect(name, matches(RegExp(r'^mdi:[a-z0-9-]+$')),
-              reason: '$name would never be looked up');
+          expect(
+            name,
+            matches(RegExp(r'^mdi:[a-z0-9-]+$')),
+            reason: '$name would never be looked up',
+          );
         }
       }
     });
@@ -172,8 +198,11 @@ void main() {
         ...remoteGlyphs.keys,
       };
       for (final name in domainKeys) {
-        expect(entityIcon(_entity(icon: name)), isNot(Icons.sensors),
-            reason: '$name resolves to the fallback, so the merge missed it');
+        expect(
+          entityIcon(_entity(icon: name)),
+          isNot(Icons.sensors),
+          reason: '$name resolves to the fallback, so the merge missed it',
+        );
       }
     });
   });

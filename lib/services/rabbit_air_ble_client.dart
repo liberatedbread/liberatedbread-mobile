@@ -101,8 +101,12 @@ class RabbitAirBleClient implements RabbitAirBleLink {
     try {
       await attach(deviceId);
     } catch (_) {
-      // A half-attached client must not keep the link it opened.
-      await disconnect();
+      // A half-attached client must not keep the link it opened. attach()
+      // has already forgotten the device (so the next attempt is a real
+      // retry), which means disconnect() no longer knows which link this
+      // was — drop it here, by the id this method still holds.
+      _ownsConnection = false;
+      await _ble.disconnect(deviceId).catchError((_) {});
       rethrow;
     }
   }
@@ -118,37 +122,78 @@ class RabbitAirBleClient implements RabbitAirBleLink {
   }) async {
     if (_deviceId == deviceId) return;
     _deviceId = deviceId;
+    // A fresh attach means a fresh subscription; whatever killed the last
+    // one is no longer the reason a command cannot be sent.
+    _notifyFailure = null;
 
-    // The MTU the link actually carries, minus the 5 bytes of ATT overhead
-    // the codec prices in. The BleService owns negotiation at connect (the
-    // platform may refuse the request or not support making one — Apple
-    // platforms negotiate on their own), so whatever it reports here is the
-    // truth to size for; a tiny or implausible report floors at the smallest
-    // chunk that still carries an ATT write, slow but correct.
-    final mtu = await _ble.mtu(deviceId).catchError((_) => 23);
-    _chunkSize = mtu - 5 >= 18 ? mtu - 5 : 18;
+    try {
+      // The MTU the link actually carries, minus the 5 bytes of ATT overhead
+      // the codec prices in. The BleService owns negotiation at connect (the
+      // platform may refuse the request or not support making one — Apple
+      // platforms negotiate on their own), so whatever it reports here is the
+      // truth to size for; a tiny or implausible report floors at the
+      // smallest chunk that still carries an ATT write, slow but correct.
+      final mtu = await _ble.mtu(deviceId).catchError((_) => 23);
+      _chunkSize = mtu - 5 >= 18 ? mtu - 5 : 18;
 
-    final serviceUuid = (await _codec.rabbitAirBleServiceUuid()).toLowerCase();
-    final charUuid =
-        (await _codec.rabbitAirBleCommandCharacteristicUuid()).toLowerCase();
-    final discovered = services ?? await _ble.discoverServices(deviceId);
-    for (final service in discovered) {
-      if (normalizeUuid(service.uuid) != normalizeUuid(serviceUuid)) continue;
-      for (final characteristic in service.characteristics) {
-        if (normalizeUuid(characteristic.uuid) == normalizeUuid(charUuid)) {
-          _serviceUuid = service.uuid;
-          _characteristicUuid = characteristic.uuid;
+      final serviceUuid = (await _codec.rabbitAirBleServiceUuid())
+          .toLowerCase();
+      final charUuid = (await _codec.rabbitAirBleCommandCharacteristicUuid())
+          .toLowerCase();
+      final discovered = services ?? await _ble.discoverServices(deviceId);
+      for (final service in discovered) {
+        if (normalizeUuid(service.uuid) != normalizeUuid(serviceUuid)) {
+          continue;
+        }
+        for (final characteristic in service.characteristics) {
+          if (normalizeUuid(characteristic.uuid) == normalizeUuid(charUuid)) {
+            _serviceUuid = service.uuid;
+            _characteristicUuid = characteristic.uuid;
+          }
         }
       }
+      if (_serviceUuid == null || _characteristicUuid == null) {
+        throw const RabbitAirBleException(
+          'the device does not offer the Rabbit Air command characteristic '
+          '— is it a Rabbit Air purifier?',
+        );
+      }
+      _notifySub = _ble
+          .subscribeCharacteristic(
+            deviceId,
+            _serviceUuid!,
+            _characteristicUuid!,
+          )
+          .listen(
+            _enqueueChunk,
+            onError: (Object e) {
+              // R-014: the notify stream can fail AFTER attach returned —
+              // the CCCD enable is confirmed asynchronously, and a purifier
+              // that refuses it (or a link that drops during it) reports
+              // here. Recorded as well as failed: without this the client
+              // still believed it was attached, so every later command
+              // wrote its frames into the void and waited out the full
+              // seven seconds before saying the purifier did not answer,
+              // which named the wrong culprit and cost the user seven
+              // seconds per press.
+              _notifyFailure = e;
+              _failPending(e);
+            },
+          );
+    } catch (_) {
+      // A failed attach is forgotten entirely, or the guard above turns
+      // every later attempt into a no-op: the device id was claimed before
+      // the first await (so a concurrent attach cannot double-subscribe),
+      // and left claimed by a discovery that threw or a device without the
+      // characteristic, the BLE controls panel's retry on the next tap
+      // returned here at once with no UUIDs — and every send after it threw
+      // a bare StateError instead of asking the device again.
+      _deviceId = null;
+      _serviceUuid = null;
+      _characteristicUuid = null;
+      _notifyFailure = null;
+      rethrow;
     }
-    if (_serviceUuid == null || _characteristicUuid == null) {
-      throw const RabbitAirBleException(
-          'the device does not offer the Rabbit Air command characteristic — '
-          'is it a Rabbit Air purifier?');
-    }
-    _notifySub = _ble
-        .subscribeCharacteristic(deviceId, _serviceUuid!, _characteristicUuid!)
-        .listen(_enqueueChunk, onError: _failPending);
   }
 
   @override
@@ -159,16 +204,31 @@ class RabbitAirBleClient implements RabbitAirBleLink {
     if (deviceId == null || serviceUuid == null || charUuid == null) {
       throw StateError('RabbitAirBleClient.sendCommand before connect');
     }
-    final result = _exchangeChain
-        .then((_) => _exchangeNow(deviceId, serviceUuid, charUuid, payload));
+    final result = _exchangeChain.then(
+      (_) => _exchangeNow(deviceId, serviceUuid, charUuid, payload),
+    );
     _exchangeChain = result.then((_) {}, onError: (_) {});
     return result;
   }
 
-  Future<List<int>> _exchangeNow(String deviceId, String serviceUuid,
-      String charUuid, List<int> payload) async {
-    final chunks =
-        await _codec.rabbitAirBleFrame(payload: payload, chunkSize: _chunkSize);
+  Future<List<int>> _exchangeNow(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> payload,
+  ) async {
+    final failure = _notifyFailure;
+    if (failure != null) {
+      // Nothing can come back on a dead subscription, so do not spend the
+      // response timeout finding that out.
+      throw RabbitAirBleException(
+        'the purifier stopped sending replies ($failure) — reconnect to it',
+      );
+    }
+    final chunks = await _codec.rabbitAirBleFrame(
+      payload: payload,
+      chunkSize: _chunkSize,
+    );
     _expected = null;
     _buffer.clear();
     final pending = Completer<List<int>>();
@@ -179,9 +239,10 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       }
       return await pending.future.timeout(
         responseTimeout,
-        onTimeout: () =>
-            throw RabbitAirBleException('the purifier did not answer within '
-                '${responseTimeout.inSeconds}s'),
+        onTimeout: () => throw RabbitAirBleException(
+          'the purifier did not answer within '
+          '${responseTimeout.inSeconds}s',
+        ),
       );
     } finally {
       _pending = null;
@@ -201,8 +262,9 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       // A new message: the 2-byte little-endian prefix announces the total
       // payload length. Shorter chunks are noise — ignored, as the vendor
       // client ignores them.
-      final expected =
-          await _codec.rabbitAirBleExpectedPayloadLen(firstChunk: chunk);
+      final expected = await _codec.rabbitAirBleExpectedPayloadLen(
+        firstChunk: chunk,
+      );
       if (expected == null) return;
       _expected = expected;
       _buffer.addAll(chunk.length > 2 ? chunk.sublist(2) : const <int>[]);
@@ -215,6 +277,10 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       pending.complete(_buffer.sublist(0, expected));
     }
   }
+
+  /// Why the notify subscription died, when it did. Cleared by a fresh
+  /// attach; consulted before a command is written.
+  Object? _notifyFailure;
 
   void _failPending(Object error) {
     final pending = _pending;

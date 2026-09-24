@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,8 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../core/device_pictogram.dart';
 import '../core/error_text.dart';
+import '../core/log.dart';
+import '../core/web_link.dart';
 import '../models/network_device.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/three_d_printer_icon.dart';
@@ -44,7 +47,23 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   bool _isScanning = false;
   bool _hasScanned = false;
   String? _error;
-  bool _permissionDenied = false;
+
+  /// The hedged "nothing answered" guidance from a [LocalNetworkDeniedException]
+  /// when a scan came back empty on an Apple platform. Rendered verbatim as the
+  /// subhead rather than flattened into an assertion that Local Network access
+  /// is off: an empty network, a build with no multicast entitlement, a
+  /// VPN/cellular egress and the first-run prompt race all reach this state with
+  /// the permission toggle already on (F-015). Null when this scan did not end
+  /// that way.
+  String? _localNetworkHint;
+
+  /// One silent re-scan is allowed per screen session: the first scan of a
+  /// fresh iOS install can end empty because the system Local Network prompt
+  /// was up while the probes went out, and nothing retries after the user taps
+  /// Allow (F-001). Guards against re-running forever on a genuinely empty or
+  /// blocked network.
+  bool _autoRetriedThisSession = false;
+
   StreamSubscription<NetworkDevice>? _scanSub;
 
   // Captured in initState: `ref` is unusable from dispose(), and the scan has
@@ -64,7 +83,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     setState(() {
       _isScanning = true;
       _error = null;
-      _permissionDenied = false;
+      _localNetworkHint = null;
       _found.clear();
     });
 
@@ -98,37 +117,51 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     _scanSub = _service
         .scan(extraSearchTargets: targets, extraMdnsServiceTypes: mdnsTypes)
         .listen(
-      (device) {
-        if (!mounted) return;
-        setState(() => _found[device.host] = device);
-      },
-      onError: (Object e) {
-        if (!mounted) return;
-        setState(() {
-          _isScanning = false;
-          _hasScanned = true;
-          if (e is LocalNetworkDeniedException) {
-            _permissionDenied = true;
-            _error = null;
-          } else {
-            _error = friendlyErrorText(
-              e,
-              context: 'network scan',
-              fallback: 'Scanning failed. Check that you are on a Wi-Fi '
-                  'network, then try again.',
-            );
-          }
-        });
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() {
-          _isScanning = false;
-          _hasScanned = true;
-        });
-      },
-      cancelOnError: true,
-    );
+          (device) {
+            if (!mounted) return;
+            setState(() => _found[device.host] = device);
+          },
+          onError: (Object e) {
+            if (!mounted) return;
+            // First silent scan on iOS: re-run one window rather than reporting
+            // it, in case the system Local Network prompt was up while the
+            // probes went out (F-001). One shot per session.
+            if (e is LocalNetworkDeniedException &&
+                defaultTargetPlatform == TargetPlatform.iOS &&
+                !_autoRetriedThisSession) {
+              _autoRetriedThisSession = true;
+              unawaited(_startScan());
+              return;
+            }
+            setState(() {
+              _isScanning = false;
+              _hasScanned = true;
+              if (e is LocalNetworkDeniedException) {
+                // Keep the hedged message ("Nothing answered ... if Local
+                // Network access is off ... check Settings") and render it as
+                // guidance, not as an assertion that the toggle is off (F-015).
+                _localNetworkHint = e.message;
+                _error = null;
+              } else {
+                _error = friendlyErrorText(
+                  e,
+                  context: 'network scan',
+                  fallback:
+                      'Scanning failed. Check that you are on a Wi-Fi '
+                      'network, then try again.',
+                );
+              }
+            });
+          },
+          onDone: () {
+            if (!mounted) return;
+            setState(() {
+              _isScanning = false;
+              _hasScanned = true;
+            });
+          },
+          cancelOnError: true,
+        );
   }
 
   @override
@@ -139,7 +172,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   }
 
   String get _headline {
-    if (_permissionDenied) return 'Local network access needed';
+    if (_localNetworkHint != null) return 'Nothing answered';
     if (_error != null) return 'Scan failed';
     if (_isScanning) return 'Looking for devices...';
     if (_found.isNotEmpty) {
@@ -151,10 +184,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   }
 
   String get _subhead {
-    if (_permissionDenied) {
-      return 'Allow local network access for Liberated Bread so it can see '
-          'devices on your Wi-Fi.';
-    }
+    if (_localNetworkHint != null) return _localNetworkHint!;
     if (_error != null) return _error!;
     if (_isScanning) {
       return 'Asking over mDNS and SSDP. This takes a few seconds — some '
@@ -213,8 +243,10 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
             Text(
               _headline,
               textAlign: TextAlign.center,
-              style: text.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4),
+              style: text.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.4,
+              ),
             ),
             const SizedBox(height: 10),
             Center(
@@ -224,8 +256,9 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                   _subhead,
                   textAlign: TextAlign.center,
                   style: text.bodyMedium?.copyWith(
-                    color:
-                        _error != null ? scheme.error : scheme.onSurfaceVariant,
+                    color: _error != null
+                        ? scheme.error
+                        : scheme.onSurfaceVariant,
                     height: 1.5,
                   ),
                 ),
@@ -244,17 +277,6 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 ),
               ),
             ),
-            if (_permissionDenied) ...[
-              const SizedBox(height: 24),
-              Center(
-                child: ActionPillButton(
-                  onPressed: () => unawaited(
-                      openAppSettings().catchError((Object _) => false)),
-                  icon: Icons.settings,
-                  label: 'Open settings',
-                ),
-              ),
-            ],
             if (_hasScanned && !_isScanning && _found.isEmpty) ...[
               const SizedBox(height: 24),
               Center(
@@ -264,6 +286,23 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                   label: 'Scan again',
                 ),
               ),
+              // An empty scan on Apple may be a blocked Local Network
+              // permission rather than a truly empty network — but it may just
+              // as easily be an empty network, so Settings is offered as a
+              // secondary hint beside 'Scan again', not asserted as the cause
+              // with a prominent pill (F-015).
+              if (_localNetworkHint != null) ...[
+                const SizedBox(height: 8),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () => unawaited(
+                      openAppSettings().catchError((Object _) => false),
+                    ),
+                    icon: const Icon(Icons.settings, size: 18),
+                    label: const Text('Open settings'),
+                  ),
+                ),
+              ],
             ],
             if (ranked.likelySupported.isNotEmpty) ...[
               const SizedBox(height: 36),
@@ -280,8 +319,9 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
             if (ranked.other.isNotEmpty) ...[
               const SizedBox(height: 36),
               SectionHeader(
-                label:
-                    ranked.likelySupported.isEmpty ? 'Found' : 'Other devices',
+                label: ranked.likelySupported.isEmpty
+                    ? 'Found'
+                    : 'Other devices',
                 count: ranked.other.length,
               ),
               const SizedBox(height: 12),
@@ -304,9 +344,9 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 height: 18,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: Theme.of(context)
-                      .floatingActionButtonTheme
-                      .foregroundColor,
+                  color: Theme.of(
+                    context,
+                  ).floatingActionButtonTheme.foregroundColor,
                 ),
               )
             : const Icon(Icons.wifi_find),
@@ -332,12 +372,16 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     final controls = guess == null
         ? null
         : ref
-            .watch(networkControlsProvider(NetworkControlRequest(
-              deviceName: guess.deviceName,
-              manufacturer: guess.manufacturer,
-              ssdpTargets: device.ssdpTargets,
-            )))
-            .valueOrNull;
+              .watch(
+                networkControlsProvider(
+                  NetworkControlRequest(
+                    deviceName: guess.deviceName,
+                    manufacturer: guess.manufacturer,
+                    ssdpTargets: device.ssdpTargets,
+                  ),
+                ),
+              )
+              .valueOrNull;
     // The pictogram a TRANSPORT worked out from the device itself (a UniFi
     // camera's platform, a Kasa bulb's mic_type) wins over the shared spec's
     // category — that is the point of NetworkDevice.pictogram. Then the matched
@@ -349,24 +393,30 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     final customToken = DevicePictogram.isCustom(device.pictogram)
         ? device.pictogram
         : DevicePictogram.isCustom(guess?.pictogram)
-            ? guess!.pictogram
-            : device.displayName.toLowerCase().contains('power strip')
-                ? 'power-strip'
-                : null;
+        ? guess!.pictogram
+        : device.displayName.toLowerCase().contains('power strip')
+        ? 'power-strip'
+        : null;
     final scheme = Theme.of(context).colorScheme;
     return DeviceListTile(
       title: device.displayName,
       subtitle: _transportLabel(device),
-      detail:
-          device.port == null ? device.host : '${device.host}:${device.port}',
-      icon: DevicePictogram.iconFor(device.pictogram) ??
+      detail: device.port == null
+          ? device.host
+          : '${device.host}:${device.port}',
+      icon:
+          DevicePictogram.iconFor(device.pictogram) ??
           entry.guess?.iconOr(Icons.router_outlined) ??
           Icons.router_outlined,
       iconWidget: switch (customToken) {
-        'power-strip' =>
-          PowerStripIcon(size: 24, color: scheme.onSurfaceVariant),
-        '3d-printer' =>
-          ThreeDPrinterIcon(size: 24, color: scheme.onSurfaceVariant),
+        'power-strip' => PowerStripIcon(
+          size: 24,
+          color: scheme.onSurfaceVariant,
+        ),
+        '3d-printer' => ThreeDPrinterIcon(
+          size: 24,
+          color: scheme.onSurfaceVariant,
+        ),
         _ => null,
       },
       badge: entry.guess?.label,
@@ -376,8 +426,9 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       // something. A badge reading "Supported device" or "Possibly supported"
       // has told the user nothing about which one — the vendor and the service
       // type underneath it are precisely what distinguishes this row.
-      description:
-          entry.guess?.namesAProduct == true ? null : _describe(device, vendor),
+      description: entry.guess?.namesAProduct == true
+          ? null
+          : _describe(device, vendor),
       onTap: controls != null
           ? () {
               // Opening controls is the network counterpart of a BLE
@@ -389,26 +440,48 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               final specKey = guess == null
                   ? null
                   : '${guess.deviceName}|${guess.manufacturer}';
-              unawaited(ref.read(savedNetworkDevicesProvider.notifier).touch(
-                    device,
-                    category: category,
-                    specKey: specKey,
-                  ));
-              unawaited(_openControls(device, controls,
-                  category: category, specKey: specKey));
+              // then(_, onError:) rather than a bare unawaited: the saved
+              // record is a convenience — the controls open either way — but
+              // the write is SharedPreferences, which throws on a full or
+              // read-only store, and an unawaited future that throws is an
+              // unhandled async error, not a silent one. It reaches the zone
+              // handler and in a test run it fails the test that opened the
+              // controls, naming the preferences write rather than anything
+              // the test was about.
+              unawaited(
+                ref
+                    .read(savedNetworkDevicesProvider.notifier)
+                    .touch(device, category: category, specKey: specKey)
+                    .then<void>(
+                      (_) {},
+                      onError: (Object e, StackTrace st) => Log.ui.warning(
+                        'could not record ${device.host} as a saved Wi-Fi device',
+                        error: e,
+                        stackTrace: st,
+                      ),
+                    ),
+              );
+              unawaited(
+                _openControls(
+                  device,
+                  controls,
+                  category: category,
+                  specKey: specKey,
+                ),
+              );
             }
           // A UniFi camera's own admin page is a dead end — cameras are driven
           // through UniFi Protect, not individually — so it opens the details
           // sheet (which points at the Protect controller) rather than
           // click-and-go into nothing.
           : (_isUnifiCamera(device)
-              ? () => _showDetails(device, vendor)
-              // A recognize-only device we can't drive but whose spec knows
-              // where its admin page lives (a NAS's DSM, a printer's web UI):
-              // the tap opens that, the one useful action here.
-              : (guess?.adminUrl != null
-                  ? () => _openAdmin(guess!, device)
-                  : () => _showDetails(device, vendor))),
+                ? () => _showDetails(device, vendor)
+                // A recognize-only device we can't drive but whose spec knows
+                // where its admin page lives (a NAS's DSM, a printer's web UI):
+                // the tap opens that, the one useful action here.
+                : (guess?.adminUrl != null
+                      ? () => _openAdmin(guess!, device)
+                      : () => _showDetails(device, vendor))),
     );
   }
 
@@ -419,22 +492,46 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     NetworkControls controls, {
     String? category,
     String? specKey,
-  }) =>
-      openNetworkControls(
-        context: context,
-        ref: ref,
-        device: device,
-        controls: controls,
-        category: category,
-        specKey: specKey,
-      );
+  }) => openNetworkControls(
+    context: context,
+    ref: ref,
+    device: device,
+    controls: controls,
+    category: category,
+    specKey: specKey,
+  );
+
+  /// What this screen knows about Ubiquiti hardware, in one place.
+  ///
+  /// R-086: BELONGS IN RUST, or rather in the catalogue. These are product
+  /// facts — which platform strings name a Protect controller, which
+  /// pictograms mean a camera — and a screen is the wrong place to hold them:
+  /// a new Ubiquiti model is a spec refresh everywhere else in this app and a
+  /// Dart edit here. They are gathered rather than scattered so the move is
+  /// one deletion when it happens.
+  ///
+  /// The full fix: let a spec declare that its devices are driven through a
+  /// CONTROLLER rather than individually, and which discovered device is that
+  /// controller (a `managed_by:` naming a search target and a platform
+  /// pattern). Then Rust answers "is this camera driven elsewhere, and where
+  /// is elsewhere" from the catalogue, the same way it answers every other
+  /// identification question, and this block goes.
+  static const _unifiProtectPlatformPrefixes = [
+    'UNVR',
+    'UDM',
+    'UCKP',
+    'UCK-G2',
+  ];
+
+  /// Pictograms that mean "a camera, managed in Protect rather than here".
+  static const _unifiCameraPictograms = ['ip-camera', 'video-doorbell'];
 
   /// A UniFi camera or doorbell — recognized by the pictogram its transport
   /// derived from the platform string. Cameras are managed in UniFi Protect,
   /// not individually.
   static bool _isUnifiCamera(NetworkDevice device) =>
       device.answeredLanProtocols.contains('ubiquiti-discovery') &&
-      (device.pictogram == 'ip-camera' || device.pictogram == 'video-doorbell');
+      _unifiCameraPictograms.contains(device.pictogram);
 
   /// The UniFi Protect controller among the devices found this scan, if any —
   /// a UNVR, or a UDM/Cloud Key that runs Protect. Cameras point back to it.
@@ -442,10 +539,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     for (final d in _found.values) {
       final platform = (d.txt['platform'] ?? '').toUpperCase();
       if (d.pictogram == 'nvr' ||
-          platform.startsWith('UNVR') ||
-          platform.startsWith('UDM') ||
-          platform.startsWith('UCKP') ||
-          platform.startsWith('UCK-G2')) {
+          _unifiProtectPlatformPrefixes.any(platform.startsWith)) {
         return d;
       }
     }
@@ -454,10 +548,34 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
 
   /// Open a device's own admin page, filling `{address}` with its host.
   void _openAdmin(ScanGuess guess, NetworkDevice device) {
-    final uri =
-        Uri.tryParse(guess.adminUrl!.replaceAll('{address}', device.host));
-    if (uri == null) return;
-    unawaited(ref.read(urlOpenerProvider)(uri));
+    final raw = guess.adminUrl!.replaceAll('{address}', device.host);
+    // Spec-supplied, so the same allow-list as the advisory links: only a
+    // web URL leaves the app.
+    unawaited(_openExternal(context, Uri.tryParse(raw), raw));
+  }
+
+  /// Hand a vetted URI to the platform, and say so when it does not open.
+  ///
+  /// R-088: both launches here ignored `launchUrl`'s result and its
+  /// exceptions, so a phone with no browser for the scheme, a refusal, or a
+  /// spec-supplied address the allow-list rejects all looked identical to a
+  /// dead button — one tap, nothing, no reason.
+  Future<void> _openExternal(
+    BuildContext context,
+    Uri? uri,
+    String shown,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    var opened = false;
+    if (isWebLink(uri)) {
+      try {
+        opened = await ref.read(urlOpenerProvider)(uri!);
+      } catch (e) {
+        Log.ui.warning('could not open $shown', error: e);
+      }
+    }
+    if (opened || !context.mounted) return;
+    messenger.showSnackBar(SnackBar(content: Text('Could not open $shown')));
   }
 
   static String _transportLabel(NetworkDevice device) {
@@ -472,7 +590,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
           NetworkDiscoverySource.ssdp => 'SSDP',
           NetworkDiscoverySource.lanProbe => 'LAN',
           NetworkDiscoverySource.homeAssistant => 'Home Assistant',
-        }
+        },
     };
     return labels.join(' + ');
   }
@@ -480,7 +598,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   /// What the device said about itself, for one no spec matched.
   static String? _describe(NetworkDevice device, String? vendor) {
     final parts = <String>[
-      if (vendor != null) vendor,
+      ?vendor,
       // The service type is the most human-legible thing an unmatched device
       // offers: "_ipp._tcp" is a printer, and saying so beats saying nothing.
       ...device.serviceTypes.take(2).map(_prettyServiceType),
@@ -517,9 +635,12 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(device.displayName,
-                          style: text.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w700)),
+                      child: Text(
+                        device.displayName,
+                        style: text.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                     // The details are the reason to open the sheet — a MAC to
                     // save, a TXT record to paste into a bug report. Copy the
@@ -529,11 +650,25 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                       icon: const Icon(Icons.copy_outlined),
                       tooltip: 'Copy details',
                       onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(sheetContext);
+                        // The screen's messenger, and the sheet is popped
+                        // before the SnackBar shows: a SnackBar raised from
+                        // inside a modal sheet renders in the Scaffold
+                        // UNDER the barrier, at the bottom edge where the
+                        // sheet is docked, and has expired by the time the
+                        // sheet is dismissed — the confirmation was never
+                        // seen. Copying is the last thing anyone does with
+                        // the sheet, so closing it is the natural end.
+                        final messenger = ScaffoldMessenger.of(context);
+                        final navigator = Navigator.of(sheetContext);
                         await Clipboard.setData(
-                            ClipboardData(text: _detailsText(device, vendor)));
-                        messenger.showSnackBar(const SnackBar(
-                            content: Text('Device details copied')));
+                          ClipboardData(text: _detailsText(device, vendor)),
+                        );
+                        if (navigator.mounted) navigator.pop();
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Device details copied'),
+                          ),
+                        );
                       },
                     ),
                   ],
@@ -588,21 +723,36 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Icon(Icons.info_outline, size: 18, color: scheme.onSurfaceVariant),
-            const SizedBox(width: 8),
-            Text('Likely controlled via UniFi Protect',
-                style:
-                    text.titleSmall?.copyWith(color: scheme.onSurfaceVariant)),
-          ]),
+          Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 18,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              // Flexible + softWrap: at XXL Dynamic Type on a narrow phone the
+              // ~285 pt left of the icon is not enough for this title, and an
+              // unwrapped Text beside an Icon overflows the row (F-051).
+              Flexible(
+                child: Text(
+                  'Likely controlled via UniFi Protect',
+                  softWrap: true,
+                  style: text.titleSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 6),
           Text(
             controller != null
                 ? 'This app can recognise the camera but not drive it directly. '
-                    'Found a UniFi Protect controller at ${controller.host} '
-                    '(${controller.displayName}).'
+                      'Found a UniFi Protect controller at ${controller.host} '
+                      '(${controller.displayName}).'
                 : 'This app can recognise the camera but not drive it directly. '
-                    'It is managed in the UniFi Protect app/controller.',
+                      'It is managed in the UniFi Protect app/controller.',
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
           if (controller != null) ...[
@@ -613,11 +763,10 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: const Text('Open UniFi Protect'),
                 onPressed: () {
-                  final uri =
-                      Uri.tryParse('https://${controller.host}/protect/');
-                  if (uri != null) {
-                    unawaited(ref.read(urlOpenerProvider)(uri));
-                  }
+                  final raw = 'https://${controller.host}/protect/';
+                  unawaited(
+                    _openExternal(sheetContext, Uri.tryParse(raw), raw),
+                  );
                 },
               ),
             ),
@@ -650,27 +799,27 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   }
 
   Widget _detailRow(String label, String value) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 110,
-              child: Text(
-                label,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 110,
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
             ),
-            Expanded(
-              child: SelectableText(
-                value,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ],
+          ),
         ),
-      );
+        Expanded(
+          child: SelectableText(
+            value,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ],
+    ),
+  );
 }

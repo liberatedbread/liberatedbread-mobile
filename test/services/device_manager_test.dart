@@ -53,24 +53,28 @@ void main() {
       // FIRST sighting means the editor never sees it in practice and sizes
       // the canvas from a guess instead.
       const payload = {
-        0x61EA: [3, 232, 0, 100, 20, 20]
+        0x61EA: [3, 232, 0, 100, 20, 20],
       };
-      manager.addOrUpdate(IoTDevice(
-        id: 'AA:BB:CC:DD:EE:FF',
-        name: 'Test',
-        rssi: -60,
-        isConnectable: true,
-        discoveredAt: now,
-        manufacturerData: payload,
-      ));
-      manager.addOrUpdate(IoTDevice(
-        id: 'AA:BB:CC:DD:EE:FF',
-        name: 'Test',
-        rssi: -40,
-        isConnectable: true,
-        discoveredAt: now,
-        manufacturerData: payload,
-      ));
+      manager.addOrUpdate(
+        IoTDevice(
+          id: 'AA:BB:CC:DD:EE:FF',
+          name: 'Test',
+          rssi: -60,
+          isConnectable: true,
+          discoveredAt: now,
+          manufacturerData: payload,
+        ),
+      );
+      manager.addOrUpdate(
+        IoTDevice(
+          id: 'AA:BB:CC:DD:EE:FF',
+          name: 'Test',
+          rssi: -40,
+          isConnectable: true,
+          discoveredAt: now,
+          manufacturerData: payload,
+        ),
+      );
 
       expect(manager.getById('AA:BB:CC:DD:EE:FF')!.manufacturerData, payload);
     });
@@ -102,8 +106,11 @@ void main() {
       manager.addOrUpdate(rediscovered);
 
       final kept = manager.getById(first.id)!;
-      expect(kept.discoveredAt, first.discoveredAt,
-          reason: 'a restart does not make a known device newly discovered');
+      expect(
+        kept.discoveredAt,
+        first.discoveredAt,
+        reason: 'a restart does not make a known device newly discovered',
+      );
       expect(kept.rssi, -40, reason: 'everything else is the fresh sighting');
       expect(kept.lastSeen, rediscovered.lastSeen);
     });
@@ -141,18 +148,25 @@ void main() {
       expect(DeviceManager.isStale(device, now), isTrue);
       expect(DeviceManager.isGone(device, now), isFalse);
       expect(manager.forgetGone(now), isFalse);
-      expect(manager.getById(device.id), isNotNull,
-          reason: 'a warning, not an eviction: it is probably still there');
+      expect(
+        manager.getById(device.id),
+        isNotNull,
+        reason: 'a warning, not an eviction: it is probably still there',
+      );
     });
 
     test('a device quiet past forgetAfter is dropped', () {
-      manager
-          .addOrUpdate(makeDevice(id: 'ghost', ago: DeviceManager.forgetAfter));
+      manager.addOrUpdate(
+        makeDevice(id: 'ghost', ago: DeviceManager.forgetAfter),
+      );
       manager.addOrUpdate(makeDevice(id: 'keeper'));
 
       expect(manager.forgetGone(now), isTrue);
-      expect(manager.getById('ghost'), isNull,
-          reason: 'a tap on it could only end in a connect timeout');
+      expect(
+        manager.getById('ghost'),
+        isNull,
+        reason: 'a tap on it could only end in a connect timeout',
+      );
       expect(manager.getById('keeper'), isNotNull);
     });
 
@@ -166,8 +180,9 @@ void main() {
     });
 
     test('being heard again clears the warning', () {
-      manager
-          .addOrUpdate(makeDevice(id: 'blinky', ago: DeviceManager.staleAfter));
+      manager.addOrUpdate(
+        makeDevice(id: 'blinky', ago: DeviceManager.staleAfter),
+      );
       expect(manager.staleIds(now), {'blinky'});
 
       manager.addOrUpdate(makeDevice(id: 'blinky'));
@@ -176,10 +191,12 @@ void main() {
 
     test('staleIds names exactly the devices past the threshold', () {
       manager.addOrUpdate(makeDevice(id: 'live'));
-      manager
-          .addOrUpdate(makeDevice(id: 'quiet', ago: DeviceManager.staleAfter));
       manager.addOrUpdate(
-          makeDevice(id: 'quieter', ago: DeviceManager.staleAfter * 2));
+        makeDevice(id: 'quiet', ago: DeviceManager.staleAfter),
+      );
+      manager.addOrUpdate(
+        makeDevice(id: 'quieter', ago: DeviceManager.staleAfter * 2),
+      );
 
       expect(manager.staleIds(now), {'quiet', 'quieter'});
     });

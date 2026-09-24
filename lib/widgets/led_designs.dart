@@ -91,46 +91,76 @@ List<LedDesign> defaultDesigns(int width, int height) {
     LedDesign('Bi flag', () => [_stripes(width, height, _biStripes)]),
     LedDesign('Pan flag', () => [_stripes(width, height, _panStripes)]),
     LedDesign(
-        'Nonbinary flag', () => [_stripes(width, height, _nonbinaryStripes)]),
+      'Nonbinary flag',
+      () => [_stripes(width, height, _nonbinaryStripes)],
+    ),
     LedDesign('Ace flag', () => [_stripes(width, height, _aceStripes)]),
     LedDesign('American flag', () => [_americanFlag(width, height)]),
-    LedDesign('American flag (in distress)',
-        () => [_rotated180(_americanFlag(width, height), width, height)]),
+    LedDesign(
+      'American flag (in distress)',
+      () => [_rotated180(_americanFlag(width, height), width, height)],
+    ),
   ];
 
   if (canvasReaches(
-      width, height, canadianFlagMinCanvas.$1, canadianFlagMinCanvas.$2)) {
+    width,
+    height,
+    canadianFlagMinCanvas.$1,
+    canadianFlagMinCanvas.$2,
+  )) {
     designs
-      ..add(LedDesign(
-          'Canadian flag', () => [_scaled(_canadian20, 20, 20, width, height)]))
-      ..add(LedDesign(
+      ..add(
+        LedDesign(
+          'Canadian flag',
+          () => [_scaled(_canadian20, 20, 20, width, height)],
+        ),
+      )
+      ..add(
+        LedDesign(
           'Canadian flag (in distress)',
           () => [
-                _rotated180(
-                    _scaled(_canadian20, 20, 20, width, height), width, height)
-              ]));
+            _rotated180(
+              _scaled(_canadian20, 20, 20, width, height),
+              width,
+              height,
+            ),
+          ],
+        ),
+      );
   }
   if (canvasReaches(width, height, timbitMinCanvas.$1, timbitMinCanvas.$2)) {
-    designs.add(LedDesign(
-        'Professor Timbit', () => [_scaled(_timbit20, 20, 20, width, height)]));
+    designs.add(
+      LedDesign(
+        'Professor Timbit',
+        () => [_scaled(_timbit20, 20, 20, width, height)],
+      ),
+    );
   }
 
   designs
     // Rotates through the pride flags — one on-device animation frame each.
-    ..add(LedDesign(
+    ..add(
+      LedDesign(
         'Pride animation',
         () => [
-              _stripes(width, height, _transStripes),
-              _stripes(width, height, _prideStripes),
-              _stripes(width, height, _lesbianStripes),
-              _stripes(width, height, _biStripes),
-              _stripes(width, height, _panStripes),
-              _stripes(width, height, _nonbinaryStripes),
-              _stripes(width, height, _aceStripes),
-            ],
-        animation: true))
-    ..add(LedDesign('Star animation', () => _starTwinkle(width, height),
-        animation: true));
+          _stripes(width, height, _transStripes),
+          _stripes(width, height, _prideStripes),
+          _stripes(width, height, _lesbianStripes),
+          _stripes(width, height, _biStripes),
+          _stripes(width, height, _panStripes),
+          _stripes(width, height, _nonbinaryStripes),
+          _stripes(width, height, _aceStripes),
+        ],
+        animation: true,
+      ),
+    )
+    ..add(
+      LedDesign(
+        'Star animation',
+        () => _starTwinkle(width, height),
+        animation: true,
+      ),
+    );
   return designs;
 }
 
@@ -228,8 +258,10 @@ Uint8List _americanFlag(int width, int height) {
       final y = ((row + 0.5) * cantonH / 9).floor().clamp(0, cantonH - 1);
       for (var col = 0; col < starsInRow; col++) {
         final offset = row.isEven ? 0.5 : 1.0;
-        final x =
-            ((col + offset) * cantonW / 6.5).floor().clamp(0, cantonW - 1);
+        final x = ((col + offset) * cantonW / 6.5).floor().clamp(
+          0,
+          cantonW - 1,
+        );
         set(x, y, white);
       }
     }
@@ -338,11 +370,13 @@ Uint8List _scaled(
   }
   final out = Uint8List(width * height * 3);
   for (var y = 0; y < height; y++) {
-    final sy =
-        height == 0 ? 0 : (y * srcHeight ~/ height).clamp(0, srcHeight - 1);
+    final sy = height == 0
+        ? 0
+        : (y * srcHeight ~/ height).clamp(0, srcHeight - 1);
     for (var x = 0; x < width; x++) {
-      final sx =
-          width == 0 ? 0 : (x * srcWidth ~/ width).clamp(0, srcWidth - 1);
+      final sx = width == 0
+          ? 0
+          : (x * srcWidth ~/ width).clamp(0, srcWidth - 1);
       final from = (sy * srcWidth + sx) * 3;
       final to = (y * width + x) * 3;
       out[to] = src[from];

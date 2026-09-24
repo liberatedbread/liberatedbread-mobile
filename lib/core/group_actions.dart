@@ -61,11 +61,11 @@ enum GroupOp {
   const GroupOp(this.icon, this.label);
 
   String get roleName => switch (this) {
-        turnOn => 'turn_on',
-        turnOff => 'turn_off',
-        setBrightness => 'set_brightness',
-        readBattery || readSensors => '',
-      };
+    turnOn => 'turn_on',
+    turnOff => 'turn_off',
+    setBrightness => 'set_brightness',
+    readBattery || readSensors => '',
+  };
 
   /// Whether this op writes commands (vs. reading values). Derived from
   /// [roleName] — command ops are exactly the ones bound to an entity action
@@ -130,11 +130,15 @@ class GroupRead {
 /// only reports what the *spec* promises (including a declared SIG battery
 /// service, format block or not, since the profile can decode 2a19 without
 /// one).
-Set<GroupOp> supportedGroupOps(DeviceSpecDto spec,
-    {List<String>? matchedVariants}) {
+Set<GroupOp> supportedGroupOps(
+  DeviceSpecDto spec, {
+  List<String>? matchedVariants,
+}) {
   final ops = <GroupOp>{};
-  for (final (entity: _, :action)
-      in _controlActions(spec, matchedVariants: matchedVariants)) {
+  for (final (entity: _, :action) in _controlActions(
+    spec,
+    matchedVariants: matchedVariants,
+  )) {
     switch (action.role) {
       case 'turn_on':
         ops.add(GroupOp.turnOn);
@@ -233,16 +237,26 @@ double brightnessDeviceValue(EntityActionDto action, double percent) {
 /// `brightness`/`level`; on/off actions that carry parameters (a light whose
 /// `turn_on` is really "set full color") get full-on values — white at full
 /// brightness — since a group turn-on has no per-device card state to draw
-/// from. Unrecognized parameters get 0.0, exactly as the light card sends.
-Map<String, double> _paramsFor(EntityActionDto action, {double? brightness}) =>
-    {
-      for (final p in action.userParams)
-        p: switch (p) {
-          'brightness' || 'level' => brightness ?? (action.max ?? 255),
-          'red' || 'green' || 'blue' => 255.0,
-          _ => 0.0,
-        },
+/// from.
+///
+/// A parameter this has no value for is OMITTED, exactly as the light card
+/// does (`LightControlCard._paramsFor`). It used to send 0.0, and 0.0 is a
+/// real value: a spec naming its knob `warmth` would get a zero written to
+/// every member of the group, silently. Omitting hands the decision to the
+/// encoder — the spec's own default, or a visible ParameterMissing.
+Map<String, double> _paramsFor(EntityActionDto action, {double? brightness}) {
+  final values = <String, double>{};
+  for (final p in action.userParams) {
+    final value = switch (p) {
+      'brightness' || 'level' => brightness ?? (action.max ?? 255),
+      'red' || 'green' || 'blue' => 255.0,
+      _ => null,
     };
+    if (value == null) continue;
+    values[p] = value;
+  }
+  return values;
+}
 
 /// Resolve the concrete writes a command op performs on one member, given the
 /// services discovery actually found. Empty means the member cannot take part
@@ -264,28 +278,32 @@ List<GroupWrite> resolveGroupWrites({
   final writable = discoveredWritablePairs(services);
 
   final writes = <GroupWrite>[];
-  for (final (:entity, :action)
-      in _controlActions(spec, matchedVariants: matchedVariants)) {
+  for (final (:entity, :action) in _controlActions(
+    spec,
+    matchedVariants: matchedVariants,
+  )) {
     if (action.role != op.roleName) continue;
     if (!writable.containsKey(
       discoveredPairKey(action.serviceUuid, action.characteristicUuid),
     )) {
       continue;
     }
-    writes.add(GroupWrite(
-      serviceUuid: action.serviceUuid,
-      charUuid: action.characteristicUuid,
-      commandName: action.commandName!,
-      params: switch (op) {
-        GroupOp.setBrightness => _paramsFor(
+    writes.add(
+      GroupWrite(
+        serviceUuid: action.serviceUuid,
+        charUuid: action.characteristicUuid,
+        commandName: action.commandName!,
+        params: switch (op) {
+          GroupOp.setBrightness => _paramsFor(
             action,
             brightness: brightnessDeviceValue(action, brightnessPercent ?? 100),
           ),
-        // Switch cards send no parameters for on/off; light actions carrying
-        // user params get full-on defaults (see _paramsFor).
-        _ => entity.platform == 'switch' ? const {} : _paramsFor(action),
-      },
-    ));
+          // Switch cards send no parameters for on/off; light actions carrying
+          // user params get full-on defaults (see _paramsFor).
+          _ => entity.platform == 'switch' ? const {} : _paramsFor(action),
+        },
+      ),
+    );
   }
   return writes;
 }
@@ -310,13 +328,15 @@ List<GroupRead> resolveBatteryReads({
       final owning = _owningReadableService(spec, services, stateChar);
       if (owning == null) continue;
       if (!seenChars.add(normalizeUuid(stateChar))) continue;
-      reads.add(GroupRead(
-        serviceUuid: owning,
-        charUuid: stateChar,
-        specBased: true,
-        entity: entity,
-        label: entity.name,
-      ));
+      reads.add(
+        GroupRead(
+          serviceUuid: owning,
+          charUuid: stateChar,
+          specBased: true,
+          entity: entity,
+          label: entity.name,
+        ),
+      );
     }
   }
   if (reads.isNotEmpty) return reads;
@@ -362,13 +382,15 @@ List<GroupRead> resolveSensorReads({
     final owning = _owningReadableService(spec, services, stateChar);
     if (owning == null) continue;
     if (!seen.add('${entity.platform}|${entity.name}')) continue;
-    reads.add(GroupRead(
-      serviceUuid: owning,
-      charUuid: stateChar,
-      specBased: true,
-      entity: entity,
-      label: entity.name,
-    ));
+    reads.add(
+      GroupRead(
+        serviceUuid: owning,
+        charUuid: stateChar,
+        specBased: true,
+        entity: entity,
+        label: entity.name,
+      ),
+    );
   }
   return reads;
 }
@@ -434,14 +456,33 @@ bool _groupSendable(NetworkActionDto action) =>
 /// no-drift reason as [_controlActions].
 Iterable<NetworkEntityDto> _networkControlEntities(
   List<NetworkEntityDto> entities,
-) =>
-    entities.where((e) => e.platform == 'light' || e.platform == 'switch');
+) => entities.where((e) => e.platform == 'light' || e.platform == 'switch');
 
 NetworkActionDto? _networkAction(NetworkEntityDto entity, String role) {
   for (final action in entity.actions) {
     if (action.role == role && _groupSendable(action)) return action;
   }
   return null;
+}
+
+/// The `set_brightness` action a group op may actually send on [entity], or
+/// null.
+///
+/// ONE definition, consumed by both [supportedNetworkGroupOps] and
+/// [resolveNetworkGroupPlan], because they disagreed: the support check asked
+/// only "is there a sendable set_brightness", while the resolver also requires
+/// a user parameter to put the level in — there is nowhere to write the number
+/// otherwise, and a send with no level would be a bare request that either
+/// does nothing or means something else entirely. A spec declaring
+/// `set_brightness` with an empty `userParams` therefore lit the Brightness
+/// button, opened the percentage sheet, and resolved an empty plan: every
+/// member skipped, nothing sent, and the only feedback was a run that touched
+/// no device.
+NetworkActionDto? _networkBrightnessAction(NetworkEntityDto entity) {
+  if (entity.platform != 'light') return null;
+  final action = _networkAction(entity, 'set_brightness');
+  if (action == null || action.userParams.isEmpty) return null;
+  return action;
 }
 
 /// Whether [entity] declares a power state a gated toggle can read: a
@@ -465,8 +506,7 @@ Set<GroupOp> supportedNetworkGroupOps(List<NetworkEntityDto> entities) {
             _hasReadableState(entity))) {
       ops.add(GroupOp.turnOff);
     }
-    if (entity.platform == 'light' &&
-        _networkAction(entity, 'set_brightness') != null) {
+    if (_networkBrightnessAction(entity) != null) {
       ops.add(GroupOp.setBrightness);
     }
   }
@@ -496,14 +536,16 @@ GroupNetworkPlan resolveNetworkGroupPlan({
       case GroupOp.turnOn:
         final action = _networkAction(entity, 'turn_on');
         if (action != null) {
-          direct.add(GroupNetworkSend(
-              entity: entity, action: action, values: const {}));
+          direct.add(
+            GroupNetworkSend(entity: entity, action: action, values: const {}),
+          );
         }
       case GroupOp.turnOff:
         final off = _networkAction(entity, 'turn_off');
         if (off != null) {
           direct.add(
-              GroupNetworkSend(entity: entity, action: off, values: const {}));
+            GroupNetworkSend(entity: entity, action: off, values: const {}),
+          );
           break;
         }
         final toggle = _networkAction(entity, 'toggle');
@@ -511,18 +553,19 @@ GroupNetworkPlan resolveNetworkGroupPlan({
           gated.add(GroupNetworkGatedToggle(entity: entity, action: toggle));
         }
       case GroupOp.setBrightness:
-        if (entity.platform != 'light') break;
-        final action = _networkAction(entity, 'set_brightness');
-        if (action != null && action.userParams.isNotEmpty) {
+        final action = _networkBrightnessAction(entity);
+        if (action != null) {
           final percent = (brightnessPercent ?? 100).clamp(0.0, 100.0);
           final min = action.min ?? 0;
           final max = action.max ?? 100;
           final value = (min + (max - min) * percent / 100).round();
-          direct.add(GroupNetworkSend(
-            entity: entity,
-            action: action,
-            values: {action.userParams.first: '$value'},
-          ));
+          direct.add(
+            GroupNetworkSend(
+              entity: entity,
+              action: action,
+              values: {action.userParams.first: '$value'},
+            ),
+          );
         }
       case GroupOp.readBattery || GroupOp.readSensors:
         break;
@@ -578,7 +621,7 @@ String? groupReadingDisplay(GroupRead read, List<DecodedValueDto> decoded) {
   if (!read.specBased) {
     final value =
         decoded.where((d) => d.name == _sigBatteryField).firstOrNull ??
-            decoded.first;
+        decoded.first;
     return '${labelledTextOf(value)} %';
   }
   final entity = read.entity;

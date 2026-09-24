@@ -184,30 +184,33 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
       _scanEnded = false;
       _error = null;
     });
-    _scanSub = ref.read(bleServiceProvider).scan().listen(
-      // Asked of the catalogue rather than tested against a literal here, so
-      // the rule stays the spec's (Rabbit Air's is `exact`, and an exact rule
-      // matters: a look-alike peripheral must never be offered a screen that
-      // would send it the home Wi-Fi passphrase). Fired without awaiting —
-      // the scan stream must not stall behind an FFI round trip — and the
-      // found-set is a map, so out-of-order arrivals are harmless.
-      (device) => unawaited(_considerCandidate(device)),
-      onError: (Object e) {
-        if (!mounted) return;
-        setState(() {
-          _scanEnded = true;
-          _error = friendlyErrorText(
-            e,
-            context: 'rabbit air setup scan',
-            fallback: 'The Bluetooth scan failed. Try again.',
-          );
-        });
-      },
-      onDone: () {
-        if (!mounted || _stage != _Stage.scanning) return;
-        setState(() => _scanEnded = true);
-      },
-    );
+    _scanSub = ref
+        .read(bleServiceProvider)
+        .scan()
+        .listen(
+          // Asked of the catalogue rather than tested against a literal here, so
+          // the rule stays the spec's (Rabbit Air's is `exact`, and an exact rule
+          // matters: a look-alike peripheral must never be offered a screen that
+          // would send it the home Wi-Fi passphrase). Fired without awaiting —
+          // the scan stream must not stall behind an FFI round trip — and the
+          // found-set is a map, so out-of-order arrivals are harmless.
+          (device) => unawaited(_considerCandidate(device)),
+          onError: (Object e) {
+            if (!mounted) return;
+            setState(() {
+              _scanEnded = true;
+              _error = friendlyErrorText(
+                e,
+                context: 'rabbit air setup scan',
+                fallback: 'The Bluetooth scan failed. Try again.',
+              );
+            });
+          },
+          onDone: () {
+            if (!mounted || _stage != _Stage.scanning) return;
+            setState(() => _scanEnded = true);
+          },
+        );
   }
 
   Future<void> _provision() async {
@@ -245,31 +248,39 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       children: [
-        Center(
-          child: Icon(Icons.air, size: 56, color: scheme.secondary),
-        ),
+        Center(child: Icon(Icons.air, size: 56, color: scheme.secondary)),
         const SizedBox(height: 24),
-        Text('Put the purifier in setup mode',
-            textAlign: TextAlign.center,
-            style: text.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4)),
+        Text(
+          'Put the purifier in setup mode',
+          textAlign: TextAlign.center,
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
         const SizedBox(height: 12),
         Text(
           'Setup talks to the purifier over Bluetooth — no temporary Wi-Fi '
           'network to join.',
           textAlign: TextAlign.center,
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         const SizedBox(height: 20),
-        _instruction(context, '1',
-            'Plug the purifier in and let it finish starting up.'),
         _instruction(
-            context,
-            '2',
-            'Hold the Speed and Wireless buttons until the wireless LED '
-                'blinks — the purifier is now in setup mode'
-                '${_setupName == null ? '' : ', advertising as "$_setupName"'}.'),
+          context,
+          '1',
+          'Plug the purifier in and let it finish starting up.',
+        ),
+        _instruction(
+          context,
+          '2',
+          'Hold the Speed and Wireless buttons until the wireless LED '
+              'blinks — the purifier is now in setup mode'
+              '${_setupName == null ? '' : ', advertising as "$_setupName"'}.',
+        ),
         const SizedBox(height: 24),
         Center(
           child: ActionPillButton(
@@ -293,9 +304,13 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
           CircleAvatar(radius: 13, child: Text(number)),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(text_,
-                style: text.bodyMedium
-                    ?.copyWith(color: scheme.onSurfaceVariant, height: 1.4)),
+            child: Text(
+              text_,
+              style: text.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                height: 1.4,
+              ),
+            ),
           ),
         ],
       ),
@@ -316,17 +331,19 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
         Text(
           devices.isEmpty
               ? (_scanEnded
-                  ? 'No purifier in setup mode answered.'
-                  : 'Looking for a purifier in setup mode...')
+                    ? 'No purifier in setup mode answered.'
+                    : 'Looking for a purifier in setup mode...')
               : 'Which purifier?',
           textAlign: TextAlign.center,
           style: text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         if (_error != null) ...[
           const SizedBox(height: 12),
-          Text(_error!,
-              textAlign: TextAlign.center,
-              style: text.bodyMedium?.copyWith(color: scheme.error)),
+          Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: text.bodyMedium?.copyWith(color: scheme.error),
+          ),
         ],
         const SizedBox(height: 16),
         for (final device in devices) ...[
@@ -335,9 +352,10 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
             child: ListTile(
               leading: Icon(Icons.air, color: scheme.secondary),
               title: Text(device.displayName),
-              subtitle: Text(device.id,
-                  style:
-                      text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+              subtitle: Text(
+                device.id,
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => unawaited(_begin(device)),
             ),
@@ -368,9 +386,11 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 24),
-            Text(_busyLabel,
-                textAlign: TextAlign.center,
-                style: text.bodyLarge?.copyWith(height: 1.5)),
+            Text(
+              _busyLabel,
+              textAlign: TextAlign.center,
+              style: text.bodyLarge?.copyWith(height: 1.5),
+            ),
           ],
         ),
       ),
@@ -383,15 +403,21 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       children: [
-        Text('Choose your home Wi-Fi',
-            style: text.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4)),
+        Text(
+          'Choose your home Wi-Fi',
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
         const SizedBox(height: 8),
         Text(
           'This is the network the purifier will join once setup finishes. '
           'It must be 2.4 GHz — these radios do not use 5 GHz.',
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         if (_error != null) ...[
           const SizedBox(height: 16),
@@ -399,7 +425,9 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
         ],
         const SizedBox(height: 24),
         SectionHeader(
-            label: 'Networks the purifier sees', count: _networks.length),
+          label: 'Networks the purifier sees',
+          count: _networks.length,
+        ),
         const SizedBox(height: 12),
         for (final network in _networks) ...[
           Card(
@@ -407,10 +435,11 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
             color: _network == network ? scheme.secondaryContainer : null,
             child: ListTile(
               leading: Icon(
-                  network.security == 0 ? Icons.wifi : Icons.wifi_lock,
-                  color: _network == network
-                      ? scheme.onSecondaryContainer
-                      : scheme.secondary),
+                network.security == 0 ? Icons.wifi : Icons.wifi_lock,
+                color: _network == network
+                    ? scheme.onSecondaryContainer
+                    : scheme.secondary,
+              ),
               title: Text(network.ssid),
               trailing: _network == network
                   ? const Icon(Icons.check_circle)
@@ -471,9 +500,11 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
           children: [
             Icon(Icons.error_outline, size: 48, color: scheme.error),
             const SizedBox(height: 16),
-            Text(_error ?? 'Setup failed.',
-                textAlign: TextAlign.center,
-                style: text.bodyLarge?.copyWith(height: 1.5)),
+            Text(
+              _error ?? 'Setup failed.',
+              textAlign: TextAlign.center,
+              style: text.bodyLarge?.copyWith(height: 1.5),
+            ),
             const SizedBox(height: 24),
             ActionPillButton(
               onPressed: () => unawaited(_begin(device)),
@@ -496,9 +527,10 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-                _doneVerified ? Icons.check_circle_outline : Icons.help_outline,
-                size: 56,
-                color: _doneVerified ? scheme.secondary : scheme.outline),
+              _doneVerified ? Icons.check_circle_outline : Icons.help_outline,
+              size: 56,
+              color: _doneVerified ? scheme.secondary : scheme.outline,
+            ),
             const SizedBox(height: 24),
             Text(
               _doneVerified
@@ -511,14 +543,16 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
             Text(
               _doneVerified
                   ? 'It answered on your network with the new key. The '
-                      'Wi-Fi tab now shows it${_doneThingId == null ? '' : ' '
-                          'as $_doneThingId'}.'
+                        'Wi-Fi tab now shows it${_doneThingId == null ? '' : ' '
+                                  'as $_doneThingId'}.'
                   : 'The purifier did not announce itself before the watch '
-                      'timed out — that is often just a slow join. The Wi-Fi '
-                      'tab will show it once it appears.',
+                        'timed out — that is often just a slow join. The Wi-Fi '
+                        'tab will show it once it appears.',
               textAlign: TextAlign.center,
-              style: text.bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+              style: text.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: 24),
             ActionPillButton(

@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import 'spec_codec.dart';
+import 'tls_trust.dart';
 
 /// One MQTT 3.1.1 session over a socket the caller opened.
 ///
@@ -23,11 +24,8 @@ import 'spec_codec.dart';
 /// A duplex byte stream to a broker, abstracted so tests answer from canned
 /// bytes instead of a socket — the seam `KasaExchange` gives the TCP-JSON
 /// transport, one transport up.
-typedef MqttConnect = Future<MqttSocket> Function(
-  String host,
-  int port,
-  Duration timeout,
-);
+typedef MqttConnect =
+    Future<MqttSocket> Function(String host, int port, Duration timeout);
 
 /// The half of a socket this transport uses. Narrow on purpose: a fake that
 /// implements three members is a fake worth writing.
@@ -63,10 +61,19 @@ class MqttConnectionException implements UserFacingException {
   /// have to string-match this class's wording.
   final bool ackTimedOut;
 
+  /// True when the handshake failed because the device presented a
+  /// certificate different from the one pinned for it — refused by THIS
+  /// app's policy, not by the network. A [handshakeFailed] the caller must
+  /// not read as a cipher gap: nothing about retrying, rescanning or the
+  /// device's firmware will change the answer, and the one recovery is to
+  /// forget the device and pair it again.
+  final bool certificateChanged;
+
   const MqttConnectionException(
     this.message, {
     this.handshakeFailed = false,
     this.ackTimedOut = false,
+    this.certificateChanged = false,
   });
 
   @override
@@ -83,35 +90,170 @@ class MqttRefusedException implements UserFacingException {
 
   @override
   String get message => switch (code) {
-        1 => 'The device rejected the MQTT protocol version.',
-        2 => 'The device rejected this client id.',
-        3 => 'The device\'s broker is not available right now.',
-        4 => 'The device rejected the username or password.',
-        5 => 'The device refused this client.',
-        _ => 'The device refused the connection (MQTT code $code).',
-      };
+    1 => 'The device rejected the MQTT protocol version.',
+    2 => 'The device rejected this client id.',
+    3 => 'The device\'s broker is not available right now.',
+    4 => 'The device rejected the username or password.',
+    5 => 'The device refused this client.',
+    _ => 'The device refused the connection (MQTT code $code).',
+  };
 
   @override
   String toString() => message;
 }
 
+/// What a refused pin reads as, one sentence, device-neutral. The Roomba
+/// connector puts its own words on the same event because it knows what a
+/// changed certificate on a robot usually is (a factory reset that also
+/// minted a new password).
+const mqttCertificateChangedMessage =
+    'This device is presenting a different security certificate than it did '
+    'before. If you reset it or updated its firmware, remove it from Saved '
+    'devices and add it again. If you did not, something else may be '
+    'answering at its address.';
+
+/// What an UNREADABLE pin reads as. Not a changed certificate: the store the
+/// pin lives in could not be read — a keychain still locked after a cold
+/// start — so the policy refused rather than trust on first contact and
+/// overwrite a pin it could not see. Sending the user to remove and re-add
+/// the device for this erases a correct pin, and on a Roomba a password.
+const mqttPinUnreadableMessage =
+    'The saved security fingerprint for this device could not be read, so '
+    'the app would not guess. Unlock the phone (or reopen the app) and try '
+    'again — there is nothing wrong with the device.';
+
+/// What a chain the platform cannot verify reads as, for a profile that asks
+/// for standard validation. Nothing was pinned and nothing changed.
+const mqttUntrustedChainMessage =
+    "This device's security certificate could not be verified. Nothing "
+    'about it has changed — it simply is not signed by an authority this '
+    'phone trusts. Check that you are on the same network as the device, '
+    'with no proxy or sign-in page in between.';
+
+/// Open the TLS socket to an appliance's broker — the ONE place it happens.
+///
+/// [trust] decides the certificate for [identity] when both are given: the
+/// stored pin is loaded first (`prepare`, so the synchronous callback has it
+/// in hand), then `onBadCertificate` is the policy's evaluator. Without a
+/// trust store the socket accepts any certificate, which is what every
+/// caller here did before and what a spec declaring `verification: none`
+/// still asks for. Throws `dart:io`'s exceptions untranslated: each public
+/// connector puts its own device's words on them.
+Future<MqttSocket> openMqttTlsSocket(
+  String host,
+  int port,
+  Duration timeout, {
+  TlsTrust? trust,
+  String? identity,
+  TlsPolicy policy = TlsPolicy.trustOnFirstUse,
+}) async {
+  bool Function(X509Certificate) onBadCertificate = (_) => true;
+  if (trust != null && identity != null) {
+    await trust.prepare(identity);
+    final evaluate = trust.evaluator(
+      identity: identity,
+      policy: policy,
+      fallback: (_, _, _) => true,
+    );
+    onBadCertificate = (cert) => evaluate(cert, host, port);
+  }
+  // Ownership transfers to the adapter, which the session closes.
+  // ignore: close_sinks
+  final socket = await SecureSocket.connect(
+    host,
+    port,
+    timeout: timeout,
+    onBadCertificate: onBadCertificate,
+  );
+  return SocketAdapter(socket);
+}
+
 /// The default connector: TLS, accepting a self-signed certificate.
 ///
 /// A LAN appliance's certificate is self-signed with no chain to anything, so
-/// validating it is not a thing that can succeed. Callers that must not accept
-/// that pass their own connector.
-Future<MqttSocket> tlsConnect(String host, int port, Duration timeout) async {
-  try {
-    // Ownership transfers to the adapter, which the session closes.
-    // ignore: close_sinks
-    final socket = await SecureSocket.connect(
+/// validating it is not a thing that can succeed. Callers whose spec asks for
+/// more than that use [pinnedTlsConnect]; callers that must not accept it at
+/// all pass their own connector.
+Future<MqttSocket> tlsConnect(String host, int port, Duration timeout) =>
+    _translated(
       host,
       port,
-      timeout: timeout,
-      onBadCertificate: (_) => true,
+      timeout,
+      () => openMqttTlsSocket(host, port, timeout),
     );
-    return SocketAdapter(socket);
+
+/// A TLS connector that pins the broker's certificate on first sight under
+/// [identity] and refuses a different one after — the spec's
+/// `trust_on_first_use`, on the MQTT transport.
+///
+/// [identity] is what the CALLER considers stable (a Roomba's BLID, never
+/// its IP: see [identityFor]). A refused pin surfaces as an
+/// [MqttConnectionException] with `certificateChanged` set, so the layer
+/// above can say the one sentence that names the recovery rather than
+/// reporting a device that is switched off.
+MqttConnect pinnedTlsConnect(
+  TlsTrust trust, {
+  required String identity,
+  TlsPolicy policy = TlsPolicy.trustOnFirstUse,
+}) =>
+    (host, port, timeout) => _translated(
+      host,
+      port,
+      timeout,
+      () => openMqttTlsSocket(
+        host,
+        port,
+        timeout,
+        trust: trust,
+        identity: identity,
+        policy: policy,
+      ),
+      trust: trust,
+    );
+
+/// Run [open] and turn what `dart:io` throws into this transport's words.
+Future<MqttSocket> _translated(
+  String host,
+  int port,
+  Duration timeout,
+  Future<MqttSocket> Function() open, {
+  TlsTrust? trust,
+}) async {
+  // Whatever this handshake refuses, it records; whatever the last one
+  // refused must not be read as this one's reason.
+  trust?.clearRefusal(host);
+  try {
+    return await open();
   } on HandshakeException catch (e) {
+    // `onBadCertificate` returns a bool and the exception carries no reason,
+    // so a pin the policy refused arrives looking exactly like a cipher gap.
+    // The policy remembers, and is asked first.
+    // The REASON, not the bool. A pin the store could not read is refused
+    // too, and from here it looks exactly like a changed certificate. The
+    // HTTP path moved to refusalReason on this branch; this one did not, so
+    // a locked keychain told the user to remove the device and add it again
+    // — a factory-reset instruction for a transient storage failure, which,
+    // followed, erases a correct pin.
+    switch (trust?.refusalReason(host)) {
+      case TlsRefusal.certificateChanged:
+        throw const MqttConnectionException(
+          mqttCertificateChangedMessage,
+          handshakeFailed: true,
+          certificateChanged: true,
+        );
+      case TlsRefusal.pinUnreadable:
+        throw const MqttConnectionException(
+          mqttPinUnreadableMessage,
+          handshakeFailed: true,
+        );
+      case TlsRefusal.unverifiableChain:
+        throw const MqttConnectionException(
+          mqttUntrustedChainMessage,
+          handshakeFailed: true,
+        );
+      case null:
+        break;
+    }
     throw MqttConnectionException(
       'The TLS handshake with $host:$port failed ($e).',
       handshakeFailed: true,
@@ -120,7 +262,8 @@ Future<MqttSocket> tlsConnect(String host, int port, Duration timeout) async {
     throw MqttConnectionException('Could not reach $host:$port — ${e.message}');
   } on TimeoutException {
     throw MqttConnectionException(
-        '$host:$port did not answer within ${timeout.inSeconds}s.');
+      '$host:$port did not answer within ${timeout.inSeconds}s.',
+    );
   }
 }
 
@@ -135,7 +278,8 @@ Future<MqttSocket> plainConnect(String host, int port, Duration timeout) async {
     throw MqttConnectionException('Could not reach $host:$port — ${e.message}');
   } on TimeoutException {
     throw MqttConnectionException(
-        '$host:$port did not answer within ${timeout.inSeconds}s.');
+      '$host:$port did not answer within ${timeout.inSeconds}s.',
+    );
   }
 }
 
@@ -237,6 +381,16 @@ class MqttSession {
   Timer? _ping;
   final _buffer = <int>[];
 
+  /// Whether the last PINGREQ is still unanswered. Set when one is written,
+  /// cleared by ANY packet from the broker (anything arriving proves the
+  /// link, and a busy broker's PUBLISHes may well beat its PINGRESP), and
+  /// read by the next tick: a ping unanswered for a whole keepalive period
+  /// is the only sign of a half-open link — a phone that walked out of
+  /// Wi-Fi range, a robot that lost power without sending FIN — that the OS
+  /// will not report for minutes. Until then the writes just buffer,
+  /// [isConnected] stays true, and every press "succeeds" into the void.
+  bool _pingOutstanding = false;
+
   /// Bumped every time the session is torn down, so a chunk decode suspended
   /// across an `await` can tell it belongs to a session that has since closed
   /// (or been reopened) and bail before it touches the shared buffer. Without
@@ -267,13 +421,11 @@ class MqttSession {
   var _packetId = 0;
 
   MqttSession({
-    required SpecCodec codec,
+    required this._codec,
     MqttConnect? connect,
-    String label = 'mqtt',
+    this._label = 'mqtt',
     this.ackWait = ackTimeout,
-  })  : _codec = codec,
-        _connect = connect ?? tlsConnect,
-        _label = label;
+  }) : _connect = connect ?? tlsConnect;
 
   /// Every PUBLISH the broker has sent since connecting.
   Stream<MqttMessage> get messages => _messages.stream;
@@ -309,16 +461,20 @@ class MqttSession {
     _subscription = socket.incoming.listen(
       _enqueue,
       onError: (Object error) => _fail(error),
-      onDone: () => _fail(onHangUp?.call() ??
-          const MqttConnectionException('The device closed the connection.')),
+      onDone: () => _fail(
+        onHangUp?.call() ??
+            const MqttConnectionException('The device closed the connection.'),
+      ),
       cancelOnError: false,
     );
 
-    socket.add(await _codec.mqttConnectPacket(
-      clientId: clientId,
-      username: username,
-      password: password,
-    ));
+    socket.add(
+      await _codec.mqttConnectPacket(
+        clientId: clientId,
+        username: username,
+        password: password,
+      ),
+    );
 
     try {
       final acknowledged = _connected!.future;
@@ -349,17 +505,46 @@ class MqttSession {
       rethrow;
     }
 
+    // The CONNACK can be the broker's last word: a hang-up right behind it
+    // fails the session — close() nulls the socket — in the same turn that
+    // completed the ack, before this method resumes. Installing the
+    // keepalive then would orphan a timer close() has already run past, and
+    // returning normally would hand the caller a session that is already
+    // gone: its very next subscribe would throw a raw hang-up outside the
+    // translating catch its connect sat in. Identity, not null, for the
+    // reason the ping callback gives below.
+    if (!identical(_socket, socket)) {
+      throw onHangUp?.call() ??
+          const MqttConnectionException('The device closed the connection.');
+    }
+
     Log.hub.debug('$_label: login acknowledged');
 
+    _pingOutstanding = false;
+    // Never two timers on one session: a previous one would keep firing
+    // against the socket it can no longer tell from the current one.
+    _ping?.cancel();
     _ping = Timer.periodic(pingInterval, (_) async {
       final open = _socket;
       if (open == null) return;
+      if (_pingOutstanding) {
+        // See [_pingOutstanding]. Failing the session is what makes the
+        // next send REOPEN (_fail's close() nulls the socket) instead of
+        // publishing into a corpse for as long as the OS takes to notice.
+        _fail(
+          const MqttConnectionException(
+            'The device stopped answering keepalives.',
+          ),
+        );
+        return;
+      }
       final packet = await _codec.mqttPingreqPacket();
       // Re-check across the await, and check IDENTITY rather than null:
       // close() can land in that window, and a later connect() can even have
       // put a new socket in place. Writing to the old one throws inside a
       // timer callback, where nothing is waiting to catch it.
       if (!identical(_socket, open)) return;
+      _pingOutstanding = true;
       open.add(packet);
     });
   }
@@ -369,7 +554,8 @@ class MqttSession {
     final socket = _requireSocket();
     _packetId = (_packetId % 0xFFFF) + 1;
     socket.add(
-        await _codec.mqttSubscribePacket(topic: topic, packetId: _packetId));
+      await _codec.mqttSubscribePacket(topic: topic, packetId: _packetId),
+    );
   }
 
   /// Publish one message at QoS 0.
@@ -406,8 +592,11 @@ class MqttSession {
   Future<void> _onBytes(Uint8List chunk) async {
     final generation = _generation;
     if (_buffer.length + chunk.length > _maxBufferedBytes) {
-      _fail(const MqttConnectionException(
-          'The MQTT stream exceeded its 1 MiB receive bound.'));
+      _fail(
+        const MqttConnectionException(
+          'The MQTT stream exceeded its 1 MiB receive bound.',
+        ),
+      );
       return;
     }
     _buffer.addAll(chunk);
@@ -426,6 +615,9 @@ class MqttSession {
     if (generation != _generation) return;
     _buffer.removeRange(0, parsed.consumed);
 
+    // Any complete packet answers the keepalive — PINGRESP included, which
+    // is otherwise the `default` below.
+    if (parsed.packets.isNotEmpty) _pingOutstanding = false;
     for (final packet in parsed.packets) {
       switch (packet.kind) {
         case 'connack':
@@ -434,8 +626,10 @@ class MqttSession {
           } else {
             // Logged as well as thrown because the throw becomes UI text that
             // deliberately does not carry a number.
-            Log.hub.warning('$_label: broker refused the login, CONNACK code '
-                '${packet.code}');
+            Log.hub.warning(
+              '$_label: broker refused the login, CONNACK code '
+              '${packet.code}',
+            );
             _fail(MqttRefusedException(packet.code));
           }
         case 'publish':

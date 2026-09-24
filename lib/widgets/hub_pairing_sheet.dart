@@ -45,18 +45,14 @@ class HubPairingSheet extends ConsumerStatefulWidget {
     required String specYaml,
     required String host,
     required String bridgeId,
-  }) =>
-      showModalBottomSheet<PairingResult>(
-        context: context,
-        // Dismissing IS the cancel gesture; the sheet cleans up its poll.
-        isDismissible: true,
-        showDragHandle: true,
-        builder: (_) => HubPairingSheet(
-          specYaml: specYaml,
-          host: host,
-          bridgeId: bridgeId,
-        ),
-      );
+  }) => showModalBottomSheet<PairingResult>(
+    context: context,
+    // Dismissing IS the cancel gesture; the sheet cleans up its poll.
+    isDismissible: true,
+    showDragHandle: true,
+    builder: (_) =>
+        HubPairingSheet(specYaml: specYaml, host: host, bridgeId: bridgeId),
+  );
 
   @override
   ConsumerState<HubPairingSheet> createState() => _HubPairingSheetState();
@@ -105,7 +101,9 @@ class _HubPairingSheetState extends ConsumerState<HubPairingSheet> {
     });
 
     try {
-      final result = await ref.read(huePairingServiceProvider).pair(
+      final result = await ref
+          .read(huePairingServiceProvider)
+          .pair(
             specYaml: widget.specYaml,
             host: widget.host,
             bridgeId: widget.bridgeId,
@@ -132,9 +130,9 @@ class _HubPairingSheetState extends ConsumerState<HubPairingSheet> {
             context: 'pairing',
             fallback: e is HubTlsException
                 ? 'The bridge failed its security check — see the device '
-                    'details for what changed.'
+                      'details for what changed.'
                 : 'Could not reach the bridge. Check that it is powered '
-                    'and on this network.',
+                      'and on this network.',
           );
         });
       }
@@ -158,8 +156,10 @@ class _HubPairingSheetState extends ConsumerState<HubPairingSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Pair with this bridge',
-                style: text.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+            Text(
+              'Pair with this bridge',
+              style: text.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             Text(
               'Press the round link button on top of the Hue Bridge. '
@@ -184,12 +184,17 @@ class _HubPairingSheetState extends ConsumerState<HubPairingSheet> {
                 ),
               ),
             ] else if (_timedOut) ...[
-              Icon(Icons.timer_off_outlined,
-                  size: 40, color: scheme.onSurfaceVariant),
+              Icon(
+                Icons.timer_off_outlined,
+                size: 40,
+                color: scheme.onSurfaceVariant,
+              ),
               const SizedBox(height: 8),
               Center(
-                child: Text("Didn't see the button press.",
-                    style: text.bodyMedium),
+                child: Text(
+                  "Didn't see the button press.",
+                  style: text.bodyMedium,
+                ),
               ),
               const SizedBox(height: 12),
               FilledButton.icon(
@@ -198,8 +203,10 @@ class _HubPairingSheetState extends ConsumerState<HubPairingSheet> {
                 label: const Text('Try again'),
               ),
             ] else if (_error != null) ...[
-              Text(_error!,
-                  style: text.bodyMedium?.copyWith(color: scheme.error)),
+              Text(
+                _error!,
+                style: text.bodyMedium?.copyWith(color: scheme.error),
+              ),
               const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed: () => unawaited(_start()),

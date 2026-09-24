@@ -162,6 +162,18 @@ fn envelope(body: &str, id: u32, ts: u32) -> Result<String, ProtocolError> {
 /// against the device.
 pub fn parse_user_key(hex: &str) -> Result<[u8; USER_KEY_LEN], ProtocolError> {
     let hex = hex.trim();
+    // Checked BEFORE the length: `str::len()` counts bytes and the slices
+    // below are byte-indexed, so "€" plus 29 ASCII characters is 32 bytes
+    // that passes the length check and then panics on a non-char-boundary
+    // slice — a PanicException in Dart instead of the typed error, from a
+    // string the user typed. Same policy as image_upload's static_key.
+    if !hex.is_ascii() {
+        return Err(ProtocolError::ParameterInvalid {
+            name: "user_key".to_string(),
+            value: 0.0,
+            reason: "the user key is hexadecimal (0-9, a-f)".to_string(),
+        });
+    }
     if hex.len() != USER_KEY_LEN * 2 {
         return Err(ProtocolError::ParameterInvalid {
             name: "user_key".to_string(),
@@ -387,6 +399,15 @@ entities:
             parse_user_key(&KEY_HEX.replace('0', "g")).is_err(),
             "not hex"
         );
+        // 32 BYTES that are not 32 characters: "€" is three of them. This
+        // used to pass the length check and panic slicing mid-character —
+        // a PanicException in Dart for a string the user typed.
+        let multibyte = format!("\u{20ac}{}", "0".repeat(29));
+        assert_eq!(multibyte.len(), USER_KEY_LEN * 2);
+        assert!(matches!(
+            parse_user_key(&multibyte),
+            Err(ProtocolError::ParameterInvalid { .. })
+        ));
     }
 
     #[test]

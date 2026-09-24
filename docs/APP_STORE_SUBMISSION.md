@@ -4,12 +4,15 @@ First iOS submission for **Liberated Bread** — `ca.pigscanfly.liberatedbread`,
 version `0.1.0+1`. App ID owner: **Pigs Can Fly Labs LLC — Team ID
 `GQ358PSWM3`** (the `ca.pigscanfly.*` bundle belongs to this org team).
 
-> ⚠️ **Team mismatch to fix:** the Mac's current signing cert is the *individual*
-> "Holden Karau" team (`B6SUD26678`). Since the App ID is registered under the
-> LLC (`GQ358PSWM3`), your **Distribution cert and App Store provisioning profile
-> must be issued under the LLC team**, and `ExportOptions-appstore.plist` uses
-> `GQ358PSWM3`. (If you actually intend to ship under the individual team
-> instead, switch the App ID + plist back to `B6SUD26678`.)
+> ✅ **Development identity and multicast grant: done** (2026-09-16). The Mac's
+> Xcode-managed development profile is issued to Pigs Can Fly Labs LLC
+> (`GQ358PSWM3`) and carries `com.apple.developer.networking.multicast`, which
+> only exists once Apple has granted the capability — so Step 1 is granted and
+> the project commits `DEVELOPMENT_TEAM = GQ358PSWM3` on every configuration.
+> **Still needed: an Apple Distribution certificate under `GQ358PSWM3`**
+> (Step 2). `ExportOptions-appstore.plist` already names that team. (An older
+> version of this note said the Mac only had a cert on the individual team
+> `B6SUD26678`; that stopped being true when the LLC account was signed in.)
 
 Timeline: ~1 month, so this follows **Path A** — file the slow Apple approval
 first, stage everything else, submit once it lands. Everything under "Ready in
@@ -17,8 +20,8 @@ the repo" is committed and validated (incl. a real iOS build + app run on the Ma
 Mini). Everything under the numbered steps needs your Apple account / App Store
 Connect / a Mac.
 
-Work the numbered steps roughly in order; **Step 1 is the long pole — do it
-today** because Apple's grant can take days.
+Work the numbered steps roughly in order. Step 1's grant has landed, so the
+long pole is now Step 2 (a Distribution certificate under the LLC team).
 
 ---
 
@@ -26,7 +29,7 @@ today** because Apple's grant can take days.
 
 - **Export-compliance key** — `ios/Runner/Info.plist` declares
   `ITSAppUsesNonExemptEncryption = true` (you chose: uses encryption, claim the
-  mass-market exemption; see Step 7).
+  mass-market exemption; see Step 6).
 - **Privacy manifest ships** — `PrivacyInfo.xcprivacy` is wired into the Runner
   target (Copy Bundle Resources) and was confirmed inside the built `.app`.
 - **App Store ExportOptions** — `ios/ExportOptions-appstore.plist`
@@ -34,11 +37,19 @@ today** because Apple's grant can take days.
   profile name `"Liberated Bread App Store"`).
 - **Bluetooth / Local Network / Bonjour** usage strings + `NSBonjourServices`
   present and in sync with the specs.
-- **First-launch Terms gate** links the disclaimer + privacy URLs, marks the app
-  experimental.
+- **First-launch Terms gate** links the disclaimer + privacy URLs and states the
+  app is independent and unofficial. Deliberately does NOT say "experimental" or
+  "beta": Guideline 2.2 rejects demos and betas, and reviewers act on that
+  wording wherever they see it — first-run screen, screenshots, description.
 - **Icons** — full set incl. the 1024 marketing icon (RGB, no alpha).
-- **Version** stays `0.1.0+1` (matches the experimental framing; to ship as 1.0.0
-  edit only `pubspec.yaml`'s `version:`).
+- **Marketing version** stays `0.1.0` (to ship as 1.0.0 edit only
+  `pubspec.yaml`'s `version:` — consider doing so, since a 0.x version alongside
+  any "early"/"preview" wording is part of what reads as a beta under Guideline
+  2.2). The **build number** — the
+  `+N` half — must increase on every upload; see the note in Step 5. Do not
+  freeze it: App Store Connect rejects a second upload carrying a
+  `CFBundleVersion` it has already seen, and `pubspec.yaml` is the only source
+  of that value.
 
 **On-Mac validation (Mac Mini, Xcode 26.3 / Flutter 3.44.8):**
 - `flutter build ios --release --no-codesign` → builds clean (Runner.app 38.5 MB);
@@ -96,7 +107,7 @@ screen off.
 
 ---
 
-## Step 1 — File the multicast entitlement request  ⏳ *(do first; grant takes days)*
+## Step 1 — File the multicast entitlement request  ✅ *(granted — the development profile carries the entitlement)*
 
 The app's Wi-Fi discovery (mDNS + SSDP) needs `com.apple.developer.networking.multicast`.
 It's declared in `ios/Runner/Runner.entitlements`, but Apple grants it by manual
@@ -145,10 +156,26 @@ The Mac is already staged: Flutter 3.44.8 is at `~/flutter-3.44.8`. Build from a
 clean checkout of this branch:
 ```sh
 export PATH="$HOME/.cargo/bin:$HOME/flutter-3.44.8/bin:/opt/homebrew/bin:$PATH"
-git clone -b unfuck git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb && cd ~/lb
+git clone -b main git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb && cd ~/lb
+# Preflight: the privacy manifest MUST declare the Rust core's file-timestamp
+# APIs or App Store Connect rejects the upload (ITMS-91053). `unfuck`, which
+# this line used to clone, predates that declaration AND the committed
+# DEVELOPMENT_TEAM; following the runbook verbatim reproduced the rejection it
+# says is fixed. Until the branch carrying the fix is on main, clone that one.
+grep -q NSPrivacyAccessedAPICategoryFileTimestamp ios/Runner/PrivacyInfo.xcprivacy || { echo "privacy manifest lacks the FileTimestamp declaration — wrong branch"; exit 1; }
 flutter pub get
-flutter build ipa --release --export-options-plist=ios/ExportOptions-appstore.plist
+flutter build ipa --release --build-number=$(date +%Y%m%d%H%M) \
+  --export-options-plist=ios/ExportOptions-appstore.plist
 ```
+
+**`--build-number` is not optional on a re-upload.** `pubspec.yaml`'s
+`version: 0.1.0+1` is the only source of `CFBundleVersion` (`Info.plist` reads
+`$(FLUTTER_BUILD_NUMBER)`), and nothing bumps it. The first upload succeeds; the
+second — a TestFlight build after a rejection, or the re-export once the
+multicast entitlement is granted — is refused by App Store Connect for a
+duplicate build number, and the refusal arrives by email after the upload, not
+during it. Any monotonic value works; the timestamp above needs no state.
+`.github/workflows/ios-adhoc.yml` uses `github.run_number` for the same reason.
 That needs the Step-2 cert + Step-4 profile in the keychain. Then upload the IPA
 (`build/ios/ipa/*.ipa`) one of:
 - **Transporter.app** (Mac App Store) — drag the IPA in, Deliver. Simplest.
@@ -173,9 +200,27 @@ self-classification report — a once-a-year email (template at the bottom) to
 - **Privacy Policy URL:** `https://liberatedbread.com/privacy/` (matches the
   in-app link).
 - **Data collection:** the app collects nothing → answer **"Data Not
-  Collected."** (It makes one anonymous GET for a promo banner and, only if the
-  user configures it, talks to their own Home Assistant — no identifiers leave
-  the device.)
+  Collected."** The rationale, which must match the description below and the
+  comment in `ios/Runner/PrivacyInfo.xcprivacy` word for word in substance: no
+  account is required, no analytics or advertising SDK is linked, and nothing
+  about what the user controls is reported anywhere. The app is not
+  offline-only, though — these are the connections it opens beyond the user's
+  own devices, every one optional or anonymous, and none a collection of data
+  by this app:
+  - an anonymous GET for the promotional banner config;
+  - a device-profile pack download, if the user installs one — from GitHub or
+    a URL they enter (`lib/services/spec_pack_service.dart`);
+  - the user's own Home Assistant server, if they configure it;
+  - a one-time sign-in to iRobot's cloud, only if the user picks the account
+    route for a robot vacuum instead of typing its details in by hand
+    (`lib/services/irobot_cloud_service.dart`) — their vendor account
+    credentials go to the vendor to read the robot's local password, which is
+    what makes local control possible afterwards; the password is used once
+    and not stored. Disclosed on the form that asks for them.
+
+  If App Review asks how "Data Not Collected" squares with a sign-in form, the
+  answer is the last bullet: the credentials are sent to the vendor, not to
+  us, and no identifier leaves the device for this app's benefit.
 
 ## Step 8 — Listing metadata + screenshots (ASC)
 
@@ -218,23 +263,28 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 
 **Promotional text (≤170 chars):**
 > Control the smart devices on your own network — directly over Bluetooth and
-> Wi-Fi, with no account and no cloud. Experimental and open.
+> Wi-Fi, with no account required. Open source.
 
 **Description:**
 > Liberated Bread is a universal remote for the devices on your own network. It
 > talks to them directly — over Bluetooth Low Energy and your local Wi-Fi — with
-> no account, no cloud relay, and no data collection.
+> no account required, no cloud relay, and no data collection.
 >
 > It ships with a catalogue of device profiles and can discover and control a
 > wide range of gear on your LAN, including smart plugs and bulbs, media players
 > and TVs, air purifiers, robot vacuums, treadmills and walking pads, label
 > printers, cameras, and more — plus a bridge to your own Home Assistant server.
 >
-> Privacy by design: nothing you do leaves your device. The app's only outbound
-> internet request is an anonymous check for a promotional banner. Everything
-> else is direct, local device control.
+> Privacy by design: device control is direct and local, and nothing about it
+> is reported anywhere. The app makes no account and collects no data. The only
+> connections it opens beyond your own devices are ones you can see and choose:
+> an anonymous check for an in-app banner, downloading a device-profile pack if
+> you install one, your own Home Assistant server if you configure it, and — if
+> you pick the account route for a robot vacuum instead of entering its details
+> by hand — a one-time sign-in to the vendor's cloud to read your robot's local
+> password.
 >
-> This is experimental software provided as-is. Please read the in-app terms and
+> This is independent, community-maintained software provided as-is. Please read the in-app terms and
 > the disclaimer at https://liberatedbread.com/disclaimer/ before use — some
 > supported devices (for example light-based beauty devices) can cause harm if
 > used incorrectly; always follow the manufacturer's own safety guidance.
@@ -244,7 +294,7 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > automation,ble,offline
 
 **What's New (first version):**
-> First release. Experimental local control for Bluetooth and Wi-Fi devices on
+> First release. Local control for Bluetooth and Wi-Fi devices on
 > your own network.
 
 > ⚠️ Trademark check: the description lists device *categories*, not brand names,
@@ -272,10 +322,15 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 ## On-Mac test results
 
 Run on the Mac Mini (Xcode 26.3, Flutter 3.44.8, Rust arm64, iOS 26.3 Simulator /
-iPhone 16e). Summary: **the app builds, launches, and runs on iOS**; every
-failure observed is environmental (a bare simulator has no real devices/LAN, and
-some host tests do real socket/BLE I/O that behaves differently on macOS) — none
-is a defect in the shipped app, and Linux CI is green on all of them.
+iPhone 16e). Summary: **the app builds, launches, and runs on iOS**.
+
+> **Corrected 2026-09-03.** This section previously called every failure below
+> environmental. Three of them were not, and saying so hid real bugs for a
+> release cycle. A failure that only reproduces on one machine is not thereby
+> environmental — it is a failure that only one machine is positioned to see,
+> which is the opposite of harmless when that machine is the only one that
+> builds for the platform you ship. The audit that found them is kept out of
+> the repo; ask a maintainer for it.
 
 - **iOS build:** `flutter build ios --release --no-codesign` ✅ — Runner.app
   38.5 MB; Rust FFI linked via cargokit; `PrivacyInfo.xcprivacy` +
@@ -284,19 +339,39 @@ is a defect in the shipped app, and Linux CI is green on all of them.
   captured); the banner fetch fails gracefully offline as designed.
 - **Integration tests on the iOS Simulator:**
   - ✅ `app_launch`, `mock_flow`, `error_flow`, `group_flow`, `native_core` — all pass.
-  - ⚠️ `e2e_walkthrough` — 3 pass, 4 fail: *scan finds devices*, *connect to a
-    device*, *spec-pack install*, *Home Assistant settings*. All four need a real
-    device / LAN / HA server the bare simulator doesn't have. Not app defects.
+  - ✅ `e2e_walkthrough` — 7/7, 30 screenshots (2026-09-16, iPhone 17
+    simulator). It was 3 pass / 4 fail for a release cycle, and the cause was
+    the test, not the environment: four steps pumped `LiberatedBreadApp`
+    without overriding `sharedPreferencesProvider` (they now go through the
+    same `_pumpApp` main() does), and the device step still looked for the
+    raw "Control Service" / "Power on" view that a matched light stopped
+    rendering when the entity cards arrived. The step now waits for the card
+    and screenshots before asserting, so a future failure leaves a picture.
   - `linux_virtual_ble` — not run on iOS (Linux-only harness).
 - **Rust (`cargo test`) on macOS arm64:** ✅ all suites pass.
-- **Dart unit/widget suite on the macOS host:** 1861 pass / 13 skip / **4 fail**,
-  all environmental host quirks (Linux CI passes them):
-  - `platform/deployment_targets_test` — an artifact of Flutter 3.44.8's project
-    migration on the Mac working copy (the committed project is consistent).
-  - `services/real_ble_service_emulated_test` — flutter_blue_plus reports
-    "Device is disconnected" on a macOS host (no CoreBluetooth device).
-  - `services/multicast_lock_test` (×2) — real UDP send on :5353 returns
-    `No route to host (errno 65)` on the macOS host sandbox.
+- **Dart unit/widget suite on the macOS host:** 1863 pass / 13 skip / **2 fail**
+  (was 4; two were fixed by this audit):
+  - `platform/deployment_targets_test` — **fixed.** It asserted a
+    `MinimumOSVersion` key in `ios/Flutter/AppFrameworkInfo.plist` that the
+    pinned toolchain *deletes on every iOS build* and no longer ships in its
+    template. The committed plist was the stale artifact, not the Mac working
+    copy — the earlier note here had it backwards. Linux CI stayed green only
+    because it never builds for iOS.
+  - `services/real_ble_service_emulated_test` — **fixed 2026-09-15** (F-019).
+    It was never "no CoreBluetooth device": the emulated harness needs no
+    radio. The one failing case held an enable in flight by withholding the
+    CCCD ack, which resolves at the service's confirmation timeout — 3 s on
+    Linux, 15 s everywhere else — so it only ever passed on Linux. The
+    emulated peripheral can now ack late (`cccdConfirmDelay`), which is the
+    real-world shape and the same on every host.
+  - `services/multicast_lock_test` (×2) — genuinely environmental: real UDP
+    send on :5353 returns `No route to host (errno 65)` under the macOS host
+    sandbox.
 
-Bottom line: nothing in the app blocks iOS; remaining work is purely the Apple
-signing/account steps above.
+Bottom line: the app builds and runs on iOS, but two things block a submission
+today and neither is an Apple account step. The privacy manifest had to declare
+the Rust core's required-reason file-timestamp APIs or App Store Connect refuses
+the upload (ITMS-91053) — fixed, see `ios/Runner/PrivacyInfo.xcprivacy`. And the
+build number must increase per upload (Step 5). The pinned Bluetooth plugin also
+carries two native crashers; they are written up in the audit notes a
+maintainer can share.

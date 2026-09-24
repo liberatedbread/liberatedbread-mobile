@@ -35,7 +35,11 @@ Future<void> openNetworkControls({
   String? specKey,
 }) async {
   if (!await _adopted(
-      context: context, ref: ref, device: device, controls: controls)) {
+    context: context,
+    ref: ref,
+    device: device,
+    controls: controls,
+  )) {
     return;
   }
   if (!context.mounted) return;
@@ -55,13 +59,13 @@ Future<void> openNetworkControls({
               specKey: specKey,
             )
           : controls.isHub
-              ? HubDeviceScreen(device: device, controls: controls)
-              : NetworkDeviceScreen(
-                  device: device,
-                  controls: controls,
-                  category: category,
-                  specKey: specKey,
-                ),
+          ? HubDeviceScreen(device: device, controls: controls)
+          : NetworkDeviceScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            ),
     ),
   );
 }
@@ -81,11 +85,14 @@ Future<bool> _adopted({
   required NetworkControls controls,
 }) async {
   final blid = device.txt['blid'];
-  final isRoomba = blid != null &&
+  final isRoomba =
+      blid != null &&
       blid.isNotEmpty &&
-      controls.entities.any((entity) =>
-          entity.transport == roombaTransport ||
-          entity.actions.any((a) => a.transport == roombaTransport));
+      controls.entities.any(
+        (entity) =>
+            entity.transport == roombaTransport ||
+            entity.actions.any((a) => a.transport == roombaTransport),
+      );
   if (!isRoomba) return true;
 
   final store = ref.read(roombaCredentialStoreProvider);

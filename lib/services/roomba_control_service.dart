@@ -9,6 +9,7 @@ import '../core/log.dart';
 import 'mqtt_session.dart';
 import 'roomba_credential_store.dart';
 import 'spec_codec.dart';
+import 'tls_trust.dart';
 
 /// A TLS connection to a robot: the shared MQTT socket seam under the name
 /// this file has always used.
@@ -56,9 +57,20 @@ class RoombaConnectionException implements UserFacingException {
   /// means the cipher gap above rather than anything the user can fix.
   final bool legacyTlsSuspected;
 
+  /// True when the robot presented a certificate different from the one
+  /// pinned for its BLID, and this app refused to send the password to it.
+  ///
+  /// Never set together with [legacyTlsSuspected]: a refused pin is a
+  /// handshake failure too, but blaming the cipher gap for it would send the
+  /// user to a computer to fetch a password this app has already decided
+  /// not to hand over. Retrying is pointless — the answer is the same every
+  /// time — so the password fetch stops at the first one.
+  final bool certificateChanged;
+
   const RoombaConnectionException(
     this.message, {
     this.legacyTlsSuspected = false,
+    this.certificateChanged = false,
   });
 
   @override
@@ -88,45 +100,97 @@ class RoombaAuthException implements UserFacingException {
 
   @override
   String get message => switch (code) {
-        4 => 'The robot rejected this BLID and password. If it has been '
-            'factory reset since you saved them, the reset made a new '
-            'password — run the handshake again.',
-        5 => 'The robot refused this client. Close the iRobot app: the robot '
-            'serves one local connection at a time.',
-        _ => 'The robot refused the connection (MQTT code $code).',
-      };
+    4 =>
+      'The robot rejected this BLID and password. If it has been '
+          'factory reset since you saved them, the reset made a new '
+          'password — run the handshake again.',
+    5 =>
+      'The robot refused this client. Close the iRobot app: the robot '
+          'serves one local connection at a time.',
+    _ => 'The robot refused the connection (MQTT code $code).',
+  };
 
   @override
   String toString() => message;
 }
 
-/// The default connector: real TLS to a real robot.
+/// What a refused pin reads as on a robot.
 ///
-/// `onBadCertificate` always accepts. The robot's certificate is self-signed
-/// with no chain to anything, so validating it is not a thing that can succeed;
-/// the spec says to pin on first sight instead. This app does not pin yet —
-/// what it protects is a vacuum cleaner's clean/dock commands on the owner's
-/// own LAN, and refusing to connect at all would be the larger harm. The
-/// credential does cross this connection, which is the argument for pinning
-/// later; it is recorded here rather than left implied.
-Future<RoombaTlsSocket> _realTlsConnect(
+/// Its own wording rather than [mqttCertificateChangedMessage] because a
+/// robot's certificate changes for one reason far more often than any other
+/// — a factory reset — and that reset also minted a new password, so
+/// "add it again" here means redoing the handshake, not just re-saving.
+const roombaCertificateChangedMessage =
+    'This robot is presenting a different security certificate than it did '
+    'before, so the password was not sent. If you factory-reset it, remove it '
+    'from Saved devices and adopt it again — the reset also made a new '
+    'password. If you did not, something else may be answering at its '
+    'address.';
+
+/// The pin could not be READ, which is not the robot's doing and not a
+/// reset: the password was withheld because the policy would not trust on
+/// first contact over a pin it could not see. "Remove it and adopt it again"
+/// here would throw away a correct pin and the stored password for a locked
+/// keychain.
+const roombaPinUnreadableMessage =
+    'The saved security fingerprint for this robot could not be read, so the '
+    'password was not sent. Unlock the phone (or reopen the app) and try '
+    'again — there is nothing wrong with the robot, and nothing to reset.';
+
+/// The default connector: real TLS to a real robot, pinned on first sight.
+///
+/// The robot's certificate is self-signed with no chain to anything, so
+/// validating it against a CA is not a thing that can succeed; the spec says
+/// to pin on first sight instead, and [trust] does that under [identity] —
+/// `roomba:<BLID>`, never the IP, which is a DHCP lease. The password crosses
+/// this connection on every reconnect (and, during the HOME-button
+/// disclosure, the freshly minted one arrives over it), so a certificate that
+/// changed since first sight is refused rather than excused: the pin is only
+/// ever cleared by forgetting the device.
+///
+/// Without a trust store the connector accepts any certificate — the test
+/// seam, and what this code did before it pinned. Production always passes
+/// one (see `roombaPasswordServiceProvider` and `roombaClientProvider`).
+Future<RoombaTlsSocket> roombaTlsConnect(
   String host,
   int port,
-  Duration timeout,
-) async {
+  Duration timeout, {
+  required TlsTrust? trust,
+  required String identity,
+}) async {
+  // See mqtt_session's connector: this handshake's reason, not the last one's.
+  trust?.clearRefusal(host);
   try {
     // Ownership transfers to the adapter, which every caller closes in a
     // `finally` (the password handshake) or in `close()` (the MQTT client).
     // Closing it here would return a dead socket.
-    // ignore: close_sinks
-    final socket = await SecureSocket.connect(
+    return await openMqttTlsSocket(
       host,
       port,
-      timeout: timeout,
-      onBadCertificate: (_) => true,
+      timeout,
+      trust: trust,
+      identity: identity,
     );
-    return SocketAdapter(socket);
   } on HandshakeException catch (e) {
+    // A pin this app refused fails the handshake exactly the way the cipher
+    // gap does, and `onBadCertificate` cannot say which. The policy can.
+    // The reason, not the bool — see mqtt_session's connector. A pin the
+    // store could not read is a refusal too, and the "factory reset" advice
+    // below it is exactly wrong for it.
+    switch (trust?.refusalReason(host)) {
+      case TlsRefusal.certificateChanged:
+        throw const RoombaConnectionException(
+          roombaCertificateChangedMessage,
+          certificateChanged: true,
+        );
+      case TlsRefusal.pinUnreadable:
+        throw const RoombaConnectionException(roombaPinUnreadableMessage);
+      case TlsRefusal.unverifiableChain:
+      case null:
+        // A robot is pinned on first sight, never chain-validated; anything
+        // else is the cipher gap below.
+        break;
+    }
     throw RoombaConnectionException(
       'The TLS handshake with $host failed. Older Roomba firmware only offers '
       'the AES128-SHA256 cipher, which this phone\'s TLS library no longer '
@@ -155,7 +219,8 @@ Future<RoombaTlsSocket> _realTlsConnect(
 /// testable without a keychain.
 class RoombaPasswordService {
   final SpecCodec _codec;
-  final RoombaTlsConnect _connect;
+  final RoombaTlsConnect? _connect;
+  final TlsTrust? _trust;
 
   /// One attempt's ceiling. dorita980 uses ten seconds; a robot in disclosure
   /// mode answers in milliseconds, so this is generous and still fails a robot
@@ -171,37 +236,61 @@ class RoombaPasswordService {
 
   static const retryInterval = Duration(milliseconds: 600);
 
-  RoombaPasswordService({
-    required SpecCodec codec,
-    RoombaTlsConnect? connect,
-  })  : _codec = codec,
-        _connect = connect ?? _realTlsConnect;
+  /// [trust] pins the robot's certificate (see [roombaTlsConnect]); [connect]
+  /// replaces the socket entirely and is the test seam.
+  RoombaPasswordService({required this._codec, this._connect, this._trust});
+
+  /// The connector for one robot: the injected seam, or real TLS pinned
+  /// under the robot's BLID. A caller that does not know the BLID yet gets a
+  /// pin keyed by host — honest within a DHCP lease, and cleared by the same
+  /// forget path — rather than no pin at all.
+  RoombaTlsConnect _connectorFor(String host, String? blid) {
+    final injected = _connect;
+    if (injected != null) return injected;
+    final identity = (blid != null && blid.isNotEmpty)
+        ? roombaTlsIdentity(blid)
+        : identityFor(host: host);
+    return (host, port, timeout) => roombaTlsConnect(
+      host,
+      port,
+      timeout,
+      trust: _trust,
+      identity: identity,
+    );
+  }
 
   /// Ask [host] for its password. Call this straight after the user releases
   /// the HOME button — the robot's disclosure window is short.
   ///
-  /// [onAttempt] fires before each try with the attempt number, which is what
-  /// the wizard drives its progress text from.
+  /// [blid] keys the certificate pin; the wizard knows it from the robot's
+  /// announcement, and passing it is what lets the pin the handshake writes
+  /// be the one every later MQTT session checks. [onAttempt] fires before
+  /// each try with the attempt number, which is what the wizard drives its
+  /// progress text from.
   Future<String> fetchPassword(
     String host, {
+    String? blid,
     int attempts = defaultAttempts,
     int port = roombaPort,
     void Function(int attempt)? onAttempt,
   }) async {
     final probe = await _codec.roombaPasswordProbe();
+    final connect = _connectorFor(host, blid);
     Object? lastError;
 
     for (var attempt = 1; attempt <= attempts; attempt++) {
       onAttempt?.call(attempt);
       try {
-        final reply = await _exchange(host, port, probe);
+        final reply = await _exchange(connect, host, port, probe);
         final password = await _codec.roombaParsePasswordReply(reply: reply);
         Log.hub.info('password disclosed by robot at $host');
         return password;
       } on RoombaConnectionException catch (e) {
         // A cipher failure will fail identically every time; retrying it just
-        // wastes the user's disclosure window.
-        if (e.legacyTlsSuspected) rethrow;
+        // wastes the user's disclosure window. So will a refused pin — and
+        // every retry would be another attempt to hand the password to
+        // whatever is answering.
+        if (e.legacyTlsSuspected || e.certificateChanged) rethrow;
         lastError = e;
       } on RoombaPasswordException catch (e) {
         if (!e.retryable) rethrow;
@@ -237,8 +326,13 @@ class RoombaPasswordService {
   /// the first chunk as the reply: TLS delivers the two-byte header separately
   /// often enough that the published clients each grew a different workaround
   /// for it, which is exactly how their offsets came to disagree.
-  Future<List<int>> _exchange(String host, int port, List<int> probe) async {
-    final socket = await _connect(host, port, attemptTimeout);
+  Future<List<int>> _exchange(
+    RoombaTlsConnect connect,
+    String host,
+    int port,
+    List<int> probe,
+  ) async {
+    final socket = await connect(host, port, attemptTimeout);
     try {
       socket.add(probe);
       final buffer = BytesBuilder(copy: false);
@@ -274,7 +368,14 @@ class RoombaPasswordService {
 /// integration polls rather than subscribing forever.
 class RoombaMqttClient {
   final SpecCodec _codec;
-  final MqttSession _session;
+  final RoombaTlsConnect? _connect;
+  final TlsTrust? _trust;
+  late final MqttSession _session;
+
+  /// The pin identity of the robot [connect] was last asked for. Set before
+  /// the session opens its socket, because the session's connector is fixed
+  /// at construction and the BLID only arrives with the credentials.
+  String? _identity;
 
   /// Timings, kept here as the names this file's callers and tests use. The
   /// session owns the behaviour.
@@ -285,13 +386,23 @@ class RoombaMqttClient {
   final _state = StreamController<Map<String, String>>.broadcast();
   StreamSubscription<MqttMessage>? _messages;
 
-  RoombaMqttClient({required SpecCodec codec, RoombaTlsConnect? connect})
-      : _codec = codec,
-        _session = MqttSession(
-          codec: codec,
-          connect: connect ?? _realTlsConnect,
-          label: 'roomba',
-        );
+  /// [trust] pins the robot's certificate (see [roombaTlsConnect]); [connect]
+  /// replaces the socket entirely and is the test seam.
+  RoombaMqttClient({required this._codec, this._connect, this._trust}) {
+    _session = MqttSession(codec: _codec, connect: _open, label: 'roomba');
+  }
+
+  Future<RoombaTlsSocket> _open(String host, int port, Duration timeout) {
+    final injected = _connect;
+    if (injected != null) return injected(host, port, timeout);
+    return roombaTlsConnect(
+      host,
+      port,
+      timeout,
+      trust: _trust,
+      identity: _identity ?? identityFor(host: host),
+    );
+  }
 
   /// Every state push the robot has sent since connecting, flattened to the
   /// dotted paths the spec's entities bind to.
@@ -310,6 +421,7 @@ class RoombaMqttClient {
     int port = roombaPort,
   }) async {
     if (_session.isConnected) return;
+    _identity = roombaTlsIdentity(credentials.blid);
 
     // The eviction signal. The robot serves ONE local client and a new
     // connection displaces the old, so a hang-up is what "something else took
@@ -324,8 +436,10 @@ class RoombaMqttClient {
       return const MqttConnectionException('The robot closed the connection.');
     };
 
-    Log.hub.debug('roomba ${credentials.blid}: connecting to $host '
-        '(password ${redact(credentials.password)})');
+    Log.hub.debug(
+      'roomba ${credentials.blid}: connecting to $host '
+      '(password ${redact(credentials.password)})',
+    );
 
     // Translated at this boundary rather than raised generically: what a
     // CONNACK code MEANS is the robot's own — 4 is a stale password after a
@@ -350,12 +464,24 @@ class RoombaMqttClient {
       throw RoombaConnectionException(
         e.ackTimedOut
             ? 'The robot accepted the connection but never acknowledged the '
-                'login. Close the iRobot app — the robot serves one local '
-                'client at a time.'
+                  'login. Close the iRobot app — the robot serves one local '
+                  'client at a time.'
             : e.message,
         legacyTlsSuspected: e.handshakeFailed,
       );
     }
+
+    // Let go of the previous subscription first. [connect] returns early only
+    // when the session is still connected, and the way a robot session ends is
+    // usually NOT close(): the robot serves one local client and hangs up when
+    // the iRobot app or Home Assistant takes the slot. That leaves
+    // `isConnected` false with this subscription still live, so reconnecting
+    // — which the screen does, and which is the whole point of the hang-up
+    // warning — added a second listener to a BROADCAST stream. Both then ran
+    // for every push: each state document was decoded twice and added to
+    // [_state] twice, and every socket error was reported twice, growing by
+    // one more copy per reconnect for the life of the client.
+    await _messages?.cancel();
 
     // Subscribed and flattened here because both are the robot's: '#' rather
     // than the spec's topic names (which shape a given firmware publishes
@@ -368,9 +494,11 @@ class RoombaMqttClient {
       },
       onError: (Object error) {
         if (_state.isClosed) return;
-        _state.addError(error is MqttConnectionException
-            ? RoombaConnectionException(error.message)
-            : error);
+        _state.addError(
+          error is MqttConnectionException
+              ? RoombaConnectionException(error.message)
+              : error,
+        );
       },
     );
 

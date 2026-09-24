@@ -31,10 +31,7 @@ final _spec = DeviceSpecDto(
   serviceUuids: const [_svcUuid],
   companyIds: Uint16List.fromList(const [961]),
   macPrefixes: const [
-    MacPrefixDto(
-      prefix: 'C4:7C:8D',
-      confidence: MacPrefixConfidence.medium,
-    ),
+    MacPrefixDto(prefix: 'C4:7C:8D', confidence: MacPrefixConfidence.medium),
   ],
   mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
@@ -53,22 +50,21 @@ ScanMatch _match(
   SecurityAdvisoryDto? advisory,
   String? integration,
   String? pictogram,
-}) =>
-    ScanMatch(
-      specIndex: specIndex,
-      deviceName: deviceName,
-      manufacturer: manufacturer,
-      category: category,
-      pictogram: pictogram,
-      integration: integration,
-      securityAdvisory: advisory,
-      confidence: confidence,
-      matchedByNamePrefix: false,
-      matchedServiceUuids: const [],
-      matchedCompanyIds: Uint16List(0),
-      matchedMacPrefix: null,
-      matchedServiceTypes: const [],
-    );
+}) => ScanMatch(
+  specIndex: specIndex,
+  deviceName: deviceName,
+  manufacturer: manufacturer,
+  category: category,
+  pictogram: pictogram,
+  integration: integration,
+  securityAdvisory: advisory,
+  confidence: confidence,
+  matchedByNamePrefix: false,
+  matchedServiceUuids: const [],
+  matchedCompanyIds: Uint16List(0),
+  matchedMacPrefix: null,
+  matchedServiceTypes: const [],
+);
 
 IoTDevice _device({
   String id = 'AA:BB:CC:DD:EE:01',
@@ -77,22 +73,23 @@ IoTDevice _device({
   List<String> serviceUuids = const [],
   List<int> companyIds = const [],
   DateTime? discoveredAt,
-}) =>
-    IoTDevice(
-      id: id,
-      name: name,
-      rssi: rssi,
-      isConnectable: true,
-      discoveredAt: discoveredAt ?? DateTime.now(),
-      serviceUuids: serviceUuids,
-      companyIds: companyIds,
-    );
+}) => IoTDevice(
+  id: id,
+  name: name,
+  rssi: rssi,
+  isConnectable: true,
+  discoveredAt: discoveredAt ?? DateTime.now(),
+  serviceUuids: serviceUuids,
+  companyIds: companyIds,
+);
 
 ProviderContainer _container(FakeSpecCodec codec) {
-  final c = ProviderContainer(overrides: [
-    specCodecProvider.overrideWithValue(codec),
-    deviceSpecsProvider.overrideWith((ref) => {'bulb.yaml': 'dummy-yaml'}),
-  ]);
+  final c = ProviderContainer(
+    overrides: [
+      specCodecProvider.overrideWithValue(codec),
+      deviceSpecsProvider.overrideWith((ref) => {'bulb.yaml': 'dummy-yaml'}),
+    ],
+  );
   addTearDown(c.dispose);
   return c;
 }
@@ -106,8 +103,11 @@ void main() {
 
       expect(identities, hasLength(1));
       expect(identities.single.deviceName, 'Example Smart Bulb');
-      expect(identities.single.category, 'light',
-          reason: 'the icon a row draws comes from here');
+      expect(
+        identities.single.category,
+        'light',
+        reason: 'the icon a row draws comes from here',
+      );
       expect(identities.single.localNamePrefixes, const ['ACME_']);
       expect(identities.single.serviceUuids, const [_svcUuid]);
       expect(identities.single.companyIds, const [961]);
@@ -119,6 +119,45 @@ void main() {
         reason: 'the prefix must not lose its verdict on the way to matching',
       );
     });
+
+    test('carries the security advisory the scan list badges from', () async {
+      // The badge, the warning screen and the malicious-device alert all read
+      // the advisory off the identity the matcher returns. It was left out of
+      // this projection, which made the whole feature inert in production
+      // while the widget tests, which build identities by hand, stayed green.
+      const advisory = SecurityAdvisoryDto(
+        severity: 'malicious',
+        summary: 'Skimmer module signature.',
+      );
+      final flagged = DeviceSpecDto(
+        nameMatchers: const [],
+        platformFallbackTypes: const [],
+        txtMatchGroups: const [],
+        hiddenEntityNames: const [],
+        deviceName: 'HC-05 skimmer',
+        manufacturer: 'Unknown',
+        manufacturerStatus: 'unsupported',
+        protocol: 'ble',
+        category: 'other',
+        securityAdvisory: advisory,
+        localNamePrefixes: const ['HC-05'],
+        localNames: const [],
+        serviceUuids: const [],
+        companyIds: Uint16List(0),
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        defaultPort: null,
+        entities: const <EntityDto>[],
+        services: const [],
+      );
+      final c = _container(FakeSpecCodec(spec: flagged));
+
+      final identities = await c.read(specIdentitiesProvider.future);
+
+      expect(identities.single.securityAdvisory?.severity, 'malicious');
+    });
   });
 
   group('scanGuessProvider', () {
@@ -129,8 +168,9 @@ void main() {
       );
       final c = _container(codec);
 
-      final guess =
-          await c.read(scanGuessProvider(ScanIdentity.of(_device())).future);
+      final guess = await c.read(
+        scanGuessProvider(ScanIdentity.of(_device())).future,
+      );
 
       expect(guess, isNotNull);
       expect(guess!.confidence, MatchConfidence.strong);
@@ -141,10 +181,13 @@ void main() {
       final codec = FakeSpecCodec(spec: _spec, scanMatches: (_) => []);
       final c = _container(codec);
 
-      await c.read(scanGuessProvider(ScanIdentity.of(_device(
-        serviceUuids: const [_svcUuid],
-        companyIds: const [961],
-      ))).future);
+      await c.read(
+        scanGuessProvider(
+          ScanIdentity.of(
+            _device(serviceUuids: const [_svcUuid], companyIds: const [961]),
+          ),
+        ).future,
+      );
 
       final asked = codec.scanMatchCalls.single;
       expect(asked.name, 'ACME_Living_Room');
@@ -153,17 +196,23 @@ void main() {
       expect(asked.macAddress, 'AA:BB:CC:DD:EE:01');
     });
 
-    test('an iOS device id is not offered to the matcher as an address',
-        () async {
-      final codec = FakeSpecCodec(spec: _spec, scanMatches: (_) => []);
-      final c = _container(codec);
+    test(
+      'an iOS device id is not offered to the matcher as an address',
+      () async {
+        final codec = FakeSpecCodec(spec: _spec, scanMatches: (_) => []);
+        final c = _container(codec);
 
-      await c.read(scanGuessProvider(ScanIdentity.of(
-        _device(id: 'C47C8DAB-1234-5678-9ABC-DEF012345678'),
-      )).future);
+        await c.read(
+          scanGuessProvider(
+            ScanIdentity.of(
+              _device(id: 'C47C8DAB-1234-5678-9ABC-DEF012345678'),
+            ),
+          ).future,
+        );
 
-      expect(codec.scanMatchCalls.single.macAddress, isNull);
-    });
+        expect(codec.scanMatchCalls.single.macAddress, isNull);
+      },
+    );
 
     test('matching is cached across rssi changes', () async {
       final codec = FakeSpecCodec(
@@ -174,10 +223,12 @@ void main() {
 
       // Same device, two sightings, different signal strength. Identity is what
       // the family is keyed on, so the second must be a cache hit.
-      await c
-          .read(scanGuessProvider(ScanIdentity.of(_device(rssi: -50))).future);
-      await c
-          .read(scanGuessProvider(ScanIdentity.of(_device(rssi: -83))).future);
+      await c.read(
+        scanGuessProvider(ScanIdentity.of(_device(rssi: -50))).future,
+      );
+      await c.read(
+        scanGuessProvider(ScanIdentity.of(_device(rssi: -83))).future,
+      );
 
       expect(codec.scanMatchCalls, hasLength(1));
     });
@@ -186,8 +237,9 @@ void main() {
       final codec = FakeSpecCodec(spec: _spec, scanMatches: (_) => []);
       final c = _container(codec);
 
-      final guess =
-          await c.read(scanGuessProvider(ScanIdentity.of(_device())).future);
+      final guess = await c.read(
+        scanGuessProvider(ScanIdentity.of(_device())).future,
+      );
 
       expect(guess, isNull);
     });
@@ -196,8 +248,9 @@ void main() {
       final codec = FakeSpecCodec(loadError: StateError('no native lib'));
       final c = _container(codec);
 
-      final guess =
-          await c.read(scanGuessProvider(ScanIdentity.of(_device())).future);
+      final guess = await c.read(
+        scanGuessProvider(ScanIdentity.of(_device())).future,
+      );
 
       expect(guess, isNull);
     });
@@ -240,14 +293,13 @@ void main() {
       MatchConfidence confidence, {
       int otherMatches = 0,
       bool manufacturerAgreed = true,
-    }) =>
-        ScanGuess(
-          deviceName: 'Ember Mug',
-          manufacturer: 'Ember Technologies',
-          confidence: confidence,
-          otherMatches: otherMatches,
-          manufacturerAgreed: manufacturerAgreed,
-        );
+    }) => ScanGuess(
+      deviceName: 'Ember Mug',
+      manufacturer: 'Ember Technologies',
+      confidence: confidence,
+      otherMatches: otherMatches,
+      manufacturerAgreed: manufacturerAgreed,
+    );
 
     test('names the product on a strong match', () {
       expect(guess(MatchConfidence.strong).label, 'Ember Mug');
@@ -266,23 +318,32 @@ void main() {
     });
 
     test('drops the product name when several specs matched equally well', () {
-      expect(guess(MatchConfidence.strong, otherMatches: 2).label,
-          'Supported device');
-      expect(guess(MatchConfidence.likely, otherMatches: 2).label,
-          'Likely supported');
+      expect(
+        guess(MatchConfidence.strong, otherMatches: 2).label,
+        'Supported device',
+      );
+      expect(
+        guess(MatchConfidence.likely, otherMatches: 2).label,
+        'Likely supported',
+      );
     });
 
     test('keeps the maker when the tied specs are all that maker', () {
       // Two Ember products matching one OUI still tells the user who made it.
-      expect(guess(MatchConfidence.possible, otherMatches: 1).label,
-          'Possibly Ember Technologies');
+      expect(
+        guess(MatchConfidence.possible, otherMatches: 1).label,
+        'Possibly Ember Technologies',
+      );
     });
 
     test('drops the maker when the tied specs disagree about it', () {
       // Four vendors' specs matching one shared OUI badged all of them with
       // whichever happened to sort first.
-      final g = guess(MatchConfidence.possible,
-          otherMatches: 3, manufacturerAgreed: false);
+      final g = guess(
+        MatchConfidence.possible,
+        otherMatches: 3,
+        manufacturerAgreed: false,
+      );
       expect(g.label, 'Possibly supported');
       expect(g.namesAProduct, isFalse);
     });
@@ -292,42 +353,47 @@ void main() {
       // nothing on it — recognise-only. So it is named, not badged "Supported
       // device", and it is not treated as a likely-supported row.
       final g = ScanGuess.fromMatches([
-        _match(MatchConfidence.strong,
-            deviceName: 'SmartThings Hub v2', integration: 'identify_only'),
+        _match(
+          MatchConfidence.strong,
+          deviceName: 'SmartThings Hub v2',
+          integration: 'identify_only',
+        ),
       ])!;
       expect(g.isIdentifyOnly, isTrue);
       expect(g.label, 'SmartThings Hub v2');
       expect(Ranked(device: _device(), guess: g).isLikelySupported, isFalse);
     });
 
-    test('a supported device still claims support and ranks above the fold',
-        () {
-      final g = ScanGuess.fromMatches([
-        _match(MatchConfidence.strong, deviceName: 'Wemo Mini'),
-      ])!;
-      expect(g.isIdentifyOnly, isFalse);
-      expect(g.label, 'Wemo Mini');
-      expect(Ranked(device: _device(), guess: g).isLikelySupported, isTrue);
-    });
+    test(
+      'a supported device still claims support and ranks above the fold',
+      () {
+        final g = ScanGuess.fromMatches([
+          _match(MatchConfidence.strong, deviceName: 'Wemo Mini'),
+        ])!;
+        expect(g.isIdentifyOnly, isFalse);
+        expect(g.label, 'Wemo Mini');
+        expect(Ranked(device: _device(), guess: g).isLikelySupported, isTrue);
+      },
+    );
   });
 
   group('rankScannedDevices', () {
     ScanGuess g(MatchConfidence confidence) => ScanGuess(
-          deviceName: 'X',
-          manufacturer: 'Y',
-          confidence: confidence,
-          otherMatches: 0,
-          manufacturerAgreed: true,
-        );
+      deviceName: 'X',
+      manufacturer: 'Y',
+      confidence: confidence,
+      otherMatches: 0,
+      manufacturerAgreed: true,
+    );
 
     test('recognised devices come first, whatever the signal strength', () {
       final loudUnknown = _device(id: '1', rssi: -30);
       final faintMatch = _device(id: '2', rssi: -95);
 
-      final ranked = rankScannedDevices(
-        [loudUnknown, faintMatch],
-        (d) => d.id == '2' ? g(MatchConfidence.strong) : null,
-      );
+      final ranked = rankScannedDevices([
+        loudUnknown,
+        faintMatch,
+      ], (d) => d.id == '2' ? g(MatchConfidence.strong) : null);
 
       expect(ranked.likelySupported.map((r) => r.device.id), ['2']);
       expect(ranked.other.map((r) => r.device.id), ['1']);
@@ -337,13 +403,16 @@ void main() {
       final ouiOnly = _device(id: '1', rssi: -90);
       final unknown = _device(id: '2', rssi: -40);
 
-      final ranked = rankScannedDevices(
-        [unknown, ouiOnly],
-        (d) => d.id == '1' ? g(MatchConfidence.possible) : null,
-      );
+      final ranked = rankScannedDevices([
+        unknown,
+        ouiOnly,
+      ], (d) => d.id == '1' ? g(MatchConfidence.possible) : null);
 
-      expect(ranked.likelySupported, isEmpty,
-          reason: 'a shared OUI must not promote a device above the fold');
+      expect(
+        ranked.likelySupported,
+        isEmpty,
+        reason: 'a shared OUI must not promote a device above the fold',
+      );
       // It still outranks the anonymous device inside the lower group, which is
       // the entire value of the weakest tier.
       expect(ranked.other.map((r) => r.device.id), ['1', '2']);
@@ -356,11 +425,14 @@ void main() {
       final ranked = rankScannedDevices(
         [likely, strong],
         (d) => g(
-            d.id == 'strong' ? MatchConfidence.strong : MatchConfidence.likely),
+          d.id == 'strong' ? MatchConfidence.strong : MatchConfidence.likely,
+        ),
       );
 
-      expect(
-          ranked.likelySupported.map((r) => r.device.id), ['strong', 'likely']);
+      expect(ranked.likelySupported.map((r) => r.device.id), [
+        'strong',
+        'likely',
+      ]);
     });
 
     test('rows do not trade places on rssi jitter inside a band', () {
@@ -372,18 +444,25 @@ void main() {
       // Named so the alphabetical id fallback would give the OPPOSITE order:
       // what holds these two in place has to be when each was found.
       final first = _device(
-          id: 'zulu', rssi: -52, discoveredAt: DateTime(2026, 8, 10, 12));
+        id: 'zulu',
+        rssi: -52,
+        discoveredAt: DateTime(2026, 8, 10, 12),
+      );
       final second = _device(
-          id: 'alpha', rssi: -50, discoveredAt: DateTime(2026, 8, 10, 12, 1));
+        id: 'alpha',
+        rssi: -50,
+        discoveredAt: DateTime(2026, 8, 10, 12, 1),
+      );
       ({List<RankedDevice> likelySupported, List<RankedDevice> other}) rank(
         List<IoTDevice> devices,
-      ) =>
-          rankScannedDevices(devices, (_) => null);
+      ) => rankScannedDevices(devices, (_) => null);
 
       // 'first' was discovered first (see _device below), so it leads despite
       // the weaker reading — both are in the same band.
-      expect(rank([first, second]).other.map((r) => r.device.id),
-          ['zulu', 'alpha']);
+      expect(rank([first, second]).other.map((r) => r.device.id), [
+        'zulu',
+        'alpha',
+      ]);
 
       // Now 'second' jitters two dB the other way, still inside the band.
       final jittered = IoTDevice(
@@ -394,9 +473,11 @@ void main() {
         discoveredAt: second.discoveredAt,
         lastSeen: second.lastSeen,
       );
-      expect(rank([first, jittered]).other.map((r) => r.device.id),
-          ['zulu', 'alpha'],
-          reason: 'nothing moved, so nothing may move');
+      expect(
+        rank([first, jittered]).other.map((r) => r.device.id),
+        ['zulu', 'alpha'],
+        reason: 'nothing moved, so nothing may move',
+      );
     });
 
     test('a genuinely stronger device still sorts above a weaker one', () {
@@ -414,8 +495,10 @@ void main() {
       final near = _device(id: 'near', rssi: -40);
       final far = _device(id: 'far', rssi: -88);
 
-      final ranked =
-          rankScannedDevices([far, near], (_) => g(MatchConfidence.strong));
+      final ranked = rankScannedDevices([
+        far,
+        near,
+      ], (_) => g(MatchConfidence.strong));
 
       expect(ranked.likelySupported.map((r) => r.device.id), ['near', 'far']);
     });
@@ -485,8 +568,11 @@ void main() {
         _match(MatchConfidence.possible, deviceName: 'Bulb B'),
       ])!;
       expect(guess.namesAProduct, isFalse);
-      expect(guess.category, DeviceCategory.light,
-          reason: 'agreement is a lower bar than naming the product');
+      expect(
+        guess.category,
+        DeviceCategory.light,
+        reason: 'agreement is a lower bar than naming the product',
+      );
     });
 
     test('is dropped when the tied matches disagree', () {
@@ -511,8 +597,9 @@ void main() {
     });
 
     test('a spec with no category falls back to the tab\'s own glyph', () {
-      final guess = ScanGuess.fromMatches(
-          [_match(MatchConfidence.strong, category: null)])!;
+      final guess = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong, category: null),
+      ])!;
       expect(guess.category, isNull);
       expect(guess.iconOr(unknownDeviceIcon), unknownDeviceIcon);
       // Support is a fact about the catalogue; the icon is the bonus.
@@ -522,8 +609,9 @@ void main() {
     test('a category this build has not met is treated as absent', () {
       // The vocabulary grows upstream first and arrives here as vendored data.
       // An unknown value costs the icon, never the match.
-      final guess = ScanGuess.fromMatches(
-          [_match(MatchConfidence.strong, category: 'teleporter')])!;
+      final guess = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong, category: 'teleporter'),
+      ])!;
       expect(guess.category, isNull);
       expect(guess.deviceName, 'Example Smart Bulb');
     });
@@ -531,21 +619,27 @@ void main() {
     test('iconOr uses the caller\'s fallback, not a global one', () {
       // The Wi-Fi tab's anonymous device is a router glyph, not a Bluetooth
       // one — there is no radio to draw.
-      final guess = ScanGuess.fromMatches(
-          [_match(MatchConfidence.strong, category: null)])!;
+      final guess = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong, category: null),
+      ])!;
       expect(guess.iconOr(Icons.router_outlined), Icons.router_outlined);
     });
   });
 
   group('ScanGuess.advisory', () {
     const vuln = SecurityAdvisoryDto(
-        severity: 'vulnerable', summary: 'Shared key unlocks the car.');
+      severity: 'vulnerable',
+      summary: 'Shared key unlocks the car.',
+    );
     const skimmer = SecurityAdvisoryDto(
-        severity: 'malicious', summary: 'Skimmer module signature.');
+      severity: 'malicious',
+      summary: 'Skimmer module signature.',
+    );
 
     test('carries the best match advisory and flags the row as a warning', () {
-      final guess = ScanGuess.fromMatches(
-          [_match(MatchConfidence.possible, advisory: vuln)])!;
+      final guess = ScanGuess.fromMatches([
+        _match(MatchConfidence.possible, advisory: vuln),
+      ])!;
       expect(guess.advisory?.severity, 'vulnerable');
       expect(guess.isSecurityWarning, isTrue);
       expect(guess.isMalicious, isFalse);
@@ -553,10 +647,11 @@ void main() {
 
     test('isMalicious is true only for a malicious advisory', () {
       expect(
-          ScanGuess.fromMatches(
-                  [_match(MatchConfidence.possible, advisory: skimmer)])!
-              .isMalicious,
-          isTrue);
+        ScanGuess.fromMatches([
+          _match(MatchConfidence.possible, advisory: skimmer),
+        ])!.isMalicious,
+        isTrue,
+      );
     });
 
     test('an ordinary device has no advisory and is not a warning', () {
@@ -565,13 +660,13 @@ void main() {
       expect(guess.isSecurityWarning, isFalse);
     });
 
-    test(
-        'is surfaced even at possible confidence — a maybe-skimmer still '
+    test('is surfaced even at possible confidence — a maybe-skimmer still '
         'warns', () {
       // Warning specs match by an inferred name, so the match is usually
       // `possible`; dropping the advisory there would silence the warning.
-      final guess = ScanGuess.fromMatches(
-          [_match(MatchConfidence.possible, advisory: skimmer)])!;
+      final guess = ScanGuess.fromMatches([
+        _match(MatchConfidence.possible, advisory: skimmer),
+      ])!;
       expect(guess.namesAProduct, isFalse, reason: 'possible + hedged');
       expect(guess.isSecurityWarning, isTrue);
     });

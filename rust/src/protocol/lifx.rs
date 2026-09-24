@@ -75,7 +75,11 @@ pub mod msg {
     pub const SET_COLOR: u16 = 102;
     pub const STATE: u16 = 107;
     pub const SET_POWER: u16 = 117; // LightSetPower (level + duration)
-                                    // MultiZone
+    /// `LightSetWaveformOptional` — SetColor with a per-component "apply
+    /// this one" flag, which is the only way the protocol offers to change
+    /// part of a colour and leave the rest alone.
+    pub const SET_WAVEFORM_OPTIONAL: u16 = 119;
+    // MultiZone
     pub const SET_COLOR_ZONES: u16 = 501;
     pub const GET_COLOR_ZONES: u16 = 502;
     pub const STATE_ZONE: u16 = 503;
@@ -291,6 +295,52 @@ pub fn set_color(target: [u8; 6], color: &Hsbk, duration_ms: u32, sequence: u8) 
     msg.push(0); // reserved
     msg.extend_from_slice(&hsbk_bytes(color));
     msg.extend_from_slice(&duration_ms.to_le_bytes());
+    msg
+}
+
+/// Which components of an HSBK a [`set_waveform_optional`] write applies.
+///
+/// The device keeps the rest as they are. This is the whole reason the message
+/// exists: `SetColor` carries all four fields and therefore always writes all
+/// four, so "make it 2700K" sent as a `SetColor` must invent a brightness, and
+/// whatever it invents is what the lamp does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Apply {
+    pub hue: bool,
+    pub saturation: bool,
+    pub brightness: bool,
+    pub kelvin: bool,
+}
+
+/// `LightSetWaveformOptional` (119): set only the HSBK components `apply`
+/// names, leaving the others at whatever the light is already doing.
+///
+/// Sent as a degenerate waveform — not transient (so the light STAYS where the
+/// write puts it rather than returning), one cycle of zero period, waveform 0
+/// (saw) — which is how every open client uses this message to mean "set these
+/// fields". The waveform machinery is not otherwise exposed: nothing in the
+/// catalogue asks a LIFX bulb to pulse.
+pub fn set_waveform_optional(target: [u8; 6], color: &Hsbk, apply: Apply, sequence: u8) -> Vec<u8> {
+    let mut msg = header(
+        msg::SET_WAVEFORM_OPTIONAL,
+        25,
+        false,
+        target,
+        false,
+        false,
+        sequence,
+    )
+    .to_vec();
+    msg.push(0); // reserved
+    msg.push(0); // transient = 0: keep the new value when the waveform ends
+    msg.extend_from_slice(&hsbk_bytes(color));
+    msg.extend_from_slice(&0u32.to_le_bytes()); // period, ms
+    msg.extend_from_slice(&1.0f32.to_le_bytes()); // cycles
+    msg.extend_from_slice(&0i16.to_le_bytes()); // skew_ratio
+    msg.push(0); // waveform: saw
+    for flag in [apply.hue, apply.saturation, apply.brightness, apply.kelvin] {
+        msg.push(u8::from(flag));
+    }
     msg
 }
 
@@ -762,14 +812,37 @@ pub fn render_command(
                 .unwrap_or(f64::from(KELVIN_DEFAULT))
                 .clamp(f64::from(KELVIN_MIN), f64::from(KELVIN_MAX))
                 as u16;
-            let brightness = get("brightness").map_or(u16::MAX, scale_brightness);
+            // The control declares `kelvin` and nothing else
+            // (`network_entities`), so the ordinary case is a caller who said
+            // only what temperature they want. A `SetColor` cannot express
+            // that: it carries all four HSBK fields, so the brightness field
+            // had to be invented, and the value invented was `u16::MAX` —
+            // every nudge of the temperature slider also drove the lamp to
+            // 100%. `SetWaveformOptional` says which fields to apply, so the
+            // temperature lands and the brightness the room is lit at stays.
+            //
+            // A brightness the caller DID supply is still honoured, and then
+            // there is nothing to preserve, so the plain `SetColor` stands.
             let c = Hsbk {
                 hue: 0,
                 saturation: 0,
-                brightness,
+                brightness: get("brightness").map_or(u16::MAX, scale_brightness),
                 kelvin,
             };
-            Ok(set_color(target, &c, 0, sequence))
+            Ok(match get("brightness") {
+                Some(_) => set_color(target, &c, 0, sequence),
+                None => set_waveform_optional(
+                    target,
+                    &c,
+                    Apply {
+                        hue: true,
+                        saturation: true,
+                        brightness: false,
+                        kelvin: true,
+                    },
+                    sequence,
+                ),
+            })
         }
         "set_zone_color" => {
             let zone = get("zone").unwrap_or(0.0).clamp(0.0, 255.0) as u8;
@@ -1098,6 +1171,55 @@ mod tests {
         assert_eq!(zone[HEADER_LEN + 1], 3);
         // an unknown action is declined, not guessed
         assert!(render_command("frobnicate", &params(&[]), TARGET, 0).is_err());
+    }
+
+    /// A temperature change with no brightness must not touch the brightness.
+    /// The control declares `kelvin` and nothing else, so this is the ordinary
+    /// case, and a `SetColor` — which carries all four HSBK fields and
+    /// therefore writes all four — had to invent one. It invented `u16::MAX`,
+    /// so every nudge of the temperature slider also drove the lamp to full.
+    #[test]
+    fn a_colour_temperature_with_no_brightness_leaves_the_brightness_alone() {
+        let warm = render_command(
+            "set_color_temperature",
+            &params(&[("kelvin", 2700.0)]),
+            TARGET,
+            4,
+        )
+        .unwrap();
+        assert_eq!(
+            &warm[32..34],
+            &[119, 0],
+            "SetWaveformOptional, not SetColor"
+        );
+        assert_eq!(warm.len(), HEADER_LEN + 25);
+        assert_eq!(warm[HEADER_LEN + 1], 0, "not transient: the value sticks");
+        // HSBK sits at payload offset 2; kelvin is its last field.
+        assert_eq!(
+            &warm[HEADER_LEN + 8..HEADER_LEN + 10],
+            &2700u16.to_le_bytes()
+        );
+        // The four set_* flags end the payload: hue, saturation, brightness,
+        // kelvin. Brightness is the one left alone.
+        assert_eq!(&warm[warm.len() - 4..], &[1, 1, 0, 1]);
+    }
+
+    /// A caller who DID pick a brightness has nothing to preserve, so the
+    /// plain `SetColor` still stands — one message, one round trip.
+    #[test]
+    fn a_colour_temperature_with_a_brightness_is_still_a_set_color() {
+        let warm = render_command(
+            "set_color_temperature",
+            &params(&[("kelvin", 2700.0), ("brightness", 128.0)]),
+            TARGET,
+            5,
+        )
+        .unwrap();
+        assert_eq!(&warm[32..34], &[102, 0], "SetColor");
+        assert_eq!(
+            &warm[HEADER_LEN + 5..HEADER_LEN + 7],
+            &scale_brightness(128.0).to_le_bytes()
+        );
     }
 
     #[test]

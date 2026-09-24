@@ -43,6 +43,7 @@ class _SpecPackSettingsScreenState
       _seeded = true;
     }
 
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Device Spec Packs'),
@@ -54,93 +55,110 @@ class _SpecPackSettingsScreenState
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text(
-            'Install a pack of device specs from a URL so new device support '
-            'arrives without an app update. The URL points at a JSON manifest '
-            'listing the spec files to download.',
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _urlController,
-            enabled: !_busy,
-            keyboardType: TextInputType.url,
-            autocorrect: false,
-            onChanged: (_) => setState(() {
-              _errorMessage = null;
-              _successMessage = null;
-            }),
-            decoration: const InputDecoration(
-              labelText: 'Pack manifest URL',
-              hintText: 'https://example.com/pack.json',
-              border: OutlineInputBorder(),
+      // Landscape is declared for iPhone; an explicitly-padded ListView ignores
+      // MediaQuery.padding, so without this the field's edge sat under the
+      // notch / Dynamic Island and the last row under the home indicator.
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              'Install a pack of device specs from a URL so new device support '
+              'arrives without an app update. The URL points at a JSON manifest '
+              'listing the spec files to download.',
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _busy ? null : _install,
-                  icon: _busy
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.download),
-                  label: Text(_busy ? 'Installing...' : 'Install / Refresh'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _urlController,
+              enabled: !_busy,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              onChanged: (_) => setState(() {
+                _errorMessage = null;
+                _successMessage = null;
+              }),
+              decoration: const InputDecoration(
+                labelText: 'Pack manifest URL',
+                hintText: 'https://example.com/pack.json',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _install,
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download),
+                    label: Text(_busy ? 'Installing...' : 'Install / Refresh'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: _busy ? null : _resetUrl,
+                  child: const Text('Reset URL'),
+                ),
+              ],
+            ),
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  _errorMessage!,
+                  style: TextStyle(color: scheme.error),
                 ),
               ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: _busy ? null : _resetUrl,
-                child: const Text('Reset URL'),
+            if (_successMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  _successMessage!,
+                  style: TextStyle(color: scheme.tertiary),
+                ),
               ),
-            ],
-          ),
-          if (_errorMessage != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(_errorMessage!,
-                  style: const TextStyle(color: Colors.red)),
+            const Divider(height: 32),
+            Text(
+              'Installed packs',
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-          if (_successMessage != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(_successMessage!,
-                  style: TextStyle(color: Colors.green.shade700)),
-            ),
-          const Divider(height: 32),
-          Text('Installed packs',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          _buildPackList(),
-        ],
+            const SizedBox(height: 8),
+            _buildPackList(),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildPackList() {
     final packsAsync = ref.watch(installedSpecPacksProvider);
+    final scheme = Theme.of(context).colorScheme;
     return packsAsync.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(24),
         child: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Text(
-          friendlyErrorText(e,
-              context: 'list installed packs',
-              fallback: 'Could not read the installed packs.'),
-          style: const TextStyle(color: Colors.red)),
+        friendlyErrorText(
+          e,
+          context: 'list installed packs',
+          fallback: 'Could not read the installed packs.',
+        ),
+        style: TextStyle(color: scheme.error),
+      ),
       data: (packs) {
         if (packs.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Text('No packs installed yet.',
-                style: TextStyle(color: Colors.grey)),
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Text(
+              'No packs installed yet.',
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
           );
         }
         return Column(
@@ -179,9 +197,10 @@ class _SpecPackSettingsScreenState
 
   Future<void> _install() async {
     final url = _urlController.text.trim();
-    if (!SpecPackService.isValidManifestUrl(url)) {
+    final problem = SpecPackService.manifestUrlProblem(url);
+    if (problem != null) {
       setState(() {
-        _errorMessage = 'Enter a valid http:// or https:// URL.';
+        _errorMessage = problem.message;
         _successMessage = null;
       });
       return;
@@ -206,19 +225,23 @@ class _SpecPackSettingsScreenState
           final base =
               'Installed "${pack.name}" v${pack.version} (${pack.specCount} '
               '${pack.specCount == 1 ? 'spec' : 'specs'}).';
-          setState(() => _successMessage = partialFailures.isEmpty
-              ? base
-              : '$base ${partialFailures.length} file(s) were skipped.');
+          setState(
+            () => _successMessage = partialFailures.isEmpty
+                ? base
+                : '$base ${partialFailures.length} file(s) were skipped.',
+          );
         case InstallFailed(:final error):
           setState(() => _errorMessage = _friendlyError(error));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _errorMessage = friendlyErrorText(
-              e,
-              context: 'install spec pack',
-              fallback: 'Something went wrong installing that pack.',
-            ));
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'install spec pack',
+            fallback: 'Something went wrong installing that pack.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -251,11 +274,13 @@ class _SpecPackSettingsScreenState
       setState(() => _successMessage = 'Removed "${pack.name}".');
     } catch (e) {
       if (mounted) {
-        setState(() => _errorMessage = friendlyErrorText(
-              e,
-              context: 'remove pack ${pack.name}',
-              fallback: 'Could not remove "${pack.name}".',
-            ));
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'remove pack ${pack.name}',
+            fallback: 'Could not remove "${pack.name}".',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -288,19 +313,23 @@ class _SpecPackSettingsScreenState
           final base =
               'Updated "${pack.name}" v${pack.version} (${pack.specCount} '
               '${pack.specCount == 1 ? 'spec' : 'specs'}).';
-          setState(() => _successMessage = partialFailures.isEmpty
-              ? base
-              : '$base ${partialFailures.length} file(s) were skipped.');
+          setState(
+            () => _successMessage = partialFailures.isEmpty
+                ? base
+                : '$base ${partialFailures.length} file(s) were skipped.',
+          );
         case InstallFailed(:final error):
           setState(() => _errorMessage = _friendlyError(error));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _errorMessage = friendlyErrorText(
-              e,
-              context: 'refresh spec pack',
-              fallback: 'Something went wrong updating that pack.',
-            ));
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'refresh spec pack',
+            fallback: 'Something went wrong updating that pack.',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -313,8 +342,9 @@ class _SpecPackSettingsScreenState
       builder: (context) => AlertDialog(
         title: const Text('Clear all packs?'),
         content: const Text(
-            'This removes every downloaded spec pack from this device. Bundled '
-            'device specs are unaffected. You can reinstall from the URL later.'),
+          'This removes every downloaded spec pack from this device. Bundled '
+          'device specs are unaffected. You can reinstall from the URL later.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -329,19 +359,59 @@ class _SpecPackSettingsScreenState
     );
     // mounted before the ref.read: ConsumerState.ref throws after dispose.
     if (confirmed != true || !mounted) return;
-    await ref.read(specPackServiceProvider).clearCache();
-    if (!mounted) return;
-    ref.invalidate(installedSpecPacksProvider);
-    ref.invalidate(cachedSpecPacksProvider);
     setState(() {
-      _successMessage = 'Cleared all installed packs.';
+      _busy = true;
       _errorMessage = null;
+      _successMessage = null;
     });
+    try {
+      await ref.read(specPackServiceProvider).clearCache();
+      if (!mounted) return;
+      ref.invalidate(installedSpecPacksProvider);
+      ref.invalidate(cachedSpecPacksProvider);
+      // Ask what actually survived rather than trusting the call. clearCache
+      // is best-effort BY DESIGN — a delete it cannot do is logged and
+      // swallowed, because a pack cache that will not clear must not become an
+      // exception on a settings screen — so its normal return says nothing
+      // about whether anything was removed. Reporting "Cleared all installed
+      // packs." off that return printed success over a list the user could
+      // still see below it, on the one screen whose whole job is telling them
+      // what is installed.
+      final remaining = await ref.read(installedSpecPacksProvider.future);
+      if (!mounted) return;
+      setState(() {
+        if (remaining.isEmpty) {
+          _successMessage = 'Cleared all installed packs.';
+          _errorMessage = null;
+          return;
+        }
+        _successMessage = null;
+        _errorMessage = remaining.length == 1
+            ? 'Could not remove "${remaining.single.name}". It is still '
+                  'installed.'
+            : '${remaining.length} packs could not be removed and are still '
+                  'installed.';
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _errorMessage = friendlyErrorText(
+            e,
+            context: 'clear spec packs',
+            fallback: 'Something went wrong clearing the installed packs.',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   String _friendlyError(SpecPackError error) {
     return switch (error.kind) {
-      SpecPackErrorKind.invalidUrl => 'Enter a valid http:// or https:// URL.',
+      // The service's message says why (a plain http:// address is only
+      // accepted for a server on the user's own network).
+      SpecPackErrorKind.invalidUrl => error.message,
       SpecPackErrorKind.timeout =>
         'The download timed out. Check your connection and try again.',
       SpecPackErrorKind.network =>

@@ -29,8 +29,9 @@ class TypedCommandWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final encodable =
-        specChar.commands.where((c) => c.isEncodable).toList(growable: false);
+    final encodable = specChar.commands
+        .where((c) => c.isEncodable)
+        .toList(growable: false);
     // Advanced commands (a treadmill's calibration, a raised speed ceiling)
     // are a signpost, not a gate: they stay sendable, but out of the ordinary
     // flow — collected under a collapsed, warning-marked section instead of
@@ -38,11 +39,11 @@ class TypedCommandWidget extends StatelessWidget {
     // the first time it is sent (see _CommandControl).
     final ordinary = [
       for (final c in encodable)
-        if (!c.advanced) c
+        if (!c.advanced) c,
     ];
     final advanced = [
       for (final c in encodable)
-        if (c.advanced) c
+        if (c.advanced) c,
     ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
@@ -96,8 +97,9 @@ class TypedCommandWidget extends StatelessWidget {
   /// line rather than dropped silently, so a spec author can tell "not
   /// implemented" apart from "my YAML didn't load".
   List<Widget> _unsupportedNotice(BuildContext context) {
-    final blocked =
-        specChar.commands.where((c) => !c.isEncodable).toList(growable: false);
+    final blocked = specChar.commands
+        .where((c) => !c.isEncodable)
+        .toList(growable: false);
     if (blocked.isEmpty) return const [];
     final kinds = {
       for (final c in blocked)
@@ -110,7 +112,9 @@ class TypedCommandWidget extends StatelessWidget {
         child: Text(
           '${blocked.length} command${blocked.length == 1 ? '' : 's'} in this '
           'spec use an encoding this app cannot send yet$detail.',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
     ];
@@ -178,7 +182,8 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   void _seed(ParameterDto p) {
     {
       final allowed = p.allowed;
-      final isDropdown = allowed != null &&
+      final isDropdown =
+          allowed != null &&
           allowed.isNotEmpty &&
           isNumericValueType(p.valueType);
       // Enumerated parameters start at the first allowed value and everything
@@ -237,9 +242,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   /// `auto` and `source` are NOT here: the encoder computes the first and the
   /// client fetches the second, so there is nothing for a user to set.
   List<ParameterDto> get _defaulted => [
-        for (final p in widget.command.parameters)
-          if (!p.userSettable && p.auto == null && p.source == null) p,
-      ];
+    for (final p in widget.command.parameters)
+      if (!p.userSettable && p.auto == null && p.source == null) p,
+  ];
 
   Future<void> _send() async {
     // Advanced commands ask once before their first send, showing the spec's
@@ -307,9 +312,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   }
 
   void _showSnack(String msg) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(msg)));
   }
 
   /// The first-send gate for an advanced command: the spec's `advancedReason`
@@ -329,7 +334,7 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
           reason != null && reason.trim().isNotEmpty
               ? reason
               : 'This command can change how the device behaves in ways that '
-                  'outlast this app. Send it only if you know what it does.',
+                    'outlast this app. Send it only if you know what it does.',
         ),
         actions: [
           TextButton(
@@ -348,6 +353,10 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
 
   @override
   Widget build(BuildContext context) {
+    // Theme roles, not Colors.* literals: grey and green fail contrast on the
+    // light surface and none of them adapt to dark mode.
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     final command = widget.command;
     final label = humanizeName(command.name);
     return Card(
@@ -363,7 +372,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
                 padding: const EdgeInsets.only(top: 2),
                 child: Text(
                   command.description,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             const SizedBox(height: 8),
@@ -405,9 +416,8 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
                       ? const SizedBox.shrink()
                       : Text(
                           _status!,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _failed ? Colors.red : Colors.green,
+                          style: text.bodySmall?.copyWith(
+                            color: _failed ? scheme.error : scheme.tertiary,
                           ),
                         ),
                 ),
@@ -450,7 +460,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         child: Text(
           '${humanizeName(p.name)}: unsupported parameter type '
           '(${p.valueType})',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       );
     }
@@ -480,9 +492,11 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       final decimals = decimalsForStep(step);
       final unit = displayUnit(p.unit);
       final unitSuffix = unit == null ? '' : ' $unit';
-      final displayValue = displayValueFor(value, p.scale, p.valueOffset)
-          .clamp(displayMin, displayMax)
-          .toDouble();
+      final displayValue = displayValueFor(
+        value,
+        p.scale,
+        p.valueOffset,
+      ).clamp(displayMin, displayMax).toDouble();
       String fmt(double d) => d.toStringAsFixed(decimals);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -502,8 +516,11 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
             label: '${fmt(displayValue)}$unitSuffix',
             onChanged: (v) => setState(() {
               final snapped = snapToStep(v, displayMin, displayMax, step);
-              _values[p.name] =
-                  rawValueFor(snapped, p.scale, p.valueOffset).roundToDouble();
+              _values[p.name] = rawValueFor(
+                snapped,
+                p.scale,
+                p.valueOffset,
+              ).roundToDouble();
             }),
           ),
         ],

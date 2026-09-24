@@ -53,7 +53,8 @@ class AdBanner {
   /// [AppConstants.adBannerConfigUrl] when this build shipped.
   static final AdBanner fallback = AdBanner(
     id: 'dead-devices-2026',
-    message: 'Cloud-dead smart devices sell for cheap. '
+    message:
+        'Cloud-dead smart devices sell for cheap. '
         'Grab one and liberate it.',
     cta: 'Shop',
     url: Uri.parse(AppConstants.shopUrl),
@@ -79,16 +80,18 @@ class AdBanner {
       // design — a rename upstream orphans a bundled key — but harmless: an
       // unmatched target just falls back to the global banner, and the live
       // banner.json (owner-updatable without a release) is the real source.
-      match: const AdBannerMatch(specKeys: [
-        'Brother QL-1110NWB Label Printer|Brother Industries',
-        'NIIMBOT D110 / B21 Thermal Label Printer|NIIMBOT (Wuhan Jingchen '
-            'Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)',
-        'Fichero / AiYin D11 Thermal Label Printer|Xiamen Print Future '
-            'Technology Co., Ltd',
-        'Cat Printer Mini Thermal Printer|Unbranded / Yu Tian (YT01) / '
-            'various OEMs',
-        'Cat Printer MXW01 Mini Thermal Printer|Unbranded / various OEMs',
-      ]),
+      match: const AdBannerMatch(
+        specKeys: [
+          'Brother QL-1110NWB Label Printer|Brother Industries',
+          'NIIMBOT D110 / B21 Thermal Label Printer|NIIMBOT (Wuhan Jingchen '
+              'Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)',
+          'Fichero / AiYin D11 Thermal Label Printer|Xiamen Print Future '
+              'Technology Co., Ltd',
+          'Cat Printer Mini Thermal Printer|Unbranded / Yu Tian (YT01) / '
+              'various OEMs',
+          'Cat Printer MXW01 Mini Thermal Printer|Unbranded / various OEMs',
+        ],
+      ),
     ),
     // UV printer inks + 3D-printable refill jig. No eufy-make-e1 device spec
     // exists in the catalogue yet, so this matches nothing today; it is here so
@@ -100,9 +103,9 @@ class AdBanner {
       cta: 'UV inks',
       url: Uri.parse('${AppConstants.shopUrl}uv-printer-ink/'),
       priority: 20,
-      match: const AdBannerMatch(specKeys: [
-        'eufyMake E1 UV Printer|eufy (Anker Innovations)',
-      ]),
+      match: const AdBannerMatch(
+        specKeys: ['eufyMake E1 UV Printer|eufy (Anker Innovations)'],
+      ),
     ),
     AdBanner(
       id: 'air-filter-2026',
@@ -110,10 +113,12 @@ class AdBanner {
       cta: 'Filters',
       url: Uri.parse('${AppConstants.shopUrl}air-filters/'),
       priority: 20,
-      match: const AdBannerMatch(specKeys: [
-        'Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / '
-            'BioGS 2.0 (SPA-550A/SPA-625A)|Rabbit Air',
-      ]),
+      match: const AdBannerMatch(
+        specKeys: [
+          'Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / '
+              'BioGS 2.0 (SPA-550A/SPA-625A)|Rabbit Air',
+        ],
+      ),
     ),
   ];
 
@@ -147,10 +152,7 @@ class AdBannerMatch {
   /// is for. The broad axis: matches a whole device class.
   final List<String> categories;
 
-  const AdBannerMatch({
-    this.specKeys = const [],
-    this.categories = const [],
-  });
+  const AdBannerMatch({this.specKeys = const [], this.categories = const []});
 
   bool get isEmpty => specKeys.isEmpty && categories.isEmpty;
 
@@ -167,10 +169,8 @@ class AdBannerMatch {
       listEquals(other.categories, categories);
 
   @override
-  int get hashCode => Object.hash(
-        Object.hashAll(specKeys),
-        Object.hashAll(categories),
-      );
+  int get hashCode =>
+      Object.hash(Object.hashAll(specKeys), Object.hashAll(categories));
 }
 
 /// A parsed banner config document.
@@ -217,9 +217,9 @@ class AdBannerConfig {
   /// The bundled config: the global fallback plus the bundled targeted banners.
   /// This is the synchronous seed for a first, offline launch.
   static AdBannerConfig get bundled => AdBannerConfig(
-        banner: AdBanner.fallback,
-        targets: AdBanner.bundledTargets,
-      );
+    banner: AdBanner.fallback,
+    targets: AdBanner.bundledTargets,
+  );
 
   /// The best banner to show for a device with [category]/[specKey], or null.
   ///
@@ -244,10 +244,12 @@ class AdBannerConfig {
     }
 
     final bySpec = bestAmong(
-        targets.where((b) => b.match?.matchesSpecKey(specKey) ?? false));
+      targets.where((b) => b.match?.matchesSpecKey(specKey) ?? false),
+    );
     if (bySpec != null) return bySpec;
     final byCategory = bestAmong(
-        targets.where((b) => b.match?.matchesCategory(category) ?? false));
+      targets.where((b) => b.match?.matchesCategory(category) ?? false),
+    );
     if (byCategory != null) return byCategory;
     if (banner != null && !exclude.contains(banner!.id)) return banner;
     return null;
@@ -312,8 +314,10 @@ class AdBannerConfig {
   /// Parse one banner object (global or targeted). [match] is attached as-is;
   /// null for the global banner. Returns null when a required field is missing
   /// or the URL is not a usable https URL.
-  static AdBanner? _parseBanner(Map<String, dynamic> raw,
-      {required AdBannerMatch? match}) {
+  static AdBanner? _parseBanner(
+    Map<String, dynamic> raw, {
+    required AdBannerMatch? match,
+  }) {
     final id = _boundedString(raw['id'], maxIdChars);
     final message = _boundedString(raw['message'], maxMessageChars);
     final urlText = raw['url'];

@@ -116,7 +116,7 @@ class DeviceManager {
   /// Exposed so a caller ticking the clock can tell a repaint-worthy change
   /// (a row just crossed the threshold) from a tick where nothing moved.
   Set<String> staleIds(DateTime now) => {
-        for (final device in _devices.values)
-          if (isStale(device, now)) device.id,
-      };
+    for (final device in _devices.values)
+      if (isStale(device, now)) device.id,
+  };
 }

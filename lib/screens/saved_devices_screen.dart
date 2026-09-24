@@ -4,19 +4,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/device_category.dart';
+import '../core/error_text.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_group_provider.dart';
 import '../providers/network_control_provider.dart';
+import '../providers/roomba_provider.dart';
+import '../providers/panel_resolution_cache_provider.dart';
+import '../providers/saved_designs_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/saved_network_device_provider.dart';
+import '../providers/spec_choice_provider.dart';
 import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
+import '../services/roomba_control_service.dart' show roombaProtocolHandler;
+import '../services/roomba_credential_store.dart';
 import '../services/saved_network_device_store.dart';
 import '../widgets/device_list_tile.dart';
 import 'device_screen.dart';
 import 'network_controls_launcher.dart';
+import 'roomba_transport_screen.dart';
 
 /// The devices the user has already paired with.
 ///
@@ -41,7 +49,10 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// Errors are swallowed because a scan that was never started, or has already
   /// stopped, must not block a reconnect.
   Future<void> _reconnect(
-      BuildContext context, WidgetRef ref, SavedDevice saved) async {
+    BuildContext context,
+    WidgetRef ref,
+    SavedDevice saved,
+  ) async {
     final navigator = Navigator.of(context);
     await ref.read(bleServiceProvider).stopScan().catchError((Object _) {});
     await navigator.push(
@@ -59,9 +70,56 @@ class SavedDevicesScreen extends ConsumerWidget {
     );
   }
 
+  /// Ask before forgetting. The close icon sits on the trailing edge of a
+  /// row whose whole surface is the reconnect tap target, so a thumb aimed
+  /// at the row lands on it easily — and what it does has no undo: a Wi-Fi
+  /// device's stored password, certificate pin and group memberships go with
+  /// the record, and getting them back means the device's own pairing dance
+  /// (a Roomba's Home button, a Hue bridge's link button). Every other
+  /// destructive flow in the app confirms first; this one was the exception.
+  ///
+  /// Returns false when the dialog was dismissed or cancelled.
+  Future<bool> _confirmForget(
+    BuildContext context,
+    String name,
+    String consequence,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Forget $name?'),
+        content: Text(consequence),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Forget'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
   Future<void> _forget(
-      BuildContext context, WidgetRef ref, SavedDevice saved) async {
-    // Everything context- or ref-derived is resolved before the first await:
+    BuildContext context,
+    WidgetRef ref,
+    SavedDevice saved,
+  ) async {
+    final confirmed = await _confirmForget(
+      context,
+      saved.name.isNotEmpty ? saved.name : 'Unknown device',
+      'It comes off this list and out of any groups it is in. Connect to it '
+      'again from the Nearby tab to bring it back.',
+    );
+    // The dialog is modal, so the screen is normally still here — but the
+    // dialog resolves null on a route pop too, and a context that is gone
+    // has no messenger to look up.
+    if (!confirmed || !context.mounted) return;
+    // Everything context- or ref-derived is resolved before the next await:
     // both lookups throw once this screen is disposed, and a forget should
     // finish even if the user navigates away mid-write.
     final messenger = ScaffoldMessenger.of(context);
@@ -71,6 +129,14 @@ class SavedDevicesScreen extends ConsumerWidget {
       savedDevices: savedDevices,
       groups: groups,
       deviceId: saved.id,
+      // A Rabbit Air set up over BLE files its key under the BLE scope.
+      rabbitAir: ref.read(rabbitAirKeyStoreProvider),
+      // The per-device preferences keyed by this id. A re-saved device gets
+      // the same id back, so without these a removal left the old spec
+      // choice, LED designs and panel size to reappear under it.
+      specChoices: ref.read(specChoiceStoreProvider),
+      savedDesigns: ref.read(savedDesignsStoreProvider),
+      panelResolutions: ref.read(panelResolutionCacheProvider),
     );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }
@@ -85,19 +151,33 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// Goes through the same launcher the scan list uses, so a saved robot whose
   /// password is not on this handset reaches the adoption wizard instead of a
   /// control screen that can only report errors.
-  Future<void> _openNetwork(BuildContext context, WidgetRef ref,
-          SavedNetworkDevice saved, NetworkControls controls) =>
-      openNetworkControls(
-        context: context,
-        ref: ref,
-        device: saved.toNetworkDevice(),
-        controls: controls,
-        category: saved.category,
-        specKey: saved.specKey,
-      );
+  Future<void> _openNetwork(
+    BuildContext context,
+    WidgetRef ref,
+    SavedNetworkDevice saved,
+    NetworkControls controls,
+  ) => openNetworkControls(
+    context: context,
+    ref: ref,
+    device: saved.toNetworkDevice(),
+    controls: controls,
+    category: saved.category,
+    specKey: saved.specKey,
+  );
 
   Future<void> _forgetNetwork(
-      BuildContext context, WidgetRef ref, SavedNetworkDevice saved) async {
+    BuildContext context,
+    WidgetRef ref,
+    SavedNetworkDevice saved,
+  ) async {
+    final confirmed = await _confirmForget(
+      context,
+      saved.name.isNotEmpty ? saved.name : 'Unknown device',
+      'This also removes its stored password and certificate from this '
+      'phone and takes it out of any groups it is in. Getting it back means '
+      'pairing with the device again.',
+    );
+    if (!confirmed || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final savedDevices = ref.read(savedNetworkDevicesProvider.notifier);
     final groups = ref.read(deviceGroupsProvider.notifier);
@@ -112,6 +192,14 @@ class SavedDevicesScreen extends ConsumerWidget {
       // …and whatever its spec said it needed, for the same reason.
       credentials: ref.read(deviceCredentialStoreProvider),
       deviceMac: saved.toNetworkDevice().advertisedMac,
+      // The two secrets that are not "spec credentials": a Roomba's local
+      // password is filed under its blid, a Rabbit Air's key under the
+      // hostname it was provisioned as. Neither store had a caller here, so
+      // "forget" left both behind while telling the user it had not.
+      roomba: ref.read(roombaCredentialStoreProvider),
+      rabbitAir: ref.read(rabbitAirKeyStoreProvider),
+      blid: saved.txt['blid'],
+      hostname: saved.hostname,
       host: saved.host,
       // What the record says its pins were actually keyed by at write time.
       recordedIdentity: saved.credentialIdentity,
@@ -183,9 +271,11 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// platforms; [NumberRegistry.vendorForMac] validates and returns null for
   /// the latter, so the id goes straight through.
   String _savedDescription(
-      AsyncValue<NumberRegistry> registry, SavedDevice device) {
+    AsyncValue<NumberRegistry> registry,
+    SavedDevice device,
+  ) {
     final vendor = registry.valueOrNull?.vendorForMac(device.id);
-    return [device.id, if (vendor != null) vendor].join(' · ');
+    return [device.id, ?vendor].join(' · ');
   }
 }
 
@@ -210,14 +300,29 @@ class _NetworkSavedTile extends ConsumerWidget {
     final parts = specKey?.split('|');
     final controls = parts != null && parts.length == 2
         ? ref
-            .watch(networkControlsProvider(NetworkControlRequest(
-              deviceName: parts[0],
-              manufacturer: parts[1],
-              ssdpTargets: device.ssdpTargets,
-            )))
-            .valueOrNull
+              .watch(
+                networkControlsProvider(
+                  NetworkControlRequest(
+                    deviceName: parts[0],
+                    manufacturer: parts[1],
+                    ssdpTargets: device.ssdpTargets,
+                  ),
+                ),
+              )
+              .valueOrNull
         : null;
     final category = DeviceCategory.parse(device.category);
+    // A robot serves ONE local client at a time, and a new connection evicts
+    // the last, so which thing holds that slot — this app, a rest980 server,
+    // or Home Assistant — is a real setting. RoombaTransportScreen is where
+    // it is answered, and until now nothing in the app could reach it with a
+    // robot's credentials, so the choice could be made once at adoption and
+    // never revised. This is that entry point.
+    final blid = device.txt['blid'];
+    final isRoomba =
+        blid != null &&
+        blid.isNotEmpty &&
+        controls?.capabilities?.protocolHandler == roombaProtocolHandler;
     return DeviceListTile(
       title: device.name.isNotEmpty ? device.name : 'Unknown device',
       subtitle: category?.label ?? 'Wi-Fi',
@@ -225,7 +330,62 @@ class _NetworkSavedTile extends ConsumerWidget {
       icon: category?.icon ?? Icons.router_outlined,
       description: device.host,
       onTap: controls == null ? null : () => onOpen(controls),
+      onConfigure: isRoomba ? () => _chooseTransport(context, ref, blid) : null,
+      configureTooltip: isRoomba ? 'How to reach this robot' : null,
       onForget: onForget,
+    );
+  }
+
+  /// Opens the transport chooser for a saved robot.
+  ///
+  /// The screen needs the stored credentials: without them it can only offer
+  /// Home Assistant, because the direct and rest980 paths need the robot's
+  /// local password, and that is the state the one existing caller (the
+  /// adoption flow) leaves it in.
+  Future<void> _chooseTransport(
+    BuildContext context,
+    WidgetRef ref,
+    String blid,
+  ) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    RoombaCredentials? stored;
+    try {
+      stored = await ref.read(roombaCredentialStoreProvider).credentials(blid);
+    } catch (error) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              error,
+              fallback: "Could not read this robot's stored password.",
+              context: 'roomba transport chooser',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    if (stored == null) {
+      // Adopted through Home Assistant, or the password was cleared: the
+      // robot is still drivable, just not directly, and saying so beats a
+      // screen with two sections that cannot work.
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This robot has no stored password on this phone, so it can only '
+            'be reached through Home Assistant.',
+          ),
+        ),
+      );
+      return;
+    }
+    await navigator.push<void>(
+      MaterialPageRoute(
+        builder: (_) => RoombaTransportScreen(credentials: stored),
+      ),
     );
   }
 }
@@ -255,8 +415,10 @@ class _EmptyState extends StatelessWidget {
               'Connect to a device from the Nearby tab and it will show up '
               'here, ready to reconnect without scanning again.',
               textAlign: TextAlign.center,
-              style: text.bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+              style: text.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                height: 1.5,
+              ),
             ),
           ],
         ),

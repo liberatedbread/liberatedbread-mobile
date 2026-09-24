@@ -17,26 +17,26 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import '../fakes/fake_spec_codec.dart';
 
 DeviceSpecDto _spec(String name, String manufacturer) => DeviceSpecDto(
-      nameMatchers: const [],
-      platformFallbackTypes: const [],
-      txtMatchGroups: const [],
-      hiddenEntityNames: const [],
-      deviceName: name,
-      manufacturer: manufacturer,
-      manufacturerStatus: 'shutdown',
-      protocol: 'wifi',
-      localNamePrefixes: const [],
-      localNames: const [],
-      serviceUuids: const [],
-      companyIds: Uint16List(0),
-      macPrefixes: const [],
-      mdnsServiceTypes: const [],
-      ssdpSearchTargets: const ['urn:Belkin:service:basicevent:1'],
-      lanProtocols: const [],
-      defaultPort: null,
-      entities: const [],
-      services: const [],
-    );
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: name,
+  manufacturer: manufacturer,
+  manufacturerStatus: 'shutdown',
+  protocol: 'wifi',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const ['urn:Belkin:service:basicevent:1'],
+  lanProtocols: const [],
+  defaultPort: null,
+  entities: const [],
+  services: const [],
+);
 
 const _plugEntity = NetworkEntityDto(
   isInstanced: false,
@@ -51,10 +51,17 @@ ProviderContainer _container(
   FakeSpecCodec codec, {
   required List<({DeviceSpecDto spec, String yaml})> parsed,
 }) {
-  final container = ProviderContainer(overrides: [
-    specCodecProvider.overrideWithValue(codec),
-    parsedDeviceSpecsProvider.overrideWith((ref) async => parsed),
-  ]);
+  final container = ProviderContainer(
+    overrides: [
+      specCodecProvider.overrideWithValue(codec),
+      specCatalogueProvider.overrideWith(
+        (ref) async => FallbackSpecCatalogue.fromParsed(
+          ref.watch(specCodecProvider),
+          parsed,
+        ),
+      ),
+    ],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -91,28 +98,34 @@ const _hubAction = NetworkActionDto(
 );
 
 NetworkEntityDto _instanced(List<NetworkActionDto> actions) => NetworkEntityDto(
-      isInstanced: true,
-      name: 'Child',
-      platform: 'switch',
-      stateCommand: 'get',
-      options: const [],
-      actions: actions,
-    );
+  isInstanced: true,
+  name: 'Child',
+  platform: 'switch',
+  stateCommand: 'get',
+  options: const [],
+  actions: actions,
+);
 
 void main() {
   test('resolves the matched spec and its declared controls', () async {
     late List<String> asked;
-    final codec = FakeSpecCodec(networkEntities: (targets) {
-      asked = targets;
-      return const [_plugEntity];
-    });
-    final container = _container(codec, parsed: [
-      (spec: _spec('Belkin Wemo Smart Devices', 'Belkin'), yaml: 'wemo-yaml'),
-      (spec: _spec('Hue Bridge', 'Signify'), yaml: 'hue-yaml'),
-    ]);
+    final codec = FakeSpecCodec(
+      networkEntities: (targets) {
+        asked = targets;
+        return const [_plugEntity];
+      },
+    );
+    final container = _container(
+      codec,
+      parsed: [
+        (spec: _spec('Belkin Wemo Smart Devices', 'Belkin'), yaml: 'wemo-yaml'),
+        (spec: _spec('Hue Bridge', 'Signify'), yaml: 'hue-yaml'),
+      ],
+    );
 
-    final controls =
-        await container.read(networkControlsProvider(_request).future);
+    final controls = await container.read(
+      networkControlsProvider(_request).future,
+    );
 
     expect(controls, isNotNull);
     expect(controls!.specYaml, 'wemo-yaml');
@@ -124,64 +137,89 @@ void main() {
 
   test('a spec declaring no network entities resolves to null', () async {
     final codec = FakeSpecCodec(networkEntities: (_) => const []);
-    final container = _container(codec, parsed: [
-      (spec: _spec('Hue Bridge', 'Signify'), yaml: 'hue-yaml'),
-    ]);
+    final container = _container(
+      codec,
+      parsed: [(spec: _spec('Hue Bridge', 'Signify'), yaml: 'hue-yaml')],
+    );
 
-    final controls = await container.read(networkControlsProvider(
-      const NetworkControlRequest(
-        deviceName: 'Hue Bridge',
-        manufacturer: 'Signify',
-        ssdpTargets: [],
-      ),
-    ).future);
+    final controls = await container.read(
+      networkControlsProvider(
+        const NetworkControlRequest(
+          deviceName: 'Hue Bridge',
+          manufacturer: 'Signify',
+          ssdpTargets: [],
+        ),
+      ).future,
+    );
 
     expect(controls, isNull);
   });
 
-  test('an unmatched device resolves to null without asking the codec',
-      () async {
-    var askedCodec = false;
-    final codec = FakeSpecCodec(networkEntities: (_) {
-      askedCodec = true;
-      return const [_plugEntity];
-    });
-    final container = _container(codec, parsed: [
-      (spec: _spec('Hue Bridge', 'Signify'), yaml: 'hue-yaml'),
-    ]);
+  test(
+    'an unmatched device resolves to null without asking the codec',
+    () async {
+      var askedCodec = false;
+      final codec = FakeSpecCodec(
+        networkEntities: (_) {
+          askedCodec = true;
+          return const [_plugEntity];
+        },
+      );
+      final container = _container(
+        codec,
+        parsed: [(spec: _spec('Hue Bridge', 'Signify'), yaml: 'hue-yaml')],
+      );
 
-    final controls =
-        await container.read(networkControlsProvider(_request).future);
+      final controls = await container.read(
+        networkControlsProvider(_request).future,
+      );
 
-    expect(controls, isNull);
-    expect(askedCodec, isFalse);
-  });
+      expect(controls, isNull);
+      expect(askedCodec, isFalse);
+    },
+  );
 
   test('a codec failure degrades to null, never an error', () async {
     // The provider is watched from inside the scan list; a throw here would
     // break the tile that asked, for a device that only needed the sheet.
     final codec = FakeSpecCodec(
-        networkEntities: (_) => throw StateError('native codec unavailable'));
-    final container = _container(codec, parsed: [
-      (spec: _spec('Belkin Wemo Smart Devices', 'Belkin'), yaml: 'wemo-yaml'),
-    ]);
+      networkEntities: (_) => throw StateError('native codec unavailable'),
+    );
+    final container = _container(
+      codec,
+      parsed: [
+        (spec: _spec('Belkin Wemo Smart Devices', 'Belkin'), yaml: 'wemo-yaml'),
+      ],
+    );
 
-    final controls =
-        await container.read(networkControlsProvider(_request).future);
+    final controls = await container.read(
+      networkControlsProvider(_request).future,
+    );
     expect(controls, isNull);
   });
 
   test('requests are value-equal so the family caches per device', () {
     const a = NetworkControlRequest(
-        deviceName: 'X', manufacturer: 'Y', ssdpTargets: ['t']);
+      deviceName: 'X',
+      manufacturer: 'Y',
+      ssdpTargets: ['t'],
+    );
     const b = NetworkControlRequest(
-        deviceName: 'X', manufacturer: 'Y', ssdpTargets: ['t']);
+      deviceName: 'X',
+      manufacturer: 'Y',
+      ssdpTargets: ['t'],
+    );
     expect(a, b);
     expect(a.hashCode, b.hashCode);
     expect(
       a,
-      isNot(const NetworkControlRequest(
-          deviceName: 'X', manufacturer: 'Y', ssdpTargets: ['other'])),
+      isNot(
+        const NetworkControlRequest(
+          deviceName: 'X',
+          manufacturer: 'Y',
+          ssdpTargets: ['other'],
+        ),
+      ),
     );
   });
 
@@ -190,22 +228,24 @@ void main() {
     // routed Kasa power strips to the Hue pairing screen and made the
     // per-outlet switches unreachable. Instanced children are necessary but
     // not sufficient — a hub is the subset that must be paired with.
-    test('a Kasa power strip is NOT a hub, though its outlets are instanced',
-        () {
-      final controls = NetworkControls(
-        specYaml: 'spec',
-        entities: [
-          _instanced(const [_kasaAction])
-        ],
-      );
-      expect(controls.isHub, isFalse);
-    });
+    test(
+      'a Kasa power strip is NOT a hub, though its outlets are instanced',
+      () {
+        final controls = NetworkControls(
+          specYaml: 'spec',
+          entities: [
+            _instanced(const [_kasaAction]),
+          ],
+        );
+        expect(controls.isHub, isFalse);
+      },
+    );
 
     test('an instanced child reached with a credential IS a hub', () {
       final controls = NetworkControls(
         specYaml: 'spec',
         entities: [
-          _instanced(const [_hubAction])
+          _instanced(const [_hubAction]),
         ],
       );
       expect(controls.isHub, isTrue);
@@ -224,8 +264,10 @@ void main() {
     });
 
     test('a device with no instanced entities is never a hub', () {
-      const controls =
-          NetworkControls(specYaml: 'spec', entities: [_plugEntity]);
+      const controls = NetworkControls(
+        specYaml: 'spec',
+        entities: [_plugEntity],
+      );
       expect(controls.isHub, isFalse);
     });
   });

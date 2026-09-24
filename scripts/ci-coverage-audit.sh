@@ -54,9 +54,6 @@ ALLOWED_ABSENT=(
   # A bare `abstract class` of method signatures. The production implementation
   # (SecureSettingsStore) lives elsewhere and is covered there.
   'lib/services/settings_store.dart'
-  # An abstract class plus `export` directives re-exporting the generated FRB
-  # DTOs. No statement in it ever runs.
-  'lib/services/spec_codec.dart'
   # One `const` map literal each: the MDI-name translation tables, split per
   # device domain so two device branches stop colliding on one file. A const
   # map has no executable line to instrument, so lcov emits no record for it

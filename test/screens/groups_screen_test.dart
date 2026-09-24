@@ -15,50 +15,51 @@ import 'package:shared_preferences/shared_preferences.dart';
 late SharedPreferences _prefs;
 
 Map<String, Object> _seededDevices() => {
-      'saved_devices_v1': jsonEncode([
-        {
-          'id': 'AA:BB:CC:DD:EE:01',
-          'name': 'ACME_Living_Room',
-          'lastSeen': '2026-08-11T10:00:00.000',
-          'category': 'light',
-          'specKey': 'Example Smart Bulb|Acme Corp',
-        },
-        {
-          'id': 'AA:BB:CC:DD:EE:02',
-          'name': 'ACME_Bedroom',
-          'lastSeen': '2026-08-11T09:00:00.000',
-          'category': 'light',
-          'specKey': 'Example Smart Bulb|Acme Corp',
-        },
-        {
-          'id': 'AA:BB:CC:DD:EE:03',
-          'name': 'Airthings Wave Plus',
-          'lastSeen': '2026-08-11T08:00:00.000',
-          'category': 'sensor',
-          'specKey': 'Airthings Wave Family|Airthings ASA',
-        },
-        {
-          'id': 'AA:BB:CC:DD:EE:04',
-          'name': 'Old Mystery',
-          'lastSeen': '2026-08-11T07:00:00.000',
-        },
-      ]),
-    };
+  'saved_devices_v1': jsonEncode([
+    {
+      'id': 'AA:BB:CC:DD:EE:01',
+      'name': 'ACME_Living_Room',
+      'lastSeen': '2026-08-11T10:00:00.000',
+      'category': 'light',
+      'specKey': 'Example Smart Bulb|Acme Corp',
+    },
+    {
+      'id': 'AA:BB:CC:DD:EE:02',
+      'name': 'ACME_Bedroom',
+      'lastSeen': '2026-08-11T09:00:00.000',
+      'category': 'light',
+      'specKey': 'Example Smart Bulb|Acme Corp',
+    },
+    {
+      'id': 'AA:BB:CC:DD:EE:03',
+      'name': 'Airthings Wave Plus',
+      'lastSeen': '2026-08-11T08:00:00.000',
+      'category': 'sensor',
+      'specKey': 'Airthings Wave Family|Airthings ASA',
+    },
+    {
+      'id': 'AA:BB:CC:DD:EE:04',
+      'name': 'Old Mystery',
+      'lastSeen': '2026-08-11T07:00:00.000',
+    },
+  ]),
+};
 
 Widget _wrap({List<Override> overrides = const []}) => ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        // The guess path is exercised in provider tests; here it stays quiet
-        // so the screen's buckets come from stored categories alone.
-        scanGuessProvider.overrideWith((ref, identity) async => null),
-        ...overrides,
-      ],
-      child: const MaterialApp(home: GroupsScreen()),
-    );
+  overrides: [
+    sharedPreferencesProvider.overrideWithValue(_prefs),
+    // The guess path is exercised in provider tests; here it stays quiet
+    // so the screen's buckets come from stored categories alone.
+    scanGuessProvider.overrideWith((ref, identity) async => null),
+    ...overrides,
+  ],
+  child: const MaterialApp(home: GroupsScreen()),
+);
 
 void main() {
-  testWidgets('empty saved list shows the empty state and no FAB',
-      (tester) async {
+  testWidgets('empty saved list shows the empty state and no FAB', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     _prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(_wrap());
@@ -123,7 +124,9 @@ void main() {
     expect(
       find.descendant(
         of: find.ancestor(
-            of: find.text('Bedroom'), matching: find.byType(GroupTile)),
+          of: find.text('Bedroom'),
+          matching: find.byType(GroupTile),
+        ),
         matching: find.text('1 device'),
       ),
       findsOneWidget,

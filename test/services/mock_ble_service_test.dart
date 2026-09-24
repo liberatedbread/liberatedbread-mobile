@@ -1,5 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/mock_ble_service.dart';
@@ -45,13 +48,21 @@ void main() {
       final devices = await service.scan().toList();
       final byId = {for (final d in devices) d.id: d};
 
-      expect(byId['AA:BB:CC:DD:EE:01']!.serviceUuids,
-          contains('0000fff0-0000-1000-8000-00805f9b34fb'),
-          reason: 'one device must advertise a service UUID');
-      expect(byId['AA:BB:CC:DD:EE:02']!.serviceUuids, isEmpty,
-          reason: 'one device must be recognisable by name alone');
-      expect(byId['AA:BB:CC:DD:EE:03']!.companyIds, contains(820),
-          reason: 'one device must be recognisable by company ID alone');
+      expect(
+        byId['AA:BB:CC:DD:EE:01']!.serviceUuids,
+        contains('0000fff0-0000-1000-8000-00805f9b34fb'),
+        reason: 'one device must advertise a service UUID',
+      );
+      expect(
+        byId['AA:BB:CC:DD:EE:02']!.serviceUuids,
+        isEmpty,
+        reason: 'one device must be recognisable by name alone',
+      );
+      expect(
+        byId['AA:BB:CC:DD:EE:03']!.companyIds,
+        contains(820),
+        reason: 'one device must be recognisable by company ID alone',
+      );
 
       // C4:7C:8D is subdivided among fifteen companies and the trailing 6 is
       // what picks out HHCC Plant Technology's 28-bit block — the Mi Flora's
@@ -61,8 +72,11 @@ void main() {
       expect(anonymous.name, isEmpty);
       expect(anonymous.serviceUuids, isEmpty);
       expect(anonymous.companyIds, isEmpty);
-      expect(anonymous.macAddress, 'C4:7C:8D:61:22:04',
-          reason: 'one device must be identifiable only by its OUI');
+      expect(
+        anonymous.macAddress,
+        'C4:7C:8D:61:22:04',
+        reason: 'one device must be identifiable only by its OUI',
+      );
     });
   });
 
@@ -115,33 +129,63 @@ void main() {
       await service.dispose();
     });
 
-    test('stops an active notify subscription from emitting', () async {
-      await service.connect('AA:BB:CC:DD:EE:01');
+    // Fake time, not real. The mock notify is a `Timer.periodic(2s)`, so the
+    // two waits this needs — one period to see the machinery live, another
+    // after dispose to see that it stayed quiet — used to be 2.1 s and 2.5 s
+    // of WALL CLOCK: 4.6 seconds of a unit suite spent asleep, and a second
+    // wait that is only as convincing as the margin someone guessed. Elapsing
+    // a fake clock proves the same two things exactly, in microseconds, and
+    // the "no further emissions" half becomes a real statement about the
+    // timer rather than about how long the test was willing to wait.
+    //
+    // The service is constructed in setUp, outside this zone, but it creates
+    // no timers until something asks it to — the connect delay and the notify
+    // period are both created inside the callback, so the fake clock owns
+    // them.
+    test('stops an active notify subscription from emitting', () {
+      fakeAsync((async) {
+        var connected = false;
+        unawaited(
+          service.connect('AA:BB:CC:DD:EE:01').then((_) => connected = true),
+        );
+        // The mock connect is a 500 ms pretend latency.
+        async.elapse(const Duration(seconds: 1));
+        expect(connected, isTrue, reason: 'the notify timer checks _connected');
 
-      final emitted = <List<int>>[];
-      var done = false;
-      final subscription = service
-          .subscribeCharacteristic(
-            'AA:BB:CC:DD:EE:01',
-            '0000180f-0000-1000-8000-00805f9b34fb',
-            '00002a19-0000-1000-8000-00805f9b34fb',
-          )
-          .listen(emitted.add, onDone: () => done = true);
+        final emitted = <List<int>>[];
+        var done = false;
+        final subscription = service
+            .subscribeCharacteristic(
+              'AA:BB:CC:DD:EE:01',
+              '0000180f-0000-1000-8000-00805f9b34fb',
+              '00002a19-0000-1000-8000-00805f9b34fb',
+            )
+            .listen(emitted.add, onDone: () => done = true);
 
-      // Wait for the first periodic notification so the machinery is live.
-      await Future<void>.delayed(const Duration(milliseconds: 2100));
-      expect(emitted, isNotEmpty);
+        // One period (plus the read's own 50 ms) so the machinery is live.
+        async.elapse(const Duration(milliseconds: 2100));
+        expect(emitted, isNotEmpty);
 
-      await service.dispose();
-      await Future<void>.delayed(Duration.zero);
-      expect(done, isTrue);
+        unawaited(service.dispose());
+        async.flushMicrotasks();
+        expect(done, isTrue);
 
-      // No further emissions after dispose, even across another timer period.
-      final countAtDispose = emitted.length;
-      await Future<void>.delayed(const Duration(milliseconds: 2500));
-      expect(emitted.length, countAtDispose);
+        // No further emissions after dispose, across another timer period.
+        final countAtDispose = emitted.length;
+        async.elapse(const Duration(milliseconds: 2500));
+        expect(emitted.length, countAtDispose);
+        // And nothing is left ticking: a periodic timer that survived dispose
+        // is the leak this test is about, and it is invisible to the count
+        // above once its controller is closed.
+        expect(
+          async.periodicTimerCount,
+          0,
+          reason: 'the notify Timer.periodic outlived dispose()',
+        );
 
-      await subscription.cancel();
+        unawaited(subscription.cancel());
+        async.flushMicrotasks();
+      });
     });
   });
 
@@ -152,10 +196,7 @@ void main() {
     });
 
     test('throws for unknown device', () async {
-      expect(
-        () => service.discoverServices('unknown'),
-        throwsStateError,
-      );
+      expect(() => service.discoverServices('unknown'), throwsStateError);
     });
 
     test('services contain expected UUIDs', () async {
@@ -196,6 +237,32 @@ void main() {
   });
 
   group('writeCharacteristic then readCharacteristic', () {
+    test(
+      'a later scan does not undo what demo mode was told (R-018)',
+      () async {
+        // The scan screen starts scans routinely — the burst downshift, resume,
+        // coming back from a device screen — and each one used to wipe the
+        // simulator. A demo user turned a light on, went back, and found it
+        // off, which reads as the app failing to send rather than as the
+        // simulator being reset underneath them.
+        const device = 'AA:BB:CC:DD:EE:01';
+        const service_ = '0000fff0-0000-1000-8000-00805f9b34fb';
+        const characteristic = '0000fff1-0000-1000-8000-00805f9b34fb';
+        await service.scan().toList();
+        await service.writeCharacteristic(device, service_, characteristic, [
+          0x01,
+          0x50,
+        ]);
+
+        await service.scan().toList();
+
+        expect(
+          await service.readCharacteristic(device, service_, characteristic),
+          [0x01, 0x50],
+        );
+      },
+    );
+
     test('returns written value', () async {
       await service.writeCharacteristic(
         'AA:BB:CC:DD:EE:01',
@@ -241,9 +308,7 @@ void main() {
       );
 
       // Take first emission (timer fires at 2s intervals)
-      final first = await stream.first.timeout(
-        const Duration(seconds: 5),
-      );
+      final first = await stream.first.timeout(const Duration(seconds: 5));
       expect(first, [85]); // default battery
 
       await service.disconnect('AA:BB:CC:DD:EE:01');

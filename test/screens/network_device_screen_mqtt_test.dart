@@ -50,22 +50,25 @@ import '../fakes/fake_spec_codec.dart';
 /// MqttSession's stream is likewise a broadcast one.
 class _FakeMqttSender extends NetworkCommandSender {
   _FakeMqttSender({required super.codec})
-      : super(
-          host: 'mqtt.test',
-          discoveredControlPort: null,
-          devicePort: 1883,
-          ssdpTargets: const [],
-          specYaml: 'yaml',
-          http: HttpControlClient(
-              httpClient: MockClient((_) async => http.Response('', 200))),
-          soap: SoapControlClient(
-              httpClient: MockClient((_) async => http.Response('', 200))),
-          kasa: KasaControlClient(codec),
-          rabbitAir: RabbitAirControlClient(codec),
-          ecp2: Ecp2ControlService(
-              connector: (_, __) async =>
-                  throw const Ecp2Exception('no ECP2 in this test')),
-        );
+    : super(
+        host: 'mqtt.test',
+        discoveredControlPort: null,
+        devicePort: 1883,
+        ssdpTargets: const [],
+        specYaml: 'yaml',
+        http: HttpControlClient(
+          httpClient: MockClient((_) async => http.Response('', 200)),
+        ),
+        soap: SoapControlClient(
+          httpClient: MockClient((_) async => http.Response('', 200)),
+        ),
+        kasa: KasaControlClient(codec),
+        rabbitAir: RabbitAirControlClient(codec),
+        ecp2: Ecp2ControlService(
+          connector: (_, _) async =>
+              throw const Ecp2Exception('no ECP2 in this test'),
+        ),
+      );
 
   /// How many times the screen asked to subscribe — the observable proxy for
   /// "a resubscribe was scheduled AND fired", since [_mqttRetry] is private.
@@ -101,7 +104,9 @@ class _FakeMqttSender extends NetworkCommandSender {
 
   @override
   Future<Stream<MqttMessage>> subscribeMqttState(
-      NetworkActionDto? action, List<String> topics) async {
+    NetworkActionDto? action,
+    List<String> topics,
+  ) async {
     subscribeCalls++;
     if (alwaysThrow || throwOnCalls.contains(subscribeCalls)) {
       throw const MqttConnectionException('the broker is down');
@@ -153,25 +158,29 @@ void main() {
   Future<void> pumpScreen(WidgetTester tester) async {
     final codec = FakeSpecCodec(networkEntities: (_) => const [mqttEntity]);
     sender = _FakeMqttSender(codec: codec);
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        specCodecProvider.overrideWithValue(codec),
-        networkCommandSenderFactoryProvider.overrideWithValue(({
-          required NetworkDevice device,
-          required String specYaml,
-          NetworkCapabilitiesDto? capabilities,
-        }) =>
-            sender),
-      ],
-      child: MaterialApp(
-        home: NetworkDeviceScreen(
-          device: device,
-          controls: const NetworkControls(specYaml: 'yaml', entities: [
-            mqttEntity,
-          ]),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          networkCommandSenderFactoryProvider.overrideWithValue(
+            ({
+              required NetworkDevice device,
+              required String specYaml,
+              NetworkCapabilitiesDto? capabilities,
+            }) => sender,
+          ),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+            device: device,
+            controls: const NetworkControls(
+              specYaml: 'yaml',
+              entities: [mqttEntity],
+            ),
+          ),
         ),
       ),
-    ));
+    );
     for (var i = 0; i < 6; i++) {
       await tester.pump();
     }
@@ -198,8 +207,11 @@ void main() {
     for (var i = 0; i < 40 && !sender.latest.hasListener; i++) {
       await tester.pump(const Duration(milliseconds: 1));
     }
-    expect(sender.latest.hasListener, isTrue,
-        reason: 'the screen never attached its listener to the new stream');
+    expect(
+      sender.latest.hasListener,
+      isTrue,
+      reason: 'the screen never attached its listener to the new stream',
+    );
   }
 
   /// Error the current stream and let the onError handler schedule the retry.
@@ -229,14 +241,20 @@ void main() {
     while (elapsed + step < backoff) {
       await tester.pump(step);
       elapsed += step;
-      expect(sender.subscribeCalls, before,
-          reason: 'no retry should fire before $backoff (at $elapsed)');
+      expect(
+        sender.subscribeCalls,
+        before,
+        reason: 'no retry should fire before $backoff (at $elapsed)',
+      );
     }
     await tester.pump(backoff - elapsed);
     await tester.pump();
     await tester.pump();
-    expect(sender.subscribeCalls, before + 1,
-        reason: 'the retry should fire at $backoff');
+    expect(
+      sender.subscribeCalls,
+      before + 1,
+      reason: 'the retry should fire at $backoff',
+    );
   }
 
   /// Assert no retry fires across [window] — the loop has stopped.
@@ -244,8 +262,11 @@ void main() {
     final before = sender.subscribeCalls;
     await tester.pump(window);
     await tester.pump();
-    expect(sender.subscribeCalls, before,
-        reason: 'no retry should fire within $window');
+    expect(
+      sender.subscribeCalls,
+      before,
+      reason: 'no retry should fire within $window',
+    );
   }
 
   testWidgets('the first load subscribes exactly once', (tester) async {
@@ -257,8 +278,9 @@ void main() {
     await disposeScreen(tester);
   });
 
-  testWidgets('a stream error schedules a resubscribe at the 2 s floor',
-      (tester) async {
+  testWidgets('a stream error schedules a resubscribe at the 2 s floor', (
+    tester,
+  ) async {
     await pumpScreen(tester);
     expect(sender.subscribeCalls, 1);
     // The broker stays down so the retry throws rather than re-subscribing —
@@ -275,8 +297,9 @@ void main() {
     await disposeScreen(tester);
   });
 
-  testWidgets('the backoff doubles each error and clamps at 30 s',
-      (tester) async {
+  testWidgets('the backoff doubles each error and clamps at 30 s', (
+    tester,
+  ) async {
     await pumpScreen(tester);
     // Every retry from here finds the broker still down and throws, which is
     // what re-arms the next attempt — and keeps the load stream listened, so
@@ -300,8 +323,9 @@ void main() {
     await disposeScreen(tester);
   });
 
-  testWidgets('a delivered message resets the backoff to the floor',
-      (tester) async {
+  testWidgets('a delivered message resets the backoff to the floor', (
+    tester,
+  ) async {
     await pumpScreen(tester);
     sender.alwaysThrow = true;
 
@@ -313,7 +337,9 @@ void main() {
 
     // A real reading resets the backoff to zero, even with a retry armed.
     await deliver(
-        tester, const MqttMessage('device/state', '{"battery":"77"}'));
+      tester,
+      const MqttMessage('device/state', '{"battery":"77"}'),
+    );
 
     // The armed 8 s retry still fires, but its throw now sees a zero backoff —
     // the first-load case — so it does NOT re-arm, and the escalation stops.
@@ -328,48 +354,62 @@ void main() {
     await disposeScreen(tester);
   });
 
-  testWidgets('a first-load throw does not retry, but a mid-reconnect one does',
-      (tester) async {
-    // First load throws (backoff still zero): the credentials card is the ask,
-    // so the loop must NOT start.
-    final codec = FakeSpecCodec(networkEntities: (_) => const [mqttEntity]);
-    sender = _FakeMqttSender(codec: codec)..throwOnCalls.add(1);
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        specCodecProvider.overrideWithValue(codec),
-        networkCommandSenderFactoryProvider.overrideWithValue(({
-          required NetworkDevice device,
-          required String specYaml,
-          NetworkCapabilitiesDto? capabilities,
-        }) =>
-            sender),
-      ],
-      child: MaterialApp(
-        home: NetworkDeviceScreen(
-          device: device,
-          controls:
-              const NetworkControls(specYaml: 'yaml', entities: [mqttEntity]),
+  testWidgets(
+    'a first-load throw does not retry, but a mid-reconnect one does',
+    (tester) async {
+      // First load throws (backoff still zero): the credentials card is the ask,
+      // so the loop must NOT start.
+      final codec = FakeSpecCodec(networkEntities: (_) => const [mqttEntity]);
+      sender = _FakeMqttSender(codec: codec)..throwOnCalls.add(1);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            networkCommandSenderFactoryProvider.overrideWithValue(
+              ({
+                required NetworkDevice device,
+                required String specYaml,
+                NetworkCapabilitiesDto? capabilities,
+              }) => sender,
+            ),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+              device: device,
+              controls: const NetworkControls(
+                specYaml: 'yaml',
+                entities: [mqttEntity],
+              ),
+            ),
+          ),
         ),
-      ),
-    ));
-    for (var i = 0; i < 6; i++) {
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+      expect(
+        sender.subscribeCalls,
+        1,
+        reason: 'the throwing first load ran once',
+      );
+
+      // No retry is ever scheduled — advancing well past any backoff changes
+      // nothing.
+      await tester.pump(const Duration(seconds: 60));
       await tester.pump();
-    }
-    expect(sender.subscribeCalls, 1,
-        reason: 'the throwing first load ran once');
+      expect(
+        sender.subscribeCalls,
+        1,
+        reason: 'a first-load throw must not start the retry loop',
+      );
 
-    // No retry is ever scheduled — advancing well past any backoff changes
-    // nothing.
-    await tester.pump(const Duration(seconds: 60));
-    await tester.pump();
-    expect(sender.subscribeCalls, 1,
-        reason: 'a first-load throw must not start the retry loop');
+      await disposeScreen(tester);
+    },
+  );
 
-    await disposeScreen(tester);
-  });
-
-  testWidgets('a mid-reconnect throw keeps the retry loop alive',
-      (tester) async {
+  testWidgets('a mid-reconnect throw keeps the retry loop alive', (
+    tester,
+  ) async {
     await pumpScreen(tester);
     expect(sender.subscribeCalls, 1);
 
@@ -398,8 +438,11 @@ void main() {
 
     await tester.pump(const Duration(seconds: 30));
     await tester.pump();
-    expect(sender.subscribeCalls, 1,
-        reason: 'no retry runs once the screen is gone');
+    expect(
+      sender.subscribeCalls,
+      1,
+      reason: 'no retry runs once the screen is gone',
+    );
     expect(tester.takeException(), isNull);
   });
 }

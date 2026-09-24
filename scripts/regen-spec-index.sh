@@ -17,7 +17,9 @@ regen_spec_index() {
   [[ "${LB_SPEC_INDEX:-1}" == "0" ]] && return 0
   local project="${PROJECT_DIR:-$(pwd)}"
   local base="$project/vendor/protocol-specs/device-specs"
-  local out="$base/index-temp.json"
+  # Under examples/ — the directory pubspec bundles — so the temp index ships
+  # without bundling all of device-specs/ (see pubspec.yaml's assets note).
+  local out="$base/examples/index-temp.json"
   [[ -d "$base/devices" ]] || return 0
   if ! command -v python3 >/dev/null 2>&1; then
     return 0
@@ -28,7 +30,7 @@ regen_spec_index() {
      [[ -z "$(find "$base/devices" "$base/examples" -name '*.yaml' -newer "$out" -print -quit 2>/dev/null)" ]]; then
     return 0
   fi
-  log "Rebuilding the local spec index (index-temp.json) from the vendored specs..."
+  log "Rebuilding the local spec index (examples/index-temp.json) from the vendored specs..."
   python3 - "$base" "$out" << 'PY'
 import json, os, sys, glob
 base, out = sys.argv[1], sys.argv[2]

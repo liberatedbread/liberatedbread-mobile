@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'json_fields.dart';
 import 'spec_codec.dart';
 
@@ -14,12 +16,13 @@ import 'spec_codec.dart';
 /// way [SoapControlClient] takes an `http.Client`. The default opens a
 /// [Socket], writes the framed request, and reads until the length-prefixed
 /// reply has fully arrived.
-typedef KasaExchange = Future<Uint8List> Function(
-  String host,
-  int port,
-  List<int> request,
-  Duration timeout,
-);
+typedef KasaExchange =
+    Future<Uint8List> Function(
+      String host,
+      int port,
+      List<int> request,
+      Duration timeout,
+    );
 
 /// The transport half of Kasa control: send a rendered JSON command to the
 /// device over TCP port 9999, obfuscated by the XOR-autokey cipher.
@@ -40,8 +43,18 @@ class KasaControlClient {
   /// promptly rather than hanging the control screen.
   static const timeout = Duration(seconds: 5);
 
+  /// Largest reply this client will buffer, framing included.
+  ///
+  /// The same rule as [SoapControlClient.maxResponseBytes] and for the same
+  /// reason, only sharper here: the 4-byte prefix is the DEVICE's claim about
+  /// how much is coming, so an unchecked `needed` is an allocation a host on
+  /// the LAN names outright — four bytes of `FF FF FF FF` asked for a 4 GiB
+  /// read. A `get_sysinfo` answer is two or three KB; a quarter of a megabyte
+  /// is already not a Kasa device.
+  static const maxReplyBytes = 256 * 1024;
+
   KasaControlClient(this._codec, {KasaExchange? exchange})
-      : _exchange = exchange ?? _socketExchange;
+    : _exchange = exchange ?? _socketExchange;
 
   /// Send one rendered command and return the device's decoded JSON reply.
   ///
@@ -57,7 +70,8 @@ class KasaControlClient {
       throw KasaControlException('could not reach $host:$port — ${e.message}');
     } on TimeoutException {
       throw KasaControlException(
-          '$host:$port did not answer within ${timeout.inSeconds}s');
+        '$host:$port did not answer within ${timeout.inSeconds}s',
+      );
     }
     try {
       return await _codec.kasaDecodeFrame(frame: reply);
@@ -81,23 +95,52 @@ Future<Uint8List> _socketExchange(
   try {
     socket.add(request);
     await socket.flush();
-
-    final buffer = BytesBuilder(copy: false);
-    int? needed;
-    await for (final chunk in socket.timeout(timeout)) {
-      buffer.add(chunk);
-      if (needed == null && buffer.length >= 4) {
-        final head = buffer.toBytes();
-        final payload =
-            (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
-        needed = 4 + payload;
-      }
-      if (needed != null && buffer.length >= needed) break;
-    }
-    return buffer.toBytes();
+    return await readKasaReply(socket.timeout(timeout), host, port);
   } finally {
     socket.destroy();
   }
+}
+
+/// Read one length-prefixed Kasa reply off [chunks], refusing past
+/// [KasaControlClient.maxReplyBytes].
+///
+/// Split out from the socket so the cap can be tested without a listener:
+/// the thing worth pinning is what happens when the 4-byte prefix announces
+/// more than this app will ever hold, and standing up a TCP server to say
+/// four bytes would test dart:io.
+@visibleForTesting
+Future<Uint8List> readKasaReply(
+  Stream<List<int>> chunks,
+  String host,
+  int port,
+) async {
+  final buffer = BytesBuilder(copy: false);
+  int? needed;
+  await for (final chunk in chunks) {
+    buffer.add(chunk);
+    if (needed == null && buffer.length >= 4) {
+      final head = buffer.toBytes();
+      final payload =
+          (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+      // The device's own claim, checked BEFORE it becomes a read target.
+      if (payload > KasaControlClient.maxReplyBytes) {
+        throw KasaControlException(
+          '$host:$port announced a $payload-byte reply; refusing to buffer '
+          'more than ${KasaControlClient.maxReplyBytes} bytes',
+        );
+      }
+      needed = 4 + payload;
+    }
+    // And what actually arrived, in case it overruns the frame it announced.
+    if (buffer.length > 4 + KasaControlClient.maxReplyBytes) {
+      throw KasaControlException(
+        '$host:$port sent more than ${KasaControlClient.maxReplyBytes} '
+        'bytes; refusing to buffer further',
+      );
+    }
+    if (needed != null && buffer.length >= needed) break;
+  }
+  return buffer.toBytes();
 }
 
 /// Flatten a Kasa `get_sysinfo` reply into the name→value pairs the generic
@@ -125,20 +168,24 @@ Map<String, String> kasaSysinfoFields(String replyJson) {
   if (sysinfo is! Map) return const {};
 
   final out = <String, String>{};
-  void flatten(Map<dynamic, dynamic> node, String prefix) {
+  // Depth-capped like the HTTP flattener next to it (R-043): the document is
+  // device-supplied, and recursion a device sizes is a stack overflow that
+  // takes the whole poll down.
+  void flatten(Map<dynamic, dynamic> node, String prefix, int depth) {
+    if (depth > 32) return;
     node.forEach((key, value) {
       final path = '$prefix$key';
       if (value is String || value is num || value is bool) {
         out[path] = value.toString();
       } else if (value is Map) {
-        flatten(value, '$path.');
+        flatten(value, '$path.', depth + 1);
       } else if (value is List) {
         out[path] = jsonEncode(value);
       }
     });
   }
 
-  flatten(sysinfo, '');
+  flatten(sysinfo, '', 0);
   return out;
 }
 

@@ -21,9 +21,17 @@ class FakeSpecPackService implements SpecPackService {
   /// When set, [removePack] throws it, to exercise the UI error path.
   final Object? removeError;
 
-  FakeSpecPackService(
-      {List<SpecPack>? packs, this.nextResult, this.removeError})
-      : packs = [...?packs];
+  /// When true, [clearCache] returns normally and removes nothing — the real
+  /// service's best-effort behaviour when the delete fails (it logs and
+  /// swallows), which the settings screen has to detect rather than trust.
+  final bool clearCacheSilentlyFails;
+
+  FakeSpecPackService({
+    List<SpecPack>? packs,
+    this.nextResult,
+    this.removeError,
+    this.clearCacheSilentlyFails = false,
+  }) : packs = [...?packs];
 
   @override
   Duration get timeout => const Duration(seconds: 15);
@@ -31,9 +39,11 @@ class FakeSpecPackService implements SpecPackService {
   @override
   Future<InstallResult> install(String manifestUrl) async {
     installedUrls.add(manifestUrl);
-    final result = nextResult ??
+    final result =
+        nextResult ??
         const InstallFailed(
-            SpecPackError(SpecPackErrorKind.network, 'no result configured'));
+          SpecPackError(SpecPackErrorKind.network, 'no result configured'),
+        );
     if (result is InstallOk) {
       packs
         ..removeWhere((p) => p.name == result.pack.name)
@@ -61,5 +71,8 @@ class FakeSpecPackService implements SpecPackService {
   }
 
   @override
-  Future<void> clearCache() async => packs.clear();
+  Future<void> clearCache() async {
+    if (clearCacheSilentlyFails) return;
+    packs.clear();
+  }
 }

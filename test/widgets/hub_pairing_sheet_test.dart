@@ -27,22 +27,24 @@ class _ScriptedHubClient extends HubHttpClient {
   final List<String> replies;
 
   _ScriptedHubClient(this.replies)
-      : super(credentials: HubCredentialStore(InMemorySettingsStore()));
+    : super(credentials: HubCredentialStore(InMemorySettingsStore()));
 
   @override
   Future<String> sendUnchecked(
     String host,
     String bridgeId,
     HttpRequestDto request,
-  ) async =>
-      replies.length == 1 ? replies.first : replies.removeAt(0);
+  ) async => replies.length == 1 ? replies.first : replies.removeAt(0);
 }
 
 void main() {
   Widget wrap(List<String> replies, void Function(PairingResult?) onResult) {
     final codec = FakeSpecCodec(
       networkHttpRequest: (name, values) => const HttpRequestDto(
-          method: 'POST', path: '/api', body: '{"devicetype":"t"}'),
+        method: 'POST',
+        path: '/api',
+        body: '{"devicetype":"t"}',
+      ),
     );
     final service = HuePairingService(
       codec: codec,
@@ -79,17 +81,17 @@ void main() {
     );
   }
 
-  testWidgets('pops with the credentials once the button is pressed',
-      (tester) async {
+  testWidgets('pops with the credentials once the button is pressed', (
+    tester,
+  ) async {
     PairingResult? result;
     var resolved = false;
-    await tester.pumpWidget(wrap(
-      [_keepWaiting, _success],
-      (r) {
+    await tester.pumpWidget(
+      wrap([_keepWaiting, _success], (r) {
         result = r;
         resolved = true;
-      },
-    ));
+      }),
+    );
 
     await tester.tap(find.text('open'));
     await tester.pump();

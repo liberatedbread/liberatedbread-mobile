@@ -42,11 +42,15 @@ void main() {
     final framed = [
       payload.length & 0xFF,
       (payload.length >> 8) & 0xFF,
-      ...payload
+      ...payload,
     ];
     for (var i = 0; i < framed.length; i += chunkSize) {
-      notifications.add(framed.sublist(
-          i, i + chunkSize > framed.length ? framed.length : i + chunkSize));
+      notifications.add(
+        framed.sublist(
+          i,
+          i + chunkSize > framed.length ? framed.length : i + chunkSize,
+        ),
+      );
     }
   }
 
@@ -57,8 +61,11 @@ void main() {
       notifyStream: notifications.stream,
       mtuToReturn: mtu,
     );
-    client = RabbitAirBleClient(ble, FakeSpecCodec(),
-        responseTimeout: responseTimeout ?? const Duration(milliseconds: 500));
+    client = RabbitAirBleClient(
+      ble,
+      FakeSpecCodec(),
+      responseTimeout: responseTimeout ?? const Duration(milliseconds: 500),
+    );
   }
 
   tearDown(() async {
@@ -74,57 +81,98 @@ void main() {
     expect(ble.subscriptions, [_charUuid]);
   });
 
-  test('a payload crossing the 510-byte boundary writes in MTU-5 chunks',
-      () async {
-    setUpClient(mtu: 515);
-    await client.connect('01');
+  test(
+    'a payload crossing the 510-byte boundary writes in MTU-5 chunks',
+    () async {
+      setUpClient(mtu: 515);
+      await client.connect('01');
 
-    final payload = List<int>.generate(1200, (i) => i % 251);
-    final reply = client.sendCommand(payload);
-    answer([1, 2, 3], 510);
-    expect(await reply, [1, 2, 3]);
+      final payload = List<int>.generate(1200, (i) => i % 251);
+      final reply = client.sendCommand(payload);
+      answer([1, 2, 3], 510);
+      expect(await reply, [1, 2, 3]);
 
-    // 1202 framed bytes (2 prefix + 1200 payload) at 510 per write.
-    expect(ble.writes.map((w) => w.value.length), [510, 510, 182]);
-    expect(ble.writes.first.value.take(2), [1200 & 0xFF, 1200 >> 8]);
-  });
+      // 1202 framed bytes (2 prefix + 1200 payload) at 510 per write.
+      expect(ble.writes.map((w) => w.value.length), [510, 510, 182]);
+      expect(ble.writes.first.value.take(2), [1200 & 0xFF, 1200 >> 8]);
+    },
+  );
 
-  test('a small MTU floors the chunk size instead of breaking framing',
-      () async {
-    setUpClient(mtu: 23);
-    await client.connect('01');
+  test(
+    'a small MTU floors the chunk size instead of breaking framing',
+    () async {
+      setUpClient(mtu: 23);
+      await client.connect('01');
 
-    final payload = List<int>.filled(40, 0xAB);
-    final reply = client.sendCommand(payload);
-    answer([9], 18);
-    await reply;
+      final payload = List<int>.filled(40, 0xAB);
+      final reply = client.sendCommand(payload);
+      answer([9], 18);
+      await reply;
 
-    // 42 framed bytes at 18 per write.
-    expect(ble.writes.map((w) => w.value.length), [18, 18, 6]);
-  });
+      // 42 framed bytes at 18 per write.
+      expect(ble.writes.map((w) => w.value.length), [18, 18, 6]);
+    },
+  );
 
-  test('a multi-chunk reply reassembles, skipping only the first prefix',
-      () async {
-    setUpClient();
-    await client.connect('01');
+  test(
+    'a multi-chunk reply reassembles, skipping only the first prefix',
+    () async {
+      setUpClient();
+      await client.connect('01');
 
-    final expected = List<int>.generate(600, (i) => i % 251);
-    final reply = client.sendCommand([1]);
-    answer(expected, 510);
-    expect(await reply, expected);
-  });
+      final expected = List<int>.generate(600, (i) => i % 251);
+      final reply = client.sendCommand([1]);
+      answer(expected, 510);
+      expect(await reply, expected);
+    },
+  );
 
-  test('a sub-2-byte notification is ignored when a new message is expected',
-      () async {
-    setUpClient();
-    await client.connect('01');
+  test(
+    'a sub-2-byte notification is ignored when a new message is expected',
+    () async {
+      setUpClient();
+      await client.connect('01');
 
-    final reply = client.sendCommand([1]);
-    notifications.add([0x2C]); // a lone prefix byte: noise, not a message
-    await Future<void>.delayed(Duration.zero);
-    answer([7, 7], 510);
-    expect(await reply, [7, 7]);
-  });
+      final reply = client.sendCommand([1]);
+      notifications.add([0x2C]); // a lone prefix byte: noise, not a message
+      await Future<void>.delayed(Duration.zero);
+      answer([7, 7], 510);
+      expect(await reply, [7, 7]);
+    },
+  );
+
+  test(
+    'a dead notify subscription fails the next command at once (R-014)',
+    () async {
+      // The CCCD enable is confirmed asynchronously, so the stream can fail
+      // after attach returned. The client went on believing it was attached:
+      // every later command wrote its frames into the void and waited out the
+      // whole response window before blaming the purifier for not answering.
+      setUpClient(responseTimeout: const Duration(seconds: 30));
+      await client.connect('01');
+      notifications.addError(
+        const RabbitAirBleException('notifications were refused'),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final watch = Stopwatch()..start();
+      await expectLater(
+        client.sendCommand([1]),
+        throwsA(
+          isA<RabbitAirBleException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('stopped sending replies'), contains('reconnect')),
+          ),
+        ),
+      );
+      expect(
+        watch.elapsed,
+        lessThan(const Duration(seconds: 5)),
+        reason: 'nothing can arrive on a dead subscription; do not wait for it',
+      );
+    },
+  );
 
   test('an unanswered command throws after the response window', () async {
     setUpClient(responseTimeout: const Duration(milliseconds: 50));
@@ -132,13 +180,17 @@ void main() {
 
     await expectLater(
       client.sendCommand([1]),
-      throwsA(isA<RabbitAirBleException>()
-          .having((e) => e.message, 'message', contains('did not answer'))),
+      throwsA(
+        isA<RabbitAirBleException>().having(
+          (e) => e.message,
+          'message',
+          contains('did not answer'),
+        ),
+      ),
     );
   });
 
-  test(
-      'exchanges serialize: the second request writes after the first '
+  test('exchanges serialize: the second request writes after the first '
       'answer lands', () async {
     setUpClient();
     await client.connect('01');
@@ -155,8 +207,7 @@ void main() {
     expect(await second, [2]);
   });
 
-  test(
-      'a device without the command characteristic fails connect and drops '
+  test('a device without the command characteristic fails connect and drops '
       'the link it opened', () async {
     notifications = StreamController<List<int>>.broadcast();
     ble = FakeBleService(
@@ -166,12 +217,39 @@ void main() {
     client = RabbitAirBleClient(ble, FakeSpecCodec());
 
     await expectLater(
-        client.connect('01'), throwsA(isA<RabbitAirBleException>()));
+      client.connect('01'),
+      throwsA(isA<RabbitAirBleException>()),
+    );
     expect(ble.disconnectedIds, ['01']);
   });
 
+  /// RabbitAirBleControl forgets a FAILED attach and retries on the next
+  /// tap. That only works if the client forgets it too: with the device id
+  /// left claimed, the retry returned at once with no UUIDs and every send
+  /// after it threw a bare StateError until the panel was rebuilt.
   test(
-      'attach borrows the caller\'s connection: disconnect releases only '
+    'a failed attach is forgotten, so the retry attaches for real',
+    () async {
+      setUpClient();
+      // The first attempt: discovery handed over a device without the command
+      // characteristic (or the link dropped mid-discovery).
+      await expectLater(
+        client.attach('01', services: const []),
+        throwsA(isA<RabbitAirBleException>()),
+      );
+      expect(ble.subscriptions, isEmpty);
+
+      await client.attach('01', services: const [_rabbitService]);
+      expect(ble.subscriptions, [_charUuid], reason: 'a real second attach');
+
+      final reply = client.sendCommand([1]);
+      await Future<void>.delayed(Duration.zero);
+      answer([7], 510);
+      expect(await reply, [7], reason: 'sends work over the retried attach');
+    },
+  );
+
+  test('attach borrows the caller\'s connection: disconnect releases only '
       'the subscription', () async {
     setUpClient();
     await client.attach('01', services: const [_rabbitService]);
@@ -180,8 +258,11 @@ void main() {
     expect(ble.subscriptions, [_charUuid]);
 
     await client.disconnect();
-    expect(ble.disconnectedIds, isEmpty,
-        reason: 'the device screen owns the link');
+    expect(
+      ble.disconnectedIds,
+      isEmpty,
+      reason: 'the device screen owns the link',
+    );
     expect(ble.liveSubscriberCount[_charUuid] ?? 0, 0);
   });
 }

@@ -4,12 +4,18 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/src/rust/api/device_api.dart'
+    show lifxReplySequence;
+
+import '../helpers/host_rust_lib.dart';
 import 'package:liberated_bread_mobile/services/lifx_control_service.dart';
 
 void main() {
   test('send delivers the packet twice (lossy UDP gets two shots)', () async {
-    final responder =
-        await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final responder = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     final received = <List<int>>[];
     responder.listen((event) {
       if (event != RawSocketEvent.read) return;
@@ -27,8 +33,10 @@ void main() {
   });
 
   test('request returns the reply whose sequence byte matches', () async {
-    final responder =
-        await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final responder = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     responder.listen((event) {
       if (event != RawSocketEvent.read) return;
       final datagram = responder.receive();
@@ -58,8 +66,10 @@ void main() {
   });
 
   test('request ignores a reply whose sequence does not match', () async {
-    final responder =
-        await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final responder = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     responder.listen((event) {
       if (event != RawSocketEvent.read) return;
       final datagram = responder.receive();
@@ -84,8 +94,10 @@ void main() {
 
   test('request returns null after every attempt times out', () async {
     // A bound-but-silent port: the sends land, nothing answers.
-    final silent =
-        await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final silent = await RawDatagramSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     final client = LifxControlClient(port: silent.port);
     final reply = await client.request(
       '127.0.0.1',
@@ -105,5 +117,84 @@ void main() {
     expect(seqs.first, 1);
     expect(seqs[254], 255);
     expect(seqs[255], 1, reason: 'wraps back to 1 after 255');
+  });
+
+  group('the documented failure contract (R-044)', () {
+    // The class documents LifxTransportException for a bind failure and an
+    // unresolvable host, and then threw neither: a caller following the
+    // contract caught nothing, and a SocketException or ArgumentError
+    // reached the UI as an unclassified error.
+    test('a host that is not an address is a transport failure', () async {
+      final client = LifxControlClient();
+      await expectLater(
+        client.send('not-an-address', Uint8List(36)),
+        throwsA(
+          isA<LifxTransportException>().having(
+            (e) => e.message,
+            'message',
+            contains('reached by IP'),
+          ),
+        ),
+      );
+    });
+
+    test('so is one on the request path', () async {
+      final client = LifxControlClient();
+      await expectLater(
+        client.request('bulb.local', Uint8List(36), sequence: 1),
+        throwsA(isA<LifxTransportException>()),
+      );
+    });
+
+    test('and on the collect path', () async {
+      final client = LifxControlClient();
+      await expectLater(
+        client.collect('bulb.local', Uint8List(36), sequence: 1),
+        throwsA(isA<LifxTransportException>()),
+      );
+    });
+  });
+
+  group('the header layout the client reads (R-160)', () {
+    late final bool rustReady;
+
+    setUpAll(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      rustReady = await initHostRustLib();
+    });
+
+    test(
+      'Rust agrees the sequence byte is where the client reads it',
+      () async {
+        // The client reads data[23] itself rather than asking, because
+        // correlation has to keep working on a build whose native library did
+        // not load — main() carries on without it by design. What that offset
+        // must not do is drift away from `lifx::parse_header`, so this decodes
+        // a crafted frame through Rust and requires the two to agree.
+        if (!rustReady) {
+          markTestSkipped('Rust lib not loaded');
+          return;
+        }
+        for (final sequence in [1, 42, 255]) {
+          final frame = Uint8List(36);
+          frame[23] = sequence;
+          // A well-formed enough header for the parser: type at 32..33.
+          frame[32] = 0x6B; // StateService (107)
+          expect(
+            await lifxReplySequence(datagram: frame),
+            sequence,
+            reason: 'the client\'s offset and lifx::parse_header must agree',
+          );
+        }
+      },
+    );
+
+    test('a datagram too short to be a LIFX frame yields nothing', () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      expect(await lifxReplySequence(datagram: Uint8List(8)), isNull);
+    });
   });
 }
