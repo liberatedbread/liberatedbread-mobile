@@ -91,12 +91,25 @@ class _DenyingFakeBleService extends FakeBleService
     this.unauthorizedStream, {
     super.devicesToEmit,
     super.scanStepDelay,
+    super.scanError,
   });
 
   final Stream<bool> unauthorizedStream;
 
+  /// What [isAuthorized] answers — the platform's word, asked without a
+  /// prompt. Refused until a test grants it in "Settings" between two
+  /// resumes.
+  bool authorized = false;
+  int authorizationChecks = 0;
+
   @override
   Stream<bool> adapterUnauthorized() => unauthorizedStream;
+
+  @override
+  Future<bool> isAuthorized() async {
+    authorizationChecks++;
+    return authorized;
+  }
 }
 
 /// The one spec in the catalogue for the ranking tests below.
@@ -1098,6 +1111,77 @@ void main() {
       expect(fake.scanTimeouts.length, scansAtDenial);
     },
   );
+
+  testWidgets('a grant arriving the way the refusal did clears the guidance', (
+    tester,
+  ) async {
+    // iOS: allowing Bluetooth in Settings moves the adapter out of
+    // `unauthorized`, and the watcher that carried the refusal carries the
+    // grant. The guidance goes, and the screen looks again by itself — the
+    // scan the denial ended was not one the user had stopped.
+    final denial = StreamController<bool>.broadcast();
+    addTearDown(denial.close);
+    final fake = _DenyingFakeBleService(
+      denial.stream,
+      devicesToEmit: [_device('01', name: 'ACME_A')],
+      scanStepDelay: const Duration(milliseconds: 200),
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump(const Duration(milliseconds: 50));
+    denial.add(true);
+    await tester.pumpAndSettle();
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    final scansAtDenial = fake.scanTimeouts.length;
+
+    denial.add(false);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bluetooth permission needed'), findsNothing);
+    expect(
+      fake.scanTimeouts,
+      hasLength(scansAtDenial + 1),
+      reason: 'permission back means looking again',
+    );
+  });
+
+  testWidgets('coming back from Settings with the grant clears the guidance', (
+    tester,
+  ) async {
+    // Android: a scan's permission request was refused, and the grant made
+    // later in Settings restarts nothing and streams nothing. Returning to the
+    // foreground on the guidance asks the platform — without a prompt — and
+    // only a yes leaves the state; a no leaves it exactly as it was, with no
+    // scan started into the refusal.
+    final fake = _DenyingFakeBleService(
+      const Stream<bool>.empty(),
+      scanError: const BlePermissionDeniedException(),
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    final scansAtDenial = fake.scanTimeouts.length;
+
+    // Still refused: a phone call, answered and ended.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(fake.authorizationChecks, 1, reason: 'asked, not prompted');
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    expect(fake.scanTimeouts, hasLength(scansAtDenial));
+
+    // Granted in Settings, and back.
+    fake
+      ..authorized = true
+      ..scanError = null;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bluetooth permission needed'), findsNothing);
+    expect(fake.scanTimeouts, hasLength(scansAtDenial + 1));
+  });
 
   testWidgets('a denial mid-scan ends the scan on the guidance, once', (
     tester,

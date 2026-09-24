@@ -13,9 +13,12 @@ import 'package:xml/xml.dart';
 /// dots: `{"emeter":{"get_realtime":{"voltage":120.4}}}` flattens to
 /// `emeter.get_realtime.voltage` → `'120.4'`, and the Envoy's flat reply key
 /// `wattsNow` stays `wattsNow`. Maps recurse; strings, numbers and booleans
-/// stringify. Arrays and nulls are dropped — a dotted path cannot name an
-/// array entry, which is the same reason a spec whose values live in an
-/// array (the Envoy's `/production.json`) declares no entities for them.
+/// stringify; an array is kept whole, as its JSON text, under its own path
+/// (R-043: what the Kasa flattener always did, so one `state_mapping`
+/// convention holds on both transports). A dotted path still cannot name an
+/// entry INSIDE an array, which is the same reason a spec whose values live
+/// in one (the Envoy's `/production.json`) declares no entities for them.
+/// Nulls are dropped.
 ///
 /// An unparseable or non-object reply yields an empty map, which reads as
 /// "no state here" — the same answer the SOAP path gives a reply that did

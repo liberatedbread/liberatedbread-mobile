@@ -939,6 +939,27 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
       .distinct();
 
   @override
+  Future<bool> isAuthorized() async {
+    if (Platform.isAndroid) {
+      // `.status`, never `.request()`: the point of this call is not to
+      // prompt. The same three requestPermissions asks for.
+      for (final permission in [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.locationWhenInUse,
+      ]) {
+        final status = await permission.status;
+        if (!status.isGranted) return false;
+      }
+      return true;
+    }
+    // Apple: authorization is an adapter state, and reading it prompts
+    // nothing — only a scan does. The settled read scan() itself makes, so a
+    // CoreBluetooth still coming up is waited for rather than read as a no.
+    return await _settledAdapterState() != BluetoothAdapterState.unauthorized;
+  }
+
+  @override
   Future<void> stopScan() async {
     Log.ble.info('scan stopped by request');
     // Claim the scan that is running NOW, before the platform call is awaited.

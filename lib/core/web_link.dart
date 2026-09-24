@@ -33,6 +33,11 @@ bool isWebLink(Uri? uri) =>
 
 /// Open [url] in the system browser if it is a web link, else tell the user.
 ///
+/// A launcher that declines and one that throws are the same failure to the
+/// user, and get the same SnackBar: url_launcher answers "nothing handles
+/// this" with `false` on one platform and a `PlatformException` on another,
+/// and neither is allowed out of a tap as an unhandled error.
+///
 /// The SnackBar is looked up before the first await so a screen that is
 /// disposed while the launcher runs still has somewhere to report to.
 Future<void> openWebLink(
@@ -42,7 +47,15 @@ Future<void> openWebLink(
 }) async {
   final messenger = ScaffoldMessenger.of(context);
   final uri = Uri.tryParse(url.trim());
-  if (!isWebLink(uri) || !await launcher(uri!)) {
+  var opened = false;
+  if (isWebLink(uri)) {
+    try {
+      opened = await launcher(uri!);
+    } on Exception {
+      opened = false;
+    }
+  }
+  if (!opened) {
     messenger.showSnackBar(SnackBar(content: Text('Could not open $url')));
   }
 }

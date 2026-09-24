@@ -211,7 +211,15 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     if (ble is BleAuthorizationWatcher) {
       _unauthorizedSub = ble.adapterUnauthorized().listen(
         (denied) {
-          if (denied && mounted) _onPermissionDenied();
+          if (!mounted) return;
+          if (denied) {
+            _onPermissionDenied();
+          } else if (_permissionDenied) {
+            // The grant, arriving the way the refusal did: on iOS the adapter
+            // leaves `unauthorized` when the user allows Bluetooth in Settings
+            // and comes back.
+            _onPermissionRestored();
+          }
         },
         // Same reasoning as the adapterReady watcher: a host with no BLE
         // stack errors this stream, and scan() is already the messenger.
@@ -241,6 +249,37 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _permissionDenied = true;
       _error = null;
     });
+  }
+
+  /// The platform lets this app use Bluetooth again. The guidance goes, and
+  /// the screen looks again — subject to every other reason [_resumeIfIdle]
+  /// has to stay off, so a user who stopped the scan before going to Settings
+  /// gets the stopped screen back, only without guidance that no longer
+  /// applies.
+  void _onPermissionRestored() {
+    if (!_permissionDenied) return;
+    setState(() => _permissionDenied = false);
+    _resumeIfIdle();
+  }
+
+  /// Back in the foreground on the permission guidance: ask whether the
+  /// refusal still stands, WITHOUT prompting. This is the "coming back from
+  /// Settings" exit the guidance promises. On Android the grant made there
+  /// restarts nothing and streams nothing, so it has to be asked for; a phone
+  /// call answered and ended asks the same harmless question and gets the
+  /// same no. A stack that cannot answer without prompting leaves the state
+  /// to Retry.
+  Future<void> _recheckPermission() async {
+    final ble = _bleService;
+    if (ble is! BleAuthorizationWatcher) return;
+    final bool granted;
+    try {
+      granted = await ble.isAuthorized();
+    } on Object {
+      return;
+    }
+    if (!mounted || !granted) return;
+    _onPermissionRestored();
   }
 
   /// React to the shell switching tabs (see [ScanScreen.active]).
@@ -300,8 +339,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         // has said no is asked once per tab switch; on a permanent denial the
         // prompt no longer appears at all and the screen just flickers back
         // to the same refusal. Leaving this state is a deliberate act — the
-        // Retry button, or coming back from Settings — not something that
-        // happens because a tab regained focus.
+        // Retry button, or coming back from Settings with the grant (which
+        // [_recheckPermission] asks about, without prompting) — not something
+        // that happens because a tab regained focus.
         _permissionDenied) {
       return;
     }
@@ -323,8 +363,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         // Including out of an error state: the usual reason someone leaves
         // this screen after "Bluetooth is turned off" is to go and turn it on,
         // and coming back to the same dead screen with a Retry button on it
-        // would be a poor reward for having done what it asked.
-        _resumeIfIdle();
+        // would be a poor reward for having done what it asked. The
+        // permission guidance is the one state a resume does not leave by
+        // itself: it asks first, and only a grant leaves it.
+        if (_permissionDenied) {
+          unawaited(_recheckPermission());
+        } else {
+          _resumeIfIdle();
+        }
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:

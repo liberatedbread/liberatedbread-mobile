@@ -317,4 +317,15 @@ abstract interface class BleAuthorizationWatcher implements BleService {
   /// Whether the platform has refused this app permission to use Bluetooth —
   /// the current answer on listen, then every change.
   Stream<bool> adapterUnauthorized();
+
+  /// Whether the platform lets this app use Bluetooth RIGHT NOW, asked
+  /// without raising a prompt.
+  ///
+  /// The question the scan screen asks when it comes back to the foreground
+  /// on the permission guidance: on Android a grant made in Settings restarts
+  /// nothing and streams nothing, so nobody tells the screen unless it asks.
+  /// A no leaves the guidance where it was; only a yes clears it. Must not
+  /// prompt — a screen that re-asked on every resume would be the flicker the
+  /// guidance exists to stop.
+  Future<bool> isAuthorized();
 }

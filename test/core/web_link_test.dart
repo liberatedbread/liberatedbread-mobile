@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/web_link.dart';
 
@@ -83,6 +84,33 @@ void main() {
         find.text('Could not open shortcuts://run-shortcut?name=X'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('reports a launcher that threw', (tester) async {
+      // url_launcher raises a PlatformException where a platform has no
+      // handler for the scheme; the promise is a SnackBar, not an unhandled
+      // async error out of a tap.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => openWebLink(
+                  context,
+                  'https://example.com',
+                  launcher: (_) =>
+                      Future.error(PlatformException(code: 'NO_ACTIVITY')),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pump();
+      expect(find.text('Could not open https://example.com'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('reports a launcher that declined', (tester) async {

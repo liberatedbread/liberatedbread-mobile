@@ -279,8 +279,10 @@ class _FeedSession {
   Future<Uint8List> _collect(HttpClientResponse resp) async {
     final b = BytesBuilder(copy: false);
     await for (final chunk in resp) {
-      b.add(chunk);
-      if (b.length > CameraFeedService.maxFrameBytes) {
+      // Before the append, so a chunk that would carry the frame past the cap
+      // is never retained on the way to the exception: the bound is on what
+      // this service holds, and dart:io has already allocated the chunk.
+      if (b.length + chunk.length > CameraFeedService.maxFrameBytes) {
         // Throwing out of the `await for` cancels the subscription, and the
         // catch in _tick aborts the request — so the socket goes back rather
         // than feeding a buffer nothing will ever render.
@@ -289,6 +291,7 @@ class _FeedSession {
           uri: resp.redirects.isEmpty ? null : resp.redirects.last.location,
         );
       }
+      b.add(chunk);
     }
     return b.toBytes();
   }
