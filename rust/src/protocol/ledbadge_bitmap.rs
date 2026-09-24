@@ -324,15 +324,6 @@ services:
         rgb
     }
 
-    /// The whole transfer for the 8x11 diagonal, derived chunk by chunk
-    /// from the spec's documented header layout:
-    ///
-    /// - one 8-column stripe of 11 rows -> slot-0 length 0x0001 (u16 BE)
-    /// - header: "wang", reserved 0, brightness 0 (100%), flash 0,
-    ///   marquee 0, slot bytes [0x04 fixed/speed-1, then 7 empty], lengths
-    ///   [00 01, then 7x 00 00], reserved/date/tail zeros
-    /// - bitmap: row y has bit (0x80 >> y) for y < 8 (the diagonal), rows
-    ///   8-10 empty; 11 bytes zero-padded to one 16-byte chunk
     /// The vendored spec now writes `write_badge_data` as the whole header
     /// template rather than a four-byte `value`; the magic is its leading
     /// literal run, and the transfer must come out byte-identical.
@@ -360,6 +351,15 @@ services:
         assert_eq!(bytes(&from_template), bytes(&from_value));
     }
 
+    /// The whole transfer for the 8x11 diagonal, derived chunk by chunk
+    /// from the spec's documented header layout:
+    ///
+    /// - one 8-column stripe of 11 rows -> slot-0 length 0x0001 (u16 BE)
+    /// - header: "wang", reserved 0, brightness 0 (100%), flash 0,
+    ///   marquee 0, slot bytes [0x04 fixed/speed-1, then 7 empty], lengths
+    ///   [00 01, then 7x 00 00], reserved/date/tail zeros
+    /// - bitmap: row y has bit (0x80 >> y) for y < 8 (the diagonal), rows
+    ///   8-10 empty; 11 bytes zero-padded to one 16-byte chunk
     #[test]
     fn golden_8x11_diagonal_transfer() {
         let frame = encode_badge_bitmap(&spec(), &diagonal_8x11(), 8, 11, 0, 509).unwrap();
