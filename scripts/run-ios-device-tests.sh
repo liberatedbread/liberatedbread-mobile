@@ -298,7 +298,7 @@ restore_xcconfig() {
     XCCONFIG_BACKUP=""
   fi
 }
-# shellcheck disable=SC2329  # invoked by the trap below
+# shellcheck disable=SC2317,SC2329  # reached through the trap below, which shellcheck cannot see (SC2317 is 0.9's code for it, the runner's version)
 cleanup() { restore_xcconfig; restore_entitlements; }
 trap cleanup EXIT
 

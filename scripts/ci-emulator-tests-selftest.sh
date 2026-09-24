@@ -42,7 +42,7 @@ BIN="$(mktemp -d)"
 WORK="$(mktemp -d)"
 # The script writes its device log into the repo root (gitignored). Clean up
 # whatever this run creates, and nothing else.
-# shellcheck disable=SC2329  # invoked by the EXIT trap below
+# shellcheck disable=SC2317,SC2329  # reached through the EXIT trap below, which shellcheck cannot see (SC2317 is 0.9's code for it, the runner's version)
 cleanup() {
   rm -rf "$BIN" "$WORK"
   rm -f emulator-logcat.txt emulator-logcat-attempt1.txt emulator-logcat-attempt2.txt
