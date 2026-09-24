@@ -2951,6 +2951,54 @@ fn a_roku_tv_is_named_by_ecp_not_tied_with_every_dial_tv() {
     );
 }
 
+/// A reading the app cannot take is not a card.
+///
+/// `tcp-json` and `udp` name a SHAPE — JSON down a socket, a datagram — that
+/// several vendors frame differently, so the handler is what says whether this
+/// app can speak it. Actions already had that gate; readings did not, so a
+/// Tuya gas sensor (0x55aa + AES) opened on seven cards whose readings could
+/// never arrive, three of them controls with no action at all, and a Yeelight
+/// cube on a light card with nothing on it. The two handlers the app does
+/// speak on those transports keep every reading.
+#[test]
+fn a_reading_the_app_cannot_take_is_not_a_card() {
+    use liberated_bread_core::api::device_api::network_entities_for_device;
+
+    let surface = |file: &str| {
+        let yaml = fs::read_to_string(spec_path(file)).expect("spec reads");
+        network_entities_for_device(yaml, Vec::new()).expect("surface resolves")
+    };
+
+    for file in ["tuya-wifi-gas-sensor.yaml", "yeelight-cube-lamp.yaml"] {
+        let resolved = surface(file);
+        assert!(
+            resolved.entities.is_empty(),
+            "{file}: no handler this app implements, so nothing can be read or \
+             sent — got {:?}",
+            resolved
+                .entities
+                .iter()
+                .map(|e| &e.name)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !resolved.hidden_names.is_empty(),
+            "{file}: what is not drawn is still counted"
+        );
+    }
+
+    for file in ["tplink-kasa-smart-plug.yaml", "rabbit-air-purifier.yaml"] {
+        let resolved = surface(file);
+        assert!(
+            resolved
+                .entities
+                .iter()
+                .any(|e| !e.state_command.is_empty() && e.actions.is_empty()),
+            "{file}: its handler is implemented, so its pure readings stay"
+        );
+    }
+}
+
 /// A BLE family spec narrows to the model in front of it.
 ///
 /// `device.variants[]` had two axes, SSDP and a state probe, and a BLE device
