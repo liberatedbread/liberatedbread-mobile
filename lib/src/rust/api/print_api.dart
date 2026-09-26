@@ -225,6 +225,16 @@ class RasterPrintDto {
   final PrintChoiceDto? density;
   final PrintChoiceDto? paperType;
 
+  /// The spec variants this print surface belongs to; empty for every
+  /// model. A caller that knows which variant it is connected to offers
+  /// printing only when that one is listed.
+  final List<String> variants;
+
+  /// True unless the spec says it has not been run against real hardware
+  /// (`device.testing.status: untested`) — the composer says so, rather
+  /// than let a first print on a reported-only protocol look routine.
+  final bool hardwareTested;
+
   const RasterPrintDto({
     this.handler,
     this.transport,
@@ -237,6 +247,8 @@ class RasterPrintDto {
     required this.media,
     this.density,
     this.paperType,
+    required this.variants,
+    required this.hardwareTested,
   });
 
   @override
@@ -251,7 +263,9 @@ class RasterPrintDto {
       maxLengthDots.hashCode ^
       media.hashCode ^
       density.hashCode ^
-      paperType.hashCode;
+      paperType.hashCode ^
+      variants.hashCode ^
+      hardwareTested.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -268,5 +282,7 @@ class RasterPrintDto {
           maxLengthDots == other.maxLengthDots &&
           media == other.media &&
           density == other.density &&
-          paperType == other.paperType;
+          paperType == other.paperType &&
+          variants == other.variants &&
+          hardwareTested == other.hardwareTested;
 }

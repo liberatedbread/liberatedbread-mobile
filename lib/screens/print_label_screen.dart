@@ -353,6 +353,30 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
               ].join(' · '),
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
+            if (!geometry.hardwareTested) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.science_outlined,
+                    size: 18,
+                    color: scheme.tertiary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Printing on this model follows community documentation '
+                      "and hasn't been tried on one by this project yet. If a "
+                      'label comes out wrong, the diagnostics log helps.',
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             _PreviewCard(preview: _preview, rendering: _rendering),
             const SizedBox(height: 16),

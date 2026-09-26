@@ -211,6 +211,8 @@ void main() {
       printableDots: 1252,
       maxLengthDots: 35434,
       media: const [],
+      variants: const [],
+      hardwareTested: true,
     );
 
     Future<NetworkControls?> resolve(FakeSpecCodec codec) {

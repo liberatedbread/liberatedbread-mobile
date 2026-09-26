@@ -55,6 +55,8 @@ RasterPrintDto _raster(String? transport) => RasterPrintDto(
   dpi: 203,
   dpiAssumed: false,
   media: const [],
+  variants: const [],
+  hardwareTested: true,
 );
 
 void main() {

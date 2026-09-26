@@ -20,11 +20,18 @@ class PrintLabelEntry extends ConsumerStatefulWidget {
   final String specYaml;
   final String deviceName;
 
+  /// Which of the spec's variants the connected device is, when the panel
+  /// has worked it out. A print surface scoped to other variants is not
+  /// offered (a B21 matched to the NIIMBOT spec must not print a D110's
+  /// 96-dot label); null or empty means unknown, and then it is.
+  final Set<String>? matchedVariants;
+
   const PrintLabelEntry({
     super.key,
     required this.deviceId,
     required this.specYaml,
     required this.deviceName,
+    this.matchedVariants,
   });
 
   @override
@@ -79,9 +86,17 @@ class _PrintLabelEntryState extends ConsumerState<PrintLabelEntry> {
   @override
   Widget build(BuildContext context) {
     final raster = _raster;
+    final variants = widget.matchedVariants;
+    final otherModel =
+        variants != null &&
+        variants.isNotEmpty &&
+        raster != null &&
+        raster.variants.isNotEmpty &&
+        !raster.variants.any(variants.contains);
     if (raster == null ||
         !raster.encodable ||
-        raster.transport != 'ble_write_plan') {
+        raster.transport != 'ble_write_plan' ||
+        otherModel) {
       return const SizedBox.shrink();
     }
     return Padding(
