@@ -8,6 +8,7 @@ import 'core/theme.dart';
 import 'providers/saved_device_provider.dart';
 import 'providers/startup_warmup.dart';
 import 'screens/home_shell.dart';
+import 'screens/print_shared_file_screen.dart';
 import 'screens/terms_screen.dart';
 
 class LiberatedBreadApp extends StatelessWidget {
@@ -63,6 +64,7 @@ class _TermsGateState extends ConsumerState<_TermsGate> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _accepted ? const HomeShell() : TermsScreen(onAccept: _accept);
+  Widget build(BuildContext context) => _accepted
+      ? const ShareInListener(child: HomeShell())
+      : TermsScreen(onAccept: _accept);
 }
