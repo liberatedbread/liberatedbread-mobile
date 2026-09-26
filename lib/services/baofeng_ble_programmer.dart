@@ -22,21 +22,6 @@ import 'radio_programmer.dart';
 const String baofengUartService = '0000ffe0-0000-1000-8000-00805f9b34fb';
 const String baofengUartCharacteristic = '0000ffe1-0000-1000-8000-00805f9b34fb';
 
-/// Names these radios advertise under, lower-cased for matching.
-///
-/// Deliberately loose: the advertised name is a discovery hint, not an
-/// identity. What settles which radio this is, is the ident exchange.
-const List<String> baofengAdvertisedNamePrefixes = [
-  'uv-5r',
-  'uv5r',
-  'uv-5g',
-  'uv5g',
-  'mini',
-  'uv-32',
-  'uv32',
-  'baofeng',
-];
-
 /// Reads and writes a Baofeng over the FFE0/FFE1 tunnel.
 ///
 /// Structured like [GroupRunner]: an `async*` stream with per-step timeouts

@@ -15,13 +15,11 @@ class CodeplugBackup {
   final File file;
   final String modelId;
   final DateTime takenAt;
-  final int length;
 
   const CodeplugBackup({
     required this.file,
     required this.modelId,
     required this.takenAt,
-    required this.length,
   });
 
   String get displayName => file.uri.pathSegments.last;
@@ -73,7 +71,6 @@ class CodeplugBackupStore {
       file: file,
       modelId: codeplug.modelId,
       takenAt: codeplug.readAt,
-      length: codeplug.length,
     );
   }
 
@@ -89,13 +86,11 @@ class CodeplugBackupStore {
         if (entry is! File || !entry.path.endsWith('.bin')) continue;
         final parsed = _parseName(entry.uri.pathSegments.last);
         if (parsed == null) continue;
-        final stat = await entry.stat();
         backups.add(
           CodeplugBackup(
             file: entry,
             modelId: parsed.modelId,
             takenAt: parsed.takenAt,
-            length: stat.size,
           ),
         );
       }

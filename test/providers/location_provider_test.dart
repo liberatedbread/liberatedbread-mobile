@@ -9,7 +9,6 @@ import 'package:liberated_bread_mobile/providers/location_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/services/location_service.dart';
 
-import '../fakes/fake_location_service.dart';
 import '../fakes/in_memory_settings_store.dart';
 
 ProviderContainer _container(InMemorySettingsStore store) {
@@ -104,21 +103,6 @@ void main() {
         location,
       );
     });
-
-    test('forget clears both the state and the store', () async {
-      final store = InMemorySettingsStore({
-        key: jsonEncode(
-          const SavedLocation(point: seattle, label: 'Seattle').toJson(),
-        ),
-      });
-      final container = _container(store);
-      await container.read(lastLocationProvider.future);
-
-      await container.read(lastLocationProvider.notifier).forget();
-
-      expect(container.read(lastLocationProvider).value, isNull);
-      expect(store.values.containsKey(key), isFalse);
-    });
   });
 
   group('locationServiceProvider', () {
@@ -126,42 +110,6 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
       expect(container.read(locationServiceProvider), isA<LocationService>());
-    });
-
-    test('is overridable, which is how every screen test gets a fix', () {
-      final fake = FakeLocationService();
-      final container = ProviderContainer(
-        overrides: [locationServiceProvider.overrideWithValue(fake)],
-      );
-      addTearDown(container.dispose);
-      expect(container.read(locationServiceProvider), same(fake));
-    });
-  });
-
-  group('FakeLocationService', () {
-    test('answers a fix and counts the asking', () async {
-      final fake = FakeLocationService();
-      expect(await fake.gpsAvailable(), isTrue);
-      expect(await fake.currentPosition(), fake.position);
-      expect(fake.positionCalls, 1);
-      expect(fake.availabilityCalls, 1);
-    });
-
-    test('models a refusal', () async {
-      final fake = FakeLocationService.denied();
-      await expectLater(
-        fake.currentPosition(),
-        throwsA(isA<LocationPermissionDeniedException>()),
-      );
-    });
-
-    test('models a platform with no backend', () async {
-      final fake = FakeLocationService.unavailable();
-      expect(await fake.gpsAvailable(), isFalse);
-      await expectLater(
-        fake.currentPosition(),
-        throwsA(isA<LocationUnavailableException>()),
-      );
     });
   });
 }

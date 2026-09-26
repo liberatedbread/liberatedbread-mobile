@@ -21,16 +21,6 @@ class FreqRange {
 
   bool contains(int hz) => hz >= lowHz && hz <= highHz;
 
-  Map<String, dynamic> toJson() => {'low': lowHz, 'high': highHz};
-
-  static FreqRange? fromJson(Object? value) {
-    if (value is! Map<String, dynamic>) return null;
-    final low = value['low'];
-    final high = value['high'];
-    if (low is! int || high is! int || low <= 0 || high < low) return null;
-    return FreqRange(low, high);
-  }
-
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -51,12 +41,8 @@ bool rangesContain(List<FreqRange> ranges, int hz) {
   return false;
 }
 
-/// Which programming protocol a radio speaks.
-///
-/// Informational for the profiles this build cannot drive: only
-/// [ProgrammingFamily.bleUv17Pro] has a transport here. The others are
-/// recorded because the plan/export half of the app serves them today and the
-/// USB slice will need exactly this dispatch.
+/// Which programming protocol a radio speaks — which decides the transport
+/// that reaches it (see [RadioProfile.programsOver]).
 enum ProgrammingFamily {
   /// 9600 baud serial, 7-byte binary ident, `S`/`X` 0x40-byte blocks.
   serialUv5r,
@@ -66,16 +52,7 @@ enum ProgrammingFamily {
 
   /// The UV-17Pro protocol tunnelled over an HM-10-style GATT UART, with
   /// writes re-blocked to 0x80 bytes.
-  bleUv17Pro;
-
-  String get wireName => name;
-
-  static ProgrammingFamily? fromWire(Object? value) {
-    for (final family in ProgrammingFamily.values) {
-      if (family.wireName == value) return family;
-    }
-    return null;
-  }
+  bleUv17Pro,
 }
 
 /// How well this build can actually talk to a radio.
@@ -88,9 +65,7 @@ enum ProgrammerSupport {
 
   /// A driver exists and the model is same-family, but nobody has run it
   /// against this radio. The UI says so before the first write.
-  unverified;
-
-  String get wireName => name;
+  unverified,
 }
 
 /// How a radio's transmit limits can be widened, where they can.
@@ -100,15 +75,9 @@ enum TxUnlockMechanism {
   /// expose.
   codeplugBandLimit,
 
-  /// A GMRS-locked radio whose lock is a codeplug flag rather than a separate
-  /// band-limit field.
-  gmrsUnlock,
-
   /// No documented software path. A keypad or hardware modification is out of
   /// scope for this app, and saying so is better than pretending.
-  unsupported;
-
-  String get wireName => name;
+  unsupported,
 }
 
 /// A radio's transmit-range unlock capability.
@@ -149,41 +118,6 @@ class TxUnlock {
         'range would need a hardware or keypad modification, which this app '
         'does not do.',
   );
-
-  Map<String, dynamic> toJson() => {
-    'supported': supported,
-    'mechanism': mechanism.wireName,
-    'ranges': [for (final range in expandedTxRanges) range.toJson()],
-    'verified': verified,
-    if (notes.isNotEmpty) 'notes': notes,
-  };
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TxUnlock &&
-          supported == other.supported &&
-          mechanism == other.mechanism &&
-          verified == other.verified &&
-          notes == other.notes &&
-          _listEquals(expandedTxRanges, other.expandedTxRanges);
-
-  @override
-  int get hashCode => Object.hash(
-    supported,
-    mechanism,
-    verified,
-    notes,
-    Object.hashAll(expandedTxRanges),
-  );
-}
-
-bool _listEquals<T>(List<T> a, List<T> b) {
-  if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
 }
 
 /// One supported radio.
@@ -206,8 +140,6 @@ class RadioProfile {
   /// Longest channel name the radio's display and codeplug will hold.
   final int nameLength;
 
-  final bool supportsCtcss;
-  final bool supportsDcs;
   final ProgrammingFamily programmingFamily;
   final ProgrammerSupport programmerSupport;
   final TxUnlock txUnlock;
@@ -221,8 +153,6 @@ class RadioProfile {
     required this.nameLength,
     required this.programmingFamily,
     this.gmrsLocked = false,
-    this.supportsCtcss = true,
-    this.supportsDcs = true,
     this.programmerSupport = ProgrammerSupport.none,
     this.txUnlock = TxUnlock.unsupported,
   });

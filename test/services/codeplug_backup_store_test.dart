@@ -39,7 +39,6 @@ void main() {
     final backup = await store.save(original);
 
     expect(await backup.file.exists(), isTrue);
-    expect(backup.length, 0x100);
 
     final loaded = await store.load(backup);
     expect(loaded.image, original.image);

@@ -37,24 +37,6 @@ class GeolocatorLocationService implements LocationService {
   const GeolocatorLocationService();
 
   @override
-  Future<bool> gpsAvailable() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) return false;
-      final permission = await Geolocator.checkPermission();
-      // deniedForever is the only permission state that cannot become a fix:
-      // plain `denied` still gets a prompt when we ask.
-      return permission != LocationPermission.deniedForever;
-    } on MissingPluginException {
-      // No backend on this platform. Not an error — the Linux desktop build
-      // is expected to land here every time.
-      return false;
-    } catch (error) {
-      Log.radio.debug('location availability check failed', error: error);
-      return false;
-    }
-  }
-
-  @override
   Future<GeoPoint> currentPosition() async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {

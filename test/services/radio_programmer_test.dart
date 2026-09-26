@@ -10,8 +10,6 @@ import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/mock_radio_programmer.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 
-import '../fakes/fake_radio_programmer.dart';
-
 void main() {
   group('the failures a session can have', () {
     const failures = <UserFacingException>[
@@ -129,7 +127,7 @@ void main() {
       expect(result!.length, 0x8240);
     });
 
-    test('remembers what was written to it', () async {
+    test('holds what was written to it', () async {
       final mock = MockRadioProgrammer(stepDelay: Duration.zero);
       final base = RadioCodeplug(
         modelId: 'uv-5r-mini',
@@ -148,7 +146,6 @@ void main() {
           )
           .drain<void>();
 
-      expect(mock.writes, hasLength(1));
       expect(mock.image[7], 0x42);
     });
 
@@ -193,67 +190,6 @@ void main() {
           .drain<void>();
 
       expect(mock.image, backup.image);
-    });
-  });
-
-  group('FakeRadioProgrammer', () {
-    test('identifies, reports, and records where it was aimed', () async {
-      final fake = FakeRadioProgrammer()..reported = 'hello';
-      final identity = await fake.identify(
-        deviceId: 'radio-1',
-        profile: uv5rMiniProfile,
-      );
-      expect(identity.reported, 'hello');
-      expect(fake.identifyCalls, 1);
-      expect(fake.deviceIds, ['radio-1']);
-    });
-
-    test('an identify fails on command', () async {
-      final fake = FakeRadioProgrammer(error: const RadioTimeoutException());
-      await expectLater(
-        fake.identify(deviceId: 'radio-1', profile: uv5rMiniProfile),
-        throwsA(isA<RadioTimeoutException>()),
-      );
-    });
-
-    test('records reads, writes and restores', () async {
-      final fake = FakeRadioProgrammer();
-      await fake
-          .readCodeplug(
-            deviceId: 'x',
-            profile: uv5rMiniProfile,
-            onResult: (_) {},
-          )
-          .drain<void>();
-      expect(fake.readCalls, 1);
-
-      await fake
-          .writeChannels(
-            deviceId: 'x',
-            profile: uv5rMiniProfile,
-            base: RadioCodeplug(
-              modelId: 'uv-5r-mini',
-              image: Uint8List(1),
-              readAt: DateTime.now(),
-            ),
-            channels: const [],
-          )
-          .drain<void>();
-      expect(fake.written, hasLength(1));
-    });
-
-    test('fails on command', () async {
-      final fake = FakeRadioProgrammer(error: const RadioTimeoutException());
-      await expectLater(
-        fake
-            .readCodeplug(
-              deviceId: 'x',
-              profile: uv5rMiniProfile,
-              onResult: (_) {},
-            )
-            .drain<void>(),
-        throwsA(isA<RadioTimeoutException>()),
-      );
     });
   });
 }

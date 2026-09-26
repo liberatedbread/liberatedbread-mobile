@@ -53,16 +53,6 @@ class RadioSighting {
   final RadioProfile? nameSuggests;
 
   const RadioSighting({required this.advertisesUart, this.nameSuggests});
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is RadioSighting &&
-          advertisesUart == other.advertisesUart &&
-          nameSuggests == other.nameSuggests;
-
-  @override
-  int get hashCode => Object.hash(advertisesUart, nameSuggests);
 }
 
 /// A radio, by the strict test the general device list uses — or null.

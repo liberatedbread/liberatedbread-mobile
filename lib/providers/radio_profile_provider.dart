@@ -98,10 +98,9 @@ class TxUnlockNotifier extends AsyncNotifier<Map<String, bool>> {
 /// that the stored map and the profile's own capability both have a say.
 final txUnlockEnabledProvider = Provider<bool>((ref) {
   final profile = ref.watch(selectedRadioProfileProvider).value;
-  final unlocks = ref.watch(txUnlockProvider).value;
-  if (profile == null || unlocks == null) return false;
-  if (!profile.txUnlock.supported) return false;
-  return unlocks[profile.id] ?? false;
+  ref.watch(txUnlockProvider);
+  if (profile == null) return false;
+  return ref.read(txUnlockProvider.notifier).isEnabledFor(profile);
 });
 
 /// The transmit limits each model had before this app first widened one, by

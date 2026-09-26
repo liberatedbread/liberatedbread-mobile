@@ -15,15 +15,6 @@ void main() {
       expect(range.contains(148000001), isFalse);
     });
 
-    test('round-trips through JSON and rejects nonsense', () {
-      const range = FreqRange(144000000, 148000000);
-      expect(FreqRange.fromJson(range.toJson()), range);
-      expect(FreqRange.fromJson(null), isNull);
-      expect(FreqRange.fromJson(const {'low': 0, 'high': 1}), isNull);
-      // high below low is not a range, it is a typo.
-      expect(FreqRange.fromJson(const {'low': 200, 'high': 100}), isNull);
-    });
-
     test('rangesContain scans the whole list', () {
       const ranges = [
         FreqRange(144000000, 148000000),
@@ -248,23 +239,6 @@ void main() {
     expect(uv5rMiniProfile, radioProfileById('uv-5r-mini'));
     expect(uv5rMiniProfile.hashCode, radioProfileById('uv-5r-mini').hashCode);
     expect(uv5rMiniProfile, isNot(uv32Profile));
-  });
-
-  test('TxUnlock has value equality', () {
-    const a = TxUnlock(
-      supported: true,
-      mechanism: TxUnlockMechanism.codeplugBandLimit,
-      expandedTxRanges: [FreqRange(130000000, 179995000)],
-    );
-    const b = TxUnlock(
-      supported: true,
-      mechanism: TxUnlockMechanism.codeplugBandLimit,
-      expandedTxRanges: [FreqRange(130000000, 179995000)],
-    );
-    expect(a, b);
-    expect(a.hashCode, b.hashCode);
-    expect(a, isNot(TxUnlock.unsupported));
-    expect(a.toJson()['ranges'], hasLength(1));
   });
 
   group('programsOver', () {

@@ -147,15 +147,13 @@ void main() {
     expect(await broken.read('repeaterbook', 'CT'), isNull);
   });
 
-  test('reports its size and clears', () async {
-    expect(await cache.sizeInBytes(), 0);
+  test('clears', () async {
     await cache.write('repeaterbook', 'CT', [_listing]);
     await cache.write('mygmrs', 'RI', [_listing]);
-    expect(await cache.sizeInBytes(), greaterThan(0));
 
     await cache.clear();
     expect(await cache.read('repeaterbook', 'CT'), isNull);
-    expect(await cache.sizeInBytes(), 0);
+    expect(await cache.read('mygmrs', 'RI'), isNull);
     // Clearing twice is not an error.
     await cache.clear();
   });

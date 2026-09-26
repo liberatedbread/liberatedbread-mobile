@@ -83,22 +83,4 @@ void main() {
     );
     expect(withTone.dedupeKey, isNot(withoutTone.dedupeKey));
   });
-
-  test('copyWith carries provenance across a capability decision', () {
-    const suggestion = SuggestedChannel(
-      channel: repeater,
-      category: SuggestionCategory.repeater,
-      sourceId: 'repeaterbook',
-      distanceKm: 8.5,
-      callsign: 'W1AW',
-      details: 'Newington, CT',
-    );
-    final badged = suggestion.copyWith(requiresTxUnlock: true);
-    expect(badged.sourceId, 'repeaterbook');
-    expect(badged.distanceKm, 8.5);
-    expect(badged.callsign, 'W1AW');
-    expect(badged.details, 'Newington, CT');
-    expect(badged.requiresTxUnlock, isTrue);
-    expect(badged.txAllowed, isTrue);
-  });
 }

@@ -96,13 +96,6 @@ class LocationTimeoutException implements UserFacingException {
 /// desktop's "there is no backend" case is a value this returns rather than a
 /// plugin exception leaking into a screen.
 abstract class LocationService {
-  /// Whether asking for a position could possibly work: a backend exists,
-  /// location services are on, and permission is not permanently refused.
-  ///
-  /// Never throws. A false answer means "offer the manual entry first", which
-  /// is a UI decision and must not depend on catching an exception.
-  Future<bool> gpsAvailable();
-
   /// The device's current position, or one of this file's exceptions.
   Future<GeoPoint> currentPosition();
 }

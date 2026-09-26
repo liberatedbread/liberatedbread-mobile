@@ -192,22 +192,6 @@ void main() {
       return (c: c, n: n, id: plan.id);
     }
 
-    test('removes one slot', () async {
-      final s = await withFour();
-      await s.n.removeAt(s.id, 1);
-      expect(
-        [for (final ch in s.n.byId(s.id)!.channels) ch.name],
-        ['CH0', 'CH2', 'CH3'],
-      );
-    });
-
-    test('ignores an out-of-range removal', () async {
-      final s = await withFour();
-      await s.n.removeAt(s.id, 99);
-      await s.n.removeAt(s.id, -1);
-      expect(s.n.byId(s.id)!.channels, hasLength(4));
-    });
-
     test('removes several slots at once', () async {
       final s = await withFour();
       await s.n.removeMany(s.id, {0, 2});

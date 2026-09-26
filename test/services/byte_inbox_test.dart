@@ -11,7 +11,6 @@ void main() {
       ..add([1, 2])
       ..add([3, 4, 5]);
     expect(await inbox.take(4, const Duration(seconds: 1)), [1, 2, 3, 4]);
-    expect(inbox.available, 1);
     expect(await inbox.take(1, const Duration(seconds: 1)), [5]);
   });
 
@@ -30,7 +29,12 @@ void main() {
       inbox.take(2, const Duration(milliseconds: 20)),
       throwsA(isA<TimeoutException>()),
     );
-    expect(inbox.available, 1, reason: 'clearing is the caller\'s decision');
+    inbox.add([2]);
+    expect(
+      await inbox.take(2, const Duration(seconds: 1)),
+      [1, 2],
+      reason: 'clearing is the caller\'s decision',
+    );
   });
 
   test(
@@ -38,7 +42,6 @@ void main() {
     () async {
       final inbox = ByteInbox()..add([1, 2, 3]);
       inbox.clear();
-      expect(inbox.available, 0);
       inbox.add([4]);
       expect(await inbox.take(1, const Duration(seconds: 1)), [4]);
     },

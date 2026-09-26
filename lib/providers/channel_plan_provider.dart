@@ -136,13 +136,6 @@ class ChannelPlansNotifier extends StateNotifier<List<ChannelPlan>> {
     );
   }
 
-  Future<void> removeAt(String id, int index) async {
-    final plan = byId(id);
-    if (plan == null || index < 0 || index >= plan.channels.length) return;
-    final channels = [...plan.channels]..removeAt(index);
-    await _replace(plan.copyWith(channels: channels));
-  }
-
   /// Remove several slots at once — what multi-select delete runs.
   Future<void> removeMany(String id, Set<int> indices) async {
     final plan = byId(id);

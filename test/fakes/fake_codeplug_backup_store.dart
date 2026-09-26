@@ -49,7 +49,6 @@ class FakeCodeplugBackupStore implements CodeplugBackupStore {
       file: File('/in-memory/${codeplug.modelId}_$id.bin'),
       modelId: codeplug.modelId,
       takenAt: codeplug.readAt,
-      length: codeplug.length,
     );
   }
 

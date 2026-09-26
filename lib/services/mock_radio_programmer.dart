@@ -23,9 +23,6 @@ class MockRadioProgrammer implements BandLimitProgrammer {
   /// The image the mock radio is holding.
   Uint8List image;
 
-  /// Every write the mock has accepted, so a test can assert what landed.
-  final List<Uint8List> writes = [];
-
   /// The transmit limits the mock radio holds: a UV-5R's, as commonly
   /// shipped. Kept beside [image] rather than in it, since the image is
   /// not laid out like any one radio's.
@@ -91,7 +88,6 @@ class MockRadioProgrammer implements BandLimitProgrammer {
       'Writing to the radio — do not turn it off…',
     );
     image = Uint8List.fromList(base.image);
-    writes.add(Uint8List.fromList(image));
     yield const RadioProgressEvent(
       stage: RadioProgressStage.done,
       message: 'Write complete.',
@@ -107,7 +103,6 @@ class MockRadioProgrammer implements BandLimitProgrammer {
   }) async* {
     yield* _stages(RadioProgressStage.writing, 'Restoring the backup…');
     image = Uint8List.fromList(codeplug.image);
-    writes.add(Uint8List.fromList(image));
     yield const RadioProgressEvent(
       stage: RadioProgressStage.done,
       message: 'Restore complete.',

@@ -16,9 +16,6 @@ class ByteInbox {
   final List<int> _buffer = [];
   Completer<void>? _waiter;
 
-  /// Bytes received and not yet taken.
-  int get available => _buffer.length;
-
   void add(List<int> chunk) {
     _buffer.addAll(chunk);
     final waiter = _waiter;

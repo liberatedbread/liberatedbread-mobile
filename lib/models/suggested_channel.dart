@@ -79,22 +79,6 @@ class SuggestedChannel {
       '${channel.rxFreqHz}/${channel.txFreqHz}/'
       '${channel.txTone.label}';
 
-  SuggestedChannel copyWith({
-    RadioChannel? channel,
-    bool? txAllowed,
-    bool? requiresTxUnlock,
-    String? details,
-  }) => SuggestedChannel(
-    channel: channel ?? this.channel,
-    category: category,
-    sourceId: sourceId,
-    distanceKm: distanceKm,
-    callsign: callsign,
-    details: details ?? this.details,
-    txAllowed: txAllowed ?? this.txAllowed,
-    requiresTxUnlock: requiresTxUnlock ?? this.requiresTxUnlock,
-  );
-
   @override
   String toString() =>
       'SuggestedChannel(${channel.name}, ${category.name}, $sourceId)';

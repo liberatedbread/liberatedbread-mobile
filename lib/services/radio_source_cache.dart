@@ -36,12 +36,9 @@ class RadioSourceCache {
   static const Duration defaultTtl = Duration(days: 7);
 
   final CacheDirResolver _resolveCacheDir;
-  final Duration ttl;
 
-  RadioSourceCache({
-    required CacheDirResolver cacheDirResolver,
-    this.ttl = defaultTtl,
-  }) : _resolveCacheDir = cacheDirResolver;
+  RadioSourceCache({required CacheDirResolver cacheDirResolver})
+    : _resolveCacheDir = cacheDirResolver;
 
   Future<Directory> _root() async {
     final base = await _resolveCacheDir();
@@ -127,22 +124,6 @@ class RadioSourceCache {
       if (await root.exists()) await root.delete(recursive: true);
     } catch (error) {
       Log.radio.warning('cache clear failed', error: error);
-    }
-  }
-
-  /// Bytes currently held, for the settings screen to report.
-  Future<int> sizeInBytes() async {
-    try {
-      final root = await _root();
-      if (!await root.exists()) return 0;
-      var total = 0;
-      await for (final entry in root.list()) {
-        if (entry is File) total += await entry.length();
-      }
-      return total;
-    } catch (error) {
-      Log.radio.debug('cache sizing failed', error: error);
-      return 0;
     }
   }
 }

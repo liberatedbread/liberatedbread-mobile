@@ -91,10 +91,4 @@ class LastLocationNotifier extends AsyncNotifier<SavedLocation?> {
     await store.write(key, jsonEncode(location.toJson()));
     state = AsyncData(location);
   }
-
-  Future<void> forget() async {
-    final store = await ref.read(prefsSettingsStoreProvider.future);
-    await store.delete(key);
-    state = const AsyncData(null);
-  }
 }

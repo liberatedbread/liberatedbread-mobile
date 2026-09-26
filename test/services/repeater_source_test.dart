@@ -85,7 +85,6 @@ void main() {
       // The distinction drives whether the results screen offers a settings
       // link or just says what happened.
       expect(failure(SourceFailureKind.auth).isActionable, isTrue);
-      expect(failure(SourceFailureKind.disabled).isActionable, isTrue);
       expect(failure(SourceFailureKind.network).isActionable, isFalse);
       expect(failure(SourceFailureKind.rateLimited).isActionable, isFalse);
       expect(failure(SourceFailureKind.parse).isActionable, isFalse);

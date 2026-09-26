@@ -94,9 +94,6 @@ enum SourceFailureKind {
 
   /// Reached it, and could not make sense of the answer.
   parse,
-
-  /// The user has this source switched off.
-  disabled,
 }
 
 /// A source that did not answer, in a form the results screen can show.
@@ -115,8 +112,7 @@ class SourceFailure {
 
   /// Whether the fix is something the user does in settings rather than
   /// something they wait out.
-  bool get isActionable =>
-      kind == SourceFailureKind.auth || kind == SourceFailureKind.disabled;
+  bool get isActionable => kind == SourceFailureKind.auth;
 
   @override
   String toString() => '$displayName: $message';
