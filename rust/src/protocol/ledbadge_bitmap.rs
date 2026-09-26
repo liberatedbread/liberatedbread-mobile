@@ -191,7 +191,11 @@ pub fn encode_badge_bitmap(
         })
         .collect();
     let packets = writes.len() as u32;
-    Ok(EncodedFrame { writes, packets })
+    Ok(EncodedFrame {
+        writes,
+        packets,
+        ..Default::default()
+    })
 }
 
 /// The Badge Data channel and the header magic, both from the spec: the

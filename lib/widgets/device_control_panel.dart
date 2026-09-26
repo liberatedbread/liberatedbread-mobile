@@ -277,6 +277,7 @@ class DeviceControlPanel extends ConsumerWidget {
           deviceId: deviceId,
           specYaml: match.yaml,
           deviceName: match.spec.deviceName,
+          matchedVariants: matchedVariants,
         ),
       if (match != null && match.spec.imageUpload != null)
         LedImageWidget(

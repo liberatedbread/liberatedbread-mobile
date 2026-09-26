@@ -192,7 +192,11 @@ pub fn encode_framed_upload(
         packets += 1;
     }
 
-    Ok(EncodedFrame { writes, packets })
+    Ok(EncodedFrame {
+        writes,
+        packets,
+        ..Default::default()
+    })
 }
 
 /// The characteristic the upload runs over: the writable characteristic that

@@ -354,6 +354,8 @@ void main() {
         dpiAssumed: false,
         printableDots: 384,
         media: [],
+        variants: [],
+        hardwareTested: true,
       ),
       ble: SavedDevice(
         id: 'cc',

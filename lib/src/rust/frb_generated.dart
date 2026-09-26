@@ -5569,6 +5569,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CompletionPollDto dco_decode_box_autoadd_completion_poll_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_completion_poll_dto(raw);
+  }
+
+  @protected
   double dco_decode_box_autoadd_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as double;
@@ -5885,6 +5891,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CompletionPollDto dco_decode_completion_poll_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return CompletionPollDto(
+      beforeWrite: dco_decode_u_32(arr[0]),
+      request: dco_decode_image_write_dto(arr[1]),
+      characteristicUuid: dco_decode_String(arr[2]),
+      replyPrefix: dco_decode_list_prim_u_8_strict(arr[3]),
+      doneOffset: dco_decode_u_32(arr[4]),
+      doneBytes: dco_decode_list_prim_u_8_strict(arr[5]),
+      intervalMs: dco_decode_u_32(arr[6]),
+      timeoutMs: dco_decode_u_32(arr[7]),
+    );
+  }
+
+  @protected
   DecodedValueDto dco_decode_decoded_value_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -6153,12 +6177,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return ImageWritePlanDto(
       serviceUuid: dco_decode_String(arr[0]),
       writes: dco_decode_list_image_write_dto(arr[1]),
       nextFrameIndex: dco_decode_u_32(arr[2]),
+      replyWaits: dco_decode_list_reply_wait_dto(arr[3]),
+      completionPoll: dco_decode_opt_box_autoadd_completion_poll_dto(arr[4]),
     );
   }
 
@@ -6564,6 +6590,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return (raw as List<dynamic>)
         .map(dco_decode_record_u_16_list_prim_u_8_strict)
         .toList();
+  }
+
+  @protected
+  List<ReplyWaitDto> dco_decode_list_reply_wait_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_reply_wait_dto).toList();
   }
 
   @protected
@@ -7035,6 +7067,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CompletionPollDto? dco_decode_opt_box_autoadd_completion_poll_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_completion_poll_dto(raw);
+  }
+
+  @protected
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_f_64(raw);
@@ -7379,8 +7419,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RasterPrintDto dco_decode_raster_print_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 11)
-      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    if (arr.length != 13)
+      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
     return RasterPrintDto(
       handler: dco_decode_opt_String(arr[0]),
       transport: dco_decode_opt_String(arr[1]),
@@ -7393,6 +7433,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       media: dco_decode_list_print_media_dto(arr[8]),
       density: dco_decode_opt_box_autoadd_print_choice_dto(arr[9]),
       paperType: dco_decode_opt_box_autoadd_print_choice_dto(arr[10]),
+      variants: dco_decode_list_String(arr[11]),
+      hardwareTested: dco_decode_bool(arr[12]),
     );
   }
 
@@ -7451,6 +7493,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       inPlaceSupported: dco_decode_opt_box_autoadd_bool(arr[0]),
       requiresFactoryReset: dco_decode_opt_box_autoadd_bool(arr[1]),
       notes: dco_decode_opt_String(arr[2]),
+    );
+  }
+
+  @protected
+  ReplyWaitDto dco_decode_reply_wait_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return ReplyWaitDto(
+      afterWrite: dco_decode_u_32(arr[0]),
+      characteristicUuid: dco_decode_String(arr[1]),
+      expectPrefix: dco_decode_list_prim_u_8_strict(arr[2]),
+      errorPrefixes: dco_decode_list_list_prim_u_8_strict(arr[3]),
+      timeoutMs: dco_decode_u_32(arr[4]),
     );
   }
 
@@ -8215,6 +8272,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CompletionPollDto sse_decode_box_autoadd_completion_poll_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_completion_poll_dto(deserializer));
+  }
+
+  @protected
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_f_64(deserializer));
@@ -8596,6 +8661,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CompletionPollDto sse_decode_completion_poll_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_beforeWrite = sse_decode_u_32(deserializer);
+    var var_request = sse_decode_image_write_dto(deserializer);
+    var var_characteristicUuid = sse_decode_String(deserializer);
+    var var_replyPrefix = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_doneOffset = sse_decode_u_32(deserializer);
+    var var_doneBytes = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_intervalMs = sse_decode_u_32(deserializer);
+    var var_timeoutMs = sse_decode_u_32(deserializer);
+    return CompletionPollDto(
+      beforeWrite: var_beforeWrite,
+      request: var_request,
+      characteristicUuid: var_characteristicUuid,
+      replyPrefix: var_replyPrefix,
+      doneOffset: var_doneOffset,
+      doneBytes: var_doneBytes,
+      intervalMs: var_intervalMs,
+      timeoutMs: var_timeoutMs,
+    );
+  }
+
+  @protected
   DecodedValueDto sse_decode_decoded_value_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
@@ -8950,10 +9040,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_serviceUuid = sse_decode_String(deserializer);
     var var_writes = sse_decode_list_image_write_dto(deserializer);
     var var_nextFrameIndex = sse_decode_u_32(deserializer);
+    var var_replyWaits = sse_decode_list_reply_wait_dto(deserializer);
+    var var_completionPoll = sse_decode_opt_box_autoadd_completion_poll_dto(
+      deserializer,
+    );
     return ImageWritePlanDto(
       serviceUuid: var_serviceUuid,
       writes: var_writes,
       nextFrameIndex: var_nextFrameIndex,
+      replyWaits: var_replyWaits,
+      completionPoll: var_completionPoll,
     );
   }
 
@@ -9644,6 +9740,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ReplyWaitDto> sse_decode_list_reply_wait_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ReplyWaitDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_reply_wait_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -10293,6 +10403,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CompletionPollDto? sse_decode_opt_box_autoadd_completion_poll_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_completion_poll_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -10816,6 +10939,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_paperType = sse_decode_opt_box_autoadd_print_choice_dto(
       deserializer,
     );
+    var var_variants = sse_decode_list_String(deserializer);
+    var var_hardwareTested = sse_decode_bool(deserializer);
     return RasterPrintDto(
       handler: var_handler,
       transport: var_transport,
@@ -10828,6 +10953,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       media: var_media,
       density: var_density,
       paperType: var_paperType,
+      variants: var_variants,
+      hardwareTested: var_hardwareTested,
     );
   }
 
@@ -10881,6 +11008,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       inPlaceSupported: var_inPlaceSupported,
       requiresFactoryReset: var_requiresFactoryReset,
       notes: var_notes,
+    );
+  }
+
+  @protected
+  ReplyWaitDto sse_decode_reply_wait_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_afterWrite = sse_decode_u_32(deserializer);
+    var var_characteristicUuid = sse_decode_String(deserializer);
+    var var_expectPrefix = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_errorPrefixes = sse_decode_list_list_prim_u_8_strict(deserializer);
+    var var_timeoutMs = sse_decode_u_32(deserializer);
+    return ReplyWaitDto(
+      afterWrite: var_afterWrite,
+      characteristicUuid: var_characteristicUuid,
+      expectPrefix: var_expectPrefix,
+      errorPrefixes: var_errorPrefixes,
+      timeoutMs: var_timeoutMs,
     );
   }
 
@@ -11748,6 +11892,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_completion_poll_dto(
+    CompletionPollDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_completion_poll_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_f_64(self, serializer);
@@ -12096,6 +12249,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_completion_poll_dto(
+    CompletionPollDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.beforeWrite, serializer);
+    sse_encode_image_write_dto(self.request, serializer);
+    sse_encode_String(self.characteristicUuid, serializer);
+    sse_encode_list_prim_u_8_strict(self.replyPrefix, serializer);
+    sse_encode_u_32(self.doneOffset, serializer);
+    sse_encode_list_prim_u_8_strict(self.doneBytes, serializer);
+    sse_encode_u_32(self.intervalMs, serializer);
+    sse_encode_u_32(self.timeoutMs, serializer);
+  }
+
+  @protected
   void sse_encode_decoded_value_dto(
     DecodedValueDto self,
     SseSerializer serializer,
@@ -12344,6 +12513,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.serviceUuid, serializer);
     sse_encode_list_image_write_dto(self.writes, serializer);
     sse_encode_u_32(self.nextFrameIndex, serializer);
+    sse_encode_list_reply_wait_dto(self.replyWaits, serializer);
+    sse_encode_opt_box_autoadd_completion_poll_dto(
+      self.completionPoll,
+      serializer,
+    );
   }
 
   @protected
@@ -12955,6 +13129,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_reply_wait_dto(
+    List<ReplyWaitDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_reply_wait_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_scan_match(
     List<ScanMatch> self,
     SseSerializer serializer,
@@ -13490,6 +13676,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_completion_poll_dto(
+    CompletionPollDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_completion_poll_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -13978,6 +14177,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_print_media_dto(self.media, serializer);
     sse_encode_opt_box_autoadd_print_choice_dto(self.density, serializer);
     sse_encode_opt_box_autoadd_print_choice_dto(self.paperType, serializer);
+    sse_encode_list_String(self.variants, serializer);
+    sse_encode_bool(self.hardwareTested, serializer);
   }
 
   @protected
@@ -14026,6 +14227,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_bool(self.inPlaceSupported, serializer);
     sse_encode_opt_box_autoadd_bool(self.requiresFactoryReset, serializer);
     sse_encode_opt_String(self.notes, serializer);
+  }
+
+  @protected
+  void sse_encode_reply_wait_dto(ReplyWaitDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.afterWrite, serializer);
+    sse_encode_String(self.characteristicUuid, serializer);
+    sse_encode_list_prim_u_8_strict(self.expectPrefix, serializer);
+    sse_encode_list_list_prim_u_8_strict(self.errorPrefixes, serializer);
+    sse_encode_u_32(self.timeoutMs, serializer);
   }
 
   @protected

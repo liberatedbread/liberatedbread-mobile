@@ -18,6 +18,7 @@ pub mod kasa;
 pub mod ledbadge_bitmap;
 pub mod lifx;
 pub mod mqtt;
+pub mod niimbot;
 pub mod profiles;
 pub mod rabbit_air;
 pub mod rabbit_air_ble;
@@ -211,7 +212,7 @@ pub fn resolve_parameter(
 /// characteristic it targets. Per-write targets exist because a protocol can
 /// span channels — Daniao's doodle flow opens the session on the command
 /// characteristic and streams pixels on the bulk one.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EncodedWrite {
     pub characteristic_uuid: String,
     pub bytes: Vec<u8>,
@@ -229,10 +230,50 @@ pub struct EncodedWrite {
 /// Nothing observes the difference — none of the four uses a serial — but a
 /// handler that starts numbering fragments must pick the unit ITS device
 /// sequences, not copy a sibling's.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct EncodedFrame {
     pub writes: Vec<EncodedWrite>,
     pub packets: u32,
+    /// Replies the device must send before the writes after them go out —
+    /// a request/response protocol (NIIMBOT) where a packet sent before the
+    /// last one was acknowledged is dropped. Empty for a write-only stream,
+    /// which every other handler is, and then the caller writes back to back.
+    pub reply_waits: Vec<ReplyWait>,
+    /// A status request to repeat, before one write, until the reply says
+    /// the device is done — NIIMBOT's page must finish printing before
+    /// PrintEnd, or the job is cut short. None for most handlers.
+    pub completion_poll: Option<CompletionPoll>,
+}
+
+/// Wait, after write [`Self::after_write`] (an index into
+/// [`EncodedFrame::writes`]), for a notification on
+/// [`Self::characteristic_uuid`] containing [`Self::expect_prefix`]. A
+/// notification containing any of [`Self::error_prefixes`] first is the
+/// device refusing; nothing within [`Self::timeout_ms`] is it not answering.
+#[derive(Debug, Clone)]
+pub struct ReplyWait {
+    pub after_write: usize,
+    pub characteristic_uuid: String,
+    pub expect_prefix: Vec<u8>,
+    pub error_prefixes: Vec<Vec<u8>>,
+    pub timeout_ms: u32,
+}
+
+/// Before write [`Self::before_write`], send [`Self::request`] every
+/// [`Self::interval_ms`] until a reply on [`Self::characteristic_uuid`]
+/// that starts with [`Self::reply_prefix`] carries [`Self::done_bytes`] at
+/// [`Self::done_offset`] (from the start of that reply), for at most
+/// [`Self::timeout_ms`] in all.
+#[derive(Debug, Clone)]
+pub struct CompletionPoll {
+    pub before_write: usize,
+    pub request: EncodedWrite,
+    pub characteristic_uuid: String,
+    pub reply_prefix: Vec<u8>,
+    pub done_offset: usize,
+    pub done_bytes: Vec<u8>,
+    pub interval_ms: u32,
+    pub timeout_ms: u32,
 }
 
 /// Signature every image-frame encoder implements:
@@ -278,6 +319,10 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[
     ImageUploadHandler {
         name: fichero_d11::HANDLER_NAME,
         encode: fichero_d11::encode_print_job,
+    },
+    ImageUploadHandler {
+        name: niimbot::HANDLER_NAME,
+        encode: niimbot::encode_print_job,
     },
     ImageUploadHandler {
         name: cdbwsoft_ecb::HANDLER_NAME,

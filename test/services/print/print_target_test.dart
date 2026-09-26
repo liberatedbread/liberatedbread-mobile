@@ -24,6 +24,8 @@ const _cat = RasterPrintDto(
   headDots: 384,
   printableDots: 384,
   media: [],
+  variants: [],
+  hardwareTested: true,
 );
 
 class _ThrowingBle extends FakeBleService {

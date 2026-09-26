@@ -341,6 +341,39 @@ pub struct ImageWritePlanDto {
     /// next frame's serials collide with this one's and corrupt fragment
     /// reassembly on the device — always continue from this value.
     pub next_frame_index: u32,
+    /// Replies to wait for between writes. Empty for a write-only stream —
+    /// then the writes go back to back, as they always have.
+    pub reply_waits: Vec<ReplyWaitDto>,
+    /// A status request to repeat before one write until the device reports
+    /// it is done, when the protocol needs one.
+    pub completion_poll: Option<CompletionPollDto>,
+}
+
+/// After write `after_write`, wait up to `timeout_ms` for a notification on
+/// `characteristic_uuid` containing `expect_prefix`; one containing any of
+/// `error_prefixes` first is the device refusing the job.
+#[derive(Debug, Clone)]
+pub struct ReplyWaitDto {
+    pub after_write: u32,
+    pub characteristic_uuid: String,
+    pub expect_prefix: Vec<u8>,
+    pub error_prefixes: Vec<Vec<u8>>,
+    pub timeout_ms: u32,
+}
+
+/// Before write `before_write`, send `request` every `interval_ms` until a
+/// notification on `characteristic_uuid` that starts with `reply_prefix`
+/// carries `done_bytes` at `done_offset` into it; give up after `timeout_ms`.
+#[derive(Debug, Clone)]
+pub struct CompletionPollDto {
+    pub before_write: u32,
+    pub request: ImageWriteDto,
+    pub characteristic_uuid: String,
+    pub reply_prefix: Vec<u8>,
+    pub done_offset: u32,
+    pub done_bytes: Vec<u8>,
+    pub interval_ms: u32,
+    pub timeout_ms: u32,
 }
 
 /// A spec-declared sensor or control surface: what to call it, which
@@ -4989,6 +5022,30 @@ pub fn encode_image_frame(
                 bytes: w.bytes,
             })
             .collect(),
+        reply_waits: frame
+            .reply_waits
+            .into_iter()
+            .map(|w| ReplyWaitDto {
+                after_write: w.after_write as u32,
+                characteristic_uuid: w.characteristic_uuid,
+                expect_prefix: w.expect_prefix,
+                error_prefixes: w.error_prefixes,
+                timeout_ms: w.timeout_ms,
+            })
+            .collect(),
+        completion_poll: frame.completion_poll.map(|p| CompletionPollDto {
+            before_write: p.before_write as u32,
+            request: ImageWriteDto {
+                characteristic_uuid: p.request.characteristic_uuid,
+                bytes: p.request.bytes,
+            },
+            characteristic_uuid: p.characteristic_uuid,
+            reply_prefix: p.reply_prefix,
+            done_offset: p.done_offset as u32,
+            done_bytes: p.done_bytes,
+            interval_ms: p.interval_ms,
+            timeout_ms: p.timeout_ms,
+        }),
     })
 }
 

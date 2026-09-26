@@ -1,0 +1,632 @@
+# NIIMBOT D110 / B21 Thermal Label Printer
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "NIIMBOT D110 / B21 Thermal Label Printer"
+  manufacturer: "NIIMBOT (Wuhan Jingchen Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "printer"
+  notes: >
+    Popular cheap thermal label printer with a closed ecosystem. $15-30.
+    D110 is a compact single-label printer; B21 adds larger print width
+    and more features. The community open-source client "NiimBlue"
+    (Web Bluetooth) has reverse-engineered the full protocol through
+    MultiMote/niimbluelib.
+
+    PROTOCOL: packet-based binary protocol over BLE GATT. Each packet uses
+    0x55 0x55 as header and 0xAA 0xAA as tail. Packet structure:
+    [prefix(optional)] [0x55 0x55] [command] [data_length] [data...]
+    [checksum] [0xAA 0xAA].
+
+    CHECKSUM: XOR of all bytes from command through the last data byte
+    (inclusive). For simple request packets (data_length=1, data=1),
+    checksum equals the command byte.
+
+    PACKET TYPES:
+    - 0xC1 Connect / 0xC2 response (connection handshake, only packet
+      with 0x03 prefix)
+    - 0x01 PrintStart (1-9 byte variants depending on model)
+    - 0x13 SetPageSize (2-13 byte variants)
+    - 0x03 PageStart / 0xE3 PageEnd
+    - 0xF3 PrintEnd
+    - 0x21 SetDensity / 0x31 response
+    - 0x23 SetLabelType / 0x33 response
+    - 0x84 PrintEmptyRow (fill row with white pixels)
+    - 0x85 PrintBitmapRow (send row with black/white pixel data)
+    - 0x83 PrintBitmapRowIndexed (row with < 7 black pixels, uses pixel
+      indexes)
+    - 0xDC Heartbeat / 0xDD, 0xDE, 0xDF and 0xD9 responses (0xD9 =
+      Advanced2, the normal response on protocol-v3+ printers)
+    - 0x40 GetDeviceInfo — multiple response IDs for different info
+      (serial, hardware, firmware, etc.)
+    - 0x28 PrinterReset / 0x38 response
+    - 0xF5 StartFirmwareUpgrade (uses CRC32 variant of packet format)
+
+    D110 SPECIFIC: uses 1-byte PrintStart variant. SetPageSize uses the
+    4-byte [rows(u16), cols(u16)] BIG-endian variant (the 2-byte
+    row-count-only variant is the old D11, not the D110). Printhead is
+    96px wide (12mm @203dpi, 12 bytes/row for 1-bit data) — NOT 384px;
+    384px/48mm is the B21 printhead.
+
+    BITMAP ROW ENCODING: PrintBitmapRow (0x85) sends row data with a
+    black-pixel-count segment. For rows with fewer than 7 black pixels,
+    PrintBitmapRowIndexed (0x83) sends pixel x-coordinates as uint16
+    BIG-endian values (Utils.u16ToBytes; wiki example x=320 = 01 40)
+    instead of a full bitmap.
+
+    HEARTBEAT: send 0xDC with data [0x01] or [0x04] (protocol version
+    dependent). Response includes lid closed status, charge level, paper
+    inserted, RFID status, and (on newer models) ribbon state.
+
+    DISCOVERY: advertised names are model-prefixed ("D110-*", "B21-*",
+    "D11-*"); every known implementation matches model names, and none
+    matches a "NIIMBOT" prefix — do not scan for "NIIMBOT". Service
+    UUID is manufacturer-specific; the niimbluelib handles service/char
+    discovery dynamically.
+
+    FIRMWARE / ECOSYSTEM (verified 2026-07-31): the community archive
+    fw.niim.blue hosts original, unmodified official firmware (D110 up to
+    v13.15, B21 up to v1.31); D110 images are raw (base 0x01010000) and
+    newer files carry a 0x18-signature header with length + CRC32 fields.
+    D110 MCU is a YiCHiP YC3121-d (D110_M: YC3122-L, refuses downgrades).
+    The vendor cloud API is live without auth:
+    POST print.niimbot.com/api/firmware/machineCascadeDetail returns
+    per-model characteristics. Newer "v4" models (D110_M, B21_PRO, D11_H)
+    use a different print task — 9-byte PrintStart, 13-byte SetPageSize,
+    no PageStart — so the uniform-protocol assumption is aging. Consumable
+    lock-in: paper/ribbon RFID tags (RfidInfo 0x1A/0x1C, WriteRFID 0x70,
+    AntiFake 0x0B) plus a region lock are documented on the wiki.
+
+    CONFIDENCE: HIGH for packet format, checksum algorithm, command IDs,
+    PrintStart/SetPageSize variants, bitmap row encoding, and heartbeat
+    format — sourced from MultiMote/niimbluelib, the production-quality
+    TypeScript library behind niim.blue, tested against D110, B21, B1,
+    D11, and other NIIMBOT models.
+
+  identification:
+    local_name_prefix: "D110"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "D110"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Connect, send Connect packet (0xC1), then begin print sequence.
+      No pairing or bonding required.
+    methods:
+      - type: "ble_direct"
+        # Derived from the NiimBlue/niimbluelib community client, which does run
+        # this flow against real printers — but not verified here, which is what
+        # this field claims. False, matching the block's medium confidence.
+        verified: false
+        description: >
+          Scan for model-prefixed advertisement, connect, send connect handshake,
+          then start print sequence.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power on the printer."
+            actor: "user"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Scan for a model-prefixed name ("D110-*", "B21-*") and connect.
+            actor: "client"
+          - action: >
+              Send Connect packet (0xC1) and receive response (0xC2).
+            actor: "client"
+          - action: >
+              Begin print sequence: SetDensity → SetLabelType → PrintStart →
+              PrintClear → PageStart → SetPageSize → SetPrintQuantity → print
+              rows → PageEnd → poll PrintStatus → PrintEnd.
+            actor: "client"
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Send PrinterReset packet (0x28). Returns response 0x38.
+      procedures:
+        - name: "Command reset"
+          steps:
+            - action: "Send 0x28 packet to printer."
+              actor: "client"
+              expect: "Device responds with 0x38 and resets."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No bonding. Any central can connect."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE-only. No auth."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+  variants:
+    - model: "D110"
+      identification:
+        local_name_prefix: "D110"
+      notes: >
+        96px printhead (12mm @203dpi, 12 bytes/row). 1-byte PrintStart.
+        4-byte SetPageSize [rows(u16), cols(u16)] big-endian.
+    - model: "B21"
+      identification:
+        local_name_prefix: "B21"
+      notes: >
+        Larger print width (384px/48mm printhead). May use extended
+        PrintStart/SetPageSize variants.
+    - model: "D11"
+      identification:
+        local_name_prefix: "D11"
+      notes: "Similar to D110. 1-byte PrintStart; old D11 uses the 2-byte SetPageSize."
+
+features:
+  - type: "image_upload"
+    # The 96-dot geometry and the print task below are the D110's. The B21
+    # (384 dots) and the old D11 (2-byte SetPageSize) run different tasks, so
+    # the upload is scoped rather than offered to them at the wrong width.
+    variants: ["D110"]
+    max_width: 96
+    max_height: 65535
+    format: "1bit-bitmap"
+    # 1 bit per pixel — black or white, nothing between. Stated so an editor
+    # does not quantize to another device's 16-colour ceiling.
+    max_palette_colors: 2
+    # D110 head geometry, promoted from the notes' prose (96px, 12 mm at
+    # 203 dpi, 12 bytes per row) so a label composer reads it by key. The
+    # B21 variant's 384px head is a different geometry; see its variant note.
+    print_geometry:
+      dpi: 203
+      bytes_per_row: 12
+      head_dots: 96
+    # SetDensity (0x21) levels and SetLabelType (0x23) stock codes the D110
+    # accepts — niimbluelib's D110 model entry (density 1-3, default 2; paper
+    # types WithGaps and Transparent). Declared so a consumer offers a picker
+    # and sends the byte through the named command.
+    print_density:
+      allowed: [1, 2, 3]
+      labels: ["light", "medium", "dark"]
+      default: 2
+      command: "set_density"
+    paper_type:
+      allowed: [1, 5]
+      labels: ["gap label", "transparent"]
+      default: 1
+      command: "set_label_type"
+  # The upload IS the device: the packet protocol prints rows and resolves no
+  # entities, and a consumer keeps the printer on this marker rather than
+  # dropping it as empty. Declared beside image_upload, which describes the
+  # bitmap the stream takes.
+  - type: "raster_print"
+    variants: ["D110"]
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "public_url"
+        format: >
+          Raw application image (D110 base address 0x01010000); newer files
+          carry the 0x18-signature header with length and CRC32 fields
+          described in device.notes.
+        notes: >
+          The community archive https://fw.niim.blue hosts original,
+          unmodified official images (D110 up to v13.15, B21 up to v1.31).
+          Whether the bootloader checks anything beyond the CRC32 is not
+          established. The D110_M (YC3122-L) refuses downgrades.
+      enter:
+        how: "unknown"
+        notes: >
+          niimbluelib names packet 0xF5 StartFirmwareUpgrade and sends it in
+          a CRC32 variant of the packet format rather than the XOR-checksum
+          envelope. That variant's layout is not written down here, so the
+          packet is not declared as a command; a client that builds it must
+          treat it as advanced.
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From MultiMote/niimbluelib and the fw.niim.blue archive; not
+        exercised by this project. The same packet protocol also runs over
+        Bluetooth Classic SPP (RFCOMM channel 1) and USB serial, and whether
+        the upgrade packet works on those transports is not established. The
+        print service carries every ordinary command too, so it is not
+        listed under `services`.
+
+# The consumer-side print task: packet envelope, row encoding and the
+# reply-gated sequence in protocol_details.niimbot_print_task.
+protocol_handler: "niimbot"
+
+services:
+  - uuid: "e7810a71-73ae-499d-8c15-faa9aef0c3f2"
+    name: "NIIMBOT Print Service"
+    notes: >
+      Most models expose service e7810a71-73ae-499d-8c15-faa9aef0c3f2 with a
+      single characteristic carrying both directions (niimbluelib still
+      discovers service/char dynamically). The packet-based binary protocol is
+      consistent across all pre-v4 NIIMBOT models, and the same protocol also
+      runs over Bluetooth Classic SPP/RFCOMM channel 1 and USB serial
+      (115200 baud); the printer exposes two BT addresses (BLE + classic).
+
+      PACKET FORMAT: `[0x03?] 0x55 0x55 <cmd> <len> <data...> <xor_checksum> 0xAA 0xAA`
+      The 0x03 prefix is used only on the Connect packet (0xC1).
+      Checksum = XOR of cmd through last data byte.
+
+      PRINT SEQUENCE (D110 task, per niimbluelib's D110 print task):
+      1. Connect (0xC1) — handshake
+      2. SetDensity (0x21) — print density level
+      3. SetLabelType (0x23) — label/gap/continuous
+      4. PrintStart (0x01) — 1-byte variant
+      5. PrintClear (0x20) — clear the page buffer
+      6. PageStart (0x03) — begin page
+      7. SetPageSize (0x13) — [rows(u16), cols(u16)] big-endian
+      8. SetPrintQuantity (0x15) — copies of this page, u16 big-endian
+      9. PrintBitmapRow (0x85) / PrintBitmapRowIndexed (0x83) / PrintEmptyRow (0x84)
+      10. PageEnd (0xE3) — end page
+      11. Poll PrintStatus (0xA3) until the page count reaches the pages sent
+      12. PrintEnd (0xF3) — finish job
+      Every control packet is acknowledged; rows are not. See
+      protocol_details.niimbot_print_task.
+
+      D110 MODEL: PrintStart uses 1-byte variant `55 55 01 01 01 <cs> aa aa`.
+      SetPageSize uses the 4-byte big-endian variant
+      `55 55 13 04 <row_hi> <row_lo> <col_hi> <col_lo> <cs> aa aa`
+      (the 2-byte row-count-only variant is the old D11). D110 printhead is
+      96px (12mm @203dpi) — 384px is the B21.
+    characteristics:
+      - uuid: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+        name: "Print Data"
+        properties: ["notify", "write_without_response"]
+        # The fixed-shape control packets of the D110 print task. Envelope:
+        # 55 55 <cmd> <len> <data...> <xor> AA AA, where xor covers cmd, len
+        # and data (frame bytes 2 onward), hence checksum_start: 2. Byte
+        # values from MultiMote/niimbluelib's packet generator and command
+        # map (MIT), not run by this project. Rows (0x83/0x84/0x85) vary in
+        # length and live in protocol_details.niimbot_print_task.
+        commands:
+          connect:
+            description: "0xC1 handshake, the one packet sent with a leading 0x03. Replies 0xC2."
+            verification: "reported"
+            value: [0x03, 0x55, 0x55, 0xC1, 0x01, 0x01, 0xC1, 0xAA, 0xAA]
+          set_density:
+            description: "0x21 SetDensity — print darkness, first step of a job. Replies 0x31."
+            verification: "reported"
+            template: [0x55, 0x55, 0x21, 0x01, "{density}", "{checksum}", 0xAA, 0xAA]
+            parameters:
+              density:
+                type: "uint8"
+                allowed: [1, 2, 3]
+                labels: ["light", "medium", "dark"]
+                default: 2
+                description: "Darkness level; the codes are declared on the image_upload feature's print_density."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 2
+                description: "XOR of cmd, len and data; encoder-filled."
+          set_label_type:
+            description: "0x23 SetLabelType — the loaded stock, second step of a job. Replies 0x33."
+            verification: "reported"
+            template: [0x55, 0x55, 0x23, 0x01, "{label_type}", "{checksum}", 0xAA, 0xAA]
+            parameters:
+              label_type:
+                type: "uint8"
+                allowed: [1, 5]
+                labels: ["gap label", "transparent"]
+                default: 1
+                description: "Stock code; declared on the image_upload feature's paper_type."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 2
+                description: "XOR of cmd, len and data; encoder-filled."
+          print_start:
+            description: "0x01 PrintStart, the D110's 1-byte variant (data 0x01). Replies 0x02."
+            verification: "reported"
+            value: [0x55, 0x55, 0x01, 0x01, 0x01, 0x01, 0xAA, 0xAA]
+          print_clear:
+            description: "0x20 PrintClear — clears the page buffer before each page. Replies 0x30."
+            verification: "reported"
+            value: [0x55, 0x55, 0x20, 0x01, 0x01, 0x20, 0xAA, 0xAA]
+          page_start:
+            description: "0x03 PageStart — opens a page. Replies 0x04."
+            verification: "reported"
+            value: [0x55, 0x55, 0x03, 0x01, 0x01, 0x03, 0xAA, 0xAA]
+          set_page_size:
+            description: "0x13 SetPageSize, the D110's 4-byte variant: rows then columns, each u16 big-endian. Replies 0x14."
+            verification: "reported"
+            template: [0x55, 0x55, 0x13, 0x04, "{rows}", "{cols}", "{checksum}", 0xAA, 0xAA]
+            parameters:
+              rows:
+                type: "uint16"
+                endianness: "big"
+                min: 1
+                max: 65535
+                description: "Rows in the page — the label's length along the feed, in dots."
+              cols:
+                type: "uint16"
+                endianness: "big"
+                min: 8
+                max: 96
+                default: 96
+                description: "Dots across the head, a multiple of 8."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 2
+                description: "XOR of cmd, len and data; encoder-filled."
+          set_print_quantity:
+            description: "0x15 SetPrintQuantity — copies of the page about to be sent, u16 big-endian. Replies 0x16."
+            verification: "reported"
+            template: [0x55, 0x55, 0x15, 0x02, "{quantity}", "{checksum}", 0xAA, 0xAA]
+            parameters:
+              quantity:
+                type: "uint16"
+                endianness: "big"
+                min: 1
+                max: 65535
+                default: 1
+                description: "Copies."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 2
+                description: "XOR of cmd, len and data; encoder-filled."
+          page_end:
+            description: "0xE3 PageEnd — closes the page. Replies 0xE4."
+            verification: "reported"
+            value: [0x55, 0x55, 0xE3, 0x01, 0x01, 0xE3, 0xAA, 0xAA]
+          print_status:
+            description: "0xA3 PrintStatus — polled after PageEnd until the page is done. Replies 0xB3; layout in protocol_details.niimbot_print_task."
+            verification: "reported"
+            value: [0x55, 0x55, 0xA3, 0x01, 0x01, 0xA3, 0xAA, 0xAA]
+          print_end:
+            description: "0xF3 PrintEnd — finishes the job. Sent only once PrintStatus reports the last page. Replies 0xF4."
+            verification: "reported"
+            value: [0x55, 0x55, 0xF3, 0x01, 0x01, 0xF3, 0xAA, 0xAA]
+          heartbeat:
+            description: "0xDC Heartbeat. Type 1 (advanced 1) or 4 (advanced 2) per protocol version; the D110's 0xDD reply is decoded by this characteristic's format block."
+            verification: "reported"
+            template: [0x55, 0x55, 0xDC, 0x01, "{type}", "{checksum}", 0xAA, 0xAA]
+            parameters:
+              type:
+                type: "uint8"
+                allowed: [1, 2, 3, 4]
+                labels: ["advanced 1", "basic", "printer info", "advanced 2"]
+                default: 1
+                description: "Heartbeat variant."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 2
+                description: "XOR of cmd, len and data; encoder-filled."
+        notes: >
+          Single characteristic for command writes AND responses/heartbeat
+          notifications on most models (niimbluelib selects the char requiring
+          NOTIFY + WRITE_NO_RESPONSE).
+          FRAME SELECTION: every reply the printer sends arrives here in the
+          `55 55 <cmd> <len> <data...> <xor> AA AA` envelope, and the format
+          block below describes exactly one of them — the reply to the
+          0xDC heartbeat request as a D110 sends it: cmd 0xDD with a 10-byte
+          data field, 17 bytes in all. Check bytes 2-3 read 0xDD 0x0A before
+          trusting the offsets; a print acknowledgement or an info reply on
+          the same characteristic puts other bytes there. Offsets are from
+          niimbluelib's heartbeat parser (the 10-byte case: lid at data
+          byte 8, charge level at data byte 9, no paper field) — reported,
+          not read back by this project. Other models answer with 13-, 19-
+          or 20-byte data fields whose lid/charge/paper bytes sit elsewhere;
+          see remaining_unknowns.
+        format:
+          - offset: 0
+            length: 2
+            name: "head"
+            type: "uint16"
+            endianness: "big"
+            values:
+              0x5555: "packet_head"
+          - offset: 2
+            length: 1
+            name: "response_id"
+            type: "uint8"
+            values:
+              0xDD: "heartbeat_reply"
+            notes: "The layout below only holds for 0xDD."
+          - offset: 3
+            length: 1
+            name: "data_length"
+            type: "uint8"
+            notes: "10 on the D110; other values mean another model's heartbeat layout."
+          - offset: 12
+            length: 1
+            name: "lid_open"
+            type: "uint8"
+            notes: "0 = lid closed, non-zero = open (data byte 8 of the D110 heartbeat)."
+          - offset: 13
+            length: 1
+            name: "charge_level"
+            type: "uint8"
+            device_class: "battery"
+            values:
+              0: "empty"
+              1: "25%"
+              2: "50%"
+              3: "75%"
+              4: "100%"
+            notes: >
+              A five-step gauge (data byte 9), not a percent; the labels are
+              the steps' nominal fill. The same 0-4 code comes back from the
+              battery-level printer-info query. niimbluelib's heartbeat parser
+              labels this byte a percentage; the 0-4 scale the printer-info
+              query returns is the reading adopted here, so treat a value
+              above 4 as a percent from a newer firmware.
+
+entities:
+  - platform: "cover"
+    name: "Print Feed"
+    state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+  - platform: "sensor"
+    name: "Battery Level"
+    device_class: "battery"
+    variants: ["D110"]
+    state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+    state_mapping:
+      value: "charge_level"
+    notes: >
+      0-4 gauge step from the D110 heartbeat reply; a consumer must send the
+      heartbeat request to get one, and must only decode replies whose
+      response_id is 0xDD (see the characteristic notes). Scoped to the D110
+      because the B21's heartbeat is a different length with the byte
+      elsewhere.
+  - platform: "binary_sensor"
+    name: "Lid"
+    variants: ["D110"]
+    state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+    state_mapping:
+      value: "lid_open"
+      on_when: "nonzero"
+    notes: "On = lid open. Same heartbeat-reply caveats as Battery Level."
+  - platform: "binary_sensor"
+    name: "Paper"
+    state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+    notes: >
+      Unbound: the D110's 10-byte heartbeat reply has no paper byte
+      (niimbluelib reports paper only for the 13-, 19- and 20-byte replies
+      of other models), so on the namesake model this reading cannot be
+      produced. Declared so the gap is visible; see remaining_unknowns.
+
+protocol_details:
+  niimbot_print_task:
+    source: >
+      MultiMote/niimbluelib (MIT) — its D110 print task, packet generator,
+      command map, image encoder and packet parser. Reported, not run by this
+      project: testing.status stays untested until a D110 prints from it.
+    sequence:
+      - "connect"
+      - "set_density"
+      - "set_label_type"
+      - "print_start"
+      - "print_clear"
+      - "page_start"
+      - "set_page_size"
+      - "set_print_quantity"
+      - "rows (0x83 / 0x84 / 0x85, one-way)"
+      - "page_end"
+      - "print_status (poll)"
+      - "print_end"
+    replies: >
+      Every control packet is answered on the Print Data characteristic by a
+      fixed reply id: connect 0xC1→0xC2, set_density 0x21→0x31,
+      set_label_type 0x23→0x33, print_start 0x01→0x02, print_clear
+      0x20→0x30, page_start 0x03→0x04, set_page_size 0x13→0x14,
+      set_print_quantity 0x15→0x16, page_end 0xE3→0xE4, print_status
+      0xA3→0xB3, print_end 0xF3→0xF4. A client waits for each reply before
+      sending the next packet. 0xDB is a print error and 0x00 means the
+      printer does not support the command it was sent. Row packets (0x83,
+      0x84, 0x85) get no reply and are sent back to back.
+    rows: >
+      A page is sent as rows across the head, top of the feed first, row
+      index from 0. A wire row is head_dots/8 = 12 bytes on the D110, MSB of
+      byte 0 = head dot 0, 1 = black. Consecutive identical rows are sent
+      once with a repeat count. Three packet shapes, row and index fields
+      u16 big-endian:
+        0x84 PrintEmptyRow: data = [row u16][repeat u8] — len 3; the rows are
+          all white.
+        0x85 PrintBitmapRow: data = [row u16][count0][count1][count2]
+          [repeat u8][12 row bytes] — len 18 on the D110.
+        0x83 PrintBitmapRowIndexed: data = [row u16][count0][count1][count2]
+          [repeat u8][index u16 ...] — one big-endian dot index per black
+          dot. Only for rows with at most 6 black dots; niimbluelib records
+          that a printer powers off when sent more.
+    black_dot_counts: >
+      The three count bytes before `repeat` count the row's black dots. When
+      the row's bytes fit three chunks of floor(head_dots/8/3) bytes — always
+      on the D110: 12 bytes, chunks of 4 — each count byte is the black dots
+      in its chunk, in order ("split" mode). A row too wide for that sends the
+      total instead: niimbluelib emits [0x00][total low byte][total high
+      byte] — see remaining_unknowns.
+    status_reply: >
+      0xB3 data: [page u16 BE][print_progress u8][feed_progress u8], at least
+      4 bytes (8 or 10 on some firmware). The page counter is the number of
+      pages finished. A client polls print_status about every 300 ms after
+      page_end and sends print_end only when page equals the pages sent;
+      niimbluelib gives up after 5 s without a reply.
+    print_direction: >
+      niimbluelib's D110 model prints "left": a label designed landscape
+      (long side along the feed) is sent with canvas column x as wire row x
+      and the canvas's bottom edge at head dot 0. That is a rotation the
+      client chooses; the wire only sees rows across the 96-dot head.
+    example: >
+      An indexed row as niimbluelib documents it:
+      55 55 83 0E 00 7E 00 04 00 01 00 27 00 28 00 29 00 2A FA AA AA —
+      row 126, split counts 0/4/0 (four black dots, all in bytes 4-7),
+      repeat 1, black dots 39-42, checksum 0xFA.
+    check_line: >
+      0x86 PrinterCheckLine ([row u16][0x01]) every 200 rows is optional in
+      niimbluelib and off by default; not part of this task.
+
+helpful_urls:
+  - title: "MultiMote/niimbluelib"
+    url: "https://github.com/MultiMote/niimbluelib"
+    description: "MIT-licensed TypeScript library behind niim.blue; the D110 print task, packet map and row encoding transcribed into protocol_details."
+  - title: "eigger/hass-niimbot (HACS)"
+    url: "https://github.com/eigger/hass-niimbot"
+    description: "HACS integration printing to Niimbot BLE label printers (D110 family) from Home Assistant."
+  - title: "NIIMBOT D110 quick start manual"
+    url: "https://www.manualslib.com/manual/3027392/Niimbot-D110.html"
+    kind: "manual"
+    description: >
+      Vendor quick start covering the indicator-light meanings this spec's status decoding relies on.
+
+remaining_unknowns:
+  - >
+    The whole print task is reported from niimbluelib, not run here: reply
+    timing, whether rows need pacing between writes over BLE, and what the
+    printer does if print_end arrives before print_status reports the page.
+  - >
+    The 0xB3 print-status reply carries an error byte only in its 10-byte
+    form, at data offset 6 per niimbluelib's parser; its codes are not
+    recorded here.
+  - >
+    The black-dot "total" count form is emitted by niimbluelib low byte
+    first ([0x00][lo][hi]) although every other u16 in the protocol is
+    big-endian; whether that is what the printer reads or a quirk nothing
+    exercises is not established. The D110 never uses it (its 12-byte rows
+    always fit split mode).
+  - >
+    The Print Data characteristic multiplexes every reply, and the schema
+    has no frame selector: the format block is written for the D110's
+    17-byte heartbeat reply (0xDD, 10 data bytes) and a consumer has to
+    check response_id and data_length itself before using the lid and
+    charge offsets.
+  - >
+    Other models' heartbeat replies put the same facts elsewhere — per
+    niimbluelib, a 13-byte data field (B1) carries lid at data byte 9,
+    charge at 10, paper-inserted at 11 and RFID-read at 12; a 19-byte field
+    has them at 15-18; a 20-byte field carries only paper at 18 and RFID at
+    19 — and one offset table cannot hold all four, so the Battery Level and
+    Lid entities are scoped to the D110 and the B21 has no bound readings.
+  - >
+    Paper presence is not in the D110 heartbeat reply at all, so the Paper
+    entity has nothing to bind on the namesake model; whether the D110
+    reports it through another query is not established.

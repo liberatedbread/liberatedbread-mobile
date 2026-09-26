@@ -5556,6 +5556,30 @@ impl SseDecode for crate::api::device_api::CommandDto {
     }
 }
 
+impl SseDecode for crate::api::device_api::CompletionPollDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_beforeWrite = <u32>::sse_decode(deserializer);
+        let mut var_request = <crate::api::device_api::ImageWriteDto>::sse_decode(deserializer);
+        let mut var_characteristicUuid = <String>::sse_decode(deserializer);
+        let mut var_replyPrefix = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_doneOffset = <u32>::sse_decode(deserializer);
+        let mut var_doneBytes = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_intervalMs = <u32>::sse_decode(deserializer);
+        let mut var_timeoutMs = <u32>::sse_decode(deserializer);
+        return crate::api::device_api::CompletionPollDto {
+            before_write: var_beforeWrite,
+            request: var_request,
+            characteristic_uuid: var_characteristicUuid,
+            reply_prefix: var_replyPrefix,
+            done_offset: var_doneOffset,
+            done_bytes: var_doneBytes,
+            interval_ms: var_intervalMs,
+            timeout_ms: var_timeoutMs,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::DecodedValueDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5928,10 +5952,16 @@ impl SseDecode for crate::api::device_api::ImageWritePlanDto {
         let mut var_serviceUuid = <String>::sse_decode(deserializer);
         let mut var_writes = <Vec<crate::api::device_api::ImageWriteDto>>::sse_decode(deserializer);
         let mut var_nextFrameIndex = <u32>::sse_decode(deserializer);
+        let mut var_replyWaits =
+            <Vec<crate::api::device_api::ReplyWaitDto>>::sse_decode(deserializer);
+        let mut var_completionPoll =
+            <Option<crate::api::device_api::CompletionPollDto>>::sse_decode(deserializer);
         return crate::api::device_api::ImageWritePlanDto {
             service_uuid: var_serviceUuid,
             writes: var_writes,
             next_frame_index: var_nextFrameIndex,
+            reply_waits: var_replyWaits,
+            completion_poll: var_completionPoll,
         };
     }
 }
@@ -6624,6 +6654,20 @@ impl SseDecode for Vec<(u16, Vec<u8>)> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<(u16, Vec<u8>)>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::ReplyWaitDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::ReplyWaitDto>::sse_decode(
+                deserializer,
+            ));
         }
         return ans_;
     }
@@ -7326,6 +7370,19 @@ impl SseDecode for Option<crate::api::device_api::CameraKeepaliveDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::CompletionPollDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::CompletionPollDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<f64> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -7860,6 +7917,8 @@ impl SseDecode for crate::api::print_api::RasterPrintDto {
             <Option<crate::api::print_api::PrintChoiceDto>>::sse_decode(deserializer);
         let mut var_paperType =
             <Option<crate::api::print_api::PrintChoiceDto>>::sse_decode(deserializer);
+        let mut var_variants = <Vec<String>>::sse_decode(deserializer);
+        let mut var_hardwareTested = <bool>::sse_decode(deserializer);
         return crate::api::print_api::RasterPrintDto {
             handler: var_handler,
             transport: var_transport,
@@ -7872,6 +7931,8 @@ impl SseDecode for crate::api::print_api::RasterPrintDto {
             media: var_media,
             density: var_density,
             paper_type: var_paperType,
+            variants: var_variants,
+            hardware_tested: var_hardwareTested,
         };
     }
 }
@@ -7922,6 +7983,24 @@ impl SseDecode for crate::api::device_api::RejoinDto {
             in_place_supported: var_inPlaceSupported,
             requires_factory_reset: var_requiresFactoryReset,
             notes: var_notes,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::ReplyWaitDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_afterWrite = <u32>::sse_decode(deserializer);
+        let mut var_characteristicUuid = <String>::sse_decode(deserializer);
+        let mut var_expectPrefix = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_errorPrefixes = <Vec<Vec<u8>>>::sse_decode(deserializer);
+        let mut var_timeoutMs = <u32>::sse_decode(deserializer);
+        return crate::api::device_api::ReplyWaitDto {
+            after_write: var_afterWrite,
+            characteristic_uuid: var_characteristicUuid,
+            expect_prefix: var_expectPrefix,
+            error_prefixes: var_errorPrefixes,
+            timeout_ms: var_timeoutMs,
         };
     }
 }
@@ -9629,6 +9708,33 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::CommandDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::CompletionPollDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.before_write.into_into_dart().into_dart(),
+            self.request.into_into_dart().into_dart(),
+            self.characteristic_uuid.into_into_dart().into_dart(),
+            self.reply_prefix.into_into_dart().into_dart(),
+            self.done_offset.into_into_dart().into_dart(),
+            self.done_bytes.into_into_dart().into_dart(),
+            self.interval_ms.into_into_dart().into_dart(),
+            self.timeout_ms.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::CompletionPollDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::CompletionPollDto>
+    for crate::api::device_api::CompletionPollDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::CompletionPollDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::DecodedValueDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -9997,6 +10103,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ImageWritePlanDto
             self.service_uuid.into_into_dart().into_dart(),
             self.writes.into_into_dart().into_dart(),
             self.next_frame_index.into_into_dart().into_dart(),
+            self.reply_waits.into_into_dart().into_dart(),
+            self.completion_poll.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -10938,6 +11046,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::print_api::RasterPrintDto {
             self.media.into_into_dart().into_dart(),
             self.density.into_into_dart().into_dart(),
             self.paper_type.into_into_dart().into_dart(),
+            self.variants.into_into_dart().into_dart(),
+            self.hardware_tested.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -10972,6 +11082,30 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RejoinDto>
     for crate::api::device_api::RejoinDto
 {
     fn into_into_dart(self) -> crate::api::device_api::RejoinDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::ReplyWaitDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.after_write.into_into_dart().into_dart(),
+            self.characteristic_uuid.into_into_dart().into_dart(),
+            self.expect_prefix.into_into_dart().into_dart(),
+            self.error_prefixes.into_into_dart().into_dart(),
+            self.timeout_ms.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::ReplyWaitDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ReplyWaitDto>
+    for crate::api::device_api::ReplyWaitDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::ReplyWaitDto {
         self
     }
 }
@@ -12029,6 +12163,20 @@ impl SseEncode for crate::api::device_api::CommandDto {
     }
 }
 
+impl SseEncode for crate::api::device_api::CompletionPollDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.before_write, serializer);
+        <crate::api::device_api::ImageWriteDto>::sse_encode(self.request, serializer);
+        <String>::sse_encode(self.characteristic_uuid, serializer);
+        <Vec<u8>>::sse_encode(self.reply_prefix, serializer);
+        <u32>::sse_encode(self.done_offset, serializer);
+        <Vec<u8>>::sse_encode(self.done_bytes, serializer);
+        <u32>::sse_encode(self.interval_ms, serializer);
+        <u32>::sse_encode(self.timeout_ms, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::DecodedValueDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -12264,6 +12412,11 @@ impl SseEncode for crate::api::device_api::ImageWritePlanDto {
         <String>::sse_encode(self.service_uuid, serializer);
         <Vec<crate::api::device_api::ImageWriteDto>>::sse_encode(self.writes, serializer);
         <u32>::sse_encode(self.next_frame_index, serializer);
+        <Vec<crate::api::device_api::ReplyWaitDto>>::sse_encode(self.reply_waits, serializer);
+        <Option<crate::api::device_api::CompletionPollDto>>::sse_encode(
+            self.completion_poll,
+            serializer,
+        );
     }
 }
 
@@ -12768,6 +12921,16 @@ impl SseEncode for Vec<(u16, Vec<u8>)> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::ReplyWaitDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::ReplyWaitDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::ScanMatch> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -13265,6 +13428,16 @@ impl SseEncode for Option<crate::api::device_api::CameraKeepaliveDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::CompletionPollDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::CompletionPollDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<f64> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -13675,6 +13848,8 @@ impl SseEncode for crate::api::print_api::RasterPrintDto {
         <Vec<crate::api::print_api::PrintMediaDto>>::sse_encode(self.media, serializer);
         <Option<crate::api::print_api::PrintChoiceDto>>::sse_encode(self.density, serializer);
         <Option<crate::api::print_api::PrintChoiceDto>>::sse_encode(self.paper_type, serializer);
+        <Vec<String>>::sse_encode(self.variants, serializer);
+        <bool>::sse_encode(self.hardware_tested, serializer);
     }
 }
 
@@ -13716,6 +13891,17 @@ impl SseEncode for crate::api::device_api::RejoinDto {
         <Option<bool>>::sse_encode(self.in_place_supported, serializer);
         <Option<bool>>::sse_encode(self.requires_factory_reset, serializer);
         <Option<String>>::sse_encode(self.notes, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::ReplyWaitDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.after_write, serializer);
+        <String>::sse_encode(self.characteristic_uuid, serializer);
+        <Vec<u8>>::sse_encode(self.expect_prefix, serializer);
+        <Vec<Vec<u8>>>::sse_encode(self.error_prefixes, serializer);
+        <u32>::sse_encode(self.timeout_ms, serializer);
     }
 }
 

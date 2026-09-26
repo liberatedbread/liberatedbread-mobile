@@ -121,6 +121,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CameraKeepaliveDto dco_decode_box_autoadd_camera_keepalive_dto(dynamic raw);
 
   @protected
+  CompletionPollDto dco_decode_box_autoadd_completion_poll_dto(dynamic raw);
+
+  @protected
   double dco_decode_box_autoadd_f_64(dynamic raw);
 
   @protected
@@ -238,6 +241,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CommandDto dco_decode_command_dto(dynamic raw);
+
+  @protected
+  CompletionPollDto dco_decode_completion_poll_dto(dynamic raw);
 
   @protected
   DecodedValueDto dco_decode_decoded_value_dto(dynamic raw);
@@ -462,6 +468,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<ReplyWaitDto> dco_decode_list_reply_wait_dto(dynamic raw);
+
+  @protected
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
 
   @protected
@@ -603,6 +612,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CameraKeepaliveDto? dco_decode_opt_box_autoadd_camera_keepalive_dto(
+    dynamic raw,
+  );
+
+  @protected
+  CompletionPollDto? dco_decode_opt_box_autoadd_completion_poll_dto(
     dynamic raw,
   );
 
@@ -758,6 +772,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RejoinDto dco_decode_rejoin_dto(dynamic raw);
+
+  @protected
+  ReplyWaitDto dco_decode_reply_wait_dto(dynamic raw);
 
   @protected
   RoombaAnnouncementDto dco_decode_roomba_announcement_dto(dynamic raw);
@@ -976,6 +993,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CompletionPollDto sse_decode_box_autoadd_completion_poll_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
@@ -1135,6 +1157,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CommandDto sse_decode_command_dto(SseDeserializer deserializer);
+
+  @protected
+  CompletionPollDto sse_decode_completion_poll_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   DecodedValueDto sse_decode_decoded_value_dto(SseDeserializer deserializer);
@@ -1421,6 +1448,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<ReplyWaitDto> sse_decode_list_reply_wait_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer);
 
   @protected
@@ -1612,6 +1644,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CompletionPollDto? sse_decode_opt_box_autoadd_completion_poll_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
@@ -1797,6 +1834,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RejoinDto sse_decode_rejoin_dto(SseDeserializer deserializer);
+
+  @protected
+  ReplyWaitDto sse_decode_reply_wait_dto(SseDeserializer deserializer);
 
   @protected
   RoombaAnnouncementDto sse_decode_roomba_announcement_dto(
@@ -2071,6 +2111,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_completion_poll_dto(
+    CompletionPollDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
 
   @protected
@@ -2267,6 +2313,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_command_dto(CommandDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_completion_poll_dto(
+    CompletionPollDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_decoded_value_dto(
@@ -2650,6 +2702,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_reply_wait_dto(
+    List<ReplyWaitDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_scan_match(
     List<ScanMatch> self,
     SseSerializer serializer,
@@ -2902,6 +2960,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_completion_poll_dto(
+    CompletionPollDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);
 
   @protected
@@ -3137,6 +3201,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_rejoin_dto(RejoinDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_reply_wait_dto(ReplyWaitDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_roomba_announcement_dto(

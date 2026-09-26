@@ -667,7 +667,11 @@ pub fn encode_frame_with(
              per frame — reduce the image's distinct-run count or size"
         )));
     }
-    Ok(EncodedFrame { writes, packets })
+    Ok(EncodedFrame {
+        writes,
+        packets,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]

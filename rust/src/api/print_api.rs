@@ -36,6 +36,14 @@ pub struct RasterPrintDto {
     pub media: Vec<PrintMediaDto>,
     pub density: Option<PrintChoiceDto>,
     pub paper_type: Option<PrintChoiceDto>,
+    /// The spec variants this print surface belongs to; empty for every
+    /// model. A caller that knows which variant it is connected to offers
+    /// printing only when that one is listed.
+    pub variants: Vec<String>,
+    /// True unless the spec says it has not been run against real hardware
+    /// (`device.testing.status: untested`) — the composer says so, rather
+    /// than let a first print on a reported-only protocol look routine.
+    pub hardware_tested: bool,
 }
 
 /// One loadable roll or tape.
@@ -114,6 +122,14 @@ pub(crate) fn raster_print_dto(spec: &crate::spec::types::DeviceSpec) -> Option<
         media: feature.media.iter().map(PrintMediaDto::from).collect(),
         density: feature.print_density.as_ref().map(PrintChoiceDto::from),
         paper_type: feature.paper_type.as_ref().map(PrintChoiceDto::from),
+        variants: feature.variants.clone(),
+        hardware_tested: spec
+            .device
+            .extensions
+            .get("testing")
+            .and_then(|t| t.get("status"))
+            .and_then(|s| s.as_str())
+            != Some("untested"),
     })
 }
 
@@ -481,5 +497,23 @@ mod tests {
         let out =
             prepare_print_raster(vec![0, 0, 0, 255], 1, 1, PrintDither::Atkinson, 128).unwrap();
         assert_eq!(out, vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn the_niimbot_surface_is_scoped_to_the_d110() {
+        let yaml = std::fs::read_to_string(format!(
+            "{}/tests/specs/niimbot-d110.yaml",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        let dto = raster_print_for_spec(yaml)
+            .unwrap()
+            .expect("a raster printer");
+        assert_eq!(dto.transport.as_deref(), Some("ble_write_plan"));
+        assert_eq!(dto.variants, vec!["D110"]);
+        assert_eq!(dto.printable_dots, Some(96));
+        assert_eq!(dto.dpi, 203);
+        assert_eq!(dto.density.unwrap().allowed, vec![1, 2, 3]);
+        assert!(!dto.hardware_tested, "the D110 task is reported, not run");
     }
 }

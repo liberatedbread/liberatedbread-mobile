@@ -337,6 +337,11 @@ pub struct Feature {
     /// that sets one. Lenient like `print_geometry`.
     #[serde(default, deserialize_with = "tolerant_option")]
     pub paper_type: Option<PrintChoice>,
+    /// The `device.variants[]` this feature applies to; empty for every
+    /// model. A family spec scopes a printer's head geometry this way (the
+    /// NIIMBOT spec's 96-dot upload is the D110's, not the B21's).
+    #[serde(default, deserialize_with = "tolerant_strings")]
+    pub variants: Vec<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
@@ -420,6 +425,15 @@ where
 {
     let raw = serde_yaml::Value::deserialize(deserializer)?;
     Ok(serde_yaml::from_value(raw).ok())
+}
+
+/// A list of strings, or nothing when the key holds something else.
+fn tolerant_strings<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_yaml::Value::deserialize(deserializer)?;
+    Ok(serde_yaml::from_value(raw).unwrap_or_default())
 }
 
 /// `media:` read one roll at a time: an entry that does not parse is dropped

@@ -11,7 +11,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConnectedMatch`, `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -1786,6 +1786,56 @@ class CommandDto {
           advancedReason == other.advancedReason;
 }
 
+/// Before write `before_write`, send `request` every `interval_ms` until a
+/// notification on `characteristic_uuid` that starts with `reply_prefix`
+/// carries `done_bytes` at `done_offset` into it; give up after `timeout_ms`.
+class CompletionPollDto {
+  final int beforeWrite;
+  final ImageWriteDto request;
+  final String characteristicUuid;
+  final Uint8List replyPrefix;
+  final int doneOffset;
+  final Uint8List doneBytes;
+  final int intervalMs;
+  final int timeoutMs;
+
+  const CompletionPollDto({
+    required this.beforeWrite,
+    required this.request,
+    required this.characteristicUuid,
+    required this.replyPrefix,
+    required this.doneOffset,
+    required this.doneBytes,
+    required this.intervalMs,
+    required this.timeoutMs,
+  });
+
+  @override
+  int get hashCode =>
+      beforeWrite.hashCode ^
+      request.hashCode ^
+      characteristicUuid.hashCode ^
+      replyPrefix.hashCode ^
+      doneOffset.hashCode ^
+      doneBytes.hashCode ^
+      intervalMs.hashCode ^
+      timeoutMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CompletionPollDto &&
+          runtimeType == other.runtimeType &&
+          beforeWrite == other.beforeWrite &&
+          request == other.request &&
+          characteristicUuid == other.characteristicUuid &&
+          replyPrefix == other.replyPrefix &&
+          doneOffset == other.doneOffset &&
+          doneBytes == other.doneBytes &&
+          intervalMs == other.intervalMs &&
+          timeoutMs == other.timeoutMs;
+}
+
 /// A decoded value from a characteristic read.
 class DecodedValueDto {
   final String name;
@@ -2754,15 +2804,29 @@ class ImageWritePlanDto {
   /// reassembly on the device — always continue from this value.
   final int nextFrameIndex;
 
+  /// Replies to wait for between writes. Empty for a write-only stream —
+  /// then the writes go back to back, as they always have.
+  final List<ReplyWaitDto> replyWaits;
+
+  /// A status request to repeat before one write until the device reports
+  /// it is done, when the protocol needs one.
+  final CompletionPollDto? completionPoll;
+
   const ImageWritePlanDto({
     required this.serviceUuid,
     required this.writes,
     required this.nextFrameIndex,
+    required this.replyWaits,
+    this.completionPoll,
   });
 
   @override
   int get hashCode =>
-      serviceUuid.hashCode ^ writes.hashCode ^ nextFrameIndex.hashCode;
+      serviceUuid.hashCode ^
+      writes.hashCode ^
+      nextFrameIndex.hashCode ^
+      replyWaits.hashCode ^
+      completionPoll.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -2771,7 +2835,9 @@ class ImageWritePlanDto {
           runtimeType == other.runtimeType &&
           serviceUuid == other.serviceUuid &&
           writes == other.writes &&
-          nextFrameIndex == other.nextFrameIndex;
+          nextFrameIndex == other.nextFrameIndex &&
+          replyWaits == other.replyWaits &&
+          completionPoll == other.completionPoll;
 }
 
 /// A rendered Kasa request: the JSON to send, before the cipher and framing.
@@ -4199,6 +4265,44 @@ class RejoinDto {
           inPlaceSupported == other.inPlaceSupported &&
           requiresFactoryReset == other.requiresFactoryReset &&
           notes == other.notes;
+}
+
+/// After write `after_write`, wait up to `timeout_ms` for a notification on
+/// `characteristic_uuid` containing `expect_prefix`; one containing any of
+/// `error_prefixes` first is the device refusing the job.
+class ReplyWaitDto {
+  final int afterWrite;
+  final String characteristicUuid;
+  final Uint8List expectPrefix;
+  final List<Uint8List> errorPrefixes;
+  final int timeoutMs;
+
+  const ReplyWaitDto({
+    required this.afterWrite,
+    required this.characteristicUuid,
+    required this.expectPrefix,
+    required this.errorPrefixes,
+    required this.timeoutMs,
+  });
+
+  @override
+  int get hashCode =>
+      afterWrite.hashCode ^
+      characteristicUuid.hashCode ^
+      expectPrefix.hashCode ^
+      errorPrefixes.hashCode ^
+      timeoutMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReplyWaitDto &&
+          runtimeType == other.runtimeType &&
+          afterWrite == other.afterWrite &&
+          characteristicUuid == other.characteristicUuid &&
+          expectPrefix == other.expectPrefix &&
+          errorPrefixes == other.errorPrefixes &&
+          timeoutMs == other.timeoutMs;
 }
 
 /// One robot's answer to the UDP-5678 discovery probe.
