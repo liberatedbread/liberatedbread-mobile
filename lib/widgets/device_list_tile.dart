@@ -135,6 +135,10 @@ class DeviceListTile extends StatelessWidget {
   /// What [onConfigure] does, for its tooltip and semantics. Required with it.
   final String? configureTooltip;
 
+  /// Print an asset label for this device (name, address, QR code) on a
+  /// saved label printer. Drawn before [onConfigure] when set.
+  final VoidCallback? onPrintLabel;
+
   /// What the spec catalogue makes of this device, when it makes anything.
   final String? badge;
 
@@ -177,6 +181,7 @@ class DeviceListTile extends StatelessWidget {
     this.onForget,
     this.onConfigure,
     this.configureTooltip,
+    this.onPrintLabel,
     this.badge,
     this.badgeIsClaim = false,
     this.description,
@@ -293,6 +298,13 @@ class DeviceListTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onPrintLabel != null)
+                IconButton(
+                  icon: const Icon(Icons.label_outline),
+                  iconSize: 18,
+                  tooltip: 'Print a label for $title',
+                  onPressed: onPrintLabel,
+                ),
               if (onConfigure != null)
                 IconButton(
                   icon: const Icon(Icons.tune),
