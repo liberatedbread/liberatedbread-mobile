@@ -135,6 +135,67 @@ void main() {
     expect(asked, ['urn:Belkin:device:crockpot:1']);
   });
 
+  group('raster label printers', () {
+    RasterPrintDto printer(String? transport) => RasterPrintDto(
+      handler: 'brother_ql_raster',
+      transport: transport,
+      encodable: transport != null,
+      dpi: 300,
+      dpiAssumed: false,
+      headDots: 1296,
+      printableDots: 1252,
+      maxLengthDots: 35434,
+      media: const [],
+    );
+
+    Future<NetworkControls?> resolve(FakeSpecCodec codec) {
+      final container = _container(
+        codec,
+        parsed: [(spec: _spec('Brother QL', 'Brother'), yaml: 'brother-yaml')],
+      );
+      return container.read(
+        networkControlsProvider(
+          const NetworkControlRequest(
+            deviceName: 'Brother QL',
+            manufacturer: 'Brother',
+            ssdpTargets: [],
+          ),
+        ).future,
+      );
+    }
+
+    test('a raw-stream printer is admitted with no entities', () async {
+      final controls = await resolve(
+        FakeSpecCodec(
+          networkEntities: (_) => const [],
+          rasterPrintResult: printer('raw_stream'),
+        ),
+      );
+      expect(controls, isNotNull);
+      expect(controls!.rasterPrintHandler, 'brother_ql_raster');
+    });
+
+    test('a printer this build cannot encode stays on the sheet', () async {
+      final controls = await resolve(
+        FakeSpecCodec(
+          networkEntities: (_) => const [],
+          rasterPrintResult: printer(null),
+        ),
+      );
+      expect(controls, isNull);
+    });
+
+    test('a BLE write-plan printer is not a network control', () async {
+      final controls = await resolve(
+        FakeSpecCodec(
+          networkEntities: (_) => const [],
+          rasterPrintResult: printer('ble_write_plan'),
+        ),
+      );
+      expect(controls, isNull);
+    });
+  });
+
   test('a spec declaring no network entities resolves to null', () async {
     final codec = FakeSpecCodec(networkEntities: (_) => const []);
     final container = _container(
