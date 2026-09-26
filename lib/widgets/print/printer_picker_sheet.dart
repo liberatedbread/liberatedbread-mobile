@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +13,8 @@ import '../../providers/spec_codec_provider.dart';
 import '../../screens/print_label_screen.dart';
 import '../../services/brother_ql_print_service.dart';
 import '../../services/print/label_content.dart';
+import '../../services/print/os_print_service.dart';
+import '../../services/print/pdf_documents.dart';
 import '../../services/print/print_target.dart';
 
 /// An asset label for a device: its name and address, with the address as a
@@ -32,26 +35,7 @@ Future<void> printLabelOnSavedPrinter(
   WidgetRef ref,
   LabelContent content,
 ) async {
-  final printers = await ref.read(savedPrintersProvider.future);
-  if (!context.mounted) return;
-  if (printers.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Save a label printer first — connect to it once and it will be '
-          'offered here.',
-        ),
-      ),
-    );
-    return;
-  }
-  final picked = printers.length == 1
-      ? printers.single
-      : await showModalBottomSheet<SavedPrinter>(
-          context: context,
-          showDragHandle: true,
-          builder: (context) => _PrinterPicker(printers: printers),
-        );
+  final picked = await _pickPrinter(context, ref);
   if (picked == null || !context.mounted) return;
 
   final navigator = Navigator.of(context);
@@ -72,6 +56,67 @@ Future<void> printLabelOnSavedPrinter(
         builder: (_) => PrintLabelScreen(target: target, initial: content),
       ),
     ),
+  );
+}
+
+/// Pick a saved label printer, then open the composer in photo mode on
+/// [bytes] — an image, or a PDF, which becomes its first page at the
+/// printer's resolution.
+Future<void> printFileOnSavedPrinter(
+  BuildContext context,
+  WidgetRef ref,
+  Uint8List bytes,
+) async {
+  final picked = await _pickPrinter(context, ref);
+  if (picked == null || !context.mounted) return;
+  final navigator = Navigator.of(context);
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final target = await _targetFor(ref, picked);
+    var photo = bytes;
+    if (isPdf(bytes)) {
+      final pages = await ref
+          .read(osPrintServiceProvider)
+          .rasterizePdf(bytes, dpi: target.geometry.dpi);
+      if (pages.isEmpty) throw StateError('the PDF has no pages');
+      photo = pages.first;
+    }
+    unawaited(
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => PrintLabelScreen(target: target, initialPhoto: photo),
+        ),
+      ),
+    );
+  } on Object catch (e) {
+    Log.spec.warning('could not prepare "${picked.name}"', error: e);
+    messenger.showSnackBar(
+      SnackBar(content: Text('Could not prepare ${picked.name}.')),
+    );
+  }
+}
+
+/// The saved printer to use: the only one, or the user's pick; null when
+/// there is none (the user is told) or the sheet was dismissed.
+Future<SavedPrinter?> _pickPrinter(BuildContext context, WidgetRef ref) async {
+  final printers = await ref.read(savedPrintersProvider.future);
+  if (!context.mounted) return null;
+  if (printers.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Save a label printer first — connect to it once and it will be '
+          'offered here.',
+        ),
+      ),
+    );
+    return null;
+  }
+  if (printers.length == 1) return printers.single;
+  return showModalBottomSheet<SavedPrinter>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => _PrinterPicker(printers: printers),
   );
 }
 
