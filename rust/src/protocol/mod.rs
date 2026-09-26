@@ -20,6 +20,7 @@ pub mod mqtt;
 pub mod profiles;
 pub mod rabbit_air;
 pub mod rabbit_air_ble;
+pub mod raster_print;
 pub mod roomba;
 pub mod soap;
 pub mod stored_upload;

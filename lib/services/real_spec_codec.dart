@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../src/rust/api/device_api.dart' as rust;
+import '../src/rust/api/print_api.dart' as print_rust;
 import '../src/rust/api/spec_handle.dart' as handles;
 import 'spec_codec.dart';
 
@@ -1091,6 +1092,10 @@ class RealSpecCodec implements SpecCodec {
   @override
   Future<CameraDto?> cameraForDevice({required String specYaml}) =>
       rust.cameraForDevice(specYaml: specYaml);
+
+  @override
+  Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml}) =>
+      print_rust.rasterPrintForSpec(specYaml: specYaml);
 }
 
 /// The catalogue, parsed once and kept in Rust.

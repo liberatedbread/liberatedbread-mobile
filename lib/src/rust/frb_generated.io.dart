@@ -7,6 +7,7 @@
 
 import 'api/device_api.dart';
 import 'api/mock_api.dart';
+import 'api/print_api.dart';
 import 'api/spec_handle.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -149,7 +150,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PanelResolutionDto dco_decode_box_autoadd_panel_resolution_dto(dynamic raw);
 
   @protected
+  PrintChoiceDto dco_decode_box_autoadd_print_choice_dto(dynamic raw);
+
+  @protected
   QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw);
+
+  @protected
+  RasterPrintDto dco_decode_box_autoadd_raster_print_dto(dynamic raw);
 
   @protected
   RejoinDto dco_decode_box_autoadd_rejoin_dto(dynamic raw);
@@ -424,6 +431,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<PrintMediaDto> dco_decode_list_print_media_dto(dynamic raw);
+
+  @protected
   List<ProfileCharacteristicDto> dco_decode_list_profile_characteristic_dto(
     dynamic raw,
   );
@@ -624,7 +634,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PrintChoiceDto? dco_decode_opt_box_autoadd_print_choice_dto(dynamic raw);
+
+  @protected
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
+
+  @protected
+  RasterPrintDto? dco_decode_opt_box_autoadd_raster_print_dto(dynamic raw);
 
   @protected
   RejoinDto? dco_decode_opt_box_autoadd_rejoin_dto(dynamic raw);
@@ -698,6 +714,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlaylistWritesDto dco_decode_playlist_writes_dto(dynamic raw);
 
   @protected
+  PrintChoiceDto dco_decode_print_choice_dto(dynamic raw);
+
+  @protected
+  PrintMediaDto dco_decode_print_media_dto(dynamic raw);
+
+  @protected
   ProfileCharacteristicDto dco_decode_profile_characteristic_dto(dynamic raw);
 
   @protected
@@ -708,6 +730,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RabbitAirRequestDto dco_decode_rabbit_air_request_dto(dynamic raw);
+
+  @protected
+  RasterPrintDto dco_decode_raster_print_dto(dynamic raw);
 
   @protected
   (String, double) dco_decode_record_string_f_64(dynamic raw);
@@ -990,7 +1015,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PrintChoiceDto sse_decode_box_autoadd_print_choice_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   QuerySourceDto sse_decode_box_autoadd_query_source_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RasterPrintDto sse_decode_box_autoadd_raster_print_dto(
     SseDeserializer deserializer,
   );
 
@@ -1339,6 +1374,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<PrintMediaDto> sse_decode_list_print_media_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<ProfileCharacteristicDto> sse_decode_list_profile_characteristic_dto(
     SseDeserializer deserializer,
   );
@@ -1603,7 +1643,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PrintChoiceDto? sse_decode_opt_box_autoadd_print_choice_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   QuerySourceDto? sse_decode_opt_box_autoadd_query_source_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RasterPrintDto? sse_decode_opt_box_autoadd_raster_print_dto(
     SseDeserializer deserializer,
   );
 
@@ -1689,6 +1739,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PrintChoiceDto sse_decode_print_choice_dto(SseDeserializer deserializer);
+
+  @protected
+  PrintMediaDto sse_decode_print_media_dto(SseDeserializer deserializer);
+
+  @protected
   ProfileCharacteristicDto sse_decode_profile_characteristic_dto(
     SseDeserializer deserializer,
   );
@@ -1703,6 +1759,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RabbitAirRequestDto sse_decode_rabbit_air_request_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  RasterPrintDto sse_decode_raster_print_dto(SseDeserializer deserializer);
 
   @protected
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
@@ -2055,8 +2114,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_print_choice_dto(
+    PrintChoiceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_query_source_dto(
     QuerySourceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_raster_print_dto(
+    RasterPrintDto self,
     SseSerializer serializer,
   );
 
@@ -2517,6 +2588,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_print_media_dto(
+    List<PrintMediaDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_profile_characteristic_dto(
     List<ProfileCharacteristicDto> self,
     SseSerializer serializer,
@@ -2856,8 +2933,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_print_choice_dto(
+    PrintChoiceDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_query_source_dto(
     QuerySourceDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_raster_print_dto(
+    RasterPrintDto? self,
     SseSerializer serializer,
   );
 
@@ -2961,6 +3050,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_print_choice_dto(
+    PrintChoiceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_print_media_dto(PrintMediaDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_profile_characteristic_dto(
     ProfileCharacteristicDto self,
     SseSerializer serializer,
@@ -2981,6 +3079,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_rabbit_air_request_dto(
     RabbitAirRequestDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_raster_print_dto(
+    RasterPrintDto self,
     SseSerializer serializer,
   );
 

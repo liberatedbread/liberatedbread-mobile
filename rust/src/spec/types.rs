@@ -319,8 +319,123 @@ pub struct Feature {
     /// this ends the guessing for that spec.
     #[serde(default)]
     pub uploader_characteristic: Option<String>,
+    /// How a raster printer's head maps a row to paper (dpi, head width,
+    /// dead zone), declared on the `image_upload` entry. Read leniently: a
+    /// malformed block drops to `None` instead of failing the spec, since the
+    /// printer is still identifiable and still has `max_width` to fall back on.
+    #[serde(default, deserialize_with = "tolerant_option")]
+    pub print_geometry: Option<PrintGeometry>,
+    /// The rolls/tapes a raster printer takes, one entry per loadable size.
+    /// Read one entry at a time: an entry that does not parse is dropped.
+    #[serde(default, deserialize_with = "tolerant_media")]
+    pub media: Vec<PrintMedia>,
+    /// The darkness choices a print job opens with, and the command that sets
+    /// one. Lenient like `print_geometry`.
+    #[serde(default, deserialize_with = "tolerant_option")]
+    pub print_density: Option<PrintChoice>,
+    /// The stock choices (gap label, black mark, continuous) and the command
+    /// that sets one. Lenient like `print_geometry`.
+    #[serde(default, deserialize_with = "tolerant_option")]
+    pub paper_type: Option<PrintChoice>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// `image_upload.print_geometry` — see the schema's field of the same name.
+/// Every key is optional here; a consumer falls back to `max_width` and a
+/// 203 dpi assumption for what a spec leaves out.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PrintGeometry {
+    #[serde(default)]
+    pub dpi: Option<u32>,
+    #[serde(default)]
+    pub dpi_feed: Option<u32>,
+    #[serde(default)]
+    pub bytes_per_row: Option<u32>,
+    #[serde(default)]
+    pub head_dots: Option<u32>,
+    #[serde(default)]
+    pub printable_dots: Option<u32>,
+    #[serde(default)]
+    pub invalidate_bytes: Option<u32>,
+    #[serde(default)]
+    pub min_length_dots: Option<u32>,
+    #[serde(default)]
+    pub max_length_dots: Option<u32>,
+    #[serde(default)]
+    pub additional_offset_right_dots: Option<u32>,
+    #[serde(default)]
+    pub feed_margin_dots: Option<u32>,
+    #[serde(default)]
+    pub mirror_rows: Option<bool>,
+}
+
+/// One loadable roll or tape from `image_upload.media`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PrintMedia {
+    pub name: String,
+    /// `continuous`, `die_cut` or `round_die_cut`.
+    pub kind: String,
+    /// Millimetres; the schema allows a fractional width (a 3.5 mm tape).
+    pub width_mm: f64,
+    /// Label length in millimetres; absent for continuous stock.
+    #[serde(default)]
+    pub length_mm: Option<f64>,
+    #[serde(default)]
+    pub total_width_dots: Option<u32>,
+    #[serde(default)]
+    pub print_width_dots: Option<u32>,
+    #[serde(default)]
+    pub total_length_dots: Option<u32>,
+    #[serde(default)]
+    pub print_length_dots: Option<u32>,
+    #[serde(default)]
+    pub right_margin_dots: Option<u32>,
+    #[serde(default)]
+    pub feed_margin_dots: Option<u32>,
+    #[serde(default)]
+    pub media_type_code: Option<u32>,
+}
+
+/// `print_density` / `paper_type`: a closed list of wire values, their
+/// human labels, a default, and the command that sends one.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PrintChoice {
+    pub allowed: Vec<i64>,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub default: Option<i64>,
+    #[serde(default)]
+    pub command: Option<String>,
+}
+
+/// Deserialize an optional block, dropping it to `None` when it does not
+/// parse rather than failing the spec that carries it — the same trade
+/// [`tolerant_initialization`] makes for handshake steps.
+fn tolerant_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let raw = serde_yaml::Value::deserialize(deserializer)?;
+    Ok(serde_yaml::from_value(raw).ok())
+}
+
+/// `media:` read one roll at a time: an entry that does not parse is dropped
+/// and the rest stay.
+fn tolerant_media<'de, D>(deserializer: D) -> Result<Vec<PrintMedia>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_yaml::Value::deserialize(deserializer)?;
+    Ok(match raw {
+        serde_yaml::Value::Sequence(entries) => entries
+            .into_iter()
+            .filter_map(|v| serde_yaml::from_value(v).ok())
+            .collect(),
+        _ => Vec::new(),
+    })
 }
 
 /// One entry of the top-level `commands:` block: an action plus the arguments
