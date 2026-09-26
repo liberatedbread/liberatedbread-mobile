@@ -229,5 +229,38 @@ void main() {
       expect(ranked.other, hasLength(1));
       expect(ranked.other.single.guess, isNull);
     });
+
+    test('a recognised device it cannot drive gets its own group', () {
+      // An office printer is recognised (identify_only), a label printer is
+      // driven, and an anonymous host is neither: three different answers to
+      // "can this app print to it?", so three groups rather than two.
+      ScanGuess guess({required bool identifyOnly, MatchConfidence? c}) =>
+          ScanGuess(
+            deviceName: identifyOnly ? 'Network Printer' : 'Label Printer',
+            manufacturer: 'Various',
+            confidence: c ?? MatchConfidence.likely,
+            otherMatches: 0,
+            manufacturerAgreed: true,
+            isIdentifyOnly: identifyOnly,
+          );
+      final office = _device(host: '192.168.1.10', name: 'office');
+      final label = _device(host: '192.168.1.11', name: 'label');
+      final anon = _device(host: '192.168.1.12', name: 'anon');
+      final hinted = _device(host: '192.168.1.13', name: 'hinted');
+
+      final ranked = rankNetworkDevices([office, label, anon, hinted], (d) {
+        return switch (d.name) {
+          'office' => guess(identifyOnly: true),
+          'label' => guess(identifyOnly: false),
+          // A shared-OUI hint at an identify-only spec is not recognition.
+          'hinted' => guess(identifyOnly: true, c: MatchConfidence.possible),
+          _ => null,
+        };
+      });
+
+      expect(ranked.likelySupported.map((r) => r.device.name), ['label']);
+      expect(ranked.recognized.map((r) => r.device.name), ['office']);
+      expect(ranked.other.map((r) => r.device.name), ['hinted', 'anon']);
+    });
   });
 }

@@ -313,6 +313,100 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('a reading is polled over its own transport, not its '
+      'sibling switch\'s', (tester) async {
+    // A Bravia: the Power switch SENDS over IRCC SOAP and READS
+    // get_power_status over JSON-RPC HTTP, and a Power Status sensor reads
+    // the same command. The poll took the switch's transport, rendered the
+    // HTTP command as SOAP, threw, and the screen opened on an error banner
+    // with no state anywhere.
+    const bravia = [
+      NetworkEntityDto(
+        isInstanced: false,
+        name: 'Power',
+        platform: 'switch',
+        stateCommand: 'get_power_status',
+        transport: 'soap',
+        options: [],
+        actions: [
+          NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
+            role: 'turn_on',
+            transport: 'soap',
+            commandName: 'press_power_on',
+            userParams: [],
+            readBack: [],
+          ),
+          NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
+            role: 'turn_off',
+            transport: 'soap',
+            commandName: 'press_power_off',
+            userParams: [],
+            readBack: [],
+          ),
+        ],
+      ),
+      NetworkEntityDto(
+        isInstanced: false,
+        name: 'Power Status',
+        platform: 'sensor',
+        stateCommand: 'get_power_status',
+        transport: 'http',
+        options: [],
+        actions: [],
+      ),
+    ];
+    final soapPosts = <http.Request>[];
+    final jsonRpc = <http.Request>[];
+    codec = FakeSpecCodec(networkEntities: (_) => bravia);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(
+            SoapControlClient(
+              httpClient: MockClient((request) async {
+                if (request.url.path == '/setup.xml') {
+                  return http.Response(_setupXml, 200);
+                }
+                soapPosts.add(request);
+                return http.Response('unexpected', 500);
+              }),
+            ),
+          ),
+          httpControlClientProvider.overrideWithValue(
+            HttpControlClient(
+              httpClient: MockClient((request) async {
+                jsonRpc.add(request);
+                return http.Response('{"result":[{"status":"active"}]}', 200);
+              }),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ),
+    );
+    final context = tester.element(find.byType(SizedBox));
+    unawaited(
+      Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+            device: _cookerDevice,
+            controls: const NetworkControls(specYaml: 'yaml', entities: bravia),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Could not reach'), findsNothing);
+    expect(jsonRpc.map((r) => r.url.path), contains('/fake/get_power_status'));
+    expect(soapPosts, isEmpty, reason: 'no state read went out as SOAP');
+  });
+
   testWidgets('loads state and renders one card per entity', (tester) async {
     await pump(tester, cooker(mode: 51, time: 240));
 
@@ -527,6 +621,152 @@ void main() {
       expect(find.widgetWithText(FilledButton, 'Home'), findsOneWidget);
       expect(received, isEmpty);
       expect(find.textContaining('Could not reach'), findsNothing);
+    });
+
+    NetworkEntityDto key(String name, String command, {String? icon}) =>
+        NetworkEntityDto(
+          isInstanced: false,
+          name: name,
+          platform: 'button',
+          icon: icon,
+          stateCommand: '',
+          options: const [],
+          actions: [
+            NetworkActionDto(
+              credentials: const [],
+              instanceParams: const [],
+              role: 'press',
+              commandName: command,
+              transport: 'http',
+              userParams: const [],
+              readBack: const [],
+            ),
+          ],
+        );
+
+    NetworkEntityDto statelessSwitch(Map<String, String> commands) =>
+        NetworkEntityDto(
+          isInstanced: false,
+          name: 'Power',
+          key: 'power',
+          platform: 'switch',
+          stateCommand: '',
+          options: const [],
+          actions: [
+            for (final entry in commands.entries)
+              NetworkActionDto(
+                credentials: const [],
+                instanceParams: const [],
+                role: entry.key,
+                commandName: entry.value,
+                transport: 'http',
+                userParams: const [],
+                readBack: const [],
+              ),
+          ],
+        );
+
+    testWidgets('a TV\'s own keys get the slots a hand looks for', (
+      tester,
+    ) async {
+      // Sony, Samsung, Hisense and Panasonic: an unkeyed "Power Key",
+      // discrete Play/Pause/Stop, a number pad and the colour keys. All of
+      // them used to fall into the leftover wrap at the foot of the card.
+      await pumpRemote(
+        tester,
+        received: [],
+        entities: [
+          key('Power Key', 'press_power', icon: 'mdi:power'),
+          key('Up', 'press_up', icon: 'mdi:chevron-up'),
+          key('Play', 'press_play', icon: 'mdi:play'),
+          key('Pause', 'press_pause', icon: 'mdi:pause'),
+          key('Stop', 'press_stop', icon: 'mdi:stop'),
+          for (var d = 0; d < 10; d++) key('$d', 'press_num$d'),
+          key('Red', 'press_red'),
+          key('Blue', 'press_blue'),
+          key('Guide', 'press_guide'),
+        ],
+      );
+
+      // Power sits above the pad, the digits in a 3x4 pad with 0 centred
+      // under 8, and only the key nothing lays out (Guide) is left over.
+      final power = tester.getCenter(find.text('Power Key')).dy;
+      final up = tester.getCenter(find.byTooltip('Up')).dy;
+      expect(power, lessThan(up));
+      final eight = tester.getCenter(find.widgetWithText(FilledButton, '8'));
+      final zero = tester.getCenter(find.widgetWithText(FilledButton, '0'));
+      expect(zero.dx, closeTo(eight.dx, 1));
+      expect(zero.dy, greaterThan(eight.dy));
+      final one = tester.getCenter(find.widgetWithText(FilledButton, '1'));
+      final three = tester.getCenter(find.widgetWithText(FilledButton, '3'));
+      expect(one.dy, closeTo(three.dy, 1));
+      expect(one.dx, lessThan(three.dx));
+      // Play/Pause/Stop share the transport row.
+      final play = tester.getCenter(find.byTooltip('Play')).dy;
+      expect(tester.getCenter(find.byTooltip('Stop')).dy, closeTo(play, 1));
+      // The colour keys are drawn in their colour, and still named.
+      final red = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Red'),
+      );
+      expect(
+        red.style?.backgroundColor?.resolve(const {}),
+        Colors.red.shade600,
+      );
+      // Guide is the only key below the colour row.
+      final guide = tester.getCenter(
+        find.widgetWithText(FilledButton, 'Guide'),
+      );
+      final blue = tester.getCenter(find.widgetWithText(FilledButton, 'Blue'));
+      expect(guide.dy, greaterThan(blue.dy));
+    });
+
+    testWidgets('a stateless power switch the remote already covers is not '
+        'drawn twice', (tester) async {
+      // Roku: a Power switch with no state, whose on and off are exactly the
+      // Power On and Power Off keys. It drew a card above the remote with a
+      // toggle stuck at Off.
+      await pumpRemote(
+        tester,
+        received: [],
+        entities: [
+          statelessSwitch({
+            'turn_on': 'press_power_on',
+            'turn_off': 'press_power_off',
+          }),
+          key('Power On', 'press_power_on', icon: 'mdi:power'),
+          key('Power Off', 'press_power_off', icon: 'mdi:power-off'),
+        ],
+      );
+
+      expect(find.byType(Switch), findsNothing);
+      expect(find.text("Doesn't report its state"), findsNothing);
+      expect(find.text('Power On'), findsOneWidget);
+      expect(find.text('Power Off'), findsOneWidget);
+    });
+
+    testWidgets('a stateless switch the remote does not cover sends On and Off '
+        'rather than showing a toggle it cannot read', (tester) async {
+      final received = <http.Request>[];
+      await pumpRemote(
+        tester,
+        received: received,
+        entities: [
+          statelessSwitch({
+            'turn_on': 'press_power_on',
+            'turn_off': 'press_power_off',
+          }),
+          key('Home', 'press_home', icon: 'mdi:home'),
+        ],
+      );
+
+      expect(find.byType(Switch), findsNothing);
+      expect(find.text("Doesn't report its state"), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'On'));
+      await tester.pumpAndSettle();
+      expect(
+        codec.renderNetworkHttpCommandCalls.single.commandName,
+        'press_power_on',
+      );
     });
 
     testWidgets('pressing a button POSTs the rendered keypress', (

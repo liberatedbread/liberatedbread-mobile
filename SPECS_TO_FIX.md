@@ -1209,6 +1209,40 @@ observed. Until it says how to recognise a `findhostd` datagram, that probe
 cannot be executed safely: it is `passive_ok`, so honouring it means binding UDP
 9999 and treating whatever arrives as a NAS.
 
+## Found 2026-09-24, while catching up with upstream #61
+
+Each is proposed on the upstream branch `claude/trusting-hawking-qpl9ut`; the
+app already copes with today's catalogue, so these only make it say more.
+
+### S-23 — `shared-service-types.tsv` does not list DIAL
+
+The registry S-11 asked for landed, but without the two DIAL search targets
+(`urn:dial-multiscreen-org:device:dial:1`, `…:service:dial:1`). Every smart TV
+and streaming stick answers both; sony-bravia and vizio-smartcast each claim
+one. The app's own list now carries them (a TCL Roku tied Strong with a Sony
+and a Vizio before it did), so adopting the registry in place of the Rust
+`matches!` must not lose them. Adopting it also needs matter-device to mark
+`_matter._tcp` `platform_fallback`, or a Matter node stops matching the moment
+that type becomes shared.
+
+### S-24 — the schema did not say what `labels` name without `allowed`
+
+aranet4's `request_history_v1.param` (`min: 1, max: 4`) and
+aurora-led-shoes' `set_power.state` (`min: 0, max: 1`) label a contiguous
+range — the natural way to write a set with no gaps, `allowed` being for
+sets that have them. The schema described `labels` only beside `allowed`,
+so the app drew both as unlabelled sliders. The app now pairs labels with a
+min..max range when the count matches, and upstream's branch says so in the
+schema and checks the count in its test suite.
+
+### S-25 — the TV specs' remaining remote keys carry no `key`
+
+Power Key/Standby, discrete Play/Pause/Stop/Previous/Next/Record, the digits
+and the colour keys are laid out here by display name — the fallback table
+`entity_keys.dart` says should shrink. Keying them needs vocabulary upstream
+(`power_toggle`, `play`, `previous`, `next`, `record`, `num_0`…`num_9`,
+`red`/`green`/`yellow`/`blue`); the app already has slots for every one.
+
 ### Also worth extending an existing ask
 
 S-09 (devices driven through a controller) should also cover the sixteen

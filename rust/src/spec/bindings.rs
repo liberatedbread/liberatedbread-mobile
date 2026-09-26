@@ -1387,8 +1387,32 @@ pub fn state_binding<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<Sta
 /// exists for a `state_topic`, which is a location and reaches the resolver
 /// further down this function; a `state_command` is a NAME by the schema's own
 /// words, and a name shaped like a path is still a name nothing answers to.
+///
+/// A top-level command also has to be one this crate can READ, which for the
+/// two transports that name a shape rather than a framing means the spec's
+/// handler has to be one the app implements — the same gate
+/// [`qualify_network`] puts on an action. `tcp-json` is Kasa's XOR autokey on
+/// a Kasa and something else entirely on a Tuya gas sensor (0x55aa + AES) or
+/// a Yeelight cube (CRLF plaintext); `udp` is Rabbit Air's envelope only under
+/// its handler. Without this a gas sensor opened on seven cards whose
+/// readings could never arrive — three of them controls with no action at
+/// all — because its readings named a command that exists but cannot be sent.
 fn state_command_resolves(spec: &DeviceSpec, command: &str) -> bool {
-    spec.commands.contains_key(command) || http::endpoint_request(spec, command).is_some()
+    match spec.commands.get(command) {
+        Some(declared) => state_transport_readable(spec, declared),
+        None => http::endpoint_request(spec, command).is_some(),
+    }
+}
+
+/// Whether this crate can send `command` as a state read — see
+/// [`state_command_resolves`].
+fn state_transport_readable(spec: &DeviceSpec, command: &SpecCommand) -> bool {
+    let handler = spec.protocol_handler.as_deref();
+    match declared_transport(spec, command) {
+        Some(t) if t == kasa::TRANSPORT => handler == Some(kasa::HANDLER_NAME),
+        Some(t) if t == rabbit_air::TRANSPORT => handler == Some(rabbit_air::HANDLER_NAME),
+        _ => true,
+    }
 }
 
 /// Whether a location opens with a `scheme://` — the RFC 3986 shape, so a
