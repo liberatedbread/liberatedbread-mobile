@@ -294,6 +294,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   KasaRequestDto dco_decode_kasa_request_dto(dynamic raw);
 
   @protected
+  LabelCanvasDto dco_decode_label_canvas_dto(dynamic raw);
+
+  @protected
   LifxAccessPointDto dco_decode_lifx_access_point_dto(dynamic raw);
 
   @protected
@@ -717,6 +720,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PrintChoiceDto dco_decode_print_choice_dto(dynamic raw);
+
+  @protected
+  PrintDither dco_decode_print_dither(dynamic raw);
 
   @protected
   PrintMediaDto dco_decode_print_media_dto(dynamic raw);
@@ -1187,6 +1193,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   KasaRequestDto sse_decode_kasa_request_dto(SseDeserializer deserializer);
+
+  @protected
+  LabelCanvasDto sse_decode_label_canvas_dto(SseDeserializer deserializer);
 
   @protected
   LifxAccessPointDto sse_decode_lifx_access_point_dto(
@@ -1742,6 +1751,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PrintChoiceDto sse_decode_print_choice_dto(SseDeserializer deserializer);
+
+  @protected
+  PrintDither sse_decode_print_dither(SseDeserializer deserializer);
 
   @protected
   PrintMediaDto sse_decode_print_media_dto(SseDeserializer deserializer);
@@ -2340,6 +2352,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_kasa_request_dto(
     KasaRequestDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_label_canvas_dto(
+    LabelCanvasDto self,
     SseSerializer serializer,
   );
 
@@ -3056,6 +3074,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     PrintChoiceDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_print_dither(PrintDither self, SseSerializer serializer);
 
   @protected
   void sse_encode_print_media_dto(PrintMediaDto self, SseSerializer serializer);

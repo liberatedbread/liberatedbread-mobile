@@ -1096,6 +1096,42 @@ class RealSpecCodec implements SpecCodec {
   @override
   Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml}) =>
       print_rust.rasterPrintForSpec(specYaml: specYaml);
+
+  @override
+  Future<Uint8List> prepareMonoRaster({
+    required Uint8List rgba,
+    required int width,
+    required int height,
+    required PrintDither dither,
+    required int threshold,
+  }) => print_rust.preparePrintRaster(
+    rgba: rgba,
+    width: width,
+    height: height,
+    dither: dither,
+    threshold: threshold,
+  );
+
+  @override
+  Future<LabelCanvasDto> brotherQlLabelCanvas({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
+  }) => print_rust.brotherQlLabelCanvas(specYaml: specYaml, params: params);
+
+  @override
+  Future<Uint8List> renderBrotherQlJob({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  }) => print_rust.renderBrotherQlJob(
+    specYaml: specYaml,
+    params: params,
+    rgb: rgb,
+    width: width,
+    height: height,
+  );
 }
 
 /// The catalogue, parsed once and kept in Rust.
