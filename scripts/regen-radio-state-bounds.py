@@ -3,23 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Regenerate assets/radio/us_state_bounds.json from Census TIGER data.
 
-The app maps "here, plus a radius" to the set of state codes worth asking
-RepeaterBook and myGMRS about, because neither API has a proximity query --
-both are state-scoped. That mapping needs a coarse geographic extent per
-state, and this builds one from the authoritative public-domain source: the
-Census Bureau's cartographic boundary file (1:20,000,000, the smallest they
-publish, which is ample for a bounding box).
-
-Boxes rather than polygons on purpose. The consumer's question is "might a
-repeater in this state be within R km of here", and answering it too
-generously costs one extra HTTP request that returns listings the distance
-filter then drops. Answering it too tightly loses a repeater across a state
-line, which is exactly the repeater someone near a border wants.
-
-ANTIMERIDIAN: Alaska's Aleutians run past 180 degrees east, so its single
-bounding box spans nearly the whole planet and would make Alaska a candidate
-from Florida. States whose extent crosses the line are therefore emitted as
-two boxes, split at the meridian. That is why "boxes" is a list.
+What the file is for, and why it holds boxes rather than polygons -- and two
+for Alaska -- is in assets/radio/README.md.
 
 Usage:
     python3 scripts/regen-radio-state-bounds.py            # downloads
@@ -33,7 +18,7 @@ import struct
 import sys
 import urllib.request
 import zipfile
-from datetime import date, timezone, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 SOURCE_URL = (
@@ -112,6 +97,21 @@ def boxes_for(points: list[tuple[float, float]]) -> list[dict[str, float]]:
     return out
 
 
+def render(doc: dict) -> str:
+    """The document as JSON, one state to a line.
+
+    Indented one value to a line, 52 states run to 700 lines, and a
+    regenerated file's diff shows coordinates rather than which states moved.
+    """
+    lines = ["{"]
+    for key, value in doc.items():
+        if key != "states":
+            lines.append(f"  {json.dumps(key)}: {json.dumps(value)},")
+    states = [f"    {json.dumps(state)}" for state in doc["states"]]
+    lines += ['  "states": [', ",\n".join(states), "  ]", "}"]
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str]) -> int:
     if len(argv) > 1:
         raw = Path(argv[1]).read_bytes()
@@ -158,7 +158,7 @@ def main(argv: list[str]) -> int:
         "states": states,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(doc, indent=2, sort_keys=False) + "\n")
+    OUT.write_text(render(doc))
     print(f"wrote {OUT} ({len(states)} states)")
     return 0
 

@@ -29,26 +29,3 @@ the repeater someone standing near that line wants.
 degrees, so a single box for Alaska spans nearly the whole planet and would
 make it a candidate from Florida. States that cross the antimeridian are split
 at it.
-
-## Weather channels: why there is no station list here
-
-An earlier sketch of this feature bundled a located NOAA Weather Radio
-transmitter list, so the app could offer the three nearest stations.
-
-NOAA does not publish that list in a machine-readable form. The station pages
-on weather.gov are a JavaScript search over an internal service, and the
-tabular file the plan assumed exists does not. Nothing in the public data set
-gives transmitter coordinates in a form that could be refreshed on a schedule,
-and a hand-assembled list of a thousand transmitter sites would be stale
-within a year and unverifiable from here.
-
-So the weather tier is the **seven NOAA channels themselves**
-(`lib/services/preset_channels.dart`), receive-only, offered everywhere. All
-seven fit in any radio in the catalogue with room to spare, and scanning them
-is how you find out what you can actually hear from where you are standing —
-which is the question a station list would only have guessed at.
-
-If a maintained, machine-readable transmitter list turns up, the suggestion
-engine already has the shape for it: add a source, emit
-`SuggestionCategory.weather` entries with a `distanceKm`, and the ranking and
-de-duplication work unchanged.
