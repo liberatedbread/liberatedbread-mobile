@@ -228,6 +228,8 @@ class FakeSpecCodec implements SpecCodec {
     this.networkCapabilitiesResult,
     this.rasterPrintResult,
     this.brotherLabelCanvas,
+    this.ippStatus = false,
+    this.ippStatusResult,
     this.networkEntitiesForState,
     this.networkRequest,
     this.networkHttpRequest,
@@ -1820,6 +1822,28 @@ class FakeSpecCodec implements SpecCodec {
     }
     return out;
   }
+
+  /// Returned by [ippStatusSupported].
+  final bool ippStatus;
+
+  /// Returned by [decodeIppStatus]; null throws, like a malformed reply.
+  final IppPrinterStatusDto? ippStatusResult;
+
+  @override
+  Future<bool> ippStatusSupported({required String specYaml}) async =>
+      ippStatus;
+
+  @override
+  Future<Uint8List> ippStatusRequest({
+    required String printerUri,
+    required int requestId,
+  }) async => Uint8List.fromList(printerUri.codeUnits);
+
+  @override
+  Future<IppPrinterStatusDto> decodeIppStatus({
+    required List<int> reply,
+  }) async =>
+      ippStatusResult ?? (throw const FormatException('malformed IPP reply'));
 
   /// Returned by [brotherQlLabelCanvas].
   final LabelCanvasDto? brotherLabelCanvas;

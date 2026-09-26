@@ -9,6 +9,7 @@ import '../providers/roomba_provider.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
 import 'hub_device_screen.dart';
+import 'ipp_printer_screen.dart';
 import 'label_printer_screen.dart';
 import 'network_device_screen.dart';
 import 'roomba_adoption_screen.dart';
@@ -53,6 +54,13 @@ Future<void> openNetworkControls({
       // bridge would not survive.
       builder: (_) => controls.rasterPrintHandler != null
           ? LabelPrinterScreen(
+              device: device,
+              controls: controls,
+              category: category,
+              specKey: specKey,
+            )
+          : controls.ippStatus
+          ? IppPrinterScreen(
               device: device,
               controls: controls,
               category: category,

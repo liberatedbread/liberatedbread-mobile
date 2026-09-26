@@ -11,7 +11,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `brother_placement`, `raster_print_dto`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `BrotherPlacement`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
 
 /// The spec's raster-print surface, or None when the spec is not a raster
 /// printer (no `raster_print` marker, or no `image_upload` entry beside it).
@@ -61,6 +61,137 @@ Future<Uint8List> renderBrotherQlJob({
   width: width,
   height: height,
 );
+
+/// Whether the spec's status surface is IPP Get-Printer-Attributes.
+Future<bool> ippStatusSupported({required String specYaml}) =>
+    RustLib.instance.api.crateApiPrintApiIppStatusSupported(specYaml: specYaml);
+
+/// The body of an IPP Get-Printer-Attributes POST for `printer_uri`
+/// (`ipp://host:631/ipp/print`).
+Future<Uint8List> ippGetPrinterAttributesRequest({
+  required String printerUri,
+  required int requestId,
+}) => RustLib.instance.api.crateApiPrintApiIppGetPrinterAttributesRequest(
+  printerUri: printerUri,
+  requestId: requestId,
+);
+
+/// Decode a Get-Printer-Attributes reply body.
+Future<IppPrinterStatusDto> decodeIppPrinterAttributes({
+  required List<int> reply,
+}) => RustLib.instance.api.crateApiPrintApiDecodeIppPrinterAttributes(
+  reply: reply,
+);
+
+/// One ink or toner supply from an IPP printer's status.
+class IppMarkerDto {
+  final String name;
+
+  /// `#RRGGBB` (or several, `#`-joined, for a multi-colour cartridge).
+  final String? color;
+
+  /// `toner`, `ink-cartridge`, ...
+  final String? kind;
+
+  /// Percent remaining; None when the printer does not know.
+  final int? level;
+
+  /// The printer knows only that some remains.
+  final bool someRemaining;
+
+  /// At or below this percent the printer calls it low.
+  final int? lowLevel;
+
+  const IppMarkerDto({
+    required this.name,
+    this.color,
+    this.kind,
+    this.level,
+    required this.someRemaining,
+    this.lowLevel,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      color.hashCode ^
+      kind.hashCode ^
+      level.hashCode ^
+      someRemaining.hashCode ^
+      lowLevel.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IppMarkerDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          color == other.color &&
+          kind == other.kind &&
+          level == other.level &&
+          someRemaining == other.someRemaining &&
+          lowLevel == other.lowLevel;
+}
+
+/// An IPP printer's status, from one Get-Printer-Attributes reply.
+class IppPrinterStatusDto {
+  /// The IPP status code; [`Self::ok`] is whether it is a success.
+  final int statusCode;
+  final bool ok;
+
+  /// `idle`, `processing`, `stopped` or `unknown`.
+  final String state;
+
+  /// Keywords such as `media-empty-error`, `toner-low-report`; "none" is
+  /// dropped.
+  final List<String> stateReasons;
+  final String? stateMessage;
+  final String? makeAndModel;
+  final List<IppMarkerDto> markers;
+
+  /// PWG media names of what is loaded (`iso_a4_210x297mm`).
+  final List<String> mediaReady;
+  final List<String> documentFormats;
+
+  const IppPrinterStatusDto({
+    required this.statusCode,
+    required this.ok,
+    required this.state,
+    required this.stateReasons,
+    this.stateMessage,
+    this.makeAndModel,
+    required this.markers,
+    required this.mediaReady,
+    required this.documentFormats,
+  });
+
+  @override
+  int get hashCode =>
+      statusCode.hashCode ^
+      ok.hashCode ^
+      state.hashCode ^
+      stateReasons.hashCode ^
+      stateMessage.hashCode ^
+      makeAndModel.hashCode ^
+      markers.hashCode ^
+      mediaReady.hashCode ^
+      documentFormats.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IppPrinterStatusDto &&
+          runtimeType == other.runtimeType &&
+          statusCode == other.statusCode &&
+          ok == other.ok &&
+          state == other.state &&
+          stateReasons == other.stateReasons &&
+          stateMessage == other.stateMessage &&
+          makeAndModel == other.makeAndModel &&
+          markers == other.markers &&
+          mediaReady == other.mediaReady &&
+          documentFormats == other.documentFormats;
+}
 
 /// The canvas a Brother QL label should be composed on for the loaded roll.
 class LabelCanvasDto {

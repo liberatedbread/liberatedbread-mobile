@@ -343,6 +343,80 @@ pub fn render_brother_ql_job(
     )?)
 }
 
+/// One ink or toner supply from an IPP printer's status.
+#[derive(Debug, Clone)]
+pub struct IppMarkerDto {
+    pub name: String,
+    /// `#RRGGBB` (or several, `#`-joined, for a multi-colour cartridge).
+    pub color: Option<String>,
+    /// `toner`, `ink-cartridge`, ...
+    pub kind: Option<String>,
+    /// Percent remaining; None when the printer does not know.
+    pub level: Option<u8>,
+    /// The printer knows only that some remains.
+    pub some_remaining: bool,
+    /// At or below this percent the printer calls it low.
+    pub low_level: Option<u8>,
+}
+
+/// An IPP printer's status, from one Get-Printer-Attributes reply.
+#[derive(Debug, Clone)]
+pub struct IppPrinterStatusDto {
+    /// The IPP status code; [`Self::ok`] is whether it is a success.
+    pub status_code: u16,
+    pub ok: bool,
+    /// `idle`, `processing`, `stopped` or `unknown`.
+    pub state: String,
+    /// Keywords such as `media-empty-error`, `toner-low-report`; "none" is
+    /// dropped.
+    pub state_reasons: Vec<String>,
+    pub state_message: Option<String>,
+    pub make_and_model: Option<String>,
+    pub markers: Vec<IppMarkerDto>,
+    /// PWG media names of what is loaded (`iso_a4_210x297mm`).
+    pub media_ready: Vec<String>,
+    pub document_formats: Vec<String>,
+}
+
+/// Whether the spec's status surface is IPP Get-Printer-Attributes.
+pub fn ipp_status_supported(spec_yaml: String) -> anyhow::Result<bool> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    Ok(spec.protocol_handler.as_deref() == Some(crate::protocol::ipp::HANDLER_NAME))
+}
+
+/// The body of an IPP Get-Printer-Attributes POST for `printer_uri`
+/// (`ipp://host:631/ipp/print`).
+pub fn ipp_get_printer_attributes_request(printer_uri: String, request_id: u32) -> Vec<u8> {
+    crate::protocol::ipp::encode_get_printer_attributes(&printer_uri, request_id)
+}
+
+/// Decode a Get-Printer-Attributes reply body.
+pub fn decode_ipp_printer_attributes(reply: Vec<u8>) -> anyhow::Result<IppPrinterStatusDto> {
+    let s = crate::protocol::ipp::decode_printer_attributes(&reply)?;
+    Ok(IppPrinterStatusDto {
+        ok: s.status_code < 0x0100,
+        status_code: s.status_code,
+        state: s.state,
+        state_reasons: s.state_reasons,
+        state_message: s.state_message,
+        make_and_model: s.make_and_model,
+        markers: s
+            .markers
+            .into_iter()
+            .map(|m| IppMarkerDto {
+                name: m.name,
+                color: m.color,
+                kind: m.kind,
+                level: m.level,
+                some_remaining: m.some_remaining,
+                low_level: m.low_level,
+            })
+            .collect(),
+        media_ready: s.media_ready,
+        document_formats: s.document_formats,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,5 +589,29 @@ mod tests {
         assert_eq!(dto.dpi, 203);
         assert_eq!(dto.density.unwrap().allowed, vec![1, 2, 3]);
         assert!(!dto.hardware_tested, "the D110 task is reported, not run");
+    }
+
+    #[test]
+    fn the_ipp_surface_round_trips_through_the_dtos() {
+        let req = ipp_get_printer_attributes_request("ipp://printer.local:631/ipp/print".into(), 9);
+        assert_eq!(&req[2..8], &[0x00, 0x0B, 0, 0, 0, 9]);
+        assert!(decode_ipp_printer_attributes(vec![1, 2, 3]).is_err());
+        let yaml = "device:\n  name: X\n  manufacturer: Y\n  manufacturer_status: active\n  protocol: wifi\n  category: printer\nprotocol_handler: ipp_status\n";
+        assert!(ipp_status_supported(yaml.to_string()).unwrap());
+    }
+
+    #[test]
+    fn the_updated_ipp_spec_is_a_status_surface_not_a_raster_printer() {
+        let yaml = std::fs::read_to_string(format!(
+            "{}/tests/specs/ipp-network-printer.yaml",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        assert!(ipp_status_supported(yaml.clone()).unwrap());
+        assert!(raster_print_for_spec(yaml.clone()).unwrap().is_none());
+        // Its sensors describe what the status screen reads; none binds a
+        // generic control, so the entity panel stays out of the way.
+        let surface = crate::api::device_api::network_entities_for_device(yaml, vec![]).unwrap();
+        assert!(surface.entities.is_empty());
     }
 }
