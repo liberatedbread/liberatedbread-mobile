@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/channel_plan.dart';
 import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
@@ -18,7 +19,6 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_radio_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
-import 'package:liberated_bread_mobile/screens/radio_program_screen.dart';
 import 'package:liberated_bread_mobile/services/radio_codec.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -67,6 +67,7 @@ Future<_Harness> _pump(
   FakeCodeplugBackupStore? backups,
   DecodedChannels decoded = const DecodedChannels(channels: [], hadGaps: false),
   InMemorySettingsStore? settings,
+  String? planId,
   bool behindLauncher = false,
 }) async {
   // Tall enough that every action tile is built: the list is lazy.
@@ -79,6 +80,7 @@ Future<_Harness> _pump(
   final screen = RadioDeviceScreen(
     target: target,
     initialProfile: initialProfile,
+    planId: planId,
   );
   await tester.pumpWidget(
     ProviderScope(
@@ -413,6 +415,37 @@ void main() {
   });
 
   group('writing a plan', () {
+    const channels = [
+      RadioChannel(name: 'W1AW', rxFreqHz: 146940000, txFreqHz: 146340000),
+      RadioChannel(name: 'SIMPLEX', rxFreqHz: 146520000, txFreqHz: 146520000),
+    ];
+
+    /// A saved plan, there before the screen opens.
+    Future<void> seedPlan() async {
+      final now = DateTime(2026, 9, 1);
+      SharedPreferences.setMockInitialValues({
+        'radio_channel_plans_v1': jsonEncode([
+          ChannelPlan(
+            id: 'plan-1',
+            name: 'Local repeaters',
+            radioProfileId: uv5rMiniProfile.id,
+            channels: channels,
+            createdAt: now,
+            modifiedAt: now,
+          ).toJson(),
+        ]),
+      });
+      _prefs = await SharedPreferences.getInstance();
+    }
+
+    Future<void> pickAndConfirm(WidgetTester tester) async {
+      await tester.tap(find.text('Write a channel plan'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Local repeaters'));
+      await tester.pumpAndSettle();
+      expect(find.text('Write to Base radio?'), findsOneWidget);
+    }
+
     testWidgets('with no plans, says where plans come from', (tester) async {
       await _pump(tester);
       await tester.tap(find.text('Write a channel plan'));
@@ -420,26 +453,72 @@ void main() {
       expect(find.textContaining('No channel plans yet'), findsOneWidget);
     });
 
-    testWidgets('hands the chosen plan and this radio to the program screen', (
+    testWidgets('asks first, and a cancel touches nothing', (tester) async {
+      await seedPlan();
+      final harness = await _pump(tester);
+      await pickAndConfirm(tester);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(harness.programmer.readCalls, 0);
+      expect(harness.programmer.written, isEmpty);
+      expect(harness.backups.saved, isEmpty);
+    });
+
+    testWidgets('reads and backs up before it writes, to this radio', (
       tester,
     ) async {
+      await seedPlan();
       final harness = await _pump(tester);
-      await harness.container
-          .read(channelPlansProvider.notifier)
-          .create(name: 'Local repeaters', radioProfileId: uv5rMiniProfile.id);
+      await pickAndConfirm(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Write a channel plan'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Local repeaters'));
-      await tester.pumpAndSettle();
-
-      final program = tester.widget<RadioProgramScreen>(
-        find.byType(RadioProgramScreen),
+      expect(harness.programmer.readCalls, 1);
+      expect(harness.backups.saved, hasLength(1));
+      expect(harness.programmer.written.single, channels);
+      expect(harness.programmer.deviceIds.toSet(), {_ble.id});
+      expect(
+        find.textContaining('2 channels from "Local repeaters" written'),
+        findsOneWidget,
       );
-      expect(program.target, _ble);
-      expect(program.plan.name, 'Local repeaters');
-      expect(program.profile, uv5rMiniProfile);
+      expect(find.textContaining('is saved as'), findsOneWidget);
+    });
+
+    testWidgets('a failed read writes nothing, and says so', (tester) async {
+      await seedPlan();
+      final harness = await _pump(
+        tester,
+        programmer: FakeRadioProgrammer(
+          error: const RadioTimeoutException('The radio stopped answering.'),
+        ),
+      );
+      await pickAndConfirm(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(harness.programmer.written, isEmpty);
+      expect(harness.backups.saved, isEmpty);
+      expect(find.textContaining('stopped answering'), findsWidgets);
+    });
+
+    testWidgets('opened to take a plan, offers it first', (tester) async {
+      await seedPlan();
+      final harness = await _pump(tester, planId: 'plan-1');
+      expect(find.text('Write "Local repeaters"'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Write').last);
+      await tester.pumpAndSettle();
+
+      expect(harness.programmer.written.single, channels);
+    });
+
+    testWidgets('a plan that has gone is simply not offered', (tester) async {
+      await _pump(tester, planId: 'plan-deleted');
+      expect(find.textContaining('Write "'), findsNothing);
+      expect(find.text('Write a channel plan'), findsOneWidget);
     });
   });
 

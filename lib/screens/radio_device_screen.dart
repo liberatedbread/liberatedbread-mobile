@@ -19,9 +19,9 @@ import '../providers/radio_programmer_provider.dart';
 import '../providers/saved_radio_provider.dart';
 import '../services/codeplug_backup_store.dart';
 import '../services/radio_programmer.dart';
+import '../widgets/confirm_dialog.dart';
 import '../widgets/tx_unlock_dialog.dart';
 import 'channel_plan_screen.dart';
-import 'radio_program_screen.dart';
 
 /// A radio, opened from the Nearby list, Saved devices or the USB tab.
 ///
@@ -36,10 +36,15 @@ class RadioDeviceScreen extends ConsumerStatefulWidget {
   /// suggests. Used only if it programs over [target]'s transport.
   final RadioProfile? initialProfile;
 
+  /// The plan this radio was opened to take, from a plan's "Program radio":
+  /// offered at the top, ready to write.
+  final String? planId;
+
   const RadioDeviceScreen({
     super.key,
     required this.target,
     this.initialProfile,
+    this.planId,
   });
 
   @override
@@ -175,7 +180,27 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
 
   List<Widget> _actions(RadioProfile profile) {
     final tabProfile = ref.watch(selectedRadioProfileProvider).valueOrNull;
+    final pending = ref
+        .watch(channelPlansProvider)
+        .where((plan) => plan.id == widget.planId)
+        .firstOrNull;
     return [
+      if (pending != null) ...[
+        ListTile(
+          leading: const Icon(Icons.upload_outlined),
+          title: Text('Write "${pending.name}"'),
+          subtitle: Text(
+            '${pending.length} '
+            '${pending.length == 1 ? 'channel' : 'channels'}. Backs the radio '
+            'up first.',
+          ),
+          trailing: FilledButton(
+            onPressed: _busy ? null : () => _write(profile, pending),
+            child: const Text('Write'),
+          ),
+        ),
+        const Divider(height: 24),
+      ],
       ListTile(
         leading: const Icon(Icons.radio_outlined),
         title: const Text('Radio model'),
@@ -360,7 +385,6 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
   );
 
   Future<void> _writePlan(RadioProfile profile) async {
-    final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final plans = ref.read(channelPlansProvider);
     if (plans.isEmpty) {
@@ -399,12 +423,45 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         ),
       ),
     );
-    if (plan == null) return;
-    await navigator.push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            RadioProgramScreen(plan: plan, profile: profile, target: _target),
-      ),
+    if (plan == null || !mounted) return;
+    await _write(profile, plan);
+  }
+
+  /// Read, back up, then write [plan] — the backup on disk before a single
+  /// byte goes back, which is the whole point.
+  Future<void> _write(RadioProfile profile, ChannelPlan plan) async {
+    final confirmed = await confirmAction(
+      context,
+      title: 'Write to ${_target.displayName}?',
+      message:
+          'This replaces the ${profile.channelCapacity} memory channels on '
+          'the radio with the ${plan.length} in "${plan.name}". Its other '
+          'settings are left alone.\n\n'
+          'A copy of what is on the radio now is saved first; "Restore a '
+          'backup" puts it back.',
+      confirmLabel: 'Write',
+    );
+    if (!confirmed || !mounted) return;
+    final backups = ref.read(codeplugBackupStoreProvider);
+    await _session(
+      profile,
+      start: 'Starting…',
+      body: (programmer) async {
+        final base = await _read(programmer, profile);
+        final backup = await backups.save(base);
+        await programmer
+            .writeChannels(
+              deviceId: _target.id,
+              profile: profile,
+              base: base,
+              channels: plan.channels,
+            )
+            .forEach(_onProgress);
+        return '${plan.length} '
+            '${plan.length == 1 ? 'channel' : 'channels'} from "${plan.name}" '
+            'written. What was on the radio before is saved as '
+            '${backup.displayName}.';
+      },
     );
   }
 
@@ -494,7 +551,18 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       ),
     );
     if (chosen == null || !mounted) return;
-    if (!await _confirmRestore(chosen)) return;
+    if (!mounted) return;
+    final confirmed = await confirmAction(
+      context,
+      title: 'Restore to ${_target.displayName}?',
+      message:
+          'Everything on the radio is replaced with the copy saved '
+          '${_when(chosen.takenAt)}: channels, settings, all of it.\n\n'
+          'What is on the radio now is read and saved first, so this can be '
+          'undone the same way.',
+      confirmLabel: 'Restore',
+    );
+    if (!confirmed) return;
 
     await _session(
       profile,
@@ -569,28 +637,16 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     RadioProfile profile,
     OriginalBandLimits original,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Put back its transmit limits?'),
-        content: Text(
+    final confirmed = await confirmAction(
+      context,
+      title: 'Put back its transmit limits?',
+      message:
           '${_target.displayName} will be set to ${original.limits.label}: '
           'what a ${profile.displayName} held before this app first widened '
           'one.\n\nThe radio is read and backed up first.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Put back'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Put back',
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     final backups = ref.read(codeplugBackupStoreProvider);
     final unlock = ref.read(txUnlockProvider.notifier);
     await _session(
@@ -722,32 +778,6 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
 
   void _onProgress(RadioProgressEvent event) {
     if (mounted) setState(() => _progress = event);
-  }
-
-  Future<bool> _confirmRestore(CodeplugBackup backup) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Restore to ${_target.displayName}?'),
-        content: Text(
-          'Everything on the radio is replaced with the copy saved '
-          '${_when(backup.takenAt)}: channels, settings, all of it.\n\n'
-          'What is on the radio now is read and saved first, so this can be '
-          'undone the same way.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Restore'),
-          ),
-        ],
-      ),
-    );
-    return confirmed ?? false;
   }
 
   static String _when(DateTime at) {

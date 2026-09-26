@@ -58,10 +58,10 @@ HomeShell ┬ Nearby → ScanScreen  → (tap device) → DeviceScreen
           ├ Groups → GroupsScreen
           ├ Wi-Fi  → WifiScanScreen → (tap device) → details sheet
           ├ USB    → UsbScanScreen → (tap cable) → RadioDeviceScreen
-          └ Radio  → RadioScreen → channel plans and suggestions
+          └ Radio  → RadioScreen → ChannelPlanScreen
+                                 → (Program radio) → a saved radio's RadioDeviceScreen
 
 DeviceScreen → (Find device) → FindDeviceScreen
-RadioDeviceScreen → (Write a channel plan) → RadioProgramScreen
 ```
 
 Characteristics render inline on `DeviceScreen` — there is no separate
@@ -463,7 +463,10 @@ tab explains that and points at what works instead.
 
 One radio, opened from Nearby, Saved or the USB tab: check it answers, write a
 channel plan, read its channels into a new plan, restore a backup. Every
-session that writes reads the radio and saves a backup first. For a radio that
+session that writes reads the radio and saves a backup first. A plan's
+"Program radio" does not search for radios itself: it offers the saved radios
+that can take the plan, and opens the chosen one here with the plan ready to
+write — a radio is found where every device is, and saved once it answers. For a radio that
 stores its own transmit limits (the UV-5R family, over a cable) it can also
 widen them — behind the same acknowledgement the Radio tab's switch uses — and
 put back the limits the model had before this app first widened one. Nothing

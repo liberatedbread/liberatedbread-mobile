@@ -11,6 +11,7 @@ import 'package:liberated_bread_mobile/providers/channel_plan_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/channel_plan_screen.dart';
+import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
 import 'package:liberated_bread_mobile/services/plan_export_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -294,6 +295,56 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Could not export'), findsOneWidget);
+    });
+  });
+
+  group('programming a radio', () {
+    const savedRadios =
+        '[{"transport":"ble","id":"AA:BB","name":"Base radio",'
+        '"lastSeen":"2026-09-01T12:00:00.000","radioProfileId":"uv-5r-mini"},'
+        '{"transport":"usb","id":"/dev/ttyUSB0","name":"Cable radio",'
+        '"lastSeen":"2026-09-01T12:00:00.000","radioProfileId":"uv5r"}]';
+
+    testWidgets(
+      'offers the saved radios that can take the plan, and opens one with it',
+      (tester) async {
+        await _pump(
+          tester,
+          prefs: {..._seed(), 'saved_radios_v1': savedRadios},
+        );
+        await tester.tap(find.byTooltip('Program radio'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Base radio'), findsOneWidget);
+        expect(
+          find.text('Cable radio'),
+          findsNothing,
+          reason: 'a UV-5R Mini plan goes over Bluetooth, not a cable',
+        );
+
+        await tester.tap(find.text('Base radio'));
+        await tester.pumpAndSettle();
+        final screen = tester.widget<RadioDeviceScreen>(
+          find.byType(RadioDeviceScreen),
+        );
+        expect(screen.target.id, 'AA:BB');
+        expect(screen.planId, 'p1');
+        expect(screen.initialProfile?.id, 'uv-5r-mini');
+        expect(find.text('Write "Local repeaters"'), findsOneWidget);
+      },
+    );
+
+    testWidgets('with none saved, says where radios are found', (tester) async {
+      await _pump(tester, prefs: _seed());
+      await tester.tap(find.byTooltip('Program radio'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('No Baofeng UV-5R Mini saved yet'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Nearby'), findsOneWidget);
+      expect(find.textContaining('USB tab'), findsOneWidget);
     });
   });
 }

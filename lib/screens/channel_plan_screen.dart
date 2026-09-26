@@ -17,8 +17,10 @@ import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
 import '../providers/channel_plan_provider.dart';
 import '../providers/radio_profile_provider.dart';
+import '../providers/saved_radio_provider.dart';
 import '../services/plan_export_service.dart';
-import 'radio_program_screen.dart';
+import '../services/saved_radio_store.dart';
+import 'radio_device_screen.dart';
 
 /// Provides the exporter. Overridden in tests with a temp directory.
 final planExportServiceProvider = Provider<PlanExportService>((ref) {
@@ -109,12 +111,7 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
                 icon: const Icon(Icons.settings_input_antenna),
                 onPressed: plan.isEmpty
                     ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              RadioProgramScreen(plan: plan, profile: profile),
-                        ),
-                      ),
+                    : () => _programRadio(plan, profile),
               ),
           ],
         ],
@@ -222,6 +219,59 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
     await ref
         .read(channelPlansProvider.notifier)
         .updateChannel(plan.id, index, edited, profile: profile);
+  }
+
+  /// Pick the radio that takes [plan], and open it ready to write.
+  ///
+  /// A radio is found where every device is — Nearby, or the USB tab for a
+  /// cable — and saved once it answers. This offers those, rather than
+  /// looking for radios all over again.
+  Future<void> _programRadio(ChannelPlan plan, RadioProfile profile) async {
+    final radios = [
+      for (final radio in ref.read(savedRadiosProvider))
+        if (profile.programsOver(radio.transport)) radio,
+    ];
+    final chosen = await showModalBottomSheet<SavedRadio>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (radios.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'No ${profile.displayName} saved yet. Find it in the Nearby '
+                  'tab, or plug its cable into the USB tab: a radio is saved '
+                  'once it answers.',
+                ),
+              ),
+            for (final radio in radios)
+              ListTile(
+                leading: const Icon(Icons.settings_input_antenna),
+                title: Text(radio.target.displayName),
+                subtitle: Text(
+                  [
+                    radio.transport.label,
+                    ?radioProfileById(radio.radioProfileId)?.displayName,
+                  ].join(' · '),
+                ),
+                onTap: () => Navigator.of(context).pop(radio),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RadioDeviceScreen(
+          target: chosen.target,
+          initialProfile: profile,
+          planId: plan.id,
+        ),
+      ),
+    );
   }
 
   Future<void> _export(ChannelPlan plan) async {

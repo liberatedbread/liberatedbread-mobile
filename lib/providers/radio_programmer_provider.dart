@@ -1,9 +1,11 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../models/radio_target.dart';
 import '../services/baofeng_ble_programmer.dart';
+import '../services/codeplug_backup_store.dart';
 import '../services/mock_radio_programmer.dart';
 import '../services/radio_codec.dart';
 import '../services/radio_programmer.dart';
@@ -20,6 +22,12 @@ final radioProgrammerProvider = Provider<RadioProgrammer>((ref) {
   if (isMockMode) return MockRadioProgrammer();
   return BaofengBleProgrammer(ref.watch(bleServiceProvider));
 });
+
+/// Where the copy read before every write is kept. Overridden in screen
+/// tests, whose fake-async zone never finishes real file I/O.
+final codeplugBackupStoreProvider = Provider<CodeplugBackupStore>(
+  (ref) => CodeplugBackupStore(dirResolver: getApplicationDocumentsDirectory),
+);
 
 /// Decodes read images into channels. Overridden in screen tests, which
 /// cannot make native calls from inside their fake-async zone.

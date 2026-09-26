@@ -9,7 +9,6 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/serial_port_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
-import 'package:liberated_bread_mobile/screens/radio_program_screen.dart';
 import 'package:liberated_bread_mobile/screens/usb_scan_screen.dart';
 import 'package:liberated_bread_mobile/services/serial_port_service.dart';
 import 'package:liberated_bread_mobile/services/unsupported_serial_port_service.dart';
