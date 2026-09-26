@@ -15,10 +15,15 @@ import '../providers/command_sequence_provider.dart';
 import '../providers/panel_resolution_cache_provider.dart';
 import '../providers/saved_designs_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../services/ble_write_plan_runner.dart';
 import '../services/saved_designs_store.dart';
 import '../services/spec_codec.dart';
 import '../services/stored_upload_event_reader.dart';
 import 'led_designs.dart';
+
+// Sized here for years before printing needed it too; re-exported so callers
+// that learned it from this file keep finding it.
+export '../services/ble_write_plan_runner.dart' show writePayloadForMtu;
 
 /// The cids of the USER (diy==1) effects in an effect-list snapshot — the ones
 /// to remove so a freshly stored animation loop is the only thing the device
@@ -29,22 +34,6 @@ List<int> diyEffectCidsToClear(Iterable<EffectEntryDto> entries) => [
   for (final e in entries)
     if (e.diy == 1) e.cid,
 ];
-
-/// Usable bytes per BLE write for a given ATT MTU.
-///
-/// Payload is MTU minus the 3-byte ATT write header, floored at the BLE 4.0
-/// minimum of 20 and capped at 512 (the largest attribute value BLE permits,
-/// and what vendors' own apps request).
-///
-/// The reported MTU is trusted as-is. The one platform where the report lies
-/// (flutter_blue_plus_linux never updates `mtuNow` from what BlueZ actually
-/// negotiates) is corrected inside `RealBleService.mtu()`, next to the
-/// `requestMtu` call that owns that platform knowledge — so a genuine 23 from
-/// Android sizes to the 20-byte floor here and the image encoder rejects it
-/// with an actionable "raise the ATT MTU" message, instead of this helper
-/// assuming 512 and firing oversized writes at a link that cannot carry them.
-/// Pure so the sizing is unit-testable.
-int writePayloadForMtu(int mtu) => (mtu - 3).clamp(20, 512);
 
 /// The TUTU doodle format's palette ceiling (see the daniao encoder): a frame
 /// with more distinct colours than this cannot be sent at all.

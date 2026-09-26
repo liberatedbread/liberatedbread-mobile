@@ -27,6 +27,7 @@ import 'switch_control_card.dart';
 import 'treadmill_control_card.dart';
 import 'typed_characteristic_widget.dart';
 import '../core/mono_text.dart';
+import 'print/print_label_entry.dart';
 
 /// Displays the services/characteristics of a connected device. When the device
 /// matches a bundled device spec, characteristics are rendered as typed
@@ -266,6 +267,16 @@ class DeviceControlPanel extends ConsumerWidget {
         _MatchedSpecHeader(
           key: const ValueKey('matched-spec-header'),
           chosen: outcome.chosen!,
+        ),
+      // A raster printer gets the label composer ahead of the pixel editor:
+      // typing a label is what a printer is for; drawing dots is the
+      // fallback. Renders nothing for a device that is not one.
+      if (match != null && match.spec.imageUpload != null)
+        PrintLabelEntry(
+          key: const ValueKey('print-label-entry'),
+          deviceId: deviceId,
+          specYaml: match.yaml,
+          deviceName: match.spec.deviceName,
         ),
       if (match != null && match.spec.imageUpload != null)
         LedImageWidget(
