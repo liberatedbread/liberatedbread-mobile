@@ -52,17 +52,10 @@ void main() {
     });
   });
 
-  test('the provider serves this machine\'s service, and is overridable', () {
+  test('the provider serves this machine\'s service', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
     // Whatever runs the tests is a real platform with an answer.
     expect(container.read(serialPortServiceProvider).availability, isNotNull);
-
-    final mock = MockSerialPortService();
-    final overridden = ProviderContainer(
-      overrides: [serialPortServiceProvider.overrideWithValue(mock)],
-    );
-    addTearDown(overridden.dispose);
-    expect(overridden.read(serialPortServiceProvider), same(mock));
   });
 }

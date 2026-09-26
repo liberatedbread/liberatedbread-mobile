@@ -16,12 +16,12 @@ import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/screens/terms_screen.dart';
 import 'package:liberated_bread_mobile/screens/usb_scan_screen.dart';
-import 'package:liberated_bread_mobile/services/serial_port_service.dart';
 
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes/fake_ble_service.dart';
+import 'fakes/fake_serial_ports.dart';
 
 late SharedPreferences _prefs;
 
@@ -217,7 +217,7 @@ void main() {
   testWidgets('the USB tab looks for cables only once it is opened', (
     tester,
   ) async {
-    final ports = _CountingPorts();
+    final ports = FakeSerialPorts();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -242,22 +242,4 @@ void main() {
     expect(ports.listings, 1);
     expect(find.text('No cable plugged in'), findsOneWidget);
   });
-}
-
-/// No cables, and a count of how often anyone looked.
-class _CountingPorts implements SerialPortService {
-  int listings = 0;
-
-  @override
-  SerialAvailability get availability => const SerialAvailability.supported();
-
-  @override
-  Future<List<SerialPortInfo>> listPorts() async {
-    listings++;
-    return const [];
-  }
-
-  @override
-  Future<SerialLink> open(SerialPortInfo port, {required int baudRate}) =>
-      Future.error(const SerialPortException('no cable'));
 }

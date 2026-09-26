@@ -11,6 +11,7 @@ import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart' as rust;
 
 import '../helpers/host_rust_lib.dart';
+import '../helpers/uv5r_image.dart';
 
 rust.ToneDto _tone(
   String mode, {
@@ -187,15 +188,8 @@ void main() {
 
     test('a cable radio decodes through its own codec', () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
-      // A blank UV-5R image: ident, empty slots and names, a firmware string.
-      final blank = Uint8List(await rust.uv5RImageLen());
-      blank.setRange(0, 8, [0xAA, 0x30, 0x76, 0x04, 0x00, 0x05, 0x20, 0xDD]);
-      blank.fillRange(8, 8 + 0x800, 0xFF);
-      blank.fillRange(8 + 0x1000, 8 + 0x1800, 0xFF);
-      blank.fillRange(8 + 0x1830, 8 + 0x1830 + 14, 0xFF);
-      blank.setRange(8 + 0x1830, 8 + 0x1836, 'BFB297'.codeUnits);
       final image = await rust.uv5REncodeChannels(
-        image: blank,
+        image: await blankUv5rImage(),
         channels: [
           channelToDto(
             const RadioChannel(

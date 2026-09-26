@@ -15,7 +15,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/in_memory_settings_store.dart';
 
-Future<void> _pump(
+/// The Radio tab, over [prefs] and [settings]; returns the settings store so
+/// a test can see what was saved.
+Future<InMemorySettingsStore> _pump(
   WidgetTester tester, {
   Map<String, Object> prefs = const {},
   Map<String, String> settings = const {},
@@ -35,6 +37,7 @@ Future<void> _pump(
     ),
   );
   await tester.pumpAndSettle();
+  return store;
 }
 
 void main() {
@@ -121,22 +124,7 @@ void main() {
   });
 
   testWidgets('picking a radio persists the choice', (tester) async {
-    final store = InMemorySettingsStore();
-    SharedPreferences.setMockInitialValues({});
-    final sharedPrefs = await SharedPreferences.getInstance();
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(sharedPrefs),
-          prefsSettingsStoreProvider.overrideWith((ref) async => store),
-          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-        ],
-        child: const MaterialApp(home: RadioScreen()),
-      ),
-    );
-    await tester.pumpAndSettle();
-
+    final store = await _pump(tester);
     await tester.tap(find.text(defaultRadioProfile.displayName));
     await tester.pumpAndSettle();
     // The first entry in the catalogue, which is not the default and sits
@@ -176,39 +164,11 @@ void main() {
       expect(find.textContaining('as it left the factory'), findsOneWidget);
     });
 
-    testWidgets('turning it on opens the acknowledgement first', (
-      tester,
-    ) async {
-      await _pump(
+    testWidgets('cancelling the acknowledgement leaves it off', (tester) async {
+      final store = await _pump(
         tester,
         settings: {SelectedRadioProfileNotifier.key: uv5rProfile.id},
       );
-      await tester.tap(
-        find.widgetWithText(SwitchListTile, 'Widen transmit range'),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Widen the transmit range?'), findsOneWidget);
-    });
-
-    testWidgets('cancelling the acknowledgement leaves it off', (tester) async {
-      final store = InMemorySettingsStore({
-        SelectedRadioProfileNotifier.key: uv5rProfile.id,
-      });
-      SharedPreferences.setMockInitialValues({});
-      final sharedPrefs = await SharedPreferences.getInstance();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            sharedPreferencesProvider.overrideWithValue(sharedPrefs),
-            prefsSettingsStoreProvider.overrideWith((ref) async => store),
-            settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-          ],
-          child: const MaterialApp(home: RadioScreen()),
-        ),
-      );
-      await tester.pumpAndSettle();
-
       await tester.tap(
         find.widgetWithText(SwitchListTile, 'Widen transmit range'),
       );
@@ -224,23 +184,10 @@ void main() {
     });
 
     testWidgets('confirming turns it on and persists it', (tester) async {
-      final store = InMemorySettingsStore({
-        SelectedRadioProfileNotifier.key: uv5rProfile.id,
-      });
-      SharedPreferences.setMockInitialValues({});
-      final sharedPrefs = await SharedPreferences.getInstance();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            sharedPreferencesProvider.overrideWithValue(sharedPrefs),
-            prefsSettingsStoreProvider.overrideWith((ref) async => store),
-            settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-          ],
-          child: const MaterialApp(home: RadioScreen()),
-        ),
+      final store = await _pump(
+        tester,
+        settings: {SelectedRadioProfileNotifier.key: uv5rProfile.id},
       );
-      await tester.pumpAndSettle();
-
       await tester.tap(
         find.widgetWithText(SwitchListTile, 'Widen transmit range'),
       );

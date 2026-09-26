@@ -16,33 +16,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_codeplug_backup_store.dart';
 import '../fakes/fake_radio_programmer.dart';
+import '../fakes/fake_serial_ports.dart';
 import '../fakes/in_memory_settings_store.dart';
 
 late SharedPreferences _prefs;
-
-/// Ports that can be changed between listings, and a count of listings.
-class _Ports implements SerialPortService {
-  List<SerialPortInfo> ports;
-  Object? error;
-  int listings = 0;
-
-  _Ports(this.ports);
-
-  @override
-  SerialAvailability get availability => const SerialAvailability.supported();
-
-  @override
-  Future<List<SerialPortInfo>> listPorts() async {
-    listings++;
-    final failure = error;
-    if (failure != null) throw failure;
-    return ports;
-  }
-
-  @override
-  Future<SerialLink> open(SerialPortInfo port, {required int baudRate}) =>
-      Future.error(const SerialPortException('not in this test'));
-}
 
 const _ch340 = SerialPortInfo(
   id: '/dev/ttyUSB0',
@@ -79,7 +56,7 @@ void main() {
   });
 
   testWidgets('lists each cable with the chip it is built on', (tester) async {
-    await tester.pumpWidget(_wrap(_Ports([_ch340])));
+    await tester.pumpWidget(_wrap(FakeSerialPorts([_ch340])));
     await tester.pumpAndSettle();
 
     expect(find.text('1 cable plugged in'), findsOneWidget);
@@ -96,7 +73,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       _wrap(
-        _Ports([
+        FakeSerialPorts([
           const SerialPortInfo(
             id: '/dev/ttyUSB0',
             name: '/dev/ttyUSB0',
@@ -116,7 +93,7 @@ void main() {
   testWidgets('warns about a cable built on a chip often counterfeited', (
     tester,
   ) async {
-    await tester.pumpWidget(_wrap(_Ports([_pl2303])));
+    await tester.pumpWidget(_wrap(FakeSerialPorts([_pl2303])));
     await tester.pumpAndSettle();
     expect(find.textContaining('Counterfeit PL2303'), findsOneWidget);
   });
@@ -124,7 +101,7 @@ void main() {
   testWidgets('with nothing plugged in, says how to plug a cable in', (
     tester,
   ) async {
-    await tester.pumpWidget(_wrap(_Ports([])));
+    await tester.pumpWidget(_wrap(FakeSerialPorts([])));
     await tester.pumpAndSettle();
 
     expect(find.text('No cable plugged in'), findsOneWidget);
@@ -136,7 +113,8 @@ void main() {
   testWidgets('a listing that fails says so, and can be tried again', (
     tester,
   ) async {
-    final ports = _Ports([_ch340])..error = StateError('usb stack went away');
+    final ports = FakeSerialPorts([_ch340])
+      ..error = StateError('usb stack went away');
     await tester.pumpWidget(_wrap(ports));
     await tester.pumpAndSettle();
 
@@ -150,7 +128,7 @@ void main() {
   testWidgets('looks only while it is the tab on screen, and again on return', (
     tester,
   ) async {
-    final ports = _Ports([]);
+    final ports = FakeSerialPorts([]);
     await tester.pumpWidget(_wrap(ports, active: false));
     await tester.pumpAndSettle();
     expect(ports.listings, 0);
@@ -166,7 +144,7 @@ void main() {
   testWidgets('tapping a cable opens the radio on the other end', (
     tester,
   ) async {
-    await tester.pumpWidget(_wrap(_Ports([_ch340])));
+    await tester.pumpWidget(_wrap(FakeSerialPorts([_ch340])));
     await tester.pumpAndSettle();
 
     await tester.tap(find.textContaining('/dev/ttyUSB0'));

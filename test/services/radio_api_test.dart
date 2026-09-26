@@ -7,13 +7,12 @@
 // suite is for is the boundary itself: that the generated bindings carry the
 // same bytes back that went in, and that Dart sees the same model table Rust
 // has -- which is the thing that goes wrong silently after a codegen run.
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart';
 
 import '../helpers/host_rust_lib.dart';
+import '../helpers/uv5r_image.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -158,30 +157,6 @@ void main() {
     expect(steps[2].request.length, 25);
   });
 
-  test('channels round-trip through an image', () async {
-    if (!rustReady) return markTestSkipped('host Rust library unavailable');
-
-    final blank = List<int>.filled(0x8240, 0xFF);
-    final written = await radioEncodeChannels(
-      image: blank,
-      channels: [channel('W1AW'), channel('SECOND')],
-      modelId: 'uv-5r-mini',
-    );
-    expect(written, hasLength(blank.length));
-
-    final decoded = await radioDecodeChannels(
-      image: written,
-      modelId: 'uv-5r-mini',
-    );
-    expect(decoded, hasLength(2));
-    expect(decoded[0].name, 'W1AW');
-    expect(decoded[0].slot, 1);
-    expect(decoded[0].rxFreqHz, 146940000);
-    expect(decoded[0].txTone.mode, 'ctcss');
-    expect(decoded[0].txTone.ctcssTenthHz, 1000);
-    expect(decoded[1].slot, 2);
-  });
-
   test(
     'an image of the wrong size is caught before it is written back',
     () async {
@@ -209,43 +184,9 @@ void main() {
   });
 
   group('the UV-5R family', () {
-    /// A blank image: ident, empty slots, a firmware string.
-    Future<Uint8List> blankImage(String firmware) async {
-      final image = Uint8List(await uv5RImageLen());
-      image.setRange(0, 8, [0xAA, 0x30, 0x76, 0x04, 0x00, 0x05, 0x20, 0xDD]);
-      for (var slot = 0; slot < 128; slot++) {
-        image.fillRange(8 + slot * 16, 8 + slot * 16 + 16, 0xFF);
-        final name = 8 + 0x1000 + slot * 16;
-        image.fillRange(name, name + 16, 0xFF);
-      }
-      // Radio 0x1EF0 sits at 8 + 0x1800 + (0x1EF0 - 0x1EC0) in the image.
-      const firmwareAt = 8 + 0x1800 + 0x30;
-      image.fillRange(firmwareAt, firmwareAt + 14, 0xFF);
-      image.setRange(
-        firmwareAt,
-        firmwareAt + firmware.length,
-        firmware.codeUnits,
-      );
-      return image;
-    }
-
-    test('channels survive the boundary both ways', () async {
-      if (!rustReady) return markTestSkipped('host Rust library unavailable');
-      final written = await uv5REncodeChannels(
-        image: await blankImage('BFB297'),
-        channels: [channel('W1AW')],
-        modelId: 'uv5r',
-      );
-      final read = await uv5RDecodeChannels(image: written, modelId: 'uv5r');
-      expect(read.single.name, 'W1AW');
-      expect(read.single.rxFreqHz, 146940000);
-      expect(read.single.txFreqHz, 146340000);
-      expect(read.single.txTone.ctcssTenthHz, 1000);
-    });
-
     test('a write sends only the blocks that changed', () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
-      final base = await blankImage('BFB297');
+      final base = await blankUv5rImage();
       final updated = await uv5REncodeChannels(
         image: base,
         channels: [channel('W1AW')],
@@ -262,7 +203,7 @@ void main() {
     test('band limits cross with their layout', () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
       final applied = await uv5RApplyBandLimits(
-        image: await blankImage('BFB290'),
+        image: await blankUv5rImage(firmware: 'BFB290'),
         limits: const BandLimitsDto(
           vhf: BandLimitDto(txEnabled: true, lowerMhz: 136, upperMhz: 174),
           uhf: BandLimitDto(txEnabled: false, lowerMhz: 400, upperMhz: 520),

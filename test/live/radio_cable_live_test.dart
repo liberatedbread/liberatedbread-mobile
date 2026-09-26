@@ -41,24 +41,18 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/desktop_serial_port_service.dart';
-import 'package:liberated_bread_mobile/services/radio_codec.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 import 'package:liberated_bread_mobile/services/serial_radio_programmer.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart' as rust;
 
 import '../helpers/host_rust_lib.dart';
+import 'radio_live_harness.dart';
 
 /// The cable's port: `/dev/ttyUSB0`, `/dev/cu.usbserial-110`. The app's USB
 /// tab lists them.
 final String? _port = Platform.environment['LB_LIVE_RADIO_PORT'];
-
-final bool _enabled = Platform.environment['LB_LIVE_RADIO'] == '1';
-
-/// Which profile to drive: uv5r, bf-f8hp or ar-152. Defaults to the UV-5R.
-final String _modelId = Platform.environment['LB_LIVE_RADIO_MODEL'] ?? 'uv5r';
 
 void main() {
   late SerialRadioProgrammer programmer;
@@ -66,37 +60,29 @@ void main() {
   RadioCodeplug? backup;
 
   setUpAll(() async {
-    if (!_enabled) return;
+    if (!liveRadioEnabled) return;
     await initHostRustLib();
     programmer = SerialRadioProgrammer(DesktopSerialPortService());
-    profile = radioProfileById(_modelId) ?? uv5rProfile;
+    // uv5r, bf-f8hp or ar-152; the UV-5R when unset.
+    profile = liveRadioProfile ?? uv5rProfile;
   });
 
-  bool skipUnlessConfigured() {
-    if (!_enabled) {
-      markTestSkipped('set LB_LIVE_RADIO=1 to run against a real radio');
-      return true;
-    }
-    if (_port == null) {
-      markTestSkipped('set LB_LIVE_RADIO_PORT to the cable\'s port');
-      return true;
-    }
-    return false;
-  }
+  bool skip() =>
+      skipUnlessLive(_port, 'set LB_LIVE_RADIO_PORT to the cable\'s port');
 
-  void log(RadioProgressEvent event) => stdout.writeln(
-    '  ${event.stage.name}: '
-    '${event.message} '
-    '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}',
+  Future<RadioCodeplug> read() => programmer.readWhole(
+    deviceId: _port!,
+    profile: profile,
+    onProgress: logProgress,
   );
 
-  Future<RadioCodeplug> read() =>
-      programmer.readWhole(deviceId: _port!, profile: profile, onProgress: log);
+  Future<List<rust.RadioChannelDto>> decode(RadioCodeplug codeplug) =>
+      rust.uv5RDecodeChannels(image: codeplug.image, modelId: profile.id);
 
   test(
     '1. the radio answers, and says which firmware it runs',
     () async {
-      if (skipUnlessConfigured()) return;
+      if (skip()) return;
       final identity = await programmer.identify(
         deviceId: _port!,
         profile: profile,
@@ -114,17 +100,11 @@ void main() {
   test(
     '2. a full read comes back, and is saved',
     () async {
-      if (skipUnlessConfigured()) return;
+      if (skip()) return;
       final codeplug = await read();
       backup = codeplug;
       expect(codeplug.length, await rust.uv5RImageLen());
-
-      final file = File(
-        'radio-backup-${DateTime.now().millisecondsSinceEpoch}'
-        '-${profile.id}.bin',
-      );
-      await file.writeAsBytes(codeplug.image);
-      stdout.writeln('  backup written to ${file.path}');
+      await saveBackup(codeplug);
     },
     timeout: const Timeout(Duration(minutes: 5)),
   );
@@ -132,23 +112,9 @@ void main() {
   test(
     '3. channels and band limits read as a person would recognise them',
     () async {
-      if (skipUnlessConfigured()) return;
+      if (skip()) return;
       final codeplug = backup ?? await read();
-
-      final channels = await rust.uv5RDecodeChannels(
-        image: codeplug.image,
-        modelId: profile.id,
-      );
-      stdout.writeln('  ${channels.length} channels programmed');
-      for (final channel in channels.take(20)) {
-        stdout.writeln(
-          '  ${channel.slot.toString().padLeft(3)}  '
-          '${channel.name.padRight(7)}  '
-          '${channel.rxFreqHz / 1000000}  '
-          '${channel.rxOnly ? 'RX only' : 'tx ${channel.txFreqHz / 1000000}'}  '
-          '${channel.txTone.mode}',
-        );
-      }
+      printChannels(await decode(codeplug), profile);
 
       final limits = await rust.uv5RReadBandLimits(
         image: codeplug.image,
@@ -179,69 +145,29 @@ void main() {
   test(
     '4. one channel written to the last slot reads back',
     () async {
-      if (skipUnlessConfigured()) return;
+      if (skip()) return;
       final base = backup ?? await read();
-      final existing = await rust.uv5RDecodeChannels(
-        image: base.image,
-        modelId: profile.id,
-      );
-      final bySlot = {for (final c in existing) c.slot: channelFromDto(c)};
-      final plan = [
-        for (var slot = 1; slot < profile.channelCapacity; slot++)
-          bySlot[slot] ??
-              const RadioChannel(
-                name: '',
-                rxFreqHz: 146520000,
-                txFreqHz: 146520000,
-              ),
-        const RadioChannel(
-          name: 'LBTEST',
-          rxFreqHz: 146520000,
-          txFreqHz: 146520000,
-          txTone: ToneSetting.ctcss(1000),
-        ),
-      ];
-
+      final last = profile.channelCapacity;
       await programmer
           .writeChannels(
             deviceId: _port!,
             profile: profile,
             base: base,
-            channels: plan,
+            channels: planWithTestChannel(await decode(base), last),
           )
-          .forEach(log);
-
-      final after = await read();
-      final channels = await rust.uv5RDecodeChannels(
-        image: after.image,
-        modelId: profile.id,
-      );
-      final written = channels.firstWhere(
-        (c) => c.slot == profile.channelCapacity,
-      );
-      expect(written.name, 'LBTEST');
-      expect(written.rxFreqHz, 146520000);
-      expect(written.txTone.ctcssTenthHz, 1000);
+          .forEach(logProgress);
+      expectTestChannel(await decode(await read()), last);
     },
     timeout: const Timeout(Duration(minutes: 10)),
   );
 
   test('5. the backup restores', () async {
-    if (skipUnlessConfigured()) return;
-    final original = backup;
-    if (original == null) {
-      markTestSkipped('no backup from test 2 to restore');
-      return;
-    }
-    await programmer
-        .restoreCodeplug(deviceId: _port!, profile: profile, codeplug: original)
-        .forEach(log);
-
-    final after = await read();
-    expect(
-      after.image,
-      original.image,
-      reason: 'the radio should be exactly as it was found',
+    if (skip()) return;
+    await restoreAndCheck(
+      programmer,
+      deviceId: _port!,
+      profile: profile,
+      original: backup,
     );
   }, timeout: const Timeout(Duration(minutes: 10)));
 }

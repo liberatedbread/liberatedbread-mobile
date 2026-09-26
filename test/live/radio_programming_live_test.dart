@@ -39,7 +39,6 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
@@ -47,64 +46,47 @@ import 'package:liberated_bread_mobile/services/real_ble_service.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart' as rust;
 
 import '../helpers/host_rust_lib.dart';
+import 'radio_live_harness.dart';
 
 /// The radio's BLE address. Find it with the app's own scan, or with
 /// `bluetoothctl devices`.
 final String? _deviceId = Platform.environment['LB_LIVE_RADIO_ID'];
 
-final bool _enabled = Platform.environment['LB_LIVE_RADIO'] == '1';
-
-/// Which profile to drive. Defaults to the UV-5R Mini.
-final String _modelId =
-    Platform.environment['LB_LIVE_RADIO_MODEL'] ?? 'uv-5r-mini';
-
 /// A slot far enough up that nobody's first twenty channels are at risk.
-const int _scratchSlot = 900;
+const int _scratchSlot = 901;
 
 void main() {
-  late RealBleService ble;
   late BaofengBleProgrammer programmer;
   late RadioProfile profile;
   RadioCodeplug? backup;
 
   setUpAll(() async {
-    if (!_enabled) return;
+    if (!liveRadioEnabled) return;
     await initHostRustLib();
-    ble = RealBleService();
-    programmer = BaofengBleProgrammer(ble);
-    profile = radioProfileById(_modelId) ?? uv5rMiniProfile;
+    programmer = BaofengBleProgrammer(RealBleService());
+    profile = liveRadioProfile ?? uv5rMiniProfile;
   });
 
-  bool skipUnlessConfigured() {
-    if (!_enabled) {
-      markTestSkipped('set LB_LIVE_RADIO=1 to run against a real radio');
-      return true;
-    }
-    if (_deviceId == null) {
-      markTestSkipped('set LB_LIVE_RADIO_ID to the radio\'s BLE address');
-      return true;
-    }
-    return false;
-  }
+  bool skip() => skipUnlessLive(
+    _deviceId,
+    'set LB_LIVE_RADIO_ID to the radio\'s BLE address',
+  );
 
   Future<RadioCodeplug> read() => programmer.readWhole(
     deviceId: _deviceId!,
     profile: profile,
-    onProgress: (event) => stdout.writeln(
-      '  ${event.stage.name}: ${event.message} '
-      '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}',
-    ),
+    onProgress: logProgress,
   );
+
+  Future<List<rust.RadioChannelDto>> decode(RadioCodeplug codeplug) =>
+      rust.radioDecodeChannels(image: codeplug.image, modelId: profile.id);
 
   test(
     '1. the radio answers, and a full read comes back',
     () async {
-      if (skipUnlessConfigured()) return;
-
+      if (skip()) return;
       final codeplug = await read();
       backup = codeplug;
-
-      expect(codeplug.length, greaterThan(0));
       expect(
         await rust.radioImageIsComplete(
           imageLen: codeplug.length,
@@ -113,15 +95,7 @@ void main() {
         isTrue,
         reason: 'the read was short, so the layout in models.rs is wrong',
       );
-
-      // Keep it. A backup on disk is the difference between an experiment and
-      // an accident.
-      final file = File(
-        'radio-backup-${DateTime.now().millisecondsSinceEpoch}'
-        '-${profile.id}.bin',
-      );
-      await file.writeAsBytes(codeplug.image);
-      stdout.writeln('  backup written to ${file.path}');
+      await saveBackup(codeplug);
     },
     timeout: const Timeout(Duration(minutes: 5)),
   );
@@ -129,23 +103,9 @@ void main() {
   test(
     '2. the channels decode into something a person recognises',
     () async {
-      if (skipUnlessConfigured()) return;
-      final codeplug = backup ?? await read();
-
-      final channels = await rust.radioDecodeChannels(
-        image: codeplug.image,
-        modelId: profile.id,
-      );
-      stdout.writeln('  ${channels.length} channels programmed');
-      for (final channel in channels.take(20)) {
-        stdout.writeln(
-          '  ${channel.slot.toString().padLeft(3)}  '
-          '${channel.name.padRight(12)}  '
-          '${channel.rxFreqHz / 1000000}  '
-          '${channel.rxOnly ? 'RX only' : 'tx ${channel.txFreqHz / 1000000}'}  '
-          '${channel.txTone.mode}',
-        );
-      }
+      if (skip()) return;
+      final channels = await decode(backup ?? await read());
+      printChannels(channels, profile);
 
       // THE ASSERTION THAT MATTERS IS THE ONE YOU MAKE WITH YOUR EYES: open the
       // same radio in CHIRP and check these twenty against it. A layout that is
@@ -164,85 +124,28 @@ void main() {
   test(
     '3. one channel writes, and reads back identical',
     () async {
-      if (skipUnlessConfigured()) return;
+      if (skip()) return;
       final base = backup ?? await read();
-
-      final existing = await rust.radioDecodeChannels(
-        image: base.image,
-        modelId: profile.id,
-      );
-      final keep = [
-        for (final channel in existing)
-          RadioChannel(
-            name: channel.name,
-            rxFreqHz: channel.rxFreqHz,
-            txFreqHz: channel.txFreqHz,
-            rxOnly: channel.rxOnly,
-            mode: channel.narrow ? ChannelMode.nfm : ChannelMode.fm,
-            power: channel.lowPower ? PowerLevel.low : PowerLevel.high,
-          ),
-      ];
-      while (keep.length < _scratchSlot) {
-        keep.add(
-          const RadioChannel(
-            name: '',
-            rxFreqHz: 146520000,
-            txFreqHz: 146520000,
-          ),
-        );
-      }
-      keep.add(
-        const RadioChannel(
-          name: 'LBTEST',
-          rxFreqHz: 146520000,
-          txFreqHz: 146520000,
-          txTone: ToneSetting.ctcss(1000),
-        ),
-      );
-
       await programmer
           .writeChannels(
             deviceId: _deviceId!,
             profile: profile,
             base: base,
-            channels: keep,
+            channels: planWithTestChannel(await decode(base), _scratchSlot),
           )
-          .forEach((event) => stdout.writeln('  ${event.message}'));
-
-      final after = await read();
-      final channels = await rust.radioDecodeChannels(
-        image: after.image,
-        modelId: profile.id,
-      );
-      final written = channels.firstWhere((c) => c.slot == _scratchSlot + 1);
-      expect(written.name, 'LBTEST');
-      expect(written.rxFreqHz, 146520000);
-      expect(written.txTone.ctcssTenthHz, 1000);
+          .forEach(logProgress);
+      expectTestChannel(await decode(await read()), _scratchSlot);
     },
     timeout: const Timeout(Duration(minutes: 15)),
   );
 
   test('4. the backup restores', () async {
-    if (skipUnlessConfigured()) return;
-    final original = backup;
-    if (original == null) {
-      markTestSkipped('no backup from test 1 to restore');
-      return;
-    }
-
-    await programmer
-        .restoreCodeplug(
-          deviceId: _deviceId!,
-          profile: profile,
-          codeplug: original,
-        )
-        .forEach((event) => stdout.writeln('  ${event.message}'));
-
-    final after = await read();
-    expect(
-      after.image,
-      original.image,
-      reason: 'the radio should be exactly as it was found',
+    if (skip()) return;
+    await restoreAndCheck(
+      programmer,
+      deviceId: _deviceId!,
+      profile: profile,
+      original: backup,
     );
   }, timeout: const Timeout(Duration(minutes: 15)));
 }

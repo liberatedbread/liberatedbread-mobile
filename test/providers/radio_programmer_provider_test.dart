@@ -11,7 +11,6 @@ import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart';
 import 'package:liberated_bread_mobile/services/mock_serial_port_service.dart';
 import 'package:liberated_bread_mobile/services/radio_codec.dart';
 import 'package:liberated_bread_mobile/services/serial_radio_programmer.dart';
-import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_radio_programmer.dart';
@@ -29,16 +28,6 @@ void main() {
     // reach a shipping build by accident.
     expect(isMockMode, isFalse);
     expect(programmer, isA<BaofengBleProgrammer>());
-  });
-
-  test('is overridable, which is how the screens are tested', () {
-    final fake = FakeRadioProgrammer();
-    final container = ProviderContainer(
-      overrides: [radioProgrammerProvider.overrideWithValue(fake)],
-    );
-    addTearDown(container.dispose);
-    expect(container.read(radioProgrammerProvider), same(fake));
-    expect(fake, isA<RadioProgrammer>());
   });
 
   group('radioProgrammerForTransportProvider', () {
