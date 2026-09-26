@@ -391,10 +391,13 @@ final networkControlsProvider = FutureProvider.autoDispose
           ssdpTargets: request.ssdpTargets,
         );
         // A raster label printer (Brother QL) resolves no entities — its surface is
-        // a raster byte stream, not commands — so admit it on its protocol_handler
-        // rather than letting the empty-entity check drop it to the details sheet.
-        final rasterPrintHandler = spec.protocolHandler == 'brother_ql_raster'
-            ? spec.protocolHandler
+        // a raster byte stream, not commands — so admit it on its raster-print
+        // surface rather than letting the empty-entity check drop it to the
+        // details sheet. Only a raw-stream printer is admitted here: that is
+        // the transport this network path can carry.
+        final rasterPrint = await codec.rasterPrintForSpec(specYaml: spec.yaml);
+        final rasterPrintHandler = rasterPrint?.transport == 'raw_stream'
+            ? rasterPrint!.handler
             : null;
         if (surface.entities.isEmpty && rasterPrintHandler == null) return null;
         return NetworkControls(

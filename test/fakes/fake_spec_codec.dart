@@ -243,6 +243,7 @@ class FakeSpecCodec implements SpecCodec {
     this.networkHiddenNames = const [],
     this.cameraResult,
     this.networkCapabilitiesResult,
+    this.rasterPrintResult,
     this.networkEntitiesForState,
     this.networkRequest,
     this.networkHttpRequest,
@@ -1827,4 +1828,13 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<CameraDto?> cameraForDevice({required String specYaml}) async =>
       cameraResult;
+
+  /// Returned by [rasterPrintForSpec] — null (not a printer) unless a
+  /// printing test sets it.
+  final RasterPrintDto? rasterPrintResult;
+
+  @override
+  Future<RasterPrintDto?> rasterPrintForSpec({
+    required String specYaml,
+  }) async => rasterPrintResult;
 }
