@@ -336,12 +336,18 @@ class NetworkControls {
   /// sheet.
   final String? rasterPrintHandler;
 
+  /// True when the device is an office/home printer whose status the app
+  /// reads over IPP (ink, paper, state) — it routes to the printer status
+  /// screen. Printing itself stays with the OS print dialog.
+  final bool ippStatus;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
     this.hiddenNames = const [],
     this.capabilities,
     this.rasterPrintHandler,
+    this.ippStatus = false,
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -399,13 +405,21 @@ final networkControlsProvider = FutureProvider.autoDispose
         final rasterPrintHandler = rasterPrint?.transport == 'raw_stream'
             ? rasterPrint!.handler
             : null;
-        if (surface.entities.isEmpty && rasterPrintHandler == null) return null;
+        // An IPP printer binds no entities either: its surface is one
+        // Get-Printer-Attributes request the status screen makes itself.
+        final ippStatus = await codec.ippStatusSupported(specYaml: spec.yaml);
+        if (surface.entities.isEmpty &&
+            rasterPrintHandler == null &&
+            !ippStatus) {
+          return null;
+        }
         return NetworkControls(
           specYaml: spec.yaml,
           entities: surface.entities,
           hiddenNames: surface.hiddenNames,
           capabilities: await codec.networkCapabilities(specYaml: spec.yaml),
           rasterPrintHandler: rasterPrintHandler,
+          ippStatus: ippStatus,
         );
       } catch (e) {
         Log.spec.warning(
