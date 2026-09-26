@@ -2400,6 +2400,14 @@ pub enum AutoRole {
     /// validate and still produce a plausible wrong CRC, which is the failure
     /// mode this vocabulary exists to avoid.
     Crc16Modbus,
+    /// The span's sum (mod 256) subtracted FROM `checksum_xor`, i.e.
+    /// `(checksum_xor - sum) & 0xFF` — the seed-minus-sum idiom on BIO-key
+    /// TouchLock frames (`checksum_start: 0`, `checksum_xor: 0x5A`).
+    SubtractChecksum,
+    /// CRC-8/SMBUS over the span: polynomial 0x07, init 0x00, no reflection,
+    /// no final xor. One byte. The cat printers cover the payload only
+    /// (`checksum_start: 6`).
+    Crc8,
 }
 
 impl std::fmt::Display for AutoRole {
@@ -2412,6 +2420,8 @@ impl std::fmt::Display for AutoRole {
             AutoRole::Checksum => write!(f, "checksum"),
             AutoRole::XorChecksum => write!(f, "xor_checksum"),
             AutoRole::Crc16Modbus => write!(f, "crc16_modbus"),
+            AutoRole::SubtractChecksum => write!(f, "subtract_checksum"),
+            AutoRole::Crc8 => write!(f, "crc8"),
         }
     }
 }

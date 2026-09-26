@@ -617,7 +617,11 @@ pub fn encode_command_with_bytes(
                 let val = match def.and_then(|d| d.auto) {
                     Some(AutoRole::Sequence) => params.get(name.as_str()).copied().unwrap_or(0.0),
                     Some(
-                        role @ (AutoRole::Checksum | AutoRole::XorChecksum | AutoRole::Crc16Modbus),
+                        role @ (AutoRole::Checksum
+                        | AutoRole::XorChecksum
+                        | AutoRole::Crc16Modbus
+                        | AutoRole::SubtractChecksum
+                        | AutoRole::Crc8),
                     ) => match params.get(name.as_str()) {
                         // A supplied value is still honoured, so a stateless
                         // caller that already knows the checksum is not made
@@ -781,6 +785,9 @@ fn pad_to_fixed_length(mut bytes: Vec<u8>, command: &Command) -> Result<Vec<u8>,
 ///   Govee 20-byte frames end.
 /// - [`AutoRole::Crc16Modbus`] runs CRC-16/MODBUS over them (reflected poly
 ///   0xA001, init 0xFFFF, no final xor), which is MODBUS-RTU framing.
+/// - [`AutoRole::Crc8`] runs CRC-8/SMBUS over them (the cat printers).
+/// - [`AutoRole::SubtractChecksum`] subtracts their sum from the
+///   `checksum_xor` seed (BIO-key TouchLock).
 ///
 /// `checksum_xor` is a salt on the additive result and is deliberately not
 /// applied to the other two — no spec pairs them, and doing it silently would
@@ -823,6 +830,13 @@ fn compute_checksum(
     match role {
         AutoRole::XorChecksum => Ok(u16::from(span.iter().fold(0u8, |acc, b| acc ^ b))),
         AutoRole::Crc16Modbus => Ok(crc16_modbus(span)),
+        AutoRole::Crc8 => Ok(u16::from(crc8_smbus(span))),
+        AutoRole::SubtractChecksum => {
+            let sum: u32 = span.iter().map(|b| u32::from(*b)).sum();
+            // Here `checksum_xor` is the seed the sum is subtracted from.
+            let seed = (def.checksum_xor.unwrap_or(0) & 0xFF) as u8;
+            Ok(u16::from(seed.wrapping_sub((sum % 256) as u8)))
+        }
         _ => {
             let sum: u32 = span.iter().map(|b| u32::from(*b)).sum();
             // `checksum_xor` is i64 like every spec number; only its low byte
@@ -832,6 +846,23 @@ fn compute_checksum(
             Ok(u16::from((sum % 256) as u8 ^ xor))
         }
     }
+}
+
+/// CRC-8/SMBUS: polynomial 0x07, init 0x00, no reflection, no final xor.
+/// Bitwise for the same reason as [`crc16_modbus`].
+fn crc8_smbus(data: &[u8]) -> u8 {
+    let mut crc: u8 = 0;
+    for byte in data {
+        crc ^= byte;
+        for _ in 0..8 {
+            crc = if crc & 0x80 != 0 {
+                (crc << 1) ^ 0x07
+            } else {
+                crc << 1
+            };
+        }
+    }
+    crc
 }
 
 /// CRC-16/MODBUS: reflected polynomial 0xA001, init 0xFFFF, no final xor.
