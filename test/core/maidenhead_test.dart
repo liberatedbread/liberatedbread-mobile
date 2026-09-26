@@ -48,15 +48,17 @@ void main() {
       }
     });
 
-    test('an 8-character locator is more precise than its 6-character prefix',
-        () {
-      final six = maidenheadToPoint('FN31pr')!;
-      final eight = maidenheadToPoint('FN31pr99')!;
-      expect(eight.lat, greaterThan(six.lat));
-      expect(eight.lon, greaterThan(six.lon));
-      // ...but still inside the same subsquare: under 5 km apart.
-      expect(haversineKm(six, eight), lessThan(5));
-    });
+    test(
+      'an 8-character locator is more precise than its 6-character prefix',
+      () {
+        final six = maidenheadToPoint('FN31pr')!;
+        final eight = maidenheadToPoint('FN31pr99')!;
+        expect(eight.lat, greaterThan(six.lat));
+        expect(eight.lon, greaterThan(six.lon));
+        // ...but still inside the same subsquare: under 5 km apart.
+        expect(haversineKm(six, eight), lessThan(5));
+      },
+    );
   });
 
   group('pointToMaidenhead', () {

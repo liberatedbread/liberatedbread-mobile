@@ -20,9 +20,9 @@ enum RadioTransport {
 
   /// The link in a sentence: "programs over Bluetooth".
   String get overPhrase => switch (this) {
-        RadioTransport.ble => 'over Bluetooth',
-        RadioTransport.usb => 'over a USB cable',
-      };
+    RadioTransport.ble => 'over Bluetooth',
+    RadioTransport.usb => 'over a USB cable',
+  };
 
   String get wireName => name;
 

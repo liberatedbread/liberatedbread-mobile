@@ -31,26 +31,25 @@ IoTDevice _radio({
   String id = 'AA:BB:CC:DD:EE:99',
   String name = 'UV-5R Mini',
   List<String> services = const [],
-}) =>
-    IoTDevice(
-      id: id,
-      name: name,
-      rssi: -50,
-      isConnectable: true,
-      discoveredAt: DateTime.utc(2026, 8),
-      serviceUuids: services,
-    );
+}) => IoTDevice(
+  id: id,
+  name: name,
+  rssi: -50,
+  isConnectable: true,
+  discoveredAt: DateTime.utc(2026, 8),
+  serviceUuids: services,
+);
 
 ChannelPlan _plan() => ChannelPlan(
-      id: 'p1',
-      name: 'Local repeaters',
-      radioProfileId: 'uv-5r-mini',
-      channels: const [
-        RadioChannel(name: 'W1AW', rxFreqHz: 146940000, txFreqHz: 146340000),
-      ],
-      createdAt: DateTime.utc(2026, 8),
-      modifiedAt: DateTime.utc(2026, 8),
-    );
+  id: 'p1',
+  name: 'Local repeaters',
+  radioProfileId: 'uv-5r-mini',
+  channels: const [
+    RadioChannel(name: 'W1AW', rxFreqHz: 146940000, txFreqHz: 146340000),
+  ],
+  createdAt: DateTime.utc(2026, 8),
+  modifiedAt: DateTime.utc(2026, 8),
+);
 
 class _Harness {
   final FakeRadioProgrammer programmer;
@@ -69,31 +68,34 @@ Future<_Harness> _pump(
   final prog = programmer ?? FakeRadioProgrammer();
   final backups = FakeCodeplugBackupStore();
 
-  await tester.pumpWidget(ProviderScope(
-    overrides: [
-      bleServiceProvider
-          .overrideWithValue(FakeBleService(devicesToEmit: devices)),
-      radioProgrammerProvider.overrideWithValue(prog),
-      codeplugBackupStoreProvider.overrideWithValue(backups),
-      sharedPreferencesProvider.overrideWithValue(_prefs),
-    ],
-    child: MaterialApp(
-      home: RadioProgramScreen(
-        plan: _plan(),
-        profile: profile,
-        target: target,
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(
+          FakeBleService(devicesToEmit: devices),
+        ),
+        radioProgrammerProvider.overrideWithValue(prog),
+        codeplugBackupStoreProvider.overrideWithValue(backups),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+      ],
+      child: MaterialApp(
+        home: RadioProgramScreen(
+          plan: _plan(),
+          profile: profile,
+          target: target,
+        ),
       ),
     ),
-  ));
+  );
   await tester.pumpAndSettle();
   return _Harness(prog, backups);
 }
 
 /// The confirm dialog's Write, as opposed to the target row's.
 Finder get _dialogWrite => find.descendant(
-      of: find.byType(AlertDialog),
-      matching: find.widgetWithText(FilledButton, 'Write'),
-    );
+  of: find.byType(AlertDialog),
+  matching: find.widgetWithText(FilledButton, 'Write'),
+);
 
 void main() {
   setUp(() async {
@@ -108,8 +110,9 @@ void main() {
     expect(find.textContaining('put back'), findsOneWidget);
   });
 
-  testWidgets('lists radios it recognises and ignores everything else',
-      (tester) async {
+  testWidgets('lists radios it recognises and ignores everything else', (
+    tester,
+  ) async {
     await _pump(
       tester,
       devices: [
@@ -131,8 +134,9 @@ void main() {
     expect(find.textContaining('its own menu'), findsOneWidget);
   });
 
-  testWidgets('asks before writing, and cancelling writes nothing',
-      (tester) async {
+  testWidgets('asks before writing, and cancelling writes nothing', (
+    tester,
+  ) async {
     final harness = await _pump(tester, devices: [_radio()]);
 
     await tester.tap(find.text('UV-5R Mini'));
@@ -173,8 +177,9 @@ void main() {
     expect(find.textContaining('Backup saved as'), findsOneWidget);
   });
 
-  testWidgets('a failure explains itself and leaves no backup claim',
-      (tester) async {
+  testWidgets('a failure explains itself and leaves no backup claim', (
+    tester,
+  ) async {
     final harness = await _pump(
       tester,
       devices: [_radio()],
@@ -211,12 +216,15 @@ void main() {
     await _pump(tester, profile: uv32Profile);
 
     expect(uv32Profile.programmerSupport, ProgrammerSupport.unverified);
-    expect(find.textContaining('not been confirmed on this exact model'),
-        findsOneWidget);
+    expect(
+      find.textContaining('not been confirmed on this exact model'),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('a radio that answers is saved, with the model it was used as',
-      (tester) async {
+  testWidgets('a radio that answers is saved, with the model it was used as', (
+    tester,
+  ) async {
     await _pump(tester, devices: [_radio()]);
 
     await tester.tap(find.text('UV-5R Mini'));
@@ -225,7 +233,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(RadioProgramScreen)));
+      tester.element(find.byType(RadioProgramScreen)),
+    );
     final saved = container.read(savedRadiosProvider).single;
     expect(saved.transport, RadioTransport.ble);
     expect(saved.id, 'AA:BB:CC:DD:EE:99');
@@ -245,7 +254,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
-        tester.element(find.byType(RadioProgramScreen)));
+      tester.element(find.byType(RadioProgramScreen)),
+    );
     expect(container.read(savedRadiosProvider), isEmpty);
   });
 
@@ -292,26 +302,30 @@ void main() {
       FakeBleService? ble,
     }) async {
       final cable = FakeRadioProgrammer();
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          bleServiceProvider.overrideWithValue(ble ?? FakeBleService()),
-          radioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
-          serialRadioProgrammerProvider.overrideWithValue(cable),
-          serialPortServiceProvider.overrideWithValue(ports),
-          codeplugBackupStoreProvider
-              .overrideWithValue(FakeCodeplugBackupStore()),
-          sharedPreferencesProvider.overrideWithValue(_prefs),
-        ],
-        child: MaterialApp(
-          home: RadioProgramScreen(plan: _plan(), profile: uv5rProfile),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(ble ?? FakeBleService()),
+            radioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
+            serialRadioProgrammerProvider.overrideWithValue(cable),
+            serialPortServiceProvider.overrideWithValue(ports),
+            codeplugBackupStoreProvider.overrideWithValue(
+              FakeCodeplugBackupStore(),
+            ),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+          ],
+          child: MaterialApp(
+            home: RadioProgramScreen(plan: _plan(), profile: uv5rProfile),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
       return cable;
     }
 
-    testWidgets('lists the cables plugged in, and does not scan the air',
-        (tester) async {
+    testWidgets('lists the cables plugged in, and does not scan the air', (
+      tester,
+    ) async {
       final ble = FakeBleService(devicesToEmit: [_radio(name: 'UV-5R Mini')]);
       await pumpCable(tester, ports: MockSerialPortService(), ble: ble);
 
@@ -322,8 +336,9 @@ void main() {
       expect(find.textContaining('Pick the cable'), findsOneWidget);
     });
 
-    testWidgets('writes through the cable driver, to the cable picked',
-        (tester) async {
+    testWidgets('writes through the cable driver, to the cable picked', (
+      tester,
+    ) async {
       final cable = await pumpCable(tester, ports: MockSerialPortService());
 
       await tester.tap(find.text('Demo programming cable'));
@@ -335,8 +350,9 @@ void main() {
       expect(cable.deviceIds.toSet(), {MockSerialPortService.demoCable.id});
     });
 
-    testWidgets('with no cable plugged in, says how to plug one in',
-        (tester) async {
+    testWidgets('with no cable plugged in, says how to plug one in', (
+      tester,
+    ) async {
       await pumpCable(tester, ports: _NoPorts());
       expect(find.textContaining('No cable found'), findsOneWidget);
       expect(find.textContaining('USB-OTG'), findsOneWidget);
@@ -346,7 +362,8 @@ void main() {
       await pumpCable(
         tester,
         ports: const UnsupportedSerialPortService(
-            UnsupportedSerialPortService.iosReason),
+          UnsupportedSerialPortService.iosReason,
+        ),
       );
       expect(find.textContaining('iPhone and iPad'), findsOneWidget);
       expect(find.textContaining('No cable found'), findsNothing);

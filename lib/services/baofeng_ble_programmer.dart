@@ -67,8 +67,11 @@ class BaofengBleProgrammer implements RadioProgrammer {
   }) async {
     // The session is the whole of it: connecting, the ident and the
     // handshake all happen before a body runs, and the disconnect after.
-    await _session(deviceId, profile, (_) => const Stream.empty())
-        .drain<void>();
+    await _session(
+      deviceId,
+      profile,
+      (_) => const Stream.empty(),
+    ).drain<void>();
     return RadioIdentity(profile: profile);
   }
 
@@ -108,15 +111,18 @@ class BaofengBleProgrammer implements RadioProgrammer {
         // A short read written back would leave the radio holding half a
         // codeplug, so it is refused here rather than at the write.
         throw const RadioProtocolException(
-            'The radio sent back less memory than it should have. Nothing '
-            'was changed; try again.');
+          'The radio sent back less memory than it should have. Nothing '
+          'was changed; try again.',
+        );
       }
 
-      onResult(RadioCodeplug(
-        modelId: profile.id,
-        image: Uint8List.fromList(image),
-        readAt: DateTime.now(),
-      ));
+      onResult(
+        RadioCodeplug(
+          modelId: profile.id,
+          image: Uint8List.fromList(image),
+          readAt: DateTime.now(),
+        ),
+      );
       yield const RadioProgressEvent(
         stage: RadioProgressStage.done,
         message: 'Read complete.',
@@ -162,8 +168,9 @@ class BaofengBleProgrammer implements RadioProgrammer {
       modelId: profile.id,
     )) {
       throw const RadioProtocolException(
-          'That codeplug is not the right size for this radio. Nothing was '
-          'written.');
+        'That codeplug is not the right size for this radio. Nothing was '
+        'written.',
+      );
     }
 
     yield* _session(deviceId, profile, (session) async* {
@@ -309,8 +316,9 @@ class _RadioSession {
     final ack = await _take(1);
     if (!await rust.radioIsAck(reply: ack)) {
       throw const RadioProtocolException(
-          'The radio did not accept the programming request. Make sure it is '
-          'the model selected, and that nothing else is connected to it.');
+        'The radio did not accept the programming request. Make sure it is '
+        'the model selected, and that nothing else is connected to it.',
+      );
     }
     await Future<void>.delayed(BaofengBleProgrammer.settleDelay);
 
@@ -335,9 +343,10 @@ class _RadioSession {
     final ack = await _take(1);
     if (!await rust.radioIsAck(reply: ack)) {
       throw RadioProtocolException(
-          'The radio refused a write at 0x${addr.toRadixString(16)}. It may '
-          'now hold a partly written codeplug — restore your backup before '
-          'using it.');
+        'The radio refused a write at 0x${addr.toRadixString(16)}. It may '
+        'now hold a partly written codeplug — restore your backup before '
+        'using it.',
+      );
     }
   }
 }

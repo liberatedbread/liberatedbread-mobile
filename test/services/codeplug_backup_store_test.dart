@@ -11,12 +11,11 @@ RadioCodeplug _codeplug({
   String modelId = 'uv-5r-mini',
   int fill = 0x42,
   DateTime? readAt,
-}) =>
-    RadioCodeplug(
-      modelId: modelId,
-      image: Uint8List.fromList(List<int>.filled(0x100, fill)),
-      readAt: readAt ?? DateTime.utc(2026, 8, 28, 12),
-    );
+}) => RadioCodeplug(
+  modelId: modelId,
+  image: Uint8List.fromList(List<int>.filled(0x100, fill)),
+  readAt: readAt ?? DateTime.utc(2026, 8, 28, 12),
+);
 
 void main() {
   late Directory temp;
@@ -58,21 +57,27 @@ void main() {
   test('the read time comes from the name, not the file\'s mtime', () async {
     // A copy, a restore from a phone backup or a sync all rewrite an mtime.
     // A backup list ordered by mtime would then be ordered by nothing.
-    final backup =
-        await store.save(_codeplug(readAt: DateTime.utc(2020, 5, 6)));
+    final backup = await store.save(
+      _codeplug(readAt: DateTime.utc(2020, 5, 6)),
+    );
     expect(backup.takenAt.toUtc(), DateTime.utc(2020, 5, 6));
     expect(
-        (await store.list()).single.takenAt.toUtc(), DateTime.utc(2020, 5, 6));
+      (await store.list()).single.takenAt.toUtc(),
+      DateTime.utc(2020, 5, 6),
+    );
   });
 
   test('the read time comes from the name, not the file\'s mtime', () async {
     // A copy, a restore from a phone backup or a sync all rewrite an mtime.
     // A backup list ordered by mtime would then be ordered by nothing.
-    final backup =
-        await store.save(_codeplug(readAt: DateTime.utc(2020, 5, 6)));
+    final backup = await store.save(
+      _codeplug(readAt: DateTime.utc(2020, 5, 6)),
+    );
     expect(backup.takenAt.toUtc(), DateTime.utc(2020, 5, 6));
     expect(
-        (await store.list()).single.takenAt.toUtc(), DateTime.utc(2020, 5, 6));
+      (await store.list()).single.takenAt.toUtc(),
+      DateTime.utc(2020, 5, 6),
+    );
   });
 
   test('lists newest first', () async {
@@ -84,9 +89,10 @@ void main() {
     expect(all, hasLength(3));
     for (var i = 1; i < all.length; i++) {
       expect(
-          all[i - 1].takenAt.isAfter(all[i].takenAt) ||
-              all[i - 1].takenAt == all[i].takenAt,
-          isTrue);
+        all[i - 1].takenAt.isAfter(all[i].takenAt) ||
+            all[i - 1].takenAt == all[i].takenAt,
+        isTrue,
+      );
     }
   });
 

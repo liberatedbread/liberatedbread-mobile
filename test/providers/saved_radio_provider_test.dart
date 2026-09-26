@@ -16,9 +16,9 @@ const _radio = RadioTarget(
 Future<ProviderContainer> _container() async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
-  final container = ProviderContainer(overrides: [
-    sharedPreferencesProvider.overrideWithValue(prefs),
-  ]);
+  final container = ProviderContainer(
+    overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -64,7 +64,10 @@ void main() {
     await notifier.touch(target: _radio, seenAt: DateTime(2026, 9, 1));
     await notifier.touch(
       target: const RadioTarget(
-          transport: RadioTransport.ble, id: 'AA:BB', name: ''),
+        transport: RadioTransport.ble,
+        id: 'AA:BB',
+        name: '',
+      ),
       seenAt: DateTime(2026, 9, 2),
     );
     expect(container.read(savedRadiosProvider).single.name, 'UV-5R Mini');
@@ -83,17 +86,17 @@ void main() {
   test('persists across a fresh container', () async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
-    final first = ProviderContainer(overrides: [
-      sharedPreferencesProvider.overrideWithValue(prefs),
-    ]);
+    final first = ProviderContainer(
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    );
     await first
         .read(savedRadiosProvider.notifier)
         .touch(target: _radio, seenAt: DateTime(2026, 9, 1));
     first.dispose();
 
-    final second = ProviderContainer(overrides: [
-      sharedPreferencesProvider.overrideWithValue(prefs),
-    ]);
+    final second = ProviderContainer(
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    );
     addTearDown(second.dispose);
     expect(second.read(savedRadiosProvider).single.target, _radio);
   });

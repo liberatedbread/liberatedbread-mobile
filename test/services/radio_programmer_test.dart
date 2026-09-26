@@ -25,15 +25,21 @@ void main() {
         expect(failure.message, isNotEmpty);
         expect(failure.toString(), failure.message);
         expect(
-            friendlyErrorText(failure, fallback: 'fallback'), failure.message);
+          friendlyErrorText(failure, fallback: 'fallback'),
+          failure.message,
+        );
       }
     });
 
     test('each says what to do next', () {
-      expect(const RadioTimeoutException().message.toLowerCase(),
-          contains('try again'));
-      expect(const RadioUnsupportedException().message.toLowerCase(),
-          contains('chirp'));
+      expect(
+        const RadioTimeoutException().message.toLowerCase(),
+        contains('try again'),
+      );
+      expect(
+        const RadioUnsupportedException().message.toLowerCase(),
+        contains('chirp'),
+      );
     });
 
     test('can carry a more specific message', () {
@@ -70,8 +76,10 @@ void main() {
     });
 
     test('repeats what the radio said when it said something', () {
-      const identity =
-          RadioIdentity(profile: uv5rProfile, reported: 'BFB297 firmware');
+      const identity = RadioIdentity(
+        profile: uv5rProfile,
+        reported: 'BFB297 firmware',
+      );
       expect(identity.summary, 'The radio answered: BFB297 firmware.');
     });
   });
@@ -80,8 +88,10 @@ void main() {
     final programmer = MockRadioProgrammer(stepDelay: Duration.zero);
 
     test('answers an identify as the model it was asked about', () async {
-      final identity =
-          await programmer.identify(deviceId: 'mock', profile: uv5gMiniProfile);
+      final identity = await programmer.identify(
+        deviceId: 'mock',
+        profile: uv5gMiniProfile,
+      );
       expect(identity.profile, uv5gMiniProfile);
       expect(identity.reported, isNull);
     });
@@ -127,14 +137,16 @@ void main() {
         readAt: DateTime.now(),
       );
 
-      await mock.writeChannels(
-        deviceId: 'mock',
-        profile: uv5rMiniProfile,
-        base: base,
-        channels: const [
-          RadioChannel(name: 'A', rxFreqHz: 146940000, txFreqHz: 146340000),
-        ],
-      ).drain<void>();
+      await mock
+          .writeChannels(
+            deviceId: 'mock',
+            profile: uv5rMiniProfile,
+            base: base,
+            channels: const [
+              RadioChannel(name: 'A', rxFreqHz: 146940000, txFreqHz: 146340000),
+            ],
+          )
+          .drain<void>();
 
       expect(mock.writes, hasLength(1));
       expect(mock.image[7], 0x42);
@@ -187,8 +199,10 @@ void main() {
   group('FakeRadioProgrammer', () {
     test('identifies, reports, and records where it was aimed', () async {
       final fake = FakeRadioProgrammer()..reported = 'hello';
-      final identity =
-          await fake.identify(deviceId: 'radio-1', profile: uv5rMiniProfile);
+      final identity = await fake.identify(
+        deviceId: 'radio-1',
+        profile: uv5rMiniProfile,
+      );
       expect(identity.reported, 'hello');
       expect(fake.identifyCalls, 1);
       expect(fake.deviceIds, ['radio-1']);
@@ -213,16 +227,18 @@ void main() {
           .drain<void>();
       expect(fake.readCalls, 1);
 
-      await fake.writeChannels(
-        deviceId: 'x',
-        profile: uv5rMiniProfile,
-        base: RadioCodeplug(
-          modelId: 'uv-5r-mini',
-          image: Uint8List(1),
-          readAt: DateTime.now(),
-        ),
-        channels: const [],
-      ).drain<void>();
+      await fake
+          .writeChannels(
+            deviceId: 'x',
+            profile: uv5rMiniProfile,
+            base: RadioCodeplug(
+              modelId: 'uv-5r-mini',
+              image: Uint8List(1),
+              readAt: DateTime.now(),
+            ),
+            channels: const [],
+          )
+          .drain<void>();
       expect(fake.written, hasLength(1));
     });
 

@@ -24,73 +24,85 @@ Future<void> _pump(
   final sharedPrefs = await SharedPreferences.getInstance();
   final store = InMemorySettingsStore({...settings});
 
-  await tester.pumpWidget(ProviderScope(
-    overrides: [
-      sharedPreferencesProvider.overrideWithValue(sharedPrefs),
-      prefsSettingsStoreProvider.overrideWith((ref) async => store),
-      settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-    ],
-    child: const MaterialApp(home: RadioScreen()),
-  ));
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(sharedPrefs),
+        prefsSettingsStoreProvider.overrideWith((ref) async => store),
+        settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+      ],
+      child: const MaterialApp(home: RadioScreen()),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
 void main() {
-  testWidgets('shows the selected radio and what can be done with it',
-      (tester) async {
+  testWidgets('shows the selected radio and what can be done with it', (
+    tester,
+  ) async {
     await _pump(tester);
     expect(find.text('Radio'), findsWidgets);
     expect(find.text(defaultRadioProfile.displayName), findsOneWidget);
     expect(find.text('Suggest channels near me'), findsOneWidget);
   });
 
-  testWidgets('says there are no plans yet, and how to get one',
-      (tester) async {
+  testWidgets('says there are no plans yet, and how to get one', (
+    tester,
+  ) async {
     await _pump(tester);
     expect(find.textContaining('No channel plans yet'), findsOneWidget);
   });
 
   testWidgets('lists stored plans with their channel counts', (tester) async {
-    await _pump(tester, prefs: {
-      'radio_channel_plans_v1': jsonEncode([
-        {
-          'id': 'p1',
-          'name': 'Local repeaters',
-          'radioProfileId': 'uv-5r-mini',
-          'channels': [
-            {'name': 'A', 'rx': 146940000, 'tx': 146340000},
-            {'name': 'B', 'rx': 146520000, 'tx': 146520000},
-          ],
-          'createdAt': '2026-08-01T00:00:00.000Z',
-          'modifiedAt': '2026-08-02T00:00:00.000Z',
-        }
-      ]),
-    });
+    await _pump(
+      tester,
+      prefs: {
+        'radio_channel_plans_v1': jsonEncode([
+          {
+            'id': 'p1',
+            'name': 'Local repeaters',
+            'radioProfileId': 'uv-5r-mini',
+            'channels': [
+              {'name': 'A', 'rx': 146940000, 'tx': 146340000},
+              {'name': 'B', 'rx': 146520000, 'tx': 146520000},
+            ],
+            'createdAt': '2026-08-01T00:00:00.000Z',
+            'modifiedAt': '2026-08-02T00:00:00.000Z',
+          },
+        ]),
+      },
+    );
     expect(find.text('Local repeaters'), findsOneWidget);
     expect(find.textContaining('2 channels'), findsOneWidget);
     expect(find.textContaining('No channel plans yet'), findsNothing);
   });
 
-  testWidgets('flags a plan built with the transmit range widened',
-      (tester) async {
-    await _pump(tester, prefs: {
-      'radio_channel_plans_v1': jsonEncode([
-        {
-          'id': 'p1',
-          'name': 'MARS',
-          'radioProfileId': 'uv-5r-mini',
-          'channels': <Object>[],
-          'builtWithTxUnlock': true,
-          'createdAt': '2026-08-01T00:00:00.000Z',
-          'modifiedAt': '2026-08-01T00:00:00.000Z',
-        }
-      ]),
-    });
+  testWidgets('flags a plan built with the transmit range widened', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      prefs: {
+        'radio_channel_plans_v1': jsonEncode([
+          {
+            'id': 'p1',
+            'name': 'MARS',
+            'radioProfileId': 'uv-5r-mini',
+            'channels': <Object>[],
+            'builtWithTxUnlock': true,
+            'createdAt': '2026-08-01T00:00:00.000Z',
+            'modifiedAt': '2026-08-01T00:00:00.000Z',
+          },
+        ]),
+      },
+    );
     expect(find.textContaining('widened transmit range'), findsOneWidget);
   });
 
-  testWidgets('the picker says what this build can do with each radio',
-      (tester) async {
+  testWidgets('the picker says what this build can do with each radio', (
+    tester,
+  ) async {
     // Every row at once: the sheet's list is lazy, and the rows that export
     // to CHIRP are at the bottom.
     tester.view.physicalSize = const Size(1200, 3200);
@@ -113,14 +125,16 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final sharedPrefs = await SharedPreferences.getInstance();
 
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(sharedPrefs),
-        prefsSettingsStoreProvider.overrideWith((ref) async => store),
-        settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-      ],
-      child: const MaterialApp(home: RadioScreen()),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(sharedPrefs),
+          prefsSettingsStoreProvider.overrideWith((ref) async => store),
+          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+        ],
+        child: const MaterialApp(home: RadioScreen()),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text(defaultRadioProfile.displayName));
@@ -134,8 +148,9 @@ void main() {
   });
 
   group('the transmit-range switch', () {
-    testWidgets('is hidden for a radio whose family has no band limits',
-        (tester) async {
+    testWidgets('is hidden for a radio whose family has no band limits', (
+      tester,
+    ) async {
       // The default radio is a Mini, and the whole UV-17Pro family stores its
       // transmit range in firmware. Offering a switch that could not do
       // anything would be worse than not offering one.
@@ -144,8 +159,9 @@ void main() {
       expect(find.text('Widen transmit range'), findsNothing);
     });
 
-    testWidgets('appears once a radio that can be widened is selected',
-        (tester) async {
+    testWidgets('appears once a radio that can be widened is selected', (
+      tester,
+    ) async {
       await _pump(tester);
       await tester.tap(find.text(defaultRadioProfile.displayName));
       await tester.pumpAndSettle();
@@ -154,67 +170,80 @@ void main() {
 
       expect(find.text('Widen transmit range'), findsOneWidget);
       final tile = tester.widget<SwitchListTile>(
-          find.widgetWithText(SwitchListTile, 'Widen transmit range'));
+        find.widgetWithText(SwitchListTile, 'Widen transmit range'),
+      );
       expect(tile.value, isFalse);
       expect(find.textContaining('as it left the factory'), findsOneWidget);
     });
 
-    testWidgets('turning it on opens the acknowledgement first',
-        (tester) async {
-      await _pump(tester, settings: {
-        SelectedRadioProfileNotifier.key: uv5rProfile.id,
-      });
-      await tester
-          .tap(find.widgetWithText(SwitchListTile, 'Widen transmit range'));
+    testWidgets('turning it on opens the acknowledgement first', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        settings: {SelectedRadioProfileNotifier.key: uv5rProfile.id},
+      );
+      await tester.tap(
+        find.widgetWithText(SwitchListTile, 'Widen transmit range'),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Widen the transmit range?'), findsOneWidget);
     });
 
     testWidgets('cancelling the acknowledgement leaves it off', (tester) async {
-      final store = InMemorySettingsStore(
-          {SelectedRadioProfileNotifier.key: uv5rProfile.id});
+      final store = InMemorySettingsStore({
+        SelectedRadioProfileNotifier.key: uv5rProfile.id,
+      });
       SharedPreferences.setMockInitialValues({});
       final sharedPrefs = await SharedPreferences.getInstance();
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(sharedPrefs),
-          prefsSettingsStoreProvider.overrideWith((ref) async => store),
-          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-        ],
-        child: const MaterialApp(home: RadioScreen()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(sharedPrefs),
+            prefsSettingsStoreProvider.overrideWith((ref) async => store),
+            settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+          ],
+          child: const MaterialApp(home: RadioScreen()),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.widgetWithText(SwitchListTile, 'Widen transmit range'));
+      await tester.tap(
+        find.widgetWithText(SwitchListTile, 'Widen transmit range'),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
       await tester.pumpAndSettle();
 
       final tile = tester.widget<SwitchListTile>(
-          find.widgetWithText(SwitchListTile, 'Widen transmit range'));
+        find.widgetWithText(SwitchListTile, 'Widen transmit range'),
+      );
       expect(tile.value, isFalse);
       expect(store.values.containsKey(TxUnlockNotifier.key), isFalse);
     });
 
     testWidgets('confirming turns it on and persists it', (tester) async {
-      final store = InMemorySettingsStore(
-          {SelectedRadioProfileNotifier.key: uv5rProfile.id});
+      final store = InMemorySettingsStore({
+        SelectedRadioProfileNotifier.key: uv5rProfile.id,
+      });
       SharedPreferences.setMockInitialValues({});
       final sharedPrefs = await SharedPreferences.getInstance();
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          sharedPreferencesProvider.overrideWithValue(sharedPrefs),
-          prefsSettingsStoreProvider.overrideWith((ref) async => store),
-          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-        ],
-        child: const MaterialApp(home: RadioScreen()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(sharedPrefs),
+            prefsSettingsStoreProvider.overrideWith((ref) async => store),
+            settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+          ],
+          child: const MaterialApp(home: RadioScreen()),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.widgetWithText(SwitchListTile, 'Widen transmit range'));
+      await tester.tap(
+        find.widgetWithText(SwitchListTile, 'Widen transmit range'),
+      );
       await tester.pumpAndSettle();
 
       final checkbox = find.byType(CheckboxListTile);

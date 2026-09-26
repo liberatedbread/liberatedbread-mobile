@@ -33,14 +33,16 @@ void main() {
     expect(inbox.available, 1, reason: 'clearing is the caller\'s decision');
   });
 
-  test('clear drops leftovers so they cannot answer the next command',
-      () async {
-    final inbox = ByteInbox()..add([1, 2, 3]);
-    inbox.clear();
-    expect(inbox.available, 0);
-    inbox.add([4]);
-    expect(await inbox.take(1, const Duration(seconds: 1)), [4]);
-  });
+  test(
+    'clear drops leftovers so they cannot answer the next command',
+    () async {
+      final inbox = ByteInbox()..add([1, 2, 3]);
+      inbox.clear();
+      expect(inbox.available, 0);
+      inbox.add([4]);
+      expect(await inbox.take(1, const Duration(seconds: 1)), [4]);
+    },
+  );
 
   test('a zero-byte take returns at once', () async {
     expect(await ByteInbox().take(0, const Duration(seconds: 1)), isEmpty);

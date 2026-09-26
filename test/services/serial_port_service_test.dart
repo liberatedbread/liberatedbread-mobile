@@ -10,8 +10,7 @@ import 'package:liberated_bread_mobile/services/unsupported_serial_port_service.
 
 void main() {
   group('SerialPortInfo', () {
-    test(
-        'is named by what the device calls itself, then its chip, then '
+    test('is named by what the device calls itself, then its chip, then '
         'the port', () {
       const own = SerialPortInfo(
         id: '1',
@@ -23,7 +22,11 @@ void main() {
       expect(own.displayName, 'K-plug cable');
 
       const chip = SerialPortInfo(
-          id: '1', name: '/dev/ttyUSB0', vendorId: 0x1A86, productId: 0x7523);
+        id: '1',
+        name: '/dev/ttyUSB0',
+        vendorId: 0x1A86,
+        productId: 0x7523,
+      );
       expect(chip.displayName, 'WCH CH340');
       expect(chip.bridge?.name, 'WCH CH340');
 
@@ -37,10 +40,14 @@ void main() {
         const SerialPortInfo(id: 'a', name: 'one'),
         const SerialPortInfo(id: 'a', name: 'two'),
       );
-      expect(const SerialPortInfo(id: 'a', name: 'x').hashCode,
-          const SerialPortInfo(id: 'a', name: 'y').hashCode);
-      expect(const SerialPortInfo(id: 'a', name: 'x'),
-          isNot(const SerialPortInfo(id: 'b', name: 'x')));
+      expect(
+        const SerialPortInfo(id: 'a', name: 'x').hashCode,
+        const SerialPortInfo(id: 'a', name: 'y').hashCode,
+      );
+      expect(
+        const SerialPortInfo(id: 'a', name: 'x'),
+        isNot(const SerialPortInfo(id: 'b', name: 'x')),
+      );
     });
   });
 
@@ -51,8 +58,9 @@ void main() {
   });
 
   group('UnsupportedSerialPortService', () {
-    const service =
-        UnsupportedSerialPortService(UnsupportedSerialPortService.iosReason);
+    const service = UnsupportedSerialPortService(
+      UnsupportedSerialPortService.iosReason,
+    );
 
     test('says why, lists nothing, and opens nothing', () async {
       expect(service.availability.supported, isFalse);
@@ -79,11 +87,12 @@ void main() {
       expect(ports.single.bridge?.name, 'WCH CH340');
     });
 
-    test(
-        'opens a link that stays silent, the way a radio that does not '
+    test('opens a link that stays silent, the way a radio that does not '
         'answer does', () async {
-      final link =
-          await service.open(MockSerialPortService.demoCable, baudRate: 9600);
+      final link = await service.open(
+        MockSerialPortService.demoCable,
+        baudRate: 9600,
+      );
       await link.write([1, 2, 3]);
       await link.discardInput();
       await expectLater(

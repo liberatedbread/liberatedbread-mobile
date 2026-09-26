@@ -88,42 +88,40 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
     required String deviceId,
     required RadioProfile profile,
     required void Function(RadioCodeplug) onResult,
-  }) =>
-      _session(deviceId, profile, (session, ident, probe) async* {
-        final plan = await rust.uv5RReadPlan(dropsByte: probe.dropsByte);
-        final image = BytesBuilder(copy: false)..add(ident);
-        yield const RadioProgressEvent(
+  }) => _session(deviceId, profile, (session, ident, probe) async* {
+    final plan = await rust.uv5RReadPlan(dropsByte: probe.dropsByte);
+    final image = BytesBuilder(copy: false)..add(ident);
+    yield const RadioProgressEvent(
+      stage: RadioProgressStage.reading,
+      message: 'Reading the radio…',
+      progress: 0,
+    );
+    for (var i = 0; i < plan.length; i++) {
+      image.add(await session.readBlock(plan[i].addr, plan[i].len));
+      if (i % 8 == 0 || i == plan.length - 1) {
+        yield RadioProgressEvent(
           stage: RadioProgressStage.reading,
           message: 'Reading the radio…',
-          progress: 0,
+          progress: (i + 1) / plan.length,
         );
-        for (var i = 0; i < plan.length; i++) {
-          image.add(await session.readBlock(plan[i].addr, plan[i].len));
-          if (i % 8 == 0 || i == plan.length - 1) {
-            yield RadioProgressEvent(
-              stage: RadioProgressStage.reading,
-              message: 'Reading the radio…',
-              progress: (i + 1) / plan.length,
-            );
-          }
-        }
-        final bytes = image.toBytes();
-        if (bytes.length != await rust.uv5RImageLen()) {
-          throw const RadioProtocolException(
-              'The radio sent back less memory than it should have. Nothing '
-              'was changed; try again.');
-        }
-        onResult(RadioCodeplug(
-          modelId: profile.id,
-          image: bytes,
-          readAt: DateTime.now(),
-        ));
-        yield const RadioProgressEvent(
-          stage: RadioProgressStage.done,
-          message: 'Read complete.',
-          progress: 1,
-        );
-      });
+      }
+    }
+    final bytes = image.toBytes();
+    if (bytes.length != await rust.uv5RImageLen()) {
+      throw const RadioProtocolException(
+        'The radio sent back less memory than it should have. Nothing '
+        'was changed; try again.',
+      );
+    }
+    onResult(
+      RadioCodeplug(modelId: profile.id, image: bytes, readAt: DateTime.now()),
+    );
+    yield const RadioProgressEvent(
+      stage: RadioProgressStage.done,
+      message: 'Read complete.',
+      progress: 1,
+    );
+  });
 
   @override
   Stream<RadioProgressEvent> writeChannels({
@@ -172,8 +170,9 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
     } catch (error) {
       Log.radio.warning('refused to plan a write', error: error);
       throw const RadioProtocolException(
-          'That change is not one this app writes. Nothing was sent to the '
-          'radio.');
+        'That change is not one this app writes. Nothing was sent to the '
+        'radio.',
+      );
     }
     if (blocks.isEmpty) {
       yield const RadioProgressEvent(
@@ -193,15 +192,18 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
   ) async {
     if (!supports(profile)) throw const RadioUnsupportedException();
     try {
-      return bandLimitsFromDto(await rust.uv5RReadBandLimits(
-        image: codeplug.image,
-        modelId: profile.id,
-      ));
+      return bandLimitsFromDto(
+        await rust.uv5RReadBandLimits(
+          image: codeplug.image,
+          modelId: profile.id,
+        ),
+      );
     } catch (error) {
       Log.radio.warning('could not read band limits', error: error);
       throw const RadioProtocolException(
-          'The transmit limits in what the radio sent back could not be '
-          'read. Nothing was changed.');
+        'The transmit limits in what the radio sent back could not be '
+        'read. Nothing was changed.',
+      );
     }
   }
 
@@ -228,8 +230,10 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
       );
     } catch (error) {
       Log.radio.warning('refused band limits', error: error);
-      throw RadioProtocolException('${limits.label} is not something this '
-          'radio can hold. Nothing was sent to the radio.');
+      throw RadioProtocolException(
+        '${limits.label} is not something this '
+        'radio can hold. Nothing was sent to the radio.',
+      );
     }
     yield* writeImage(
       deviceId: deviceId,
@@ -251,7 +255,12 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
       modelId: profile.id,
     );
     yield* _writeBlocks(
-        deviceId, profile, codeplug.image, codeplug.image, blocks);
+      deviceId,
+      profile,
+      codeplug.image,
+      codeplug.image,
+      blocks,
+    );
   }
 
   /// Write [blocks] of [image] and read them back, on a radio that answers
@@ -262,71 +271,73 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
     Uint8List expected,
     Uint8List image,
     List<rust.CodeplugBlockDto> blocks,
-  ) =>
-      _session(deviceId, profile, (session, ident, probe) async* {
-        // The image was read from one radio; this had better be it, or at
-        // least one answering exactly as it did.
-        final firmware = await rust.uv5RFirmware(image: expected);
-        if (!listEquals(ident, expected.sublist(0, ident.length)) ||
-            probe.firmware != firmware) {
-          throw const RadioProtocolException(
-              'This is not the radio that copy was read from. Nothing was '
-              'written. Read this radio first, then write.');
-        }
+  ) => _session(deviceId, profile, (session, ident, probe) async* {
+    // The image was read from one radio; this had better be it, or at
+    // least one answering exactly as it did.
+    final firmware = await rust.uv5RFirmware(image: expected);
+    if (!listEquals(ident, expected.sublist(0, ident.length)) ||
+        probe.firmware != firmware) {
+      throw const RadioProtocolException(
+        'This is not the radio that copy was read from. Nothing was '
+        'written. Read this radio first, then write.',
+      );
+    }
 
-        yield const RadioProgressEvent(
-          stage: RadioProgressStage.writing,
-          message: 'Writing to the radio — do not turn it off or unplug it…',
-          progress: 0,
-        );
-        for (var i = 0; i < blocks.length; i++) {
-          final block = blocks[i];
-          await session.writeBlock(
-            block.addr,
-            image.sublist(block.imageOffset, block.imageOffset + block.len),
-          );
-          yield RadioProgressEvent(
-            stage: RadioProgressStage.writing,
-            message: 'Writing to the radio — do not turn it off or unplug it…',
-            progress: (i + 1) / blocks.length,
-          );
-        }
+    yield const RadioProgressEvent(
+      stage: RadioProgressStage.writing,
+      message: 'Writing to the radio — do not turn it off or unplug it…',
+      progress: 0,
+    );
+    for (var i = 0; i < blocks.length; i++) {
+      final block = blocks[i];
+      await session.writeBlock(
+        block.addr,
+        image.sublist(block.imageOffset, block.imageOffset + block.len),
+      );
+      yield RadioProgressEvent(
+        stage: RadioProgressStage.writing,
+        message: 'Writing to the radio — do not turn it off or unplug it…',
+        progress: (i + 1) / blocks.length,
+      );
+    }
 
-        yield const RadioProgressEvent(
-          stage: RadioProgressStage.verifying,
-          message: 'Checking what landed…',
-        );
-        final checks = await rust.uv5RVerifyPlan(
-          changed: blocks,
-          dropsByte: probe.dropsByte,
-        );
-        // A check reads a whole block, which can span bytes that were never
-        // written — a window no write touches, a setting the radio keeps for
-        // itself. Only the written blocks inside it are compared.
-        for (final check in checks) {
-          final got = await session.readBlock(check.addr, check.len);
-          for (final block in blocks) {
-            if (block.addr < check.addr ||
-                block.addr >= check.addr + check.len) {
-              continue;
-            }
-            final at = block.addr - check.addr;
-            final want =
-                image.sublist(block.imageOffset, block.imageOffset + block.len);
-            if (!listEquals(got.sublist(at, at + block.len), want)) {
-              throw RadioProtocolException(
-                  'The radio does not hold what was written at '
-                  '0x${block.addr.toRadixString(16).padLeft(4, '0')}. '
-                  'Restore your backup before using it.');
-            }
-          }
+    yield const RadioProgressEvent(
+      stage: RadioProgressStage.verifying,
+      message: 'Checking what landed…',
+    );
+    final checks = await rust.uv5RVerifyPlan(
+      changed: blocks,
+      dropsByte: probe.dropsByte,
+    );
+    // A check reads a whole block, which can span bytes that were never
+    // written — a window no write touches, a setting the radio keeps for
+    // itself. Only the written blocks inside it are compared.
+    for (final check in checks) {
+      final got = await session.readBlock(check.addr, check.len);
+      for (final block in blocks) {
+        if (block.addr < check.addr || block.addr >= check.addr + check.len) {
+          continue;
         }
-        yield const RadioProgressEvent(
-          stage: RadioProgressStage.done,
-          message: 'Written and checked.',
-          progress: 1,
+        final at = block.addr - check.addr;
+        final want = image.sublist(
+          block.imageOffset,
+          block.imageOffset + block.len,
         );
-      });
+        if (!listEquals(got.sublist(at, at + block.len), want)) {
+          throw RadioProtocolException(
+            'The radio does not hold what was written at '
+            '0x${block.addr.toRadixString(16).padLeft(4, '0')}. '
+            'Restore your backup before using it.',
+          );
+        }
+      }
+    }
+    yield const RadioProgressEvent(
+      stage: RadioProgressStage.done,
+      message: 'Written and checked.',
+      progress: 1,
+    );
+  });
 
   /// Open the cable, wake the radio, probe it, hand off to [body], and always
   /// close the port.
@@ -337,7 +348,8 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
       _Uv5rSession session,
       Uint8List ident,
       rust.Uv5rProbeDto probe,
-    ) body,
+    )
+    body,
   ) async* {
     if (!supports(profile)) throw const RadioUnsupportedException();
 
@@ -355,8 +367,9 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
         stage: RadioProgressStage.identifying,
         message: 'Waking the radio…',
       );
-      final ident = await session
-          .identify(await rust.uv5RIdentMagics(modelId: profile.id));
+      final ident = await session.identify(
+        await rust.uv5RIdentMagics(modelId: profile.id),
+      );
       final probe = await session.probe();
       yield* body(session, ident, probe);
     } finally {
@@ -430,22 +443,25 @@ class _Uv5rSession {
       } catch (error) {
         Log.radio.warning('unrecognised ident', error: error);
         throw const RadioUnsupportedException(
-            'The radio answered, but not as a model this app programs — it '
-            'may be a variant such as the 220 MHz one. Check the model, or '
-            'export the plan for CHIRP.');
+          'The radio answered, but not as a model this app programs — it '
+          'may be a variant such as the 220 MHz one. Check the model, or '
+          'export the plan for CHIRP.',
+        );
       }
       await link.write([_ack]);
       final accepted = await _take(1);
       if (accepted.single != _ack) {
         throw const RadioProtocolException(
-            'The radio would not start a programming session. Turn it off '
-            'and on, and try again.');
+          'The radio would not start a programming session. Turn it off '
+          'and on, and try again.',
+        );
       }
       return ident;
     }
     throw const RadioProtocolException(
-        'The radio did not answer. Check the cable is pushed fully into the '
-        'radio, that the radio is on, and that the right model is chosen.');
+      'The radio did not answer. Check the cable is pushed fully into the '
+      'radio, that the radio is on, and that the right model is chosen.',
+    );
   }
 
   /// The reads made before anything else, and what they found.
@@ -455,10 +471,7 @@ class _Uv5rSession {
     for (final read in reads) {
       blocks.add(await readBlock(read.addr, read.len));
     }
-    return rust.uv5RParseProbe(
-      firmwareBlock: blocks[1],
-      dropBlock: blocks[2],
-    );
+    return rust.uv5RParseProbe(firmwareBlock: blocks[1], dropBlock: blocks[2]);
   }
 
   /// One read, acknowledged.
@@ -496,9 +509,11 @@ class _Uv5rSession {
     await link.write(await rust.uv5RWriteCommand(addr: addr, data: data));
     final ack = await _take(1);
     if (ack.single != _ack) {
-      throw RadioProtocolException('The radio refused a write at '
-          '0x${addr.toRadixString(16).padLeft(4, '0')}. It may now hold a '
-          'partly written memory — restore your backup before using it.');
+      throw RadioProtocolException(
+        'The radio refused a write at '
+        '0x${addr.toRadixString(16).padLeft(4, '0')}. It may now hold a '
+        'partly written memory — restore your backup before using it.',
+      );
     }
   }
 }

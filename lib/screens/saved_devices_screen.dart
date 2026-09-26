@@ -220,25 +220,34 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// A Bluetooth radio stops the scan first, for the same reason
   /// [_reconnect] does. A cable radio has no scan to stop.
   Future<void> _openRadio(
-      BuildContext context, WidgetRef ref, SavedRadio radio) async {
+    BuildContext context,
+    WidgetRef ref,
+    SavedRadio radio,
+  ) async {
     final navigator = Navigator.of(context);
     if (radio.transport == RadioTransport.ble) {
       await ref.read(bleServiceProvider).stopScan().catchError((Object _) {});
     }
-    await navigator.push(MaterialPageRoute<void>(
-      builder: (_) => RadioDeviceScreen(
-        target: radio.target,
-        initialProfile: radioProfileById(radio.radioProfileId),
+    await navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => RadioDeviceScreen(
+          target: radio.target,
+          initialProfile: radioProfileById(radio.radioProfileId),
+        ),
       ),
-    ));
+    );
   }
 
   Future<void> _forgetRadio(
-      BuildContext context, WidgetRef ref, SavedRadio radio) async {
+    BuildContext context,
+    WidgetRef ref,
+    SavedRadio radio,
+  ) async {
     final messenger = ScaffoldMessenger.of(context);
     await ref.read(savedRadiosProvider.notifier).remove(radio.target);
     messenger.showSnackBar(
-        SnackBar(content: Text('Removed ${radio.target.displayName}')));
+      SnackBar(content: Text('Removed ${radio.target.displayName}')),
+    );
   }
 
   @override
@@ -299,8 +308,10 @@ class SavedDevicesScreen extends ConsumerWidget {
                     for (final radio in savedRadios) ...[
                       DeviceListTile(
                         title: radio.target.displayName,
-                        subtitle: radioProfileById(radio.radioProfileId)
-                                ?.displayName ??
+                        subtitle:
+                            radioProfileById(
+                              radio.radioProfileId,
+                            )?.displayName ??
                             'Radio',
                         detail: relativeTime(radio.lastSeen),
                         icon: Icons.settings_input_antenna,

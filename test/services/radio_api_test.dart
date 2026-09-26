@@ -25,29 +25,29 @@ void main() {
   });
 
   ToneDto noTone() => const ToneDto(
-        mode: 'none',
-        ctcssTenthHz: 0,
-        dcsCode: 0,
-        dcsInverted: false,
-      );
+    mode: 'none',
+    ctcssTenthHz: 0,
+    dcsCode: 0,
+    dcsInverted: false,
+  );
 
   RadioChannelDto channel(String name) => RadioChannelDto(
-        slot: 1,
-        name: name,
-        rxFreqHz: 146940000,
-        txFreqHz: 146340000,
-        rxOnly: false,
-        txTone: const ToneDto(
-          mode: 'ctcss',
-          ctcssTenthHz: 1000,
-          dcsCode: 0,
-          dcsInverted: false,
-        ),
-        rxTone: noTone(),
-        narrow: false,
-        lowPower: false,
-        skip: false,
-      );
+    slot: 1,
+    name: name,
+    rxFreqHz: 146940000,
+    txFreqHz: 146340000,
+    rxOnly: false,
+    txTone: const ToneDto(
+      mode: 'ctcss',
+      ctcssTenthHz: 1000,
+      dcsCode: 0,
+      dcsInverted: false,
+    ),
+    rxTone: noTone(),
+    narrow: false,
+    lowPower: false,
+    skip: false,
+  );
 
   test('the model table crosses the boundary intact', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');
@@ -83,8 +83,11 @@ void main() {
 
     var total = 0;
     for (final block in plan) {
-      expect(block.imageOffset, total,
-          reason: 'blocks must tile the image with no gap or overlap');
+      expect(
+        block.imageOffset,
+        total,
+        reason: 'blocks must tile the image with no gap or overlap',
+      );
       total += block.len;
     }
     expect(total, 0x8240);
@@ -95,7 +98,9 @@ void main() {
 
     final serial = await radioWritePlan(modelId: 'uv-5r-mini', blockSize: 0x40);
     final ble = await radioWritePlan(
-        modelId: 'uv-5r-mini', blockSize: await radioBleWriteBlockSize());
+      modelId: 'uv-5r-mini',
+      blockSize: await radioBleWriteBlockSize(),
+    );
 
     expect(await radioBleWriteBlockSize(), 0x80);
     expect(ble.length, lessThan(serial.length));
@@ -123,8 +128,11 @@ void main() {
     final scrambled = writeFrame.sublist(4);
 
     final reply = <int>[0x52, 0x12, 0x34, 0x40, ...scrambled];
-    final parsed =
-        await radioParseReadReply(reply: reply, addr: 0x1234, len: 0x40);
+    final parsed = await radioParseReadReply(
+      reply: reply,
+      addr: 0x1234,
+      len: 0x40,
+    );
     expect(parsed, payload);
   });
 
@@ -173,8 +181,10 @@ void main() {
     );
     expect(written, hasLength(blank.length));
 
-    final decoded =
-        await radioDecodeChannels(image: written, modelId: 'uv-5r-mini');
+    final decoded = await radioDecodeChannels(
+      image: written,
+      modelId: 'uv-5r-mini',
+    );
     expect(decoded, hasLength(2));
     expect(decoded[0].name, 'W1AW');
     expect(decoded[0].slot, 1);
@@ -184,17 +194,23 @@ void main() {
     expect(decoded[1].slot, 2);
   });
 
-  test('an image of the wrong size is caught before it is written back',
-      () async {
-    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+  test(
+    'an image of the wrong size is caught before it is written back',
+    () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
 
-    expect(await radioImageIsComplete(imageLen: 0x8240, modelId: 'uv-5r-mini'),
-        isTrue);
-    // A read cut short must never be written back: the radio would be left
-    // holding half a codeplug.
-    expect(await radioImageIsComplete(imageLen: 0x1000, modelId: 'uv-5r-mini'),
-        isFalse);
-  });
+      expect(
+        await radioImageIsComplete(imageLen: 0x8240, modelId: 'uv-5r-mini'),
+        isTrue,
+      );
+      // A read cut short must never be written back: the radio would be left
+      // holding half a codeplug.
+      expect(
+        await radioImageIsComplete(imageLen: 0x1000, modelId: 'uv-5r-mini'),
+        isFalse,
+      );
+    },
+  );
 
   test('a short image is refused rather than read past', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');
@@ -218,7 +234,10 @@ void main() {
       const firmwareAt = 8 + 0x1800 + 0x30;
       image.fillRange(firmwareAt, firmwareAt + 14, 0xFF);
       image.setRange(
-          firmwareAt, firmwareAt + firmware.length, firmware.codeUnits);
+        firmwareAt,
+        firmwareAt + firmware.length,
+        firmware.codeUnits,
+      );
       return image;
     }
 
@@ -227,12 +246,17 @@ void main() {
       final ids = [for (final m in await uv5RModels()) m.id];
       for (final id in ids) {
         expect(radioProfileById(id), isNotNull, reason: id);
-        expect(radioProfileById(id)!.programmingFamily,
-            ProgrammingFamily.serialUv5r,
-            reason: id);
+        expect(
+          radioProfileById(id)!.programmingFamily,
+          ProgrammingFamily.serialUv5r,
+          reason: id,
+        );
       }
-      expect(ids, isNot(contains('uv-5g')),
-          reason: 'its memory is not laid out like a UV-5R');
+      expect(
+        ids,
+        isNot(contains('uv-5g')),
+        reason: 'its memory is not laid out like a UV-5R',
+      );
     });
 
     test('channels survive the boundary both ways', () async {
@@ -253,9 +277,15 @@ void main() {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
       final base = await blankImage('BFB297');
       final updated = await uv5REncodeChannels(
-          image: base, channels: [channel('W1AW')], modelId: 'uv5r');
+        image: base,
+        channels: [channel('W1AW')],
+        modelId: 'uv5r',
+      );
       final blocks = await uv5RChangedBlocks(
-          base: base, updated: updated, modelId: 'uv5r');
+        base: base,
+        updated: updated,
+        modelId: 'uv5r',
+      );
       expect([for (final b in blocks) b.addr], [0x0000, 0x1000]);
     });
 

@@ -13,7 +13,8 @@ class UnsupportedSerialPortService implements SerialPortService {
   const UnsupportedSerialPortService(this.reason);
 
   /// iPhone and iPad.
-  static const String iosReason = 'iPhone and iPad give apps no access to '
+  static const String iosReason =
+      'iPhone and iPad give apps no access to '
       'USB serial adapters, so a programming cable cannot be used here.';
 
   /// Anything else this build runs on without a serial backend.

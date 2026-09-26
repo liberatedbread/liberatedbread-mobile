@@ -176,8 +176,11 @@ void main() {
         _column(encodeChirpCsv([channel]), 0, column);
 
     test('no tone is an empty Tone cell with CHIRP defaults beside it', () {
-      const plain =
-          RadioChannel(name: 'X', rxFreqHz: 146520000, txFreqHz: 146520000);
+      const plain = RadioChannel(
+        name: 'X',
+        rxFreqHz: 146520000,
+        txFreqHz: 146520000,
+      );
       expect(tone(plain, 'Tone'), '');
       expect(tone(plain, 'rToneFreq'), '88.5');
       expect(tone(plain, 'cToneFreq'), '88.5');
@@ -278,8 +281,11 @@ void main() {
             rxTone: rx,
           );
           final csv = encodeChirpCsv([channel]);
-          expect(knownCrossModes, contains(_column(csv, 0, 'CrossMode')),
-              reason: '$tx / $rx');
+          expect(
+            knownCrossModes,
+            contains(_column(csv, 0, 'CrossMode')),
+            reason: '$tx / $rx',
+          );
           expect(
             ['', 'Tone', 'TSQL', 'DTCS', 'Cross'],
             contains(_column(csv, 0, 'Tone')),

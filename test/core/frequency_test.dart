@@ -31,8 +31,11 @@ void main() {
         (low: 400000000, high: 520000000),
       ]) {
         for (var hz = band.low; hz <= band.high; hz += 12500) {
-          expect(parseMegahertzToHz(formatHzAsMegahertz(hz)), hz,
-              reason: formatHzAsMegahertz(hz));
+          expect(
+            parseMegahertzToHz(formatHzAsMegahertz(hz)),
+            hz,
+            reason: formatHzAsMegahertz(hz),
+          );
         }
       }
     });
@@ -76,8 +79,10 @@ void main() {
     test('keeps enough decimals to distinguish adjacent channels', () {
       // 462.5625 and 462.5875 are different channels; three decimals would
       // render both as 462.563/462.588 and a 12.5 kHz step would vanish.
-      expect(formatHzAsMegahertz(462562500),
-          isNot(formatHzAsMegahertz(462587500)));
+      expect(
+        formatHzAsMegahertz(462562500),
+        isNot(formatHzAsMegahertz(462587500)),
+      );
     });
 
     test('round-trips through the parser', () {

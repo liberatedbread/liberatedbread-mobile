@@ -44,7 +44,7 @@ class CodeplugBackupStore {
   final CacheDirResolver _resolveDir;
 
   CodeplugBackupStore({required CacheDirResolver dirResolver})
-      : _resolveDir = dirResolver;
+    : _resolveDir = dirResolver;
 
   Future<Directory> _root() async {
     final base = await _resolveDir();
@@ -90,12 +90,14 @@ class CodeplugBackupStore {
         final parsed = _parseName(entry.uri.pathSegments.last);
         if (parsed == null) continue;
         final stat = await entry.stat();
-        backups.add(CodeplugBackup(
-          file: entry,
-          modelId: parsed.modelId,
-          takenAt: parsed.takenAt,
-          length: stat.size,
-        ));
+        backups.add(
+          CodeplugBackup(
+            file: entry,
+            modelId: parsed.modelId,
+            takenAt: parsed.takenAt,
+            length: stat.size,
+          ),
+        );
       }
       backups.sort((a, b) => b.takenAt.compareTo(a.takenAt));
       return backups;

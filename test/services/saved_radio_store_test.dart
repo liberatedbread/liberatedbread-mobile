@@ -18,14 +18,13 @@ SavedRadio _radio({
   String name = 'UV-5R Mini',
   DateTime? lastSeen,
   String? profileId,
-}) =>
-    SavedRadio(
-      transport: transport,
-      id: id,
-      name: name,
-      lastSeen: lastSeen ?? DateTime(2026, 9, 1),
-      radioProfileId: profileId,
-    );
+}) => SavedRadio(
+  transport: transport,
+  id: id,
+  name: name,
+  lastSeen: lastSeen ?? DateTime(2026, 9, 1),
+  radioProfileId: profileId,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -36,13 +35,15 @@ void main() {
 
   test('every field round-trips', () async {
     final store = await _store();
-    await store.save(_radio(
-      transport: RadioTransport.usb,
-      id: '/dev/ttyUSB0',
-      name: 'Truck radio',
-      lastSeen: DateTime(2026, 9, 2, 8, 30),
-      profileId: 'uv5r',
-    ));
+    await store.save(
+      _radio(
+        transport: RadioTransport.usb,
+        id: '/dev/ttyUSB0',
+        name: 'Truck radio',
+        lastSeen: DateTime(2026, 9, 2, 8, 30),
+        profileId: 'uv5r',
+      ),
+    );
 
     final loaded = store.load().single;
     expect(loaded.transport, RadioTransport.usb);
@@ -51,9 +52,13 @@ void main() {
     expect(loaded.lastSeen, DateTime(2026, 9, 2, 8, 30));
     expect(loaded.radioProfileId, 'uv5r');
     expect(
-        loaded.target,
-        const RadioTarget(
-            transport: RadioTransport.usb, id: '/dev/ttyUSB0', name: ''));
+      loaded.target,
+      const RadioTarget(
+        transport: RadioTransport.usb,
+        id: '/dev/ttyUSB0',
+        name: '',
+      ),
+    );
   });
 
   test('saving again replaces rather than duplicates', () async {
@@ -83,7 +88,8 @@ void main() {
     await store.save(_radio(transport: RadioTransport.ble, id: 'X'));
     await store.save(_radio(transport: RadioTransport.usb, id: 'X'));
     await store.remove(
-        const RadioTarget(transport: RadioTransport.usb, id: 'X', name: ''));
+      const RadioTarget(transport: RadioTransport.usb, id: 'X', name: ''),
+    );
     final left = store.load().single;
     expect(left.transport, RadioTransport.ble);
   });
@@ -100,8 +106,11 @@ void main() {
     });
     final loaded = store.load();
     expect([for (final r in loaded) r.id], ['good']);
-    expect(loaded.single.lastSeen, DateTime.fromMillisecondsSinceEpoch(0),
-        reason: 'a missing timestamp sorts last rather than failing the row');
+    expect(
+      loaded.single.lastSeen,
+      DateTime.fromMillisecondsSinceEpoch(0),
+      reason: 'a missing timestamp sorts last rather than failing the row',
+    );
   });
 
   test('an empty profile id reads as none', () async {

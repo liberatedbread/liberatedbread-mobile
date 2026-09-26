@@ -27,7 +27,7 @@ class StateBounds {
 
   final String name;
   final List<({double minLat, double minLon, double maxLat, double maxLon})>
-      boxes;
+  boxes;
 
   const StateBounds({
     required this.code,
@@ -57,11 +57,11 @@ class StateBounds {
   /// box is not a border — and used only to name the state a user is probably
   /// standing in.
   bool contains(GeoPoint point) => overlaps(
-        minLat: point.lat,
-        maxLat: point.lat,
-        minLon: point.lon,
-        maxLon: point.lon,
-      );
+    minLat: point.lat,
+    maxLat: point.lat,
+    minLon: point.lon,
+    maxLon: point.lon,
+  );
 
   static StateBounds? fromJson(Map<String, dynamic> json) {
     final code = json['code'];

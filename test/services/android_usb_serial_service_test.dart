@@ -21,15 +21,15 @@ const _portStream = EventChannel('$_portChannelName/stream');
 
 /// A CH340 cable as the plugin lists it, under Android's number for it.
 Map<String, Object?> _ch340({int deviceId = 1003, int bus = 3}) => {
-      'deviceName': '/dev/bus/usb/001/00$bus',
-      'vid': 0x1A86,
-      'pid': 0x7523,
-      'productName': 'USB Serial',
-      'manufacturerName': 'QinHeng',
-      'deviceId': deviceId,
-      'serialNumber': null,
-      'interfaceCount': 1,
-    };
+  'deviceName': '/dev/bus/usb/001/00$bus',
+  'vid': 0x1A86,
+  'pid': 0x7523,
+  'productName': 'USB Serial',
+  'manufacturerName': 'QinHeng',
+  'deviceId': deviceId,
+  'serialNumber': null,
+  'interfaceCount': 1,
+};
 
 class _FakePlugin {
   List<Map<String, Object?>> devices = [_ch340()];
@@ -137,32 +137,37 @@ void main() {
     expect(after.single.id, before.single.id);
 
     final link = await service.open(before.single, baudRate: 9600);
-    expect(plugin.created, [1007],
-        reason: 'opened by the number Android gives it now');
+    expect(plugin.created, [
+      1007,
+    ], reason: 'opened by the number Android gives it now');
     await link.close();
   });
 
-  test('two identical cables are told apart by where they are plugged in',
-      () async {
-    plugin.devices = [
-      _ch340(deviceId: 1003, bus: 3),
-      _ch340(deviceId: 1004, bus: 4),
-    ];
-    final ports = await service.listPorts();
-    expect(ports.map((p) => p.id).toSet(), hasLength(2));
+  test(
+    'two identical cables are told apart by where they are plugged in',
+    () async {
+      plugin.devices = [
+        _ch340(deviceId: 1003, bus: 3),
+        _ch340(deviceId: 1004, bus: 4),
+      ];
+      final ports = await service.listPorts();
+      expect(ports.map((p) => p.id).toSet(), hasLength(2));
 
-    final link = await service.open(ports.last, baudRate: 9600);
-    expect(plugin.created, [1004]);
-    await link.close();
-  });
+      final link = await service.open(ports.last, baudRate: 9600);
+      expect(plugin.created, [1004]);
+      await link.close();
+    },
+  );
 
   test('opens at the rate asked, 8N1, with DTR and RTS raised', () async {
     final link = await service.open(cable, baudRate: 9600);
     final methods = [for (final c in plugin.portCalls) c.method];
     expect(methods, containsAllInOrder(['open', 'setPortParameters']));
-    final params = plugin.portCalls
-        .firstWhere((c) => c.method == 'setPortParameters')
-        .arguments as Map;
+    final params =
+        plugin.portCalls
+                .firstWhere((c) => c.method == 'setPortParameters')
+                .arguments
+            as Map;
     expect(params['baudRate'], 9600);
     expect(params['dataBits'], 8);
     expect(params['stopBits'], 1);
@@ -175,8 +180,13 @@ void main() {
     plugin.grant = false;
     await expectLater(
       service.open(cable, baudRate: 9600),
-      throwsA(isA<SerialPortException>()
-          .having((e) => e.message, 'message', contains('allow it'))),
+      throwsA(
+        isA<SerialPortException>().having(
+          (e) => e.message,
+          'message',
+          contains('allow it'),
+        ),
+      ),
     );
   });
 
@@ -184,8 +194,13 @@ void main() {
     plugin.openSucceeds = false;
     await expectLater(
       service.open(cable, baudRate: 9600),
-      throwsA(isA<SerialPortException>()
-          .having((e) => e.message, 'message', contains('plug it back in'))),
+      throwsA(
+        isA<SerialPortException>().having(
+          (e) => e.message,
+          'message',
+          contains('plug it back in'),
+        ),
+      ),
     );
   });
 
@@ -193,8 +208,13 @@ void main() {
     plugin.devices = [];
     await expectLater(
       service.open(cable, baudRate: 9600),
-      throwsA(isA<SerialPortException>()
-          .having((e) => e.message, 'message', contains('not plugged in'))),
+      throwsA(
+        isA<SerialPortException>().having(
+          (e) => e.message,
+          'message',
+          contains('not plugged in'),
+        ),
+      ),
     );
     expect(plugin.created, isEmpty);
     expect(plugin.portCalls, isEmpty);

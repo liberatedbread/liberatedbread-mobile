@@ -33,8 +33,10 @@ void main() {
     });
 
     test('accepts ints, which is what a hand-written JSON fixture has', () {
-      expect(GeoPoint.fromJson({'lat': 47, 'lon': -122}),
-          const GeoPoint(47.0, -122.0));
+      expect(
+        GeoPoint.fromJson({'lat': 47, 'lon': -122}),
+        const GeoPoint(47.0, -122.0),
+      );
     });
 
     test('has value equality', () {
@@ -47,8 +49,9 @@ void main() {
   group('haversineKm', () {
     test('is zero for a point against itself', () {
       expect(
-          haversineKm(const GeoPoint(41.7, -72.7), const GeoPoint(41.7, -72.7)),
-          0.0);
+        haversineKm(const GeoPoint(41.7, -72.7), const GeoPoint(41.7, -72.7)),
+        0.0,
+      );
     });
 
     test('matches a published distance: Seattle to Portland', () {
@@ -71,8 +74,10 @@ void main() {
 
     test('one degree of latitude is about 111 km anywhere', () {
       for (final lat in [0.0, 45.0, 70.0]) {
-        expect(haversineKm(GeoPoint(lat, 0), GeoPoint(lat + 1, 0)),
-            closeTo(111.2, 0.5));
+        expect(
+          haversineKm(GeoPoint(lat, 0), GeoPoint(lat + 1, 0)),
+          closeTo(111.2, 0.5),
+        );
       }
     });
 

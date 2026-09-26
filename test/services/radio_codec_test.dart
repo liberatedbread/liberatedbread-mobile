@@ -12,29 +12,37 @@ import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart' as rust;
 
 import '../helpers/host_rust_lib.dart';
 
-rust.ToneDto _tone(String mode,
-        {int ctcss = 0, int dcs = 0, bool inv = false}) =>
-    rust.ToneDto(
-        mode: mode, ctcssTenthHz: ctcss, dcsCode: dcs, dcsInverted: inv);
+rust.ToneDto _tone(
+  String mode, {
+  int ctcss = 0,
+  int dcs = 0,
+  bool inv = false,
+}) => rust.ToneDto(
+  mode: mode,
+  ctcssTenthHz: ctcss,
+  dcsCode: dcs,
+  dcsInverted: inv,
+);
 
-rust.RadioChannelDto _dto(int slot,
-        {String name = 'CH',
-        rust.ToneDto? tx,
-        rust.ToneDto? rx,
-        bool narrow = false,
-        bool lowPower = false}) =>
-    rust.RadioChannelDto(
-      slot: slot,
-      name: '$name$slot',
-      rxFreqHz: 146520000,
-      txFreqHz: 146520000,
-      rxOnly: false,
-      txTone: tx ?? _tone('none'),
-      rxTone: rx ?? _tone('none'),
-      narrow: narrow,
-      lowPower: lowPower,
-      skip: false,
-    );
+rust.RadioChannelDto _dto(
+  int slot, {
+  String name = 'CH',
+  rust.ToneDto? tx,
+  rust.ToneDto? rx,
+  bool narrow = false,
+  bool lowPower = false,
+}) => rust.RadioChannelDto(
+  slot: slot,
+  name: '$name$slot',
+  rxFreqHz: 146520000,
+  txFreqHz: 146520000,
+  rxOnly: false,
+  txTone: tx ?? _tone('none'),
+  rxTone: rx ?? _tone('none'),
+  narrow: narrow,
+  lowPower: lowPower,
+  skip: false,
+);
 
 void main() {
   group('channel conversion', () {
@@ -73,18 +81,23 @@ void main() {
       expect(channelFromDto(channelToDto(listen, slot: 1)).rxOnly, isTrue);
     });
 
-    test('a tone the app cannot represent reads as none, keeping the channel',
-        () {
-      final odd = channelFromDto(
-          _dto(1, tx: _tone('ctcss', ctcss: 1234), rx: _tone('dcs', dcs: 999)));
-      expect(odd.rxFreqHz, 146520000, reason: 'the channel survives');
-      expect(odd.txTone, ToneSetting.none);
-      expect(odd.rxTone, ToneSetting.none);
-    });
+    test(
+      'a tone the app cannot represent reads as none, keeping the channel',
+      () {
+        final odd = channelFromDto(
+          _dto(1, tx: _tone('ctcss', ctcss: 1234), rx: _tone('dcs', dcs: 999)),
+        );
+        expect(odd.rxFreqHz, 146520000, reason: 'the channel survives');
+        expect(odd.txTone, ToneSetting.none);
+        expect(odd.rxTone, ToneSetting.none);
+      },
+    );
 
     test('an unknown tone mode reads as none', () {
       expect(
-          channelFromDto(_dto(1, tx: _tone('bogus'))).txTone, ToneSetting.none);
+        channelFromDto(_dto(1, tx: _tone('bogus'))).txTone,
+        ToneSetting.none,
+      );
     });
   });
 
@@ -118,8 +131,11 @@ void main() {
       uhf: BandLimit(txEnabled: false, lowerMhz: 400, upperMhz: 520),
     );
     final dto = bandLimitsToDto(limits);
-    expect(dto.layout, isEmpty,
-        reason: 'the codec works the layout out from the image again');
+    expect(
+      dto.layout,
+      isEmpty,
+      reason: 'the codec works the layout out from the image again',
+    );
     expect(dto.vhf.lowerMhz, 136);
     expect(dto.uhf.txEnabled, isFalse);
     expect(bandLimitsFromDto(dto), limits);
@@ -132,40 +148,42 @@ void main() {
       rustReady = await initHostRustLib();
     });
 
-    test('decodes what the codec encoded, through the native library',
-        () async {
-      if (!rustReady) return markTestSkipped('host Rust library unavailable');
-      const channels = [
-        RadioChannel(name: 'ONE', rxFreqHz: 146520000, txFreqHz: 146520000),
-        RadioChannel(
-          name: 'TWO',
-          rxFreqHz: 446000000,
-          txFreqHz: 446000000,
-          txTone: ToneSetting.ctcss(885),
-        ),
-      ];
-      final image = await rust.radioEncodeChannels(
-        image: Uint8List(0x8240),
-        channels: [
-          for (var i = 0; i < channels.length; i++)
-            channelToDto(channels[i], slot: i + 1),
-        ],
-        modelId: uv5rMiniProfile.id,
-      );
-
-      final decoded = await const CodeplugDecoder().decode(
-        RadioCodeplug(
+    test(
+      'decodes what the codec encoded, through the native library',
+      () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        const channels = [
+          RadioChannel(name: 'ONE', rxFreqHz: 146520000, txFreqHz: 146520000),
+          RadioChannel(
+            name: 'TWO',
+            rxFreqHz: 446000000,
+            txFreqHz: 446000000,
+            txTone: ToneSetting.ctcss(885),
+          ),
+        ];
+        final image = await rust.radioEncodeChannels(
+          image: Uint8List(0x8240),
+          channels: [
+            for (var i = 0; i < channels.length; i++)
+              channelToDto(channels[i], slot: i + 1),
+          ],
           modelId: uv5rMiniProfile.id,
-          image: image,
-          readAt: DateTime(2026, 9, 1),
-        ),
-        uv5rMiniProfile,
-      );
+        );
 
-      expect([for (final c in decoded.channels) c.name], ['ONE', 'TWO']);
-      expect(decoded.channels[1].txTone, const ToneSetting.ctcss(885));
-      expect(decoded.hadGaps, isFalse);
-    });
+        final decoded = await const CodeplugDecoder().decode(
+          RadioCodeplug(
+            modelId: uv5rMiniProfile.id,
+            image: image,
+            readAt: DateTime(2026, 9, 1),
+          ),
+          uv5rMiniProfile,
+        );
+
+        expect([for (final c in decoded.channels) c.name], ['ONE', 'TWO']);
+        expect(decoded.channels[1].txTone, const ToneSetting.ctcss(885));
+        expect(decoded.hadGaps, isFalse);
+      },
+    );
 
     test('a cable radio decodes through its own codec', () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');

@@ -15,9 +15,11 @@ import '../core/geo.dart';
 class LocationPermissionDeniedException implements UserFacingException {
   @override
   final String message;
-  const LocationPermissionDeniedException(
-      [this.message = 'Location permission denied. Grant location access to '
-          'find repeaters near you — or enter your position by hand instead.']);
+  const LocationPermissionDeniedException([
+    this.message =
+        'Location permission denied. Grant location access to '
+        'find repeaters near you — or enter your position by hand instead.',
+  ]);
 
   @override
   String toString() => message;
@@ -29,9 +31,11 @@ class LocationPermissionPermanentlyDeniedException
     implements UserFacingException {
   @override
   final String message;
-  const LocationPermissionPermanentlyDeniedException(
-      [this.message = 'Location access is turned off for this app. Turn it on '
-          'in system settings, or enter your position by hand instead.']);
+  const LocationPermissionPermanentlyDeniedException([
+    this.message =
+        'Location access is turned off for this app. Turn it on '
+        'in system settings, or enter your position by hand instead.',
+  ]);
 
   @override
   String toString() => message;
@@ -42,9 +46,11 @@ class LocationPermissionPermanentlyDeniedException
 class LocationServicesDisabledException implements UserFacingException {
   @override
   final String message;
-  const LocationServicesDisabledException(
-      [this.message = 'Location services are turned off. Turn them on, or '
-          'enter your position by hand instead.']);
+  const LocationServicesDisabledException([
+    this.message =
+        'Location services are turned off. Turn them on, or '
+        'enter your position by hand instead.',
+  ]);
 
   @override
   String toString() => message;
@@ -59,9 +65,11 @@ class LocationServicesDisabledException implements UserFacingException {
 class LocationUnavailableException implements UserFacingException {
   @override
   final String message;
-  const LocationUnavailableException(
-      [this.message = 'This device cannot report its position. Enter your '
-          'location by hand — coordinates or a grid square both work.']);
+  const LocationUnavailableException([
+    this.message =
+        'This device cannot report its position. Enter your '
+        'location by hand — coordinates or a grid square both work.',
+  ]);
 
   @override
   String toString() => message;
@@ -71,9 +79,11 @@ class LocationUnavailableException implements UserFacingException {
 class LocationTimeoutException implements UserFacingException {
   @override
   final String message;
-  const LocationTimeoutException(
-      [this.message = 'Could not get a position fix. Move somewhere with a '
-          'clearer view of the sky, or enter your location by hand.']);
+  const LocationTimeoutException([
+    this.message =
+        'Could not get a position fix. Move somewhere with a '
+        'clearer view of the sky, or enter your location by hand.',
+  ]);
 
   @override
   String toString() => message;

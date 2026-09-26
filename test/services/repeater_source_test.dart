@@ -26,7 +26,8 @@ void main() {
 
     test('round-trips through JSON', () {
       final decoded = RepeaterListing.fromJson(
-          jsonDecode(jsonEncode(listing.toJson())) as Map<String, dynamic>);
+        jsonDecode(jsonEncode(listing.toJson())) as Map<String, dynamic>,
+      );
       expect(decoded!.channel, listing.channel);
       expect(decoded.location, listing.location);
       expect(decoded.category, listing.category);
@@ -38,10 +39,11 @@ void main() {
       expect(RepeaterListing.fromJson(const {}), isNull);
       expect(RepeaterListing.fromJson(const {'channel': 'nope'}), isNull);
       expect(
-          RepeaterListing.fromJson(const {
-            'channel': {'name': 'x'}
-          }),
-          isNull);
+        RepeaterListing.fromJson(const {
+          'channel': {'name': 'x'},
+        }),
+        isNull,
+      );
     });
 
     test('an unknown category falls back to repeater', () {
@@ -73,11 +75,11 @@ void main() {
 
   group('SourceFailure', () {
     SourceFailure failure(SourceFailureKind kind) => SourceFailure(
-          sourceId: 'test',
-          displayName: 'Test',
-          kind: kind,
-          message: 'something',
-        );
+      sourceId: 'test',
+      displayName: 'Test',
+      kind: kind,
+      message: 'something',
+    );
 
     test('marks the kinds the user can act on', () {
       // The distinction drives whether the results screen offers a settings
@@ -95,15 +97,19 @@ void main() {
   });
 
   test('a source exception carries a message written for a person', () {
-    const exception = RepeaterSourceException(SourceFailure(
-      sourceId: 'test',
-      displayName: 'Test',
-      kind: SourceFailureKind.auth,
-      message: 'Needs a token.',
-    ));
+    const exception = RepeaterSourceException(
+      SourceFailure(
+        sourceId: 'test',
+        displayName: 'Test',
+        kind: SourceFailureKind.auth,
+        message: 'Needs a token.',
+      ),
+    );
     expect(exception, isA<UserFacingException>());
     expect(exception.message, 'Needs a token.');
     expect(
-        friendlyErrorText(exception, fallback: 'fallback'), 'Needs a token.');
+      friendlyErrorText(exception, fallback: 'fallback'),
+      'Needs a token.',
+    );
   });
 }

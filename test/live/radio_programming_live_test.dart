@@ -95,110 +95,140 @@ void main() {
           profile: profile,
           onResult: (codeplug) => result = codeplug,
         )
-        .forEach((event) => stdout.writeln(
+        .forEach(
+          (event) => stdout.writeln(
             '  ${event.stage.name}: ${event.message} '
-            '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}'));
+            '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}',
+          ),
+        );
     return result!;
   }
 
-  test('1. the radio answers, and a full read comes back', () async {
-    if (skipUnlessConfigured()) return;
+  test(
+    '1. the radio answers, and a full read comes back',
+    () async {
+      if (skipUnlessConfigured()) return;
 
-    final codeplug = await read();
-    backup = codeplug;
+      final codeplug = await read();
+      backup = codeplug;
 
-    expect(codeplug.length, greaterThan(0));
-    expect(
-      await rust.radioImageIsComplete(
-        imageLen: codeplug.length,
+      expect(codeplug.length, greaterThan(0));
+      expect(
+        await rust.radioImageIsComplete(
+          imageLen: codeplug.length,
+          modelId: profile.id,
+        ),
+        isTrue,
+        reason: 'the read was short, so the layout in models.rs is wrong',
+      );
+
+      // Keep it. A backup on disk is the difference between an experiment and
+      // an accident.
+      final file = File(
+        'radio-backup-${DateTime.now().millisecondsSinceEpoch}'
+        '-${profile.id}.bin',
+      );
+      await file.writeAsBytes(codeplug.image);
+      stdout.writeln('  backup written to ${file.path}');
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
+    '2. the channels decode into something a person recognises',
+    () async {
+      if (skipUnlessConfigured()) return;
+      final codeplug = backup ?? await read();
+
+      final channels = await rust.radioDecodeChannels(
+        image: codeplug.image,
         modelId: profile.id,
-      ),
-      isTrue,
-      reason: 'the read was short, so the layout in models.rs is wrong',
-    );
-
-    // Keep it. A backup on disk is the difference between an experiment and
-    // an accident.
-    final file = File('radio-backup-${DateTime.now().millisecondsSinceEpoch}'
-        '-${profile.id}.bin');
-    await file.writeAsBytes(codeplug.image);
-    stdout.writeln('  backup written to ${file.path}');
-  }, timeout: const Timeout(Duration(minutes: 5)));
-
-  test('2. the channels decode into something a person recognises', () async {
-    if (skipUnlessConfigured()) return;
-    final codeplug = backup ?? await read();
-
-    final channels = await rust.radioDecodeChannels(
-      image: codeplug.image,
-      modelId: profile.id,
-    );
-    stdout.writeln('  ${channels.length} channels programmed');
-    for (final channel in channels.take(20)) {
-      stdout.writeln('  ${channel.slot.toString().padLeft(3)}  '
+      );
+      stdout.writeln('  ${channels.length} channels programmed');
+      for (final channel in channels.take(20)) {
+        stdout.writeln(
+          '  ${channel.slot.toString().padLeft(3)}  '
           '${channel.name.padRight(12)}  '
           '${channel.rxFreqHz / 1000000}  '
           '${channel.rxOnly ? 'RX only' : 'tx ${channel.txFreqHz / 1000000}'}  '
-          '${channel.txTone.mode}');
-    }
+          '${channel.txTone.mode}',
+        );
+      }
 
-    // THE ASSERTION THAT MATTERS IS THE ONE YOU MAKE WITH YOUR EYES: open the
-    // same radio in CHIRP and check these twenty against it. A layout that is
-    // wrong by one field decodes perfectly and means nothing.
-    expect(channels, isNotEmpty,
-        reason: 'a radio with no channels at all is either empty or a sign '
-            'the channel block is at the wrong offset');
-  }, timeout: const Timeout(Duration(minutes: 5)));
+      // THE ASSERTION THAT MATTERS IS THE ONE YOU MAKE WITH YOUR EYES: open the
+      // same radio in CHIRP and check these twenty against it. A layout that is
+      // wrong by one field decodes perfectly and means nothing.
+      expect(
+        channels,
+        isNotEmpty,
+        reason:
+            'a radio with no channels at all is either empty or a sign '
+            'the channel block is at the wrong offset',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 
-  test('3. one channel writes, and reads back identical', () async {
-    if (skipUnlessConfigured()) return;
-    final base = backup ?? await read();
+  test(
+    '3. one channel writes, and reads back identical',
+    () async {
+      if (skipUnlessConfigured()) return;
+      final base = backup ?? await read();
 
-    final existing = await rust.radioDecodeChannels(
-      image: base.image,
-      modelId: profile.id,
-    );
-    final keep = [
-      for (final channel in existing)
-        RadioChannel(
-          name: channel.name,
-          rxFreqHz: channel.rxFreqHz,
-          txFreqHz: channel.txFreqHz,
-          rxOnly: channel.rxOnly,
-          mode: channel.narrow ? ChannelMode.nfm : ChannelMode.fm,
-          power: channel.lowPower ? PowerLevel.low : PowerLevel.high,
+      final existing = await rust.radioDecodeChannels(
+        image: base.image,
+        modelId: profile.id,
+      );
+      final keep = [
+        for (final channel in existing)
+          RadioChannel(
+            name: channel.name,
+            rxFreqHz: channel.rxFreqHz,
+            txFreqHz: channel.txFreqHz,
+            rxOnly: channel.rxOnly,
+            mode: channel.narrow ? ChannelMode.nfm : ChannelMode.fm,
+            power: channel.lowPower ? PowerLevel.low : PowerLevel.high,
+          ),
+      ];
+      while (keep.length < _scratchSlot) {
+        keep.add(
+          const RadioChannel(
+            name: '',
+            rxFreqHz: 146520000,
+            txFreqHz: 146520000,
+          ),
+        );
+      }
+      keep.add(
+        const RadioChannel(
+          name: 'LBTEST',
+          rxFreqHz: 146520000,
+          txFreqHz: 146520000,
+          txTone: ToneSetting.ctcss(1000),
         ),
-    ];
-    while (keep.length < _scratchSlot) {
-      keep.add(const RadioChannel(
-          name: '', rxFreqHz: 146520000, txFreqHz: 146520000));
-    }
-    keep.add(const RadioChannel(
-      name: 'LBTEST',
-      rxFreqHz: 146520000,
-      txFreqHz: 146520000,
-      txTone: ToneSetting.ctcss(1000),
-    ));
+      );
 
-    await programmer
-        .writeChannels(
-          deviceId: _deviceId!,
-          profile: profile,
-          base: base,
-          channels: keep,
-        )
-        .forEach((event) => stdout.writeln('  ${event.message}'));
+      await programmer
+          .writeChannels(
+            deviceId: _deviceId!,
+            profile: profile,
+            base: base,
+            channels: keep,
+          )
+          .forEach((event) => stdout.writeln('  ${event.message}'));
 
-    final after = await read();
-    final channels = await rust.radioDecodeChannels(
-      image: after.image,
-      modelId: profile.id,
-    );
-    final written = channels.firstWhere((c) => c.slot == _scratchSlot + 1);
-    expect(written.name, 'LBTEST');
-    expect(written.rxFreqHz, 146520000);
-    expect(written.txTone.ctcssTenthHz, 1000);
-  }, timeout: const Timeout(Duration(minutes: 15)));
+      final after = await read();
+      final channels = await rust.radioDecodeChannels(
+        image: after.image,
+        modelId: profile.id,
+      );
+      final written = channels.firstWhere((c) => c.slot == _scratchSlot + 1);
+      expect(written.name, 'LBTEST');
+      expect(written.rxFreqHz, 146520000);
+      expect(written.txTone.ctcssTenthHz, 1000);
+    },
+    timeout: const Timeout(Duration(minutes: 15)),
+  );
 
   test('4. the backup restores', () async {
     if (skipUnlessConfigured()) return;
@@ -217,7 +247,10 @@ void main() {
         .forEach((event) => stdout.writeln('  ${event.message}'));
 
     final after = await read();
-    expect(after.image, original.image,
-        reason: 'the radio should be exactly as it was found');
+    expect(
+      after.image,
+      original.image,
+      reason: 'the radio should be exactly as it was found',
+    );
   }, timeout: const Timeout(Duration(minutes: 15)));
 }

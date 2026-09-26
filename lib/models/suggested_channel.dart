@@ -13,11 +13,11 @@ enum SuggestionCategory {
   preset;
 
   String get label => switch (this) {
-        SuggestionCategory.repeater => 'Repeaters',
-        SuggestionCategory.gmrs => 'GMRS',
-        SuggestionCategory.weather => 'Weather',
-        SuggestionCategory.preset => 'Standard channels',
-      };
+    SuggestionCategory.repeater => 'Repeaters',
+    SuggestionCategory.gmrs => 'GMRS',
+    SuggestionCategory.weather => 'Weather',
+    SuggestionCategory.preset => 'Standard channels',
+  };
 }
 
 /// A [RadioChannel] the engine is proposing, plus everything the user needs to
@@ -75,7 +75,8 @@ class SuggestedChannel {
 
   /// Identity for de-duplication: two listings of the same repeater from two
   /// sources are the same channel, whatever they called it.
-  String get dedupeKey => '${channel.rxFreqHz}/${channel.txFreqHz}/'
+  String get dedupeKey =>
+      '${channel.rxFreqHz}/${channel.txFreqHz}/'
       '${channel.txTone.label}';
 
   SuggestedChannel copyWith({
@@ -83,17 +84,16 @@ class SuggestedChannel {
     bool? txAllowed,
     bool? requiresTxUnlock,
     String? details,
-  }) =>
-      SuggestedChannel(
-        channel: channel ?? this.channel,
-        category: category,
-        sourceId: sourceId,
-        distanceKm: distanceKm,
-        callsign: callsign,
-        details: details ?? this.details,
-        txAllowed: txAllowed ?? this.txAllowed,
-        requiresTxUnlock: requiresTxUnlock ?? this.requiresTxUnlock,
-      );
+  }) => SuggestedChannel(
+    channel: channel ?? this.channel,
+    category: category,
+    sourceId: sourceId,
+    distanceKm: distanceKm,
+    callsign: callsign,
+    details: details ?? this.details,
+    txAllowed: txAllowed ?? this.txAllowed,
+    requiresTxUnlock: requiresTxUnlock ?? this.requiresTxUnlock,
+  );
 
   @override
   String toString() =>

@@ -104,10 +104,14 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
       canPop: !_busy,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Wait for the radio to finish — do not turn it off '
-              'or unplug it.'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Wait for the radio to finish — do not turn it off '
+              'or unplug it.',
+            ),
+          ),
+        );
       },
       child: Scaffold(
         appBar: AppBar(title: Text('Program ${widget.profile.displayName}')),
@@ -116,8 +120,10 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
             _intro(),
             if (_sessionError case final String error)
               ListTile(
-                leading: Icon(Icons.error_outline,
-                    color: Theme.of(context).colorScheme.error),
+                leading: Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
                 title: Text(error),
               ),
             if (_outcome case final String outcome)
@@ -150,9 +156,12 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
               if (_scanError case final String error)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(error,
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
+                  child: Text(
+                    error,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                 ),
               if (radios.isEmpty && !_scanning)
                 const Padding(
@@ -170,11 +179,13 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
                   trailing: _busy ? null : const Icon(Icons.chevron_right),
                   onTap: _busy
                       ? null
-                      : () => _program(RadioTarget(
+                      : () => _program(
+                          RadioTarget(
                             transport: RadioTransport.ble,
                             id: radio.id,
                             name: radio.name,
-                          )),
+                          ),
+                        ),
                 ),
             ],
           ],
@@ -184,61 +195,67 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
   }
 
   Widget _intro() => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${widget.plan.name} · '
-                '${widget.plan.length} channels'),
-            const SizedBox(height: 8),
-            Text(
-              'The radio is read first and that copy is saved, so whatever is '
-              'on it now can be put back. '
-              '${widget.target != null ? 'Press Write to start.' : _overCable ? 'Pick the cable below to start.' : 'Pick your radio below to start.'}',
-            ),
-            if (widget.profile.programmerSupport ==
-                ProgrammerSupport.unverified)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Programming has not been confirmed on this exact model. '
-                  'The backup is the thing to rely on.',
-                ),
-              ),
-          ],
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${widget.plan.name} · '
+          '${widget.plan.length} channels',
         ),
-      );
+        const SizedBox(height: 8),
+        Text(
+          'The radio is read first and that copy is saved, so whatever is '
+          'on it now can be put back. '
+          '${widget.target != null
+              ? 'Press Write to start.'
+              : _overCable
+              ? 'Pick the cable below to start.'
+              : 'Pick your radio below to start.'}',
+        ),
+        if (widget.profile.programmerSupport == ProgrammerSupport.unverified)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Programming has not been confirmed on this exact model. '
+              'The backup is the thing to rely on.',
+            ),
+          ),
+      ],
+    ),
+  );
 
   Widget _progressTile(RadioProgressEvent event) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(event.message),
-            const SizedBox(height: 8),
-            LinearProgressIndicator(value: event.progress),
-          ],
-        ),
-      );
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(event.message),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(value: event.progress),
+      ],
+    ),
+  );
 
   List<Widget> _cableSection() {
     final ports = _ports;
     String bridgeLine(SerialPortInfo port) => [
-          port.name,
-          if (port.bridge != null && port.bridge!.name != port.displayName)
-            port.bridge!.name,
-        ].join(' · ');
+      port.name,
+      if (port.bridge != null && port.bridge!.name != port.displayName)
+        port.bridge!.name,
+    ].join(' · ');
     return [
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
         child: Row(
           children: [
             Expanded(
-              child: Text('Cables',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold)),
+              child: Text(
+                'Cables',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
             ),
             if (ports == null)
               const SizedBox(
@@ -257,8 +274,10 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
       if (_portsError case final String error)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(error,
-              style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          child: Text(
+            error,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
         ),
       if (ports != null && ports.isEmpty && _portsError == null)
         const Padding(
@@ -277,11 +296,13 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
           trailing: _busy ? null : const Icon(Icons.chevron_right),
           onTap: _busy
               ? null
-              : () => _program(RadioTarget(
+              : () => _program(
+                  RadioTarget(
                     transport: RadioTransport.usb,
                     id: port.id,
                     name: port.displayName,
-                  )),
+                  ),
+                ),
         ),
     ];
   }
@@ -317,30 +338,31 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
   }
 
   Widget _scanHeader() => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text('Radios nearby',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-            ),
-            if (_scanning)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              TextButton(
-                onPressed: _busy ? null : _startScan,
-                child: const Text('Scan again'),
-              ),
-          ],
+    padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            'Radios nearby',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
         ),
-      );
+        if (_scanning)
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        else
+          TextButton(
+            onPressed: _busy ? null : _startScan,
+            child: const Text('Scan again'),
+          ),
+      ],
+    ),
+  );
 
   /// Scan, keeping only what might be one of these radios.
   ///
@@ -357,37 +379,40 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
     });
 
     final ble = ref.read(bleServiceProvider);
-    _scan = ble.scan(timeout: const Duration(seconds: 12)).listen(
-      (device) {
-        if (!mightBeRadio(
-          name: device.name,
-          serviceUuids: device.serviceUuids,
-        )) {
-          return;
-        }
-        setState(() => _found[device.id] = device);
-      },
-      onError: (Object error) {
-        if (!mounted) return;
-        setState(() {
-          _scanning = false;
-          _scanError = friendlyErrorText(
-            error,
-            fallback: 'Could not scan for radios.',
-            context: 'radio programming scan',
-          );
-        });
-      },
-      onDone: () {
-        if (mounted) setState(() => _scanning = false);
-      },
-    );
+    _scan = ble
+        .scan(timeout: const Duration(seconds: 12))
+        .listen(
+          (device) {
+            if (!mightBeRadio(
+              name: device.name,
+              serviceUuids: device.serviceUuids,
+            )) {
+              return;
+            }
+            setState(() => _found[device.id] = device);
+          },
+          onError: (Object error) {
+            if (!mounted) return;
+            setState(() {
+              _scanning = false;
+              _scanError = friendlyErrorText(
+                error,
+                fallback: 'Could not scan for radios.',
+                context: 'radio programming scan',
+              );
+            });
+          },
+          onDone: () {
+            if (mounted) setState(() => _scanning = false);
+          },
+        );
   }
 
   /// Read, back up, write.
   Future<void> _program(RadioTarget radio) async {
-    final programmer =
-        ref.read(radioProgrammerForTransportProvider(radio.transport));
+    final programmer = ref.read(
+      radioProgrammerForTransportProvider(radio.transport),
+    );
     final backups = ref.read(codeplugBackupStoreProvider);
     final savedRadios = ref.read(savedRadiosProvider.notifier);
     final messenger = ScaffoldMessenger.of(context);
@@ -452,7 +477,8 @@ class _RadioProgramScreenState extends ConsumerState<RadioProgramScreen> {
       if (!mounted) return;
       setState(() {
         _progress = null;
-        _outcome = '${widget.plan.length} channels written to '
+        _outcome =
+            '${widget.plan.length} channels written to '
             '${radio.displayName}.';
       });
     } catch (error) {

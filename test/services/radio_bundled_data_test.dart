@@ -33,7 +33,7 @@ void main() {
       code: 'WA',
       name: 'Washington',
       boxes: [
-        (minLat: 45.5443, minLon: -124.7258, maxLat: 49.0025, maxLon: -116.916)
+        (minLat: 45.5443, minLon: -124.7258, maxLat: 49.0025, maxLon: -116.916),
       ],
     );
 
@@ -47,7 +47,11 @@ void main() {
       // standing on the line of.
       expect(
         washington.overlaps(
-            minLat: 49.0025, maxLat: 51, minLon: -120, maxLon: -119),
+          minLat: 49.0025,
+          maxLat: 51,
+          minLon: -120,
+          maxLon: -119,
+        ),
         isTrue,
       );
     });
@@ -66,16 +70,18 @@ void main() {
 
     test('decodes defensively', () {
       expect(StateBounds.fromJson(const {}), isNull);
-      expect(StateBounds.fromJson(const {'code': '', 'boxes': <Object>[]}),
-          isNull);
+      expect(
+        StateBounds.fromJson(const {'code': '', 'boxes': <Object>[]}),
+        isNull,
+      );
       expect(StateBounds.fromJson(const {'code': 'WA'}), isNull);
       // A boxes list whose entries are all unusable is no better than none.
       expect(
         StateBounds.fromJson(const {
           'code': 'WA',
           'boxes': [
-            {'minLat': 'north'}
-          ]
+            {'minLat': 'north'},
+          ],
         }),
         isNull,
       );
@@ -85,7 +91,7 @@ void main() {
       final bounds = StateBounds.fromJson(const {
         'code': 'WA',
         'boxes': [
-          {'minLat': 45.0, 'minLon': -125.0, 'maxLat': 49.0, 'maxLon': -117.0}
+          {'minLat': 45.0, 'minLon': -125.0, 'maxLat': 49.0, 'maxLon': -117.0},
         ],
       });
       expect(bounds!.name, 'WA');
@@ -110,13 +116,15 @@ void main() {
 
     test('skips unreadable states and keeps the rest', () async {
       final data = RadioBundledData(
-        bundle: _FakeBundle('{"states": ['
-            '{"code": "WA", "name": "Washington", "boxes": ['
-            '{"minLat": 45.0, "minLon": -125.0, "maxLat": 49.0, '
-            '"maxLon": -117.0}]},'
-            '{"code": "", "boxes": []},'
-            '"not a map"'
-            ']}'),
+        bundle: _FakeBundle(
+          '{"states": ['
+          '{"code": "WA", "name": "Washington", "boxes": ['
+          '{"minLat": 45.0, "minLon": -125.0, "maxLat": 49.0, '
+          '"maxLon": -117.0}]},'
+          '{"code": "", "boxes": []},'
+          '"not a map"'
+          ']}',
+        ),
       );
       final states = await data.stateBounds();
       expect(states, hasLength(1));

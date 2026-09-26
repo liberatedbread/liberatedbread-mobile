@@ -44,11 +44,13 @@ class RadioScreen extends ConsumerWidget {
         error: (error, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(friendlyErrorText(
-              error,
-              fallback: 'Could not load your radio settings.',
-              context: 'radio screen',
-            )),
+            child: Text(
+              friendlyErrorText(
+                error,
+                fallback: 'Could not load your radio settings.',
+                context: 'radio screen',
+              ),
+            ),
           ),
         ),
         data: (profile) => ListView(
@@ -102,9 +104,11 @@ class _RadioPicker extends ConsumerWidget {
           children: [
             for (final candidate in radioProfiles)
               ListTile(
-                leading: Icon(candidate == profile
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked),
+                leading: Icon(
+                  candidate == profile
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                ),
                 title: Text(candidate.displayName),
                 subtitle: Text(_capabilityLine(candidate)),
                 onTap: () => Navigator.of(context).pop(candidate),
@@ -145,9 +149,9 @@ class _TxUnlockTile extends ConsumerWidget {
       subtitle: Text(
         enabled
             ? 'On for this radio. Suggestions in the expanded range are '
-                'marked, and plans built with it are flagged.'
+                  'marked, and plans built with it are flagged.'
             : 'Off. Suggestions are limited to what this radio transmits on '
-                'as it left the factory.',
+                  'as it left the factory.',
       ),
       value: enabled,
       onChanged: (value) => _set(context, ref, value),
@@ -203,11 +207,12 @@ class _PlansHeader extends ConsumerWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text('Channel plans',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold)),
+            child: Text(
+              'Channel plans',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
           ),
           TextButton.icon(
             onPressed: () => _newPlan(context, ref),
@@ -224,13 +229,12 @@ class _PlansHeader extends ConsumerWidget {
     final navigator = Navigator.of(context);
     final name = await _promptForName(context, initial: 'New plan');
     if (name == null) return;
-    final plan = await notifier.create(
-      name: name,
-      radioProfileId: profile.id,
+    final plan = await notifier.create(name: name, radioProfileId: profile.id);
+    await navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => ChannelPlanScreen(planId: plan.id),
+      ),
     );
-    await navigator.push(MaterialPageRoute<void>(
-      builder: (_) => ChannelPlanScreen(planId: plan.id),
-    ));
   }
 }
 
@@ -248,12 +252,14 @@ class _PlanTile extends ConsumerWidget {
     return ListTile(
       leading: const Icon(Icons.list_alt_outlined),
       title: Text(plan.name),
-      subtitle: Text([
-        '${plan.length} '
-            '${plan.length == 1 ? 'channel' : 'channels'}',
-        if (forAnotherRadio) 'for ${planProfile.displayName}',
-        if (plan.builtWithTxUnlock) 'widened transmit range',
-      ].join(' · ')),
+      subtitle: Text(
+        [
+          '${plan.length} '
+              '${plan.length == 1 ? 'channel' : 'channels'}',
+          if (forAnotherRadio) 'for ${planProfile.displayName}',
+          if (plan.builtWithTxUnlock) 'widened transmit range',
+        ].join(' · '),
+      ),
       trailing: PopupMenuButton<String>(
         onSelected: (action) => _act(context, ref, action),
         itemBuilder: (context) => const [
@@ -280,8 +286,10 @@ class _PlanTile extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete "${plan.name}"?'),
-        content: const Text('The plan is removed from this device. Nothing '
-            'on a radio changes.'),
+        content: const Text(
+          'The plan is removed from this device. Nothing '
+          'on a radio changes.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -342,22 +350,22 @@ class _NamePromptDialogState extends State<_NamePromptDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Plan name'),
-        content: TextField(
-          controller: _controller,
-          autofocus: true,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      );
+    title: const Text('Plan name'),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      decoration: const InputDecoration(border: OutlineInputBorder()),
+      onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+        child: const Text('Save'),
+      ),
+    ],
+  );
 }

@@ -99,10 +99,14 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       canPop: !_busy,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Wait for the radio to finish — leaving now would '
-              'hide a session that is still running.'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Wait for the radio to finish — leaving now would '
+              'hide a session that is still running.',
+            ),
+          ),
+        );
       },
       child: Scaffold(
         appBar: AppBar(
@@ -122,8 +126,10 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
             _Header(target: _target, saved: saved),
             if (_error case final String error)
               ListTile(
-                leading: Icon(Icons.error_outline,
-                    color: Theme.of(context).colorScheme.error),
+                leading: Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
                 title: Text(error),
               ),
             if (_outcome case final String outcome)
@@ -183,10 +189,10 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         child: Text(
           _target.transport == RadioTransport.usb
               ? 'Pick the model printed on the radio. Checking it answers '
-                  'shows the firmware it reports.'
+                    'shows the firmware it reports.'
               : 'Pick the model printed on the radio. It cannot be asked: '
-                  'these radios answer to one programming request between '
-                  'them.',
+                    'these radios answer to one programming request between '
+                    'them.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ),
@@ -203,40 +209,50 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         const ListTile(
           leading: Icon(Icons.info_outline),
           title: Text('Not yet confirmed on this model'),
-          subtitle: Text('Programming this model has not been checked on a '
-              'real radio. Every write keeps a backup first — that is the '
-              'thing to rely on.'),
+          subtitle: Text(
+            'Programming this model has not been checked on a '
+            'real radio. Every write keeps a backup first — that is the '
+            'thing to rely on.',
+          ),
         ),
       const Divider(height: 24),
       ListTile(
         leading: const Icon(Icons.wifi_tethering_outlined),
         title: const Text('Check it answers'),
-        subtitle: const Text('Connects and asks the radio to start a '
-            'programming session. Nothing on it changes.'),
+        subtitle: const Text(
+          'Connects and asks the radio to start a '
+          'programming session. Nothing on it changes.',
+        ),
         enabled: !_busy,
         onTap: () => _identify(profile),
       ),
       ListTile(
         leading: const Icon(Icons.upload_outlined),
         title: const Text('Write a channel plan'),
-        subtitle: const Text('Backs the radio up first, then replaces its '
-            'memory channels with a plan.'),
+        subtitle: const Text(
+          'Backs the radio up first, then replaces its '
+          'memory channels with a plan.',
+        ),
         enabled: !_busy,
         onTap: () => _writePlan(profile),
       ),
       ListTile(
         leading: const Icon(Icons.download_outlined),
         title: const Text('Read its channels into a new plan'),
-        subtitle: const Text('Nothing on the radio changes. The copy it '
-            'reads is kept as a backup too.'),
+        subtitle: const Text(
+          'Nothing on the radio changes. The copy it '
+          'reads is kept as a backup too.',
+        ),
         enabled: !_busy,
         onTap: () => _readIntoPlan(profile),
       ),
       ListTile(
         leading: const Icon(Icons.restore_outlined),
         title: const Text('Restore a backup'),
-        subtitle: Text('Puts back a copy saved from a '
-            '${profile.displayName}.'),
+        subtitle: Text(
+          'Puts back a copy saved from a '
+          '${profile.displayName}.',
+        ),
         enabled: !_busy,
         onTap: () => _restore(profile),
       ),
@@ -251,24 +267,28 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     // programmer built just to be asked.
     final widened = RadioBandLimits.widenedFor(profile);
     if (widened == null) return const [];
-    final programmer =
-        ref.watch(radioProgrammerForTransportProvider(_target.transport));
+    final programmer = ref.watch(
+      radioProgrammerForTransportProvider(_target.transport),
+    );
     if (programmer is! BandLimitProgrammer || !programmer.supports(profile)) {
       return const [];
     }
-    final original =
-        ref.watch(originalBandLimitsProvider).valueOrNull?[profile.id];
+    final original = ref
+        .watch(originalBandLimitsProvider)
+        .valueOrNull?[profile.id];
     return [
       const Divider(height: 24),
       ListTile(
         leading: const Icon(Icons.lock_open_outlined),
         title: const Text('Widen its transmit limits'),
-        subtitle: Text([
-          'To ${widened.label}. Backs the radio up first.',
-          if (!profile.txUnlock.verified)
-            'Not yet confirmed on a real radio: the backup is what to rely '
-                'on.',
-        ].join(' ')),
+        subtitle: Text(
+          [
+            'To ${widened.label}. Backs the radio up first.',
+            if (!profile.txUnlock.verified)
+              'Not yet confirmed on a real radio: the backup is what to rely '
+                  'on.',
+          ].join(' '),
+        ),
         enabled: !_busy,
         onTap: () => _widen(profile, widened),
       ),
@@ -276,9 +296,11 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         ListTile(
           leading: const Icon(Icons.lock_outline),
           title: const Text('Put back its original transmit limits'),
-          subtitle: Text('${original.limits.label}: what a '
-              '${profile.displayName} held before this app first widened '
-              'one, read ${_when(original.readAt)}.'),
+          subtitle: Text(
+            '${original.limits.label}: what a '
+            '${profile.displayName} held before this app first widened '
+            'one, read ${_when(original.readAt)}.',
+          ),
           enabled: !_busy,
           onTap: () => _putBack(profile, original),
         ),
@@ -300,9 +322,11 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
           children: [
             for (final candidate in candidates)
               ListTile(
-                leading: Icon(candidate == _profile
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked),
+                leading: Icon(
+                  candidate == _profile
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                ),
                 title: Text(candidate.displayName),
                 onTap: () => Navigator.of(context).pop(candidate),
               ),
@@ -324,26 +348,30 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
   }
 
   Future<void> _identify(RadioProfile profile) => _session(
-        profile,
-        start: 'Asking the radio to answer…',
-        body: (programmer) async {
-          final identity = await programmer.identify(
-            deviceId: _target.id,
-            profile: profile,
-          );
-          return identity.summary;
-        },
+    profile,
+    start: 'Asking the radio to answer…',
+    body: (programmer) async {
+      final identity = await programmer.identify(
+        deviceId: _target.id,
+        profile: profile,
       );
+      return identity.summary;
+    },
+  );
 
   Future<void> _writePlan(RadioProfile profile) async {
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final plans = ref.read(channelPlansProvider);
     if (plans.isEmpty) {
-      messenger.showSnackBar(const SnackBar(
-        content: Text('No channel plans yet. Make one on the Radio tab, or '
-            'read this radio\'s channels into one.'),
-      ));
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No channel plans yet. Make one on the Radio tab, or '
+            'read this radio\'s channels into one.',
+          ),
+        ),
+      );
       return;
     }
     final plan = await showModalBottomSheet<ChannelPlan>(
@@ -356,13 +384,15 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
               ListTile(
                 leading: const Icon(Icons.list_alt_outlined),
                 title: Text(plan.name),
-                subtitle: Text([
-                  '${plan.length} '
-                      '${plan.length == 1 ? 'channel' : 'channels'}',
-                  if (plan.radioProfileId != profile.id)
-                    'made for '
-                        '${radioProfileById(plan.radioProfileId)?.displayName ?? 'another radio'}',
-                ].join(' · ')),
+                subtitle: Text(
+                  [
+                    '${plan.length} '
+                        '${plan.length == 1 ? 'channel' : 'channels'}',
+                    if (plan.radioProfileId != profile.id)
+                      'made for '
+                          '${radioProfileById(plan.radioProfileId)?.displayName ?? 'another radio'}',
+                  ].join(' · '),
+                ),
                 onTap: () => Navigator.of(context).pop(plan),
               ),
           ],
@@ -370,13 +400,12 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       ),
     );
     if (plan == null) return;
-    await navigator.push(MaterialPageRoute<void>(
-      builder: (_) => RadioProgramScreen(
-        plan: plan,
-        profile: profile,
-        target: _target,
+    await navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            RadioProgramScreen(plan: plan, profile: profile, target: _target),
       ),
-    ));
+    );
   }
 
   Future<void> _readIntoPlan(RadioProfile profile) {
@@ -394,8 +423,11 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
           name: 'From ${_target.displayName}',
           radioProfileId: profile.id,
         );
-        await plans.replaceChannels(plan.id, decoded.channels,
-            profile: profile);
+        await plans.replaceChannels(
+          plan.id,
+          decoded.channels,
+          profile: profile,
+        );
         _readPlanId = plan.id;
         final n = decoded.channels.length;
         return [
@@ -419,19 +451,29 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
           if (backup.modelId == profile.id) backup,
       ];
     } catch (error) {
-      messenger.showSnackBar(SnackBar(
-        content: Text(friendlyErrorText(error,
-            fallback: 'Could not read the saved backups.',
-            context: 'radio backup list')),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              error,
+              fallback: 'Could not read the saved backups.',
+              context: 'radio backup list',
+            ),
+          ),
+        ),
+      );
       return;
     }
     if (!mounted) return;
     if (mine.isEmpty) {
-      messenger.showSnackBar(SnackBar(
-        content: Text('No backups of a ${profile.displayName} on this device '
-            'yet. One is saved every time the app reads or writes a radio.'),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'No backups of a ${profile.displayName} on this device '
+            'yet. One is saved every time the app reads or writes a radio.',
+          ),
+        ),
+      );
       return;
     }
     final chosen = await showModalBottomSheet<CodeplugBackup>(
@@ -572,10 +614,10 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         await unlock.setEnabled(profile, false);
         return before == original.limits
             ? 'Its transmit limits are already ${original.limits.label}. '
-                'Nothing was written.'
+                  'Nothing was written.'
             : 'Put back to ${original.limits.label}, and read back. '
-                'Suggestions for a ${profile.displayName} keep to its '
-                'factory range again.';
+                  'Suggestions for a ${profile.displayName} keep to its '
+                  'factory range again.';
       },
     );
   }
@@ -585,16 +627,17 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     final navigator = Navigator.of(context);
     await ref.read(savedRadiosProvider.notifier).remove(_target);
     messenger.showSnackBar(
-        SnackBar(content: Text('Removed ${_target.displayName}')));
+      SnackBar(content: Text('Removed ${_target.displayName}')),
+    );
     navigator.pop();
   }
 
   void _openReadPlan() {
     final id = _readPlanId;
     if (id == null) return;
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => ChannelPlanScreen(planId: id),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => ChannelPlanScreen(planId: id)),
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -612,8 +655,9 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     required String start,
     required Future<String> Function(RadioProgrammer programmer) body,
   }) async {
-    final programmer =
-        ref.read(radioProgrammerForTransportProvider(_target.transport));
+    final programmer = ref.read(
+      radioProgrammerForTransportProvider(_target.transport),
+    );
     final savedRadios = ref.read(savedRadiosProvider.notifier);
     final messenger = ScaffoldMessenger.of(context);
 
@@ -660,7 +704,9 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
 
   /// A full read, reporting progress, returning the image.
   Future<RadioCodeplug> _read(
-      RadioProgrammer programmer, RadioProfile profile) async {
+    RadioProgrammer programmer,
+    RadioProfile profile,
+  ) async {
     RadioCodeplug? result;
     await programmer
         .readCodeplug(
@@ -725,11 +771,13 @@ class _Header extends StatelessWidget {
       contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       leading: const Icon(Icons.settings_input_antenna, size: 32),
       title: Text(target.displayName, style: text.titleMedium),
-      subtitle: Text([
-        target.transport.label,
-        if (target.id != target.displayName) target.id,
-        if (saved) 'saved',
-      ].join(' · ')),
+      subtitle: Text(
+        [
+          target.transport.label,
+          if (target.id != target.displayName) target.id,
+          if (saved) 'saved',
+        ].join(' · '),
+      ),
     );
   }
 }

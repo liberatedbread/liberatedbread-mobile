@@ -16,11 +16,16 @@ ProviderContainer _container({
   InMemorySettingsStore? prefs,
   InMemorySettingsStore? secure,
 }) {
-  final container = ProviderContainer(overrides: [
-    prefsSettingsStoreProvider
-        .overrideWith((ref) async => prefs ?? InMemorySettingsStore()),
-    settingsStoreProvider.overrideWithValue(secure ?? InMemorySettingsStore()),
-  ]);
+  final container = ProviderContainer(
+    overrides: [
+      prefsSettingsStoreProvider.overrideWith(
+        (ref) async => prefs ?? InMemorySettingsStore(),
+      ),
+      settingsStoreProvider.overrideWithValue(
+        secure ?? InMemorySettingsStore(),
+      ),
+    ],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -46,7 +51,9 @@ void main() {
       expect(off.isEnabled('mygmrs'), isFalse);
       expect(off.isEnabled('repeaterbook'), isTrue);
       expect(
-          off.withSource('mygmrs', enabled: true).isEnabled('mygmrs'), isTrue);
+        off.withSource('mygmrs', enabled: true).isEnabled('mygmrs'),
+        isTrue,
+      );
     });
 
     test('round-trips through JSON', () {
@@ -54,7 +61,8 @@ void main() {
           .withRadius(80)
           .withSource('repeaterbook', enabled: false);
       final decoded = RadioSourceSettings.fromJson(
-          jsonDecode(jsonEncode(settings.toJson())) as Map<String, dynamic>);
+        jsonDecode(jsonEncode(settings.toJson())) as Map<String, dynamic>,
+      );
       expect(decoded, settings);
       expect(decoded.hashCode, settings.hashCode);
     });
@@ -62,8 +70,11 @@ void main() {
     test('refuses an implausible stored radius', () {
       for (final radius in [0, -5, 100000, 'far']) {
         final decoded = RadioSourceSettings.fromJson({'radiusKm': radius});
-        expect(decoded.radiusKm, RadioSourceSettings.defaultRadiusKm,
-            reason: '$radius');
+        expect(
+          decoded.radiusKm,
+          RadioSourceSettings.defaultRadiusKm,
+          reason: '$radius',
+        );
       }
     });
 
@@ -77,20 +88,24 @@ void main() {
 
   group('radioSourceSettingsProvider', () {
     test('defaults when nothing is stored', () async {
-      final settings =
-          await _container().read(radioSourceSettingsProvider.future);
+      final settings = await _container().read(
+        radioSourceSettingsProvider.future,
+      );
       expect(settings, const RadioSourceSettings());
     });
 
     test('a corrupt blob reads as defaults', () async {
       for (final corrupt in ['not json', '[]', '7']) {
-        final prefs =
-            InMemorySettingsStore({RadioSourceSettingsNotifier.key: corrupt});
+        final prefs = InMemorySettingsStore({
+          RadioSourceSettingsNotifier.key: corrupt,
+        });
         expect(
-            await _container(prefs: prefs)
-                .read(radioSourceSettingsProvider.future),
-            const RadioSourceSettings(),
-            reason: corrupt);
+          await _container(
+            prefs: prefs,
+          ).read(radioSourceSettingsProvider.future),
+          const RadioSourceSettings(),
+          reason: corrupt,
+        );
       }
     });
 
@@ -104,16 +119,15 @@ void main() {
           .setSourceEnabled('mygmrs', false);
 
       expect(
-          container
-              .read(radioSourceSettingsProvider)
-              .value!
-              .isEnabled('mygmrs'),
-          isFalse);
+        container.read(radioSourceSettingsProvider).value!.isEnabled('mygmrs'),
+        isFalse,
+      );
       expect(
-          (await _container(prefs: prefs)
-                  .read(radioSourceSettingsProvider.future))
-              .isEnabled('mygmrs'),
-          isFalse);
+        (await _container(
+          prefs: prefs,
+        ).read(radioSourceSettingsProvider.future)).isEnabled('mygmrs'),
+        isFalse,
+      );
     });
 
     test('setting the radius persists', () async {
@@ -126,10 +140,11 @@ void main() {
           .setRadiusKm(160);
 
       expect(
-          (await _container(prefs: prefs)
-                  .read(radioSourceSettingsProvider.future))
-              .radiusKm,
-          160);
+        (await _container(
+          prefs: prefs,
+        ).read(radioSourceSettingsProvider.future)).radiusKm,
+        160,
+      );
     });
   });
 
@@ -156,8 +171,9 @@ void main() {
     });
 
     test('an empty token clears rather than storing whitespace', () async {
-      final secure =
-          InMemorySettingsStore({RepeaterBookTokenNotifier.key: 'rbuapp_old'});
+      final secure = InMemorySettingsStore({
+        RepeaterBookTokenNotifier.key: 'rbuapp_old',
+      });
       final container = _container(secure: secure);
       await container.read(repeaterBookTokenProvider.future);
 
@@ -168,12 +184,13 @@ void main() {
     });
 
     test('whitespace stored by an older build reads as no token', () async {
-      final secure =
-          InMemorySettingsStore({RepeaterBookTokenNotifier.key: '   '});
+      final secure = InMemorySettingsStore({
+        RepeaterBookTokenNotifier.key: '   ',
+      });
       expect(
-          await _container(secure: secure)
-              .read(repeaterBookTokenProvider.future),
-          isNull);
+        await _container(secure: secure).read(repeaterBookTokenProvider.future),
+        isNull,
+      );
     });
   });
 

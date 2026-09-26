@@ -63,8 +63,9 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: FilledButton.icon(
-                onPressed:
-                    settings == null ? null : () => _search(location, settings),
+                onPressed: settings == null
+                    ? null
+                    : () => _search(location, settings),
                 icon: const Icon(Icons.search),
                 label: const Text('Find channels'),
               ),
@@ -81,49 +82,53 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
   // --- location -----------------------------------------------------------
 
   Widget _locationSection(SavedLocation? location) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.place_outlined),
-            title: Text(location?.label ?? 'Where are you?'),
-            subtitle: Text(location == null
-                ? 'Use your position, or enter it by hand.'
-                : '${location.point.lat.toStringAsFixed(4)}, '
-                    '${location.point.lon.toStringAsFixed(4)}'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      ListTile(
+        leading: const Icon(Icons.place_outlined),
+        title: Text(location?.label ?? 'Where are you?'),
+        subtitle: Text(
+          location == null
+              ? 'Use your position, or enter it by hand.'
+              : '${location.point.lat.toStringAsFixed(4)}, '
+                    '${location.point.lon.toStringAsFixed(4)}',
+        ),
+      ),
+      if (_locationError case final String error)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Text(
+            error,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
-          if (_locationError case final String error)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(error,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: _locating ? null : _useGps,
+              icon: _locating
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.my_location),
+              label: Text(_locating ? 'Locating…' : 'Use my location'),
             ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: _locating ? null : _useGps,
-                  icon: _locating
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.my_location),
-                  label: Text(_locating ? 'Locating…' : 'Use my location'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _enterByHand,
-                  icon: const Icon(Icons.edit_location_alt_outlined),
-                  label: const Text('Enter by hand'),
-                ),
-              ],
+            OutlinedButton.icon(
+              onPressed: _enterByHand,
+              icon: const Icon(Icons.edit_location_alt_outlined),
+              label: const Text('Enter by hand'),
             ),
-          ),
-        ],
-      );
+          ],
+        ),
+      ),
+    ],
+  );
 
   Future<void> _useGps() async {
     final service = ref.read(locationServiceProvider);
@@ -180,46 +185,46 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
   // --- radius -------------------------------------------------------------
 
   Widget _radiusSection(RadioSourceSettings settings) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.radar_outlined),
-            title: const Text('Search radius'),
-            subtitle: Text('${settings.radiusKm.round()} km'),
-            trailing: IconButton(
-              tooltip: 'Repeater sources',
-              icon: const Icon(Icons.tune),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const RadioSourceSettingsScreen(),
-                ),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      ListTile(
+        leading: const Icon(Icons.radar_outlined),
+        title: const Text('Search radius'),
+        subtitle: Text('${settings.radiusKm.round()} km'),
+        trailing: IconButton(
+          tooltip: 'Repeater sources',
+          icon: const Icon(Icons.tune),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const RadioSourceSettingsScreen(),
+            ),
+          ),
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Wrap(
+          spacing: 8,
+          children: [
+            for (final radius in RadioSourceSettings.radiusChoices)
+              ChoiceChip(
+                label: Text('${radius.round()} km'),
+                selected: settings.radiusKm == radius,
+                onSelected: (_) {
+                  ref
+                      .read(radioSourceSettingsProvider.notifier)
+                      .setRadiusKm(radius);
+                  setState(() {
+                    _request = null;
+                    _selected.clear();
+                  });
+                },
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 8,
-              children: [
-                for (final radius in RadioSourceSettings.radiusChoices)
-                  ChoiceChip(
-                    label: Text('${radius.round()} km'),
-                    selected: settings.radiusKm == radius,
-                    onSelected: (_) {
-                      ref
-                          .read(radioSourceSettingsProvider.notifier)
-                          .setRadiusKm(radius);
-                      setState(() {
-                        _request = null;
-                        _selected.clear();
-                      });
-                    },
-                  ),
-              ],
-            ),
-          ),
-        ],
-      );
+          ],
+        ),
+      ),
+    ],
+  );
 
   void _search(SavedLocation location, RadioSourceSettings settings) {
     final sources = ref.read(repeaterSourcesProvider);
@@ -252,11 +257,13 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
       error: (error, _) => [
         Padding(
           padding: const EdgeInsets.all(16),
-          child: Text(friendlyErrorText(
-            error,
-            fallback: 'Could not put a list together.',
-            context: 'radio suggestions',
-          )),
+          child: Text(
+            friendlyErrorText(
+              error,
+              fallback: 'Could not put a list together.',
+              context: 'radio suggestions',
+            ),
+          ),
         ),
       ],
       data: (result) => _resultBody(result),
@@ -271,10 +278,10 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
           failure: failure,
           onFix: failure.isActionable
               ? () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const RadioSourceSettingsScreen(),
-                    ),
-                  )
+                  MaterialPageRoute<void>(
+                    builder: (_) => const RadioSourceSettingsScreen(),
+                  ),
+                )
               : null,
         ),
       if (result.usedStaleCache)
@@ -310,11 +317,12 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
         child: Row(
           children: [
             Expanded(
-              child: Text('${category.label} (${channels.length})',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold)),
+              child: Text(
+                '${category.label} (${channels.length})',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
             ),
             TextButton(
               onPressed: () => setState(() {
@@ -353,16 +361,18 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
   // --- adding to a plan ---------------------------------------------------
 
   Widget _addBar() => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: FilledButton.icon(
-            onPressed: _addSelected,
-            icon: const Icon(Icons.playlist_add),
-            label: Text('Add ${_selected.length} '
-                '${_selected.length == 1 ? 'channel' : 'channels'}'),
-          ),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: FilledButton.icon(
+        onPressed: _addSelected,
+        icon: const Icon(Icons.playlist_add),
+        label: Text(
+          'Add ${_selected.length} '
+          '${_selected.length == 1 ? 'channel' : 'channels'}',
         ),
-      );
+      ),
+    ),
+  );
 
   Future<void> _addSelected() async {
     final request = _request;
@@ -392,13 +402,17 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
     if (!mounted) return;
 
     setState(_selected.clear);
-    messenger.showSnackBar(SnackBar(
-      content: Text(outcome.hitCapacity
-          ? 'Added ${outcome.added} to "${plan.name}". '
-              '${outcome.rejected} did not fit — '
-              '${widget.profile.displayName} holds ${outcome.capacity}.'
-          : 'Added ${outcome.added} to "${plan.name}".'),
-    ));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          outcome.hitCapacity
+              ? 'Added ${outcome.added} to "${plan.name}". '
+                    '${outcome.rejected} did not fit — '
+                    '${widget.profile.displayName} holds ${outcome.capacity}.'
+              : 'Added ${outcome.added} to "${plan.name}".',
+        ),
+      ),
+    );
   }
 
   /// Choose an existing plan or make one. Returns null if dismissed.
@@ -454,18 +468,16 @@ class _FailureTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListTile(
-        leading: Icon(
-          failure.isActionable
-              ? Icons.settings_outlined
-              : Icons.cloud_off_outlined,
-        ),
-        title: Text(failure.displayName),
-        subtitle: Text(failure.message),
-        trailing: onFix == null
-            ? null
-            : TextButton(onPressed: onFix, child: const Text('Set up')),
-        onTap: onFix,
-      );
+    leading: Icon(
+      failure.isActionable ? Icons.settings_outlined : Icons.cloud_off_outlined,
+    ),
+    title: Text(failure.displayName),
+    subtitle: Text(failure.message),
+    trailing: onFix == null
+        ? null
+        : TextButton(onPressed: onFix, child: const Text('Set up')),
+    onTap: onFix,
+  );
 }
 
 /// Latitude and longitude, or a grid square — whichever the operator has.
@@ -492,73 +504,78 @@ class _ManualLocationDialogState extends State<_ManualLocationDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Where are you?'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+    title: const Text('Where are you?'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _grid,
+            decoration: const InputDecoration(
+              labelText: 'Grid square',
+              hintText: 'FN31pr',
+              border: OutlineInputBorder(),
+            ),
+            autocorrect: false,
+            onChanged: (_) => setState(() => _error = null),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('or'),
+          ),
+          Row(
             children: [
-              TextField(
-                controller: _grid,
-                decoration: const InputDecoration(
-                  labelText: 'Grid square',
-                  hintText: 'FN31pr',
-                  border: OutlineInputBorder(),
-                ),
-                autocorrect: false,
-                onChanged: (_) => setState(() => _error = null),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('or'),
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _lat,
-                      decoration: const InputDecoration(
-                        labelText: 'Latitude',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true, signed: true),
-                      onChanged: (_) => setState(() => _error = null),
-                    ),
+              Expanded(
+                child: TextField(
+                  controller: _lat,
+                  decoration: const InputDecoration(
+                    labelText: 'Latitude',
+                    border: OutlineInputBorder(),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _lon,
-                      decoration: const InputDecoration(
-                        labelText: 'Longitude',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true, signed: true),
-                      onChanged: (_) => setState(() => _error = null),
-                    ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
                   ),
-                ],
-              ),
-              if (_error case final String error)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(error,
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
+                  onChanged: (_) => setState(() => _error = null),
                 ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _lon,
+                  decoration: const InputDecoration(
+                    labelText: 'Longitude',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  onChanged: (_) => setState(() => _error = null),
+                ),
+              ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(onPressed: _submit, child: const Text('Use this')),
+          if (_error case final String error)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                error,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
         ],
-      );
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(onPressed: _submit, child: const Text('Use this')),
+    ],
+  );
 
   void _submit() {
     // The grid square wins when both are filled: it is the more deliberate of
@@ -567,8 +584,11 @@ class _ManualLocationDialogState extends State<_ManualLocationDialog> {
     if (grid.isNotEmpty) {
       final point = maidenheadToPoint(grid);
       if (point == null) {
-        setState(() => _error = 'That is not a grid square. They look like '
-            'FN31 or FN31pr.');
+        setState(
+          () => _error =
+              'That is not a grid square. They look like '
+              'FN31 or FN31pr.',
+        );
         return;
       }
       Navigator.of(context).pop(point);
@@ -583,8 +603,11 @@ class _ManualLocationDialogState extends State<_ManualLocationDialog> {
     }
     final point = GeoPoint(lat, lon);
     if (!point.isValid) {
-      setState(() => _error = 'Latitude runs -90 to 90 and longitude -180 '
-          'to 180.');
+      setState(
+        () => _error =
+            'Latitude runs -90 to 90 and longitude -180 '
+            'to 180.',
+      );
       return;
     }
     Navigator.of(context).pop(point);

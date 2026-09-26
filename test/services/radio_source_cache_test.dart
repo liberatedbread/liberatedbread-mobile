@@ -86,8 +86,9 @@ void main() {
   test('a file with no timestamp is a miss', () async {
     final dir = Directory('${temp.path}/radio_cache');
     await dir.create(recursive: true);
-    await File('${dir.path}/repeaterbook_CT.json')
-        .writeAsString('{"listings": []}');
+    await File(
+      '${dir.path}/repeaterbook_CT.json',
+    ).writeAsString('{"listings": []}');
     expect(await cache.read('repeaterbook', 'CT'), isNull);
   });
 
@@ -107,8 +108,11 @@ void main() {
 
   test('a listing with no location survives the round trip as one', () async {
     const placeless = RepeaterListing(
-      channel:
-          RadioChannel(name: 'X', rxFreqHz: 146520000, txFreqHz: 146520000),
+      channel: RadioChannel(
+        name: 'X',
+        rxFreqHz: 146520000,
+        txFreqHz: 146520000,
+      ),
       category: SuggestionCategory.gmrs,
     );
     await cache.write('mygmrs', 'WY', [placeless]);
@@ -124,7 +128,7 @@ void main() {
     await cache.write('../../etc', 'CT/../..', [_listing]);
     final root = Directory('${temp.path}/radio_cache');
     final names = [
-      for (final entry in root.listSync()) entry.uri.pathSegments.last
+      for (final entry in root.listSync()) entry.uri.pathSegments.last,
     ];
     expect(names, hasLength(1));
     expect(names.single, isNot(contains('/')));

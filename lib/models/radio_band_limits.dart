@@ -30,10 +30,10 @@ class BandLimit {
       '$lowerMhz–$upperMhz MHz${txEnabled ? '' : ', transmit off'}';
 
   Map<String, dynamic> toJson() => {
-        'tx': txEnabled,
-        'lower': lowerMhz,
-        'upper': upperMhz,
-      };
+    'tx': txEnabled,
+    'lower': lowerMhz,
+    'upper': upperMhz,
+  };
 
   static BandLimit? fromJson(Object? json) {
     if (json is! Map<String, dynamic>) return null;
@@ -139,9 +139,9 @@ class OriginalBandLimits {
   const OriginalBandLimits({required this.limits, required this.readAt});
 
   Map<String, dynamic> toJson() => {
-        ...limits.toJson(),
-        'readAt': readAt.toUtc().toIso8601String(),
-      };
+    ...limits.toJson(),
+    'readAt': readAt.toUtc().toIso8601String(),
+  };
 
   static OriginalBandLimits? fromJson(Object? json) {
     if (json is! Map<String, dynamic>) return null;

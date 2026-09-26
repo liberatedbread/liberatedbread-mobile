@@ -40,9 +40,11 @@ class RadioProgressEvent {
 class RadioProtocolException implements UserFacingException {
   @override
   final String message;
-  const RadioProtocolException(
-      [this.message = 'The radio did not answer the way this app expects. '
-          'Disconnect it, turn it off and on, and try again.']);
+  const RadioProtocolException([
+    this.message =
+        'The radio did not answer the way this app expects. '
+        'Disconnect it, turn it off and on, and try again.',
+  ]);
 
   @override
   String toString() => message;
@@ -52,9 +54,11 @@ class RadioProtocolException implements UserFacingException {
 class RadioTimeoutException implements UserFacingException {
   @override
   final String message;
-  const RadioTimeoutException(
-      [this.message = 'The radio stopped responding. Check it is still on '
-          'and in range, then try again.']);
+  const RadioTimeoutException([
+    this.message =
+        'The radio stopped responding. Check it is still on '
+        'and in range, then try again.',
+  ]);
 
   @override
   String toString() => message;
@@ -64,9 +68,11 @@ class RadioTimeoutException implements UserFacingException {
 class RadioUnsupportedException implements UserFacingException {
   @override
   final String message;
-  const RadioUnsupportedException(
-      [this.message = 'This app cannot program that radio yet. You can still '
-          'export a plan as a CHIRP file.']);
+  const RadioUnsupportedException([
+    this.message =
+        'This app cannot program that radio yet. You can still '
+        'export a plan as a CHIRP file.',
+  ]);
 
   @override
   String toString() => message;

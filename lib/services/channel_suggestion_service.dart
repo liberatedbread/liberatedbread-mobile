@@ -56,12 +56,12 @@ class SuggestionRequest {
 
   @override
   int get hashCode => Object.hash(
-        where,
-        radiusKm,
-        profile,
-        txUnlockEnabled,
-        Object.hashAllUnordered(enabledSourceIds),
-      );
+    where,
+    radiusKm,
+    profile,
+    txUnlockEnabled,
+    Object.hashAllUnordered(enabledSourceIds),
+  );
 }
 
 /// Everything the suggestion screen renders.
@@ -136,13 +136,11 @@ class ChannelSuggestionService {
   final Duration cacheTtl;
 
   ChannelSuggestionService({
-    required List<RepeaterSource> sources,
-    required RadioSourceCache cache,
-    required RadioBundledData bundled,
+    required this._sources,
+    required this._cache,
+    required this._bundled,
     this.cacheTtl = RadioSourceCache.defaultTtl,
-  })  : _sources = sources,
-        _cache = cache,
-        _bundled = bundled;
+  });
 
   Future<SuggestionResult> suggest(SuggestionRequest request) async {
     final failures = <SourceFailure>[];
@@ -163,13 +161,16 @@ class ChannelSuggestionService {
       if (!request.enabledSourceIds.contains(source.id)) continue;
 
       if (!await source.isConfigured()) {
-        failures.add(SourceFailure(
-          sourceId: source.id,
-          displayName: source.displayName,
-          kind: SourceFailureKind.auth,
-          message: '${source.displayName} needs to be set up before it can '
-              'be searched.',
-        ));
+        failures.add(
+          SourceFailure(
+            sourceId: source.id,
+            displayName: source.displayName,
+            kind: SourceFailureKind.auth,
+            message:
+                '${source.displayName} needs to be set up before it can '
+                'be searched.',
+          ),
+        );
         continue;
       }
 
@@ -212,12 +213,8 @@ class ChannelSuggestionService {
 
   /// One state from one source: fresh cache, live fetch, or stale cache in
   /// that order of preference.
-  Future<
-      ({
-        List<RepeaterListing> listings,
-        SourceFailure? failure,
-        bool stale,
-      })> _listingsForState(RepeaterSource source, String state) async {
+  Future<({List<RepeaterListing> listings, SourceFailure? failure, bool stale})>
+  _listingsForState(RepeaterSource source, String state) async {
     final cached = await _cache.read(source.id, state);
     if (cached != null && !cached.isStale(cacheTtl)) {
       return (listings: cached.listings, failure: null, stale: false);
@@ -234,13 +231,14 @@ class ChannelSuggestionService {
         // meaningfully worse than today's, and it is enormously better than
         // an error.
         Log.radio.info(
-            '${source.id}/$state failed, using cache from ${cached.fetchedAt}');
+          '${source.id}/$state failed, using cache from ${cached.fetchedAt}',
+        );
         return (listings: cached.listings, failure: error.failure, stale: true);
       }
       return (
         listings: const <RepeaterListing>[],
         failure: error.failure,
-        stale: false
+        stale: false,
       );
     }
   }
@@ -264,16 +262,18 @@ class ChannelSuggestionService {
       final channel = _judge(listing.channel, request);
       if (channel == null) continue;
 
-      judged.add(SuggestedChannel(
-        channel: channel.channel,
-        category: listing.category,
-        sourceId: entry.sourceId,
-        distanceKm: distance,
-        callsign: listing.callsign,
-        details: listing.details,
-        txAllowed: channel.txAllowed,
-        requiresTxUnlock: channel.requiresUnlock,
-      ));
+      judged.add(
+        SuggestedChannel(
+          channel: channel.channel,
+          category: listing.category,
+          sourceId: entry.sourceId,
+          distanceKm: distance,
+          callsign: listing.callsign,
+          details: listing.details,
+          txAllowed: channel.txAllowed,
+          requiresTxUnlock: channel.requiresUnlock,
+        ),
+      );
     }
     return judged;
   }
@@ -298,7 +298,8 @@ class ChannelSuggestionService {
       channel.txFreqHz,
       unlockEnabled: request.txUnlockEnabled,
     );
-    final needsUnlock = request.txUnlockEnabled &&
+    final needsUnlock =
+        request.txUnlockEnabled &&
         profile.needsUnlockToTransmit(channel.txFreqHz);
 
     return (
@@ -332,8 +333,9 @@ class ChannelSuggestionService {
   List<SuggestedChannel> _rank(List<SuggestedChannel> channels) {
     final sorted = [...channels];
     sorted.sort((a, b) {
-      final byDistance = (a.distanceKm ?? double.infinity)
-          .compareTo(b.distanceKm ?? double.infinity);
+      final byDistance = (a.distanceKm ?? double.infinity).compareTo(
+        b.distanceKm ?? double.infinity,
+      );
       if (byDistance != 0) return byDistance;
       // A stable tie-break so the list does not reshuffle between identical
       // searches.
@@ -344,7 +346,7 @@ class ChannelSuggestionService {
 
   /// The offline tier, judged against the radio like everything else.
   ({List<SuggestedChannel> weather, List<SuggestedChannel> other})
-      _presetSuggestions(SuggestionRequest request) {
+  _presetSuggestions(SuggestionRequest request) {
     final weather = <SuggestedChannel>[];
     final other = <SuggestedChannel>[];
 
@@ -355,8 +357,9 @@ class ChannelSuggestionService {
       final isWeather = channel.rxOnly && channel.name.startsWith('WX');
       final suggestion = SuggestedChannel(
         channel: judged.channel,
-        category:
-            isWeather ? SuggestionCategory.weather : SuggestionCategory.preset,
+        category: isWeather
+            ? SuggestionCategory.weather
+            : SuggestionCategory.preset,
         sourceId: 'bundled',
         details: channel.comment.isEmpty ? null : channel.comment,
         txAllowed: judged.txAllowed,
@@ -376,15 +379,15 @@ class ChannelSuggestionService {
 /// there, still receivable, still worth having as listen-only.
 List<SuggestionCategory> categoryOrderFor(RadioProfile profile) =>
     profile.gmrsLocked
-        ? const [
-            SuggestionCategory.gmrs,
-            SuggestionCategory.repeater,
-            SuggestionCategory.weather,
-            SuggestionCategory.preset,
-          ]
-        : const [
-            SuggestionCategory.repeater,
-            SuggestionCategory.gmrs,
-            SuggestionCategory.weather,
-            SuggestionCategory.preset,
-          ];
+    ? const [
+        SuggestionCategory.gmrs,
+        SuggestionCategory.repeater,
+        SuggestionCategory.weather,
+        SuggestionCategory.preset,
+      ]
+    : const [
+        SuggestionCategory.repeater,
+        SuggestionCategory.gmrs,
+        SuggestionCategory.weather,
+        SuggestionCategory.preset,
+      ];

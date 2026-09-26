@@ -148,7 +148,8 @@ String _duplex(RadioChannel channel) {
   String polarity,
   String rxDtcs,
   String crossMode,
-}) _toneCells(RadioChannel channel) {
+})
+_toneCells(RadioChannel channel) {
   final tx = channel.txTone;
   final rx = channel.rxTone;
 
@@ -161,7 +162,8 @@ String _duplex(RadioChannel channel) {
 
   // Polarity is two characters: transmit, then receive. 'N' is normal, 'R'
   // inverted.
-  final polarity = '${tx.mode == ToneMode.dcs && tx.dcsInverted ? 'R' : 'N'}'
+  final polarity =
+      '${tx.mode == ToneMode.dcs && tx.dcsInverted ? 'R' : 'N'}'
       '${rx.mode == ToneMode.dcs && rx.dcsInverted ? 'R' : 'N'}';
 
   final cells = (

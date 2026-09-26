@@ -25,9 +25,11 @@ SerialPortService serialPortServiceFor(
     'android' => AndroidUsbSerialService(),
     'linux' || 'macos' => DesktopSerialPortService(),
     'ios' => const UnsupportedSerialPortService(
-        UnsupportedSerialPortService.iosReason),
+      UnsupportedSerialPortService.iosReason,
+    ),
     _ => const UnsupportedSerialPortService(
-        UnsupportedSerialPortService.otherReason),
+      UnsupportedSerialPortService.otherReason,
+    ),
   };
 }
 

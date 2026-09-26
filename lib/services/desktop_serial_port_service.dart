@@ -41,11 +41,13 @@ class DesktopSerialPortService implements SerialPortService {
   Future<SerialLink> open(SerialPortInfo port, {required int baudRate}) async {
     try {
       return _DesktopLink(
-          await rust.serialOpen(path: port.id, baudRate: baudRate));
+        await rust.serialOpen(path: port.id, baudRate: baudRate),
+      );
     } catch (error) {
       Log.radio.warning('could not open ${port.id}', error: error);
       throw SerialPortException(
-          openFailureText(port.name, isLinux: Platform.isLinux));
+        openFailureText(port.name, isLinux: Platform.isLinux),
+      );
     }
   }
 
@@ -55,10 +57,10 @@ class DesktopSerialPortService implements SerialPortService {
   /// to a group the desktop user is often not in.
   static String openFailureText(String port, {required bool isLinux}) => isLinux
       ? 'Could not open $port. If it is in use, close whatever has it. '
-          'Otherwise your user probably needs to be in the "dialout" '
-          'group: add it, then log out and back in.'
+            'Otherwise your user probably needs to be in the "dialout" '
+            'group: add it, then log out and back in.'
       : 'Could not open $port. If another program has it open, close '
-          'that program and try again.';
+            'that program and try again.';
 }
 
 class _DesktopLink implements SerialLink {

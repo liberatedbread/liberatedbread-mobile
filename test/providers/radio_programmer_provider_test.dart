@@ -18,9 +18,9 @@ import '../fakes/fake_radio_programmer.dart';
 
 void main() {
   test('provides a real programmer over the app\'s BLE service', () {
-    final container = ProviderContainer(overrides: [
-      bleServiceProvider.overrideWithValue(FakeBleService()),
-    ]);
+    final container = ProviderContainer(
+      overrides: [bleServiceProvider.overrideWithValue(FakeBleService())],
+    );
     addTearDown(container.dispose);
 
     final programmer = container.read(radioProgrammerProvider);
@@ -33,9 +33,9 @@ void main() {
 
   test('is overridable, which is how the screens are tested', () {
     final fake = FakeRadioProgrammer();
-    final container = ProviderContainer(overrides: [
-      radioProgrammerProvider.overrideWithValue(fake),
-    ]);
+    final container = ProviderContainer(
+      overrides: [radioProgrammerProvider.overrideWithValue(fake)],
+    );
     addTearDown(container.dispose);
     expect(container.read(radioProgrammerProvider), same(fake));
     expect(fake, isA<RadioProgrammer>());
@@ -44,9 +44,9 @@ void main() {
   group('radioProgrammerForTransportProvider', () {
     test('Bluetooth is the Bluetooth programmer, overrides included', () {
       final fake = FakeRadioProgrammer();
-      final container = ProviderContainer(overrides: [
-        radioProgrammerProvider.overrideWithValue(fake),
-      ]);
+      final container = ProviderContainer(
+        overrides: [radioProgrammerProvider.overrideWithValue(fake)],
+      );
       addTearDown(container.dispose);
       expect(
         container.read(radioProgrammerForTransportProvider(RadioTransport.ble)),
@@ -55,25 +55,31 @@ void main() {
     });
 
     test('a cable gets the cable driver, never the Bluetooth one', () {
-      final container = ProviderContainer(overrides: [
-        radioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
-        serialPortServiceProvider.overrideWithValue(MockSerialPortService()),
-      ]);
+      final container = ProviderContainer(
+        overrides: [
+          radioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
+          serialPortServiceProvider.overrideWithValue(MockSerialPortService()),
+        ],
+      );
       addTearDown(container.dispose);
-      final cable = container
-          .read(radioProgrammerForTransportProvider(RadioTransport.usb));
+      final cable = container.read(
+        radioProgrammerForTransportProvider(RadioTransport.usb),
+      );
 
-      expect(cable, isA<SerialRadioProgrammer>(),
-          reason: 'a port name must never reach the Bluetooth driver');
+      expect(
+        cable,
+        isA<SerialRadioProgrammer>(),
+        reason: 'a port name must never reach the Bluetooth driver',
+      );
       expect(cable.supports(uv5rProfile), isTrue);
       expect(cable.supports(uv5rMiniProfile), isFalse);
     });
 
     test('the cable driver is overridable on its own', () {
       final fake = FakeRadioProgrammer();
-      final container = ProviderContainer(overrides: [
-        serialRadioProgrammerProvider.overrideWithValue(fake),
-      ]);
+      final container = ProviderContainer(
+        overrides: [serialRadioProgrammerProvider.overrideWithValue(fake)],
+      );
       addTearDown(container.dispose);
       expect(
         container.read(radioProgrammerForTransportProvider(RadioTransport.usb)),

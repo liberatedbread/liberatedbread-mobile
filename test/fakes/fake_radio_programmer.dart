@@ -56,19 +56,20 @@ class FakeRadioProgrammer implements BandLimitProgrammer {
     this.supported = true,
     Uint8List? image,
     List<RadioProgressEvent>? events,
-  })  : image = image ?? Uint8List(0x8240),
-        events = events ??
-            const [
-              RadioProgressEvent(
-                stage: RadioProgressStage.connecting,
-                message: 'Connecting to the radio…',
-              ),
-              RadioProgressEvent(
-                stage: RadioProgressStage.done,
-                message: 'Done.',
-                progress: 1,
-              ),
-            ];
+  }) : image = image ?? Uint8List(0x8240),
+       events =
+           events ??
+           const [
+             RadioProgressEvent(
+               stage: RadioProgressStage.connecting,
+               message: 'Connecting to the radio…',
+             ),
+             RadioProgressEvent(
+               stage: RadioProgressStage.done,
+               message: 'Done.',
+               progress: 1,
+             ),
+           ];
 
   @override
   bool supports(RadioProfile profile) => supported;
@@ -97,11 +98,9 @@ class FakeRadioProgrammer implements BandLimitProgrammer {
     final failure = error;
     if (failure != null) throw failure;
     yield* Stream.fromIterable(events);
-    onResult(RadioCodeplug(
-      modelId: profile.id,
-      image: image,
-      readAt: DateTime.now(),
-    ));
+    onResult(
+      RadioCodeplug(modelId: profile.id, image: image, readAt: DateTime.now()),
+    );
   }
 
   @override
@@ -135,8 +134,7 @@ class FakeRadioProgrammer implements BandLimitProgrammer {
   Future<RadioBandLimits> bandLimitsIn(
     RadioCodeplug codeplug,
     RadioProfile profile,
-  ) async =>
-      bandLimits;
+  ) async => bandLimits;
 
   @override
   Stream<RadioProgressEvent> writeBandLimits({

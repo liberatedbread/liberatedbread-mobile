@@ -12,8 +12,8 @@ RadioChannel _channel(String name, int rxHz) =>
     RadioChannel(name: name, rxFreqHz: rxHz, txFreqHz: rxHz);
 
 List<RadioChannel> _channels(int count) => [
-      for (var i = 0; i < count; i++) _channel('CH$i', 146000000 + i * 25000),
-    ];
+  for (var i = 0; i < count; i++) _channel('CH$i', 146000000 + i * 25000),
+];
 
 /// A tiny radio, so capacity is reachable in a test.
 const _small = RadioProfile(
@@ -32,9 +32,9 @@ void main() {
   Future<ProviderContainer> container() async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
-    final c = ProviderContainer(overrides: [
-      sharedPreferencesProvider.overrideWithValue(prefs),
-    ]);
+    final c = ProviderContainer(
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    );
     addTearDown(c.dispose);
     return c;
   }
@@ -48,10 +48,14 @@ void main() {
     final c = await container();
     final notifier = c.read(channelPlansProvider.notifier);
 
-    final first =
-        await notifier.create(name: 'A', radioProfileId: 'uv-5r-mini');
-    final second =
-        await notifier.create(name: 'B', radioProfileId: 'uv-5r-mini');
+    final first = await notifier.create(
+      name: 'A',
+      radioProfileId: 'uv-5r-mini',
+    );
+    final second = await notifier.create(
+      name: 'B',
+      radioProfileId: 'uv-5r-mini',
+    );
 
     expect(first.id, isNot(second.id));
     expect(c.read(channelPlansProvider), hasLength(2));
@@ -79,8 +83,11 @@ void main() {
       final notifier = c.read(channelPlansProvider.notifier);
       final plan = await notifier.create(name: 'A', radioProfileId: 'uv5r');
 
-      final outcome =
-          await notifier.appendChannels(plan.id, _channels(3), profile: _small);
+      final outcome = await notifier.appendChannels(
+        plan.id,
+        _channels(3),
+        profile: _small,
+      );
 
       expect(outcome.added, 3);
       expect(outcome.rejected, 0);
@@ -95,8 +102,11 @@ void main() {
       final notifier = c.read(channelPlansProvider.notifier);
       final plan = await notifier.create(name: 'A', radioProfileId: 'uv5r');
 
-      final outcome =
-          await notifier.appendChannels(plan.id, _channels(7), profile: _small);
+      final outcome = await notifier.appendChannels(
+        plan.id,
+        _channels(7),
+        profile: _small,
+      );
 
       expect(outcome.added, 4);
       expect(outcome.rejected, 3);
@@ -111,8 +121,11 @@ void main() {
       final plan = await notifier.create(name: 'A', radioProfileId: 'uv5r');
       await notifier.appendChannels(plan.id, _channels(4), profile: _small);
 
-      final outcome =
-          await notifier.appendChannels(plan.id, _channels(2), profile: _small);
+      final outcome = await notifier.appendChannels(
+        plan.id,
+        _channels(2),
+        profile: _small,
+      );
 
       expect(outcome.added, 0);
       expect(outcome.rejected, 2);
@@ -127,15 +140,15 @@ void main() {
       final notifier = c.read(channelPlansProvider.notifier);
       final plan = await notifier.create(name: 'A', radioProfileId: 'uv5r');
 
-      await notifier.appendChannels(
-        plan.id,
-        [_channel('WAY-TOO-LONG', 146940000)],
-        profile: _small,
-      );
+      await notifier.appendChannels(plan.id, [
+        _channel('WAY-TOO-LONG', 146940000),
+      ], profile: _small);
 
       expect(notifier.byId(plan.id)!.channels.single.name, 'WAY-T');
-      expect(notifier.byId(plan.id)!.channels.single.name.length,
-          _small.nameLength);
+      expect(
+        notifier.byId(plan.id)!.channels.single.name.length,
+        _small.nameLength,
+      );
     });
 
     test('the unlock mark sticks once set', () async {
@@ -145,8 +158,12 @@ void main() {
       final notifier = c.read(channelPlansProvider.notifier);
       final plan = await notifier.create(name: 'A', radioProfileId: 'uv5r');
 
-      await notifier.appendChannels(plan.id, _channels(1),
-          profile: _small, builtWithTxUnlock: true);
+      await notifier.appendChannels(
+        plan.id,
+        _channels(1),
+        profile: _small,
+        builtWithTxUnlock: true,
+      );
       expect(notifier.byId(plan.id)!.builtWithTxUnlock, isTrue);
 
       await notifier.appendChannels(plan.id, _channels(1), profile: _small);
@@ -156,15 +173,18 @@ void main() {
     test('appending to a plan that is gone is a no-op', () async {
       final c = await container();
       final notifier = c.read(channelPlansProvider.notifier);
-      final outcome =
-          await notifier.appendChannels('ghost', _channels(2), profile: _small);
+      final outcome = await notifier.appendChannels(
+        'ghost',
+        _channels(2),
+        profile: _small,
+      );
       expect(outcome.added, 0);
     });
   });
 
   group('editing', () {
     Future<({ProviderContainer c, ChannelPlansNotifier n, String id})>
-        withFour() async {
+    withFour() async {
       final c = await container();
       final n = c.read(channelPlansProvider.notifier);
       final plan = await n.create(name: 'A', radioProfileId: 'uv5r');
@@ -175,8 +195,10 @@ void main() {
     test('removes one slot', () async {
       final s = await withFour();
       await s.n.removeAt(s.id, 1);
-      expect([for (final ch in s.n.byId(s.id)!.channels) ch.name],
-          ['CH0', 'CH2', 'CH3']);
+      expect(
+        [for (final ch in s.n.byId(s.id)!.channels) ch.name],
+        ['CH0', 'CH2', 'CH3'],
+      );
     });
 
     test('ignores an out-of-range removal', () async {
@@ -190,7 +212,9 @@ void main() {
       final s = await withFour();
       await s.n.removeMany(s.id, {0, 2});
       expect(
-          [for (final ch in s.n.byId(s.id)!.channels) ch.name], ['CH1', 'CH3']);
+        [for (final ch in s.n.byId(s.id)!.channels) ch.name],
+        ['CH1', 'CH3'],
+      );
     });
 
     test('an empty multi-select removal changes nothing', () async {
@@ -199,21 +223,27 @@ void main() {
       expect(s.n.byId(s.id)!.channels, hasLength(4));
     });
 
-    test('reorders as a plain move, because the list already adjusted',
-        () async {
-      // `ReorderableListView.onReorderItem` hands over the index the item
-      // ends up at, having already accounted for it still being in the list
-      // when the drop index was computed. Adjusting again here would send
-      // every downward drag one slot short.
-      final s = await withFour();
-      await s.n.reorder(s.id, 0, 2);
-      expect([for (final ch in s.n.byId(s.id)!.channels) ch.name],
-          ['CH1', 'CH2', 'CH0', 'CH3']);
+    test(
+      'reorders as a plain move, because the list already adjusted',
+      () async {
+        // `ReorderableListView.onReorderItem` hands over the index the item
+        // ends up at, having already accounted for it still being in the list
+        // when the drop index was computed. Adjusting again here would send
+        // every downward drag one slot short.
+        final s = await withFour();
+        await s.n.reorder(s.id, 0, 2);
+        expect(
+          [for (final ch in s.n.byId(s.id)!.channels) ch.name],
+          ['CH1', 'CH2', 'CH0', 'CH3'],
+        );
 
-      await s.n.reorder(s.id, 3, 0);
-      expect([for (final ch in s.n.byId(s.id)!.channels) ch.name],
-          ['CH3', 'CH1', 'CH2', 'CH0']);
-    });
+        await s.n.reorder(s.id, 3, 0);
+        expect(
+          [for (final ch in s.n.byId(s.id)!.channels) ch.name],
+          ['CH3', 'CH1', 'CH2', 'CH0'],
+        );
+      },
+    );
 
     test('a reorder that goes nowhere changes nothing', () async {
       final s = await withFour();
@@ -256,28 +286,28 @@ void main() {
     test('replaceChannels takes what fits and clamps names', () async {
       // What a read from the radio produces.
       final s = await withFour();
-      await s.n.replaceChannels(
-        s.id,
-        [for (var i = 0; i < 9; i++) _channel('FROMRADIO$i', 145000000 + i)],
-        profile: _small,
-      );
+      await s.n.replaceChannels(s.id, [
+        for (var i = 0; i < 9; i++) _channel('FROMRADIO$i', 145000000 + i),
+      ], profile: _small);
       final channels = s.n.byId(s.id)!.channels;
       expect(channels, hasLength(4));
       expect(channels.first.name, 'FROMR');
     });
 
-    test('every edit stamps modifiedAt and floats the plan to the top',
-        () async {
-      final c = await container();
-      final n = c.read(channelPlansProvider.notifier);
-      final first = await n.create(name: 'First', radioProfileId: 'uv5r');
-      await n.create(name: 'Second', radioProfileId: 'uv5r');
-      expect(c.read(channelPlansProvider).first.name, 'Second');
+    test(
+      'every edit stamps modifiedAt and floats the plan to the top',
+      () async {
+        final c = await container();
+        final n = c.read(channelPlansProvider.notifier);
+        final first = await n.create(name: 'First', radioProfileId: 'uv5r');
+        await n.create(name: 'Second', radioProfileId: 'uv5r');
+        expect(c.read(channelPlansProvider).first.name, 'Second');
 
-      await n.rename(first.id, 'Touched');
-      expect(c.read(channelPlansProvider).first.id, first.id);
-      expect(n.byId(first.id)!.modifiedAt.isAfter(first.modifiedAt), isTrue);
-    });
+        await n.rename(first.id, 'Touched');
+        expect(c.read(channelPlansProvider).first.id, first.id);
+        expect(n.byId(first.id)!.modifiedAt.isAfter(first.modifiedAt), isTrue);
+      },
+    );
   });
 
   test('plans survive a new container over the same preferences', () async {
@@ -285,7 +315,8 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
 
     final first = ProviderContainer(
-        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)]);
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    );
     final plan = await first
         .read(channelPlansProvider.notifier)
         .create(name: 'Persisted', radioProfileId: 'uv-5r-mini');
@@ -295,7 +326,8 @@ void main() {
     first.dispose();
 
     final second = ProviderContainer(
-        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)]);
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    );
     addTearDown(second.dispose);
     expect(second.read(channelPlansProvider), hasLength(1));
     expect(second.read(channelPlansProvider).single.channels, hasLength(2));
@@ -308,8 +340,10 @@ void main() {
     });
 
     test('trims a long one', () {
-      expect(clampChannelName(_channel('TOOLONGNAME', 146940000), _small).name,
-          'TOOLO');
+      expect(
+        clampChannelName(_channel('TOOLONGNAME', 146940000), _small).name,
+        'TOOLO',
+      );
     });
   });
 }

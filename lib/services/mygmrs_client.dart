@@ -41,10 +41,10 @@ class MyGmrsClient implements RepeaterSource {
   final String userAgent;
 
   MyGmrsClient({
-    required http.Client client,
+    required this._client,
     required this.userAgent,
     this.timeout = const Duration(seconds: 20),
-  }) : _client = client;
+  });
 
   @override
   String get id => sourceId;
@@ -65,28 +65,40 @@ class MyGmrsClient implements RepeaterSource {
 
     http.Response response;
     try {
-      response = await _client.get(uri, headers: {
-        'User-Agent': userAgent,
-        'Accept': 'application/json',
-      }).timeout(timeout);
+      response = await _client
+          .get(
+            uri,
+            headers: {'User-Agent': userAgent, 'Accept': 'application/json'},
+          )
+          .timeout(timeout);
     } on TimeoutException {
-      throw _failure(SourceFailureKind.network,
-          'myGMRS did not answer in time. Showing what was cached.');
+      throw _failure(
+        SourceFailureKind.network,
+        'myGMRS did not answer in time. Showing what was cached.',
+      );
     } on http.ClientException catch (error) {
-      throw _failure(SourceFailureKind.network,
-          'Could not reach myGMRS: ${error.message}');
+      throw _failure(
+        SourceFailureKind.network,
+        'Could not reach myGMRS: ${error.message}',
+      );
     } on SocketException catch (error) {
-      throw _failure(SourceFailureKind.network,
-          'Could not reach myGMRS: ${error.message}');
+      throw _failure(
+        SourceFailureKind.network,
+        'Could not reach myGMRS: ${error.message}',
+      );
     }
 
     if (response.statusCode == 429) {
-      throw _failure(SourceFailureKind.rateLimited,
-          'myGMRS asked us to slow down. Try again in a few minutes.');
+      throw _failure(
+        SourceFailureKind.rateLimited,
+        'myGMRS asked us to slow down. Try again in a few minutes.',
+      );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw _failure(SourceFailureKind.network,
-          'myGMRS returned HTTP ${response.statusCode}.');
+      throw _failure(
+        SourceFailureKind.network,
+        'myGMRS returned HTTP ${response.statusCode}.',
+      );
     }
 
     Object? decoded;
@@ -94,11 +106,15 @@ class MyGmrsClient implements RepeaterSource {
       decoded = jsonDecode(response.body);
     } on FormatException {
       throw _failure(
-          SourceFailureKind.parse, 'myGMRS sent something that was not JSON.');
+        SourceFailureKind.parse,
+        'myGMRS sent something that was not JSON.',
+      );
     }
     if (decoded is! Map<String, dynamic>) {
       throw _failure(
-          SourceFailureKind.parse, 'myGMRS sent an unexpected response.');
+        SourceFailureKind.parse,
+        'myGMRS sent an unexpected response.',
+      );
     }
     final items = decoded['items'];
     if (items is! List) {
@@ -112,7 +128,8 @@ class MyGmrsClient implements RepeaterSource {
       if (listing != null) listings.add(listing);
     }
     Log.radio.debug(
-        'myGMRS $stateCode: ${listings.length} of ${items.length} usable');
+      'myGMRS $stateCode: ${listings.length} of ${items.length} usable',
+    );
     return listings;
   }
 
@@ -136,8 +153,8 @@ class MyGmrsClient implements RepeaterSource {
     final status = _text(item['Status']);
 
     final notes = <String>[
-      if (town != null) town,
-      if (type != null) type,
+      ?town,
+      ?type,
       if (status != null && status.toLowerCase() != 'online') 'Status: $status',
       // Said every time, because a tone-protected repeater that the app
       // silently programmed without a tone would hear fine and never key.
@@ -166,10 +183,12 @@ class MyGmrsClient implements RepeaterSource {
   }
 
   RepeaterSourceException _failure(SourceFailureKind kind, String message) =>
-      RepeaterSourceException(SourceFailure(
-        sourceId: sourceId,
-        displayName: 'myGMRS',
-        kind: kind,
-        message: message,
-      ));
+      RepeaterSourceException(
+        SourceFailure(
+          sourceId: sourceId,
+          displayName: 'myGMRS',
+          kind: kind,
+          message: message,
+        ),
+      );
 }

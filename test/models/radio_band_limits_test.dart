@@ -17,17 +17,24 @@ void main() {
       final widened = RadioBandLimits.widenedFor(uv5rProfile)!;
       // The same spans the acknowledgement lists and suggestions use,
       // rounded down to whole megahertz.
-      expect(widened.vhf,
-          const BandLimit(txEnabled: true, lowerMhz: 130, upperMhz: 179));
-      expect(widened.uhf,
-          const BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520));
+      expect(
+        widened.vhf,
+        const BandLimit(txEnabled: true, lowerMhz: 130, upperMhz: 179),
+      );
+      expect(
+        widened.uhf,
+        const BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520),
+      );
     });
 
     test('every radio with an unlock widens to something', () {
       for (final profile in radioProfiles) {
         if (!profile.txUnlock.supported) continue;
-        expect(RadioBandLimits.widenedFor(profile), isNotNull,
-            reason: profile.id);
+        expect(
+          RadioBandLimits.widenedFor(profile),
+          isNotNull,
+          reason: profile.id,
+        );
       }
     });
 
@@ -47,34 +54,41 @@ void main() {
   });
 
   test('limits survive a trip through JSON', () {
-    final original =
-        OriginalBandLimits(limits: _stock, readAt: DateTime.utc(2026, 9, 20));
-    final back =
-        OriginalBandLimits.fromJson(jsonDecode(jsonEncode(original.toJson())));
+    final original = OriginalBandLimits(
+      limits: _stock,
+      readAt: DateTime.utc(2026, 9, 20),
+    );
+    final back = OriginalBandLimits.fromJson(
+      jsonDecode(jsonEncode(original.toJson())),
+    );
     expect(back, original);
   });
 
   test('anything unreadable reads as nothing, not as a guess', () {
     expect(RadioBandLimits.fromJson('136-174'), isNull);
     expect(
-        RadioBandLimits.fromJson({
-          'vhf': {'tx': true, 'lower': 136, 'upper': 174},
-          'uhf': {'tx': 'yes', 'lower': 400, 'upper': 520},
-        }),
-        isNull);
-    expect(OriginalBandLimits.fromJson({..._stock.toJson()}), isNull,
-        reason: 'no read time');
+      RadioBandLimits.fromJson({
+        'vhf': {'tx': true, 'lower': 136, 'upper': 174},
+        'uhf': {'tx': 'yes', 'lower': 400, 'upper': 520},
+      }),
+      isNull,
+    );
     expect(
-        OriginalBandLimits.fromJson(
-            {..._stock.toJson(), 'readAt': 'last Tuesday'}),
-        isNull);
+      OriginalBandLimits.fromJson({..._stock.toJson()}),
+      isNull,
+      reason: 'no read time',
+    );
+    expect(
+      OriginalBandLimits.fromJson({
+        ..._stock.toJson(),
+        'readAt': 'last Tuesday',
+      }),
+      isNull,
+    );
   });
 
   test('two readings of the same limits are equal', () {
-    expect(
-      RadioBandLimits.fromJson(_stock.toJson()),
-      _stock,
-    );
+    expect(RadioBandLimits.fromJson(_stock.toJson()), _stock);
     expect(_stock.hashCode, RadioBandLimits.fromJson(_stock.toJson()).hashCode);
     expect(_stock, isNot(RadioBandLimits.widenedFor(uv5rProfile)));
   });

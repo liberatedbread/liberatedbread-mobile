@@ -17,10 +17,15 @@ void main() {
     });
 
     test('rejects its neighbours', () {
-      expect(isRadioUartService('ffe1'), isFalse,
-          reason: 'the characteristic, not the service');
       expect(
-          isRadioUartService('0000180f-0000-1000-8000-00805f9b34fb'), isFalse);
+        isRadioUartService('ffe1'),
+        isFalse,
+        reason: 'the characteristic, not the service',
+      );
+      expect(
+        isRadioUartService('0000180f-0000-1000-8000-00805f9b34fb'),
+        isFalse,
+      );
     });
   });
 
@@ -44,7 +49,9 @@ void main() {
       // It is the generic HM-10 serial service. LED strips advertise it.
       expect(
         recogniseRadio(
-            name: 'LEDBlue-12AB', serviceUuids: [baofengUartService]),
+          name: 'LEDBlue-12AB',
+          serviceUuids: [baofengUartService],
+        ),
         isNull,
       );
     });
@@ -61,7 +68,9 @@ void main() {
 
     test('an empty name is not a radio', () {
       expect(
-          recogniseRadio(name: '', serviceUuids: [baofengUartService]), isNull);
+        recogniseRadio(name: '', serviceUuids: [baofengUartService]),
+        isNull,
+      );
     });
 
     test('recognises every spelling the target doc records', () {
@@ -74,8 +83,11 @@ void main() {
         'uv32',
         'Baofeng',
       ]) {
-        expect(recogniseRadio(name: name, serviceUuids: const []), isNotNull,
-            reason: name);
+        expect(
+          recogniseRadio(name: name, serviceUuids: const []),
+          isNotNull,
+          reason: name,
+        );
       }
     });
   });
@@ -92,15 +104,21 @@ void main() {
 
     test('suggests nothing when the name does not say which', () {
       expect(suggestion('Baofeng'), isNull);
-      expect(suggestion('UV-5R / UV-32 pair'), isNull,
-          reason: 'two models named is no model named');
+      expect(
+        suggestion('UV-5R / UV-32 pair'),
+        isNull,
+        reason: 'two models named is no model named',
+      );
     });
 
     test('only ever suggests a radio this build programs over Bluetooth', () {
       for (final name in ['UV-5R Mini', 'UV5G', 'UV-32']) {
         final profile = suggestion(name)!;
-        expect(profile.programmingFamily, ProgrammingFamily.bleUv17Pro,
-            reason: name);
+        expect(
+          profile.programmingFamily,
+          ProgrammingFamily.bleUv17Pro,
+          reason: name,
+        );
       }
     });
   });

@@ -135,8 +135,11 @@ void main() {
       final seen = <String>{};
       for (final channel in allPresetChannels()) {
         final key = '${channel.rxFreqHz}/${channel.txFreqHz}';
-        expect(seen.add(key), isTrue,
-            reason: 'duplicate preset ${channel.name} at $key');
+        expect(
+          seen.add(key),
+          isTrue,
+          reason: 'duplicate preset ${channel.name} at $key',
+        );
       }
     });
 

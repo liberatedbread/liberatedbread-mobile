@@ -29,22 +29,28 @@ RepeaterBookClient _client(
   String? token = 'rbuapp_testtoken',
   String? stateId = '09',
   Duration timeout = const Duration(seconds: 5),
-}) =>
-    RepeaterBookClient(
-      client: mock,
-      userAgent: _userAgent,
-      readToken: () async => token,
-      resolveStateId: (_) async => stateId,
-      timeout: timeout,
-    );
+}) => RepeaterBookClient(
+  client: mock,
+  userAgent: _userAgent,
+  readToken: () async => token,
+  resolveStateId: (_) async => stateId,
+  timeout: timeout,
+);
 
-RepeaterBookClient _answering(String body,
-        {int status = 200, String? token = 'rbuapp_testtoken'}) =>
-    _client(
-      MockClient((_) async => http.Response(body, status,
-          headers: {'content-type': 'application/json'})),
-      token: token,
-    );
+RepeaterBookClient _answering(
+  String body, {
+  int status = 200,
+  String? token = 'rbuapp_testtoken',
+}) => _client(
+  MockClient(
+    (_) async => http.Response(
+      body,
+      status,
+      headers: {'content-type': 'application/json'},
+    ),
+  ),
+  token: token,
+);
 
 Future<SourceFailure> _failureFrom(Future<void> Function() run) async {
   try {
@@ -59,8 +65,9 @@ void main() {
   late String fixture;
 
   setUpAll(() async {
-    fixture =
-        await File('test/fixtures/radio/repeaterbook_ct.json').readAsString();
+    fixture = await File(
+      'test/fixtures/radio/repeaterbook_ct.json',
+    ).readAsString();
   });
 
   test('identifies itself and carries the required attribution', () {
@@ -81,7 +88,8 @@ void main() {
 
     test('without a token it explains rather than failing obscurely', () async {
       final failure = await _failureFrom(
-          () => _answering(fixture, token: null).fetchByState('CT'));
+        () => _answering(fixture, token: null).fetchByState('CT'),
+      );
       expect(failure.kind, SourceFailureKind.auth);
       expect(failure.isActionable, isTrue);
       expect(failure.message, contains('token'));
@@ -90,32 +98,36 @@ void main() {
   });
 
   group('the request', () {
-    test('sends the token header, the user agent and the FIPS state id',
-        () async {
-      late http.Request seen;
-      final client = _client(
-        MockClient((request) async {
-          seen = request;
-          return http.Response('{"results": []}', 200);
-        }),
-        stateId: '09',
-      );
-      await client.fetchByState('CT');
+    test(
+      'sends the token header, the user agent and the FIPS state id',
+      () async {
+        late http.Request seen;
+        final client = _client(
+          MockClient((request) async {
+            seen = request;
+            return http.Response('{"results": []}', 200);
+          }),
+          stateId: '09',
+        );
+        await client.fetchByState('CT');
 
-      expect(seen.url.host, 'www.repeaterbook.com');
-      expect(seen.url.path, '/api/export.php');
-      // The export API keys on the FIPS number, not the postal code -- which
-      // is why the bundled state data carries both.
-      expect(seen.url.queryParameters['state_id'], '09');
-      expect(seen.headers['X-RB-App-Token'], 'rbuapp_testtoken');
-      expect(seen.headers['User-Agent'], _userAgent);
-    });
+        expect(seen.url.host, 'www.repeaterbook.com');
+        expect(seen.url.path, '/api/export.php');
+        // The export API keys on the FIPS number, not the postal code -- which
+        // is why the bundled state data carries both.
+        expect(seen.url.queryParameters['state_id'], '09');
+        expect(seen.headers['X-RB-App-Token'], 'rbuapp_testtoken');
+        expect(seen.headers['User-Agent'], _userAgent);
+      },
+    );
 
     test('a state with no known FIPS code fails clearly', () async {
-      final failure = await _failureFrom(() => _client(
-              MockClient((_) async => http.Response('{}', 200)),
-              stateId: null)
-          .fetchByState('ZZ'));
+      final failure = await _failureFrom(
+        () => _client(
+          MockClient((_) async => http.Response('{}', 200)),
+          stateId: null,
+        ).fetchByState('ZZ'),
+      );
       expect(failure.kind, SourceFailureKind.parse);
       expect(failure.message, contains('ZZ'));
     });
@@ -183,7 +195,8 @@ void main() {
       // Their export has been documented under more than one key, and a
       // source that breaks because a directory renamed a wrapper is worse
       // than one that looks in a few places.
-      const row = '{"Frequency": "146.94", "Lat": "41.7", "Long": "-72.7", '
+      const row =
+          '{"Frequency": "146.94", "Lat": "41.7", "Long": "-72.7", '
           '"Callsign": "WT9EST"}';
       for (final body in [
         '{"results": [$row]}',
@@ -198,33 +211,39 @@ void main() {
     });
 
     test('reads column names regardless of case and spacing', () async {
-      const row = '{"frequency": "146.94", "input_freq": "146.34", '
+      const row =
+          '{"frequency": "146.94", "input_freq": "146.34", '
           '"latitude": 41.7, "longitude": -72.7, "call": "WT8EST"}';
-      final listings =
-          await _answering('{"results": [$row]}').fetchByState('CT');
+      final listings = await _answering(
+        '{"results": [$row]}',
+      ).fetchByState('CT');
       expect(listings.single.channel.txFreqHz, 146340000);
       expect(listings.single.callsign, 'WT8EST');
     });
   });
 
   group('token verification', () {
-    Future<TokenCheck> check(String body, int status, String token) =>
-        _client(MockClient((_) async => http.Response(body, status)))
-            .verifyToken(token);
+    Future<TokenCheck> check(String body, int status, String token) => _client(
+      MockClient((_) async => http.Response(body, status)),
+    ).verifyToken(token);
 
     test('an empty token is missing, without a request', () async {
       var called = false;
-      final client = _client(MockClient((_) async {
-        called = true;
-        return http.Response('{}', 200);
-      }));
+      final client = _client(
+        MockClient((_) async {
+          called = true;
+          return http.Response('{}', 200);
+        }),
+      );
       expect(await client.verifyToken('   '), TokenCheck.missing);
       expect(called, isFalse);
     });
 
     test('a working token is valid', () async {
       expect(
-          await check('{"results": []}', 200, 'rbuapp_good'), TokenCheck.valid);
+        await check('{"results": []}', 200, 'rbuapp_good'),
+        TokenCheck.valid,
+      );
     });
 
     test('tells "not a token" apart from "not your token"', () async {
@@ -232,22 +251,31 @@ void main() {
       // problems to be stuck on: one is a bad paste, the other an expired
       // credential.
       expect(
-          await check(_badHeaderFormat, 401, 'garbage'), TokenCheck.malformed);
-      expect(await check(_badUserTokenFormat, 401, 'rbuapp_short'),
-          TokenCheck.malformed);
+        await check(_badHeaderFormat, 401, 'garbage'),
+        TokenCheck.malformed,
+      );
       expect(
-          await check(_rejected, 401, 'rbuapp_unknown'), TokenCheck.rejected);
+        await check(_badUserTokenFormat, 401, 'rbuapp_short'),
+        TokenCheck.malformed,
+      );
+      expect(
+        await check(_rejected, 401, 'rbuapp_unknown'),
+        TokenCheck.rejected,
+      );
       expect(await check(_authMissing, 401, 'anything'), TokenCheck.missing);
     });
 
     test('a rate limit is not a verdict on the token', () async {
       expect(
-          await check('slow down', 429, 'rbuapp_good'), TokenCheck.rateLimited);
+        await check('slow down', 429, 'rbuapp_good'),
+        TokenCheck.rateLimited,
+      );
     });
 
     test('an unreachable service is not a verdict either', () async {
       final client = _client(
-          MockClient((_) async => throw const SocketException('offline')));
+        MockClient((_) async => throw const SocketException('offline')),
+      );
       expect(await client.verifyToken('rbuapp_good'), TokenCheck.unreachable);
 
       final slow = _client(
@@ -258,16 +286,20 @@ void main() {
     });
 
     test('an unparseable refusal is still a refusal', () async {
-      expect(await check('<html>nope</html>', 403, 'rbuapp_good'),
-          TokenCheck.rejected);
+      expect(
+        await check('<html>nope</html>', 403, 'rbuapp_good'),
+        TokenCheck.rejected,
+      );
     });
 
     test('verification asks for the smallest state it can', () async {
       late Uri seen;
-      final client = _client(MockClient((request) async {
-        seen = request.url;
-        return http.Response('{"results": []}', 200);
-      }));
+      final client = _client(
+        MockClient((request) async {
+          seen = request.url;
+          return http.Response('{"results": []}', 200);
+        }),
+      );
       await client.verifyToken('rbuapp_good');
       // Rhode Island: the smallest answer that still exercises the endpoint.
       expect(seen.queryParameters['state_id'], '44');
@@ -277,58 +309,73 @@ void main() {
   group('fetch failures', () {
     test('a refused token points at the settings screen', () async {
       final failure = await _failureFrom(
-          () => _answering(_rejected, status: 401).fetchByState('CT'));
+        () => _answering(_rejected, status: 401).fetchByState('CT'),
+      );
       expect(failure.kind, SourceFailureKind.auth);
       expect(failure.isActionable, isTrue);
       expect(failure.message.toLowerCase(), contains('settings'));
     });
 
-    test('a malformed stored token says to check it, not to renew it',
-        () async {
-      final failure = await _failureFrom(() =>
-          _answering(_badUserTokenFormat, status: 401).fetchByState('CT'));
-      expect(failure.message.toLowerCase(), contains('did not recognise'));
-    });
+    test(
+      'a malformed stored token says to check it, not to renew it',
+      () async {
+        final failure = await _failureFrom(
+          () => _answering(_badUserTokenFormat, status: 401).fetchByState('CT'),
+        );
+        expect(failure.message.toLowerCase(), contains('did not recognise'));
+      },
+    );
 
     test('a rate limit says cached results are being shown', () async {
       final failure = await _failureFrom(
-          () => _answering('slow down', status: 429).fetchByState('CT'));
+        () => _answering('slow down', status: 429).fetchByState('CT'),
+      );
       expect(failure.kind, SourceFailureKind.rateLimited);
       expect(failure.message.toLowerCase(), contains('cached'));
     });
 
-    test('a server error, a dead socket and a timeout are network failures',
-        () async {
-      expect(
+    test(
+      'a server error, a dead socket and a timeout are network failures',
+      () async {
+        expect(
           (await _failureFrom(
-                  () => _answering('boom', status: 500).fetchByState('CT')))
-              .kind,
-          SourceFailureKind.network);
+            () => _answering('boom', status: 500).fetchByState('CT'),
+          )).kind,
+          SourceFailureKind.network,
+        );
 
-      final dead = _client(
-          MockClient((_) async => throw const SocketException('offline')));
-      expect((await _failureFrom(() => dead.fetchByState('CT'))).kind,
-          SourceFailureKind.network);
+        final dead = _client(
+          MockClient((_) async => throw const SocketException('offline')),
+        );
+        expect(
+          (await _failureFrom(() => dead.fetchByState('CT'))).kind,
+          SourceFailureKind.network,
+        );
 
-      final slow = _client(
-        MockClient((_) => Completer<http.Response>().future),
-        timeout: const Duration(milliseconds: 20),
-      );
-      expect((await _failureFrom(() => slow.fetchByState('CT'))).kind,
-          SourceFailureKind.network);
-    });
+        final slow = _client(
+          MockClient((_) => Completer<http.Response>().future),
+          timeout: const Duration(milliseconds: 20),
+        );
+        expect(
+          (await _failureFrom(() => slow.fetchByState('CT'))).kind,
+          SourceFailureKind.network,
+        );
+      },
+    );
 
     test('an unreadable body is a parse failure', () async {
       expect(
-          (await _failureFrom(
-                  () => _answering('<html>down</html>').fetchByState('CT')))
-              .kind,
-          SourceFailureKind.parse);
+        (await _failureFrom(
+          () => _answering('<html>down</html>').fetchByState('CT'),
+        )).kind,
+        SourceFailureKind.parse,
+      );
       expect(
-          (await _failureFrom(
-                  () => _answering('{"ok":true}').fetchByState('CT')))
-              .kind,
-          SourceFailureKind.parse);
+        (await _failureFrom(
+          () => _answering('{"ok":true}').fetchByState('CT'),
+        )).kind,
+        SourceFailureKind.parse,
+      );
     });
   });
 }

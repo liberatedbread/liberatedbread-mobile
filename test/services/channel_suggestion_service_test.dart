@@ -25,18 +25,17 @@ RepeaterListing _repeater({
   required GeoPoint at,
   ToneSetting tone = ToneSetting.none,
   SuggestionCategory category = SuggestionCategory.repeater,
-}) =>
-    RepeaterListing(
-      channel: RadioChannel(
-        name: name,
-        rxFreqHz: rxHz,
-        txFreqHz: txHz ?? rxHz,
-        txTone: tone,
-      ),
-      category: category,
-      location: at,
-      callsign: name,
-    );
+}) => RepeaterListing(
+  channel: RadioChannel(
+    name: name,
+    rxFreqHz: rxHz,
+    txFreqHz: txHz ?? rxHz,
+    txTone: tone,
+  ),
+  category: category,
+  location: at,
+  callsign: name,
+);
 
 void main() {
   setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
@@ -66,14 +65,13 @@ void main() {
     double radiusKm = 40,
     Set<String> sources = const {'test'},
     bool unlock = false,
-  }) =>
-      SuggestionRequest(
-        where: _hartford,
-        radiusKm: radiusKm,
-        profile: profile,
-        enabledSourceIds: sources,
-        txUnlockEnabled: unlock,
-      );
+  }) => SuggestionRequest(
+    where: _hartford,
+    radiusKm: radiusKm,
+    profile: profile,
+    enabledSourceIds: sources,
+    txUnlockEnabled: unlock,
+  );
 
   group('the offline tier', () {
     test('answers with presets even when nothing is enabled', () async {
@@ -107,50 +105,66 @@ void main() {
 
   group('the radius filter', () {
     test('keeps what is inside and drops what is outside', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater(
-              name: 'CLOSE', rxHz: 146940000, txHz: 146340000, at: _hartford),
-          // Roughly 90 km south-west, so outside a 40 km search.
-          _repeater(
-            name: 'FAR',
-            rxHz: 147000000,
-            txHz: 146400000,
-            at: const GeoPoint(41.05, -73.55),
-          ),
-        ],
-      });
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'CLOSE',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+            ),
+            // Roughly 90 km south-west, so outside a 40 km search.
+            _repeater(
+              name: 'FAR',
+              rxHz: 147000000,
+              txHz: 146400000,
+              at: const GeoPoint(41.05, -73.55),
+            ),
+          ],
+        },
+      );
       final result = await service([source]).suggest(request(radiusKm: 40));
 
       expect([for (final c in result.repeaters) c.channel.name], ['CLOSE']);
     });
 
     test('a wider radius reaches further', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater(
-            name: 'FAR',
-            rxHz: 147000000,
-            txHz: 146400000,
-            at: const GeoPoint(41.05, -73.55),
-          ),
-        ],
-      });
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'FAR',
+              rxHz: 147000000,
+              txHz: 146400000,
+              at: const GeoPoint(41.05, -73.55),
+            ),
+          ],
+        },
+      );
       final result = await service([source]).suggest(request(radiusKm: 160));
       expect(result.repeaters, hasLength(1));
       expect(result.repeaters.single.distanceKm, greaterThan(40));
     });
 
     test('a listing with no position is dropped, not ranked last', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          const RepeaterListing(
-            channel: RadioChannel(
-                name: 'NOWHERE', rxFreqHz: 146940000, txFreqHz: 146340000),
-            category: SuggestionCategory.repeater,
-          ),
-        ],
-      });
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            const RepeaterListing(
+              channel: RadioChannel(
+                name: 'NOWHERE',
+                rxFreqHz: 146940000,
+                txFreqHz: 146340000,
+              ),
+              category: SuggestionCategory.repeater,
+            ),
+          ],
+        },
+      );
       final result = await service([source]).suggest(request());
       expect(result.repeaters, isEmpty);
     });
@@ -158,54 +172,77 @@ void main() {
 
   group('judging a channel against the radio', () {
     test('drops what the radio cannot even hear', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          // 900 MHz: outside every profile's receive range.
-          _repeater(name: 'GHOST', rxHz: 927000000, at: _hartford),
-        ],
-      });
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            // 900 MHz: outside every profile's receive range.
+            _repeater(name: 'GHOST', rxHz: 927000000, at: _hartford),
+          ],
+        },
+      );
       final result = await service([source]).suggest(request());
       expect(result.repeaters, isEmpty);
     });
 
-    test('offers what it can hear but not transmit on, as listen-only',
-        () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        // 155 MHz is inside the UV-5R's receive range and outside its
-        // transmit range.
-        'CT': [_repeater(name: 'PUBLIC', rxHz: 155000000, at: _hartford)],
-      });
-      final result = await service([source]).suggest(request());
+    test(
+      'offers what it can hear but not transmit on, as listen-only',
+      () async {
+        final source = FakeRepeaterSource(
+          id: 'test',
+          byState: {
+            // 155 MHz is inside the UV-5R's receive range and outside its
+            // transmit range.
+            'CT': [_repeater(name: 'PUBLIC', rxHz: 155000000, at: _hartford)],
+          },
+        );
+        final result = await service([source]).suggest(request());
 
-      expect(result.repeaters, hasLength(1));
-      final channel = result.repeaters.single;
-      expect(channel.txAllowed, isFalse);
-      // ...and the channel it would put in a plan cannot key anywhere else.
-      expect(channel.channelForPlan.rxOnly, isTrue);
-      expect(channel.channelForPlan.txFreqHz, 155000000);
-    });
+        expect(result.repeaters, hasLength(1));
+        final channel = result.repeaters.single;
+        expect(channel.txAllowed, isFalse);
+        // ...and the channel it would put in a plan cannot key anywhere else.
+        expect(channel.channelForPlan.rxOnly, isTrue);
+        expect(channel.channelForPlan.txFreqHz, 155000000);
+      },
+    );
 
     test('allows transmit inside the factory range', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater(
-              name: 'HAM', rxHz: 146940000, txHz: 146340000, at: _hartford),
-        ],
-      });
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'HAM',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+            ),
+          ],
+        },
+      );
       final result = await service([source]).suggest(request());
       expect(result.repeaters.single.txAllowed, isTrue);
       expect(result.repeaters.single.requiresTxUnlock, isFalse);
     });
 
     test('a GMRS radio hears amateur repeaters but cannot key them', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater(
-              name: 'HAM', rxHz: 146940000, txHz: 146340000, at: _hartford),
-        ],
-      });
-      final result =
-          await service([source]).suggest(request(profile: uv5gMiniProfile));
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'HAM',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+            ),
+          ],
+        },
+      );
+      final result = await service([
+        source,
+      ]).suggest(request(profile: uv5gMiniProfile));
       expect(result.repeaters.single.txAllowed, isFalse);
     });
   });
@@ -213,34 +250,47 @@ void main() {
   group('the transmit-range unlock', () {
     // 140 MHz: outside the UV-5R Mini's factory transmit range and inside its
     // documented expanded one.
-    FakeRepeaterSource marsBand() => FakeRepeaterSource(id: 'test', byState: {
-          'CT': [_repeater(name: 'MARS', rxHz: 140000000, at: _hartford)],
-        });
+    FakeRepeaterSource marsBand() => FakeRepeaterSource(
+      id: 'test',
+      byState: {
+        'CT': [_repeater(name: 'MARS', rxHz: 140000000, at: _hartford)],
+      },
+    );
 
     test('is listen-only with the unlock off', () async {
-      final result =
-          await service([marsBand()]).suggest(request(profile: uv5rProfile));
+      final result = await service([
+        marsBand(),
+      ]).suggest(request(profile: uv5rProfile));
       expect(result.repeaters.single.txAllowed, isFalse);
       expect(result.repeaters.single.requiresTxUnlock, isFalse);
     });
 
     test('becomes transmittable, and badged, with the unlock on', () async {
-      final result = await service([marsBand()])
-          .suggest(request(profile: uv5rProfile, unlock: true));
+      final result = await service([
+        marsBand(),
+      ]).suggest(request(profile: uv5rProfile, unlock: true));
       final channel = result.repeaters.single;
       expect(channel.txAllowed, isTrue);
       expect(channel.requiresTxUnlock, isTrue);
     });
 
     test('does not badge a channel that was always transmittable', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater(
-              name: 'HAM', rxHz: 146940000, txHz: 146340000, at: _hartford),
-        ],
-      });
-      final result = await service([source])
-          .suggest(request(profile: uv5rProfile, unlock: true));
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'HAM',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+            ),
+          ],
+        },
+      );
+      final result = await service([
+        source,
+      ]).suggest(request(profile: uv5rProfile, unlock: true));
       expect(result.repeaters.single.txAllowed, isTrue);
       expect(result.repeaters.single.requiresTxUnlock, isFalse);
     });
@@ -257,47 +307,58 @@ void main() {
         nameLength: 6,
         programmingFamily: ProgrammingFamily.serialUv5r,
       );
-      final result = await service([marsBand()])
-          .suggest(request(profile: noUnlock, unlock: true));
+      final result = await service([
+        marsBand(),
+      ]).suggest(request(profile: noUnlock, unlock: true));
       expect(result.repeaters.single.txAllowed, isFalse);
       expect(result.repeaters.single.requiresTxUnlock, isFalse);
     });
 
-    test('the request keys differ, so the two runs cannot share a cache entry',
-        () {
-      expect(request(unlock: true), isNot(request()));
-      expect(request(unlock: true).hashCode, isNot(request().hashCode));
-    });
+    test(
+      'the request keys differ, so the two runs cannot share a cache entry',
+      () {
+        expect(request(unlock: true), isNot(request()));
+        expect(request(unlock: true).hashCode, isNot(request().hashCode));
+      },
+    );
   });
 
   group('de-duplication', () {
     test('two directories describing one repeater yield one entry', () async {
-      final near = FakeRepeaterSource(id: 'near', byState: {
-        'CT': [
-          _repeater(
-            name: 'W1AW',
-            rxHz: 146940000,
-            txHz: 146340000,
-            at: _hartford,
-            tone: const ToneSetting.ctcss(1000),
-          ),
-        ],
-      });
-      final far = FakeRepeaterSource(id: 'far', byState: {
-        'CT': [
-          _repeater(
-            // Same machine, different name, and a position 10 km off.
-            name: 'Newington',
-            rxHz: 146940000,
-            txHz: 146340000,
-            at: const GeoPoint(41.85, -72.70),
-            tone: const ToneSetting.ctcss(1000),
-          ),
-        ],
-      });
+      final near = FakeRepeaterSource(
+        id: 'near',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'W1AW',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+              tone: const ToneSetting.ctcss(1000),
+            ),
+          ],
+        },
+      );
+      final far = FakeRepeaterSource(
+        id: 'far',
+        byState: {
+          'CT': [
+            _repeater(
+              // Same machine, different name, and a position 10 km off.
+              name: 'Newington',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: const GeoPoint(41.85, -72.70),
+              tone: const ToneSetting.ctcss(1000),
+            ),
+          ],
+        },
+      );
 
-      final result =
-          await service([near, far]).suggest(request(sources: {'near', 'far'}));
+      final result = await service([
+        near,
+        far,
+      ]).suggest(request(sources: {'near', 'far'}));
 
       expect(result.repeaters, hasLength(1));
       // The nearer listing wins, which is the one whose distance is right.
@@ -306,48 +367,64 @@ void main() {
     });
 
     test('keeps repeaters that differ only by access tone', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater(
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater(
               name: 'A',
               rxHz: 146940000,
               txHz: 146340000,
               at: _hartford,
-              tone: const ToneSetting.ctcss(1000)),
-          _repeater(
+              tone: const ToneSetting.ctcss(1000),
+            ),
+            _repeater(
               name: 'B',
               rxHz: 146940000,
               txHz: 146340000,
               at: _hartford,
-              tone: const ToneSetting.ctcss(1072)),
-        ],
-      });
+              tone: const ToneSetting.ctcss(1072),
+            ),
+          ],
+        },
+      );
       final result = await service([source]).suggest(request());
       expect(result.repeaters, hasLength(2));
     });
   });
 
   test('results are ranked by distance, nearest first', () async {
-    final source = FakeRepeaterSource(id: 'test', byState: {
-      'CT': [
-        _repeater(
+    final source = FakeRepeaterSource(
+      id: 'test',
+      byState: {
+        'CT': [
+          _repeater(
             name: 'MID',
             rxHz: 146700000,
             txHz: 146100000,
-            at: const GeoPoint(41.85, -72.75)),
-        _repeater(
-            name: 'NEAR', rxHz: 146940000, txHz: 146340000, at: _hartford),
-        _repeater(
+            at: const GeoPoint(41.85, -72.75),
+          ),
+          _repeater(
+            name: 'NEAR',
+            rxHz: 146940000,
+            txHz: 146340000,
+            at: _hartford,
+          ),
+          _repeater(
             name: 'FARTHER',
             rxHz: 147150000,
             txHz: 147750000,
-            at: const GeoPoint(42.05, -72.60)),
-      ],
-    });
+            at: const GeoPoint(42.05, -72.60),
+          ),
+        ],
+      },
+    );
     final result = await service([source]).suggest(request());
 
-    expect([for (final c in result.repeaters) c.channel.name],
-        ['NEAR', 'MID', 'FARTHER']);
+    expect(
+      [for (final c in result.repeaters) c.channel.name],
+      ['NEAR', 'MID', 'FARTHER'],
+    );
     final distances = [for (final c in result.repeaters) c.distanceKm!];
     expect(distances, [...distances]..sort());
   });
@@ -364,15 +441,24 @@ void main() {
           message: 'offline',
         ),
       );
-      final working = FakeRepeaterSource(id: 'working', byState: {
-        'CT': [
-          _repeater(
-              name: 'OK', rxHz: 146940000, txHz: 146340000, at: _hartford),
-        ],
-      });
+      final working = FakeRepeaterSource(
+        id: 'working',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'OK',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+            ),
+          ],
+        },
+      );
 
-      final result = await service([broken, working])
-          .suggest(request(sources: {'broken', 'working'}));
+      final result = await service([
+        broken,
+        working,
+      ]).suggest(request(sources: {'broken', 'working'}));
 
       expect(result.repeaters, hasLength(1));
       expect(result.presets, isNotEmpty);
@@ -380,22 +466,28 @@ void main() {
       expect(result.sourceFailures.single.sourceId, 'broken');
     });
 
-    test('an unconfigured source is reported as needing setup, not asked',
-        () async {
-      final unconfigured =
-          FakeRepeaterSource(id: 'needs-token', configured: false);
-      final result = await service([unconfigured])
-          .suggest(request(sources: {'needs-token'}));
+    test(
+      'an unconfigured source is reported as needing setup, not asked',
+      () async {
+        final unconfigured = FakeRepeaterSource(
+          id: 'needs-token',
+          configured: false,
+        );
+        final result = await service([
+          unconfigured,
+        ]).suggest(request(sources: {'needs-token'}));
 
-      expect(unconfigured.fetched, isEmpty);
-      expect(result.sourceFailures.single.kind, SourceFailureKind.auth);
-      expect(result.sourceFailures.single.isActionable, isTrue);
-    });
+        expect(unconfigured.fetched, isEmpty);
+        expect(result.sourceFailures.single.kind, SourceFailureKind.auth);
+        expect(result.sourceFailures.single.isActionable, isTrue);
+      },
+    );
 
     test('a disabled source is not asked and is not a failure', () async {
       final source = FakeRepeaterSource(id: 'test');
-      final result =
-          await service([source]).suggest(request(sources: const {}));
+      final result = await service([
+        source,
+      ]).suggest(request(sources: const {}));
       expect(source.fetched, isEmpty);
       expect(result.sourceFailures, isEmpty);
     });
@@ -412,45 +504,58 @@ void main() {
           message: 'offline',
         ),
       );
-      final result = await service([broken])
-          .suggest(request(sources: {'broken'}, radiusKm: 160));
+      final result = await service([
+        broken,
+      ]).suggest(request(sources: {'broken'}, radiusKm: 160));
 
-      expect(broken.fetched.length, greaterThan(1),
-          reason: 'a 160 km radius from Hartford must reach several states');
+      expect(
+        broken.fetched.length,
+        greaterThan(1),
+        reason: 'a 160 km radius from Hartford must reach several states',
+      );
       expect(result.sourceFailures, hasLength(1));
     });
   });
 
   group('caching', () {
     test('a fresh cache is used instead of asking again', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater(
-              name: 'OK', rxHz: 146940000, txHz: 146340000, at: _hartford),
-        ],
-      });
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'OK',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+            ),
+          ],
+        },
+      );
       final engine = service([source]);
 
       await engine.suggest(request());
       final firstCallCount = source.fetched.length;
       await engine.suggest(request());
 
-      expect(source.fetched.length, firstCallCount,
-          reason: 'the second search must come from the cache');
+      expect(
+        source.fetched.length,
+        firstCallCount,
+        reason: 'the second search must come from the cache',
+      );
     });
 
     test('a stale cache answers when the live fetch fails', () async {
       // This is the offline case, and the reason the cache exists at all:
       // last week s repeater list beats an error by a wide margin.
-      await cache.write(
-        'test',
-        'CT',
-        [
-          _repeater(
-              name: 'CACHED', rxHz: 146940000, txHz: 146340000, at: _hartford)
-        ],
-        now: DateTime.now().subtract(const Duration(days: 30)),
-      );
+      await cache.write('test', 'CT', [
+        _repeater(
+          name: 'CACHED',
+          rxHz: 146940000,
+          txHz: 146340000,
+          at: _hartford,
+        ),
+      ], now: DateTime.now().subtract(const Duration(days: 30)));
       final broken = FakeRepeaterSource(
         id: 'test',
         failure: const SourceFailure(
@@ -464,18 +569,28 @@ void main() {
       final result = await service([broken]).suggest(request());
 
       expect(result.repeaters.single.channel.name, 'CACHED');
-      expect(result.usedStaleCache, isTrue,
-          reason: 'the screen has to be able to say the data is old');
+      expect(
+        result.usedStaleCache,
+        isTrue,
+        reason: 'the screen has to be able to say the data is old',
+      );
       expect(result.sourceFailures, hasLength(1));
     });
 
     test('a fresh search does not claim to be stale', () async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater(
-              name: 'OK', rxHz: 146940000, txHz: 146340000, at: _hartford),
-        ],
-      });
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater(
+              name: 'OK',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+            ),
+          ],
+        },
+      );
       final result = await service([source]).suggest(request());
       expect(result.usedStaleCache, isFalse);
     });
@@ -489,15 +604,23 @@ void main() {
         byState: {
           'CT': [
             _repeater(
-                name: 'OK', rxHz: 146940000, txHz: 146340000, at: _hartford),
+              name: 'OK',
+              rxHz: 146940000,
+              txHz: 146340000,
+              at: _hartford,
+            ),
           ],
         },
       );
-      final unused =
-          FakeRepeaterSource(id: 'unused', attribution: 'Data from Unused');
+      final unused = FakeRepeaterSource(
+        id: 'unused',
+        attribution: 'Data from Unused',
+      );
 
-      final result = await service([used, unused])
-          .suggest(request(sources: {'used', 'unused'}));
+      final result = await service([
+        used,
+        unused,
+      ]).suggest(request(sources: {'used', 'unused'}));
 
       final lines = result.attributionsFor([used, unused]);
       expect(lines, ['Data from Used']);
@@ -513,19 +636,30 @@ void main() {
     test('lists every category exactly once, whichever radio', () {
       for (final profile in radioProfiles) {
         final order = categoryOrderFor(profile);
-        expect(order.toSet(), SuggestionCategory.values.toSet(),
-            reason: profile.id);
+        expect(
+          order.toSet(),
+          SuggestionCategory.values.toSet(),
+          reason: profile.id,
+        );
         expect(order, hasLength(SuggestionCategory.values.length));
       }
     });
   });
 
   test('forCategory and total agree with the lists', () async {
-    final source = FakeRepeaterSource(id: 'test', byState: {
-      'CT': [
-        _repeater(name: 'OK', rxHz: 146940000, txHz: 146340000, at: _hartford),
-      ],
-    });
+    final source = FakeRepeaterSource(
+      id: 'test',
+      byState: {
+        'CT': [
+          _repeater(
+            name: 'OK',
+            rxHz: 146940000,
+            txHz: 146340000,
+            at: _hartford,
+          ),
+        ],
+      },
+    );
     final result = await service([source]).suggest(request());
 
     expect(result.forCategory(SuggestionCategory.repeater), result.repeaters);

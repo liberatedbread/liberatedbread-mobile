@@ -83,10 +83,7 @@ RadioSighting? recogniseRadio({
 
 /// The looser test, for a scan that is already looking for a radio: the
 /// UART service alone qualifies. Anything [recogniseRadio] accepts does too.
-bool mightBeRadio({
-  required String name,
-  required List<String> serviceUuids,
-}) =>
+bool mightBeRadio({required String name, required List<String> serviceUuids}) =>
     serviceUuids.any(isRadioUartService) ||
     recogniseRadio(name: name, serviceUuids: serviceUuids) != null;
 

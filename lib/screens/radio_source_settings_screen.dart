@@ -69,11 +69,13 @@ class _RadioSourceSettingsScreenState
             error: (error, _) => [
               ListTile(
                 leading: const Icon(Icons.error_outline),
-                title: Text(friendlyErrorText(
-                  error,
-                  fallback: 'Could not read your source settings.',
-                  context: 'radio source settings',
-                )),
+                title: Text(
+                  friendlyErrorText(
+                    error,
+                    fallback: 'Could not read your source settings.',
+                    context: 'radio source settings',
+                  ),
+                ),
               ),
             ],
           ),
@@ -91,8 +93,10 @@ class _RadioSourceSettingsScreenState
     return [
       const Padding(
         padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-        child: Text('Where suggestions come from',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+        child: Text(
+          'Where suggestions come from',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
       const Padding(
         padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -148,11 +152,12 @@ class _RadioSourceSettingsScreenState
         child: Row(
           children: [
             Expanded(
-              child: Text('RepeaterBook access token',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold)),
+              child: Text(
+                'RepeaterBook access token',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
             ),
             if (hasToken)
               const Chip(
@@ -173,8 +178,10 @@ class _RadioSourceSettingsScreenState
       ),
       const Padding(
         padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
-        child: Text('2. Request one on their site. You will need to be '
-            'signed in to RepeaterBook.'),
+        child: Text(
+          '2. Request one on their site. You will need to be '
+          'signed in to RepeaterBook.',
+        ),
       ),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -252,50 +259,50 @@ class _RadioSourceSettingsScreenState
         ),
       const Padding(
         padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
-        child: Text('4. ${RepeaterBookClient.attributionLine} — shown '
-            'wherever their listings appear, as their terms ask.'),
+        child: Text(
+          '4. ${RepeaterBookClient.attributionLine} — shown '
+          'wherever their listings appear, as their terms ask.',
+        ),
       ),
     ];
   }
 
   Widget _cacheSection() => ListTile(
-        leading: const Icon(Icons.delete_sweep_outlined),
-        title: const Text('Clear cached listings'),
-        subtitle: const Text(
-          'Repeater lists are kept on this device so a search works offline '
-          'and does not ask the directories twice for the same state.',
-        ),
-        onTap: _clearCache,
-      );
+    leading: const Icon(Icons.delete_sweep_outlined),
+    title: const Text('Clear cached listings'),
+    subtitle: const Text(
+      'Repeater lists are kept on this device so a search works offline '
+      'and does not ask the directories twice for the same state.',
+    ),
+    onTap: _clearCache,
+  );
 
   /// Said in the user's terms rather than the API's: each of these is a
   /// different thing to be stuck on, and "invalid token" for all of them
   /// would send someone to re-request a token they already have.
   static String _tokenCheckMessage(TokenCheck check) => switch (check) {
-        TokenCheck.valid => 'That token works. RepeaterBook is ready to use.',
-        TokenCheck.missing => 'Enter a token first.',
-        TokenCheck.malformed =>
-          'RepeaterBook did not recognise that as a token. Check you copied '
-              'the whole thing — they usually start with "rbuapp_".',
-        TokenCheck.rejected =>
-          'RepeaterBook refused that token. It may have expired or been '
-              'issued for another app; request a new one.',
-        TokenCheck.rateLimited =>
-          'RepeaterBook asked us to slow down, so the token could not be '
-              'checked. It has been saved — try again in a few minutes.',
-        TokenCheck.unreachable =>
-          'Could not reach RepeaterBook to check. The token has been saved; '
-              'it will be used next time you search.',
-      };
+    TokenCheck.valid => 'That token works. RepeaterBook is ready to use.',
+    TokenCheck.missing => 'Enter a token first.',
+    TokenCheck.malformed =>
+      'RepeaterBook did not recognise that as a token. Check you copied '
+          'the whole thing — they usually start with "rbuapp_".',
+    TokenCheck.rejected =>
+      'RepeaterBook refused that token. It may have expired or been '
+          'issued for another app; request a new one.',
+    TokenCheck.rateLimited =>
+      'RepeaterBook asked us to slow down, so the token could not be '
+          'checked. It has been saved — try again in a few minutes.',
+    TokenCheck.unreachable =>
+      'Could not reach RepeaterBook to check. The token has been saved; '
+          'it will be used next time you search.',
+  };
 
   Future<void> _openTokenPage() async {
     final messenger = ScaffoldMessenger.of(context);
     final open = ref.read(urlOpenerProvider);
     final uri = Uri.parse(RepeaterBookClient.tokenRequestUrl);
     if (!await open(uri)) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Could not open $uri')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('Could not open $uri')));
     }
   }
 
@@ -303,10 +310,14 @@ class _RadioSourceSettingsScreenState
     final messenger = ScaffoldMessenger.of(context);
     await Clipboard.setData(const ClipboardData(text: radioSourceUserAgent));
     if (!mounted) return;
-    messenger.showSnackBar(const SnackBar(
-      content: Text('App name and contact copied — paste them into the '
-          'token request form.'),
-    ));
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'App name and contact copied — paste them into the '
+          'token request form.',
+        ),
+      ),
+    );
   }
 
   /// Save first, then check.
@@ -334,13 +345,17 @@ class _RadioSourceSettingsScreenState
     } catch (error) {
       if (!mounted) return;
       setState(() => _lastCheck = TokenCheck.unreachable);
-      messenger.showSnackBar(SnackBar(
-        content: Text(friendlyErrorText(
-          error,
-          fallback: 'Could not check that token.',
-          context: 'repeaterbook token check',
-        )),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              error,
+              fallback: 'Could not check that token.',
+              context: 'repeaterbook token check',
+            ),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _verifying = false);
     }

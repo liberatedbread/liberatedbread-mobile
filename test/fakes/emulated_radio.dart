@@ -107,8 +107,8 @@ class EmulatedRadio {
   /// A recognisable image: every byte its own offset, so a block landing at
   /// the wrong place is obvious rather than plausible.
   static Uint8List _patternedImage(int length) => Uint8List.fromList(
-        List<int>.generate(length, (i) => (i * 31 + 7) & 0xFF),
-      );
+    List<int>.generate(length, (i) => (i * 31 + 7) & 0xFF),
+  );
 
   void _reply(List<int> bytes) {
     for (var offset = 0; offset < bytes.length; offset += notificationChunk) {

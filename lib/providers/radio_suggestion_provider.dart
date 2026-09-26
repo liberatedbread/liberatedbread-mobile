@@ -7,8 +7,9 @@ import 'radio_bundled_data_provider.dart';
 import 'radio_source_settings_provider.dart';
 
 /// The suggestion engine, wired to the sources and the cache.
-final channelSuggestionServiceProvider =
-    Provider<ChannelSuggestionService>((ref) {
+final channelSuggestionServiceProvider = Provider<ChannelSuggestionService>((
+  ref,
+) {
   return ChannelSuggestionService(
     sources: ref.watch(repeaterSourcesProvider),
     cache: ref.watch(radioSourceCacheProvider),
@@ -24,9 +25,9 @@ final channelSuggestionServiceProvider =
 /// reuses this rather than re-running every fetch.
 final radioSuggestionProvider = FutureProvider.autoDispose
     .family<SuggestionResult, SuggestionRequest>((ref, request) {
-  // Hold the result across a brief rebuild -- a keyboard opening, a rotation
-  // -- so the fetches are not thrown away and redone.
-  final link = ref.keepAlive();
-  ref.onCancel(link.close);
-  return ref.watch(channelSuggestionServiceProvider).suggest(request);
-});
+      // Hold the result across a brief rebuild -- a keyboard opening, a rotation
+      // -- so the fetches are not thrown away and redone.
+      final link = ref.keepAlive();
+      ref.onCancel(link.close);
+      return ref.watch(channelSuggestionServiceProvider).suggest(request);
+    });

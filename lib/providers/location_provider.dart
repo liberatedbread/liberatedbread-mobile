@@ -32,10 +32,10 @@ class SavedLocation {
   const SavedLocation({required this.point, required this.label});
 
   Map<String, dynamic> toJson() => {
-        'lat': point.lat,
-        'lon': point.lon,
-        'label': label,
-      };
+    'lat': point.lat,
+    'lon': point.lon,
+    'label': label,
+  };
 
   static SavedLocation? fromJson(Map<String, dynamic> json) {
     final point = GeoPoint.fromJson(json);
@@ -46,7 +46,7 @@ class SavedLocation {
       label: label is String && label.trim().isNotEmpty
           ? label.trim()
           : '${point.lat.toStringAsFixed(4)}, '
-              '${point.lon.toStringAsFixed(4)}',
+                '${point.lon.toStringAsFixed(4)}',
     );
   }
 
@@ -62,8 +62,8 @@ class SavedLocation {
 /// The last place the user searched from, or null if they never have.
 final lastLocationProvider =
     AsyncNotifierProvider<LastLocationNotifier, SavedLocation?>(
-  LastLocationNotifier.new,
-);
+      LastLocationNotifier.new,
+    );
 
 class LastLocationNotifier extends AsyncNotifier<SavedLocation?> {
   static const key = 'radio_last_location_v1';

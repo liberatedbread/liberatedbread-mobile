@@ -83,15 +83,17 @@ class _UsbScanScreenState extends ConsumerState<UsbScanScreen> {
   }
 
   Future<void> _open(SerialPortInfo port) async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => RadioDeviceScreen(
-        target: RadioTarget(
-          transport: RadioTransport.usb,
-          id: port.id,
-          name: port.displayName,
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RadioDeviceScreen(
+          target: RadioTarget(
+            transport: RadioTransport.usb,
+            id: port.id,
+            name: port.displayName,
+          ),
         ),
       ),
-    ));
+    );
     if (mounted && widget.active) unawaited(_list());
   }
 
@@ -151,8 +153,8 @@ class _UsbScanScreenState extends ConsumerState<UsbScanScreen> {
               _error ??
                   (ports != null && ports.isEmpty
                       ? 'Plug the programming cable into the radio\'s '
-                          'accessory jack and into this device — on a phone, '
-                          'through a USB-OTG adapter.'
+                            'accessory jack and into this device — on a phone, '
+                            'through a USB-OTG adapter.'
                       : 'Tap a cable to reach the radio on the other end.'),
               textAlign: TextAlign.center,
               style: text.bodyMedium?.copyWith(
@@ -196,10 +198,7 @@ class _UsbScanScreenState extends ConsumerState<UsbScanScreen> {
     final ids = port.vendorId != null && port.productId != null
         ? usbIdLabel(port.vendorId!, port.productId!)
         : null;
-    final details = [
-      if (port.manufacturer != null) port.manufacturer!,
-      if (ids != null) ids,
-    ].join(' · ');
+    final details = [?port.manufacturer, ?ids].join(' · ');
     final title = port.displayName;
     return DeviceListTile(
       title: title,
@@ -226,11 +225,11 @@ class _NoSerialHere extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     Widget point(IconData icon, String title, String body) => ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(icon),
-          title: Text(title),
-          subtitle: Text(body),
-        );
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(body),
+    );
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
       children: [
@@ -245,8 +244,10 @@ class _NoSerialHere extends StatelessWidget {
         Text(
           reason,
           textAlign: TextAlign.center,
-          style: text.bodyMedium
-              ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+          style: text.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
         const SizedBox(height: 28),
         const SectionHeader(label: 'What works instead'),

@@ -12,15 +12,17 @@ Future<bool?> _pump(
   bool selected = false,
 }) async {
   bool? toggled;
-  await tester.pumpWidget(MaterialApp(
-    home: Scaffold(
-      body: SuggestedChannelTile(
-        suggestion: suggestion,
-        selected: selected,
-        onSelected: (value) => toggled = value,
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: SuggestedChannelTile(
+          suggestion: suggestion,
+          selected: selected,
+          onSelected: (value) => toggled = value,
+        ),
       ),
     ),
-  ));
+  );
   return toggled;
 }
 
@@ -39,8 +41,9 @@ const _repeater = SuggestedChannel(
 );
 
 void main() {
-  testWidgets('shows the name, frequency and how far away it is',
-      (tester) async {
+  testWidgets('shows the name, frequency and how far away it is', (
+    tester,
+  ) async {
     await _pump(tester, _repeater);
     expect(find.text('W1AW'), findsOneWidget);
     expect(find.text('146.940 MHz'), findsOneWidget);
@@ -62,8 +65,11 @@ void main() {
     await _pump(
       tester,
       const SuggestedChannel(
-        channel:
-            RadioChannel(name: 'FAR', rxFreqHz: 146940000, txFreqHz: 146340000),
+        channel: RadioChannel(
+          name: 'FAR',
+          rxFreqHz: 146940000,
+          txFreqHz: 146340000,
+        ),
         category: SuggestionCategory.repeater,
         sourceId: 'x',
         distanceKm: 42.7,
@@ -79,7 +85,10 @@ void main() {
       tester,
       const SuggestedChannel(
         channel: RadioChannel(
-            name: 'PUBLIC', rxFreqHz: 155000000, txFreqHz: 155000000),
+          name: 'PUBLIC',
+          rxFreqHz: 155000000,
+          txFreqHz: 155000000,
+        ),
         category: SuggestionCategory.repeater,
         sourceId: 'x',
         txAllowed: false,
@@ -94,7 +103,10 @@ void main() {
       tester,
       const SuggestedChannel(
         channel: RadioChannel(
-            name: 'MARS', rxFreqHz: 140000000, txFreqHz: 140000000),
+          name: 'MARS',
+          rxFreqHz: 140000000,
+          txFreqHz: 140000000,
+        ),
         category: SuggestionCategory.repeater,
         sourceId: 'x',
         requiresTxUnlock: true,
@@ -115,7 +127,10 @@ void main() {
       tester,
       const SuggestedChannel(
         channel: RadioChannel(
-            name: '2m Call', rxFreqHz: 146520000, txFreqHz: 146520000),
+          name: '2m Call',
+          rxFreqHz: 146520000,
+          txFreqHz: 146520000,
+        ),
         category: SuggestionCategory.preset,
         sourceId: 'bundled',
       ),
@@ -131,22 +146,26 @@ void main() {
 
     // Pumped again to read the callback value out of the closure.
     bool? toggled;
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: SuggestedChannelTile(
-          suggestion: _repeater,
-          selected: false,
-          onSelected: (value) => toggled = value,
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SuggestedChannelTile(
+            suggestion: _repeater,
+            selected: false,
+            onSelected: (value) => toggled = value,
+          ),
         ),
       ),
-    ));
+    );
     await tester.tap(find.byType(CheckboxListTile));
     expect(toggled, isTrue);
   });
 
   testWidgets('renders as selected when it is', (tester) async {
     await _pump(tester, _repeater, selected: true);
-    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
-        isTrue);
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      isTrue,
+    );
   });
 }

@@ -84,9 +84,11 @@ void main() {
     return false;
   }
 
-  void log(RadioProgressEvent event) => stdout.writeln('  ${event.stage.name}: '
-      '${event.message} '
-      '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}');
+  void log(RadioProgressEvent event) => stdout.writeln(
+    '  ${event.stage.name}: '
+    '${event.message} '
+    '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}',
+  );
 
   Future<RadioCodeplug> read() async {
     RadioCodeplug? result;
@@ -100,96 +102,138 @@ void main() {
     return result!;
   }
 
-  test('1. the radio answers, and says which firmware it runs', () async {
-    if (skipUnlessConfigured()) return;
-    final identity =
-        await programmer.identify(deviceId: _port!, profile: profile);
-    stdout.writeln('  ${identity.summary}');
-    expect(identity.reported, isNotNull,
-        reason: 'the firmware string decides the band-limit layout');
-  }, timeout: const Timeout(Duration(minutes: 2)));
+  test(
+    '1. the radio answers, and says which firmware it runs',
+    () async {
+      if (skipUnlessConfigured()) return;
+      final identity = await programmer.identify(
+        deviceId: _port!,
+        profile: profile,
+      );
+      stdout.writeln('  ${identity.summary}');
+      expect(
+        identity.reported,
+        isNotNull,
+        reason: 'the firmware string decides the band-limit layout',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
-  test('2. a full read comes back, and is saved', () async {
-    if (skipUnlessConfigured()) return;
-    final codeplug = await read();
-    backup = codeplug;
-    expect(codeplug.length, await rust.uv5RImageLen());
+  test(
+    '2. a full read comes back, and is saved',
+    () async {
+      if (skipUnlessConfigured()) return;
+      final codeplug = await read();
+      backup = codeplug;
+      expect(codeplug.length, await rust.uv5RImageLen());
 
-    final file = File('radio-backup-${DateTime.now().millisecondsSinceEpoch}'
-        '-${profile.id}.bin');
-    await file.writeAsBytes(codeplug.image);
-    stdout.writeln('  backup written to ${file.path}');
-  }, timeout: const Timeout(Duration(minutes: 5)));
+      final file = File(
+        'radio-backup-${DateTime.now().millisecondsSinceEpoch}'
+        '-${profile.id}.bin',
+      );
+      await file.writeAsBytes(codeplug.image);
+      stdout.writeln('  backup written to ${file.path}');
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 
-  test('3. channels and band limits read as a person would recognise them',
-      () async {
-    if (skipUnlessConfigured()) return;
-    final codeplug = backup ?? await read();
+  test(
+    '3. channels and band limits read as a person would recognise them',
+    () async {
+      if (skipUnlessConfigured()) return;
+      final codeplug = backup ?? await read();
 
-    final channels = await rust.uv5RDecodeChannels(
-        image: codeplug.image, modelId: profile.id);
-    stdout.writeln('  ${channels.length} channels programmed');
-    for (final channel in channels.take(20)) {
-      stdout.writeln('  ${channel.slot.toString().padLeft(3)}  '
+      final channels = await rust.uv5RDecodeChannels(
+        image: codeplug.image,
+        modelId: profile.id,
+      );
+      stdout.writeln('  ${channels.length} channels programmed');
+      for (final channel in channels.take(20)) {
+        stdout.writeln(
+          '  ${channel.slot.toString().padLeft(3)}  '
           '${channel.name.padRight(7)}  '
           '${channel.rxFreqHz / 1000000}  '
           '${channel.rxOnly ? 'RX only' : 'tx ${channel.txFreqHz / 1000000}'}  '
-          '${channel.txTone.mode}');
-    }
+          '${channel.txTone.mode}',
+        );
+      }
 
-    final limits = await rust.uv5RReadBandLimits(
-        image: codeplug.image, modelId: profile.id);
-    stdout.writeln('  firmware '
+      final limits = await rust.uv5RReadBandLimits(
+        image: codeplug.image,
+        modelId: profile.id,
+      );
+      stdout.writeln(
+        '  firmware '
         '${await rust.uv5RFirmware(image: codeplug.image)}, '
-        '${limits.layout} limit layout');
-    stdout.writeln('  VHF ${limits.vhf.lowerMhz}-${limits.vhf.upperMhz} MHz, '
-        'tx ${limits.vhf.txEnabled ? 'on' : 'off'}');
-    stdout.writeln('  UHF ${limits.uhf.lowerMhz}-${limits.uhf.upperMhz} MHz, '
-        'tx ${limits.uhf.txEnabled ? 'on' : 'off'}');
+        '${limits.layout} limit layout',
+      );
+      stdout.writeln(
+        '  VHF ${limits.vhf.lowerMhz}-${limits.vhf.upperMhz} MHz, '
+        'tx ${limits.vhf.txEnabled ? 'on' : 'off'}',
+      );
+      stdout.writeln(
+        '  UHF ${limits.uhf.lowerMhz}-${limits.uhf.upperMhz} MHz, '
+        'tx ${limits.uhf.txEnabled ? 'on' : 'off'}',
+      );
 
-    // THE ASSERTIONS THAT MATTER ARE THE ONES YOU MAKE WITH YOUR EYES. These
-    // only catch a layout wrong enough to produce nonsense.
-    expect(limits.vhf.lowerMhz, inInclusiveRange(100, 200));
-    expect(limits.uhf.upperMhz, inInclusiveRange(300, 600));
-  }, timeout: const Timeout(Duration(minutes: 5)));
+      // THE ASSERTIONS THAT MATTER ARE THE ONES YOU MAKE WITH YOUR EYES. These
+      // only catch a layout wrong enough to produce nonsense.
+      expect(limits.vhf.lowerMhz, inInclusiveRange(100, 200));
+      expect(limits.uhf.upperMhz, inInclusiveRange(300, 600));
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 
-  test('4. one channel written to the last slot reads back', () async {
-    if (skipUnlessConfigured()) return;
-    final base = backup ?? await read();
-    final existing =
-        await rust.uv5RDecodeChannels(image: base.image, modelId: profile.id);
-    final bySlot = {for (final c in existing) c.slot: channelFromDto(c)};
-    final plan = [
-      for (var slot = 1; slot < profile.channelCapacity; slot++)
-        bySlot[slot] ??
-            const RadioChannel(
-                name: '', rxFreqHz: 146520000, txFreqHz: 146520000),
-      const RadioChannel(
-        name: 'LBTEST',
-        rxFreqHz: 146520000,
-        txFreqHz: 146520000,
-        txTone: ToneSetting.ctcss(1000),
-      ),
-    ];
+  test(
+    '4. one channel written to the last slot reads back',
+    () async {
+      if (skipUnlessConfigured()) return;
+      final base = backup ?? await read();
+      final existing = await rust.uv5RDecodeChannels(
+        image: base.image,
+        modelId: profile.id,
+      );
+      final bySlot = {for (final c in existing) c.slot: channelFromDto(c)};
+      final plan = [
+        for (var slot = 1; slot < profile.channelCapacity; slot++)
+          bySlot[slot] ??
+              const RadioChannel(
+                name: '',
+                rxFreqHz: 146520000,
+                txFreqHz: 146520000,
+              ),
+        const RadioChannel(
+          name: 'LBTEST',
+          rxFreqHz: 146520000,
+          txFreqHz: 146520000,
+          txTone: ToneSetting.ctcss(1000),
+        ),
+      ];
 
-    await programmer
-        .writeChannels(
-          deviceId: _port!,
-          profile: profile,
-          base: base,
-          channels: plan,
-        )
-        .forEach(log);
+      await programmer
+          .writeChannels(
+            deviceId: _port!,
+            profile: profile,
+            base: base,
+            channels: plan,
+          )
+          .forEach(log);
 
-    final after = await read();
-    final channels =
-        await rust.uv5RDecodeChannels(image: after.image, modelId: profile.id);
-    final written =
-        channels.firstWhere((c) => c.slot == profile.channelCapacity);
-    expect(written.name, 'LBTEST');
-    expect(written.rxFreqHz, 146520000);
-    expect(written.txTone.ctcssTenthHz, 1000);
-  }, timeout: const Timeout(Duration(minutes: 10)));
+      final after = await read();
+      final channels = await rust.uv5RDecodeChannels(
+        image: after.image,
+        modelId: profile.id,
+      );
+      final written = channels.firstWhere(
+        (c) => c.slot == profile.channelCapacity,
+      );
+      expect(written.name, 'LBTEST');
+      expect(written.rxFreqHz, 146520000);
+      expect(written.txTone.ctcssTenthHz, 1000);
+    },
+    timeout: const Timeout(Duration(minutes: 10)),
+  );
 
   test('5. the backup restores', () async {
     if (skipUnlessConfigured()) return;
@@ -199,15 +243,14 @@ void main() {
       return;
     }
     await programmer
-        .restoreCodeplug(
-          deviceId: _port!,
-          profile: profile,
-          codeplug: original,
-        )
+        .restoreCodeplug(deviceId: _port!, profile: profile, codeplug: original)
         .forEach(log);
 
     final after = await read();
-    expect(after.image, original.image,
-        reason: 'the radio should be exactly as it was found');
+    expect(
+      after.image,
+      original.image,
+      reason: 'the radio should be exactly as it was found',
+    );
   }, timeout: const Timeout(Duration(minutes: 10)));
 }

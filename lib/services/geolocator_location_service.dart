@@ -76,8 +76,9 @@ class GeolocatorLocationService implements LocationService {
           break;
       }
 
-      final position =
-          await Geolocator.getCurrentPosition(locationSettings: _settings);
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: _settings,
+      );
       final point = GeoPoint(position.latitude, position.longitude);
       if (!point.isValid) {
         // A backend that answers with a non-position is broken in a way the
@@ -99,8 +100,10 @@ class GeolocatorLocationService implements LocationService {
       // The platform manifest is missing the usage description. That is a
       // build defect, not something the user did, but the recovery offered is
       // the same one that works regardless.
-      Log.radio.warning('location usage description missing from the '
-          'platform manifest');
+      Log.radio.warning(
+        'location usage description missing from the '
+        'platform manifest',
+      );
       throw const LocationUnavailableException();
     }
   }

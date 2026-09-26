@@ -17,15 +17,15 @@ import 'radio_programmer.dart';
 /// The Rust codec's view of [channel], placed in [slot] (1-based).
 rust.RadioChannelDto channelToDto(RadioChannel channel, {required int slot}) {
   rust.ToneDto tone(ToneSetting setting) => rust.ToneDto(
-        mode: switch (setting.mode) {
-          ToneMode.none => 'none',
-          ToneMode.ctcss => 'ctcss',
-          ToneMode.dcs => 'dcs',
-        },
-        ctcssTenthHz: setting.ctcssTenthHz,
-        dcsCode: setting.dcsCode,
-        dcsInverted: setting.dcsInverted,
-      );
+    mode: switch (setting.mode) {
+      ToneMode.none => 'none',
+      ToneMode.ctcss => 'ctcss',
+      ToneMode.dcs => 'dcs',
+    },
+    ctcssTenthHz: setting.ctcssTenthHz,
+    dcsCode: setting.dcsCode,
+    dcsInverted: setting.dcsInverted,
+  );
 
   return rust.RadioChannelDto(
     slot: slot,
@@ -51,12 +51,14 @@ rust.RadioChannelDto channelToDto(RadioChannel channel, {required int slot}) {
 /// silently rewriting it.
 RadioChannel channelFromDto(rust.RadioChannelDto dto) {
   ToneSetting tone(rust.ToneDto t) => switch (t.mode) {
-        'ctcss' when ctcssTonesTenthHz.contains(t.ctcssTenthHz) =>
-          ToneSetting.ctcss(t.ctcssTenthHz),
-        'dcs' when dcsCodes.contains(t.dcsCode) =>
-          ToneSetting.dcs(t.dcsCode, inverted: t.dcsInverted),
-        _ => ToneSetting.none,
-      };
+    'ctcss' when ctcssTonesTenthHz.contains(t.ctcssTenthHz) =>
+      ToneSetting.ctcss(t.ctcssTenthHz),
+    'dcs' when dcsCodes.contains(t.dcsCode) => ToneSetting.dcs(
+      t.dcsCode,
+      inverted: t.dcsInverted,
+    ),
+    _ => ToneSetting.none,
+  };
 
   return RadioChannel(
     name: dto.name,
@@ -73,10 +75,10 @@ RadioChannel channelFromDto(rust.RadioChannelDto dto) {
 /// The app's band limits for the codec's.
 RadioBandLimits bandLimitsFromDto(rust.BandLimitsDto dto) {
   BandLimit band(rust.BandLimitDto limit) => BandLimit(
-        txEnabled: limit.txEnabled,
-        lowerMhz: limit.lowerMhz,
-        upperMhz: limit.upperMhz,
-      );
+    txEnabled: limit.txEnabled,
+    lowerMhz: limit.lowerMhz,
+    upperMhz: limit.upperMhz,
+  );
   return RadioBandLimits(vhf: band(dto.vhf), uhf: band(dto.uhf));
 }
 
@@ -86,10 +88,10 @@ RadioBandLimits bandLimitsFromDto(rust.BandLimitsDto dto) {
 /// than trusting one that has crossed the boundary twice.
 rust.BandLimitsDto bandLimitsToDto(RadioBandLimits limits) {
   rust.BandLimitDto band(BandLimit limit) => rust.BandLimitDto(
-        txEnabled: limit.txEnabled,
-        lowerMhz: limit.lowerMhz,
-        upperMhz: limit.upperMhz,
-      );
+    txEnabled: limit.txEnabled,
+    lowerMhz: limit.lowerMhz,
+    upperMhz: limit.upperMhz,
+  );
   return rust.BandLimitsDto(
     vhf: band(limits.vhf),
     uhf: band(limits.uhf),
@@ -141,15 +143,19 @@ class CodeplugDecoder {
     switch (profile.programmingFamily) {
       case ProgrammingFamily.bleUv17Pro:
       case ProgrammingFamily.serialUv17Pro:
-        return decodedFromDtos(await rust.radioDecodeChannels(
-          image: codeplug.image,
-          modelId: profile.id,
-        ));
+        return decodedFromDtos(
+          await rust.radioDecodeChannels(
+            image: codeplug.image,
+            modelId: profile.id,
+          ),
+        );
       case ProgrammingFamily.serialUv5r:
-        return decodedFromDtos(await rust.uv5RDecodeChannels(
-          image: codeplug.image,
-          modelId: profile.id,
-        ));
+        return decodedFromDtos(
+          await rust.uv5RDecodeChannels(
+            image: codeplug.image,
+            modelId: profile.id,
+          ),
+        );
     }
   }
 }

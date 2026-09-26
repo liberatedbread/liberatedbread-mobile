@@ -43,8 +43,13 @@ void main() {
         const SerialPortInfo(id: '/definitely/not/a/port', name: 'nowhere'),
         baudRate: 9600,
       ),
-      throwsA(isA<SerialPortException>()
-          .having((e) => e.message, 'message', contains('nowhere'))),
+      throwsA(
+        isA<SerialPortException>().having(
+          (e) => e.message,
+          'message',
+          contains('nowhere'),
+        ),
+      ),
     );
   });
 
@@ -54,8 +59,10 @@ void main() {
       contains('dialout'),
     );
     expect(
-      DesktopSerialPortService.openFailureText('/dev/cu.usbserial-10',
-          isLinux: false),
+      DesktopSerialPortService.openFailureText(
+        '/dev/cu.usbserial-10',
+        isLinux: false,
+      ),
       isNot(contains('dialout')),
     );
   });

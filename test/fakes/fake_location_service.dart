@@ -33,13 +33,12 @@ class FakeLocationService implements LocationService {
   /// A service on a platform with no location backend, which is what the
   /// Linux desktop build gets.
   factory FakeLocationService.unavailable() => FakeLocationService(
-        available: false,
-        error: const LocationUnavailableException(),
-      );
+    available: false,
+    error: const LocationUnavailableException(),
+  );
 
-  factory FakeLocationService.denied() => FakeLocationService(
-        error: const LocationPermissionDeniedException(),
-      );
+  factory FakeLocationService.denied() =>
+      FakeLocationService(error: const LocationPermissionDeniedException());
 
   @override
   Future<bool> gpsAvailable() async {

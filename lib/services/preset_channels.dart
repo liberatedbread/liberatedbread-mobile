@@ -74,79 +74,79 @@ const List<int> _weatherChannelsHz = [
 
 /// FRS/GMRS simplex channels 1-22.
 List<RadioChannel> frsGmrsChannels() => [
-      for (var i = 0; i < _frsChannelHz.length; i++)
-        RadioChannel(
-          name: 'GMRS ${i + 1}',
-          rxFreqHz: _frsChannelHz[i],
-          txFreqHz: _frsChannelHz[i],
-          // 8-14 are the low-power channels; the rest are marked high and the
-          // radio's own settings decide from there.
-          power: (i >= 7 && i <= 13) ? PowerLevel.low : PowerLevel.high,
-          // The whole FRS/GMRS plan is narrowband except the 462 MHz main
-          // channels, which GMRS licensees may use wide. Narrow is the safe
-          // default: a narrow radio hears a wide station, just quieter.
-          mode: ChannelMode.nfm,
-          comment: 'FRS/GMRS channel ${i + 1}',
-        ),
-    ];
+  for (var i = 0; i < _frsChannelHz.length; i++)
+    RadioChannel(
+      name: 'GMRS ${i + 1}',
+      rxFreqHz: _frsChannelHz[i],
+      txFreqHz: _frsChannelHz[i],
+      // 8-14 are the low-power channels; the rest are marked high and the
+      // radio's own settings decide from there.
+      power: (i >= 7 && i <= 13) ? PowerLevel.low : PowerLevel.high,
+      // The whole FRS/GMRS plan is narrowband except the 462 MHz main
+      // channels, which GMRS licensees may use wide. Narrow is the safe
+      // default: a narrow radio hears a wide station, just quieter.
+      mode: ChannelMode.nfm,
+      comment: 'FRS/GMRS channel ${i + 1}',
+    ),
+];
 
 /// The eight GMRS repeater pairs (channels 15-22 with a +5 MHz input).
 List<RadioChannel> gmrsRepeaterChannels() => [
-      for (var i = 14; i < _frsChannelHz.length; i++)
-        RadioChannel(
-          name: 'RPT ${i + 1}',
-          rxFreqHz: _frsChannelHz[i],
-          txFreqHz: _frsChannelHz[i] + _gmrsRepeaterOffsetHz,
-          mode: ChannelMode.nfm,
-          comment: 'GMRS repeater ${i + 1} — set the tone your repeater wants',
-        ),
-    ];
+  for (var i = 14; i < _frsChannelHz.length; i++)
+    RadioChannel(
+      name: 'RPT ${i + 1}',
+      rxFreqHz: _frsChannelHz[i],
+      txFreqHz: _frsChannelHz[i] + _gmrsRepeaterOffsetHz,
+      mode: ChannelMode.nfm,
+      comment: 'GMRS repeater ${i + 1} — set the tone your repeater wants',
+    ),
+];
 
 List<RadioChannel> mursChannels() => [
-      for (final channel in _mursChannels)
-        RadioChannel(
-          name: channel.name,
-          rxFreqHz: channel.hz,
-          txFreqHz: channel.hz,
-          mode: channel.mode,
-          comment: 'MURS — no licence required',
-        ),
-    ];
+  for (final channel in _mursChannels)
+    RadioChannel(
+      name: channel.name,
+      rxFreqHz: channel.hz,
+      txFreqHz: channel.hz,
+      mode: channel.mode,
+      comment: 'MURS — no licence required',
+    ),
+];
 
 /// NOAA Weather Radio, receive-only. These frequencies are a government
 /// broadcast service: nothing may transmit on them, so the channels are built
 /// [RadioChannel.receiveOnly] rather than being left to a band-limit check.
 List<RadioChannel> weatherChannels() => [
-      for (var i = 0; i < _weatherChannelsHz.length; i++)
-        RadioChannel.receiveOnly(
-          name: 'WX${i + 1}',
-          freqHz: _weatherChannelsHz[i],
-          comment: 'NOAA Weather Radio',
-        ),
-    ];
+  for (var i = 0; i < _weatherChannelsHz.length; i++)
+    RadioChannel.receiveOnly(
+      name: 'WX${i + 1}',
+      freqHz: _weatherChannelsHz[i],
+      comment: 'NOAA Weather Radio',
+    ),
+];
 
 /// The national simplex calling frequencies, which are where you call CQ and
 /// where someone answers a call for help.
 List<RadioChannel> callingChannels() => const [
-      RadioChannel(
-        name: '2m Call',
-        rxFreqHz: 146520000,
-        txFreqHz: 146520000,
-        comment: '2 m national simplex calling',
-      ),
-      RadioChannel(
-        name: '70cm Call',
-        rxFreqHz: 446000000,
-        txFreqHz: 446000000,
-        comment: '70 cm national simplex calling',
-      ),
-    ];
+  RadioChannel(
+    name: '2m Call',
+    rxFreqHz: 146520000,
+    txFreqHz: 146520000,
+    comment: '2 m national simplex calling',
+  ),
+  RadioChannel(
+    name: '70cm Call',
+    rxFreqHz: 446000000,
+    txFreqHz: 446000000,
+    comment: '70 cm national simplex calling',
+  ),
+];
 
 /// Everything above, in the order a suggestion list should show it.
 List<RadioChannel> allPresetChannels() => [
-      ...callingChannels(),
-      ...frsGmrsChannels(),
-      ...gmrsRepeaterChannels(),
-      ...mursChannels(),
-      ...weatherChannels(),
-    ];
+  ...callingChannels(),
+  ...frsGmrsChannels(),
+  ...gmrsRepeaterChannels(),
+  ...mursChannels(),
+  ...weatherChannels(),
+];

@@ -53,12 +53,20 @@ void main() {
         // that violates this would offer channels the suggestion engine then
         // drops for being un-receivable, which reads as a missing repeater.
         for (final tx in profile.factoryTxRanges) {
-          expect(rangesContain(profile.rxRanges, tx.lowHz), isTrue,
-              reason: '${profile.id} transmits at ${tx.lowHz} but cannot '
-                  'receive there');
-          expect(rangesContain(profile.rxRanges, tx.highHz), isTrue,
-              reason: '${profile.id} transmits at ${tx.highHz} but cannot '
-                  'receive there');
+          expect(
+            rangesContain(profile.rxRanges, tx.lowHz),
+            isTrue,
+            reason:
+                '${profile.id} transmits at ${tx.lowHz} but cannot '
+                'receive there',
+          );
+          expect(
+            rangesContain(profile.rxRanges, tx.highHz),
+            isTrue,
+            reason:
+                '${profile.id} transmits at ${tx.highHz} but cannot '
+                'receive there',
+          );
         }
       }
     });
@@ -76,10 +84,16 @@ void main() {
     test('a supported unlock says what it does and where it goes', () {
       for (final profile in radioProfiles) {
         if (!profile.txUnlock.supported) continue;
-        expect(profile.txUnlock.expandedTxRanges, isNotEmpty,
-            reason: profile.id);
-        expect(profile.txUnlock.mechanism, isNot(TxUnlockMechanism.unsupported),
-            reason: profile.id);
+        expect(
+          profile.txUnlock.expandedTxRanges,
+          isNotEmpty,
+          reason: profile.id,
+        );
+        expect(
+          profile.txUnlock.mechanism,
+          isNot(TxUnlockMechanism.unsupported),
+          reason: profile.id,
+        );
         expect(profile.txUnlock.notes, isNotEmpty, reason: profile.id);
       }
     });
@@ -93,9 +107,13 @@ void main() {
           // No cable driver speaks the UV-17Pro protocol in this build.
           ProgrammingFamily.serialUv17Pro => null,
         };
-        expect(profile.programmingTransport, expected,
-            reason: '${profile.id} claims programmer support, but this build '
-                'has no transport for its family');
+        expect(
+          profile.programmingTransport,
+          expected,
+          reason:
+              '${profile.id} claims programmer support, but this build '
+              'has no transport for its family',
+        );
         expect(expected, isNotNull, reason: profile.id);
       }
     });
@@ -128,10 +146,16 @@ void main() {
       for (final profile in radioProfiles) {
         if (!profile.gmrsLocked) continue;
         for (final range in profile.factoryTxRanges) {
-          expect(range.lowHz, greaterThanOrEqualTo(462000000),
-              reason: profile.id);
-          expect(range.highHz, lessThanOrEqualTo(468000000),
-              reason: profile.id);
+          expect(
+            range.lowHz,
+            greaterThanOrEqualTo(462000000),
+            reason: profile.id,
+          );
+          expect(
+            range.highHz,
+            lessThanOrEqualTo(468000000),
+            reason: profile.id,
+          );
         }
       }
     });
@@ -139,8 +163,10 @@ void main() {
 
   group('effective transmit ranges', () {
     test('are the factory ranges with the unlock off', () {
-      expect(uv5rMiniProfile.effectiveTxRanges(unlockEnabled: false),
-          uv5rMiniProfile.factoryTxRanges);
+      expect(
+        uv5rMiniProfile.effectiveTxRanges(unlockEnabled: false),
+        uv5rMiniProfile.factoryTxRanges,
+      );
     });
 
     test('widen with the unlock on', () {
@@ -158,12 +184,18 @@ void main() {
       // Bluetooth family still has none.
       for (final profile in radioProfiles) {
         if (!profile.txUnlock.supported) continue;
-        expect(profile.programsOver(RadioTransport.usb), isTrue,
-            reason: '${profile.id} offers an unlock no driver could write');
+        expect(
+          profile.programsOver(RadioTransport.usb),
+          isTrue,
+          reason: '${profile.id} offers an unlock no driver could write',
+        );
       }
       for (final profile in profilesProgrammableOver(RadioTransport.ble)) {
-        expect(profile.txUnlock.supported, isFalse,
-            reason: '${profile.id} claims an unlock its family does not have');
+        expect(
+          profile.txUnlock.supported,
+          isFalse,
+          reason: '${profile.id} claims an unlock its family does not have',
+        );
       }
       expect(uv5rProfile.txUnlock.supported, isTrue);
     });
@@ -180,8 +212,10 @@ void main() {
         nameLength: 6,
         programmingFamily: ProgrammingFamily.serialUv5r,
       );
-      expect(locked.effectiveTxRanges(unlockEnabled: true),
-          locked.factoryTxRanges);
+      expect(
+        locked.effectiveTxRanges(unlockEnabled: true),
+        locked.factoryTxRanges,
+      );
       expect(locked.canTransmit(140000000, unlockEnabled: true), isFalse);
       expect(locked.needsUnlockToTransmit(140000000), isFalse);
     });
@@ -199,10 +233,14 @@ void main() {
 
     test('a GMRS radio can hear far more than it can transmit on', () {
       expect(uv5gMiniProfile.canReceive(146520000), isTrue);
-      expect(uv5gMiniProfile.canTransmit(146520000, unlockEnabled: false),
-          isFalse);
       expect(
-          uv5gMiniProfile.canTransmit(462600000, unlockEnabled: false), isTrue);
+        uv5gMiniProfile.canTransmit(146520000, unlockEnabled: false),
+        isFalse,
+      );
+      expect(
+        uv5gMiniProfile.canTransmit(462600000, unlockEnabled: false),
+        isTrue,
+      );
     });
   });
 
@@ -232,23 +270,41 @@ void main() {
   group('programsOver', () {
     test('the Bluetooth radios program over Bluetooth and only Bluetooth', () {
       for (final profile in [uv5rMiniProfile, uv5gMiniProfile, uv32Profile]) {
-        expect(profile.programsOver(RadioTransport.ble), isTrue,
-            reason: profile.id);
-        expect(profile.programsOver(RadioTransport.usb), isFalse,
-            reason: profile.id);
+        expect(
+          profile.programsOver(RadioTransport.ble),
+          isTrue,
+          reason: profile.id,
+        );
+        expect(
+          profile.programsOver(RadioTransport.usb),
+          isFalse,
+          reason: profile.id,
+        );
       }
     });
 
     test('the UV-5R family programs over a cable and only a cable', () {
       for (final profile in [uv5rProfile, bfF8hpProfile, ar152Profile]) {
-        expect(profile.programsOver(RadioTransport.usb), isTrue,
-            reason: profile.id);
-        expect(profile.programsOver(RadioTransport.ble), isFalse,
-            reason: profile.id);
-        expect(profile.programmingTransport, RadioTransport.usb,
-            reason: profile.id);
-        expect(profile.programmerSupport, ProgrammerSupport.unverified,
-            reason: 'nothing in the cable driver has met a radio yet');
+        expect(
+          profile.programsOver(RadioTransport.usb),
+          isTrue,
+          reason: profile.id,
+        );
+        expect(
+          profile.programsOver(RadioTransport.ble),
+          isFalse,
+          reason: profile.id,
+        );
+        expect(
+          profile.programmingTransport,
+          RadioTransport.usb,
+          reason: profile.id,
+        );
+        expect(
+          profile.programmerSupport,
+          ProgrammerSupport.unverified,
+          reason: 'nothing in the cable driver has met a radio yet',
+        );
       }
       expect(uv5rMiniProfile.programmingTransport, RadioTransport.ble);
     });
@@ -260,8 +316,11 @@ void main() {
         expect(profile.programmingTransport, isNull, reason: profile.id);
         expect(profile.isProgrammable, isFalse, reason: profile.id);
         for (final transport in RadioTransport.values) {
-          expect(profile.programsOver(transport), isFalse,
-              reason: '${profile.id} over ${transport.name}');
+          expect(
+            profile.programsOver(transport),
+            isFalse,
+            reason: '${profile.id} over ${transport.name}',
+          );
         }
       }
     });

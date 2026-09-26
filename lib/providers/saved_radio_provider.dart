@@ -27,15 +27,17 @@ class SavedRadiosNotifier extends StateNotifier<List<SavedRadio>> {
     String? radioProfileId,
   }) async {
     final existing = savedRadioFor(target);
-    state = await _store.save(SavedRadio(
-      transport: target.transport,
-      id: target.id,
-      name: target.name.trim().isNotEmpty
-          ? target.name
-          : (existing?.name ?? target.name),
-      lastSeen: seenAt,
-      radioProfileId: radioProfileId ?? existing?.radioProfileId,
-    ));
+    state = await _store.save(
+      SavedRadio(
+        transport: target.transport,
+        id: target.id,
+        name: target.name.trim().isNotEmpty
+            ? target.name
+            : (existing?.name ?? target.name),
+        lastSeen: seenAt,
+        radioProfileId: radioProfileId ?? existing?.radioProfileId,
+      ),
+    );
   }
 
   Future<void> remove(RadioTarget target) async {
@@ -51,5 +53,5 @@ class SavedRadiosNotifier extends StateNotifier<List<SavedRadio>> {
 
 final savedRadiosProvider =
     StateNotifierProvider<SavedRadiosNotifier, List<SavedRadio>>(
-  (ref) => SavedRadiosNotifier(ref.watch(savedRadioStoreProvider)),
-);
+      (ref) => SavedRadiosNotifier(ref.watch(savedRadioStoreProvider)),
+    );

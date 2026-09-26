@@ -20,11 +20,7 @@ class AppendOutcome {
   /// The capacity that stopped it, when something was rejected.
   final int? capacity;
 
-  const AppendOutcome({
-    required this.added,
-    this.rejected = 0,
-    this.capacity,
-  });
+  const AppendOutcome({required this.added, this.rejected = 0, this.capacity});
 
   bool get hitCapacity => rejected > 0;
 }
@@ -38,8 +34,8 @@ final channelPlanStoreProvider = Provider<ChannelPlanStore>(
 
 final channelPlansProvider =
     StateNotifierProvider<ChannelPlansNotifier, List<ChannelPlan>>((ref) {
-  return ChannelPlansNotifier(ref.watch(channelPlanStoreProvider));
-});
+      return ChannelPlansNotifier(ref.watch(channelPlanStoreProvider));
+    });
 
 /// The user's plans, and every edit that can be made to one.
 ///
@@ -121,15 +117,17 @@ class ChannelPlansNotifier extends StateNotifier<List<ChannelPlan>> {
     final accepted = channels.take(room).toList();
     final rejected = channels.length - accepted.length;
 
-    await _replace(plan.copyWith(
-      channels: [
-        ...plan.channels,
-        for (final channel in accepted) clampChannelName(channel, profile),
-      ],
-      // Once true, it stays true: the plan contains channels that need the
-      // unlock, and a later ordinary append does not make that untrue.
-      builtWithTxUnlock: plan.builtWithTxUnlock || builtWithTxUnlock,
-    ));
+    await _replace(
+      plan.copyWith(
+        channels: [
+          ...plan.channels,
+          for (final channel in accepted) clampChannelName(channel, profile),
+        ],
+        // Once true, it stays true: the plan contains channels that need the
+        // unlock, and a later ordinary append does not make that untrue.
+        builtWithTxUnlock: plan.builtWithTxUnlock || builtWithTxUnlock,
+      ),
+    );
 
     return AppendOutcome(
       added: accepted.length,
@@ -187,8 +185,9 @@ class ChannelPlansNotifier extends StateNotifier<List<ChannelPlan>> {
     final plan = byId(id);
     if (plan == null || index < 0 || index >= plan.channels.length) return;
     final channels = [...plan.channels];
-    channels[index] =
-        profile == null ? channel : clampChannelName(channel, profile);
+    channels[index] = profile == null
+        ? channel
+        : clampChannelName(channel, profile);
     await _replace(plan.copyWith(channels: channels));
   }
 
@@ -200,12 +199,14 @@ class ChannelPlansNotifier extends StateNotifier<List<ChannelPlan>> {
   }) async {
     final plan = byId(id);
     if (plan == null) return;
-    await _replace(plan.copyWith(
-      channels: [
-        for (final channel in channels.take(profile.channelCapacity))
-          clampChannelName(channel, profile),
-      ],
-    ));
+    await _replace(
+      plan.copyWith(
+        channels: [
+          for (final channel in channels.take(profile.channelCapacity))
+            clampChannelName(channel, profile),
+        ],
+      ),
+    );
   }
 
   Future<void> _replace(ChannelPlan plan) async {
@@ -216,7 +217,5 @@ class ChannelPlansNotifier extends StateNotifier<List<ChannelPlan>> {
 /// Trim a channel's name to what [profile] can hold.
 RadioChannel clampChannelName(RadioChannel channel, RadioProfile profile) {
   if (channel.name.length <= profile.nameLength) return channel;
-  return channel.copyWith(
-    name: channel.name.substring(0, profile.nameLength),
-  );
+  return channel.copyWith(name: channel.name.substring(0, profile.nameLength));
 }

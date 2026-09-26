@@ -34,28 +34,42 @@ void main() {
       expect(
         ble,
         const RadioTarget(
-            transport: RadioTransport.ble, id: 'AA:BB', name: 'Renamed'),
+          transport: RadioTransport.ble,
+          id: 'AA:BB',
+          name: 'Renamed',
+        ),
       );
       expect(
-          ble.hashCode,
-          const RadioTarget(
-                  transport: RadioTransport.ble, id: 'AA:BB', name: '')
-              .hashCode);
+        ble.hashCode,
+        const RadioTarget(
+          transport: RadioTransport.ble,
+          id: 'AA:BB',
+          name: '',
+        ).hashCode,
+      );
     });
 
     test('the same id over another transport is another radio', () {
       expect(
         ble,
-        isNot(const RadioTarget(
-            transport: RadioTransport.usb, id: 'AA:BB', name: 'UV-5R Mini')),
+        isNot(
+          const RadioTarget(
+            transport: RadioTransport.usb,
+            id: 'AA:BB',
+            name: 'UV-5R Mini',
+          ),
+        ),
       );
     });
 
     test('falls back to its id when it has no name to show', () {
       expect(ble.displayName, 'UV-5R Mini');
       expect(
-        const RadioTarget(transport: RadioTransport.usb, id: 'COM3', name: '  ')
-            .displayName,
+        const RadioTarget(
+          transport: RadioTransport.usb,
+          id: 'COM3',
+          name: '  ',
+        ).displayName,
         'COM3',
       );
     });

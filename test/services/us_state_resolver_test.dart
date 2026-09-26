@@ -117,22 +117,28 @@ void main() {
 
   group('stateContaining', () {
     test('names the state a point is in', () async {
-      final state =
-          await stateContaining(data, const GeoPoint(47.6062, -122.3321));
+      final state = await stateContaining(
+        data,
+        const GeoPoint(47.6062, -122.3321),
+      );
       expect(state?.code, 'WA');
     });
 
     test('is null outside the bundled extents', () async {
-      final state =
-          await stateContaining(data, const GeoPoint(-33.8688, 151.2093));
+      final state = await stateContaining(
+        data,
+        const GeoPoint(-33.8688, 151.2093),
+      );
       expect(state, isNull);
     });
   });
 
   test('an empty bundle yields no states rather than throwing', () async {
     final empty = _EmptyBundleData();
-    expect(await statesNear(empty, const GeoPoint(47.6, -122.3), radiusKm: 50),
-        isEmpty);
+    expect(
+      await statesNear(empty, const GeoPoint(47.6, -122.3), radiusKm: 50),
+      isEmpty,
+    );
     expect(await stateContaining(empty, const GeoPoint(47.6, -122.3)), isNull);
   });
 }

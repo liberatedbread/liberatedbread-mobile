@@ -12,8 +12,8 @@ import 'spec_pack_provider.dart';
 /// The radio the user is working with.
 final selectedRadioProfileProvider =
     AsyncNotifierProvider<SelectedRadioProfileNotifier, RadioProfile>(
-  SelectedRadioProfileNotifier.new,
-);
+      SelectedRadioProfileNotifier.new,
+    );
 
 class SelectedRadioProfileNotifier extends AsyncNotifier<RadioProfile> {
   static const key = 'radio_selected_profile_v1';
@@ -42,8 +42,8 @@ class SelectedRadioProfileNotifier extends AsyncNotifier<RadioProfile> {
 /// nothing about a UV-17R Plus.
 final txUnlockProvider =
     AsyncNotifierProvider<TxUnlockNotifier, Map<String, bool>>(
-  TxUnlockNotifier.new,
-);
+      TxUnlockNotifier.new,
+    );
 
 class TxUnlockNotifier extends AsyncNotifier<Map<String, bool>> {
   static const key = 'radio_tx_unlock_v1';
@@ -109,10 +109,11 @@ final txUnlockEnabledProvider = Provider<bool>((ref) {
 ///
 /// Kept on this device and never overwritten: a radio read after it was
 /// widened holds widened limits, and those are not the ones to go back to.
-final originalBandLimitsProvider = AsyncNotifierProvider<
-    OriginalBandLimitsNotifier, Map<String, OriginalBandLimits>>(
-  OriginalBandLimitsNotifier.new,
-);
+final originalBandLimitsProvider =
+    AsyncNotifierProvider<
+      OriginalBandLimitsNotifier,
+      Map<String, OriginalBandLimits>
+    >(OriginalBandLimitsNotifier.new);
 
 class OriginalBandLimitsNotifier
     extends AsyncNotifier<Map<String, OriginalBandLimits>> {
@@ -128,8 +129,7 @@ class OriginalBandLimitsNotifier
       if (decoded is! Map<String, dynamic>) return const {};
       return {
         for (final entry in decoded.entries)
-          if (OriginalBandLimits.fromJson(entry.value) case final limits?)
-            entry.key: limits,
+          entry.key: ?OriginalBandLimits.fromJson(entry.value),
       };
     } on FormatException catch (error) {
       // Worth more than a debug line: these are the only record of what the

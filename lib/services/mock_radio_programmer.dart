@@ -51,8 +51,10 @@ class MockRadioProgrammer implements BandLimitProgrammer {
     required String deviceId,
     required RadioProfile profile,
   }) async {
-    await _stages(RadioProgressStage.identifying, 'Waking the radio…')
-        .drain<void>();
+    await _stages(
+      RadioProgressStage.identifying,
+      'Waking the radio…',
+    ).drain<void>();
     return RadioIdentity(profile: profile);
   }
 
@@ -63,11 +65,13 @@ class MockRadioProgrammer implements BandLimitProgrammer {
     required void Function(RadioCodeplug) onResult,
   }) async* {
     yield* _stages(RadioProgressStage.reading, 'Reading the radio…');
-    onResult(RadioCodeplug(
-      modelId: profile.id,
-      image: Uint8List.fromList(image),
-      readAt: DateTime.now(),
-    ));
+    onResult(
+      RadioCodeplug(
+        modelId: profile.id,
+        image: Uint8List.fromList(image),
+        readAt: DateTime.now(),
+      ),
+    );
     yield const RadioProgressEvent(
       stage: RadioProgressStage.done,
       message: 'Read complete.',
@@ -117,8 +121,7 @@ class MockRadioProgrammer implements BandLimitProgrammer {
   Future<RadioBandLimits> bandLimitsIn(
     RadioCodeplug codeplug,
     RadioProfile profile,
-  ) async =>
-      bandLimits;
+  ) async => bandLimits;
 
   @override
   Stream<RadioProgressEvent> writeBandLimits({

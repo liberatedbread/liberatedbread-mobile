@@ -23,8 +23,9 @@ final radioProgrammerProvider = Provider<RadioProgrammer>((ref) {
 
 /// Decodes read images into channels. Overridden in screen tests, which
 /// cannot make native calls from inside their fake-async zone.
-final codeplugDecoderProvider =
-    Provider<CodeplugDecoder>((ref) => const CodeplugDecoder());
+final codeplugDecoderProvider = Provider<CodeplugDecoder>(
+  (ref) => const CodeplugDecoder(),
+);
 
 /// The programmer for a radio reached over [RadioTransport].
 ///
@@ -34,11 +35,11 @@ final codeplugDecoderProvider =
 /// every existing override of it working.
 final radioProgrammerForTransportProvider =
     Provider.family<RadioProgrammer, RadioTransport>(
-  (ref, transport) => switch (transport) {
-    RadioTransport.ble => ref.watch(radioProgrammerProvider),
-    RadioTransport.usb => ref.watch(serialRadioProgrammerProvider),
-  },
-);
+      (ref, transport) => switch (transport) {
+        RadioTransport.ble => ref.watch(radioProgrammerProvider),
+        RadioTransport.usb => ref.watch(serialRadioProgrammerProvider),
+      },
+    );
 
 /// The cable driver: the real one over whatever serial ports this platform
 /// has, or the mock in demo mode — the same arrangement as Bluetooth.

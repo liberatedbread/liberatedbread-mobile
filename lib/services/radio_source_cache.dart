@@ -54,9 +54,10 @@ class RadioSourceCache {
   static String _safe(String value) =>
       value.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
 
-  Future<File> _file(String sourceId, String stateCode) async =>
-      File('${(await _root()).path}/'
-          '${_safe(sourceId)}_${_safe(stateCode)}.json');
+  Future<File> _file(String sourceId, String stateCode) async => File(
+    '${(await _root()).path}/'
+    '${_safe(sourceId)}_${_safe(stateCode)}.json',
+  );
 
   /// What is cached for this source and state, fresh or stale, or null.
   ///
@@ -69,8 +70,9 @@ class RadioSourceCache {
       if (decoded is! Map<String, dynamic>) return null;
 
       final fetchedAt = decoded['fetchedAt'];
-      final parsedAt =
-          fetchedAt is String ? DateTime.tryParse(fetchedAt) : null;
+      final parsedAt = fetchedAt is String
+          ? DateTime.tryParse(fetchedAt)
+          : null;
       if (parsedAt == null) return null;
 
       final raw = decoded['listings'];
@@ -83,8 +85,10 @@ class RadioSourceCache {
       }
       return CachedListings(listings: listings, fetchedAt: parsedAt);
     } catch (error) {
-      Log.radio
-          .debug('cache read failed for $sourceId/$stateCode', error: error);
+      Log.radio.debug(
+        'cache read failed for $sourceId/$stateCode',
+        error: error,
+      );
       return null;
     }
   }
@@ -108,8 +112,10 @@ class RadioSourceCache {
         flush: true,
       );
     } catch (error) {
-      Log.radio
-          .debug('cache write failed for $sourceId/$stateCode', error: error);
+      Log.radio.debug(
+        'cache write failed for $sourceId/$stateCode',
+        error: error,
+      );
     }
   }
 

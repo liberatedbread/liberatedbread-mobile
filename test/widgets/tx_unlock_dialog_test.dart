@@ -19,18 +19,20 @@ Future<void> _acknowledge(WidgetTester tester) async {
 /// Opens the dialog and records what it answered.
 Future<bool?> _show(WidgetTester tester, RadioProfile profile) async {
   bool? answer;
-  await tester.pumpWidget(MaterialApp(
-    home: Scaffold(
-      body: Builder(
-        builder: (context) => TextButton(
-          onPressed: () async {
-            answer = await showTxUnlockDialog(context, profile);
-          },
-          child: const Text('open'),
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              answer = await showTxUnlockDialog(context, profile);
+            },
+            child: const Text('open'),
+          ),
         ),
       ),
     ),
-  ));
+  );
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
   return answer;
@@ -53,8 +55,9 @@ void main() {
     expect(find.textContaining('130.000'), findsOneWidget);
   });
 
-  testWidgets('says who is responsible and what the ranges contain',
-      (tester) async {
+  testWidgets('says who is responsible and what the ranges contain', (
+    tester,
+  ) async {
     await _show(tester, uv5rProfile);
     expect(find.textContaining('public safety'), findsOneWidget);
     expect(find.textContaining('solely responsible'), findsOneWidget);
@@ -74,18 +77,20 @@ void main() {
 
   testWidgets('confirming returns true', (tester) async {
     bool? answer;
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            onPressed: () async {
-              answer = await showTxUnlockDialog(context, uv5rProfile);
-            },
-            child: const Text('open'),
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                answer = await showTxUnlockDialog(context, uv5rProfile);
+              },
+              child: const Text('open'),
+            ),
           ),
         ),
       ),
-    ));
+    );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     await _acknowledge(tester);
@@ -97,18 +102,20 @@ void main() {
 
   testWidgets('cancelling leaves it off', (tester) async {
     bool? answer;
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            onPressed: () async {
-              answer = await showTxUnlockDialog(context, uv5rProfile);
-            },
-            child: const Text('open'),
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                answer = await showTxUnlockDialog(context, uv5rProfile);
+              },
+              child: const Text('open'),
+            ),
           ),
         ),
       ),
-    ));
+    );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     // Tick the box, then cancel anyway: a ticked box is not a confirmation.
@@ -128,8 +135,9 @@ void main() {
     expect(find.textContaining('backup'), findsOneWidget);
   });
 
-  testWidgets('every unlockable radio currently says it is unconfirmed',
-      (tester) async {
+  testWidgets('every unlockable radio currently says it is unconfirmed', (
+    tester,
+  ) async {
     // No profile carries verified: true yet, because nobody has read a
     // band-limit field off real hardware -- so every one of these dialogs
     // says so. When the bench Mini confirms its layout and that profile flips

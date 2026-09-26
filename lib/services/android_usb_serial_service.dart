@@ -31,16 +31,16 @@ class AndroidUsbSerialService implements SerialPortService {
 
   @override
   Future<List<SerialPortInfo>> listPorts() async => [
-        for (final (id, device) in _identify(await UsbSerial.listDevices()))
-          SerialPortInfo(
-            id: id,
-            name: device.deviceName,
-            vendorId: device.vid,
-            productId: device.pid,
-            manufacturer: device.manufacturerName,
-            product: device.productName,
-          ),
-      ];
+    for (final (id, device) in _identify(await UsbSerial.listDevices()))
+      SerialPortInfo(
+        id: id,
+        name: device.deviceName,
+        vendorId: device.vid,
+        productId: device.pid,
+        manufacturer: device.manufacturerName,
+        product: device.productName,
+      ),
+  ];
 
   @override
   Future<SerialLink> open(SerialPortInfo port, {required int baudRate}) async {
@@ -52,21 +52,24 @@ class AndroidUsbSerialService implements SerialPortService {
       // Not by name: a driver that opens by id alone passes the id as the
       // name, and "usb:1a86:7523" means nothing to anyone.
       throw const SerialPortException(
-          'The cable is not plugged in. Plug it in, then try again.');
+        'The cable is not plugged in. Plug it in, then try again.',
+      );
     }
     // Raises the system's permission dialog when the app has not been
     // granted this device yet, and answers null if the person says no.
     final usb = await UsbSerial.createFromDeviceId(device.deviceId);
     if (usb == null) {
       throw const SerialPortException(
-          'The cable could not be used. If Android asked for permission, '
-          'allow it; if the cable was unplugged, plug it back in and try '
-          'again.');
+        'The cable could not be used. If Android asked for permission, '
+        'allow it; if the cable was unplugged, plug it back in and try '
+        'again.',
+      );
     }
     if (!await usb.open()) {
       throw const SerialPortException(
-          'The cable is plugged in but could not be opened. Unplug it, plug '
-          'it back in, and try again.');
+        'The cable is plugged in but could not be opened. Unplug it, plug '
+        'it back in, and try again.',
+      );
     }
     await usb.setPortParameters(
       baudRate,

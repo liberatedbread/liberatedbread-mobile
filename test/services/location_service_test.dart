@@ -30,8 +30,11 @@ void main() {
 
   test('every location failure offers the manual way round', () {
     for (final failure in failures) {
-      expect(failure.message.toLowerCase(), contains('by hand'),
-          reason: '${failure.runtimeType} leaves the user with no next step');
+      expect(
+        failure.message.toLowerCase(),
+        contains('by hand'),
+        reason: '${failure.runtimeType} leaves the user with no next step',
+      );
     }
   });
 
@@ -39,8 +42,7 @@ void main() {
     // Asking again does nothing once the answer is deniedForever, so the
     // message must not imply that it would.
     expect(
-      const LocationPermissionPermanentlyDeniedException()
-          .message
+      const LocationPermissionPermanentlyDeniedException().message
           .toLowerCase(),
       contains('settings'),
     );

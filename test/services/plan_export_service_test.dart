@@ -31,10 +31,14 @@ void main() {
   });
 
   test('writes a CSV under a radio_exports directory', () async {
-    final exported =
-        await service.exportChirpCsv(_plan('Local', channels: const [
-      RadioChannel(name: 'W1AW', rxFreqHz: 146940000, txFreqHz: 146340000),
-    ]));
+    final exported = await service.exportChirpCsv(
+      _plan(
+        'Local',
+        channels: const [
+          RadioChannel(name: 'W1AW', rxFreqHz: 146940000, txFreqHz: 146340000),
+        ],
+      ),
+    );
 
     expect(await exported.file.exists(), isTrue);
     expect(exported.file.path, contains('radio_exports'));
@@ -53,27 +57,40 @@ void main() {
 
   test('overwrites a previous export of the same plan', () async {
     await service.exportChirpCsv(_plan('Same'));
-    final second = await service.exportChirpCsv(_plan('Same', channels: const [
-      RadioChannel(name: 'NEW', rxFreqHz: 146520000, txFreqHz: 146520000),
-    ]));
+    final second = await service.exportChirpCsv(
+      _plan(
+        'Same',
+        channels: const [
+          RadioChannel(name: 'NEW', rxFreqHz: 146520000, txFreqHz: 146520000),
+        ],
+      ),
+    );
     expect(await second.file.readAsString(), contains('NEW'));
   });
 
   group('file naming', () {
     test('keeps a plain name', () {
-      expect(PlanExportService.fileNameFor(_plan('Local repeaters')),
-          'Local-repeaters');
+      expect(
+        PlanExportService.fileNameFor(_plan('Local repeaters')),
+        'Local-repeaters',
+      );
     });
 
     test('strips characters a path cannot carry', () {
       // Users name plans things like "Dad's truck / GMRS", and a slash in a
       // path component is a directory rather than a character.
-      expect(PlanExportService.fileNameFor(_plan("Dad's truck / GMRS")),
-          'Dad-s-truck-GMRS');
-      expect(PlanExportService.fileNameFor(_plan('../../etc/passwd')),
-          isNot(contains('/')));
-      expect(PlanExportService.fileNameFor(_plan('../../etc/passwd')),
-          isNot(contains('..')));
+      expect(
+        PlanExportService.fileNameFor(_plan("Dad's truck / GMRS")),
+        'Dad-s-truck-GMRS',
+      );
+      expect(
+        PlanExportService.fileNameFor(_plan('../../etc/passwd')),
+        isNot(contains('/')),
+      );
+      expect(
+        PlanExportService.fileNameFor(_plan('../../etc/passwd')),
+        isNot(contains('..')),
+      );
     });
 
     test('falls back when nothing usable is left', () {

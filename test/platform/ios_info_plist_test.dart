@@ -47,7 +47,8 @@ void main() {
     test('NSLocationWhenInUseUsageDescription is present and non-empty', () {
       expectNonEmptyString(
         'NSLocationWhenInUseUsageDescription',
-        reason: 'NSLocationWhenInUseUsageDescription must be a non-empty '
+        reason:
+            'NSLocationWhenInUseUsageDescription must be a non-empty '
             'string in $_plistPath. Without it iOS never prompts for '
             'location: CoreLocation reports .denied, the GPS button on the '
             'radio suggestion screen fails every time. Apple also rejects '
@@ -61,9 +62,13 @@ void main() {
       final value =
           (plistValue(plist, ['NSLocationWhenInUseUsageDescription']) as String)
               .toLowerCase();
-      expect(value, contains('repeater'),
-          reason: 'the purpose string must name the repeater search, which is '
-              'the reason the app asks for a position at all');
+      expect(
+        value,
+        contains('repeater'),
+        reason:
+            'the purpose string must name the repeater search, which is '
+            'the reason the app asks for a position at all',
+      );
     });
 
     test('the string does not claim Bluetooth needs location', () {
@@ -74,8 +79,11 @@ void main() {
       final value =
           (plistValue(plist, ['NSLocationWhenInUseUsageDescription']) as String)
               .toLowerCase();
-      expect(value, isNot(contains('bluetooth')),
-          reason: 'iOS BLE scanning needs no location permission');
+      expect(
+        value,
+        isNot(contains('bluetooth')),
+        reason: 'iOS BLE scanning needs no location permission',
+      );
     });
   });
 

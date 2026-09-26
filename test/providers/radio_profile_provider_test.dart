@@ -12,9 +12,9 @@ import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import '../fakes/in_memory_settings_store.dart';
 
 ProviderContainer _container(InMemorySettingsStore store) {
-  final container = ProviderContainer(overrides: [
-    prefsSettingsStoreProvider.overrideWith((ref) async => store),
-  ]);
+  final container = ProviderContainer(
+    overrides: [prefsSettingsStoreProvider.overrideWith((ref) async => store)],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -22,26 +22,33 @@ ProviderContainer _container(InMemorySettingsStore store) {
 void main() {
   group('the selected radio', () {
     test('defaults to one this build can program', () async {
-      final profile = await _container(InMemorySettingsStore())
-          .read(selectedRadioProfileProvider.future);
+      final profile = await _container(
+        InMemorySettingsStore(),
+      ).read(selectedRadioProfileProvider.future);
       expect(profile, defaultRadioProfile);
       expect(profile.isProgrammable, isTrue);
     });
 
     test('reads back what was stored', () async {
-      final store = InMemorySettingsStore(
-          {SelectedRadioProfileNotifier.key: uv17rPlusProfile.id});
-      expect(await _container(store).read(selectedRadioProfileProvider.future),
-          uv17rPlusProfile);
+      final store = InMemorySettingsStore({
+        SelectedRadioProfileNotifier.key: uv17rPlusProfile.id,
+      });
+      expect(
+        await _container(store).read(selectedRadioProfileProvider.future),
+        uv17rPlusProfile,
+      );
     });
 
     test('a profile this build no longer knows falls back', () async {
       // A stored id can outlive the build that wrote it. Leaving the Radio
       // tab with no radio selected would be worse than picking the default.
-      final store = InMemorySettingsStore(
-          {SelectedRadioProfileNotifier.key: 'discontinued-radio'});
-      expect(await _container(store).read(selectedRadioProfileProvider.future),
-          defaultRadioProfile);
+      final store = InMemorySettingsStore({
+        SelectedRadioProfileNotifier.key: 'discontinued-radio',
+      });
+      expect(
+        await _container(store).read(selectedRadioProfileProvider.future),
+        defaultRadioProfile,
+      );
     });
 
     test('selecting persists', () async {
@@ -55,8 +62,10 @@ void main() {
 
       expect(container.read(selectedRadioProfileProvider).value, uv5gProfile);
       expect(store.values[SelectedRadioProfileNotifier.key], uv5gProfile.id);
-      expect(await _container(store).read(selectedRadioProfileProvider.future),
-          uv5gProfile);
+      expect(
+        await _container(store).read(selectedRadioProfileProvider.future),
+        uv5gProfile,
+      );
     });
   });
 
@@ -91,8 +100,10 @@ void main() {
 
       final second = _container(store);
       await second.read(txUnlockProvider.future);
-      expect(second.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
-          isTrue);
+      expect(
+        second.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
+        isTrue,
+      );
     });
 
     test('cannot be turned on for a radio with no software path', () async {
@@ -116,27 +127,31 @@ void main() {
       expect(store.values, isEmpty, reason: 'nothing should have been stored');
     });
 
-    test('a stale stored true for an unlockable-no-more radio reads false',
-        () async {
-      // A setting cannot grant a capability the radio does not have, whatever
-      // an older build wrote.
-      const locked = RadioProfile(
-        id: 'test-locked',
-        displayName: 'Test',
-        rxRanges: [FreqRange(136000000, 174000000)],
-        factoryTxRanges: [FreqRange(144000000, 148000000)],
-        channelCapacity: 16,
-        nameLength: 6,
-        programmingFamily: ProgrammingFamily.serialUv5r,
-      );
-      final store = InMemorySettingsStore({
-        TxUnlockNotifier.key: jsonEncode({'test-locked': true})
-      });
-      final container = _container(store);
-      await container.read(txUnlockProvider.future);
-      expect(container.read(txUnlockProvider.notifier).isEnabledFor(locked),
-          isFalse);
-    });
+    test(
+      'a stale stored true for an unlockable-no-more radio reads false',
+      () async {
+        // A setting cannot grant a capability the radio does not have, whatever
+        // an older build wrote.
+        const locked = RadioProfile(
+          id: 'test-locked',
+          displayName: 'Test',
+          rxRanges: [FreqRange(136000000, 174000000)],
+          factoryTxRanges: [FreqRange(144000000, 148000000)],
+          channelCapacity: 16,
+          nameLength: 6,
+          programmingFamily: ProgrammingFamily.serialUv5r,
+        );
+        final store = InMemorySettingsStore({
+          TxUnlockNotifier.key: jsonEncode({'test-locked': true}),
+        });
+        final container = _container(store);
+        await container.read(txUnlockProvider.future);
+        expect(
+          container.read(txUnlockProvider.notifier).isEnabledFor(locked),
+          isFalse,
+        );
+      },
+    );
 
     test('an unreadable setting reads as off', () async {
       for (final corrupt in ['not json', '[]', '{"a": "yes"}']) {
@@ -144,9 +159,10 @@ void main() {
         final container = _container(store);
         await container.read(txUnlockProvider.future);
         expect(
-            container.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
-            isFalse,
-            reason: corrupt);
+          container.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
+          isFalse,
+          reason: corrupt,
+        );
       }
     });
 
@@ -162,8 +178,10 @@ void main() {
       expect(notifier.isEnabledFor(uv5rProfile), isFalse);
       final reread = _container(store);
       await reread.read(txUnlockProvider.future);
-      expect(reread.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
-          isFalse);
+      expect(
+        reread.read(txUnlockProvider.notifier).isEnabledFor(uv5rProfile),
+        isFalse,
+      );
     });
   });
 
@@ -193,8 +211,7 @@ void main() {
     });
   });
 
-  test(
-      'turning the unlock on before the stored settings have loaded keeps '
+  test('turning the unlock on before the stored settings have loaded keeps '
       'every other radio\'s', () async {
     // The device screen turns it on without ever having watched it, so it
     // can arrive while the stored map is still loading.
@@ -206,8 +223,10 @@ void main() {
         .read(txUnlockProvider.notifier)
         .setEnabled(uv5rProfile, true);
 
-    expect(jsonDecode(store.values[TxUnlockNotifier.key]!),
-        {bfF8hpProfile.id: true, uv5rProfile.id: true});
+    expect(jsonDecode(store.values[TxUnlockNotifier.key]!), {
+      bfF8hpProfile.id: true,
+      uv5rProfile.id: true,
+    });
   });
 
   group('the limits a radio came with', () {
@@ -215,13 +234,16 @@ void main() {
       vhf: BandLimit(txEnabled: true, lowerMhz: 136, upperMhz: 174),
       uhf: BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520),
     );
-    final first =
-        OriginalBandLimits(limits: stock, readAt: DateTime.utc(2026, 9, 20));
+    final first = OriginalBandLimits(
+      limits: stock,
+      readAt: DateTime.utc(2026, 9, 20),
+    );
 
     test('are kept once, and the first reading stands', () async {
       final store = InMemorySettingsStore();
-      final notifier =
-          _container(store).read(originalBandLimitsProvider.notifier);
+      final notifier = _container(
+        store,
+      ).read(originalBandLimitsProvider.notifier);
       expect(await notifier.recordIfAbsent(uv5rProfile, first), first);
 
       // A radio read after it was widened holds widened limits; those are
@@ -232,8 +254,9 @@ void main() {
       );
       expect(await notifier.recordIfAbsent(uv5rProfile, later), first);
 
-      final reloaded =
-          await _container(store).read(originalBandLimitsProvider.future);
+      final reloaded = await _container(
+        store,
+      ).read(originalBandLimitsProvider.future);
       expect(reloaded, {uv5rProfile.id: first});
     });
 
@@ -255,11 +278,14 @@ void main() {
           uv5rProfile.id: {'vhf': 'wide'},
         }),
       ]) {
-        final store =
-            InMemorySettingsStore({OriginalBandLimitsNotifier.key: raw});
-        expect(await _container(store).read(originalBandLimitsProvider.future),
-            isEmpty,
-            reason: raw);
+        final store = InMemorySettingsStore({
+          OriginalBandLimitsNotifier.key: raw,
+        });
+        expect(
+          await _container(store).read(originalBandLimitsProvider.future),
+          isEmpty,
+          reason: raw,
+        );
       }
     });
   });

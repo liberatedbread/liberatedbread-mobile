@@ -39,12 +39,12 @@ class RepeaterListing {
   });
 
   Map<String, dynamic> toJson() => {
-        'channel': channel.toJson(),
-        if (location != null) 'location': location!.toJson(),
-        'category': category.name,
-        if (callsign != null) 'callsign': callsign,
-        if (details != null) 'details': details,
-      };
+    'channel': channel.toJson(),
+    if (location != null) 'location': location!.toJson(),
+    'category': category.name,
+    if (callsign != null) 'callsign': callsign,
+    if (details != null) 'details': details,
+  };
 
   /// Returns null for a listing that cannot be read, so one bad record in a
   /// cached state costs itself and not the state.

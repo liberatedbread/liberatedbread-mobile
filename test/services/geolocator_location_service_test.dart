@@ -30,19 +30,23 @@ void main() {
     }
   });
 
-  test('asking for a position raises an app exception, not a plugin one',
-      () async {
-    await expectLater(
-      service.currentPosition(),
-      throwsA(isA<UserFacingException>()),
-    );
-  });
+  test(
+    'asking for a position raises an app exception, not a plugin one',
+    () async {
+      await expectLater(
+        service.currentPosition(),
+        throwsA(isA<UserFacingException>()),
+      );
+    },
+  );
 
   test('the timeout is short enough that a person waits for it', () {
     // A cold GPS fix can take a minute; this app is choosing repeaters within
     // tens of kilometres and does not need one. The point of the constant is
     // that manual entry is offered quickly.
     expect(
-        GeolocatorLocationService.fixTimeout.inSeconds, lessThanOrEqualTo(30));
+      GeolocatorLocationService.fixTimeout.inSeconds,
+      lessThanOrEqualTo(30),
+    );
   });
 }

@@ -13,9 +13,9 @@ import '../fakes/fake_location_service.dart';
 import '../fakes/in_memory_settings_store.dart';
 
 ProviderContainer _container(InMemorySettingsStore store) {
-  final container = ProviderContainer(overrides: [
-    prefsSettingsStoreProvider.overrideWith((ref) async => store),
-  ]);
+  final container = ProviderContainer(
+    overrides: [prefsSettingsStoreProvider.overrideWith((ref) async => store)],
+  );
   addTearDown(container.dispose);
   return container;
 }
@@ -28,19 +28,24 @@ void main() {
     test('round-trips through JSON', () {
       const location = SavedLocation(point: seattle, label: 'Seattle, WA');
       final decoded = SavedLocation.fromJson(
-          jsonDecode(jsonEncode(location.toJson())) as Map<String, dynamic>);
+        jsonDecode(jsonEncode(location.toJson())) as Map<String, dynamic>,
+      );
       expect(decoded, location);
       expect(decoded.hashCode, location.hashCode);
     });
 
     test('invents a label rather than showing a blank one', () {
-      final decoded =
-          SavedLocation.fromJson(const {'lat': 47.6062, 'lon': -122.3321});
+      final decoded = SavedLocation.fromJson(const {
+        'lat': 47.6062,
+        'lon': -122.3321,
+      });
       expect(decoded!.label, '47.6062, -122.3321');
       expect(
-        SavedLocation.fromJson(
-                const {'lat': 47.6062, 'lon': -122.3321, 'label': '   '})!
-            .label,
+        SavedLocation.fromJson(const {
+          'lat': 47.6062,
+          'lon': -122.3321,
+          'label': '   ',
+        })!.label,
         isNotEmpty,
       );
     });
@@ -60,10 +65,12 @@ void main() {
     test('reads back what was stored', () async {
       final store = InMemorySettingsStore({
         key: jsonEncode(
-            const SavedLocation(point: seattle, label: 'Seattle').toJson()),
+          const SavedLocation(point: seattle, label: 'Seattle').toJson(),
+        ),
       });
-      final location =
-          await _container(store).read(lastLocationProvider.future);
+      final location = await _container(
+        store,
+      ).read(lastLocationProvider.future);
       expect(location!.point, seattle);
       expect(location.label, 'Seattle');
     });
@@ -74,8 +81,10 @@ void main() {
       for (final corrupt in ['not json', '[]', '{}', '{"lat": "north"}']) {
         final store = InMemorySettingsStore({key: corrupt});
         expect(
-            await _container(store).read(lastLocationProvider.future), isNull,
-            reason: corrupt);
+          await _container(store).read(lastLocationProvider.future),
+          isNull,
+          reason: corrupt,
+        );
       }
     });
 
@@ -91,13 +100,16 @@ void main() {
       expect(store.values[key], isNotNull);
       // ...and survives a fresh container reading the same store.
       expect(
-          await _container(store).read(lastLocationProvider.future), location);
+        await _container(store).read(lastLocationProvider.future),
+        location,
+      );
     });
 
     test('forget clears both the state and the store', () async {
       final store = InMemorySettingsStore({
         key: jsonEncode(
-            const SavedLocation(point: seattle, label: 'Seattle').toJson()),
+          const SavedLocation(point: seattle, label: 'Seattle').toJson(),
+        ),
       });
       final container = _container(store);
       await container.read(lastLocationProvider.future);
@@ -118,9 +130,9 @@ void main() {
 
     test('is overridable, which is how every screen test gets a fix', () {
       final fake = FakeLocationService();
-      final container = ProviderContainer(overrides: [
-        locationServiceProvider.overrideWithValue(fake),
-      ]);
+      final container = ProviderContainer(
+        overrides: [locationServiceProvider.overrideWithValue(fake)],
+      );
       addTearDown(container.dispose);
       expect(container.read(locationServiceProvider), same(fake));
     });
@@ -137,15 +149,19 @@ void main() {
 
     test('models a refusal', () async {
       final fake = FakeLocationService.denied();
-      await expectLater(fake.currentPosition(),
-          throwsA(isA<LocationPermissionDeniedException>()));
+      await expectLater(
+        fake.currentPosition(),
+        throwsA(isA<LocationPermissionDeniedException>()),
+      );
     });
 
     test('models a platform with no backend', () async {
       final fake = FakeLocationService.unavailable();
       expect(await fake.gpsAvailable(), isFalse);
       await expectLater(
-          fake.currentPosition(), throwsA(isA<LocationUnavailableException>()));
+        fake.currentPosition(),
+        throwsA(isA<LocationUnavailableException>()),
+      );
     });
   });
 }

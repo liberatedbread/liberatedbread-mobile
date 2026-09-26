@@ -17,9 +17,14 @@ MyGmrsClient _client(MockClient mock) =>
     MyGmrsClient(client: mock, userAgent: _userAgent);
 
 MyGmrsClient _answering(String body, {int status = 200}) => _client(
-      MockClient((_) async => http.Response(body, status,
-          headers: {'content-type': 'application/json'})),
-    );
+  MockClient(
+    (_) async => http.Response(
+      body,
+      status,
+      headers: {'content-type': 'application/json'},
+    ),
+  ),
+);
 
 void main() {
   late String fixture;
@@ -39,21 +44,25 @@ void main() {
     expect(await _answering('{"items": []}').isConfigured(), isTrue);
   });
 
-  test('asks for the state it was given, as JSON, identifying itself',
-      () async {
-    late http.Request seen;
-    final client = _client(MockClient((request) async {
-      seen = request;
-      return http.Response('{"items": []}', 200);
-    }));
-    await client.fetchByState('RI');
+  test(
+    'asks for the state it was given, as JSON, identifying itself',
+    () async {
+      late http.Request seen;
+      final client = _client(
+        MockClient((request) async {
+          seen = request;
+          return http.Response('{"items": []}', 200);
+        }),
+      );
+      await client.fetchByState('RI');
 
-    expect(seen.url.host, 'api.mygmrs.com');
-    expect(seen.url.path, '/repeaters');
-    expect(seen.url.queryParameters['state'], 'RI');
-    expect(seen.headers['User-Agent'], _userAgent);
-    expect(seen.headers['Accept'], contains('json'));
-  });
+      expect(seen.url.host, 'api.mygmrs.com');
+      expect(seen.url.path, '/repeaters');
+      expect(seen.url.queryParameters['state'], 'RI');
+      expect(seen.headers['User-Agent'], _userAgent);
+      expect(seen.headers['Accept'], contains('json'));
+    },
+  );
 
   group('parsing', () {
     test('builds a GMRS repeater pair from an output frequency', () async {
@@ -98,8 +107,9 @@ void main() {
 
     test('flags a repeater that is not online', () async {
       final listings = await _answering(fixture).fetchByState('RI');
-      final offline =
-          listings.firstWhere((l) => l.channel.name == 'Far Ridge 6500');
+      final offline = listings.firstWhere(
+        (l) => l.channel.name == 'Far Ridge 6500',
+      );
       expect(offline.details, contains('Offline'));
     });
 
@@ -109,10 +119,12 @@ void main() {
       // put a repeater 400 km away at the top of the list.
       final listings = await _answering(fixture).fetchByState('RI');
       expect(listings, hasLength(2));
-      expect([for (final l in listings) l.channel.name],
-          isNot(contains('No Position')));
-      expect([for (final l in listings) l.channel.name],
-          isNot(contains('No Frequency')));
+      expect([
+        for (final l in listings) l.channel.name,
+      ], isNot(contains('No Position')));
+      expect([
+        for (final l in listings) l.channel.name,
+      ], isNot(contains('No Frequency')));
     });
 
     test('is narrowband, as the GMRS rules require', () async {
@@ -123,8 +135,9 @@ void main() {
     });
 
     test('an empty state is an empty list, not a failure', () async {
-      final listings =
-          await _answering('{"success": true, "items": []}').fetchByState('WY');
+      final listings = await _answering(
+        '{"success": true, "items": []}',
+      ).fetchByState('WY');
       expect(listings, isEmpty);
     });
   });
@@ -141,7 +154,8 @@ void main() {
 
     test('a rate limit says so, and says to wait', () async {
       final failure = await failureFrom(
-          () => _answering('slow down', status: 429).fetchByState('RI'));
+        () => _answering('slow down', status: 429).fetchByState('RI'),
+      );
       expect(failure.kind, SourceFailureKind.rateLimited);
       expect(failure.message.toLowerCase(), contains('slow down'));
       expect(failure.isActionable, isFalse);
@@ -149,14 +163,18 @@ void main() {
 
     test('a server error is a network failure', () async {
       final failure = await failureFrom(
-          () => _answering('boom', status: 503).fetchByState('RI'));
+        () => _answering('boom', status: 503).fetchByState('RI'),
+      );
       expect(failure.kind, SourceFailureKind.network);
       expect(failure.message, contains('503'));
     });
 
     test('an unreachable service is a network failure', () async {
-      final client = _client(MockClient(
-          (_) async => throw const SocketException('no route to host')));
+      final client = _client(
+        MockClient(
+          (_) async => throw const SocketException('no route to host'),
+        ),
+      );
       final failure = await failureFrom(() => client.fetchByState('RI'));
       expect(failure.kind, SourceFailureKind.network);
     });
@@ -174,21 +192,24 @@ void main() {
 
     test('a non-JSON body is a parse failure', () async {
       final failure = await failureFrom(
-          () => _answering('<html>maintenance</html>').fetchByState('RI'));
+        () => _answering('<html>maintenance</html>').fetchByState('RI'),
+      );
       expect(failure.kind, SourceFailureKind.parse);
     });
 
     test('JSON of the wrong shape is a parse failure', () async {
       for (final body in ['[1,2,3]', '{"success": true}', '{"items": 7}']) {
-        final failure =
-            await failureFrom(() => _answering(body).fetchByState('RI'));
+        final failure = await failureFrom(
+          () => _answering(body).fetchByState('RI'),
+        );
         expect(failure.kind, SourceFailureKind.parse, reason: body);
       }
     });
 
     test('a failure carries the source it came from', () async {
       final failure = await failureFrom(
-          () => _answering('nope', status: 500).fetchByState('RI'));
+        () => _answering('nope', status: 500).fetchByState('RI'),
+      );
       expect(failure.sourceId, 'mygmrs');
       expect(failure.displayName, 'myGMRS');
     });

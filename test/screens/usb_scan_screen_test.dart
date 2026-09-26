@@ -61,17 +61,17 @@ const _pl2303 = SerialPortInfo(
 );
 
 Widget _wrap(SerialPortService ports, {bool active = true}) => ProviderScope(
-      overrides: [
-        serialPortServiceProvider.overrideWithValue(ports),
-        serialRadioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
-        codeplugBackupStoreProvider
-            .overrideWithValue(FakeCodeplugBackupStore()),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        prefsSettingsStoreProvider
-            .overrideWith((ref) async => InMemorySettingsStore()),
-      ],
-      child: MaterialApp(home: UsbScanScreen(active: active)),
-    );
+  overrides: [
+    serialPortServiceProvider.overrideWithValue(ports),
+    serialRadioProgrammerProvider.overrideWithValue(FakeRadioProgrammer()),
+    codeplugBackupStoreProvider.overrideWithValue(FakeCodeplugBackupStore()),
+    sharedPreferencesProvider.overrideWithValue(_prefs),
+    prefsSettingsStoreProvider.overrideWith(
+      (ref) async => InMemorySettingsStore(),
+    ),
+  ],
+  child: MaterialApp(home: UsbScanScreen(active: active)),
+);
 
 void main() {
   setUp(() async {
@@ -92,32 +92,39 @@ void main() {
     expect(find.textContaining('1a86:7523'), findsOneWidget);
   });
 
-  testWidgets('a cable that names itself keeps its chip beneath the name',
-      (tester) async {
-    await tester.pumpWidget(_wrap(_Ports([
-      const SerialPortInfo(
-        id: '/dev/ttyUSB0',
-        name: '/dev/ttyUSB0',
-        vendorId: 0x1A86,
-        productId: 0x7523,
-        product: 'USB Serial',
+  testWidgets('a cable that names itself keeps its chip beneath the name', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        _Ports([
+          const SerialPortInfo(
+            id: '/dev/ttyUSB0',
+            name: '/dev/ttyUSB0',
+            vendorId: 0x1A86,
+            productId: 0x7523,
+            product: 'USB Serial',
+          ),
+        ]),
       ),
-    ])));
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('USB Serial'), findsOneWidget);
     expect(find.text('WCH CH340'), findsOneWidget);
   });
 
-  testWidgets('warns about a cable built on a chip often counterfeited',
-      (tester) async {
+  testWidgets('warns about a cable built on a chip often counterfeited', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(_Ports([_pl2303])));
     await tester.pumpAndSettle();
     expect(find.textContaining('Counterfeit PL2303'), findsOneWidget);
   });
 
-  testWidgets('with nothing plugged in, says how to plug a cable in',
-      (tester) async {
+  testWidgets('with nothing plugged in, says how to plug a cable in', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(_Ports([])));
     await tester.pumpAndSettle();
 
@@ -127,8 +134,9 @@ void main() {
     expect(find.textContaining('Nearby tab'), findsOneWidget);
   });
 
-  testWidgets('a listing that fails says so, and can be tried again',
-      (tester) async {
+  testWidgets('a listing that fails says so, and can be tried again', (
+    tester,
+  ) async {
     final ports = _Ports([_ch340])..error = StateError('usb stack went away');
     await tester.pumpWidget(_wrap(ports));
     await tester.pumpAndSettle();
@@ -140,8 +148,9 @@ void main() {
     expect(find.text('1 cable plugged in'), findsOneWidget);
   });
 
-  testWidgets('looks only while it is the tab on screen, and again on return',
-      (tester) async {
+  testWidgets('looks only while it is the tab on screen, and again on return', (
+    tester,
+  ) async {
     final ports = _Ports([]);
     await tester.pumpWidget(_wrap(ports, active: false));
     await tester.pumpAndSettle();
@@ -155,16 +164,18 @@ void main() {
     expect(find.text('1 cable plugged in'), findsOneWidget);
   });
 
-  testWidgets('tapping a cable opens the radio on the other end',
-      (tester) async {
+  testWidgets('tapping a cable opens the radio on the other end', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(_Ports([_ch340])));
     await tester.pumpAndSettle();
 
     await tester.tap(find.textContaining('/dev/ttyUSB0'));
     await tester.pumpAndSettle();
 
-    final screen =
-        tester.widget<RadioDeviceScreen>(find.byType(RadioDeviceScreen));
+    final screen = tester.widget<RadioDeviceScreen>(
+      find.byType(RadioDeviceScreen),
+    );
     expect(screen.target.transport, RadioTransport.usb);
     expect(screen.target.id, '/dev/ttyUSB0');
   });
@@ -173,8 +184,13 @@ void main() {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(_wrap(const UnsupportedSerialPortService(
-        UnsupportedSerialPortService.iosReason)));
+    await tester.pumpWidget(
+      _wrap(
+        const UnsupportedSerialPortService(
+          UnsupportedSerialPortService.iosReason,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('No programming cables here'), findsOneWidget);
@@ -183,7 +199,10 @@ void main() {
     expect(find.textContaining('BT-A1D'), findsOneWidget);
     expect(find.textContaining('does not support them yet'), findsOneWidget);
     expect(find.textContaining('CHIRP'), findsOneWidget);
-    expect(find.byTooltip('Look again'), findsNothing,
-        reason: 'there is nothing to look for');
+    expect(
+      find.byTooltip('Look again'),
+      findsNothing,
+      reason: 'there is nothing to look for',
+    );
   });
 }

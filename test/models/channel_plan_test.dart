@@ -9,16 +9,15 @@ import 'package:liberated_bread_mobile/models/radio_channel.dart';
 ChannelPlan _plan({
   List<RadioChannel> channels = const [],
   bool unlock = false,
-}) =>
-    ChannelPlan(
-      id: 'p1',
-      name: 'Local repeaters',
-      radioProfileId: 'uv-5r-mini',
-      channels: channels,
-      builtWithTxUnlock: unlock,
-      createdAt: DateTime.utc(2026, 8, 1, 12),
-      modifiedAt: DateTime.utc(2026, 8, 2, 9, 30),
-    );
+}) => ChannelPlan(
+  id: 'p1',
+  name: 'Local repeaters',
+  radioProfileId: 'uv-5r-mini',
+  channels: channels,
+  builtWithTxUnlock: unlock,
+  createdAt: DateTime.utc(2026, 8, 1, 12),
+  modifiedAt: DateTime.utc(2026, 8, 2, 9, 30),
+);
 
 void main() {
   const channel = RadioChannel(
@@ -31,7 +30,8 @@ void main() {
   test('round-trips through JSON', () {
     final plan = _plan(channels: const [channel], unlock: true);
     final decoded = ChannelPlan.fromJson(
-        jsonDecode(jsonEncode(plan.toJson())) as Map<String, dynamic>);
+      jsonDecode(jsonEncode(plan.toJson())) as Map<String, dynamic>,
+    );
     expect(decoded, isNotNull);
     expect(decoded!.id, plan.id);
     expect(decoded.name, plan.name);
@@ -44,7 +44,8 @@ void main() {
 
   test('an empty plan survives the round trip as an empty plan', () {
     final decoded = ChannelPlan.fromJson(
-        jsonDecode(jsonEncode(_plan().toJson())) as Map<String, dynamic>);
+      jsonDecode(jsonEncode(_plan().toJson())) as Map<String, dynamic>,
+    );
     expect(decoded!.isEmpty, isTrue);
     expect(decoded.length, 0);
     expect(decoded.builtWithTxUnlock, isFalse);
@@ -60,10 +61,13 @@ void main() {
         ),
     ];
     final decoded = ChannelPlan.fromJson(
-        jsonDecode(jsonEncode(_plan(channels: channels).toJson()))
-            as Map<String, dynamic>);
-    expect([for (final c in decoded!.channels) c.name],
-        [for (final c in channels) c.name]);
+      jsonDecode(jsonEncode(_plan(channels: channels).toJson()))
+          as Map<String, dynamic>,
+    );
+    expect(
+      [for (final c in decoded!.channels) c.name],
+      [for (final c in channels) c.name],
+    );
   });
 
   test('rejects a record with no identity', () {
@@ -73,9 +77,13 @@ void main() {
     // profile id: a plan that does not know which radio it targets cannot be
     // capacity-checked or written.
     expect(
-        ChannelPlan.fromJson(
-            const {'id': 'p', 'name': 'x', 'radioProfileId': ''}),
-        isNull);
+      ChannelPlan.fromJson(const {
+        'id': 'p',
+        'name': 'x',
+        'radioProfileId': '',
+      }),
+      isNull,
+    );
   });
 
   test('one corrupt channel costs its slot, not the plan', () {
@@ -100,8 +108,11 @@ void main() {
   });
 
   test('a missing channels list reads as an empty plan', () {
-    final decoded = ChannelPlan.fromJson(
-        const {'id': 'p', 'name': 'x', 'radioProfileId': 'uv5r'});
+    final decoded = ChannelPlan.fromJson(const {
+      'id': 'p',
+      'name': 'x',
+      'radioProfileId': 'uv5r',
+    });
     expect(decoded, isNotNull);
     expect(decoded!.channels, isEmpty);
   });

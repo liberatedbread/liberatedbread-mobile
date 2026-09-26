@@ -41,27 +41,26 @@ Map<String, Object> _seed({
   int channels = 3,
   bool unlock = false,
   String profileId = 'uv-5r-mini',
-}) =>
+}) => {
+  'radio_channel_plans_v1': jsonEncode([
     {
-      'radio_channel_plans_v1': jsonEncode([
-        {
-          'id': 'p1',
-          'name': 'Local repeaters',
-          'radioProfileId': profileId,
-          'channels': [
-            for (var i = 0; i < channels; i++)
-              {
-                'name': 'CH$i',
-                'rx': 146940000 + i * 25000,
-                'tx': 146340000 + i * 25000,
-              },
-          ],
-          if (unlock) 'builtWithTxUnlock': true,
-          'createdAt': '2026-08-01T00:00:00.000Z',
-          'modifiedAt': '2026-08-02T00:00:00.000Z',
-        }
-      ]),
-    };
+      'id': 'p1',
+      'name': 'Local repeaters',
+      'radioProfileId': profileId,
+      'channels': [
+        for (var i = 0; i < channels; i++)
+          {
+            'name': 'CH$i',
+            'rx': 146940000 + i * 25000,
+            'tx': 146340000 + i * 25000,
+          },
+      ],
+      if (unlock) 'builtWithTxUnlock': true,
+      'createdAt': '2026-08-01T00:00:00.000Z',
+      'modifiedAt': '2026-08-02T00:00:00.000Z',
+    },
+  ]),
+};
 
 class _Harness {
   final _RecordingExportService exporter;
@@ -81,26 +80,32 @@ Future<_Harness> _pump(
   final exporter = _RecordingExportService()..error = exportError;
   final shared = <ExportedFile>[];
 
-  final container = ProviderContainer(overrides: [
-    sharedPreferencesProvider.overrideWithValue(sharedPrefs),
-    prefsSettingsStoreProvider
-        .overrideWith((ref) async => InMemorySettingsStore()),
-    planExportServiceProvider.overrideWithValue(exporter),
-    fileShareProvider.overrideWithValue((file) async => shared.add(file)),
-  ]);
+  final container = ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(sharedPrefs),
+      prefsSettingsStoreProvider.overrideWith(
+        (ref) async => InMemorySettingsStore(),
+      ),
+      planExportServiceProvider.overrideWithValue(exporter),
+      fileShareProvider.overrideWithValue((file) async => shared.add(file)),
+    ],
+  );
   addTearDown(container.dispose);
 
-  await tester.pumpWidget(UncontrolledProviderScope(
-    container: container,
-    child: const MaterialApp(home: ChannelPlanScreen(planId: 'p1')),
-  ));
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: ChannelPlanScreen(planId: 'p1')),
+    ),
+  );
   await tester.pumpAndSettle();
   return _Harness(exporter, shared, container);
 }
 
 void main() {
-  testWidgets('lists channels with slot numbers and a capacity readout',
-      (tester) async {
+  testWidgets('lists channels with slot numbers and a capacity readout', (
+    tester,
+  ) async {
     await _pump(tester, prefs: _seed());
     expect(find.text('Local repeaters'), findsOneWidget);
     expect(find.text('CH0'), findsOneWidget);
@@ -109,8 +114,9 @@ void main() {
     expect(find.textContaining('3 of 999 channels'), findsOneWidget);
   });
 
-  testWidgets('shows each channel\'s frequency, offset and mode',
-      (tester) async {
+  testWidgets('shows each channel\'s frequency, offset and mode', (
+    tester,
+  ) async {
     await _pump(tester, prefs: _seed(channels: 1));
     expect(find.textContaining('146.940 MHz'), findsOneWidget);
     expect(find.textContaining('−0.600'), findsOneWidget);
@@ -122,14 +128,16 @@ void main() {
     expect(find.textContaining('No channels yet'), findsOneWidget);
   });
 
-  testWidgets('a plan that no longer exists says so rather than crashing',
-      (tester) async {
+  testWidgets('a plan that no longer exists says so rather than crashing', (
+    tester,
+  ) async {
     await _pump(tester);
     expect(find.text('This plan no longer exists.'), findsOneWidget);
   });
 
-  testWidgets('banners a plan built with the transmit range widened',
-      (tester) async {
+  testWidgets('banners a plan built with the transmit range widened', (
+    tester,
+  ) async {
     await _pump(tester, prefs: _seed(unlock: true));
     expect(find.textContaining('transmit range widened'), findsOneWidget);
     expect(find.textContaining('your own licence'), findsOneWidget);
@@ -169,8 +177,10 @@ void main() {
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
 
-      expect(harness.container.read(channelPlansProvider).single.channels,
-          hasLength(3));
+      expect(
+        harness.container.read(channelPlansProvider).single.channels,
+        hasLength(3),
+      );
       expect(find.text('Local repeaters'), findsOneWidget);
     });
 
@@ -179,7 +189,8 @@ void main() {
       expect(
         tester
             .widget<IconButton>(
-                find.widgetWithIcon(IconButton, Icons.checklist))
+              find.widgetWithIcon(IconButton, Icons.checklist),
+            )
             .onPressed,
         isNull,
       );
@@ -207,13 +218,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-          harness.container
-              .read(channelPlansProvider)
-              .single
-              .channels
-              .single
-              .name,
-          'Renamed');
+        harness.container
+            .read(channelPlansProvider)
+            .single
+            .channels
+            .single
+            .name,
+        'Renamed',
+      );
     });
 
     testWidgets('refuses a frequency that is not one', (tester) async {
@@ -222,15 +234,18 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(
-          find.widgetWithText(TextField, '146.940'), 'about 146');
+        find.widgetWithText(TextField, '146.940'),
+        'about 146',
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('should look like'), findsOneWidget);
     });
 
-    testWidgets('a receive-only channel drops its transmit tone',
-        (tester) async {
+    testWidgets('a receive-only channel drops its transmit tone', (
+      tester,
+    ) async {
       final harness = await _pump(tester, prefs: _seed(channels: 1));
       await tester.tap(find.text('CH0'));
       await tester.pumpAndSettle();
@@ -240,8 +255,11 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
-      final channel =
-          harness.container.read(channelPlansProvider).single.channels.single;
+      final channel = harness.container
+          .read(channelPlansProvider)
+          .single
+          .channels
+          .single;
       expect(channel.rxOnly, isTrue);
       expect(channel.txFreqHz, channel.rxFreqHz);
       expect(channel.txTone.isNone, isTrue);
@@ -263,7 +281,8 @@ void main() {
       expect(
         tester
             .widget<IconButton>(
-                find.widgetWithIcon(IconButton, Icons.ios_share))
+              find.widgetWithIcon(IconButton, Icons.ios_share),
+            )
             .onPressed,
         isNull,
       );

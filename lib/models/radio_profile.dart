@@ -144,18 +144,19 @@ class TxUnlock {
   static const TxUnlock unsupported = TxUnlock(
     supported: false,
     mechanism: TxUnlockMechanism.unsupported,
-    notes: 'No documented software path on this model. Widening its transmit '
+    notes:
+        'No documented software path on this model. Widening its transmit '
         'range would need a hardware or keypad modification, which this app '
         'does not do.',
   );
 
   Map<String, dynamic> toJson() => {
-        'supported': supported,
-        'mechanism': mechanism.wireName,
-        'ranges': [for (final range in expandedTxRanges) range.toJson()],
-        'verified': verified,
-        if (notes.isNotEmpty) 'notes': notes,
-      };
+    'supported': supported,
+    'mechanism': mechanism.wireName,
+    'ranges': [for (final range in expandedTxRanges) range.toJson()],
+    'verified': verified,
+    if (notes.isNotEmpty) 'notes': notes,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -169,12 +170,12 @@ class TxUnlock {
 
   @override
   int get hashCode => Object.hash(
-        supported,
-        mechanism,
-        verified,
-        notes,
-        Object.hashAll(expandedTxRanges),
-      );
+    supported,
+    mechanism,
+    verified,
+    notes,
+    Object.hashAll(expandedTxRanges),
+  );
 }
 
 bool _listEquals<T>(List<T> a, List<T> b) {
@@ -344,7 +345,8 @@ const RadioProfile uv5rProfile = RadioProfile(
     supported: true,
     mechanism: TxUnlockMechanism.codeplugBandLimit,
     expandedTxRanges: [_uv5rExpandedVhf, _uv5rExpandedUhf],
-    notes: 'The factory transmit limits are fields in the radio\'s own '
+    notes:
+        'The factory transmit limits are fields in the radio\'s own '
         'settings memory. Widening them is what a MARS/CAP modification does '
         'in software.',
   ),
@@ -387,7 +389,8 @@ const RadioProfile ar152Profile = RadioProfile(
     supported: true,
     mechanism: TxUnlockMechanism.codeplugBandLimit,
     expandedTxRanges: [_uv5rExpandedVhf, _uv5rExpandedUhf],
-    notes: 'Programs as a BF-F8HP; the band-limit fields sit in the same '
+    notes:
+        'Programs as a BF-F8HP; the band-limit fields sit in the same '
         'place. Not confirmed on an AR-152 itself.',
   ),
 );
@@ -410,7 +413,8 @@ const RadioProfile uv5gProfile = RadioProfile(
   txUnlock: TxUnlock(
     supported: false,
     mechanism: TxUnlockMechanism.unsupported,
-    notes: 'This app does not know how this radio stores its GMRS '
+    notes:
+        'This app does not know how this radio stores its GMRS '
         'restriction: its memory is not laid out like a UV-5R\'s, so the '
         'UV-5R\'s band-limit fields say nothing about it.',
   ),
@@ -523,6 +527,6 @@ const RadioProfile defaultRadioProfile = uv5rMiniProfile;
 
 /// Every radio this build can program over [transport], in catalogue order.
 List<RadioProfile> profilesProgrammableOver(RadioTransport transport) => [
-      for (final profile in radioProfiles)
-        if (profile.programsOver(transport)) profile,
-    ];
+  for (final profile in radioProfiles)
+    if (profile.programsOver(transport)) profile,
+];

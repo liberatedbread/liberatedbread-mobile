@@ -57,15 +57,13 @@ class RadioSourceSettings {
     return RadioSourceSettings(radiusKm: radiusKm, disabledSourceIds: next);
   }
 
-  RadioSourceSettings withRadius(double km) => RadioSourceSettings(
-        radiusKm: km,
-        disabledSourceIds: disabledSourceIds,
-      );
+  RadioSourceSettings withRadius(double km) =>
+      RadioSourceSettings(radiusKm: km, disabledSourceIds: disabledSourceIds);
 
   Map<String, dynamic> toJson() => {
-        'radiusKm': radiusKm,
-        'disabled': disabledSourceIds.toList()..sort(),
-      };
+    'radiusKm': radiusKm,
+    'disabled': disabledSourceIds.toList()..sort(),
+  };
 
   static RadioSourceSettings fromJson(Map<String, dynamic> json) {
     final radius = json['radiusKm'];
@@ -97,8 +95,8 @@ class RadioSourceSettings {
 
 final radioSourceSettingsProvider =
     AsyncNotifierProvider<RadioSourceSettingsNotifier, RadioSourceSettings>(
-  RadioSourceSettingsNotifier.new,
-);
+      RadioSourceSettingsNotifier.new,
+    );
 
 class RadioSourceSettingsNotifier extends AsyncNotifier<RadioSourceSettings> {
   static const key = 'radio_source_settings_v1';
@@ -143,8 +141,8 @@ class RadioSourceSettingsNotifier extends AsyncNotifier<RadioSourceSettings> {
 /// preferences: it identifies a person's RepeaterBook account to their API.
 final repeaterBookTokenProvider =
     AsyncNotifierProvider<RepeaterBookTokenNotifier, String?>(
-  RepeaterBookTokenNotifier.new,
-);
+      RepeaterBookTokenNotifier.new,
+    );
 
 class RepeaterBookTokenNotifier extends AsyncNotifier<String?> {
   static const key = 'repeaterbook_app_token';
@@ -206,7 +204,9 @@ final myGmrsClientProvider = Provider<MyGmrsClient>((ref) {
 });
 
 /// Every source the app can ask, in display order.
-final repeaterSourcesProvider = Provider<List<RepeaterSource>>((ref) => [
-      ref.watch(repeaterBookClientProvider),
-      ref.watch(myGmrsClientProvider),
-    ]);
+final repeaterSourcesProvider = Provider<List<RepeaterSource>>(
+  (ref) => [
+    ref.watch(repeaterBookClientProvider),
+    ref.watch(myGmrsClientProvider),
+  ],
+);

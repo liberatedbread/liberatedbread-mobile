@@ -26,7 +26,8 @@ const Map<(int, int), UsbBridge> _bridges = {
   (0x0403, 0x6001): UsbBridge('FTDI FT232R'),
   (0x067B, 0x2303): UsbBridge(
     'Prolific PL2303',
-    caution: 'Counterfeit PL2303 chips are common in cheap programming '
+    caution:
+        'Counterfeit PL2303 chips are common in cheap programming '
         'cables, and some drivers refuse them. If this cable is not '
         'recognised, one built on a CH340 or CP210x usually is.',
   ),

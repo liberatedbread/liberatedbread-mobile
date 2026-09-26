@@ -29,15 +29,16 @@ final planExportServiceProvider = Provider<PlanExportService>((ref) {
 
 /// Shares an exported file. Injected so widget tests never reach the
 /// share_plus platform channel, the same way [urlOpenerProvider] is.
-final fileShareProvider =
-    Provider<Future<void> Function(ExportedFile)>((ref) => (exported) async {
-          await SharePlus.instance.share(
-            ShareParams(
-              files: [XFile(exported.file.path)],
-              fileNameOverrides: [exported.displayName],
-            ),
-          );
-        });
+final fileShareProvider = Provider<Future<void> Function(ExportedFile)>(
+  (ref) => (exported) async {
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(exported.file.path)],
+        fileNameOverrides: [exported.displayName],
+      ),
+    );
+  },
+);
 
 class ChannelPlanScreen extends ConsumerStatefulWidget {
   final String planId;
@@ -65,7 +66,8 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
       );
     }
 
-    final profile = radioProfileById(plan.radioProfileId) ??
+    final profile =
+        radioProfileById(plan.radioProfileId) ??
         ref.watch(selectedRadioProfileProvider).value ??
         defaultRadioProfile;
 
@@ -92,8 +94,9 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
             IconButton(
               tooltip: 'Select channels',
               icon: const Icon(Icons.checklist),
-              onPressed:
-                  plan.isEmpty ? null : () => setState(() => _selecting = true),
+              onPressed: plan.isEmpty
+                  ? null
+                  : () => setState(() => _selecting = true),
             ),
             IconButton(
               tooltip: 'Export as CHIRP CSV',
@@ -107,13 +110,11 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
                 onPressed: plan.isEmpty
                     ? null
                     : () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => RadioProgramScreen(
-                              plan: plan,
-                              profile: profile,
-                            ),
-                          ),
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              RadioProgramScreen(plan: plan, profile: profile),
                         ),
+                      ),
               ),
           ],
         ],
@@ -139,11 +140,8 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
                     onReorderItem: (from, to) => ref
                         .read(channelPlansProvider.notifier)
                         .reorder(plan.id, from, to),
-                    itemBuilder: (context, index) => _channelTile(
-                      plan,
-                      profile,
-                      index,
-                    ),
+                    itemBuilder: (context, index) =>
+                        _channelTile(plan, profile, index),
                   ),
           ),
         ],
@@ -180,8 +178,8 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
             ),
       onTap: _selecting
           ? () => setState(() {
-                if (!_selected.remove(index)) _selected.add(index);
-              })
+              if (!_selected.remove(index)) _selected.add(index);
+            })
           : () => _edit(plan, profile, index),
     );
   }
@@ -217,10 +215,8 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
     final edited = await showModalBottomSheet<RadioChannel>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => _ChannelEditSheet(
-        channel: plan.channels[index],
-        profile: profile,
-      ),
+      builder: (context) =>
+          _ChannelEditSheet(channel: plan.channels[index], profile: profile),
     );
     if (edited == null || !mounted) return;
     await ref
@@ -243,18 +239,22 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
       }
       await Clipboard.setData(ClipboardData(text: exported.file.path));
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(
-        content: Text('Saved to ${exported.file.path} (path copied)'),
-      ));
+      messenger.showSnackBar(
+        SnackBar(content: Text('Saved to ${exported.file.path} (path copied)')),
+      );
     } catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(
-        content: Text(friendlyErrorText(
-          error,
-          fallback: 'Could not export this plan.',
-          context: 'chirp csv export',
-        )),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              error,
+              fallback: 'Could not export this plan.',
+              context: 'chirp csv export',
+            ),
+          ),
+        ),
+      );
     }
   }
 }
@@ -271,8 +271,11 @@ class _UnlockBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          Icon(Icons.lock_open_outlined,
-              size: 20, color: scheme.onTertiaryContainer),
+          Icon(
+            Icons.lock_open_outlined,
+            size: 20,
+            color: scheme.onTertiaryContainer,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -295,15 +298,18 @@ class _CapacityBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fraction =
-        (plan.length / profile.channelCapacity).clamp(0.0, 1.0).toDouble();
+    final fraction = (plan.length / profile.channelCapacity)
+        .clamp(0.0, 1.0)
+        .toDouble();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${plan.length} of ${profile.channelCapacity} channels · '
-              '${profile.displayName}'),
+          Text(
+            '${plan.length} of ${profile.channelCapacity} channels · '
+            '${profile.displayName}',
+          ),
           const SizedBox(height: 6),
           LinearProgressIndicator(value: fraction),
         ],
@@ -337,9 +343,11 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
     super.initState();
     _name = TextEditingController(text: widget.channel.name);
     _rx = TextEditingController(
-        text: formatHzAsMegahertz(widget.channel.rxFreqHz));
+      text: formatHzAsMegahertz(widget.channel.rxFreqHz),
+    );
     _tx = TextEditingController(
-        text: formatHzAsMegahertz(widget.channel.txFreqHz));
+      text: formatHzAsMegahertz(widget.channel.txFreqHz),
+    );
     _mode = widget.channel.mode;
     _power = widget.channel.power;
     _rxOnly = widget.channel.rxOnly;
@@ -355,121 +363,119 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+    padding: EdgeInsets.only(
+      left: 16,
+      right: 16,
+      top: 16,
+      bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+    ),
+    child: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _name,
+            maxLength: widget.profile.nameLength,
+            decoration: InputDecoration(
+              labelText: 'Name',
+              border: const OutlineInputBorder(),
+              helperText:
+                  '${widget.profile.displayName} shows '
+                  '${widget.profile.nameLength} characters',
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _rx,
+            decoration: const InputDecoration(
+              labelText: 'Receive (MHz)',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _tx,
+            enabled: !_rxOnly,
+            decoration: const InputDecoration(
+              labelText: 'Transmit (MHz)',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Receive only'),
+            value: _rxOnly,
+            onChanged: (value) => setState(() => _rxOnly = value),
+          ),
+          Row(
             children: [
-              TextField(
-                controller: _name,
-                maxLength: widget.profile.nameLength,
-                decoration: InputDecoration(
-                  labelText: 'Name',
-                  border: const OutlineInputBorder(),
-                  helperText: '${widget.profile.displayName} shows '
-                      '${widget.profile.nameLength} characters',
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _rx,
-                decoration: const InputDecoration(
-                  labelText: 'Receive (MHz)',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _tx,
-                enabled: !_rxOnly,
-                decoration: const InputDecoration(
-                  labelText: 'Transmit (MHz)',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Receive only'),
-                value: _rxOnly,
-                onChanged: (value) => setState(() => _rxOnly = value),
-              ),
-              Row(
-                children: [
-                  const Text('Mode'),
-                  const SizedBox(width: 12),
-                  SegmentedButton<ChannelMode>(
-                    segments: const [
-                      ButtonSegment(value: ChannelMode.fm, label: Text('FM')),
-                      ButtonSegment(value: ChannelMode.nfm, label: Text('NFM')),
-                    ],
-                    selected: {_mode},
-                    onSelectionChanged: (values) =>
-                        setState(() => _mode = values.first),
-                  ),
+              const Text('Mode'),
+              const SizedBox(width: 12),
+              SegmentedButton<ChannelMode>(
+                segments: const [
+                  ButtonSegment(value: ChannelMode.fm, label: Text('FM')),
+                  ButtonSegment(value: ChannelMode.nfm, label: Text('NFM')),
                 ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Text('Power'),
-                  const SizedBox(width: 12),
-                  SegmentedButton<PowerLevel>(
-                    segments: const [
-                      ButtonSegment(
-                          value: PowerLevel.high, label: Text('High')),
-                      ButtonSegment(value: PowerLevel.low, label: Text('Low')),
-                    ],
-                    selected: {_power},
-                    onSelectionChanged: (values) =>
-                        setState(() => _power = values.first),
-                  ),
-                ],
-              ),
-              if (!widget.channel.txTone.isNone ||
-                  !widget.channel.rxTone.isNone)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    'Tones: transmit '
-                    '${widget.channel.txTone.isNone ? 'none' : widget.channel.txTone.label}'
-                    ', receive '
-                    '${widget.channel.rxTone.isNone ? 'none' : widget.channel.rxTone.label}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              if (_error case final String error)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(error,
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
-                ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(onPressed: _save, child: const Text('Save')),
-                ],
+                selected: {_mode},
+                onSelectionChanged: (values) =>
+                    setState(() => _mode = values.first),
               ),
             ],
           ),
-        ),
-      );
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text('Power'),
+              const SizedBox(width: 12),
+              SegmentedButton<PowerLevel>(
+                segments: const [
+                  ButtonSegment(value: PowerLevel.high, label: Text('High')),
+                  ButtonSegment(value: PowerLevel.low, label: Text('Low')),
+                ],
+                selected: {_power},
+                onSelectionChanged: (values) =>
+                    setState(() => _power = values.first),
+              ),
+            ],
+          ),
+          if (!widget.channel.txTone.isNone || !widget.channel.rxTone.isNone)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'Tones: transmit '
+                '${widget.channel.txTone.isNone ? 'none' : widget.channel.txTone.label}'
+                ', receive '
+                '${widget.channel.rxTone.isNone ? 'none' : widget.channel.rxTone.label}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          if (_error case final String error)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                error,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(onPressed: _save, child: const Text('Save')),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 
   void _save() {
     final rx = parseMegahertzToHz(_rx.text);
@@ -482,16 +488,18 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
       setState(() => _error = 'Transmit frequency should look like 146.340.');
       return;
     }
-    Navigator.of(context).pop(widget.channel.copyWith(
-      name: _name.text,
-      rxFreqHz: rx,
-      txFreqHz: tx,
-      rxOnly: _rxOnly,
-      mode: _mode,
-      power: _power,
-      // A receive-only channel carries no transmit tone: there is nothing to
-      // send it on.
-      txTone: _rxOnly ? ToneSetting.none : widget.channel.txTone,
-    ));
+    Navigator.of(context).pop(
+      widget.channel.copyWith(
+        name: _name.text,
+        rxFreqHz: rx,
+        txFreqHz: tx,
+        rxOnly: _rxOnly,
+        mode: _mode,
+        power: _power,
+        // A receive-only channel carries no transmit tone: there is nothing to
+        // send it on.
+        txTone: _rxOnly ? ToneSetting.none : widget.channel.txTone,
+      ),
+    );
   }
 }

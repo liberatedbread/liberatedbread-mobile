@@ -28,7 +28,7 @@ class PlanExportService {
   final CacheDirResolver _resolveDir;
 
   PlanExportService({required CacheDirResolver dirResolver})
-      : _resolveDir = dirResolver;
+    : _resolveDir = dirResolver;
 
   Future<ExportedFile> exportChirpCsv(ChannelPlan plan) async {
     final base = await _resolveDir();

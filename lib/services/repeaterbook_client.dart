@@ -79,14 +79,12 @@ class RepeaterBookClient implements RepeaterSource {
   final Future<String?> Function(String stateCode) _resolveStateId;
 
   RepeaterBookClient({
-    required http.Client client,
+    required this._client,
     required this.userAgent,
-    required Future<String?> Function() readToken,
-    required Future<String?> Function(String stateCode) resolveStateId,
+    required this._readToken,
+    required this._resolveStateId,
     this.timeout = const Duration(seconds: 25),
-  })  : _client = client,
-        _readToken = readToken,
-        _resolveStateId = resolveStateId;
+  });
 
   @override
   String get id => sourceId;
@@ -118,11 +116,16 @@ class RepeaterBookClient implements RepeaterSource {
     final uri = Uri.https(host, exportPath, {'state_id': '44'});
     http.Response response;
     try {
-      response = await _client.get(uri, headers: {
-        'X-RB-App-Token': trimmed,
-        'User-Agent': userAgent,
-        'Accept': 'application/json',
-      }).timeout(timeout);
+      response = await _client
+          .get(
+            uri,
+            headers: {
+              'X-RB-App-Token': trimmed,
+              'User-Agent': userAgent,
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(timeout);
     } on TimeoutException {
       return TokenCheck.unreachable;
     } on http.ClientException {
@@ -179,26 +182,39 @@ class RepeaterBookClient implements RepeaterSource {
     final stateId = await _resolveStateId(stateCode);
     if (stateId == null || stateId.isEmpty) {
       throw _failure(
-          SourceFailureKind.parse, 'No RepeaterBook state id for $stateCode.');
+        SourceFailureKind.parse,
+        'No RepeaterBook state id for $stateCode.',
+      );
     }
 
     final uri = Uri.https(host, exportPath, {'state_id': stateId});
     http.Response response;
     try {
-      response = await _client.get(uri, headers: {
-        'X-RB-App-Token': token,
-        'User-Agent': userAgent,
-        'Accept': 'application/json',
-      }).timeout(timeout);
+      response = await _client
+          .get(
+            uri,
+            headers: {
+              'X-RB-App-Token': token,
+              'User-Agent': userAgent,
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(timeout);
     } on TimeoutException {
       throw _failure(
-          SourceFailureKind.network, 'RepeaterBook did not answer in time.');
+        SourceFailureKind.network,
+        'RepeaterBook did not answer in time.',
+      );
     } on http.ClientException catch (error) {
-      throw _failure(SourceFailureKind.network,
-          'Could not reach RepeaterBook: ${error.message}');
+      throw _failure(
+        SourceFailureKind.network,
+        'Could not reach RepeaterBook: ${error.message}',
+      );
     } on SocketException catch (error) {
-      throw _failure(SourceFailureKind.network,
-          'Could not reach RepeaterBook: ${error.message}');
+      throw _failure(
+        SourceFailureKind.network,
+        'Could not reach RepeaterBook: ${error.message}',
+      );
     }
 
     if (response.statusCode == 429) {
@@ -209,33 +225,39 @@ class RepeaterBookClient implements RepeaterSource {
       );
     }
     if (response.statusCode == 401 || response.statusCode == 403) {
-      throw _failure(
-        SourceFailureKind.auth,
-        switch (_authOutcome(response.body)) {
-          TokenCheck.malformed =>
-            'RepeaterBook did not recognise the saved token. Check it in '
-                'radio source settings.',
-          _ => 'RepeaterBook refused the saved token. It may have expired — '
+      throw _failure(SourceFailureKind.auth, switch (_authOutcome(
+        response.body,
+      )) {
+        TokenCheck.malformed =>
+          'RepeaterBook did not recognise the saved token. Check it in '
+              'radio source settings.',
+        _ =>
+          'RepeaterBook refused the saved token. It may have expired — '
               'request a new one in radio source settings.',
-        },
-      );
+      });
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw _failure(SourceFailureKind.network,
-          'RepeaterBook returned HTTP ${response.statusCode}.');
+      throw _failure(
+        SourceFailureKind.network,
+        'RepeaterBook returned HTTP ${response.statusCode}.',
+      );
     }
 
     Object? decoded;
     try {
       decoded = jsonDecode(response.body);
     } on FormatException {
-      throw _failure(SourceFailureKind.parse,
-          'RepeaterBook sent something that was not JSON.');
+      throw _failure(
+        SourceFailureKind.parse,
+        'RepeaterBook sent something that was not JSON.',
+      );
     }
     final rows = _rowsFrom(decoded);
     if (rows == null) {
       throw _failure(
-          SourceFailureKind.parse, 'RepeaterBook sent no repeater list.');
+        SourceFailureKind.parse,
+        'RepeaterBook sent no repeater list.',
+      );
     }
 
     final listings = <RepeaterListing>[];
@@ -245,7 +267,8 @@ class RepeaterBookClient implements RepeaterSource {
       if (listing != null) listings.add(listing);
     }
     Log.radio.debug(
-        'RepeaterBook $stateCode: ${listings.length} of ${rows.length} usable');
+      'RepeaterBook $stateCode: ${listings.length} of ${rows.length} usable',
+    );
     return listings;
   }
 
@@ -281,13 +304,16 @@ class RepeaterBookClient implements RepeaterSource {
   }
 
   RepeaterListing? _listingFrom(Map<String, dynamic> row) {
-    final rxHz =
-        parseMegahertzToHz(_field(row, ['Frequency', 'freq'])?.toString());
+    final rxHz = parseMegahertzToHz(
+      _field(row, ['Frequency', 'freq'])?.toString(),
+    );
     if (rxHz == null) return null;
 
     // An absent input frequency means simplex, which the directory does list.
-    final txHz = parseMegahertzToHz(
-            _field(row, ['Input Freq', 'inputfreq', 'input'])?.toString()) ??
+    final txHz =
+        parseMegahertzToHz(
+          _field(row, ['Input Freq', 'inputfreq', 'input'])?.toString(),
+        ) ??
         rxHz;
 
     final lat = _numField(row, ['Lat', 'Latitude']);
@@ -303,7 +329,7 @@ class RepeaterBookClient implements RepeaterSource {
     final status = _text(_field(row, ['Operational Status', 'status']));
 
     final notes = <String>[
-      if (landmark != null) landmark,
+      ?landmark,
       if (county != null) '$county County',
       if (use != null && use.toLowerCase() != 'open') 'Use: $use',
       if (status != null && status.toLowerCase() != 'on-air') 'Status: $status',
@@ -369,10 +395,12 @@ class RepeaterBookClient implements RepeaterSource {
   }
 
   RepeaterSourceException _failure(SourceFailureKind kind, String message) =>
-      RepeaterSourceException(SourceFailure(
-        sourceId: sourceId,
-        displayName: 'RepeaterBook',
-        kind: kind,
-        message: message,
-      ));
+      RepeaterSourceException(
+        SourceFailure(
+          sourceId: sourceId,
+          displayName: 'RepeaterBook',
+          kind: kind,
+          message: message,
+        ),
+      );
 }

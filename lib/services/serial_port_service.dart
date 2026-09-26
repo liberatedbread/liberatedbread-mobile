@@ -64,9 +64,7 @@ class SerialAvailability {
   /// Why not, when not — written for the person reading the USB tab.
   final String? reason;
 
-  const SerialAvailability.supported()
-      : supported = true,
-        reason = null;
+  const SerialAvailability.supported() : supported = true, reason = null;
 
   const SerialAvailability.unsupported(String this.reason) : supported = false;
 }

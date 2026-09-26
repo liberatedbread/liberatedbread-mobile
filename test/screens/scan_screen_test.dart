@@ -1343,18 +1343,21 @@ void main() {
   });
 
   group('radios', () {
-    testWidgets('a radio gets a section of its own, above everything else',
-        (tester) async {
+    testWidgets('a radio gets a section of its own, above everything else', (
+      tester,
+    ) async {
       // Two sections compared by position: both must be laid out at once, and
       // the lazy list leaves the second unbuilt on the default surface.
       tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
-      final fake = FakeBleService(devicesToEmit: [
-        _device('01', name: 'dev-anon'),
-        _device('02', name: 'UV-5R Mini', services: [baofengUartService]),
-      ]);
+      final fake = FakeBleService(
+        devicesToEmit: [
+          _device('01', name: 'dev-anon'),
+          _device('02', name: 'UV-5R Mini', services: [baofengUartService]),
+        ],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
 
@@ -1369,13 +1372,16 @@ void main() {
       );
     });
 
-    testWidgets('the programming service alone does not make a radio',
-        (tester) async {
+    testWidgets('the programming service alone does not make a radio', (
+      tester,
+    ) async {
       // FFE0 is the generic HM-10 serial service: LED strips advertise it too,
       // and a score of catalogue devices declare it.
-      final fake = FakeBleService(devicesToEmit: [
-        _device('01', name: 'LEDBlue-1234', services: [baofengUartService]),
-      ]);
+      final fake = FakeBleService(
+        devicesToEmit: [
+          _device('01', name: 'LEDBlue-1234', services: [baofengUartService]),
+        ],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
 
@@ -1384,52 +1390,70 @@ void main() {
     });
 
     testWidgets('"mini" alone does not make a radio', (tester) async {
-      final fake = FakeBleService(devicesToEmit: [
-        _device('01', name: 'Mini Speaker', services: [baofengUartService]),
-      ]);
+      final fake = FakeBleService(
+        devicesToEmit: [
+          _device('01', name: 'Mini Speaker', services: [baofengUartService]),
+        ],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
 
       expect(find.text('Radios'), findsNothing);
     });
 
-    testWidgets('a name without the service is shown, but as a hint',
-        (tester) async {
-      final fake = FakeBleService(devicesToEmit: [
-        _device('01', name: 'Baofeng radio'),
-      ]);
+    testWidgets('a name without the service is shown, but as a hint', (
+      tester,
+    ) async {
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'Baofeng radio')],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
 
       expect(find.text('Radios'), findsOneWidget);
-      expect(find.textContaining('not advertising its programming service'),
-          findsOneWidget);
-      final tile = tester.widget<DeviceListTile>(find.ancestor(
+      expect(
+        find.textContaining('not advertising its programming service'),
+        findsOneWidget,
+      );
+      final tile = tester.widget<DeviceListTile>(
+        find.ancestor(
           of: find.text('Baofeng radio'),
-          matching: find.byType(DeviceListTile)));
+          matching: find.byType(DeviceListTile),
+        ),
+      );
       expect(tile.badgeIsClaim, isFalse);
     });
 
-    testWidgets('tapping a radio opens the radio screen, not the explorer',
-        (tester) async {
-      final fake = FakeBleService(devicesToEmit: [
-        _device('02', name: 'UV-5R Mini', services: [baofengUartService]),
-      ]);
+    testWidgets('tapping a radio opens the radio screen, not the explorer', (
+      tester,
+    ) async {
+      final fake = FakeBleService(
+        devicesToEmit: [
+          _device('02', name: 'UV-5R Mini', services: [baofengUartService]),
+        ],
+      );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('UV-5R Mini'));
       await tester.pumpAndSettle();
 
-      expect(fake.stopScanCount, greaterThan(0),
-          reason: 'the scan stops before a radio is opened, as for any device');
+      expect(
+        fake.stopScanCount,
+        greaterThan(0),
+        reason: 'the scan stops before a radio is opened, as for any device',
+      );
       expect(find.byType(RadioDeviceScreen), findsOneWidget);
       expect(find.byType(DeviceScreen), findsNothing);
-      final screen =
-          tester.widget<RadioDeviceScreen>(find.byType(RadioDeviceScreen));
+      final screen = tester.widget<RadioDeviceScreen>(
+        find.byType(RadioDeviceScreen),
+      );
       expect(screen.target.id, '02');
-      expect(screen.initialProfile?.id, 'uv-5r-mini',
-          reason: 'the advertised name suggests the model it spells');
+      expect(
+        screen.initialProfile?.id,
+        'uv-5r-mini',
+        reason: 'the advertised name suggests the model it spells',
+      );
     });
   });
 }

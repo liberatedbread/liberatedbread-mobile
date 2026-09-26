@@ -108,27 +108,27 @@ class ToneSetting {
   static const ToneSetting none = ToneSetting._(mode: ToneMode.none);
 
   const ToneSetting.ctcss(int tenthHz)
-      : this._(mode: ToneMode.ctcss, ctcssTenthHz: tenthHz);
+    : this._(mode: ToneMode.ctcss, ctcssTenthHz: tenthHz);
 
   const ToneSetting.dcs(int code, {bool inverted = false})
-      : this._(mode: ToneMode.dcs, dcsCode: code, dcsInverted: inverted);
+    : this._(mode: ToneMode.dcs, dcsCode: code, dcsInverted: inverted);
 
   bool get isNone => mode == ToneMode.none;
 
   /// How the tone reads on a radio's own display: `100.0`, `D023N`, or empty.
   String get label => switch (mode) {
-        ToneMode.none => '',
-        ToneMode.ctcss => (ctcssTenthHz / 10).toStringAsFixed(1),
-        ToneMode.dcs =>
-          'D${dcsCode.toString().padLeft(3, '0')}${dcsInverted ? 'I' : 'N'}',
-      };
+    ToneMode.none => '',
+    ToneMode.ctcss => (ctcssTenthHz / 10).toStringAsFixed(1),
+    ToneMode.dcs =>
+      'D${dcsCode.toString().padLeft(3, '0')}${dcsInverted ? 'I' : 'N'}',
+  };
 
   Map<String, dynamic> toJson() => {
-        'mode': mode.wireName,
-        if (mode == ToneMode.ctcss) 'ctcss': ctcssTenthHz,
-        if (mode == ToneMode.dcs) 'dcs': dcsCode,
-        if (mode == ToneMode.dcs && dcsInverted) 'inverted': true,
-      };
+    'mode': mode.wireName,
+    if (mode == ToneMode.ctcss) 'ctcss': ctcssTenthHz,
+    if (mode == ToneMode.dcs) 'dcs': dcsCode,
+    if (mode == ToneMode.dcs && dcsInverted) 'inverted': true,
+  };
 
   /// Never null: a tone that cannot be read is no tone, which is the setting
   /// that cannot key anything unexpected. A channel is still usable without
@@ -219,10 +219,10 @@ class RadioChannel {
     this.mode = ChannelMode.fm,
     this.power = PowerLevel.low,
     this.comment = '',
-  })  : rxFreqHz = freqHz,
-        txFreqHz = freqHz,
-        rxOnly = true,
-        txTone = ToneSetting.none;
+  }) : rxFreqHz = freqHz,
+       txFreqHz = freqHz,
+       rxOnly = true,
+       txTone = ToneSetting.none;
 
   /// Repeater shift in Hz: positive for an input above the output, negative
   /// below, zero for simplex.
@@ -240,30 +240,29 @@ class RadioChannel {
     ChannelMode? mode,
     PowerLevel? power,
     String? comment,
-  }) =>
-      RadioChannel(
-        name: name ?? this.name,
-        rxFreqHz: rxFreqHz ?? this.rxFreqHz,
-        txFreqHz: txFreqHz ?? this.txFreqHz,
-        rxOnly: rxOnly ?? this.rxOnly,
-        txTone: txTone ?? this.txTone,
-        rxTone: rxTone ?? this.rxTone,
-        mode: mode ?? this.mode,
-        power: power ?? this.power,
-        comment: comment ?? this.comment,
-      );
+  }) => RadioChannel(
+    name: name ?? this.name,
+    rxFreqHz: rxFreqHz ?? this.rxFreqHz,
+    txFreqHz: txFreqHz ?? this.txFreqHz,
+    rxOnly: rxOnly ?? this.rxOnly,
+    txTone: txTone ?? this.txTone,
+    rxTone: rxTone ?? this.rxTone,
+    mode: mode ?? this.mode,
+    power: power ?? this.power,
+    comment: comment ?? this.comment,
+  );
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'rx': rxFreqHz,
-        'tx': txFreqHz,
-        if (rxOnly) 'rxOnly': true,
-        if (!txTone.isNone) 'txTone': txTone.toJson(),
-        if (!rxTone.isNone) 'rxTone': rxTone.toJson(),
-        'mode': mode.wireName,
-        'power': power.wireName,
-        if (comment.isNotEmpty) 'comment': comment,
-      };
+    'name': name,
+    'rx': rxFreqHz,
+    'tx': txFreqHz,
+    if (rxOnly) 'rxOnly': true,
+    if (!txTone.isNone) 'txTone': txTone.toJson(),
+    if (!rxTone.isNone) 'rxTone': rxTone.toJson(),
+    'mode': mode.wireName,
+    'power': power.wireName,
+    if (comment.isNotEmpty) 'comment': comment,
+  };
 
   /// Returns null for a record that cannot be read, so one corrupt channel
   /// costs its own slot and not the rest of the plan.
@@ -303,16 +302,16 @@ class RadioChannel {
 
   @override
   int get hashCode => Object.hash(
-        name,
-        rxFreqHz,
-        txFreqHz,
-        rxOnly,
-        txTone,
-        rxTone,
-        mode,
-        power,
-        comment,
-      );
+    name,
+    rxFreqHz,
+    txFreqHz,
+    rxOnly,
+    txTone,
+    rxTone,
+    mode,
+    power,
+    comment,
+  );
 
   @override
   String toString() => 'RadioChannel($name, rx=$rxFreqHz, tx=$txFreqHz)';

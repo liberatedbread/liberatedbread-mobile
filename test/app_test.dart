@@ -214,20 +214,26 @@ void main() {
     expect(find.text('No groups yet'), findsOneWidget);
   });
 
-  testWidgets('the USB tab looks for cables only once it is opened',
-      (tester) async {
+  testWidgets('the USB tab looks for cables only once it is opened', (
+    tester,
+  ) async {
     final ports = _CountingPorts();
-    await tester.pumpWidget(ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(FakeBleService()),
-        sharedPreferencesProvider.overrideWithValue(_prefs),
-        serialPortServiceProvider.overrideWithValue(ports),
-      ],
-      child: const LiberatedBreadApp(),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(FakeBleService()),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          serialPortServiceProvider.overrideWithValue(ports),
+        ],
+        child: const LiberatedBreadApp(),
+      ),
+    );
     await tester.pump();
-    expect(ports.listings, 0,
-        reason: 'a tab nobody has opened has no reason to touch USB');
+    expect(
+      ports.listings,
+      0,
+      reason: 'a tab nobody has opened has no reason to touch USB',
+    );
 
     await tester.tap(find.text('USB'));
     await tester.pumpAndSettle();

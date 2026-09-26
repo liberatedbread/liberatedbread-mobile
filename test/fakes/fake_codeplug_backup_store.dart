@@ -73,13 +73,15 @@ class FakeCodeplugBackupStore implements CodeplugBackupStore {
 
   /// Newest first, as the real store lists them.
   @override
-  Future<List<CodeplugBackup>> list() async =>
-      [for (final id in _order.reversed) _entry(id)];
+  Future<List<CodeplugBackup>> list() async => [
+    for (final id in _order.reversed) _entry(id),
+  ];
 
   @override
   Future<RadioCodeplug> load(CodeplugBackup backup) async {
     final id = int.parse(
-        RegExp(r'_(\d+)\.bin$').firstMatch(backup.file.path)!.group(1)!);
+      RegExp(r'_(\d+)\.bin$').firstMatch(backup.file.path)!.group(1)!,
+    );
     final codeplug = _byId[id];
     if (codeplug == null) {
       throw FileSystemException('backup pruned', backup.file.path);

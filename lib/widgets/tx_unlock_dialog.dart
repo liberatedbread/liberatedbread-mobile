@@ -63,8 +63,10 @@ class _TxUnlockDialogState extends State<_TxUnlockDialog> {
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),
-            Text('It would be able to transmit on:',
-                style: theme.textTheme.labelLarge),
+            Text(
+              'It would be able to transmit on:',
+              style: theme.textTheme.labelLarge,
+            ),
             const SizedBox(height: 4),
             for (final range in unlock.expandedTxRanges)
               Padding(
@@ -117,8 +119,9 @@ class _TxUnlockDialogState extends State<_TxUnlockDialog> {
           // Nothing to press until the box is ticked: the acknowledgement is
           // the point, and a dialog whose confirm button works regardless is
           // a dialog nobody read.
-          onPressed:
-              _acknowledged ? () => Navigator.of(context).pop(true) : null,
+          onPressed: _acknowledged
+              ? () => Navigator.of(context).pop(true)
+              : null,
           child: const Text('Enable'),
         ),
       ],

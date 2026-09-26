@@ -33,8 +33,8 @@ class FakeRepeaterSource implements RepeaterSource {
     Map<String, List<RepeaterListing>>? byState,
     this.failure,
     this.configured = true,
-  })  : displayName = displayName ?? id,
-        byState = byState ?? {};
+  }) : displayName = displayName ?? id,
+       byState = byState ?? {};
 
   @override
   Future<bool> isConfigured() async => configured;

@@ -349,11 +349,13 @@ void main() {
       _prefs = await SharedPreferences.getInstance();
     }
 
-    const oneRadio = '[{"transport":"ble","id":"AA:BB","name":"Base radio",'
+    const oneRadio =
+        '[{"transport":"ble","id":"AA:BB","name":"Base radio",'
         '"lastSeen":"2026-09-01T12:00:00.000","radioProfileId":"uv-5r-mini"}]';
 
-    testWidgets('a saved radio is listed with its model and its link',
-        (tester) async {
+    testWidgets('a saved radio is listed with its model and its link', (
+      tester,
+    ) async {
       await seedRadios(oneRadio);
       await tester.pumpWidget(_wrap());
       await tester.pumpAndSettle();
@@ -365,8 +367,9 @@ void main() {
       expect(find.text('No saved devices yet'), findsNothing);
     });
 
-    testWidgets('opening one goes to the radio screen, on its model',
-        (tester) async {
+    testWidgets('opening one goes to the radio screen, on its model', (
+      tester,
+    ) async {
       await seedRadios(oneRadio);
       await tester.pumpWidget(_wrap());
       await tester.pumpAndSettle();
@@ -374,8 +377,9 @@ void main() {
       await tester.tap(find.text('Base radio'));
       await tester.pumpAndSettle();
 
-      final screen =
-          tester.widget<RadioDeviceScreen>(find.byType(RadioDeviceScreen));
+      final screen = tester.widget<RadioDeviceScreen>(
+        find.byType(RadioDeviceScreen),
+      );
       expect(screen.target.id, 'AA:BB');
       expect(screen.initialProfile?.id, 'uv-5r-mini');
     });

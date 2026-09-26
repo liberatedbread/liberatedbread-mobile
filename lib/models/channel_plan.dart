@@ -50,26 +50,25 @@ class ChannelPlan {
     List<RadioChannel>? channels,
     bool? builtWithTxUnlock,
     DateTime? modifiedAt,
-  }) =>
-      ChannelPlan(
-        id: id,
-        name: name ?? this.name,
-        radioProfileId: radioProfileId ?? this.radioProfileId,
-        channels: channels ?? this.channels,
-        builtWithTxUnlock: builtWithTxUnlock ?? this.builtWithTxUnlock,
-        createdAt: createdAt,
-        modifiedAt: modifiedAt ?? this.modifiedAt,
-      );
+  }) => ChannelPlan(
+    id: id,
+    name: name ?? this.name,
+    radioProfileId: radioProfileId ?? this.radioProfileId,
+    channels: channels ?? this.channels,
+    builtWithTxUnlock: builtWithTxUnlock ?? this.builtWithTxUnlock,
+    createdAt: createdAt,
+    modifiedAt: modifiedAt ?? this.modifiedAt,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'radioProfileId': radioProfileId,
-        'channels': [for (final channel in channels) channel.toJson()],
-        if (builtWithTxUnlock) 'builtWithTxUnlock': true,
-        'createdAt': createdAt.toIso8601String(),
-        'modifiedAt': modifiedAt.toIso8601String(),
-      };
+    'id': id,
+    'name': name,
+    'radioProfileId': radioProfileId,
+    'channels': [for (final channel in channels) channel.toJson()],
+    if (builtWithTxUnlock) 'builtWithTxUnlock': true,
+    'createdAt': createdAt.toIso8601String(),
+    'modifiedAt': modifiedAt.toIso8601String(),
+  };
 
   /// Returns null for a plan that cannot be read. Individual channels degrade
   /// on their own: an unreadable channel is skipped and the rest of the plan

@@ -15,21 +15,21 @@ ChannelPlan _plan(
   String name = 'Plan',
   List<RadioChannel> channels = const [],
   DateTime? modifiedAt,
-}) =>
-    ChannelPlan(
-      id: id,
-      name: name,
-      radioProfileId: 'uv-5r-mini',
-      channels: channels,
-      createdAt: DateTime.utc(2026, 8),
-      modifiedAt: modifiedAt ?? DateTime.utc(2026, 8),
-    );
+}) => ChannelPlan(
+  id: id,
+  name: name,
+  radioProfileId: 'uv-5r-mini',
+  channels: channels,
+  createdAt: DateTime.utc(2026, 8),
+  modifiedAt: modifiedAt ?? DateTime.utc(2026, 8),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<ChannelPlanStore> store(
-      [Map<String, Object> initial = const {}]) async {
+  Future<ChannelPlanStore> store([
+    Map<String, Object> initial = const {},
+  ]) async {
     SharedPreferences.setMockInitialValues(initial);
     return ChannelPlanStore(await SharedPreferences.getInstance());
   }
@@ -96,8 +96,9 @@ void main() {
         _plan('also-good').toJson(),
       ]),
     });
-    expect(
-        [for (final p in s.load()) p.id], containsAll(['good', 'also-good']));
+    expect([
+      for (final p in s.load()) p.id,
+    ], containsAll(['good', 'also-good']));
     expect(s.load(), hasLength(2));
   });
 
@@ -109,13 +110,19 @@ void main() {
 
   test('survives a round trip through the stored JSON', () async {
     final s = await store();
-    await s.save(_plan('a', channels: const [
-      RadioChannel(name: 'A', rxFreqHz: 146940000, txFreqHz: 146340000),
-      RadioChannel.receiveOnly(name: 'WX1', freqHz: 162550000),
-    ]));
+    await s.save(
+      _plan(
+        'a',
+        channels: const [
+          RadioChannel(name: 'A', rxFreqHz: 146940000, txFreqHz: 146340000),
+          RadioChannel.receiveOnly(name: 'WX1', freqHz: 162550000),
+        ],
+      ),
+    );
 
-    final reloaded =
-        ChannelPlanStore(await SharedPreferences.getInstance()).load();
+    final reloaded = ChannelPlanStore(
+      await SharedPreferences.getInstance(),
+    ).load();
     expect(reloaded.single.channels, hasLength(2));
     expect(reloaded.single.channels.last.rxOnly, isTrue);
   });

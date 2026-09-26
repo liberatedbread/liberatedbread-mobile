@@ -36,12 +36,12 @@ class SavedRadio {
       RadioTarget(transport: transport, id: id, name: name);
 
   Map<String, dynamic> toJson() => {
-        'transport': transport.wireName,
-        'id': id,
-        'name': name,
-        'lastSeen': lastSeen.toIso8601String(),
-        if (radioProfileId != null) 'radioProfileId': radioProfileId,
-      };
+    'transport': transport.wireName,
+    'id': id,
+    'name': name,
+    'lastSeen': lastSeen.toIso8601String(),
+    if (radioProfileId != null) 'radioProfileId': radioProfileId,
+  };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
   /// take the whole list down with it.
@@ -60,8 +60,9 @@ class SavedRadio {
       id: id,
       name: name,
       lastSeen: parsed ?? DateTime.fromMillisecondsSinceEpoch(0),
-      radioProfileId:
-          profileId is String && profileId.isNotEmpty ? profileId : null,
+      radioProfileId: profileId is String && profileId.isNotEmpty
+          ? profileId
+          : null,
     );
   }
 

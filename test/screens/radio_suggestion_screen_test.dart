@@ -28,11 +28,11 @@ import '../fakes/in_memory_settings_store.dart';
 const _hartford = GeoPoint(41.7658, -72.6734);
 
 RepeaterListing _repeater(String name, int rxHz, int txHz) => RepeaterListing(
-      channel: RadioChannel(name: name, rxFreqHz: rxHz, txFreqHz: txHz),
-      category: SuggestionCategory.repeater,
-      location: _hartford,
-      callsign: name,
-    );
+  channel: RadioChannel(name: name, rxFreqHz: rxHz, txFreqHz: txHz),
+  category: SuggestionCategory.repeater,
+  location: _hartford,
+  callsign: name,
+);
 
 /// Bundled state extents without touching the asset bundle.
 ///
@@ -43,28 +43,20 @@ RepeaterListing _repeater(String name, int rxHz, int txHz) => RepeaterListing(
 class _FakeBundledData extends RadioBundledData {
   @override
   Future<List<StateBounds>> stateBounds() async => const [
-        StateBounds(
-          code: 'CT',
-          fips: '09',
-          name: 'Connecticut',
-          boxes: [
-            (
-              minLat: 40.98,
-              minLon: -73.73,
-              maxLat: 42.05,
-              maxLon: -71.79,
-            )
-          ],
-        ),
-      ];
+    StateBounds(
+      code: 'CT',
+      fips: '09',
+      name: 'Connecticut',
+      boxes: [(minLat: 40.98, minLon: -73.73, maxLat: 42.05, maxLon: -71.79)],
+    ),
+  ];
 }
 
 /// A cache with nowhere to write, so every read misses and every write is a
 /// no-op. [RadioSourceCache] already degrades that way by design.
 RadioSourceCache _noCache() => RadioSourceCache(
-      cacheDirResolver: () async =>
-          throw StateError('no cache in widget tests'),
-    );
+  cacheDirResolver: () async => throw StateError('no cache in widget tests'),
+);
 
 void _useTallWindow(WidgetTester tester) {
   tester.view.physicalSize = const Size(1200, 4000);
@@ -85,27 +77,30 @@ Future<SharedPreferences> _pump(
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
 
-  await tester.pumpWidget(ProviderScope(
-    overrides: [
-      sharedPreferencesProvider.overrideWithValue(prefs),
-      prefsSettingsStoreProvider
-          .overrideWith((ref) async => InMemorySettingsStore()),
-      settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
-      locationServiceProvider.overrideWithValue(location),
-      radioBundledDataProvider.overrideWithValue(_FakeBundledData()),
-      // The screen builds its enabled-source set by walking this list, so the
-      // fakes have to be in it or the engine is handed ids it never sees.
-      repeaterSourcesProvider.overrideWithValue(sources),
-      channelSuggestionServiceProvider.overrideWithValue(
-        ChannelSuggestionService(
-          sources: sources,
-          cache: _noCache(),
-          bundled: _FakeBundledData(),
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        prefsSettingsStoreProvider.overrideWith(
+          (ref) async => InMemorySettingsStore(),
         ),
-      ),
-    ],
-    child: MaterialApp(home: RadioSuggestionScreen(profile: profile)),
-  ));
+        settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+        locationServiceProvider.overrideWithValue(location),
+        radioBundledDataProvider.overrideWithValue(_FakeBundledData()),
+        // The screen builds its enabled-source set by walking this list, so the
+        // fakes have to be in it or the engine is handed ids it never sees.
+        repeaterSourcesProvider.overrideWithValue(sources),
+        channelSuggestionServiceProvider.overrideWithValue(
+          ChannelSuggestionService(
+            sources: sources,
+            cache: _noCache(),
+            bundled: _FakeBundledData(),
+          ),
+        ),
+      ],
+      child: MaterialApp(home: RadioSuggestionScreen(profile: profile)),
+    ),
+  );
   await tester.pumpAndSettle();
   return prefs;
 }
@@ -125,8 +120,9 @@ void main() {
     expect(find.text('Find channels'), findsNothing);
   });
 
-  testWidgets('a GPS fix names the place and enables the search',
-      (tester) async {
+  testWidgets('a GPS fix names the place and enables the search', (
+    tester,
+  ) async {
     await _pump(tester, location: FakeLocationService(position: _hartford));
 
     await tester.tap(find.text('Use my location'));
@@ -136,8 +132,9 @@ void main() {
     expect(find.text('Find channels'), findsOneWidget);
   });
 
-  testWidgets('a refusal explains itself and still offers manual entry',
-      (tester) async {
+  testWidgets('a refusal explains itself and still offers manual entry', (
+    tester,
+  ) async {
     await _pump(tester, location: FakeLocationService.denied());
 
     await tester.tap(find.text('Use my location'));
@@ -148,8 +145,9 @@ void main() {
     expect(find.text('Enter by hand'), findsOneWidget);
   });
 
-  testWidgets('a platform with no backend is not an error the user caused',
-      (tester) async {
+  testWidgets('a platform with no backend is not an error the user caused', (
+    tester,
+  ) async {
     // Which is every Linux desktop run.
     await _pump(tester, location: FakeLocationService.unavailable());
 
@@ -166,7 +164,9 @@ void main() {
       await tester.tap(find.text('Enter by hand'));
       await tester.pumpAndSettle();
       await tester.enterText(
-          find.widgetWithText(TextField, 'Grid square'), 'FN31pr');
+        find.widgetWithText(TextField, 'Grid square'),
+        'FN31pr',
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Use this'));
       await tester.pumpAndSettle();
 
@@ -179,9 +179,13 @@ void main() {
       await tester.tap(find.text('Enter by hand'));
       await tester.pumpAndSettle();
       await tester.enterText(
-          find.widgetWithText(TextField, 'Latitude'), '41.7658');
+        find.widgetWithText(TextField, 'Latitude'),
+        '41.7658',
+      );
       await tester.enterText(
-          find.widgetWithText(TextField, 'Longitude'), '-72.6734');
+        find.widgetWithText(TextField, 'Longitude'),
+        '-72.6734',
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Use this'));
       await tester.pumpAndSettle();
 
@@ -194,7 +198,9 @@ void main() {
       await tester.tap(find.text('Enter by hand'));
       await tester.pumpAndSettle();
       await tester.enterText(
-          find.widgetWithText(TextField, 'Grid square'), 'ZZ99zz');
+        find.widgetWithText(TextField, 'Grid square'),
+        'ZZ99zz',
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Use this'));
       await tester.pumpAndSettle();
 
@@ -214,8 +220,9 @@ void main() {
       expect(find.textContaining('Latitude runs'), findsOneWidget);
     });
 
-    testWidgets('says what it needs when nothing usable was typed',
-        (tester) async {
+    testWidgets('says what it needs when nothing usable was typed', (
+      tester,
+    ) async {
       await _pump(tester, location: FakeLocationService());
 
       await tester.tap(find.text('Enter by hand'));
@@ -235,14 +242,20 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('groups them, and always includes the offline tier',
-        (tester) async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [_repeater('W1AW', 146940000, 146340000)],
-      });
-      await _pump(tester,
-          location: FakeLocationService(position: _hartford),
-          sources: [source]);
+    testWidgets('groups them, and always includes the offline tier', (
+      tester,
+    ) async {
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [_repeater('W1AW', 146940000, 146340000)],
+        },
+      );
+      await _pump(
+        tester,
+        location: FakeLocationService(position: _hartford),
+        sources: [source],
+      );
       await search(tester);
 
       expect(find.textContaining('Repeaters (1)'), findsOneWidget);
@@ -251,13 +264,18 @@ void main() {
       expect(find.text('W1AW'), findsOneWidget);
     });
 
-    testWidgets('a source that needs setting up offers the way there',
-        (tester) async {
-      final unconfigured =
-          FakeRepeaterSource(id: 'repeaterbook', configured: false);
-      await _pump(tester,
-          location: FakeLocationService(position: _hartford),
-          sources: [unconfigured]);
+    testWidgets('a source that needs setting up offers the way there', (
+      tester,
+    ) async {
+      final unconfigured = FakeRepeaterSource(
+        id: 'repeaterbook',
+        configured: false,
+      );
+      await _pump(
+        tester,
+        location: FakeLocationService(position: _hartford),
+        sources: [unconfigured],
+      );
       await search(tester);
 
       expect(find.text('Set up'), findsOneWidget);
@@ -266,12 +284,17 @@ void main() {
     });
 
     testWidgets('selecting channels reveals the add bar', (tester) async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [_repeater('W1AW', 146940000, 146340000)],
-      });
-      await _pump(tester,
-          location: FakeLocationService(position: _hartford),
-          sources: [source]);
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [_repeater('W1AW', 146940000, 146340000)],
+        },
+      );
+      await _pump(
+        tester,
+        location: FakeLocationService(position: _hartford),
+        sources: [source],
+      );
       await search(tester);
 
       expect(find.textContaining('Add '), findsNothing);
@@ -281,15 +304,20 @@ void main() {
     });
 
     testWidgets('select-all ticks a whole group', (tester) async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [
-          _repeater('W1AW', 146940000, 146340000),
-          _repeater('W1XYZ', 147000000, 146400000),
-        ],
-      });
-      await _pump(tester,
-          location: FakeLocationService(position: _hartford),
-          sources: [source]);
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [
+            _repeater('W1AW', 146940000, 146340000),
+            _repeater('W1XYZ', 147000000, 146400000),
+          ],
+        },
+      );
+      await _pump(
+        tester,
+        location: FakeLocationService(position: _hartford),
+        sources: [source],
+      );
       await search(tester);
 
       await tester.tap(find.widgetWithText(TextButton, 'All').first);
@@ -301,14 +329,20 @@ void main() {
       expect(find.textContaining('Add '), findsNothing);
     });
 
-    testWidgets('adding creates a first plan and reports what landed',
-        (tester) async {
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [_repeater('W1AW', 146940000, 146340000)],
-      });
-      await _pump(tester,
-          location: FakeLocationService(position: _hartford),
-          sources: [source]);
+    testWidgets('adding creates a first plan and reports what landed', (
+      tester,
+    ) async {
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [_repeater('W1AW', 146940000, 146340000)],
+        },
+      );
+      await _pump(
+        tester,
+        location: FakeLocationService(position: _hartford),
+        sources: [source],
+      );
       await search(tester);
 
       await tester.tap(find.text('W1AW'));
@@ -319,15 +353,21 @@ void main() {
       expect(find.textContaining('Added 1'), findsOneWidget);
     });
 
-    testWidgets('a listen-only suggestion is badged before it is picked',
-        (tester) async {
+    testWidgets('a listen-only suggestion is badged before it is picked', (
+      tester,
+    ) async {
       // 155 MHz: inside the UV-5R's receive range, outside its transmit one.
-      final source = FakeRepeaterSource(id: 'test', byState: {
-        'CT': [_repeater('PUBLIC', 155000000, 155000000)],
-      });
-      await _pump(tester,
-          location: FakeLocationService(position: _hartford),
-          sources: [source]);
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [_repeater('PUBLIC', 155000000, 155000000)],
+        },
+      );
+      await _pump(
+        tester,
+        location: FakeLocationService(position: _hartford),
+        sources: [source],
+      );
       await search(tester);
 
       expect(find.text('Listen only'), findsWidgets);

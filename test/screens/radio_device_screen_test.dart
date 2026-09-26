@@ -44,8 +44,9 @@ class _FakeDecoder implements CodeplugDecoder {
 
   @override
   Future<DecodedChannels> decode(
-          RadioCodeplug codeplug, RadioProfile profile) async =>
-      result;
+    RadioCodeplug codeplug,
+    RadioProfile profile,
+  ) async => result;
 }
 
 class _Harness {
@@ -75,43 +76,50 @@ Future<_Harness> _pump(
 
   final prog = programmer ?? FakeRadioProgrammer();
   final store = backups ?? FakeCodeplugBackupStore();
-  final screen =
-      RadioDeviceScreen(target: target, initialProfile: initialProfile);
-  await tester.pumpWidget(ProviderScope(
-    overrides: [
-      sharedPreferencesProvider.overrideWithValue(_prefs),
-      prefsSettingsStoreProvider
-          .overrideWith((ref) async => settings ?? InMemorySettingsStore()),
-      // One fake behind both transports: which one a target reaches is the
-      // provider's business, tested with it.
-      radioProgrammerProvider.overrideWithValue(prog),
-      serialRadioProgrammerProvider.overrideWithValue(prog),
-      codeplugBackupStoreProvider.overrideWithValue(store),
-      codeplugDecoderProvider.overrideWithValue(_FakeDecoder(decoded)),
-    ],
-    child: MaterialApp(
-      home: behindLauncher
-          ? Builder(
-              builder: (context) => Scaffold(
-                body: Center(
-                  child: TextButton(
-                    onPressed: () => Navigator.of(context)
-                        .push(MaterialPageRoute<void>(builder: (_) => screen)),
-                    child: const Text('open'),
+  final screen = RadioDeviceScreen(
+    target: target,
+    initialProfile: initialProfile,
+  );
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        prefsSettingsStoreProvider.overrideWith(
+          (ref) async => settings ?? InMemorySettingsStore(),
+        ),
+        // One fake behind both transports: which one a target reaches is the
+        // provider's business, tested with it.
+        radioProgrammerProvider.overrideWithValue(prog),
+        serialRadioProgrammerProvider.overrideWithValue(prog),
+        codeplugBackupStoreProvider.overrideWithValue(store),
+        codeplugDecoderProvider.overrideWithValue(_FakeDecoder(decoded)),
+      ],
+      child: MaterialApp(
+        home: behindLauncher
+            ? Builder(
+                builder: (context) => Scaffold(
+                  body: Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(
+                        context,
+                      ).push(MaterialPageRoute<void>(builder: (_) => screen)),
+                      child: const Text('open'),
+                    ),
                   ),
                 ),
-              ),
-            )
-          : screen,
+              )
+            : screen,
+      ),
     ),
-  ));
+  );
   await tester.pumpAndSettle();
   if (behindLauncher) {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
   }
-  final container =
-      ProviderScope.containerOf(tester.element(find.byType(RadioDeviceScreen)));
+  final container = ProviderScope.containerOf(
+    tester.element(find.byType(RadioDeviceScreen)),
+  );
   return _Harness(prog, store, container);
 }
 
@@ -122,8 +130,9 @@ void main() {
   });
 
   group('what it shows', () {
-    testWidgets('which radio, over what, and the model it opens on',
-        (tester) async {
+    testWidgets('which radio, over what, and the model it opens on', (
+      tester,
+    ) async {
       await _pump(tester, initialProfile: uv5gMiniProfile);
 
       expect(find.text('Base radio'), findsWidgets);
@@ -134,8 +143,9 @@ void main() {
       expect(find.textContaining('It cannot be asked'), findsOneWidget);
     });
 
-    testWidgets('a suggested model this link cannot program is passed over',
-        (tester) async {
+    testWidgets('a suggested model this link cannot program is passed over', (
+      tester,
+    ) async {
       // The UV-5R is a cable radio; over Bluetooth the screen falls back to
       // the Radio tab's radio, which by default is the UV-5R Mini.
       await _pump(tester, initialProfile: uv5rProfile);
@@ -148,13 +158,15 @@ void main() {
       expect(find.text('Not yet confirmed on this model'), findsOneWidget);
     });
 
-    testWidgets(
-        'a cable radio opens on a cable model, and says what the check '
+    testWidgets('a cable radio opens on a cable model, and says what the check '
         'will show', (tester) async {
       await _pump(
         tester,
         target: const RadioTarget(
-            transport: RadioTransport.usb, id: '/dev/ttyUSB0', name: ''),
+          transport: RadioTransport.usb,
+          id: '/dev/ttyUSB0',
+          name: '',
+        ),
       );
       // The Radio tab's Bluetooth radio is passed over for one a cable
       // programs.
@@ -163,8 +175,9 @@ void main() {
       expect(find.text('Check it answers'), findsOneWidget);
     });
 
-    testWidgets('offers to make this the Radio tab\'s radio when it is not',
-        (tester) async {
+    testWidgets('offers to make this the Radio tab\'s radio when it is not', (
+      tester,
+    ) async {
       final harness = await _pump(tester, initialProfile: uv5gMiniProfile);
 
       await tester.tap(find.text('Use for suggestions and new plans'));
@@ -175,8 +188,9 @@ void main() {
       expect(find.text('Use for suggestions and new plans'), findsNothing);
     });
 
-    testWidgets('picking another model changes what the actions use',
-        (tester) async {
+    testWidgets('picking another model changes what the actions use', (
+      tester,
+    ) async {
       await _pump(tester);
       await tester.tap(find.text('Radio model'));
       await tester.pumpAndSettle();
@@ -192,8 +206,9 @@ void main() {
   });
 
   group('check it answers', () {
-    testWidgets('asks, reports no more than it learned, and saves the radio',
-        (tester) async {
+    testWidgets('asks, reports no more than it learned, and saves the radio', (
+      tester,
+    ) async {
       final harness = await _pump(tester);
 
       await tester.tap(find.text('Check it answers'));
@@ -201,8 +216,10 @@ void main() {
 
       expect(harness.programmer.identifyCalls, 1);
       expect(harness.programmer.deviceIds, [_ble.id]);
-      expect(find.textContaining('confirms the family rather than'),
-          findsOneWidget);
+      expect(
+        find.textContaining('confirms the family rather than'),
+        findsOneWidget,
+      );
       final saved = harness.container.read(savedRadiosProvider).single;
       expect(saved.target, _ble);
       expect(saved.radioProfileId, uv5rMiniProfile.id);
@@ -223,10 +240,13 @@ void main() {
       expect(harness.container.read(savedRadiosProvider), isEmpty);
     });
 
-    testWidgets('a programmer that cannot drive the model is not asked',
-        (tester) async {
-      final harness = await _pump(tester,
-          programmer: FakeRadioProgrammer(supported: false));
+    testWidgets('a programmer that cannot drive the model is not asked', (
+      tester,
+    ) async {
+      final harness = await _pump(
+        tester,
+        programmer: FakeRadioProgrammer(supported: false),
+      );
 
       await tester.tap(find.text('Check it answers'));
       await tester.pumpAndSettle();
@@ -242,8 +262,9 @@ void main() {
       RadioChannel(name: 'TWO', rxFreqHz: 446000000, txFreqHz: 446000000),
     ];
 
-    testWidgets('keeps the read as a backup and makes the plan',
-        (tester) async {
+    testWidgets('keeps the read as a backup and makes the plan', (
+      tester,
+    ) async {
       final harness = await _pump(
         tester,
         decoded: const DecodedChannels(channels: channels, hadGaps: false),
@@ -262,8 +283,9 @@ void main() {
       expect(find.textContaining('closed up'), findsNothing);
     });
 
-    testWidgets('says so when the radio had gaps a plan cannot keep',
-        (tester) async {
+    testWidgets('says so when the radio had gaps a plan cannot keep', (
+      tester,
+    ) async {
       await _pump(
         tester,
         decoded: const DecodedChannels(channels: channels, hadGaps: true),
@@ -278,13 +300,14 @@ void main() {
 
   group('restoring', () {
     RadioCodeplug backup(int fill, DateTime at) => RadioCodeplug(
-          modelId: uv5rMiniProfile.id,
-          image: Uint8List(0x8240)..fillRange(0, 16, fill),
-          readAt: at,
-        );
+      modelId: uv5rMiniProfile.id,
+      image: Uint8List(0x8240)..fillRange(0, 16, fill),
+      readAt: at,
+    );
 
-    testWidgets('reads and saves the radio first, then puts the copy back',
-        (tester) async {
+    testWidgets('reads and saves the radio first, then puts the copy back', (
+      tester,
+    ) async {
       final chosen = backup(0xAB, DateTime(2026, 9, 1, 9, 30));
       final harness = await _pump(
         tester,
@@ -300,10 +323,16 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
       await tester.pumpAndSettle();
 
-      expect(harness.programmer.readCalls, 1,
-          reason: 'what is on the radio now is read before it is replaced');
-      expect(harness.backups.saved, hasLength(1),
-          reason: '...and saved, so the restore can itself be undone');
+      expect(
+        harness.programmer.readCalls,
+        1,
+        reason: 'what is on the radio now is read before it is replaced',
+      );
+      expect(
+        harness.backups.saved,
+        hasLength(1),
+        reason: '...and saved, so the restore can itself be undone',
+      );
       expect(harness.programmer.restored.single.image, chosen.image);
       expect(find.textContaining('restored'), findsOneWidget);
     });
@@ -326,8 +355,11 @@ void main() {
 
       await tester.tap(find.text('Restore a backup'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('2026-09-01 00:00'), 80,
-          scrollable: find.byType(Scrollable).last);
+      await tester.scrollUntilVisible(
+        find.text('2026-09-01 00:00'),
+        80,
+        scrollable: find.byType(Scrollable).last,
+      );
       await tester.tap(find.text('2026-09-01 00:00'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
@@ -341,7 +373,8 @@ void main() {
       final harness = await _pump(
         tester,
         backups: FakeCodeplugBackupStore(
-            existing: [backup(1, DateTime(2026, 9, 1, 9, 30))]),
+          existing: [backup(1, DateTime(2026, 9, 1, 9, 30))],
+        ),
       );
 
       await tester.tap(find.text('Restore a backup'));
@@ -358,20 +391,24 @@ void main() {
     testWidgets('only offers backups of this model', (tester) async {
       await _pump(
         tester,
-        backups: FakeCodeplugBackupStore(existing: [
-          RadioCodeplug(
-            modelId: uv32Profile.id,
-            image: Uint8List(8),
-            readAt: DateTime(2026, 9, 1),
-          ),
-        ]),
+        backups: FakeCodeplugBackupStore(
+          existing: [
+            RadioCodeplug(
+              modelId: uv32Profile.id,
+              image: Uint8List(8),
+              readAt: DateTime(2026, 9, 1),
+            ),
+          ],
+        ),
       );
 
       await tester.tap(find.text('Restore a backup'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('No backups of a Baofeng UV-5R Mini'),
-          findsOneWidget);
+      expect(
+        find.textContaining('No backups of a Baofeng UV-5R Mini'),
+        findsOneWidget,
+      );
     });
   });
 
@@ -383,13 +420,13 @@ void main() {
       expect(find.textContaining('No channel plans yet'), findsOneWidget);
     });
 
-    testWidgets('hands the chosen plan and this radio to the program screen',
-        (tester) async {
+    testWidgets('hands the chosen plan and this radio to the program screen', (
+      tester,
+    ) async {
       final harness = await _pump(tester);
-      await harness.container.read(channelPlansProvider.notifier).create(
-            name: 'Local repeaters',
-            radioProfileId: uv5rMiniProfile.id,
-          );
+      await harness.container
+          .read(channelPlansProvider.notifier)
+          .create(name: 'Local repeaters', radioProfileId: uv5rMiniProfile.id);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Write a channel plan'));
@@ -397,8 +434,9 @@ void main() {
       await tester.tap(find.text('Local repeaters'));
       await tester.pumpAndSettle();
 
-      final program =
-          tester.widget<RadioProgramScreen>(find.byType(RadioProgramScreen));
+      final program = tester.widget<RadioProgramScreen>(
+        find.byType(RadioProgramScreen),
+      );
       expect(program.target, _ble);
       expect(program.plan.name, 'Local repeaters');
       expect(program.profile, uv5rMiniProfile);
@@ -438,7 +476,9 @@ void main() {
     hold.complete();
     await tester.pumpAndSettle();
     expect(
-        find.textContaining('confirms the family rather than'), findsOneWidget);
+      find.textContaining('confirms the family rather than'),
+      findsOneWidget,
+    );
   });
 
   group('transmit limits', () {
@@ -470,25 +510,35 @@ void main() {
         });
 
     testWidgets(
-        'a cable radio that stores them offers to widen them, and says it '
-        'is unconfirmed', (tester) async {
-      await _pump(tester, target: cable);
-      expect(find.text('Widen its transmit limits'), findsOneWidget);
-      expect(find.textContaining('To VHF 130–179 MHz and UHF 400–520 MHz'),
-          findsOneWidget);
-      expect(find.textContaining('Not yet confirmed on a real radio'),
-          findsOneWidget);
-      expect(find.text('Put back its original transmit limits'), findsNothing,
-          reason: 'nothing has been kept to put back');
-    });
+      'a cable radio that stores them offers to widen them, and says it '
+      'is unconfirmed',
+      (tester) async {
+        await _pump(tester, target: cable);
+        expect(find.text('Widen its transmit limits'), findsOneWidget);
+        expect(
+          find.textContaining('To VHF 130–179 MHz and UHF 400–520 MHz'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('Not yet confirmed on a real radio'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Put back its original transmit limits'),
+          findsNothing,
+          reason: 'nothing has been kept to put back',
+        );
+      },
+    );
 
     testWidgets('a radio with none to set offers nothing', (tester) async {
       await _pump(tester);
       expect(find.text('Widen its transmit limits'), findsNothing);
     });
 
-    testWidgets('widening asks first, and a cancel touches nothing',
-        (tester) async {
+    testWidgets('widening asks first, and a cancel touches nothing', (
+      tester,
+    ) async {
       final harness = await _pump(tester, target: cable);
       await tester.tap(find.text('Widen its transmit limits'));
       await tester.pumpAndSettle();
@@ -500,97 +550,128 @@ void main() {
     });
 
     testWidgets(
-        'widening backs the radio up, keeps what it had, writes, and turns '
-        'the wider suggestions on', (tester) async {
-      final harness = await _pump(tester, target: cable);
-      await tester.tap(find.text('Widen its transmit limits'));
-      await tester.pumpAndSettle();
-      await acknowledge(tester);
+      'widening backs the radio up, keeps what it had, writes, and turns '
+      'the wider suggestions on',
+      (tester) async {
+        final harness = await _pump(tester, target: cable);
+        await tester.tap(find.text('Widen its transmit limits'));
+        await tester.pumpAndSettle();
+        await acknowledge(tester);
 
-      expect(harness.backups.saved, hasLength(1));
-      expect(harness.programmer.writtenLimits, [widened]);
-      expect(harness.programmer.deviceIds.toSet(), {cable.id});
-      expect(find.textContaining('Widened to VHF 130–179 MHz'), findsOneWidget);
-      expect(find.textContaining('It had VHF 136–174 MHz'), findsOneWidget);
+        expect(harness.backups.saved, hasLength(1));
+        expect(harness.programmer.writtenLimits, [widened]);
+        expect(harness.programmer.deviceIds.toSet(), {cable.id});
+        expect(
+          find.textContaining('Widened to VHF 130–179 MHz'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('It had VHF 136–174 MHz'), findsOneWidget);
 
-      final kept = await harness.container
-          .read(originalBandLimitsProvider.future)
-          .then((all) => all[uv5rProfile.id]);
-      expect(kept!.limits, stockBandLimits);
-      final unlocks = await harness.container.read(txUnlockProvider.future);
-      expect(unlocks[uv5rProfile.id], isTrue);
-      // And the way back is on offer.
-      expect(
-          find.text('Put back its original transmit limits'), findsOneWidget);
-    });
+        final kept = await harness.container
+            .read(originalBandLimitsProvider.future)
+            .then((all) => all[uv5rProfile.id]);
+        expect(kept!.limits, stockBandLimits);
+        final unlocks = await harness.container.read(txUnlockProvider.future);
+        expect(unlocks[uv5rProfile.id], isTrue);
+        // And the way back is on offer.
+        expect(
+          find.text('Put back its original transmit limits'),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('a radio already that wide is left as it is', (tester) async {
       final programmer = FakeRadioProgrammer()..bandLimits = widened;
-      final harness =
-          await _pump(tester, target: cable, programmer: programmer);
+      final harness = await _pump(
+        tester,
+        target: cable,
+        programmer: programmer,
+      );
       await tester.tap(find.text('Widen its transmit limits'));
       await tester.pumpAndSettle();
       await acknowledge(tester);
 
       expect(programmer.writtenLimits, isEmpty);
       expect(find.textContaining('already VHF 130–179 MHz'), findsOneWidget);
-      expect(await harness.container.read(originalBandLimitsProvider.future),
-          isEmpty,
-          reason: 'widened limits are not the ones to go back to');
+      expect(
+        await harness.container.read(originalBandLimitsProvider.future),
+        isEmpty,
+        reason: 'widened limits are not the ones to go back to',
+      );
     });
 
     testWidgets(
-        'a write that fails says so, and still keeps what the radio had',
-        (tester) async {
-      final programmer = FakeRadioProgrammer()
-        ..limitWriteError = const RadioProtocolException(
+      'a write that fails says so, and still keeps what the radio had',
+      (tester) async {
+        final programmer = FakeRadioProgrammer()
+          ..limitWriteError = const RadioProtocolException(
             'The radio does not hold what was written at 0x1fc0. Restore '
-            'your backup before using it.');
-      final harness =
-          await _pump(tester, target: cable, programmer: programmer);
-      await tester.tap(find.text('Widen its transmit limits'));
-      await tester.pumpAndSettle();
-      await acknowledge(tester);
-
-      expect(find.textContaining('Restore your backup'), findsWidgets);
-      expect(harness.backups.saved, hasLength(1));
-      final kept = await harness.container
-          .read(originalBandLimitsProvider.future)
-          .then((all) => all[uv5rProfile.id]);
-      expect(kept!.limits, stockBandLimits);
-      final unlocks = await harness.container.read(txUnlockProvider.future);
-      expect(unlocks[uv5rProfile.id], isNot(isTrue),
-          reason: 'suggestions stay narrow until the radio is widened');
-    });
-
-    testWidgets(
-        'putting them back asks, backs up, writes what was kept, and turns '
-        'the wider suggestions off', (tester) async {
-      final programmer = FakeRadioProgrammer()..bandLimits = widened;
-      final harness = await _pump(tester,
+            'your backup before using it.',
+          );
+        final harness = await _pump(
+          tester,
           target: cable,
           programmer: programmer,
-          settings: kept(stockBandLimits));
-      expect(find.textContaining('VHF 136–174 MHz and UHF 400–520 MHz: what'),
-          findsOneWidget);
+        );
+        await tester.tap(find.text('Widen its transmit limits'));
+        await tester.pumpAndSettle();
+        await acknowledge(tester);
 
-      await tester.tap(find.text('Put back its original transmit limits'));
-      await tester.pumpAndSettle();
-      expect(find.text('Put back its transmit limits?'), findsOneWidget);
-      await tester.tap(find.widgetWithText(FilledButton, 'Put back'));
-      await tester.pumpAndSettle();
+        expect(find.textContaining('Restore your backup'), findsWidgets);
+        expect(harness.backups.saved, hasLength(1));
+        final kept = await harness.container
+            .read(originalBandLimitsProvider.future)
+            .then((all) => all[uv5rProfile.id]);
+        expect(kept!.limits, stockBandLimits);
+        final unlocks = await harness.container.read(txUnlockProvider.future);
+        expect(
+          unlocks[uv5rProfile.id],
+          isNot(isTrue),
+          reason: 'suggestions stay narrow until the radio is widened',
+        );
+      },
+    );
 
-      expect(harness.backups.saved, hasLength(1));
-      expect(programmer.writtenLimits, [stockBandLimits]);
-      expect(
-          find.textContaining('Put back to VHF 136–174 MHz'), findsOneWidget);
-      final unlocks = await harness.container.read(txUnlockProvider.future);
-      expect(unlocks[uv5rProfile.id], isFalse);
-    });
+    testWidgets(
+      'putting them back asks, backs up, writes what was kept, and turns '
+      'the wider suggestions off',
+      (tester) async {
+        final programmer = FakeRadioProgrammer()..bandLimits = widened;
+        final harness = await _pump(
+          tester,
+          target: cable,
+          programmer: programmer,
+          settings: kept(stockBandLimits),
+        );
+        expect(
+          find.textContaining('VHF 136–174 MHz and UHF 400–520 MHz: what'),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.text('Put back its original transmit limits'));
+        await tester.pumpAndSettle();
+        expect(find.text('Put back its transmit limits?'), findsOneWidget);
+        await tester.tap(find.widgetWithText(FilledButton, 'Put back'));
+        await tester.pumpAndSettle();
+
+        expect(harness.backups.saved, hasLength(1));
+        expect(programmer.writtenLimits, [stockBandLimits]);
+        expect(
+          find.textContaining('Put back to VHF 136–174 MHz'),
+          findsOneWidget,
+        );
+        final unlocks = await harness.container.read(txUnlockProvider.future);
+        expect(unlocks[uv5rProfile.id], isFalse);
+      },
+    );
 
     testWidgets('a cancelled put-back touches nothing', (tester) async {
-      final harness =
-          await _pump(tester, target: cable, settings: kept(stockBandLimits));
+      final harness = await _pump(
+        tester,
+        target: cable,
+        settings: kept(stockBandLimits),
+      );
       await tester.tap(find.text('Put back its original transmit limits'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel'));

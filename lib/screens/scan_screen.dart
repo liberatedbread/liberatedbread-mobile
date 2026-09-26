@@ -526,14 +526,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// A radio opens the radio's own screen rather than the GATT explorer: the
   /// explorer would show one serial characteristic and nothing to do with it.
   Future<void> _openRadio(IoTDevice device, RadioSighting sighting) =>
-      _openWithScanStopped(RadioDeviceScreen(
-        target: RadioTarget(
-          transport: RadioTransport.ble,
-          id: device.id,
-          name: device.name,
+      _openWithScanStopped(
+        RadioDeviceScreen(
+          target: RadioTarget(
+            transport: RadioTransport.ble,
+            id: device.id,
+            name: device.name,
+          ),
+          initialProfile: sighting.nameSuggests,
         ),
-        initialProfile: sighting.nameSuggests,
-      ));
+      );
 
   Future<void> _openWithScanStopped(Widget screen) async {
     // Re-entry guard, and [_onDeviceScreen] is exactly the right flag for it:
@@ -780,12 +782,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       subtitle: stale
           ? 'Not seen for $age'
           : (device.isConnectable
-              ? _signalLabel(device.rssi)
-              : 'Not connectable'),
+                ? _signalLabel(device.rssi)
+                : 'Not connectable'),
       detail: stale ? 'last ${device.rssi} dBm' : '${device.rssi} dBm',
       rssi: device.rssi,
       stale: stale,
-      staleReason: 'No advertisement for $age — the radio may be out of '
+      staleReason:
+          'No advertisement for $age — the radio may be out of '
           'range, switched off, or have its Bluetooth turned off',
       icon: Icons.settings_input_antenna,
       badge: 'Radio',
@@ -847,7 +850,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     final radios = rankScannedDevices(
       [
         for (final device in found)
-          if (sightings.containsKey(device.id)) device
+          if (sightings.containsKey(device.id)) device,
       ],
       (_) => null,
       isStale: (device) => DeviceManager.isStale(device, now),

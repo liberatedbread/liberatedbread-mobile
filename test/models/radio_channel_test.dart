@@ -39,21 +39,31 @@ void main() {
       expect(ToneSetting.fromJson(null), ToneSetting.none);
       expect(ToneSetting.fromJson('100.0'), ToneSetting.none);
       expect(
-          ToneSetting.fromJson(const {'mode': 'telepathy'}), ToneSetting.none);
+        ToneSetting.fromJson(const {'mode': 'telepathy'}),
+        ToneSetting.none,
+      );
       // A CTCSS mode with no usable tone value is no tone, not a tone of zero.
       expect(ToneSetting.fromJson(const {'mode': 'ctcss'}), ToneSetting.none);
-      expect(ToneSetting.fromJson(const {'mode': 'ctcss', 'ctcss': 0}),
-          ToneSetting.none);
-      expect(ToneSetting.fromJson(const {'mode': 'dcs', 'dcs': -1}),
-          ToneSetting.none);
+      expect(
+        ToneSetting.fromJson(const {'mode': 'ctcss', 'ctcss': 0}),
+        ToneSetting.none,
+      );
+      expect(
+        ToneSetting.fromJson(const {'mode': 'dcs', 'dcs': -1}),
+        ToneSetting.none,
+      );
     });
 
     test('has value equality', () {
       expect(const ToneSetting.ctcss(1000), const ToneSetting.ctcss(1000));
-      expect(const ToneSetting.ctcss(1000).hashCode,
-          const ToneSetting.ctcss(1000).hashCode);
-      expect(const ToneSetting.dcs(23),
-          isNot(const ToneSetting.dcs(23, inverted: true)));
+      expect(
+        const ToneSetting.ctcss(1000).hashCode,
+        const ToneSetting.ctcss(1000).hashCode,
+      );
+      expect(
+        const ToneSetting.dcs(23),
+        isNot(const ToneSetting.dcs(23, inverted: true)),
+      );
     });
   });
 
@@ -101,10 +111,7 @@ void main() {
     });
 
     test('receiveOnly cannot key anywhere but its own frequency', () {
-      const weather = RadioChannel.receiveOnly(
-        name: 'WX1',
-        freqHz: 162550000,
-      );
+      const weather = RadioChannel.receiveOnly(name: 'WX1', freqHz: 162550000);
       expect(weather.rxOnly, isTrue);
       expect(weather.txFreqHz, weather.rxFreqHz);
       expect(weather.txTone.isNone, isTrue);
@@ -126,8 +133,11 @@ void main() {
       ];
       for (final channel in channels) {
         final json = jsonDecode(jsonEncode(channel.toJson()));
-        expect(RadioChannel.fromJson(json as Map<String, dynamic>), channel,
-            reason: '$channel');
+        expect(
+          RadioChannel.fromJson(json as Map<String, dynamic>),
+          channel,
+          reason: '$channel',
+        );
       }
     });
 
@@ -141,7 +151,8 @@ void main() {
         txFreqHz: 144570000,
       );
       final decoded = RadioChannel.fromJson(
-          jsonDecode(jsonEncode(channel.toJson())) as Map<String, dynamic>);
+        jsonDecode(jsonEncode(channel.toJson())) as Map<String, dynamic>,
+      );
       expect(decoded!.rxFreqHz, 145170000);
       expect(decoded.txFreqHz, 144570000);
     });
@@ -150,13 +161,17 @@ void main() {
       expect(RadioChannel.fromJson(const {'name': 'x'}), isNull);
       expect(RadioChannel.fromJson(const {'name': 'x', 'rx': 0}), isNull);
       expect(
-          RadioChannel.fromJson(const {'name': 'x', 'rx': '146.94'}), isNull);
+        RadioChannel.fromJson(const {'name': 'x', 'rx': '146.94'}),
+        isNull,
+      );
       expect(RadioChannel.fromJson(const {'rx': 146940000}), isNull);
     });
 
     test('a missing transmit frequency reads as simplex, not as junk', () {
-      final channel =
-          RadioChannel.fromJson(const {'name': 'S', 'rx': 146520000});
+      final channel = RadioChannel.fromJson(const {
+        'name': 'S',
+        'rx': 146520000,
+      });
       expect(channel, isNotNull);
       expect(channel!.txFreqHz, 146520000);
       expect(channel.isSimplex, isTrue);
