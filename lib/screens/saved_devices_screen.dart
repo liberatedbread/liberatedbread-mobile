@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,6 +16,7 @@ import '../providers/device_group_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
 import '../providers/panel_resolution_cache_provider.dart';
+import '../providers/printer_provider.dart';
 import '../providers/saved_designs_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/saved_network_device_provider.dart';
@@ -26,6 +29,7 @@ import '../services/roomba_credential_store.dart';
 import '../services/saved_network_device_store.dart';
 import '../services/saved_radio_store.dart';
 import '../widgets/device_list_tile.dart';
+import '../widgets/print/printer_picker_sheet.dart';
 import 'device_screen.dart';
 import 'network_controls_launcher.dart';
 import 'radio_device_screen.dart';
@@ -255,6 +259,10 @@ class SavedDevicesScreen extends ConsumerWidget {
     final saved = ref.watch(savedDevicesProvider);
     final savedNetwork = ref.watch(savedNetworkDevicesProvider);
     final savedRadios = ref.watch(savedRadiosProvider);
+    // An asset-label action per row, once there is a label printer to put
+    // it on; until then the row stays as it was.
+    final canPrintLabels =
+        ref.watch(savedPrintersProvider).valueOrNull?.isNotEmpty ?? false;
     final registry = ref.watch(numberRegistryProvider);
     final scheme = Theme.of(context).colorScheme;
 
@@ -284,6 +292,18 @@ class SavedDevicesScreen extends ConsumerWidget {
                         // as confusing here as it is in the scan list.
                         description: _savedDescription(registry, device),
                         onTap: () => _reconnect(context, ref, device),
+                        onPrintLabel: canPrintLabels
+                            ? () => unawaited(
+                                printLabelOnSavedPrinter(
+                                  context,
+                                  ref,
+                                  deviceAssetLabel(
+                                    name: device.name,
+                                    address: device.id,
+                                  ),
+                                ),
+                              )
+                            : null,
                         onForget: () => _forget(context, ref, device),
                       ),
                       const SizedBox(height: 10),
@@ -295,6 +315,18 @@ class SavedDevicesScreen extends ConsumerWidget {
                     for (final device in savedNetwork) ...[
                       _NetworkSavedTile(
                         device: device,
+                        onPrintLabel: canPrintLabels
+                            ? () => unawaited(
+                                printLabelOnSavedPrinter(
+                                  context,
+                                  ref,
+                                  deviceAssetLabel(
+                                    name: device.name,
+                                    address: device.host,
+                                  ),
+                                ),
+                              )
+                            : null,
                         onOpen: (controls) =>
                             _openNetwork(context, ref, device, controls),
                         onForget: () => _forgetNetwork(context, ref, device),
@@ -348,11 +380,13 @@ class _NetworkSavedTile extends ConsumerWidget {
   final SavedNetworkDevice device;
   final void Function(NetworkControls controls) onOpen;
   final VoidCallback onForget;
+  final VoidCallback? onPrintLabel;
 
   const _NetworkSavedTile({
     required this.device,
     required this.onOpen,
     required this.onForget,
+    this.onPrintLabel,
   });
 
   @override
@@ -391,6 +425,7 @@ class _NetworkSavedTile extends ConsumerWidget {
       icon: category?.icon ?? Icons.router_outlined,
       description: device.host,
       onTap: controls == null ? null : () => onOpen(controls),
+      onPrintLabel: onPrintLabel,
       onConfigure: isRoomba ? () => _chooseTransport(context, ref, blid) : null,
       configureTooltip: isRoomba ? 'How to reach this robot' : null,
       onForget: onForget,

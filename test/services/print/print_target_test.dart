@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/services/brother_ql_print_service.dart';
 import 'package:liberated_bread_mobile/services/print/print_target.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -155,4 +156,80 @@ void main() {
       expect(transport.sent, hasLength(1));
     });
   });
+
+  group('ConnectingBleTarget', () {
+    test('connects for the print and lets go after', () async {
+      final ble = _OrderedBle();
+      final target = ConnectingBleTarget(
+        BleRasterTarget(
+          codec: FakeSpecCodec(),
+          ble: ble,
+          deviceId: 'AA:BB',
+          specYaml: 'cat-yaml',
+          name: 'Cat printer',
+          raster: _cat,
+        ),
+      );
+      final outcome = await target.printMono(Uint8List(384 * 3), 384, 1);
+      expect(outcome, isA<PrintOk>());
+      expect(ble.calls, [
+        'stopScan',
+        'connect',
+        'discover',
+        'write',
+        'disconnect',
+      ]);
+    });
+
+    test('a printer that will not connect is a failed print', () async {
+      final ble = _OrderedBle(connectFails: true);
+      final target = ConnectingBleTarget(
+        BleRasterTarget(
+          codec: FakeSpecCodec(),
+          ble: ble,
+          deviceId: 'AA:BB',
+          specYaml: 'cat-yaml',
+          name: 'Cat printer',
+          raster: _cat,
+        ),
+      );
+      final outcome = await target.printMono(Uint8List(384 * 3), 384, 1);
+      expect(outcome, isA<PrintFailed>());
+      expect((outcome as PrintFailed).reason, contains('Cat printer'));
+      expect(ble.calls, isNot(contains('write')));
+      expect(ble.calls.last, 'disconnect');
+    });
+  });
+}
+
+class _OrderedBle extends FakeBleService {
+  final bool connectFails;
+  _OrderedBle({this.connectFails = false});
+  final calls = <String>[];
+
+  @override
+  Future<void> stopScan() async => calls.add('stopScan');
+
+  @override
+  Future<void> connect(String deviceId) async {
+    calls.add('connect');
+    if (connectFails) throw const SocketException('out of range');
+  }
+
+  @override
+  Future<List<BleDiscoveredService>> discoverServices(String deviceId) async {
+    calls.add('discover');
+    return const [];
+  }
+
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) async => calls.add('write');
+
+  @override
+  Future<void> disconnect(String deviceId) async => calls.add('disconnect');
 }

@@ -116,25 +116,7 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
   /// keeps it disabled.
   bool get _canPrint => _status == null || _status!.readyToPrint;
 
-  /// The media to print on: what the printer reported, or a conservative
-  /// default (62 mm continuous, the common DK-2205 roll) when it stayed silent.
-  BrotherQlJobParamsDto _printParams() {
-    final status = _status;
-    if (status == null) {
-      return const BrotherQlJobParamsDto(
-        mediaWidthMm: 62,
-        mediaLengthMm: 0,
-        mediaDieCut: false,
-        autoCut: true,
-      );
-    }
-    return BrotherQlJobParamsDto(
-      mediaWidthMm: status.mediaWidthMm,
-      mediaLengthMm: status.mediaLengthMm,
-      mediaDieCut: status.mediaType == 'die_cut',
-      autoCut: true,
-    );
-  }
+  BrotherQlJobParamsDto _printParams() => brotherParamsFor(_status);
 
   /// Open the composer on a target sized to the loaded roll.
   Future<void> _composeLabel() async {
