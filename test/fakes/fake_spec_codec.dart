@@ -227,6 +227,7 @@ class FakeSpecCodec implements SpecCodec {
     this.cameraResult,
     this.networkCapabilitiesResult,
     this.rasterPrintResult,
+    this.brotherLabelCanvas,
     this.networkEntitiesForState,
     this.networkRequest,
     this.networkHttpRequest,
@@ -1793,4 +1794,48 @@ class FakeSpecCodec implements SpecCodec {
   Future<RasterPrintDto?> rasterPrintForSpec({
     required String specYaml,
   }) async => rasterPrintResult;
+
+  /// A plain luma threshold — enough for a composer test to see black where
+  /// it painted and white elsewhere, without the native library.
+  @override
+  Future<Uint8List> prepareMonoRaster({
+    required Uint8List rgba,
+    required int width,
+    required int height,
+    required PrintDither dither,
+    required int threshold,
+  }) async {
+    final out = Uint8List(width * height * 3);
+    for (var i = 0; i < width * height; i++) {
+      final a = rgba[i * 4 + 3] / 255;
+      final luma =
+          (299 * rgba[i * 4] + 587 * rgba[i * 4 + 1] + 114 * rgba[i * 4 + 2]) /
+          1000;
+      final level = luma * a + 255 * (1 - a);
+      final v = level >= threshold ? 255 : 0;
+      out[i * 3] = v;
+      out[i * 3 + 1] = v;
+      out[i * 3 + 2] = v;
+    }
+    return out;
+  }
+
+  /// Returned by [brotherQlLabelCanvas].
+  final LabelCanvasDto? brotherLabelCanvas;
+
+  @override
+  Future<LabelCanvasDto> brotherQlLabelCanvas({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
+  }) async =>
+      brotherLabelCanvas ?? (throw UnimplementedError('brotherQlLabelCanvas'));
+
+  @override
+  Future<Uint8List> renderBrotherQlJob({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  }) async => Uint8List.fromList([width & 0xFF, height & 0xFF, ...rgb.take(3)]);
 }

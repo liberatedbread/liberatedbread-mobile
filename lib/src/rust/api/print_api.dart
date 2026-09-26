@@ -6,15 +6,100 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../frb_generated.dart';
+import 'device_api.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `raster_print_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `brother_placement`, `raster_print_dto`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `BrotherPlacement`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
 
 /// The spec's raster-print surface, or None when the spec is not a raster
 /// printer (no `raster_print` marker, or no `image_upload` entry beside it).
 Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml}) =>
     RustLib.instance.api.crateApiPrintApiRasterPrintForSpec(specYaml: specYaml);
+
+/// Reduce a composed RGBA canvas (straight alpha) to the black-and-white
+/// RGB888 every raster printer encoder takes, and the preview shows.
+Future<Uint8List> preparePrintRaster({
+  required List<int> rgba,
+  required int width,
+  required int height,
+  required PrintDither dither,
+  required int threshold,
+}) => RustLib.instance.api.crateApiPrintApiPreparePrintRaster(
+  rgba: rgba,
+  width: width,
+  height: height,
+  dither: dither,
+  threshold: threshold,
+);
+
+/// The canvas to compose a Brother QL label on, for the media the printer
+/// reported (or the caller assumed).
+Future<LabelCanvasDto> brotherQlLabelCanvas({
+  required String specYaml,
+  required BrotherQlJobParamsDto params,
+}) => RustLib.instance.api.crateApiPrintApiBrotherQlLabelCanvas(
+  specYaml: specYaml,
+  params: params,
+);
+
+/// Encode a composed label as a Brother QL raster job. `rgb` is RGB888 of
+/// `width` x `height`, at most the canvas [`brother_ql_label_canvas`] gives;
+/// a narrower canvas is centred in the printable width. The result is the
+/// whole byte stream for TCP 9100.
+Future<Uint8List> renderBrotherQlJob({
+  required String specYaml,
+  required BrotherQlJobParamsDto params,
+  required List<int> rgb,
+  required int width,
+  required int height,
+}) => RustLib.instance.api.crateApiPrintApiRenderBrotherQlJob(
+  specYaml: specYaml,
+  params: params,
+  rgb: rgb,
+  width: width,
+  height: height,
+);
+
+/// The canvas a Brother QL label should be composed on for the loaded roll.
+class LabelCanvasDto {
+  /// Dots across the tape that print.
+  final int widthDots;
+
+  /// Dots along the feed that print, for a die-cut label; None for
+  /// continuous tape, whose length the content decides.
+  final int? lengthDots;
+  final int dpi;
+
+  /// The spec's name for the roll ("62mm continuous (DK-22205)"), when the
+  /// loaded media matched one.
+  final String? mediaName;
+
+  const LabelCanvasDto({
+    required this.widthDots,
+    this.lengthDots,
+    required this.dpi,
+    this.mediaName,
+  });
+
+  @override
+  int get hashCode =>
+      widthDots.hashCode ^
+      lengthDots.hashCode ^
+      dpi.hashCode ^
+      mediaName.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LabelCanvasDto &&
+          runtimeType == other.runtimeType &&
+          widthDots == other.widthDots &&
+          lengthDots == other.lengthDots &&
+          dpi == other.dpi &&
+          mediaName == other.mediaName;
+}
 
 /// A closed choice (density, paper type): wire values with labels.
 class PrintChoiceDto {
@@ -46,6 +131,18 @@ class PrintChoiceDto {
           labels == other.labels &&
           defaultValue == other.defaultValue &&
           command == other.command;
+}
+
+/// How [`prepare_print_raster`] turns grey into black and white.
+enum PrintDither {
+  /// A hard cut at the threshold — text, QR codes, line art.
+  threshold,
+
+  /// Floyd–Steinberg error diffusion — photos.
+  floydSteinberg,
+
+  /// Atkinson error diffusion — photos, lighter and crisper.
+  atkinson,
 }
 
 /// One loadable roll or tape.

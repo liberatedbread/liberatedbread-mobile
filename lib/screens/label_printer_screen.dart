@@ -10,8 +10,10 @@ import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/brother_ql_print_service.dart';
+import '../services/print/print_target.dart';
 import '../services/spec_codec.dart';
 import '../widgets/ad_banner_bar.dart';
+import 'print_label_screen.dart';
 
 /// Control screen for a raster label printer (Brother QL family).
 ///
@@ -134,6 +136,39 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
     );
   }
 
+  /// Open the composer on a target sized to the loaded roll.
+  Future<void> _composeLabel() async {
+    if (!_canPrint) return;
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final target = await BrotherQlTarget.resolve(
+        codec: ref.read(specCodecProvider),
+        transport: ref.read(brotherQlPrintServiceProvider),
+        specYaml: widget.controls.specYaml,
+        host: widget.device.host,
+        port: _port,
+        params: _printParams(),
+        name: widget.device.displayName,
+      );
+      if (!mounted) return;
+      await navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => PrintLabelScreen(target: target),
+        ),
+      );
+    } on Object catch (e) {
+      Log.spec.warning('label composer failed to open', error: e);
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Could not size a label for this roll.'),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _printTestLabel() async {
     if (!_canPrint) return;
     final status = _status;
@@ -226,6 +261,14 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
+              onPressed: _canPrint && !_loading && !_printing
+                  ? () => unawaited(_composeLabel())
+                  : null,
+              icon: const Icon(Icons.edit_note),
+              label: const Text('Compose a label'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
               onPressed: _canPrint && !_loading && !_printing
                   ? () => unawaited(_printTestLabel())
                   : null,

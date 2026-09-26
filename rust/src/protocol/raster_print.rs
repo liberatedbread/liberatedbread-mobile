@@ -18,7 +18,7 @@
 //! `raster_print` spec names is, by definition, its print encoder, so this
 //! module asks that registry rather than keeping a second one to drift.
 
-use crate::spec::types::{DeviceSpec, Feature};
+use crate::spec::types::{DeviceSpec, Feature, PrintMedia};
 
 use super::{brother_ql, image_upload_handler};
 
@@ -71,6 +71,24 @@ pub fn raster_feature(spec: &DeviceSpec) -> Option<&Feature> {
     spec.features
         .iter()
         .find(|f| f.feature_type == "image_upload")
+}
+
+/// The spec's roll matching what a printer reports as loaded: same kind
+/// (any die-cut shape counts as die-cut), same width to the millimetre, and
+/// for die-cut labels the same length. `None` when the spec lists no such
+/// roll — the caller then falls back to arithmetic from the millimetres.
+pub fn matching_media(
+    feature: &Feature,
+    width_mm: u8,
+    length_mm: u8,
+    die_cut: bool,
+) -> Option<&PrintMedia> {
+    feature.media.iter().find(|m| {
+        let is_die_cut = m.kind != "continuous";
+        is_die_cut == die_cut
+            && m.width_mm.round() as i64 == i64::from(width_mm)
+            && (!die_cut || m.length_mm.map(|l| l.round() as i64) == Some(i64::from(length_mm)))
+    })
 }
 
 /// Head resolution when a spec does not state one: the 8 dots/mm of
