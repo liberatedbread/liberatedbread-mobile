@@ -3,7 +3,7 @@
 //
 //! ChannelRecord records: the 32 bytes a memory occupies, in both directions.
 
-use super::models::{RadioModel, CHANNEL_RECORD_LEN};
+use super::models::{RadioModel, CHANNEL_RECORD_LEN, NAME_LEN};
 use crate::error::ProtocolError;
 
 /// The DCS codes this family indexes, in the order it indexes them.
@@ -65,7 +65,7 @@ pub struct ChannelRecord {
 /// digit pair first. A nibble above 9 is not a digit, and a record carrying
 /// one is not a channel -- almost always because it is an unwritten slot full
 /// of 0xFF.
-fn decode_bcd(bytes: &[u8]) -> Option<u32> {
+pub(crate) fn decode_bcd(bytes: &[u8]) -> Option<u32> {
     let mut value: u32 = 0;
     for &byte in bytes.iter().rev() {
         let high = (byte >> 4) as u32;
@@ -79,7 +79,7 @@ fn decode_bcd(bytes: &[u8]) -> Option<u32> {
 }
 
 /// Encode hertz into the same field.
-fn encode_bcd(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
+pub(crate) fn encode_bcd(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
     let mut tens = hz / 10;
     if tens > 99_999_999 {
         return Err(ProtocolError::MalformedReply(format!(
@@ -295,7 +295,7 @@ pub fn decode_channels(
         .map(|index| {
             model
                 .channel_range(index)
-                .and_then(|(start, end)| decode_channel(&image[start..end], model.name_len))
+                .and_then(|(start, end)| decode_channel(&image[start..end], NAME_LEN))
         })
         .collect())
 }
@@ -332,7 +332,7 @@ pub fn encode_channels(
         };
         match channels.get(index as usize) {
             Some(channel) => {
-                encode_channel(&mut out[start..end], channel, model.name_len)?;
+                encode_channel(&mut out[start..end], channel, NAME_LEN)?;
             }
             None => clear_channel(&mut out[start..end])?,
         }

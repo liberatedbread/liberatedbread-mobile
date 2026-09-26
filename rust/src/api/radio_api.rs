@@ -12,16 +12,15 @@ use crate::protocol::radio::codeplug::{self, ChannelRecord, Tone};
 use crate::protocol::radio::models::{self, RadioModel};
 use crate::protocol::radio::uv17pro;
 use crate::protocol::radio::uv5r::{self, BandLimit, BandLimits, LimitLayout, Uv5rModel};
+use crate::protocol::radio::{self as radio, Block};
 
 // ── DTOs ────────────────────────────────────────────────────────────────────
 
-/// A radio this codec can program.
+/// A radio these codecs can program, of either family: what the Dart
+/// profile of the same id has to agree with.
 #[derive(Debug, Clone)]
 pub struct RadioModelDto {
     pub id: String,
-    pub display_name: String,
-    /// The 16-byte string that puts the radio into programming mode.
-    pub ident_magic: Vec<u8>,
     pub image_len: u32,
     pub channel_count: u16,
     pub name_len: u32,
@@ -153,31 +152,43 @@ fn model_or_error(model_id: &str) -> anyhow::Result<&'static RadioModel> {
         .ok_or_else(|| anyhow::anyhow!("no radio model with id '{model_id}'"))
 }
 
-// ── The API ─────────────────────────────────────────────────────────────────
-
-/// Every radio this codec can program.
-pub fn radio_models() -> Vec<RadioModelDto> {
-    models::MODELS
-        .iter()
-        .map(|model| RadioModelDto {
-            id: model.id.to_string(),
-            display_name: model.display_name.to_string(),
-            ident_magic: model.ident_magic.to_vec(),
-            image_len: model.image_len,
-            channel_count: model.channel_count,
-            name_len: model.name_len as u32,
+fn block_dtos(blocks: Vec<Block>) -> Vec<CodeplugBlockDto> {
+    blocks
+        .into_iter()
+        .map(|block| CodeplugBlockDto {
+            addr: block.addr,
+            image_offset: block.image_offset as u32,
+            len: block.len,
         })
         .collect()
+}
+
+// ── The API ─────────────────────────────────────────────────────────────────
+
+/// Every radio these codecs can program, both families.
+///
+/// Exists for one reason: a test that holds it against the Dart profiles, so
+/// a capacity or a name length that drifts between the two tables fails
+/// there rather than as a plan cut short or a codeplug overrun.
+pub fn radio_models() -> Vec<RadioModelDto> {
+    let newer = models::MODELS.iter().map(|model| RadioModelDto {
+        id: model.id.to_string(),
+        image_len: model.image_len,
+        channel_count: model.channel_count,
+        name_len: models::NAME_LEN as u32,
+    });
+    let older = uv5r::MODELS.iter().map(|model| RadioModelDto {
+        id: model.id.to_string(),
+        image_len: uv5r::IMAGE_LEN as u32,
+        channel_count: uv5r::CHANNEL_COUNT as u16,
+        name_len: uv5r::NAME_LEN as u32,
+    });
+    newer.chain(older).collect()
 }
 
 /// The string that puts this radio into programming mode.
 pub fn radio_ident_magic(model_id: String) -> anyhow::Result<Vec<u8>> {
     Ok(model_or_error(&model_id)?.ident_magic.to_vec())
-}
-
-/// The byte the radio answers a good command with.
-pub fn radio_ack_byte() -> u8 {
-    uv17pro::ACK
 }
 
 /// The handshake to run once the ident magic has been acknowledged.
@@ -194,41 +205,23 @@ pub fn radio_handshake_steps() -> Vec<HandshakeStepDto> {
 /// Every block of a full read, in order.
 pub fn radio_read_plan(model_id: String) -> anyhow::Result<Vec<CodeplugBlockDto>> {
     let model = model_or_error(&model_id)?;
-    Ok(uv17pro::read_plan(model.regions, uv17pro::BLOCK_SIZE)
-        .into_iter()
-        .map(|block| CodeplugBlockDto {
-            addr: block.addr,
-            image_offset: block.image_offset,
-            len: block.len,
-        })
-        .collect())
+    Ok(block_dtos(uv17pro::read_plan(
+        model.regions,
+        uv17pro::BLOCK_SIZE,
+    )))
 }
 
-/// Every block of a full write, in order.
+/// Every block of a full write over the radio's own Bluetooth, in order.
 ///
-/// `block_size` is a parameter because the radio's own Bluetooth takes
-/// 0x80-byte writes while a cable takes 0x40 -- one codec, two callers.
-pub fn radio_write_plan(
-    model_id: String,
-    block_size: u16,
-) -> anyhow::Result<Vec<CodeplugBlockDto>> {
+/// Bigger blocks than a read: the tunnel re-blocks uploads to 0x80. Over a
+/// cable this family writes 0x40, which is what this would take as a
+/// parameter the day there is a cable driver for it.
+pub fn radio_write_plan(model_id: String) -> anyhow::Result<Vec<CodeplugBlockDto>> {
     let model = model_or_error(&model_id)?;
-    if block_size == 0 || block_size > 0xFF {
-        anyhow::bail!("block size {block_size} does not fit a one-byte length");
-    }
-    Ok(uv17pro::read_plan(model.regions, block_size)
-        .into_iter()
-        .map(|block| CodeplugBlockDto {
-            addr: block.addr,
-            image_offset: block.image_offset,
-            len: block.len,
-        })
-        .collect())
-}
-
-/// The write block size the radio's own Bluetooth expects.
-pub fn radio_ble_write_block_size() -> u16 {
-    uv17pro::BLE_WRITE_BLOCK_SIZE
+    Ok(block_dtos(uv17pro::read_plan(
+        model.regions,
+        uv17pro::BLE_WRITE_BLOCK_SIZE,
+    )))
 }
 
 /// The request that reads `len` bytes from `addr`.
@@ -236,31 +229,21 @@ pub fn radio_read_command(addr: u16, len: u8) -> Vec<u8> {
     uv17pro::read_command(addr, len)
 }
 
-/// How many bytes that read will answer with, header included.
-///
-/// Over Bluetooth the reply arrives in ~20-byte notifications; this is how
-/// the Dart side tells "still arriving" from "done".
-pub fn radio_expected_reply_len(len: u8) -> u32 {
-    uv17pro::expected_read_reply_len(len) as u32
+/// How many bytes a read of `len` answers with, header included -- in
+/// either family, whose answers share their framing. Not counting the older
+/// family's leading acknowledgement, which is not part of the answer.
+pub fn radio_read_reply_len(len: u8) -> u32 {
+    radio::read_reply_len(len) as u32
 }
 
 /// The payload of a read reply, substitution undone and header checked.
 pub fn radio_parse_read_reply(reply: Vec<u8>, addr: u16, len: u8) -> anyhow::Result<Vec<u8>> {
-    Ok(uv17pro::parse_read_reply(
-        &reply,
-        addr,
-        len,
-        uv17pro::DEFAULT_SYMBOL_INDEX,
-    )?)
+    Ok(uv17pro::parse_read_reply(&reply, addr, len)?)
 }
 
 /// The request that writes `data` to `addr`.
 pub fn radio_write_command(addr: u16, data: Vec<u8>) -> anyhow::Result<Vec<u8>> {
-    Ok(uv17pro::write_command(
-        addr,
-        &data,
-        uv17pro::DEFAULT_SYMBOL_INDEX,
-    )?)
+    Ok(uv17pro::write_command(addr, &data)?)
 }
 
 /// Whether a reply is the radio's acknowledgement.
@@ -314,15 +297,6 @@ pub fn radio_image_is_complete(image_len: u32, model_id: String) -> anyhow::Resu
 // of its own rather than a flag on the ones above. The shape is the same:
 // Rust says what to send and what an answer means, Dart owns the port and the
 // timing. See `protocol::radio::uv5r` for the conversation itself.
-
-/// A radio of the older serial family.
-#[derive(Debug, Clone)]
-pub struct Uv5rModelDto {
-    pub id: String,
-    pub display_name: String,
-    /// Ident magics, tried in order until one is acknowledged.
-    pub idents: Vec<Vec<u8>>,
-}
 
 /// A read that is not part of the image: made, checked, and set aside.
 #[derive(Debug, Clone)]
@@ -380,27 +354,9 @@ fn uv5r_model_or_error(model_id: &str) -> anyhow::Result<&'static Uv5rModel> {
         .ok_or_else(|| anyhow::anyhow!("no UV-5R-family radio called {model_id:?}"))
 }
 
-fn block_dtos(blocks: Vec<uv5r::Block>) -> Vec<CodeplugBlockDto> {
-    blocks
-        .into_iter()
-        .map(|block| CodeplugBlockDto {
-            addr: block.addr,
-            image_offset: block.image_offset as u32,
-            len: block.len,
-        })
-        .collect()
-}
-
-/// Every radio of the family this codec programs.
-pub fn uv5r_models() -> Vec<Uv5rModelDto> {
-    uv5r::MODELS
-        .iter()
-        .map(|model| Uv5rModelDto {
-            id: model.id.to_string(),
-            display_name: model.display_name.to_string(),
-            idents: model.idents.iter().map(|magic| magic.to_vec()).collect(),
-        })
-        .collect()
+/// The layout `image`'s limits live in, for the radio `model_id` names.
+fn uv5r_layout(image: &[u8], model_id: &str) -> anyhow::Result<LimitLayout> {
+    Ok(uv5r::limit_layout(image, uv5r_model_or_error(model_id)?)?)
 }
 
 /// The ident magics to try for this radio, in order.
@@ -468,11 +424,6 @@ pub fn uv5r_read_command(addr: u16, len: u8) -> Vec<u8> {
     uv5r::read_command(addr, len).to_vec()
 }
 
-/// How many bytes a read's answer is, not counting its leading ack.
-pub fn uv5r_read_reply_len(len: u8) -> u32 {
-    uv5r::read_reply_len(len) as u32
-}
-
 pub fn uv5r_parse_read_reply(reply: Vec<u8>, addr: u16, len: u8) -> anyhow::Result<Vec<u8>> {
     Ok(uv5r::parse_read_reply(&reply, addr, len)?)
 }
@@ -522,8 +473,7 @@ pub fn uv5r_changed_blocks(
     updated: Vec<u8>,
     model_id: String,
 ) -> anyhow::Result<Vec<CodeplugBlockDto>> {
-    let model = uv5r_model_or_error(&model_id)?;
-    let layout = uv5r::limit_layout(&base, model)?;
+    let layout = uv5r_layout(&base, &model_id)?;
     Ok(block_dtos(uv5r::changed_blocks(&base, &updated, layout)?))
 }
 
@@ -536,7 +486,7 @@ pub fn uv5r_verify_plan(
         .iter()
         .map(|dto| {
             uv5r::image_offset(dto.addr)
-                .map(|image_offset| uv5r::Block {
+                .map(|image_offset| Block {
                     addr: dto.addr,
                     len: dto.len,
                     image_offset,
@@ -552,16 +502,15 @@ pub fn uv5r_restore_plan(
     image: Vec<u8>,
     model_id: String,
 ) -> anyhow::Result<Vec<CodeplugBlockDto>> {
-    let model = uv5r_model_or_error(&model_id)?;
-    let layout = uv5r::limit_layout(&image, model)?;
-    Ok(block_dtos(uv5r::restore_plan(layout)))
+    Ok(block_dtos(uv5r::restore_plan(uv5r_layout(
+        &image, &model_id,
+    )?)))
 }
 
 /// The transmit limits an image holds, read from whichever layout the
 /// radio's firmware uses.
 pub fn uv5r_read_band_limits(image: Vec<u8>, model_id: String) -> anyhow::Result<BandLimitsDto> {
-    let model = uv5r_model_or_error(&model_id)?;
-    let layout = uv5r::limit_layout(&image, model)?;
+    let layout = uv5r_layout(&image, &model_id)?;
     let limits = uv5r::read_band_limits(&image, layout)?;
     Ok(BandLimitsDto {
         vhf: BandLimitDto::from_limit(limits.vhf),
@@ -580,8 +529,7 @@ pub fn uv5r_apply_band_limits(
     limits: BandLimitsDto,
     model_id: String,
 ) -> anyhow::Result<Vec<u8>> {
-    let model = uv5r_model_or_error(&model_id)?;
-    let layout = uv5r::limit_layout(&image, model)?;
+    let layout = uv5r_layout(&image, &model_id)?;
     Ok(uv5r::apply_band_limits(
         &image,
         &BandLimits {
@@ -594,22 +542,12 @@ pub fn uv5r_apply_band_limits(
 
 #[cfg(test)]
 mod tests {
+    //! The bridge's own work: the DTOs, the model lookups and what crosses
+    //! as a string. The codecs behind it have their tests in
+    //! `protocol::radio`, and the round trip through the real library is
+    //! Dart's `radio_api_test.dart`.
     use super::*;
-
-    /// A plausible image: an ident, empty slots, and a firmware string.
-    fn uv5r_image(firmware: &str) -> Vec<u8> {
-        let mut image = vec![0u8; uv5r::IMAGE_LEN];
-        image[..8].copy_from_slice(&[0xAA, 0x30, 0x76, 0x04, 0x00, 0x05, 0x20, 0xDD]);
-        for slot in 0..uv5r::CHANNEL_COUNT {
-            image[8 + slot * 16..8 + slot * 16 + 16].fill(0xFF);
-            let name = 8 + 0x1000 + slot * 16;
-            image[name..name + 16].fill(0xFF);
-        }
-        let fw = uv5r::image_offset(0x1EF0).unwrap();
-        image[fw..fw + 14].fill(0xFF);
-        image[fw..fw + firmware.len()].copy_from_slice(firmware.as_bytes());
-        image
-    }
+    use crate::protocol::radio::uv5r::image_with_firmware;
 
     fn dto(slot: u16, name: &str, hz: u32) -> RadioChannelDto {
         RadioChannelDto {
@@ -627,18 +565,30 @@ mod tests {
     }
 
     #[test]
-    fn uv5r_models_match_the_dart_profile_ids() {
-        let ids: Vec<String> = uv5r_models().into_iter().map(|m| m.id).collect();
-        assert_eq!(ids, ["uv5r", "bf-f8hp", "ar-152"]);
+    fn the_model_table_covers_both_families() {
+        let ids: Vec<String> = radio_models().into_iter().map(|m| m.id).collect();
+        for id in [
+            "uv-5r-mini",
+            "uv-5g-mini",
+            "uv-32",
+            "uv5r",
+            "bf-f8hp",
+            "ar-152",
+        ] {
+            assert!(ids.iter().any(|i| i == id), "{id} missing from {ids:?}");
+        }
+        assert!(
+            !ids.iter().any(|i| i == "uv-5g"),
+            "its memory is not a UV-5R's"
+        );
         assert!(uv5r_ident_magics("uv-5g".into()).is_err());
         assert_eq!(uv5r_ident_magics("uv5r".into()).unwrap().len(), 3);
     }
 
     #[test]
     fn uv5r_channels_cross_the_boundary_and_back() {
-        let image = uv5r_image("BFB297");
         let written = uv5r_encode_channels(
-            image,
+            image_with_firmware("BFB297"),
             vec![dto(1, "ONE", 146_520_000), dto(2, "TWO", 446_000_000)],
             "uv5r".into(),
         )
@@ -651,27 +601,10 @@ mod tests {
     }
 
     #[test]
-    fn uv5r_writes_only_what_changed() {
-        let base = uv5r_image("BFB297");
-        let updated = uv5r_encode_channels(
-            base.clone(),
-            vec![dto(1, "ONE", 146_520_000)],
-            "uv5r".into(),
-        )
-        .unwrap();
-        let blocks = uv5r_changed_blocks(base, updated, "uv5r".into()).unwrap();
-        let addrs: Vec<u16> = blocks.iter().map(|b| b.addr).collect();
-        assert_eq!(addrs, [0x0000, 0x1000]);
-        assert!(blocks.iter().all(|b| b.len == 0x10));
-        assert_eq!(blocks[0].image_offset, 8);
-    }
-
-    #[test]
-    fn uv5r_band_limits_use_the_layout_the_firmware_implies() {
+    fn uv5r_band_limits_name_the_layout_the_firmware_implies() {
         for (firmware, layout) in [("BFB290", "old"), ("BFB297", "new")] {
-            let image = uv5r_image(firmware);
             let applied = uv5r_apply_band_limits(
-                image,
+                image_with_firmware(firmware),
                 BandLimitsDto {
                     vhf: BandLimitDto {
                         tx_enabled: true,
@@ -713,42 +646,5 @@ mod tests {
             len: 0x10,
         }];
         assert!(uv5r_verify_plan(outside, false).is_err());
-    }
-
-    #[test]
-    fn uv5r_probe_and_plans_are_consistent() {
-        let probes = uv5r_probe_reads();
-        assert_eq!(probes.len(), 3);
-        assert_eq!(probes[0].addr, 0x1E80);
-        let plan = uv5r_read_plan(false);
-        let covered: u32 = plan.iter().map(|b| b.len as u32).sum();
-        assert_eq!(covered + 8, uv5r_image_len());
-        let restore = uv5r_restore_plan(uv5r_image("BFB297"), "uv5r".into()).unwrap();
-        assert!(restore.iter().all(|b| b.len == 0x10));
-    }
-
-    #[test]
-    fn uv5r_framing_crosses_intact() {
-        assert_eq!(
-            uv5r_read_command(0x0040, 0x40),
-            vec![b'S', 0x00, 0x40, 0x40]
-        );
-        assert_eq!(uv5r_read_reply_len(0x40), 0x44);
-        assert_eq!(uv5r_ident_request(), 0x02);
-        assert_eq!(uv5r_baud_rate(), 9600);
-        assert!(uv5r_ident_reply_complete(vec![0x01, 0xDD]));
-        assert_eq!(
-            uv5r_parse_ident(vec![0xAA, 0x30, 0x76, 0x04, 0x00, 0x05, 0x20, 0xDD])
-                .unwrap()
-                .len(),
-            8
-        );
-        assert!(uv5r_write_command(0x0000, vec![0; 16]).is_ok());
-        assert!(uv5r_parse_read_reply(vec![0; 3], 0, 0x40).is_err());
-        let mut fw_block = vec![0u8; 0x40];
-        fw_block[48..54].copy_from_slice(b"BFB297");
-        let probe = uv5r_parse_probe(fw_block, vec![0u8; 0x40]).unwrap();
-        assert_eq!(probe.firmware, "BFB297");
-        assert_eq!(uv5r_firmware(uv5r_image("BFS311")).unwrap(), "BFS311");
     }
 }

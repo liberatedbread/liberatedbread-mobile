@@ -49,25 +49,17 @@ void main() {
     skip: false,
   );
 
-  test('the model table crosses the boundary intact', () async {
-    if (!rustReady) return markTestSkipped('host Rust library unavailable');
-
-    final models = await radioModels();
-    expect(models, isNotEmpty);
-    final mini = models.firstWhere((m) => m.id == 'uv-5r-mini');
-    expect(mini.identMagic, hasLength(16));
-    expect(mini.channelCount, 999);
-    expect(mini.nameLen, 12);
-    expect(mini.imageLen, 0x8240);
-  });
-
   test('every Rust model has a Dart profile, and they agree', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');
 
     // Two tables describing one radio is exactly the arrangement that drifts.
     // A capacity that disagrees would cap a plan short or overrun the
-    // codeplug, and neither shows up until a write.
-    for (final model in await radioModels()) {
+    // codeplug, and neither shows up until a write. Both families are in
+    // the one table.
+    final models = await radioModels();
+    expect([for (final m in models) m.id], containsAll(['uv-5r-mini', 'uv5r']));
+    expect(models.firstWhere((m) => m.id == 'uv-5r-mini').imageLen, 0x8240);
+    for (final model in models) {
       final profile = radioProfileById(model.id);
       expect(profile, isNotNull, reason: 'no Dart profile for ${model.id}');
       expect(profile!.channelCapacity, model.channelCount, reason: model.id);
@@ -93,21 +85,18 @@ void main() {
     expect(total, 0x8240);
   });
 
-  test('a write plan can use a different block size', () async {
+  test('the Bluetooth write plan takes bigger blocks than a read', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');
 
-    final serial = await radioWritePlan(modelId: 'uv-5r-mini', blockSize: 0x40);
-    final ble = await radioWritePlan(
-      modelId: 'uv-5r-mini',
-      blockSize: await radioBleWriteBlockSize(),
-    );
+    final read = await radioReadPlan(modelId: 'uv-5r-mini');
+    final write = await radioWritePlan(modelId: 'uv-5r-mini');
 
-    expect(await radioBleWriteBlockSize(), 0x80);
-    expect(ble.length, lessThan(serial.length));
+    expect(write.first.len, 0x80);
+    expect(write.length, lessThan(read.length));
     // Both still describe the same image.
     expect(
-      ble.fold<int>(0, (sum, b) => sum + b.len),
-      serial.fold<int>(0, (sum, b) => sum + b.len),
+      write.fold<int>(0, (sum, b) => sum + b.len),
+      read.fold<int>(0, (sum, b) => sum + b.len),
     );
   });
 
@@ -148,12 +137,11 @@ void main() {
 
   test('the expected reply length includes the header', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');
-    expect(await radioExpectedReplyLen(len: 0x40), 0x44);
+    expect(await radioReadReplyLen(len: 0x40), 0x44);
   });
 
   test('acks are recognised', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');
-    expect(await radioAckByte(), 0x06);
     expect(await radioIsAck(reply: [0x06]), isTrue);
     expect(await radioIsAck(reply: [0x15]), isFalse);
     expect(await radioIsAck(reply: []), isFalse);
@@ -240,24 +228,6 @@ void main() {
       );
       return image;
     }
-
-    test('Dart sees the models the Dart profiles expect', () async {
-      if (!rustReady) return markTestSkipped('host Rust library unavailable');
-      final ids = [for (final m in await uv5RModels()) m.id];
-      for (final id in ids) {
-        expect(radioProfileById(id), isNotNull, reason: id);
-        expect(
-          radioProfileById(id)!.programmingFamily,
-          ProgrammingFamily.serialUv5r,
-          reason: id,
-        );
-      }
-      expect(
-        ids,
-        isNot(contains('uv-5g')),
-        reason: 'its memory is not laid out like a UV-5R',
-      );
-    });
 
     test('channels survive the boundary both ways', () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');

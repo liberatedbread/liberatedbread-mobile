@@ -174,11 +174,7 @@ class BaofengBleProgrammer implements RadioProgrammer {
     }
 
     yield* _session(deviceId, profile, (session) async* {
-      final blockSize = await rust.radioBleWriteBlockSize();
-      final plan = await rust.radioWritePlan(
-        modelId: profile.id,
-        blockSize: blockSize,
-      );
+      final plan = await rust.radioWritePlan(modelId: profile.id);
 
       yield const RadioProgressEvent(
         stage: RadioProgressStage.writing,
@@ -333,7 +329,7 @@ class _RadioSession {
 
   Future<List<int>> readBlock(int addr, int len) async {
     await _send(await rust.radioReadCommand(addr: addr, len: len));
-    final expected = await rust.radioExpectedReplyLen(len: len);
+    final expected = await rust.radioReadReplyLen(len: len);
     final reply = await _take(expected);
     return rust.radioParseReadReply(reply: reply, addr: addr, len: len);
   }

@@ -293,10 +293,7 @@ void main() {
 
         // Reassemble what the radio received and decode it: the round trip that
         // matters is plan in, channels out.
-        final plan = await rust.radioWritePlan(
-          modelId: 'uv-5r-mini',
-          blockSize: await rust.radioBleWriteBlockSize(),
-        );
+        final plan = await rust.radioWritePlan(modelId: 'uv-5r-mini');
         final rebuilt = <int>[];
         for (final block in plan) {
           rebuilt.addAll(
@@ -419,10 +416,7 @@ void main() {
             )
             .drain<void>();
 
-        final plan = await rust.radioWritePlan(
-          modelId: 'uv-5r-mini',
-          blockSize: await rust.radioBleWriteBlockSize(),
-        );
+        final plan = await rust.radioWritePlan(modelId: 'uv-5r-mini');
         final rebuilt = <int>[];
         for (final block in plan) {
           rebuilt.addAll(

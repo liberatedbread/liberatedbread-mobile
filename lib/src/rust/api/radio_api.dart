@@ -8,20 +8,20 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `block_dtos`, `from_channel`, `from_limit`, `from_tone`, `model_or_error`, `none`, `to_channel`, `to_limit`, `to_tone`, `uv5r_model_or_error`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `block_dtos`, `from_channel`, `from_limit`, `from_tone`, `model_or_error`, `none`, `to_channel`, `to_limit`, `to_tone`, `uv5r_layout`, `uv5r_model_or_error`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
-/// Every radio this codec can program.
+/// Every radio these codecs can program, both families.
+///
+/// Exists for one reason: a test that holds it against the Dart profiles, so
+/// a capacity or a name length that drifts between the two tables fails
+/// there rather than as a plan cut short or a codeplug overrun.
 Future<List<RadioModelDto>> radioModels() =>
     RustLib.instance.api.crateApiRadioApiRadioModels();
 
 /// The string that puts this radio into programming mode.
 Future<Uint8List> radioIdentMagic({required String modelId}) =>
     RustLib.instance.api.crateApiRadioApiRadioIdentMagic(modelId: modelId);
-
-/// The byte the radio answers a good command with.
-Future<int> radioAckByte() =>
-    RustLib.instance.api.crateApiRadioApiRadioAckByte();
 
 /// The handshake to run once the ident magic has been acknowledged.
 Future<List<HandshakeStepDto>> radioHandshakeSteps() =>
@@ -31,32 +31,23 @@ Future<List<HandshakeStepDto>> radioHandshakeSteps() =>
 Future<List<CodeplugBlockDto>> radioReadPlan({required String modelId}) =>
     RustLib.instance.api.crateApiRadioApiRadioReadPlan(modelId: modelId);
 
-/// Every block of a full write, in order.
+/// Every block of a full write over the radio's own Bluetooth, in order.
 ///
-/// `block_size` is a parameter because the radio's own Bluetooth takes
-/// 0x80-byte writes while a cable takes 0x40 -- one codec, two callers.
-Future<List<CodeplugBlockDto>> radioWritePlan({
-  required String modelId,
-  required int blockSize,
-}) => RustLib.instance.api.crateApiRadioApiRadioWritePlan(
-  modelId: modelId,
-  blockSize: blockSize,
-);
-
-/// The write block size the radio's own Bluetooth expects.
-Future<int> radioBleWriteBlockSize() =>
-    RustLib.instance.api.crateApiRadioApiRadioBleWriteBlockSize();
+/// Bigger blocks than a read: the tunnel re-blocks uploads to 0x80. Over a
+/// cable this family writes 0x40, which is what this would take as a
+/// parameter the day there is a cable driver for it.
+Future<List<CodeplugBlockDto>> radioWritePlan({required String modelId}) =>
+    RustLib.instance.api.crateApiRadioApiRadioWritePlan(modelId: modelId);
 
 /// The request that reads `len` bytes from `addr`.
 Future<Uint8List> radioReadCommand({required int addr, required int len}) =>
     RustLib.instance.api.crateApiRadioApiRadioReadCommand(addr: addr, len: len);
 
-/// How many bytes that read will answer with, header included.
-///
-/// Over Bluetooth the reply arrives in ~20-byte notifications; this is how
-/// the Dart side tells "still arriving" from "done".
-Future<int> radioExpectedReplyLen({required int len}) =>
-    RustLib.instance.api.crateApiRadioApiRadioExpectedReplyLen(len: len);
+/// How many bytes a read of `len` answers with, header included -- in
+/// either family, whose answers share their framing. Not counting the older
+/// family's leading acknowledgement, which is not part of the answer.
+Future<int> radioReadReplyLen({required int len}) =>
+    RustLib.instance.api.crateApiRadioApiRadioReadReplyLen(len: len);
 
 /// The payload of a read reply, substitution undone and header checked.
 Future<Uint8List> radioParseReadReply({
@@ -120,10 +111,6 @@ Future<bool> radioImageIsComplete({
   modelId: modelId,
 );
 
-/// Every radio of the family this codec programs.
-Future<List<Uv5rModelDto>> uv5RModels() =>
-    RustLib.instance.api.crateApiRadioApiUv5RModels();
-
 /// The ident magics to try for this radio, in order.
 Future<List<Uint8List>> uv5RIdentMagics({required String modelId}) =>
     RustLib.instance.api.crateApiRadioApiUv5RIdentMagics(modelId: modelId);
@@ -169,10 +156,6 @@ Future<int> uv5RImageLen() =>
 
 Future<Uint8List> uv5RReadCommand({required int addr, required int len}) =>
     RustLib.instance.api.crateApiRadioApiUv5RReadCommand(addr: addr, len: len);
-
-/// How many bytes a read's answer is, not counting its leading ack.
-Future<int> uv5RReadReplyLen({required int len}) =>
-    RustLib.instance.api.crateApiRadioApiUv5RReadReplyLen(len: len);
 
 Future<Uint8List> uv5RParseReadReply({
   required List<int> reply,
@@ -434,21 +417,16 @@ class RadioChannelDto {
           skip == other.skip;
 }
 
-/// A radio this codec can program.
+/// A radio these codecs can program, of either family: what the Dart
+/// profile of the same id has to agree with.
 class RadioModelDto {
   final String id;
-  final String displayName;
-
-  /// The 16-byte string that puts the radio into programming mode.
-  final Uint8List identMagic;
   final int imageLen;
   final int channelCount;
   final int nameLen;
 
   const RadioModelDto({
     required this.id,
-    required this.displayName,
-    required this.identMagic,
     required this.imageLen,
     required this.channelCount,
     required this.nameLen,
@@ -457,8 +435,6 @@ class RadioModelDto {
   @override
   int get hashCode =>
       id.hashCode ^
-      displayName.hashCode ^
-      identMagic.hashCode ^
       imageLen.hashCode ^
       channelCount.hashCode ^
       nameLen.hashCode;
@@ -469,8 +445,6 @@ class RadioModelDto {
       other is RadioModelDto &&
           runtimeType == other.runtimeType &&
           id == other.id &&
-          displayName == other.displayName &&
-          identMagic == other.identMagic &&
           imageLen == other.imageLen &&
           channelCount == other.channelCount &&
           nameLen == other.nameLen;
@@ -532,33 +506,6 @@ class ToneDto {
           ctcssTenthHz == other.ctcssTenthHz &&
           dcsCode == other.dcsCode &&
           dcsInverted == other.dcsInverted;
-}
-
-/// A radio of the older serial family.
-class Uv5rModelDto {
-  final String id;
-  final String displayName;
-
-  /// Ident magics, tried in order until one is acknowledged.
-  final List<Uint8List> idents;
-
-  const Uv5rModelDto({
-    required this.id,
-    required this.displayName,
-    required this.idents,
-  });
-
-  @override
-  int get hashCode => id.hashCode ^ displayName.hashCode ^ idents.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Uv5rModelDto &&
-          runtimeType == other.runtimeType &&
-          id == other.id &&
-          displayName == other.displayName &&
-          idents == other.idents;
 }
 
 /// What the reads after the ident found out about the radio.

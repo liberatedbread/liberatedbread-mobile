@@ -70,11 +70,6 @@ fn with_port<T>(
     body(&mut guard)
 }
 
-/// Whether this build can open serial ports at all.
-pub fn supported() -> bool {
-    imp::SUPPORTED
-}
-
 pub fn list() -> anyhow::Result<Vec<PortInfo>> {
     imp::list()
 }
@@ -119,8 +114,6 @@ mod imp {
     };
     use std::io::{ErrorKind, Read as _, Write as _};
     use std::time::{Duration, Instant};
-
-    pub const SUPPORTED: bool = true;
 
     pub struct Port(Box<dyn SerialPort>);
 
@@ -213,8 +206,6 @@ mod imp {
 mod imp {
     use super::{PortInfo, Read};
 
-    pub const SUPPORTED: bool = false;
-
     /// Never constructed: [open] refuses first.
     pub struct Port;
 
@@ -264,8 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn this_platform_says_it_can() {
-        assert!(supported());
+    fn this_platform_lists_its_ports() {
         assert!(list().is_ok());
     }
 

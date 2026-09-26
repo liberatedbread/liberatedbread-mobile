@@ -531,9 +531,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<UdpProbeDto> dco_decode_list_udp_probe_dto(dynamic raw);
 
   @protected
-  List<Uv5rModelDto> dco_decode_list_uv_5_r_model_dto(dynamic raw);
-
-  @protected
   List<WebSocketChannelDto> dco_decode_list_web_socket_channel_dto(dynamic raw);
 
   @protected
@@ -880,9 +877,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt dco_decode_usize(dynamic raw);
-
-  @protected
-  Uv5rModelDto dco_decode_uv_5_r_model_dto(dynamic raw);
 
   @protected
   Uv5rProbeDto dco_decode_uv_5_r_probe_dto(dynamic raw);
@@ -1546,11 +1540,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<UdpProbeDto> sse_decode_list_udp_probe_dto(SseDeserializer deserializer);
 
   @protected
-  List<Uv5rModelDto> sse_decode_list_uv_5_r_model_dto(
-    SseDeserializer deserializer,
-  );
-
-  @protected
   List<WebSocketChannelDto> sse_decode_list_web_socket_channel_dto(
     SseDeserializer deserializer,
   );
@@ -1979,9 +1968,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt sse_decode_usize(SseDeserializer deserializer);
-
-  @protected
-  Uv5rModelDto sse_decode_uv_5_r_model_dto(SseDeserializer deserializer);
 
   @protected
   Uv5rProbeDto sse_decode_uv_5_r_probe_dto(SseDeserializer deserializer);
@@ -2843,12 +2829,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_list_uv_5_r_model_dto(
-    List<Uv5rModelDto> self,
-    SseSerializer serializer,
-  );
-
-  @protected
   void sse_encode_list_web_socket_channel_dto(
     List<WebSocketChannelDto> self,
     SseSerializer serializer,
@@ -3402,9 +3382,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_usize(BigInt self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_uv_5_r_model_dto(Uv5rModelDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_uv_5_r_probe_dto(Uv5rProbeDto self, SseSerializer serializer);

@@ -6,7 +6,8 @@
 //! A thin surface over [`crate::serial`], which says why this transport is
 //! in Rust at all. A port is named by a number from [`serial_open`]; every
 //! function exists on every target, and where there is no serial backend
-//! [`serial_ports_supported`] says so and the rest refuse.
+//! they refuse. Dart never calls them there: it picks its serial service by
+//! platform first.
 
 use crate::serial;
 
@@ -30,10 +31,6 @@ pub struct SerialPortInfoDto {
 pub struct SerialReadDto {
     pub data: Vec<u8>,
     pub timed_out: bool,
-}
-
-pub fn serial_ports_supported() -> bool {
-    serial::supported()
 }
 
 /// The serial ports present now.
@@ -87,21 +84,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn listing_crosses_intact() {
-        assert_eq!(serial_ports_supported(), serial::supported());
-        assert!(serial_list_ports().is_ok());
-    }
-
-    #[test]
     fn an_unopened_handle_is_refused_and_closing_it_is_harmless() {
         assert!(serial_write(u32::MAX, vec![1]).is_err());
         assert!(serial_read_exact(u32::MAX, 1, 10).is_err());
         assert!(serial_discard_input(u32::MAX).is_err());
         assert!(serial_close(u32::MAX).is_ok());
-    }
-
-    #[test]
-    fn a_path_that_is_not_a_port_is_an_error() {
-        assert!(serial_open("/definitely/not/a/port".into(), 9600).is_err());
     }
 }

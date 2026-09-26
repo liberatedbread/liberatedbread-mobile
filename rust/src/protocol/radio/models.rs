@@ -26,18 +26,16 @@ pub struct RadioModel {
     /// the thing a read can be checked against.
     pub image_len: u32,
 
-    /// How many memory channels the image holds.
+    /// How many memory channels the image holds, from the start of the
+    /// image.
     pub channel_count: u16,
-
-    /// Where channel records start in the flat image.
-    pub channels_offset: u32,
-
-    /// Longest channel name the record can hold.
-    pub name_len: usize,
 }
 
 /// 32 bytes per channel record, for every model in this family.
 pub const CHANNEL_RECORD_LEN: u32 = 32;
+
+/// The longest channel name a record holds, for every model in this family.
+pub const NAME_LEN: usize = 12;
 
 /// UV-5R Mini: the radio this build programs over its own Bluetooth.
 pub const UV5R_MINI: RadioModel = RadioModel {
@@ -47,8 +45,6 @@ pub const UV5R_MINI: RadioModel = RadioModel {
     regions: &[(0x0000, 0x8040), (0x9000, 0x0040), (0xA000, 0x01C0)],
     image_len: 0x8240,
     channel_count: 999,
-    channels_offset: 0,
-    name_len: 12,
 };
 
 /// UV-5G Mini / Mini 5: the GMRS Mini, same protocol and same layout.
@@ -72,8 +68,6 @@ pub const UV32: RadioModel = RadioModel {
     ],
     image_len: 0x8380,
     channel_count: 999,
-    channels_offset: 0,
-    name_len: 12,
 };
 
 /// UV-17R Plus. No transport in this build -- it needs a cable -- but the
@@ -91,8 +85,6 @@ pub const UV17R_PLUS: RadioModel = RadioModel {
     ],
     image_len: 0x8380,
     channel_count: 1000,
-    channels_offset: 0,
-    name_len: 12,
 };
 
 /// Every model this codec knows.
@@ -104,20 +96,12 @@ pub fn model_by_id(id: &str) -> Option<&'static RadioModel> {
 }
 
 impl RadioModel {
-    /// The image length the regions actually describe.
-    ///
-    /// Kept as a computed value so a mistyped region table is caught by a
-    /// test rather than by a radio.
-    pub fn regions_len(&self) -> u32 {
-        self.regions.iter().map(|&(_, size)| u32::from(size)).sum()
-    }
-
     /// Byte range of channel `index` (0-based) in the flat image.
     pub fn channel_range(&self, index: u16) -> Option<(usize, usize)> {
         if index >= self.channel_count {
             return None;
         }
-        let start = self.channels_offset + u32::from(index) * CHANNEL_RECORD_LEN;
+        let start = u32::from(index) * CHANNEL_RECORD_LEN;
         let end = start + CHANNEL_RECORD_LEN;
         if end > self.image_len {
             return None;
@@ -135,13 +119,11 @@ mod tests {
         // A mistyped region table is otherwise found by a radio, which reads
         // the wrong number of blocks and hands back a shifted codeplug.
         for model in MODELS {
+            let regions_len: u32 = model.regions.iter().map(|&(_, size)| u32::from(size)).sum();
             assert_eq!(
-                model.regions_len(),
-                model.image_len,
+                regions_len, model.image_len,
                 "{} regions sum to 0x{:X}, not 0x{:X}",
-                model.id,
-                model.regions_len(),
-                model.image_len
+                model.id, regions_len, model.image_len
             );
         }
     }
@@ -208,12 +190,5 @@ mod tests {
         assert_eq!(UV5G_MINI.image_len, UV5R_MINI.image_len);
         assert_eq!(UV5G_MINI.ident_magic, UV5R_MINI.ident_magic);
         assert_ne!(UV5G_MINI.id, UV5R_MINI.id);
-    }
-
-    #[test]
-    fn names_are_twelve_characters_across_the_family() {
-        for model in MODELS {
-            assert_eq!(model.name_len, 12, "{}", model.id);
-        }
     }
 }

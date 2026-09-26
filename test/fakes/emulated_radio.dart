@@ -83,7 +83,7 @@ class EmulatedRadio {
     final radio = EmulatedRadio._(peripheral, contents);
     radio._magic = await rust.radioIdentMagic(modelId: modelId);
     radio._handshake = await rust.radioHandshakeSteps();
-    radio._ack = await rust.radioAckByte();
+    radio._ack = 0x06;
 
     // Pre-scramble every block the driver might read. Reusing the write
     // command's framing is how the real substitution gets applied without a

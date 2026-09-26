@@ -484,7 +484,7 @@ class _Uv5rSession {
     await link.write(await rust.uv5RReadCommand(addr: addr, len: len));
     var first = await _take(1);
     if (first.single == _ack) first = await _take(1);
-    final replyLen = await rust.uv5RReadReplyLen(len: len);
+    final replyLen = await rust.radioReadReplyLen(len: len);
     final reply = [...first, ...await _take(replyLen - 1)];
     final Uint8List data;
     try {

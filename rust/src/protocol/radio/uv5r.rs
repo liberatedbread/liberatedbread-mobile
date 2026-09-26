@@ -33,13 +33,14 @@
 //! from, and a write can then check it is going back to the same kind of
 //! radio.
 
-use super::codeplug::{decode_tone, encode_tone, ChannelRecord};
+use super::codeplug::{decode_bcd, decode_tone, encode_bcd, encode_tone, ChannelRecord};
+pub use super::Block;
+use super::{read_reply_len, REPLY_HEADER_LEN};
 use crate::error::ProtocolError;
 
 // ── The conversation ────────────────────────────────────────────────────────
 
 pub const BAUD_RATE: u32 = 9600;
-pub const ACK: u8 = 0x06;
 
 /// Sent after an acknowledged magic, to ask for the ident.
 pub const IDENT_REQUEST: u8 = 0x02;
@@ -62,9 +63,6 @@ pub const SMALL_READ_BLOCK_LEN: u8 = 0x10;
 
 /// Every write is this size.
 pub const WRITE_BLOCK_LEN: u8 = 0x10;
-
-/// `X`, two address bytes and a length.
-pub const REPLY_HEADER_LEN: usize = 4;
 
 // ── The image ───────────────────────────────────────────────────────────────
 
@@ -122,7 +120,6 @@ const MAGIC_A58: [u8; 7] = [0x50, 0xBB, 0xFF, 0x20, 0x14, 0x04, 0x13];
 pub struct Uv5rModel {
     /// Matches the Dart profile id, as in [`super::models`].
     pub id: &'static str,
-    pub display_name: &'static str,
 
     /// Tried in order. A radio acknowledges one and ignores the rest.
     pub idents: &'static [[u8; 7]],
@@ -138,7 +135,6 @@ pub struct Uv5rModel {
 /// hence the UV-82's ident in its list.
 pub const UV5R: Uv5rModel = Uv5rModel {
     id: "uv5r",
-    display_name: "Baofeng UV-5R",
     idents: &[MAGIC_291, MAGIC_ORIGINAL, MAGIC_UV82],
     tri_power: false,
     always_new_limits: false,
@@ -146,7 +142,6 @@ pub const UV5R: Uv5rModel = Uv5rModel {
 
 pub const BF_F8HP: Uv5rModel = Uv5rModel {
     id: "bf-f8hp",
-    display_name: "BaoFeng BF-F8HP",
     idents: &[MAGIC_291, MAGIC_A58],
     tri_power: true,
     always_new_limits: true,
@@ -155,7 +150,6 @@ pub const BF_F8HP: Uv5rModel = Uv5rModel {
 /// Reported to program exactly as a BF-F8HP. Unconfirmed; the app says so.
 pub const AR152: Uv5rModel = Uv5rModel {
     id: "ar-152",
-    display_name: "Baofeng AR-152",
     idents: &[MAGIC_291, MAGIC_A58],
     tri_power: true,
     always_new_limits: true,
@@ -208,11 +202,6 @@ pub fn parse_ident(reply: &[u8]) -> Result<[u8; IDENT_LEN], ProtocolError> {
 pub fn read_command(addr: u16, len: u8) -> [u8; 4] {
     let [hi, lo] = addr.to_be_bytes();
     [CMD_READ, hi, lo, len]
-}
-
-/// The bytes a read's answer occupies, not counting the leading 0x06.
-pub fn read_reply_len(len: u8) -> usize {
-    REPLY_HEADER_LEN + len as usize
 }
 
 /// The data from a read's answer, after checking it answers this read.
@@ -284,14 +273,6 @@ pub fn parse_probe(firmware_block: &[u8], drop_block: &[u8]) -> Result<Probe, Pr
         firmware: decode_text(firmware),
         drops_byte: *flag == 0xFF,
     })
-}
-
-/// One read: where on the radio, how long, and where it lands in the image.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Block {
-    pub addr: u16,
-    pub len: u8,
-    pub image_offset: usize,
 }
 
 /// Where a radio address lives in the image, or `None` if it is in neither
@@ -503,34 +484,6 @@ fn name_range(slot: usize) -> std::ops::Range<usize> {
     start..start + NAME_SLOT_LEN
 }
 
-/// Little-endian BCD, two digits a byte, lowest first. `None` for a nibble
-/// that is not a digit.
-fn decode_lbcd(bytes: &[u8]) -> Option<u32> {
-    let mut value = 0u32;
-    for &byte in bytes.iter().rev() {
-        let (hi, lo) = (byte >> 4, byte & 0x0F);
-        if hi > 9 || lo > 9 {
-            return None;
-        }
-        value = value * 100 + (hi as u32) * 10 + lo as u32;
-    }
-    Some(value)
-}
-
-fn encode_lbcd(mut value: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
-    for byte in out.iter_mut() {
-        let pair = value % 100;
-        *byte = (((pair / 10) << 4) | (pair % 10)) as u8;
-        value /= 100;
-    }
-    if value != 0 {
-        return Err(ProtocolError::MalformedReply(
-            "the value is too large for its field".to_string(),
-        ));
-    }
-    Ok(())
-}
-
 /// Big-endian BCD, as the band limits store whole megahertz.
 fn decode_bbcd(bytes: &[u8]) -> Option<u16> {
     let mut value = 0u16;
@@ -563,13 +516,15 @@ fn decode_text(raw: &[u8]) -> String {
         .to_string()
 }
 
-fn frequency_field(hz: u32) -> Result<u32, ProtocolError> {
+/// A frequency in the same four-byte field the newer family uses, refused
+/// rather than rounded when it is finer than the ten hertz the field holds.
+fn encode_frequency(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
     if hz % 10 != 0 {
         return Err(ProtocolError::MalformedReply(format!(
             "{hz} Hz is finer than the 10 Hz this radio stores"
         )));
     }
-    Ok(hz / 10)
+    encode_bcd(hz, out)
 }
 
 /// The channels in an image, one entry per slot, `None` for an empty one.
@@ -587,12 +542,12 @@ fn decode_channel(record: &[u8], name: &[u8]) -> Option<ChannelRecord> {
     if record[0] == 0xFF {
         return None;
     }
-    let rx_freq_hz = decode_lbcd(&record[0..4])? * 10;
+    let rx_freq_hz = decode_bcd(&record[0..4])?;
     let rx_only = record[4..8].iter().all(|&b| b == 0xFF);
     let tx_freq_hz = if rx_only {
         rx_freq_hz
     } else {
-        decode_lbcd(&record[4..8])? * 10
+        decode_bcd(&record[4..8])?
     };
     let power_level = record[14] & 0x03;
     Some(ChannelRecord {
@@ -651,11 +606,11 @@ fn encode_channel(
     let occupied = previous[0] != 0xFF;
 
     let mut record = [0u8; RECORD_LEN];
-    encode_lbcd(frequency_field(channel.rx_freq_hz)?, &mut record[0..4])?;
+    encode_frequency(channel.rx_freq_hz, &mut record[0..4])?;
     if channel.rx_only {
         record[4..8].fill(0xFF);
     } else {
-        encode_lbcd(frequency_field(channel.tx_freq_hz)?, &mut record[4..8])?;
+        encode_frequency(channel.tx_freq_hz, &mut record[4..8])?;
     }
     record[8..10].copy_from_slice(&encode_tone(channel.rx_tone)?.to_le_bytes());
     record[10..12].copy_from_slice(&encode_tone(channel.tx_tone)?.to_le_bytes());
@@ -784,25 +739,27 @@ pub fn apply_band_limits(
     Ok(out)
 }
 
+/// A blank image as a radio might hand it over: an ident, every slot empty,
+/// and a firmware string in the aux block. For this crate's tests, here and
+/// in the bridge's.
+#[cfg(test)]
+pub(crate) fn image_with_firmware(firmware: &str) -> Vec<u8> {
+    let mut image = vec![0u8; IMAGE_LEN];
+    image[..IDENT_LEN].copy_from_slice(&[0xAA, 0x30, 0x76, 0x04, 0x00, 0x05, 0x20, 0xDD]);
+    for slot in 0..CHANNEL_COUNT {
+        image[record_range(slot)].fill(0xFF);
+        image[name_range(slot)].fill(0xFF);
+    }
+    let start = image_offset(FIRMWARE_ADDR).unwrap();
+    image[start..start + FIRMWARE_LEN].fill(0xFF);
+    image[start..start + firmware.len()].copy_from_slice(firmware.as_bytes());
+    image
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::protocol::radio::codeplug::Tone;
-
-    /// A blank image as a radio might hand it over: an ident, every slot
-    /// empty, and a firmware string in the aux block.
-    fn image_with_firmware(firmware: &str) -> Vec<u8> {
-        let mut image = vec![0u8; IMAGE_LEN];
-        image[..IDENT_LEN].copy_from_slice(&[0xAA, 0x30, 0x76, 0x04, 0x00, 0x05, 0x20, 0xDD]);
-        for slot in 0..CHANNEL_COUNT {
-            image[record_range(slot)].fill(0xFF);
-            image[name_range(slot)].fill(0xFF);
-        }
-        let start = image_offset(FIRMWARE_ADDR).unwrap();
-        image[start..start + FIRMWARE_LEN].fill(0xFF);
-        image[start..start + firmware.len()].copy_from_slice(firmware.as_bytes());
-        image
-    }
 
     fn blank() -> Vec<u8> {
         image_with_firmware("BFB297")
