@@ -52,8 +52,14 @@ native library isn't bundled (e.g. test builds that skip cargokit);
 
 ```
 HomeShell ┬ Nearby → ScanScreen  → (tap device) → DeviceScreen
+          │                      → (tap radio)  → RadioDeviceScreen
           ├ Saved  → SavedDevicesScreen → (tap device) → DeviceScreen
-          └ Wi-Fi  → WifiScanScreen → (tap device) → details sheet
+          │                             → (tap radio)  → RadioDeviceScreen
+          ├ Groups → GroupsScreen
+          ├ Wi-Fi  → WifiScanScreen → (tap device) → details sheet
+          ├ USB    → UsbScanScreen → (tap cable) → RadioDeviceScreen
+          └ Radio  → RadioScreen → ChannelPlanScreen
+                                 → (Program radio) → a saved radio's RadioDeviceScreen
 
 DeviceScreen → (Find device) → FindDeviceScreen
 ```
@@ -290,11 +296,15 @@ registers, and updates the persisted Home Assistant configuration.
 
 ### HomeShell — `lib/screens/home_shell.dart`
 
-The app's three top-level destinations, behind a bottom navigation bar:
-**Nearby** (BLE scan), **Saved** (paired devices), **Wi-Fi** (local network
-scan). An `IndexedStack` rather than a swapped child, because each tab owns a
-scan in progress and a list of results — rebuilding those every time somebody
-glances at another tab would throw away a scan they are in the middle of.
+The app's six top-level destinations, behind a bottom navigation bar:
+**Nearby** (BLE scan, including radios that program over their own
+Bluetooth), **Saved** (paired devices and radios), **Groups**, **Wi-Fi**
+(local network scan), **USB** (programming cables) and **Radio** (channel
+plans and suggestions). An `IndexedStack` rather than a swapped child, because
+each tab owns a scan in progress and a list of results — rebuilding those
+every time somebody glances at another tab would throw away a scan they are in
+the middle of. Six is one past what Material suggests for a bottom bar; each
+label is one short word so they still fit a phone.
 
 ### ScanScreen — `lib/screens/scan_screen.dart`
 
@@ -433,6 +443,35 @@ Both are pinned by `test/platform/`. A denied local-network permission also
 looks exactly like an empty network from inside the app, so on Apple platforms
 that case raises `LocalNetworkDeniedException` and gets its own guidance with a
 settings link rather than a "no devices found" dead end.
+
+### UsbScanScreen — `lib/screens/usb_scan_screen.dart`
+
+The USB tab: programming cables plugged into this device, each named by its
+USB-serial bridge chip (`lib/core/usb_bridges.dart`, which also carries the
+warning counterfeit PL2303 chips deserve). A cable is all that can be listed —
+the radio on its far end only says what it is once it is spoken to — so a tap
+opens `RadioDeviceScreen` for whatever is on the other end. Listing waits until
+the tab is on screen, and happens again each time it comes back.
+
+The ports come from a `SerialPortService` (`lib/services/serial_port_service.dart`)
+chosen per platform: `usb_serial` over the USB host stack on Android, the Rust
+core's `serialport` on Linux and macOS, and on iOS a service that lists nothing
+and says why. Apple gives apps no route to a USB-serial adapter, so on iOS the
+tab explains that and points at what works instead.
+
+### RadioDeviceScreen — `lib/screens/radio_device_screen.dart`
+
+One radio, opened from Nearby, Saved or the USB tab: check it answers, write a
+channel plan, read its channels into a new plan, restore a backup. Every
+session that writes reads the radio and saves a backup first. A plan's
+"Program radio" does not search for radios itself: it offers the saved radios
+that can take the plan, and opens the chosen one here with the plan ready to
+write — a radio is found where every device is, and saved once it answers. For a radio that
+stores its own transmit limits (the UV-5R family, over a cable) it can also
+widen them — behind the same acknowledgement the Radio tab's switch uses — and
+put back the limits the model had before this app first widened one. Nothing
+in the UV-5R codec has been confirmed on a real radio yet, and the screen says
+so.
 
 ### DeviceScreen — `lib/screens/device_screen.dart`
 

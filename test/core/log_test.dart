@@ -202,7 +202,8 @@ void main() {
       Log.packs.info('f');
       Log.ads.info('g');
       Log.app.info('h');
-      Log.ui.info('i');
+      Log.radio.info('i');
+      Log.ui.info('j');
 
       expect(records.map((r) => r.category), [
         'ble',
@@ -214,6 +215,7 @@ void main() {
         'packs',
         'ads',
         'app',
+        'radio',
         'ui',
       ]);
     });
@@ -231,6 +233,7 @@ void main() {
         'packs',
         'ads',
         'app',
+        'radio',
         'ui',
       ]);
     });

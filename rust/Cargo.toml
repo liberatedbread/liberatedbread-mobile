@@ -91,6 +91,17 @@ base64 = "0.22"
 # the sticker Wi-Fi password, base64-encoded).
 sha2 = "0.10"
 
+# Desktop serial ports, for programming a radio over a USB cable on Linux and
+# macOS — the one transport in the Rust core (AGENTS.md says why). MPL-2.0:
+# copyleft per file, with no relinking obligation, and chosen over
+# libserialport (LGPL-3.0, the usual Dart route) for exactly that. Targeted,
+# so Android and iOS builds never see it: Android reaches cables through its
+# USB host stack from Dart, and iOS has no route. `libudev` is off, so Linux
+# ports are enumerated from /sys/class/tty and the build needs no system
+# library; see src/serial.rs for the one guard that trade needs.
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+serialport = { version = "4.10", default-features = false }
+
 # Release profile tuned for the mobile cdylib/staticlib the app ships: the
 # library rides inside every APK/IPA download, so binary size wins over the
 # last few percent of throughput (the hot path is BLE I/O, not CPU).

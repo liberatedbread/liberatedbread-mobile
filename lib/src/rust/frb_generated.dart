@@ -7,6 +7,8 @@
 
 import 'api/device_api.dart';
 import 'api/mock_api.dart';
+import 'api/radio_api.dart';
+import 'api/serial_api.dart';
 import 'api/spec_handle.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -69,7 +71,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 49719459;
+  int get rustContentHash => -274912199;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -535,6 +537,56 @@ abstract class RustLibApi extends BaseApi {
     required int localNowSecs,
   });
 
+  Future<List<RadioChannelDto>> crateApiRadioApiRadioDecodeChannels({
+    required List<int> image,
+    required String modelId,
+  });
+
+  Future<Uint8List> crateApiRadioApiRadioEncodeChannels({
+    required List<int> image,
+    required List<RadioChannelDto> channels,
+    required String modelId,
+  });
+
+  Future<List<HandshakeStepDto>> crateApiRadioApiRadioHandshakeSteps();
+
+  Future<Uint8List> crateApiRadioApiRadioIdentMagic({required String modelId});
+
+  Future<bool> crateApiRadioApiRadioImageIsComplete({
+    required int imageLen,
+    required String modelId,
+  });
+
+  Future<bool> crateApiRadioApiRadioIsAck({required List<int> reply});
+
+  Future<List<RadioModelDto>> crateApiRadioApiRadioModels();
+
+  Future<Uint8List> crateApiRadioApiRadioParseReadReply({
+    required List<int> reply,
+    required int addr,
+    required int len,
+  });
+
+  Future<Uint8List> crateApiRadioApiRadioReadCommand({
+    required int addr,
+    required int len,
+  });
+
+  Future<List<CodeplugBlockDto>> crateApiRadioApiRadioReadPlan({
+    required String modelId,
+  });
+
+  Future<int> crateApiRadioApiRadioReadReplyLen({required int len});
+
+  Future<Uint8List> crateApiRadioApiRadioWriteCommand({
+    required int addr,
+    required List<int> data,
+  });
+
+  Future<List<CodeplugBlockDto>> crateApiRadioApiRadioWritePlan({
+    required String modelId,
+  });
+
   Future<NetworkReadingDto?> crateApiDeviceApiReadNetworkEntity({
     required String specYaml,
     required String entityName,
@@ -676,6 +728,28 @@ abstract class RustLibApi extends BaseApi {
     required String payload,
   });
 
+  Future<void> crateApiSerialApiSerialClose({required int handle});
+
+  Future<void> crateApiSerialApiSerialDiscardInput({required int handle});
+
+  Future<List<SerialPortInfoDto>> crateApiSerialApiSerialListPorts();
+
+  Future<int> crateApiSerialApiSerialOpen({
+    required String path,
+    required int baudRate,
+  });
+
+  Future<SerialReadDto> crateApiSerialApiSerialReadExact({
+    required int handle,
+    required int len,
+    required int timeoutMs,
+  });
+
+  Future<void> crateApiSerialApiSerialWrite({
+    required int handle,
+    required List<int> data,
+  });
+
   Future<SetupInstructionsDto?> crateApiDeviceApiSetupInstructions({
     required String specYaml,
   });
@@ -694,6 +768,89 @@ abstract class RustLibApi extends BaseApi {
 
   Future<TuyaBroadcastDto?> crateApiDeviceApiTuyaParseBroadcast({
     required List<int> datagram,
+  });
+
+  Future<Uint8List> crateApiRadioApiUv5RApplyBandLimits({
+    required List<int> image,
+    required BandLimitsDto limits,
+    required String modelId,
+  });
+
+  Future<int> crateApiRadioApiUv5RBaudRate();
+
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RChangedBlocks({
+    required List<int> base,
+    required List<int> updated,
+    required String modelId,
+  });
+
+  Future<List<RadioChannelDto>> crateApiRadioApiUv5RDecodeChannels({
+    required List<int> image,
+    required String modelId,
+  });
+
+  Future<Uint8List> crateApiRadioApiUv5REncodeChannels({
+    required List<int> image,
+    required List<RadioChannelDto> channels,
+    required String modelId,
+  });
+
+  Future<String> crateApiRadioApiUv5RFirmware({required List<int> image});
+
+  Future<List<Uint8List>> crateApiRadioApiUv5RIdentMagics({
+    required String modelId,
+  });
+
+  Future<bool> crateApiRadioApiUv5RIdentReplyComplete({
+    required List<int> reply,
+  });
+
+  Future<int> crateApiRadioApiUv5RIdentRequest();
+
+  Future<int> crateApiRadioApiUv5RImageLen();
+
+  Future<Uint8List> crateApiRadioApiUv5RParseIdent({required List<int> reply});
+
+  Future<Uv5rProbeDto> crateApiRadioApiUv5RParseProbe({
+    required List<int> firmwareBlock,
+    required List<int> dropBlock,
+  });
+
+  Future<Uint8List> crateApiRadioApiUv5RParseReadReply({
+    required List<int> reply,
+    required int addr,
+    required int len,
+  });
+
+  Future<List<ReadRequestDto>> crateApiRadioApiUv5RProbeReads();
+
+  Future<BandLimitsDto> crateApiRadioApiUv5RReadBandLimits({
+    required List<int> image,
+    required String modelId,
+  });
+
+  Future<Uint8List> crateApiRadioApiUv5RReadCommand({
+    required int addr,
+    required int len,
+  });
+
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RReadPlan({
+    required bool dropsByte,
+  });
+
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RRestorePlan({
+    required List<int> image,
+    required String modelId,
+  });
+
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RVerifyPlan({
+    required List<CodeplugBlockDto> changed,
+    required bool dropsByte,
+  });
+
+  Future<Uint8List> crateApiRadioApiUv5RWriteCommand({
+    required int addr,
+    required List<int> data,
   });
 
   Future<WebSocketSurfaceDto?> crateApiDeviceApiWebsocketSurface({
@@ -4061,6 +4218,421 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<List<RadioChannelDto>> crateApiRadioApiRadioDecodeChannels({
+    required List<int> image,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(image, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 93,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_radio_channel_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiRadioDecodeChannelsConstMeta,
+        argValues: [image, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioDecodeChannelsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'radio_decode_channels',
+        argNames: ['image', 'modelId'],
+      );
+
+  @override
+  Future<Uint8List> crateApiRadioApiRadioEncodeChannels({
+    required List<int> image,
+    required List<RadioChannelDto> channels,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(image, serializer);
+          sse_encode_list_radio_channel_dto(channels, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 94,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiRadioEncodeChannelsConstMeta,
+        argValues: [image, channels, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioEncodeChannelsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'radio_encode_channels',
+        argNames: ['image', 'channels', 'modelId'],
+      );
+
+  @override
+  Future<List<HandshakeStepDto>> crateApiRadioApiRadioHandshakeSteps() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 95,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_handshake_step_dto,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiRadioHandshakeStepsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioHandshakeStepsConstMeta =>
+      const TaskConstMeta(debugName: 'radio_handshake_steps', argNames: []);
+
+  @override
+  Future<Uint8List> crateApiRadioApiRadioIdentMagic({required String modelId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 96,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiRadioIdentMagicConstMeta,
+        argValues: [modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioIdentMagicConstMeta =>
+      const TaskConstMeta(
+        debugName: 'radio_ident_magic',
+        argNames: ['modelId'],
+      );
+
+  @override
+  Future<bool> crateApiRadioApiRadioImageIsComplete({
+    required int imageLen,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(imageLen, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 97,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiRadioImageIsCompleteConstMeta,
+        argValues: [imageLen, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioImageIsCompleteConstMeta =>
+      const TaskConstMeta(
+        debugName: 'radio_image_is_complete',
+        argNames: ['imageLen', 'modelId'],
+      );
+
+  @override
+  Future<bool> crateApiRadioApiRadioIsAck({required List<int> reply}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(reply, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 98,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiRadioIsAckConstMeta,
+        argValues: [reply],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioIsAckConstMeta =>
+      const TaskConstMeta(debugName: 'radio_is_ack', argNames: ['reply']);
+
+  @override
+  Future<List<RadioModelDto>> crateApiRadioApiRadioModels() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 99,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_radio_model_dto,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiRadioModelsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioModelsConstMeta =>
+      const TaskConstMeta(debugName: 'radio_models', argNames: []);
+
+  @override
+  Future<Uint8List> crateApiRadioApiRadioParseReadReply({
+    required List<int> reply,
+    required int addr,
+    required int len,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(reply, serializer);
+          sse_encode_u_16(addr, serializer);
+          sse_encode_u_8(len, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 100,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiRadioParseReadReplyConstMeta,
+        argValues: [reply, addr, len],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioParseReadReplyConstMeta =>
+      const TaskConstMeta(
+        debugName: 'radio_parse_read_reply',
+        argNames: ['reply', 'addr', 'len'],
+      );
+
+  @override
+  Future<Uint8List> crateApiRadioApiRadioReadCommand({
+    required int addr,
+    required int len,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_16(addr, serializer);
+          sse_encode_u_8(len, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 101,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiRadioReadCommandConstMeta,
+        argValues: [addr, len],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioReadCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'radio_read_command',
+        argNames: ['addr', 'len'],
+      );
+
+  @override
+  Future<List<CodeplugBlockDto>> crateApiRadioApiRadioReadPlan({
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 102,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_codeplug_block_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiRadioReadPlanConstMeta,
+        argValues: [modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioReadPlanConstMeta =>
+      const TaskConstMeta(debugName: 'radio_read_plan', argNames: ['modelId']);
+
+  @override
+  Future<int> crateApiRadioApiRadioReadReplyLen({required int len}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_8(len, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 103,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_32,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiRadioReadReplyLenConstMeta,
+        argValues: [len],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioReadReplyLenConstMeta =>
+      const TaskConstMeta(debugName: 'radio_read_reply_len', argNames: ['len']);
+
+  @override
+  Future<Uint8List> crateApiRadioApiRadioWriteCommand({
+    required int addr,
+    required List<int> data,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_16(addr, serializer);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 104,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiRadioWriteCommandConstMeta,
+        argValues: [addr, data],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioWriteCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'radio_write_command',
+        argNames: ['addr', 'data'],
+      );
+
+  @override
+  Future<List<CodeplugBlockDto>> crateApiRadioApiRadioWritePlan({
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 105,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_codeplug_block_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiRadioWritePlanConstMeta,
+        argValues: [modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiRadioWritePlanConstMeta =>
+      const TaskConstMeta(debugName: 'radio_write_plan', argNames: ['modelId']);
+
+  @override
   Future<NetworkReadingDto?> crateApiDeviceApiReadNetworkEntity({
     required String specYaml,
     required String entityName,
@@ -4076,7 +4648,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 93,
+            funcId: 106,
             port: port_,
           );
         },
@@ -4115,7 +4687,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 94,
+            funcId: 107,
             port: port_,
           );
         },
@@ -4150,7 +4722,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 95,
+            funcId: 108,
             port: port_,
           );
         },
@@ -4189,7 +4761,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 96,
+            funcId: 109,
             port: port_,
           );
         },
@@ -4228,7 +4800,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 97,
+            funcId: 110,
             port: port_,
           );
         },
@@ -4265,7 +4837,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 98,
+            funcId: 111,
             port: port_,
           );
         },
@@ -4302,7 +4874,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 99,
+            funcId: 112,
             port: port_,
           );
         },
@@ -4339,7 +4911,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 100,
+            funcId: 113,
             port: port_,
           );
         },
@@ -4376,7 +4948,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 101,
+            funcId: 114,
             port: port_,
           );
         },
@@ -4411,7 +4983,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 102,
+            funcId: 115,
             port: port_,
           );
         },
@@ -4448,7 +5020,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 103,
+            funcId: 116,
             port: port_,
           );
         },
@@ -4489,7 +5061,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 104,
+            funcId: 117,
             port: port_,
           );
         },
@@ -4535,7 +5107,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 105,
+            funcId: 118,
             port: port_,
           );
         },
@@ -4574,7 +5146,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 106,
+            funcId: 119,
             port: port_,
           );
         },
@@ -4609,7 +5181,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 107,
+            funcId: 120,
             port: port_,
           );
         },
@@ -4648,7 +5220,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 108,
+            funcId: 121,
             port: port_,
           );
         },
@@ -4685,7 +5257,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 109,
+            funcId: 122,
             port: port_,
           );
         },
@@ -4735,7 +5307,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 110,
+            funcId: 123,
             port: port_,
           );
         },
@@ -4790,7 +5362,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 111,
+            funcId: 124,
             port: port_,
           );
         },
@@ -4820,7 +5392,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 112,
+            funcId: 125,
             port: port_,
           );
         },
@@ -4850,7 +5422,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 113,
+            funcId: 126,
             port: port_,
           );
         },
@@ -4883,7 +5455,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 114,
+            funcId: 127,
             port: port_,
           );
         },
@@ -4913,7 +5485,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 115,
+            funcId: 128,
             port: port_,
           );
         },
@@ -4943,7 +5515,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 116,
+            funcId: 129,
             port: port_,
           );
         },
@@ -4965,6 +5537,199 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiSerialApiSerialClose({required int handle}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(handle, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 130,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSerialApiSerialCloseConstMeta,
+        argValues: [handle],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSerialApiSerialCloseConstMeta =>
+      const TaskConstMeta(debugName: 'serial_close', argNames: ['handle']);
+
+  @override
+  Future<void> crateApiSerialApiSerialDiscardInput({required int handle}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(handle, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 131,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSerialApiSerialDiscardInputConstMeta,
+        argValues: [handle],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSerialApiSerialDiscardInputConstMeta =>
+      const TaskConstMeta(
+        debugName: 'serial_discard_input',
+        argNames: ['handle'],
+      );
+
+  @override
+  Future<List<SerialPortInfoDto>> crateApiSerialApiSerialListPorts() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 132,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_serial_port_info_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSerialApiSerialListPortsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSerialApiSerialListPortsConstMeta =>
+      const TaskConstMeta(debugName: 'serial_list_ports', argNames: []);
+
+  @override
+  Future<int> crateApiSerialApiSerialOpen({
+    required String path,
+    required int baudRate,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          sse_encode_u_32(baudRate, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 133,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_32,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSerialApiSerialOpenConstMeta,
+        argValues: [path, baudRate],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSerialApiSerialOpenConstMeta =>
+      const TaskConstMeta(
+        debugName: 'serial_open',
+        argNames: ['path', 'baudRate'],
+      );
+
+  @override
+  Future<SerialReadDto> crateApiSerialApiSerialReadExact({
+    required int handle,
+    required int len,
+    required int timeoutMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(handle, serializer);
+          sse_encode_u_32(len, serializer);
+          sse_encode_u_32(timeoutMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 134,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_serial_read_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSerialApiSerialReadExactConstMeta,
+        argValues: [handle, len, timeoutMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSerialApiSerialReadExactConstMeta =>
+      const TaskConstMeta(
+        debugName: 'serial_read_exact',
+        argNames: ['handle', 'len', 'timeoutMs'],
+      );
+
+  @override
+  Future<void> crateApiSerialApiSerialWrite({
+    required int handle,
+    required List<int> data,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_32(handle, serializer);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 135,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiSerialApiSerialWriteConstMeta,
+        argValues: [handle, data],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSerialApiSerialWriteConstMeta =>
+      const TaskConstMeta(
+        debugName: 'serial_write',
+        argNames: ['handle', 'data'],
+      );
+
+  @override
   Future<SetupInstructionsDto?> crateApiDeviceApiSetupInstructions({
     required String specYaml,
   }) {
@@ -4976,7 +5741,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 117,
+            funcId: 136,
             port: port_,
           );
         },
@@ -5009,7 +5774,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 118,
+            funcId: 137,
             port: port_,
           );
         },
@@ -5042,7 +5807,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 119,
+            funcId: 138,
             port: port_,
           );
         },
@@ -5075,7 +5840,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 120,
+            funcId: 139,
             port: port_,
           );
         },
@@ -5108,7 +5873,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 121,
+            funcId: 140,
             port: port_,
           );
         },
@@ -5130,6 +5895,659 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<Uint8List> crateApiRadioApiUv5RApplyBandLimits({
+    required List<int> image,
+    required BandLimitsDto limits,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(image, serializer);
+          sse_encode_box_autoadd_band_limits_dto(limits, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 141,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RApplyBandLimitsConstMeta,
+        argValues: [image, limits, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RApplyBandLimitsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_apply_band_limits',
+        argNames: ['image', 'limits', 'modelId'],
+      );
+
+  @override
+  Future<int> crateApiRadioApiUv5RBaudRate() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 142,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_32,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiUv5RBaudRateConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RBaudRateConstMeta =>
+      const TaskConstMeta(debugName: 'uv5r_baud_rate', argNames: []);
+
+  @override
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RChangedBlocks({
+    required List<int> base,
+    required List<int> updated,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(base, serializer);
+          sse_encode_list_prim_u_8_loose(updated, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 143,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_codeplug_block_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RChangedBlocksConstMeta,
+        argValues: [base, updated, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RChangedBlocksConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_changed_blocks',
+        argNames: ['base', 'updated', 'modelId'],
+      );
+
+  @override
+  Future<List<RadioChannelDto>> crateApiRadioApiUv5RDecodeChannels({
+    required List<int> image,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(image, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 144,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_radio_channel_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RDecodeChannelsConstMeta,
+        argValues: [image, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RDecodeChannelsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_decode_channels',
+        argNames: ['image', 'modelId'],
+      );
+
+  @override
+  Future<Uint8List> crateApiRadioApiUv5REncodeChannels({
+    required List<int> image,
+    required List<RadioChannelDto> channels,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(image, serializer);
+          sse_encode_list_radio_channel_dto(channels, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 145,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5REncodeChannelsConstMeta,
+        argValues: [image, channels, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5REncodeChannelsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_encode_channels',
+        argNames: ['image', 'channels', 'modelId'],
+      );
+
+  @override
+  Future<String> crateApiRadioApiUv5RFirmware({required List<int> image}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(image, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 146,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RFirmwareConstMeta,
+        argValues: [image],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RFirmwareConstMeta =>
+      const TaskConstMeta(debugName: 'uv5r_firmware', argNames: ['image']);
+
+  @override
+  Future<List<Uint8List>> crateApiRadioApiUv5RIdentMagics({
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 147,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RIdentMagicsConstMeta,
+        argValues: [modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RIdentMagicsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_ident_magics',
+        argNames: ['modelId'],
+      );
+
+  @override
+  Future<bool> crateApiRadioApiUv5RIdentReplyComplete({
+    required List<int> reply,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(reply, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 148,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiUv5RIdentReplyCompleteConstMeta,
+        argValues: [reply],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RIdentReplyCompleteConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_ident_reply_complete',
+        argNames: ['reply'],
+      );
+
+  @override
+  Future<int> crateApiRadioApiUv5RIdentRequest() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 149,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_8,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiUv5RIdentRequestConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RIdentRequestConstMeta =>
+      const TaskConstMeta(debugName: 'uv5r_ident_request', argNames: []);
+
+  @override
+  Future<int> crateApiRadioApiUv5RImageLen() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 150,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_u_32,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiUv5RImageLenConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RImageLenConstMeta =>
+      const TaskConstMeta(debugName: 'uv5r_image_len', argNames: []);
+
+  @override
+  Future<Uint8List> crateApiRadioApiUv5RParseIdent({required List<int> reply}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(reply, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 151,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RParseIdentConstMeta,
+        argValues: [reply],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RParseIdentConstMeta =>
+      const TaskConstMeta(debugName: 'uv5r_parse_ident', argNames: ['reply']);
+
+  @override
+  Future<Uv5rProbeDto> crateApiRadioApiUv5RParseProbe({
+    required List<int> firmwareBlock,
+    required List<int> dropBlock,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(firmwareBlock, serializer);
+          sse_encode_list_prim_u_8_loose(dropBlock, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 152,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_uv_5_r_probe_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RParseProbeConstMeta,
+        argValues: [firmwareBlock, dropBlock],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RParseProbeConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_parse_probe',
+        argNames: ['firmwareBlock', 'dropBlock'],
+      );
+
+  @override
+  Future<Uint8List> crateApiRadioApiUv5RParseReadReply({
+    required List<int> reply,
+    required int addr,
+    required int len,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(reply, serializer);
+          sse_encode_u_16(addr, serializer);
+          sse_encode_u_8(len, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 153,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RParseReadReplyConstMeta,
+        argValues: [reply, addr, len],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RParseReadReplyConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_parse_read_reply',
+        argNames: ['reply', 'addr', 'len'],
+      );
+
+  @override
+  Future<List<ReadRequestDto>> crateApiRadioApiUv5RProbeReads() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 154,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_read_request_dto,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiUv5RProbeReadsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RProbeReadsConstMeta =>
+      const TaskConstMeta(debugName: 'uv5r_probe_reads', argNames: []);
+
+  @override
+  Future<BandLimitsDto> crateApiRadioApiUv5RReadBandLimits({
+    required List<int> image,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(image, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 155,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_band_limits_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RReadBandLimitsConstMeta,
+        argValues: [image, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RReadBandLimitsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_read_band_limits',
+        argNames: ['image', 'modelId'],
+      );
+
+  @override
+  Future<Uint8List> crateApiRadioApiUv5RReadCommand({
+    required int addr,
+    required int len,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_16(addr, serializer);
+          sse_encode_u_8(len, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 156,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiUv5RReadCommandConstMeta,
+        argValues: [addr, len],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RReadCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_read_command',
+        argNames: ['addr', 'len'],
+      );
+
+  @override
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RReadPlan({
+    required bool dropsByte,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_bool(dropsByte, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 157,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_codeplug_block_dto,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRadioApiUv5RReadPlanConstMeta,
+        argValues: [dropsByte],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RReadPlanConstMeta =>
+      const TaskConstMeta(debugName: 'uv5r_read_plan', argNames: ['dropsByte']);
+
+  @override
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RRestorePlan({
+    required List<int> image,
+    required String modelId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(image, serializer);
+          sse_encode_String(modelId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 158,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_codeplug_block_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RRestorePlanConstMeta,
+        argValues: [image, modelId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RRestorePlanConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_restore_plan',
+        argNames: ['image', 'modelId'],
+      );
+
+  @override
+  Future<List<CodeplugBlockDto>> crateApiRadioApiUv5RVerifyPlan({
+    required List<CodeplugBlockDto> changed,
+    required bool dropsByte,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_codeplug_block_dto(changed, serializer);
+          sse_encode_bool(dropsByte, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 159,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_codeplug_block_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RVerifyPlanConstMeta,
+        argValues: [changed, dropsByte],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RVerifyPlanConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_verify_plan',
+        argNames: ['changed', 'dropsByte'],
+      );
+
+  @override
+  Future<Uint8List> crateApiRadioApiUv5RWriteCommand({
+    required int addr,
+    required List<int> data,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_16(addr, serializer);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 160,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiRadioApiUv5RWriteCommandConstMeta,
+        argValues: [addr, data],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRadioApiUv5RWriteCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'uv5r_write_command',
+        argNames: ['addr', 'data'],
+      );
+
+  @override
   Future<WebSocketSurfaceDto?> crateApiDeviceApiWebsocketSurface({
     required String specYaml,
   }) {
@@ -5141,7 +6559,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 122,
+            funcId: 161,
             port: port_,
           );
         },
@@ -5174,7 +6592,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 123,
+            funcId: 162,
             port: port_,
           );
         },
@@ -5313,6 +6731,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BandLimitDto dco_decode_band_limit_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return BandLimitDto(
+      txEnabled: dco_decode_bool(arr[0]),
+      lowerMhz: dco_decode_u_16(arr[1]),
+      upperMhz: dco_decode_u_16(arr[2]),
+    );
+  }
+
+  @protected
+  BandLimitsDto dco_decode_band_limits_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return BandLimitsDto(
+      vhf: dco_decode_band_limit_dto(arr[0]),
+      uhf: dco_decode_band_limit_dto(arr[1]),
+      layout: dco_decode_String(arr[2]),
+    );
+  }
+
+  @protected
   BleHandshakeDto dco_decode_ble_handshake_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -5364,6 +6808,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool dco_decode_bool(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as bool;
+  }
+
+  @protected
+  BandLimitsDto dco_decode_box_autoadd_band_limits_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_band_limits_dto(raw);
   }
 
   @protected
@@ -5678,6 +7128,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CodeplugBlockDto dco_decode_codeplug_block_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return CodeplugBlockDto(
+      addr: dco_decode_u_16(arr[0]),
+      imageOffset: dco_decode_u_32(arr[1]),
+      len: dco_decode_u_8(arr[2]),
+    );
+  }
+
+  @protected
   CommandDto dco_decode_command_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -5886,6 +7349,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       fieldType: dco_decode_String(arr[1]),
       offset: dco_decode_u_32(arr[2]),
       length: dco_decode_u_32(arr[3]),
+    );
+  }
+
+  @protected
+  HandshakeStepDto dco_decode_handshake_step_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return HandshakeStepDto(
+      request: dco_decode_list_prim_u_8_strict(arr[0]),
+      expectedReplyLen: dco_decode_u_32(arr[1]),
     );
   }
 
@@ -6108,6 +7583,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<CodeplugBlockDto> dco_decode_list_codeplug_block_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_codeplug_block_dto).toList();
+  }
+
+  @protected
   List<CommandDto> dco_decode_list_command_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_command_dto).toList();
@@ -6157,6 +7638,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_format_field_dto).toList();
+  }
+
+  @protected
+  List<HandshakeStepDto> dco_decode_list_handshake_step_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_handshake_step_dto).toList();
   }
 
   @protected
@@ -6328,6 +7815,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<RadioChannelDto> dco_decode_list_radio_channel_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_radio_channel_dto).toList();
+  }
+
+  @protected
+  List<RadioModelDto> dco_decode_list_radio_model_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_radio_model_dto).toList();
+  }
+
+  @protected
+  List<ReadRequestDto> dco_decode_list_read_request_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_read_request_dto).toList();
+  }
+
+  @protected
   List<(String, double)> dco_decode_list_record_string_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_record_string_f_64).toList();
@@ -6362,6 +7867,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_scan_match).toList();
+  }
+
+  @protected
+  List<SerialPortInfoDto> dco_decode_list_serial_port_info_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_serial_port_info_dto).toList();
   }
 
   @protected
@@ -7120,6 +8631,52 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RadioChannelDto dco_decode_radio_channel_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    return RadioChannelDto(
+      slot: dco_decode_u_16(arr[0]),
+      name: dco_decode_String(arr[1]),
+      rxFreqHz: dco_decode_u_32(arr[2]),
+      txFreqHz: dco_decode_u_32(arr[3]),
+      rxOnly: dco_decode_bool(arr[4]),
+      txTone: dco_decode_tone_dto(arr[5]),
+      rxTone: dco_decode_tone_dto(arr[6]),
+      narrow: dco_decode_bool(arr[7]),
+      lowPower: dco_decode_bool(arr[8]),
+      skip: dco_decode_bool(arr[9]),
+    );
+  }
+
+  @protected
+  RadioModelDto dco_decode_radio_model_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return RadioModelDto(
+      id: dco_decode_String(arr[0]),
+      imageLen: dco_decode_u_32(arr[1]),
+      channelCount: dco_decode_u_16(arr[2]),
+      nameLen: dco_decode_u_32(arr[3]),
+    );
+  }
+
+  @protected
+  ReadRequestDto dco_decode_read_request_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ReadRequestDto(
+      addr: dco_decode_u_16(arr[0]),
+      len: dco_decode_u_8(arr[1]),
+    );
+  }
+
+  @protected
   (String, double) dco_decode_record_string_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -7277,6 +8834,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       advisoryUrl: dco_decode_opt_String(arr[3]),
       mitigationSummary: dco_decode_opt_String(arr[4]),
       mitigationUrl: dco_decode_opt_String(arr[5]),
+    );
+  }
+
+  @protected
+  SerialPortInfoDto dco_decode_serial_port_info_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return SerialPortInfoDto(
+      path: dco_decode_String(arr[0]),
+      vendorId: dco_decode_opt_box_autoadd_u_16(arr[1]),
+      productId: dco_decode_opt_box_autoadd_u_16(arr[2]),
+      manufacturer: dco_decode_opt_String(arr[3]),
+      product: dco_decode_opt_String(arr[4]),
+    );
+  }
+
+  @protected
+  SerialReadDto dco_decode_serial_read_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SerialReadDto(
+      data: dco_decode_list_prim_u_8_strict(arr[0]),
+      timedOut: dco_decode_bool(arr[1]),
     );
   }
 
@@ -7500,6 +9084,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ToneDto dco_decode_tone_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return ToneDto(
+      mode: dco_decode_String(arr[0]),
+      ctcssTenthHz: dco_decode_u_16(arr[1]),
+      dcsCode: dco_decode_u_16(arr[2]),
+      dcsInverted: dco_decode_bool(arr[3]),
+    );
+  }
+
+  @protected
   TroubleshootingDto dco_decode_troubleshooting_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -7619,6 +9217,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BigInt dco_decode_usize(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeU64(raw);
+  }
+
+  @protected
+  Uv5rProbeDto dco_decode_uv_5_r_probe_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return Uv5rProbeDto(
+      firmware: dco_decode_String(arr[0]),
+      dropsByte: dco_decode_bool(arr[1]),
+    );
   }
 
   @protected
@@ -7850,6 +9460,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BandLimitDto sse_decode_band_limit_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_txEnabled = sse_decode_bool(deserializer);
+    var var_lowerMhz = sse_decode_u_16(deserializer);
+    var var_upperMhz = sse_decode_u_16(deserializer);
+    return BandLimitDto(
+      txEnabled: var_txEnabled,
+      lowerMhz: var_lowerMhz,
+      upperMhz: var_upperMhz,
+    );
+  }
+
+  @protected
+  BandLimitsDto sse_decode_band_limits_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_vhf = sse_decode_band_limit_dto(deserializer);
+    var var_uhf = sse_decode_band_limit_dto(deserializer);
+    var var_layout = sse_decode_String(deserializer);
+    return BandLimitsDto(vhf: var_vhf, uhf: var_uhf, layout: var_layout);
+  }
+
+  @protected
   BleHandshakeDto sse_decode_ble_handshake_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_steps = sse_decode_list_ble_handshake_step_dto(deserializer);
@@ -7907,6 +9539,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool sse_decode_bool(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
+  BandLimitsDto sse_decode_box_autoadd_band_limits_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_band_limits_dto(deserializer));
   }
 
   @protected
@@ -8278,6 +9918,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CodeplugBlockDto sse_decode_codeplug_block_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_addr = sse_decode_u_16(deserializer);
+    var var_imageOffset = sse_decode_u_32(deserializer);
+    var var_len = sse_decode_u_8(deserializer);
+    return CodeplugBlockDto(
+      addr: var_addr,
+      imageOffset: var_imageOffset,
+      len: var_len,
+    );
+  }
+
+  @protected
   CommandDto sse_decode_command_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
@@ -8571,6 +10224,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HandshakeStepDto sse_decode_handshake_step_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_request = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_expectedReplyLen = sse_decode_u_32(deserializer);
+    return HandshakeStepDto(
+      request: var_request,
+      expectedReplyLen: var_expectedReplyLen,
+    );
+  }
+
+  @protected
   HttpHeaderDto sse_decode_http_header_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
@@ -8851,6 +10515,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<CodeplugBlockDto> sse_decode_list_codeplug_block_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <CodeplugBlockDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_codeplug_block_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<CommandDto> sse_decode_list_command_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -8954,6 +10632,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <FormatFieldDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_format_field_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<HandshakeStepDto> sse_decode_list_handshake_step_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <HandshakeStepDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_handshake_step_dto(deserializer));
     }
     return ans_;
   }
@@ -9265,6 +10957,48 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<RadioChannelDto> sse_decode_list_radio_channel_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <RadioChannelDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_radio_channel_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<RadioModelDto> sse_decode_list_radio_model_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <RadioModelDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_radio_model_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<ReadRequestDto> sse_decode_list_read_request_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ReadRequestDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_read_request_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<(String, double)> sse_decode_list_record_string_f_64(
     SseDeserializer deserializer,
   ) {
@@ -9329,6 +11063,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <ScanMatch>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_scan_match(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SerialPortInfoDto> sse_decode_list_serial_port_info_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SerialPortInfoDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_serial_port_info_dto(deserializer));
     }
     return ans_;
   }
@@ -10412,6 +12160,56 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RadioChannelDto sse_decode_radio_channel_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_slot = sse_decode_u_16(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    var var_rxFreqHz = sse_decode_u_32(deserializer);
+    var var_txFreqHz = sse_decode_u_32(deserializer);
+    var var_rxOnly = sse_decode_bool(deserializer);
+    var var_txTone = sse_decode_tone_dto(deserializer);
+    var var_rxTone = sse_decode_tone_dto(deserializer);
+    var var_narrow = sse_decode_bool(deserializer);
+    var var_lowPower = sse_decode_bool(deserializer);
+    var var_skip = sse_decode_bool(deserializer);
+    return RadioChannelDto(
+      slot: var_slot,
+      name: var_name,
+      rxFreqHz: var_rxFreqHz,
+      txFreqHz: var_txFreqHz,
+      rxOnly: var_rxOnly,
+      txTone: var_txTone,
+      rxTone: var_rxTone,
+      narrow: var_narrow,
+      lowPower: var_lowPower,
+      skip: var_skip,
+    );
+  }
+
+  @protected
+  RadioModelDto sse_decode_radio_model_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_imageLen = sse_decode_u_32(deserializer);
+    var var_channelCount = sse_decode_u_16(deserializer);
+    var var_nameLen = sse_decode_u_32(deserializer);
+    return RadioModelDto(
+      id: var_id,
+      imageLen: var_imageLen,
+      channelCount: var_channelCount,
+      nameLen: var_nameLen,
+    );
+  }
+
+  @protected
+  ReadRequestDto sse_decode_read_request_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_addr = sse_decode_u_16(deserializer);
+    var var_len = sse_decode_u_8(deserializer);
+    return ReadRequestDto(addr: var_addr, len: var_len);
+  }
+
+  @protected
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_field0 = sse_decode_String(deserializer);
@@ -10593,6 +12391,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       mitigationSummary: var_mitigationSummary,
       mitigationUrl: var_mitigationUrl,
     );
+  }
+
+  @protected
+  SerialPortInfoDto sse_decode_serial_port_info_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_path = sse_decode_String(deserializer);
+    var var_vendorId = sse_decode_opt_box_autoadd_u_16(deserializer);
+    var var_productId = sse_decode_opt_box_autoadd_u_16(deserializer);
+    var var_manufacturer = sse_decode_opt_String(deserializer);
+    var var_product = sse_decode_opt_String(deserializer);
+    return SerialPortInfoDto(
+      path: var_path,
+      vendorId: var_vendorId,
+      productId: var_productId,
+      manufacturer: var_manufacturer,
+      product: var_product,
+    );
+  }
+
+  @protected
+  SerialReadDto sse_decode_serial_read_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_data = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_timedOut = sse_decode_bool(deserializer);
+    return SerialReadDto(data: var_data, timedOut: var_timedOut);
   }
 
   @protected
@@ -10854,6 +12679,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ToneDto sse_decode_tone_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_mode = sse_decode_String(deserializer);
+    var var_ctcssTenthHz = sse_decode_u_16(deserializer);
+    var var_dcsCode = sse_decode_u_16(deserializer);
+    var var_dcsInverted = sse_decode_bool(deserializer);
+    return ToneDto(
+      mode: var_mode,
+      ctcssTenthHz: var_ctcssTenthHz,
+      dcsCode: var_dcsCode,
+      dcsInverted: var_dcsInverted,
+    );
+  }
+
+  @protected
   TroubleshootingDto sse_decode_troubleshooting_dto(
     SseDeserializer deserializer,
   ) {
@@ -10981,6 +12821,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BigInt sse_decode_usize(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getBigUint64();
+  }
+
+  @protected
+  Uv5rProbeDto sse_decode_uv_5_r_probe_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_firmware = sse_decode_String(deserializer);
+    var var_dropsByte = sse_decode_bool(deserializer);
+    return Uv5rProbeDto(firmware: var_firmware, dropsByte: var_dropsByte);
   }
 
   @protected
@@ -11249,6 +13097,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_band_limit_dto(BandLimitDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.txEnabled, serializer);
+    sse_encode_u_16(self.lowerMhz, serializer);
+    sse_encode_u_16(self.upperMhz, serializer);
+  }
+
+  @protected
+  void sse_encode_band_limits_dto(
+    BandLimitsDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_band_limit_dto(self.vhf, serializer);
+    sse_encode_band_limit_dto(self.uhf, serializer);
+    sse_encode_String(self.layout, serializer);
+  }
+
+  @protected
   void sse_encode_ble_handshake_dto(
     BleHandshakeDto self,
     SseSerializer serializer,
@@ -11292,6 +13159,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_bool(bool self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_band_limits_dto(
+    BandLimitsDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_band_limits_dto(self, serializer);
   }
 
   @protected
@@ -11644,6 +13520,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_codeplug_block_dto(
+    CodeplugBlockDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self.addr, serializer);
+    sse_encode_u_32(self.imageOffset, serializer);
+    sse_encode_u_8(self.len, serializer);
+  }
+
+  @protected
   void sse_encode_command_dto(CommandDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.name, serializer);
@@ -11831,6 +13718,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.fieldType, serializer);
     sse_encode_u_32(self.offset, serializer);
     sse_encode_u_32(self.length, serializer);
+  }
+
+  @protected
+  void sse_encode_handshake_step_dto(
+    HandshakeStepDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_8_strict(self.request, serializer);
+    sse_encode_u_32(self.expectedReplyLen, serializer);
   }
 
   @protected
@@ -12057,6 +13954,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_codeplug_block_dto(
+    List<CodeplugBlockDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_codeplug_block_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_command_dto(
     List<CommandDto> self,
     SseSerializer serializer,
@@ -12149,6 +14058,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_format_field_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_handshake_step_dto(
+    List<HandshakeStepDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_handshake_step_dto(item, serializer);
     }
   }
 
@@ -12445,6 +14366,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_radio_channel_dto(
+    List<RadioChannelDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_radio_channel_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_radio_model_dto(
+    List<RadioModelDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_radio_model_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_read_request_dto(
+    List<ReadRequestDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_read_request_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_record_string_f_64(
     List<(String, double)> self,
     SseSerializer serializer,
@@ -12501,6 +14458,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_scan_match(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_serial_port_info_dto(
+    List<SerialPortInfoDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_serial_port_info_dto(item, serializer);
     }
   }
 
@@ -13442,6 +15411,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_radio_channel_dto(
+    RadioChannelDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self.slot, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_u_32(self.rxFreqHz, serializer);
+    sse_encode_u_32(self.txFreqHz, serializer);
+    sse_encode_bool(self.rxOnly, serializer);
+    sse_encode_tone_dto(self.txTone, serializer);
+    sse_encode_tone_dto(self.rxTone, serializer);
+    sse_encode_bool(self.narrow, serializer);
+    sse_encode_bool(self.lowPower, serializer);
+    sse_encode_bool(self.skip, serializer);
+  }
+
+  @protected
+  void sse_encode_radio_model_dto(
+    RadioModelDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_u_32(self.imageLen, serializer);
+    sse_encode_u_16(self.channelCount, serializer);
+    sse_encode_u_32(self.nameLen, serializer);
+  }
+
+  @protected
+  void sse_encode_read_request_dto(
+    ReadRequestDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self.addr, serializer);
+    sse_encode_u_8(self.len, serializer);
+  }
+
+  @protected
   void sse_encode_record_string_f_64(
     (String, double) self,
     SseSerializer serializer,
@@ -13579,6 +15588,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.advisoryUrl, serializer);
     sse_encode_opt_String(self.mitigationSummary, serializer);
     sse_encode_opt_String(self.mitigationUrl, serializer);
+  }
+
+  @protected
+  void sse_encode_serial_port_info_dto(
+    SerialPortInfoDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.path, serializer);
+    sse_encode_opt_box_autoadd_u_16(self.vendorId, serializer);
+    sse_encode_opt_box_autoadd_u_16(self.productId, serializer);
+    sse_encode_opt_String(self.manufacturer, serializer);
+    sse_encode_opt_String(self.product, serializer);
+  }
+
+  @protected
+  void sse_encode_serial_read_dto(
+    SerialReadDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_8_strict(self.data, serializer);
+    sse_encode_bool(self.timedOut, serializer);
   }
 
   @protected
@@ -13771,6 +15803,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_tone_dto(ToneDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.mode, serializer);
+    sse_encode_u_16(self.ctcssTenthHz, serializer);
+    sse_encode_u_16(self.dcsCode, serializer);
+    sse_encode_bool(self.dcsInverted, serializer);
+  }
+
+  @protected
   void sse_encode_troubleshooting_dto(
     TroubleshootingDto self,
     SseSerializer serializer,
@@ -13874,6 +15915,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_usize(BigInt self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putBigUint64(self);
+  }
+
+  @protected
+  void sse_encode_uv_5_r_probe_dto(
+    Uv5rProbeDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.firmware, serializer);
+    sse_encode_bool(self.dropsByte, serializer);
   }
 
   @protected

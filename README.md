@@ -70,6 +70,11 @@ rendering the HTTP/SOAP requests that drive Wi-Fi/LAN devices.
 - Home Assistant companion mode (forward BLE sensor readings to HA)
 - Secure on-device credential storage (HA tokens live in the platform
   keychain/keystore, never in plain preferences)
+- Program handheld radios: channel plans built from repeaters and GMRS
+  channels near you, written over the radio's own Bluetooth (the UV-5R Mini
+  family) or a USB programming cable (the UV-5R family, not yet confirmed on a
+  real radio), with a backup read before every write, and CHIRP export for
+  everything else
 - Mock mode for development without BLE hardware
 - Material Design 3 with light/dark themes
 

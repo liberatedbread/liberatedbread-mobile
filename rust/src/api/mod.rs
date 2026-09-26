@@ -3,6 +3,8 @@
 
 pub mod device_api;
 pub mod mock_api;
+pub mod radio_api;
+pub mod serial_api;
 pub mod spec_handle;
 
 /// Runs once, when Dart calls `RustLib.init()` — flutter_rust_bridge's

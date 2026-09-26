@@ -420,13 +420,16 @@ typedef UdpProbeSource = Future<List<UdpProbeDto>> Function();
 /// fields: a cipher over the datagram (Kasa), a bind on the vendor's own port
 /// because the answer comes back broadcast (MikroTik), a TLV reply format the
 /// spec states in prose (Ubiquiti, UniFi Protect), or a JSON reply that is also
-/// the adoption handshake (iRobot). The catalogue transport skips them so a
-/// device is not probed twice and, more to the point, so a reply that the hand
-/// written parser reads fully is not also half-read by the generic one.
+/// the adoption handshake (iRobot), or a multicast exchange whose reply this
+/// file already turns into a row with its own LAN protocol tag (Govee's scan
+/// answered on a second port, Yeelight's `wifi_bulb` M-SEARCH on :1982). The
+/// catalogue transport skips them so a device is not probed twice and, more to
+/// the point, so a reply that the hand written parser reads fully is not also
+/// half-read by the generic one.
 ///
 /// Matched on the catalogue key, which is the spec's filename. A spec that is
 /// renamed upstream falls out of this list and gets probed twice — harmless,
-/// and a test pins the four names so it does not pass unnoticed.
+/// and a Rust test pins the names so it does not pass unnoticed.
 bool _probesWithTheirOwnTransport(String specKey) {
   const handled = {
     'tplink-kasa-smart-plug.yaml',
@@ -434,6 +437,9 @@ bool _probesWithTheirOwnTransport(String specKey) {
     'ubiquiti-unifi-device.yaml',
     'unifi-protect-camera.yaml',
     'irobot-roomba.yaml',
+    'govee-rgbic-light.yaml',
+    'yeelight-wifi.yaml',
+    'yeelight-cube-lamp.yaml',
   };
   // Keys are asset paths in production (`assets/specs/<file>.yaml`) and bare
   // filenames in the Rust tests, so compare on the last segment.

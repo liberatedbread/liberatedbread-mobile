@@ -37,13 +37,15 @@
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
-	<!-- No NSLocationWhenInUseUsageDescription: iOS BLE needs no location, and
-	     the only location request in the app is Android-only
-	     (RealBleService.requestPermissions, inside `if (Platform.isAndroid)`).
-	     A location purpose string with no matching location-API use is a
-	     Guideline 5.1.1 review flag, so it is deliberately absent here.
-	     test/platform/ios_info_plist_test.dart asserts the absence, so this
-	     decision survives even if the comment is lost again. -->
+	<!-- NSLocationWhenInUseUsageDescription exists for one feature: the Radio
+	     tab's "Suggest channels near me", which asks geolocator for a position
+	     on iOS. iOS BLE needs no location, so the string says nothing about
+	     Bluetooth: a purpose string naming a use the app does not make is the
+	     Guideline 5.1.1 review flag that kept this key out while nothing on
+	     iOS asked for a position. test/platform/ios_info_plist_test.dart pins
+	     both halves: the key is present, and it does not claim Bluetooth. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Liberated Bread uses your location only when you ask it to suggest radio channels near you, to find amateur and GMRS repeaters in range. Your position stays on this device: a repeater search sends only the state you are in to the directories you have turned on.</string>
 	<!-- iOS 14+ will not deliver mDNS answers for a service type that is not
 	     declared here, and fails silently when one is missing. The generic
 	     DNS-SD meta-query is what lets the scan enumerate service types it has

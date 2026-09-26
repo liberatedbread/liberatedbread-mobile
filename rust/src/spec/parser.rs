@@ -301,7 +301,10 @@ fn validate_auto_role(name: &str, param: &Parameter) -> Result<(), SpecError> {
     // counter rather than a computed value, so it has no ceiling of its own —
     // being numeric at all is the whole requirement.
     let emits = match role {
-        AutoRole::Checksum | AutoRole::XorChecksum => u8::MAX as i64,
+        AutoRole::Checksum
+        | AutoRole::XorChecksum
+        | AutoRole::SubtractChecksum
+        | AutoRole::Crc8 => u8::MAX as i64,
         AutoRole::Crc16Modbus => u16::MAX as i64,
         AutoRole::Sequence | AutoRole::PacketLength => return Ok(()),
     };

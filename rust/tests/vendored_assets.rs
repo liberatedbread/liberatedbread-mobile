@@ -1994,31 +1994,67 @@ fn every_state_topic_in_the_catalogue_resolves_or_is_a_known_backlog_item() {
     );
 }
 
-/// A parameter name means one thing within a spec.
+/// A path placeholder means one thing within a spec.
 ///
-/// This is what makes `http::spec_wide_default` sound. A `{placeholder}` in a
-/// bare `state_topic` has no owning command to read a default from — Philips's
-/// `/{api_version}/powerstate` names a version the spec declares fifty-four
-/// times, once per command, always as `6`. Resolving it by name across the
-/// spec is reading the spec; it would be GUESSING if one name could mean two
-/// things, and this is what keeps that from becoming true silently.
+/// This is what makes `http::spec_wide_default` useful. A `{placeholder}` in
+/// a bare `state_topic` has no owning command to read a default from —
+/// Philips's `/{api_version}/powerstate` names a version the spec declares
+/// fifty-four times, once per command, always as `6`. Resolving it by name
+/// across the spec is reading the spec; it would be GUESSING if one name
+/// could mean two things, so `spec_wide_default` refuses a name whose
+/// declared defaults disagree — and this pins that no name a path actually
+/// uses is one of them, so the refusal never costs a real read.
+///
+/// Only names a PATH uses: a byte-stream spec reuses names freely and
+/// correctly (the Brother QL's `flags` is a different bit field in each ESC
+/// command, and nothing ever resolves it spec-wide).
 #[test]
-fn a_parameter_name_means_one_thing_within_a_spec() {
+fn a_path_placeholder_means_one_thing_within_a_spec() {
+    fn placeholders_in_paths(value: &serde_yaml::Value, out: &mut BTreeSet<String>) {
+        match value {
+            serde_yaml::Value::String(text) if text.starts_with('/') => {
+                let mut rest = text.as_str();
+                while let Some(start) = rest.find('{') {
+                    let Some(len) = rest[start..].find('}') else {
+                        break;
+                    };
+                    out.insert(rest[start + 1..start + len].to_string());
+                    rest = &rest[start + len + 1..];
+                }
+            }
+            serde_yaml::Value::Sequence(items) => {
+                items.iter().for_each(|v| placeholders_in_paths(v, out))
+            }
+            serde_yaml::Value::Mapping(map) => {
+                map.values().for_each(|v| placeholders_in_paths(v, out))
+            }
+            _ => {}
+        }
+    }
+
     let mut conflicts: Vec<String> = Vec::new();
+    let mut checked = 0;
     for path in vendored_yaml_paths() {
         let yaml = fs::read_to_string(&path).expect("spec reads");
         let Ok(spec) = parse_device_spec(&yaml) else {
             continue;
         };
+        let raw: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("spec is YAML");
+        let mut in_paths = BTreeSet::new();
+        placeholders_in_paths(&raw, &mut in_paths);
         let file = path.file_name().unwrap().to_string_lossy().to_string();
         let mut seen: std::collections::BTreeMap<&str, BTreeSet<String>> = Default::default();
         for command in spec.commands.values() {
             for (name, parameter) in &command.parameters {
+                if !in_paths.contains(name.as_str()) {
+                    continue;
+                }
                 if let Some(default) = parameter.default.as_ref() {
                     seen.entry(name).or_default().insert(format!("{default:?}"));
                 }
             }
         }
+        checked += seen.len();
         for (name, defaults) in seen {
             if defaults.len() > 1 {
                 conflicts.push(format!("{file}: {name} defaults to {defaults:?}"));
@@ -2026,10 +2062,13 @@ fn a_parameter_name_means_one_thing_within_a_spec() {
         }
     }
     assert!(
+        checked > 0,
+        "no defaulted path placeholder found at all — the walk is broken"
+    );
+    assert!(
         conflicts.is_empty(),
-        "one parameter name, two declared defaults — a path placeholder can no \
-         longer be resolved by name, and http::spec_wide_default has to become \
-         a per-command question:\n  {}",
+        "one path placeholder, two declared defaults — spec_wide_default will \
+         refuse it, and any bare path naming it can no longer be issued:\n  {}",
         conflicts.join("\n  ")
     );
 }
@@ -3182,15 +3221,23 @@ fn the_vendored_tvs_declare_their_pairing_tokens() {
     }
 }
 
-/// The nine catalogue parameters that spell their enumeration `values` must
-/// reach a consumer as a CHOICE, not as a range.
+/// Every catalogue parameter that names its codes must reach a consumer as a
+/// CHOICE, not as a range.
 ///
 /// They are real switches and mode bytes — elk-bledom's on/off `state`,
 /// wl-smartled's four-way `light_mode` — and the struct that carries a BLE
 /// parameter had no field for the table, so every one of them drew as a
 /// 0..255 slider with no hint that two or four values mean anything. Counted
 /// here rather than listed one by one: the count is what says the whole set
-/// is read, and a spec refresh that adds a tenth should notice it.
+/// is read, and a spec refresh that adds one should notice it.
+///
+/// Two spellings are counted. The catalogue wrote these as a `values` table
+/// until upstream moved every one to the schema's `allowed` + index-paired
+/// `labels` form; a spec pack older than that move still says `values`, and
+/// both must read as the same choice. (aranet4's `request_history_v1.param`
+/// and aurora-led-shoes' `set_power.state` carry `labels` with no `allowed`,
+/// which the schema gives no meaning, so they are not counted; see
+/// SPECS_TO_FIX.md.)
 #[test]
 fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
     let mut coded: Vec<(String, String, String, usize)> = Vec::new();
@@ -3209,7 +3256,12 @@ fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
                         continue;
                     };
                     for (name, parameter) in &parameters.params {
-                        if parameter.values.is_none() {
+                        // `labels` names `allowed` by index and means nothing
+                        // on its own (the schema says so, and a consumer that
+                        // paired labels with a min..max range would be
+                        // guessing), so it is a code table only beside one.
+                        let paired = parameter.allowed.is_some() && parameter.labels.is_some();
+                        if parameter.values.is_none() && !paired {
                             continue;
                         }
                         let choices = parameter.allowed_with_labels().unwrap_or_else(|| {
@@ -3232,7 +3284,7 @@ fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
     }
     assert_eq!(
         coded.len(),
-        9,
+        64,
         "the catalogue's coded BLE parameters, each offering its codes: {coded:#?}"
     );
     assert!(
@@ -3328,8 +3380,11 @@ fn every_declared_udp_probe_parses() {
                     // expressible: the Aqara hub wants a JSON document carrying
                     // THIS phone's LAN address and listen port, so no fixed hex
                     // string can stand for it, and the bytes live in prose notes
-                    // instead (SPECS_TO_FIX.md S-20).
-                    const PAYLOAD_ONLY_IN_PROSE: &[&str] = &["aqara-hub.yaml"];
+                    // instead (SPECS_TO_FIX.md S-20). The LED space panel is
+                    // the same case: its probe is a TLV frame whose sequence
+                    // number and checksum change per send, so the spec gives
+                    // a builder in `protocol_details` rather than fixed bytes.
+                    const PAYLOAD_ONLY_IN_PROSE: &[&str] = &["aqara-hub.yaml", "led-space.yaml"];
                     assert!(
                         speaks_first || PAYLOAD_ONLY_IN_PROSE.contains(&path.as_str()),
                         "{path}: a probe with no payload and no passive_ok says nothing a \
@@ -3339,13 +3394,16 @@ fn every_declared_udp_probe_parses() {
                 }
             }
             // Identity fields must name a dialect this app can grow to read.
+            // `header:` is an HTTP-style reply's header line; its users (the
+            // Yeelight pair) are answered through the hand-written :1982
+            // transport, which reads those headers itself.
             if let Some(mapping) = &probe.identity_mapping {
                 for field in mapping.stable_keys.iter().chain(mapping.display.iter()) {
                     let (dialect, _) = field.dialect();
                     assert!(
-                        matches!(dialect, "json" | "tlv" | "csv" | "payload"),
+                        matches!(dialect, "json" | "tlv" | "csv" | "payload" | "header"),
                         "{path}: identity source dialect {dialect} is not one the \
-                         catalogue uses elsewhere (json/tlv/csv/payload)"
+                         catalogue uses elsewhere (json/tlv/csv/payload/header)"
                     );
                     assert!(
                         !field.name().is_empty(),
@@ -3463,8 +3521,30 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
         "must match `_kasaProbeJson` in real_network_scan_service.dart"
     );
 
+    // Govee and Yeelight: the multicast probes the Dart transports send by
+    // hand, which the catalogue now states too. Byte-for-byte the same, which
+    // is what lets `_probesWithTheirOwnTransport` skip them without losing a
+    // device.
+    let govee = by_key("govee-rgbic-light.yaml", 4001);
+    assert_eq!(govee.len(), 1);
+    assert_eq!(
+        String::from_utf8(govee[0].probe.clone()).expect("the Govee probe is JSON"),
+        r#"{"msg":{"cmd":"scan","data":{"account_topic":"reserve"}}}"#,
+        "must match `_goveeProbe` in real_network_scan_service.dart"
+    );
+    for key in ["yeelight-wifi.yaml", "yeelight-cube-lamp.yaml"] {
+        let yeelight = by_key(key, 1982);
+        assert_eq!(yeelight.len(), 1, "{key}: one probe on 1982");
+        assert_eq!(
+            String::from_utf8(yeelight[0].probe.clone()).expect("an M-SEARCH is ASCII"),
+            "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1982\r\n\
+             MAN: \"ssdp:discover\"\r\nST: wifi_bulb\r\n\r\n",
+            "{key}: must match `_yeelightProbe` in real_network_scan_service.dart"
+        );
+    }
+
     // What the catalogue-driven transport actually sends, spelled out: the
-    // probes that carry a payload, minus the five specs with a hand-written
+    // probes that carry a payload, minus the eight specs with a hand-written
     // transport in real_network_scan_service.dart. Today that is the Milight
     // bridge's two strings and nothing else — every other declared probe is
     // `passive_ok` with no payload (Tuya, Synology) or has no payload at all
@@ -3482,6 +3562,9 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
                     | "ubiquiti-unifi-device.yaml"
                     | "unifi-protect-camera.yaml"
                     | "irobot-roomba.yaml"
+                    | "govee-rgbic-light.yaml"
+                    | "yeelight-wifi.yaml"
+                    | "yeelight-cube-lamp.yaml"
             )
         })
         .map(|p| format!("{}:{}", p.spec_key, p.port))

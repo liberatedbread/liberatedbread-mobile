@@ -1,0 +1,55 @@
+{
+  "success": true,
+  "info": { "total": 4 },
+  "items": [
+    {
+      "ID": 1001,
+      "Name": "Test Hill 625",
+      "Location": "Testville",
+      "State": "RI",
+      "Modified": "2026-04-14T19:46:00.000Z",
+      "Frequency": "462.625",
+      "Type": "Open System",
+      "Owner": "kt1est",
+      "ORI": "No",
+      "Travel": "No",
+      "Status": "Online",
+      "Latitude": 41.4982727853,
+      "Longitude": -71.3126574319,
+      "Radius": 5,
+      "HAAT": null,
+      "AllowRequests": true
+    },
+    {
+      "ID": 1002,
+      "Name": "Far Ridge 6500",
+      "Location": "Faraway",
+      "State": "RI",
+      "Frequency": "462.650",
+      "Type": "Closed System",
+      "Owner": "kt2est",
+      "Status": "Offline",
+      "Latitude": 42.9,
+      "Longitude": -71.9,
+      "HAAT": 25
+    },
+    {
+      "ID": 1003,
+      "Name": "No Position",
+      "Location": "Nowhere",
+      "State": "RI",
+      "Frequency": "462.700",
+      "Latitude": null,
+      "Longitude": null
+    },
+    {
+      "ID": 1004,
+      "Name": "No Frequency",
+      "Location": "Somewhere",
+      "State": "RI",
+      "Frequency": "",
+      "Latitude": 41.5,
+      "Longitude": -71.3
+    }
+  ]
+}

@@ -4,10 +4,14 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'app.dart';
 import 'core/log.dart';
 import 'providers/saved_device_provider.dart';
+import 'screens/channel_plan_screen.dart' show planExportServiceProvider;
+import 'services/plan_export_service.dart';
 import 'services/secure_settings_store.dart';
 import 'src/rust/frb_generated.dart';
 
@@ -75,7 +79,15 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
-      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        // The CHIRP exporter writes into the documents directory. Overridden
+        // here rather than defaulted in the provider so widget tests get a
+        // temp directory without touching path_provider's platform channel.
+        planExportServiceProvider.overrideWithValue(
+          PlanExportService(dirResolver: getApplicationDocumentsDirectory),
+        ),
+      ],
       child: const LiberatedBreadApp(),
     ),
   );
