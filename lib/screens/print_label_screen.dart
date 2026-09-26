@@ -11,11 +11,12 @@ import '../core/log.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/print/label_content.dart';
 import '../services/print/label_renderer.dart';
+import '../services/print/photo_source.dart';
 import '../services/print/print_target.dart';
 import '../services/spec_codec.dart';
 
-/// Compose a label — text lines, a date, a QR code — and print it on a
-/// label printer, with a preview of exactly the dots that will burn.
+/// Compose a label — text lines, a date, a QR code, or a photo — and print it
+/// on a label printer, with a preview of exactly the dots that will burn.
 ///
 /// Printer-agnostic: the [target] says how wide the head is and how to send
 /// the job, so the same screen serves a Brother QL on the network and a BLE
@@ -27,7 +28,15 @@ class PrintLabelScreen extends ConsumerStatefulWidget {
   /// null.
   final LabelContent? initial;
 
-  const PrintLabelScreen({super.key, required this.target, this.initial});
+  /// A photo to start in photo mode with (one shared into the app).
+  final Uint8List? initialPhoto;
+
+  const PrintLabelScreen({
+    super.key,
+    required this.target,
+    this.initial,
+    this.initialPhoto,
+  });
 
   @override
   ConsumerState<PrintLabelScreen> createState() => _PrintLabelScreenState();
@@ -42,7 +51,17 @@ class _Preview {
   const _Preview(this.rgb, this.width, this.height, this.image);
 }
 
+/// What the label is made of.
+enum _Mode { text, photo }
+
 class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
+  _Mode _mode = _Mode.text;
+  Uint8List? _photo;
+  PrintDither _dither = PrintDither.floydSteinberg;
+
+  /// The luma a photo pixel must reach to stay white: the brightness knob.
+  double _photoThreshold = 128;
+
   late LabelContent _content;
   late final List<TextEditingController> _lines;
   late final TextEditingController _qr;
@@ -73,6 +92,10 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
     ];
     _qr = TextEditingController(text: initial.qrData ?? '');
     _withDate = initial.dateLine != null;
+    if (widget.initialPhoto != null) {
+      _mode = _Mode.photo;
+      _photo = widget.initialPhoto;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleRender());
   }
 
@@ -115,13 +138,22 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
     final codec = ref.read(specCodecProvider);
     setState(() => _rendering = true);
     try {
-      final label = await renderLabel(_content, widget.target.geometry);
+      final photo = _photo;
+      final isPhoto = _mode == _Mode.photo && photo != null;
+      final label = isPhoto
+          ? await renderPhoto(
+              photo,
+              widget.target.geometry,
+              alongTape: _content.alongTape,
+            )
+          : await renderLabel(_content, widget.target.geometry);
       final rgb = await codec.prepareMonoRaster(
         rgba: label.rgba,
         width: label.width,
         height: label.height,
-        dither: PrintDither.threshold,
-        threshold: 160,
+        // Text wants a hard edge; a photo wants its tones as dot density.
+        dither: isPhoto ? _dither : PrintDither.threshold,
+        threshold: isPhoto ? _photoThreshold.round() : 160,
       );
       final image = await _imageFromRgb(rgb, label.width, label.height);
       if (!mounted || epoch != _renderEpoch) {
@@ -139,14 +171,16 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
       if (!mounted || epoch != _renderEpoch) return;
       setState(() {
         _rendering = false;
-        _error = 'Could not draw the label.';
+        _error = _mode == _Mode.photo
+            ? 'Could not read that photo.'
+            : 'Could not draw the label.';
       });
     }
   }
 
   Future<void> _print() async {
     final preview = _preview;
-    if (preview == null || _content.isEmpty) return;
+    if (preview == null || !_hasContent) return;
     setState(() {
       _printing = true;
       _error = null;
@@ -174,6 +208,86 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
     }
   }
 
+  bool get _hasContent =>
+      _mode == _Mode.photo ? _photo != null : !_content.isEmpty;
+
+  Future<void> _pickPhoto(Future<Uint8List?> Function() pick) async {
+    try {
+      final bytes = await pick();
+      if (bytes == null || !mounted) return;
+      setState(() => _photo = bytes);
+      _scheduleRender();
+    } on Object catch (e) {
+      Log.spec.warning('photo pick failed', error: e);
+      if (mounted) setState(() => _error = 'Could not open that photo.');
+    }
+  }
+
+  List<Widget> _photoControls(TextTheme text) {
+    final source = ref.read(photoSourceProvider);
+    return [
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          OutlinedButton.icon(
+            onPressed: () =>
+                unawaited(_pickPhoto(() => source.pick(camera: false))),
+            icon: const Icon(Icons.photo_library_outlined),
+            label: const Text('Choose a photo'),
+          ),
+          if (source.canUseCamera)
+            OutlinedButton.icon(
+              onPressed: () =>
+                  unawaited(_pickPhoto(() => source.pick(camera: true))),
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Take a photo'),
+            ),
+          OutlinedButton.icon(
+            onPressed: () => unawaited(_pickPhoto(source.pickFile)),
+            icon: const Icon(Icons.folder_open_outlined),
+            label: const Text('Open a file'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      Text('Shading', style: text.titleSmall),
+      const SizedBox(height: 8),
+      SegmentedButton<PrintDither>(
+        segments: const [
+          ButtonSegment(
+            value: PrintDither.floydSteinberg,
+            label: Text('Smooth'),
+          ),
+          ButtonSegment(value: PrintDither.atkinson, label: Text('Crisp')),
+          ButtonSegment(value: PrintDither.threshold, label: Text('Solid')),
+        ],
+        selected: {_dither},
+        onSelectionChanged: (s) {
+          setState(() => _dither = s.first);
+          _scheduleRender();
+        },
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          const Icon(Icons.brightness_low, size: 20),
+          Expanded(
+            child: Slider(
+              value: _photoThreshold,
+              min: 48,
+              max: 208,
+              label: 'Brightness',
+              onChanged: (v) => setState(() => _photoThreshold = v),
+              onChangeEnd: (_) => _scheduleRender(),
+            ),
+          ),
+          const Icon(Icons.brightness_high, size: 20),
+        ],
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -196,31 +310,53 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
             ),
             const SizedBox(height: 12),
             _PreviewCard(preview: _preview, rendering: _rendering),
-            const SizedBox(height: 20),
-            for (var i = 0; i < _lines.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: TextField(
-                  key: ValueKey('label-line-$i'),
-                  controller: _lines[i],
-                  decoration: InputDecoration(
-                    labelText: _lines.length == 1 ? 'Text' : 'Line ${i + 1}',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: _lines.length > 1
-                        ? IconButton(
-                            tooltip: 'Remove line',
-                            icon: const Icon(Icons.close),
-                            onPressed: () {
-                              setState(() => _lines.removeAt(i).dispose());
-                              _syncText();
-                            },
-                          )
-                        : null,
-                  ),
-                  onChanged: (_) => _syncText(),
+            const SizedBox(height: 16),
+            SegmentedButton<_Mode>(
+              segments: const [
+                ButtonSegment(
+                  value: _Mode.text,
+                  label: Text('Text'),
+                  icon: Icon(Icons.text_fields),
                 ),
-              ),
-            if (_lines.length < LabelContent.maxLines)
+                ButtonSegment(
+                  value: _Mode.photo,
+                  label: Text('Photo'),
+                  icon: Icon(Icons.image_outlined),
+                ),
+              ],
+              selected: {_mode},
+              onSelectionChanged: (s) {
+                setState(() => _mode = s.first);
+                _scheduleRender();
+              },
+            ),
+            const SizedBox(height: 16),
+            if (_mode == _Mode.photo) ..._photoControls(text),
+            if (_mode == _Mode.text)
+              for (var i = 0; i < _lines.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: TextField(
+                    key: ValueKey('label-line-$i'),
+                    controller: _lines[i],
+                    decoration: InputDecoration(
+                      labelText: _lines.length == 1 ? 'Text' : 'Line ${i + 1}',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: _lines.length > 1
+                          ? IconButton(
+                              tooltip: 'Remove line',
+                              icon: const Icon(Icons.close),
+                              onPressed: () {
+                                setState(() => _lines.removeAt(i).dispose());
+                                _syncText();
+                              },
+                            )
+                          : null,
+                    ),
+                    onChanged: (_) => _syncText(),
+                  ),
+                ),
+            if (_mode == _Mode.text && _lines.length < LabelContent.maxLines)
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -230,52 +366,62 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
                   label: const Text('Add a line'),
                 ),
               ),
-            const SizedBox(height: 8),
-            SegmentedButton<LabelTextSize>(
-              segments: const [
-                ButtonSegment(value: LabelTextSize.small, label: Text('Small')),
-                ButtonSegment(
-                  value: LabelTextSize.medium,
-                  label: Text('Medium'),
-                ),
-                ButtonSegment(value: LabelTextSize.large, label: Text('Large')),
-              ],
-              selected: {_content.size},
-              onSelectionChanged: (s) =>
-                  _update((c) => c.copyWith(size: s.first)),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text("Add today's date"),
-              value: _withDate,
-              onChanged: (v) {
-                _withDate = v;
-                _syncText();
-              },
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Text along the tape'),
-              subtitle: const Text(
-                'Rotate so lines run the length of the label',
+            if (_mode == _Mode.text) ...[
+              const SizedBox(height: 8),
+              SegmentedButton<LabelTextSize>(
+                segments: const [
+                  ButtonSegment(
+                    value: LabelTextSize.small,
+                    label: Text('Small'),
+                  ),
+                  ButtonSegment(
+                    value: LabelTextSize.medium,
+                    label: Text('Medium'),
+                  ),
+                  ButtonSegment(
+                    value: LabelTextSize.large,
+                    label: Text('Large'),
+                  ),
+                ],
+                selected: {_content.size},
+                onSelectionChanged: (s) =>
+                    _update((c) => c.copyWith(size: s.first)),
               ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text("Add today's date"),
+                value: _withDate,
+                onChanged: (v) {
+                  _withDate = v;
+                  _syncText();
+                },
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: const ValueKey('label-qr'),
+                controller: _qr,
+                decoration: InputDecoration(
+                  labelText: 'QR code (optional)',
+                  helperText: 'A link or any text',
+                  errorText: qrTooLong ? 'Too long for a QR code' : null,
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (_) => _syncText(),
+              ),
+            ],
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                _mode == _Mode.photo
+                    ? 'Photo along the tape'
+                    : 'Text along the tape',
+              ),
+              subtitle: const Text('Rotate to run the length of the label'),
               value: _content.alongTape,
               onChanged: (v) => _update((c) => c.copyWith(alongTape: v)),
             ),
             const SizedBox(height: 8),
-            TextField(
-              key: const ValueKey('label-qr'),
-              controller: _qr,
-              decoration: InputDecoration(
-                labelText: 'QR code (optional)',
-                helperText: 'A link or any text',
-                errorText: qrTooLong ? 'Too long for a QR code' : null,
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: (_) => _syncText(),
-            ),
-            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(child: Text('Copies', style: text.bodyLarge)),
@@ -306,10 +452,7 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed:
-                  _preview != null &&
-                      !_content.isEmpty &&
-                      !_printing &&
-                      !_rendering
+                  _preview != null && _hasContent && !_printing && !_rendering
                   ? () => unawaited(_print())
                   : null,
               icon: _printing

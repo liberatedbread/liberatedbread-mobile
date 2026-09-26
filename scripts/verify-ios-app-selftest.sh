@@ -212,6 +212,8 @@ make_app() {
 NSBluetoothAlwaysUsageDescription	Liberated Bread needs Bluetooth.
 NSBluetoothPeripheralUsageDescription	Liberated Bread needs Bluetooth.
 NSLocalNetworkUsageDescription	Liberated Bread finds IoT devices.
+NSPhotoLibraryUsageDescription	Liberated Bread prints your photos.
+NSCameraUsageDescription	Liberated Bread prints your photos.
 NSAppTransportSecurity:NSAllowsLocalNetworking	true
 CFBundleIdentifier	ca.pigscanfly.liberatedbread
 CFBundleExecutable	Runner

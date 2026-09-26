@@ -228,3 +228,85 @@ bool fitsInQr(String data) {
     return false;
   }
 }
+
+/// Paint a photo for a printer of [geometry], in head coordinates like
+/// [renderLabel]: filling the head's width (or, [alongTape], its length
+/// along the tape) and keeping its aspect; on a die-cut label, fitted inside
+/// the label. Grey stays grey here — the codec's dithering turns it into
+/// dot density.
+///
+/// Throws when [encoded] is not an image Flutter can decode.
+Future<RenderedLabel> renderPhoto(
+  Uint8List encoded,
+  LabelGeometry geometry, {
+  bool alongTape = false,
+}) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(encoded);
+  final descriptor = await ui.ImageDescriptor.encoded(buffer);
+  try {
+    final iw = descriptor.width;
+    final ih = descriptor.height;
+    final across = geometry.widthDots;
+    final along = geometry.lengthDots;
+    // Design space: the orientation the photo is seen in.
+    final fixedW = alongTape ? along : across;
+    final fixedH = alongTape ? across : along;
+
+    // Scale to fill the fixed cross dimension, then fit the other one when
+    // it is fixed too (die-cut).
+    var scale = alongTape ? across / ih : across / iw;
+    if (fixedW != null && iw * scale > fixedW) scale = fixedW / iw;
+    if (fixedH != null && ih * scale > fixedH) scale = fixedH / ih;
+    final drawW = math.max(1, (iw * scale).round());
+    final drawH = math.max(1, (ih * scale).round());
+    final designW = (fixedW ?? drawW).clamp(1, _maxLengthDots).toInt();
+    final designH = (fixedH ?? drawH).clamp(1, _maxLengthDots).toInt();
+
+    // Decode at the size it prints: a 12-megapixel photo is 48 MB of RGBA
+    // that a 384-dot head would throw away.
+    final codec = await descriptor.instantiateCodec(
+      targetWidth: drawW,
+      targetHeight: drawH,
+    );
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    final photo = frame.image;
+
+    final headW = across;
+    final headH = alongTape ? designW : designH;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, headW.toDouble(), headH.toDouble()),
+      Paint()..color = const Color(0xFFFFFFFF),
+    );
+    if (alongTape) {
+      canvas.translate(headW.toDouble(), 0);
+      canvas.rotate(math.pi / 2);
+    }
+    canvas.drawImage(
+      photo,
+      Offset((designW - drawW) / 2, (designH - drawH) / 2),
+      Paint()..filterQuality = FilterQuality.medium,
+    );
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(headW, headH);
+    try {
+      final data = await image.toByteData(
+        format: ui.ImageByteFormat.rawStraightRgba,
+      );
+      return RenderedLabel(
+        width: headW,
+        height: headH,
+        rgba: data!.buffer.asUint8List(),
+      );
+    } finally {
+      image.dispose();
+      picture.dispose();
+      photo.dispose();
+    }
+  } finally {
+    descriptor.dispose();
+    buffer.dispose();
+  }
+}
