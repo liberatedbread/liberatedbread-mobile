@@ -116,15 +116,11 @@ void main() {
     });
 
     test('hands back an image of the right size', () async {
-      RadioCodeplug? result;
-      await programmer
-          .readCodeplug(
-            deviceId: 'mock',
-            profile: uv5rMiniProfile,
-            onResult: (codeplug) => result = codeplug,
-          )
-          .drain<void>();
-      expect(result!.length, 0x8240);
+      final result = await programmer.readWhole(
+        deviceId: 'mock',
+        profile: uv5rMiniProfile,
+      );
+      expect(result.length, 0x8240);
     });
 
     test('holds what was written to it', () async {

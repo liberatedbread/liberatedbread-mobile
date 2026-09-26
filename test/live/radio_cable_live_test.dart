@@ -90,17 +90,8 @@ void main() {
     '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}',
   );
 
-  Future<RadioCodeplug> read() async {
-    RadioCodeplug? result;
-    await programmer
-        .readCodeplug(
-          deviceId: _port!,
-          profile: profile,
-          onResult: (codeplug) => result = codeplug,
-        )
-        .forEach(log);
-    return result!;
-  }
+  Future<RadioCodeplug> read() =>
+      programmer.readWhole(deviceId: _port!, profile: profile, onProgress: log);
 
   test(
     '1. the radio answers, and says which firmware it runs',

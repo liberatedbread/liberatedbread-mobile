@@ -140,9 +140,8 @@ abstract class RadioProgrammer {
 
   /// Read the radio's whole memory.
   ///
-  /// Emits progress as it goes; the last event carries the result through
-  /// [readCodeplug]'s returned future rather than through the stream, so a
-  /// caller that only wants the bytes does not have to filter events.
+  /// Emits progress as it goes, and hands the image to [onResult] before the
+  /// last event. [ReadWhole.readWhole] is the same read as one call.
   Stream<RadioProgressEvent> readCodeplug({
     required String deviceId,
     required RadioProfile profile,
@@ -168,6 +167,28 @@ abstract class RadioProgrammer {
     required RadioProfile profile,
     required RadioCodeplug codeplug,
   });
+}
+
+/// A read as one call, for a caller that wants the image.
+extension ReadWhole on RadioProgrammer {
+  /// Read the radio's whole memory and return it, passing each progress
+  /// event to [onProgress].
+  ///
+  /// Throws [RadioProtocolException] if the read ends without an image: a
+  /// session that finished without saying what went wrong still failed.
+  Future<RadioCodeplug> readWhole({
+    required String deviceId,
+    required RadioProfile profile,
+    void Function(RadioProgressEvent event)? onProgress,
+  }) async {
+    RadioCodeplug? result;
+    await readCodeplug(
+      deviceId: deviceId,
+      profile: profile,
+      onResult: (codeplug) => result = codeplug,
+    ).forEach(onProgress ?? (_) {});
+    return result ?? (throw const RadioProtocolException());
+  }
 }
 
 /// A programmer that can also set the transmit limits a radio stores.

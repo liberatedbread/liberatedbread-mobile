@@ -172,7 +172,7 @@ class RepeaterBookClient implements RepeaterSource {
   Future<List<RepeaterListing>> fetchByState(String stateCode) async {
     final token = (await _readToken())?.trim();
     if (token == null || token.isEmpty) {
-      throw _failure(
+      throw failure(
         SourceFailureKind.auth,
         'RepeaterBook needs a free access token. Set one up in radio source '
         'settings — it takes a minute.',
@@ -181,80 +181,33 @@ class RepeaterBookClient implements RepeaterSource {
 
     final stateId = await _resolveStateId(stateCode);
     if (stateId == null || stateId.isEmpty) {
-      throw _failure(
+      throw failure(
         SourceFailureKind.parse,
         'No RepeaterBook state id for $stateCode.',
       );
     }
 
-    final uri = Uri.https(host, exportPath, {'state_id': stateId});
-    http.Response response;
-    try {
-      response = await _client
-          .get(
-            uri,
-            headers: {
-              'X-RB-App-Token': token,
-              'User-Agent': userAgent,
-              'Accept': 'application/json',
-            },
-          )
-          .timeout(timeout);
-    } on TimeoutException {
-      throw _failure(
-        SourceFailureKind.network,
-        'RepeaterBook did not answer in time.',
-      );
-    } on http.ClientException catch (error) {
-      throw _failure(
-        SourceFailureKind.network,
-        'Could not reach RepeaterBook: ${error.message}',
-      );
-    } on SocketException catch (error) {
-      throw _failure(
-        SourceFailureKind.network,
-        'Could not reach RepeaterBook: ${error.message}',
-      );
-    }
-
-    if (response.statusCode == 429) {
-      throw _failure(
-        SourceFailureKind.rateLimited,
-        'RepeaterBook asked us to slow down. Cached results are being shown; '
-        'try again in a few minutes.',
-      );
-    }
-    if (response.statusCode == 401 || response.statusCode == 403) {
-      throw _failure(SourceFailureKind.auth, switch (_authOutcome(
-        response.body,
-      )) {
+    final decoded = await getJson(
+      _client,
+      Uri.https(host, exportPath, {'state_id': stateId}),
+      headers: {
+        'X-RB-App-Token': token,
+        'User-Agent': userAgent,
+        'Accept': 'application/json',
+      },
+      timeout: timeout,
+      refused: (response) => switch (_authOutcome(response.body)) {
         TokenCheck.malformed =>
           'RepeaterBook did not recognise the saved token. Check it in '
               'radio source settings.',
         _ =>
           'RepeaterBook refused the saved token. It may have expired — '
               'request a new one in radio source settings.',
-      });
-    }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw _failure(
-        SourceFailureKind.network,
-        'RepeaterBook returned HTTP ${response.statusCode}.',
-      );
-    }
-
-    Object? decoded;
-    try {
-      decoded = jsonDecode(response.body);
-    } on FormatException {
-      throw _failure(
-        SourceFailureKind.parse,
-        'RepeaterBook sent something that was not JSON.',
-      );
-    }
+      },
+    );
     final rows = _rowsFrom(decoded);
     if (rows == null) {
-      throw _failure(
+      throw failure(
         SourceFailureKind.parse,
         'RepeaterBook sent no repeater list.',
       );
@@ -393,14 +346,4 @@ class RepeaterBookClient implements RepeaterSource {
     final trimmed = value.toString().trim();
     return trimmed.isEmpty ? null : trimmed;
   }
-
-  RepeaterSourceException _failure(SourceFailureKind kind, String message) =>
-      RepeaterSourceException(
-        SourceFailure(
-          sourceId: sourceId,
-          displayName: 'RepeaterBook',
-          kind: kind,
-          message: message,
-        ),
-      );
 }

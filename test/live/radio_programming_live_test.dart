@@ -87,22 +87,14 @@ void main() {
     return false;
   }
 
-  Future<RadioCodeplug> read() async {
-    RadioCodeplug? result;
-    await programmer
-        .readCodeplug(
-          deviceId: _deviceId!,
-          profile: profile,
-          onResult: (codeplug) => result = codeplug,
-        )
-        .forEach(
-          (event) => stdout.writeln(
-            '  ${event.stage.name}: ${event.message} '
-            '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}',
-          ),
-        );
-    return result!;
-  }
+  Future<RadioCodeplug> read() => programmer.readWhole(
+    deviceId: _deviceId!,
+    profile: profile,
+    onProgress: (event) => stdout.writeln(
+      '  ${event.stage.name}: ${event.message} '
+      '${event.progress == null ? '' : '${(event.progress! * 100).round()}%'}',
+    ),
+  );
 
   test(
     '1. the radio answers, and a full read comes back',

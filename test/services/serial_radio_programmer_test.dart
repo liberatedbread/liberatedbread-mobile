@@ -63,17 +63,11 @@ void main() {
     );
   }
 
-  Future<RadioCodeplug> read(SerialRadioProgrammer programmer) async {
-    RadioCodeplug? result;
-    await programmer
-        .readCodeplug(
-          deviceId: EmulatedSerialPortService.cable.id,
-          profile: uv5rProfile,
-          onResult: (codeplug) => result = codeplug,
-        )
-        .drain<void>();
-    return result!;
-  }
+  Future<RadioCodeplug> read(SerialRadioProgrammer programmer) =>
+      programmer.readWhole(
+        deviceId: EmulatedSerialPortService.cable.id,
+        profile: uv5rProfile,
+      );
 
   test('drives the UV-5R family and nothing else', () {
     final programmer = SerialRadioProgrammer(

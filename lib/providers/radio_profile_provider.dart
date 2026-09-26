@@ -1,12 +1,11 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/log.dart';
 import '../models/radio_band_limits.dart';
 import '../models/radio_profile.dart';
+import 'json_setting.dart';
 import 'spec_pack_provider.dart';
 
 /// The radio the user is working with.
@@ -48,24 +47,15 @@ final txUnlockProvider =
 class TxUnlockNotifier extends AsyncNotifier<Map<String, bool>> {
   static const key = 'radio_tx_unlock_v1';
 
+  /// Unreadable means off, which is the safe direction: the worst outcome is
+  /// that the operator is asked to acknowledge again.
   @override
   Future<Map<String, bool>> build() async {
-    final store = await ref.watch(prefsSettingsStoreProvider.future);
-    final raw = await store.read(key);
-    if (raw == null || raw.isEmpty) return const {};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return const {};
-      return {
-        for (final entry in decoded.entries)
-          if (entry.value is bool) entry.key: entry.value as bool,
-      };
-    } on FormatException catch (error) {
-      // Unreadable means off, which is the safe direction: the worst outcome
-      // is that the operator is asked to acknowledge again.
-      Log.radio.debug('tx unlock settings unreadable', error: error);
-      return const {};
-    }
+    final stored = await readJsonSetting(ref, key) ?? const {};
+    return {
+      for (final entry in stored.entries)
+        if (entry.value is bool) entry.key: entry.value as bool,
+    };
   }
 
   /// Whether the unlock is on for [profile].
@@ -85,9 +75,8 @@ class TxUnlockNotifier extends AsyncNotifier<Map<String, bool>> {
     // this provider can arrive while it is still loading, and a map built
     // from nothing would overwrite every other radio's setting.
     final current = await future;
-    final store = await ref.read(prefsSettingsStoreProvider.future);
     final next = {...current, profile.id: enabled};
-    await store.write(key, jsonEncode(next));
+    await writeJsonSetting(ref, key, next);
     state = AsyncData(next);
   }
 }
@@ -120,22 +109,11 @@ class OriginalBandLimitsNotifier
 
   @override
   Future<Map<String, OriginalBandLimits>> build() async {
-    final store = await ref.watch(prefsSettingsStoreProvider.future);
-    final raw = await store.read(key);
-    if (raw == null || raw.isEmpty) return const {};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return const {};
-      return {
-        for (final entry in decoded.entries)
-          entry.key: ?OriginalBandLimits.fromJson(entry.value),
-      };
-    } on FormatException catch (error) {
-      // Worth more than a debug line: these are the only record of what the
-      // radio held, and losing them loses the way back short of a restore.
-      Log.radio.warning('recorded band limits unreadable', error: error);
-      return const {};
-    }
+    final stored = await readJsonSetting(ref, key) ?? const {};
+    return {
+      for (final entry in stored.entries)
+        entry.key: ?OriginalBandLimits.fromJson(entry.value),
+    };
   }
 
   /// Record [limits] as what [profile] radios came with, unless something is
@@ -147,14 +125,10 @@ class OriginalBandLimitsNotifier
     final current = await future;
     final existing = current[profile.id];
     if (existing != null) return existing;
-    final store = await ref.read(prefsSettingsStoreProvider.future);
     final next = {...current, profile.id: limits};
-    await store.write(
-      key,
-      jsonEncode({
-        for (final entry in next.entries) entry.key: entry.value.toJson(),
-      }),
-    );
+    await writeJsonSetting(ref, key, {
+      for (final entry in next.entries) entry.key: entry.value.toJson(),
+    });
     state = AsyncData(next);
     return limits;
   }

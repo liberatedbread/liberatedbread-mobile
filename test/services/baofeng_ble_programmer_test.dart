@@ -48,17 +48,8 @@ void main() {
     return emulated;
   }
 
-  Future<RadioCodeplug> read(RadioProfile profile) async {
-    RadioCodeplug? result;
-    await programmer
-        .readCodeplug(
-          deviceId: _deviceId,
-          profile: profile,
-          onResult: (codeplug) => result = codeplug,
-        )
-        .drain<void>();
-    return result!;
-  }
+  Future<RadioCodeplug> read(RadioProfile profile) =>
+      programmer.readWhole(deviceId: _deviceId, profile: profile);
 
   test('supports the Bluetooth family and nothing else', () {
     expect(programmer.supports(uv5rMiniProfile), isTrue);

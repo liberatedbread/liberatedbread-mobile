@@ -1,20 +1,18 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../core/constants.dart';
-import '../core/log.dart';
 import '../services/mygmrs_client.dart';
 import '../services/radio_source_cache.dart';
 import '../services/repeater_source.dart';
 import '../services/repeaterbook_client.dart';
+import 'json_setting.dart';
 import 'radio_bundled_data_provider.dart';
 import 'settings_store_provider.dart';
-import 'spec_pack_provider.dart';
 
 /// Identifies this app to the directories it queries.
 ///
@@ -103,24 +101,14 @@ class RadioSourceSettingsNotifier extends AsyncNotifier<RadioSourceSettings> {
 
   @override
   Future<RadioSourceSettings> build() async {
-    final store = await ref.watch(prefsSettingsStoreProvider.future);
-    final raw = await store.read(key);
-    if (raw == null || raw.isEmpty) return const RadioSourceSettings();
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) {
-        return const RadioSourceSettings();
-      }
-      return RadioSourceSettings.fromJson(decoded);
-    } on FormatException catch (error) {
-      Log.radio.debug('source settings unreadable', error: error);
-      return const RadioSourceSettings();
-    }
+    final stored = await readJsonSetting(ref, key);
+    return stored == null
+        ? const RadioSourceSettings()
+        : RadioSourceSettings.fromJson(stored);
   }
 
   Future<void> _save(RadioSourceSettings settings) async {
-    final store = await ref.read(prefsSettingsStoreProvider.future);
-    await store.write(key, jsonEncode(settings.toJson()));
+    await writeJsonSetting(ref, key, settings.toJson());
     state = AsyncData(settings);
   }
 

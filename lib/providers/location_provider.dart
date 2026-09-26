@@ -1,14 +1,12 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/geo.dart';
-import '../core/log.dart';
 import '../services/geolocator_location_service.dart';
 import '../services/location_service.dart';
-import 'spec_pack_provider.dart';
+import 'json_setting.dart';
 
 /// Provides the location backend. Tests override this with a fake; the Linux
 /// desktop gets the real one and it reports itself unavailable.
@@ -70,25 +68,13 @@ class LastLocationNotifier extends AsyncNotifier<SavedLocation?> {
 
   @override
   Future<SavedLocation?> build() async {
-    final store = await ref.watch(prefsSettingsStoreProvider.future);
-    final raw = await store.read(key);
-    if (raw == null || raw.isEmpty) return null;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return null;
-      return SavedLocation.fromJson(decoded);
-    } on FormatException catch (error) {
-      // A location nobody can read is a location nobody had. Not worth
-      // failing the Radio tab's first frame over.
-      Log.radio.debug('stored location unreadable', error: error);
-      return null;
-    }
+    final stored = await readJsonSetting(ref, key);
+    return stored == null ? null : SavedLocation.fromJson(stored);
   }
 
   /// Record where a search ran from.
   Future<void> remember(SavedLocation location) async {
-    final store = await ref.read(prefsSettingsStoreProvider.future);
-    await store.write(key, jsonEncode(location.toJson()));
+    await writeJsonSetting(ref, key, location.toJson());
     state = AsyncData(location);
   }
 }

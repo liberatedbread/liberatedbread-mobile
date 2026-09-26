@@ -3,10 +3,6 @@
 //
 // myGMRS: the GMRS repeater directory.
 
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:http/http.dart' as http;
 
 import '../core/frequency.dart';
@@ -61,64 +57,21 @@ class MyGmrsClient implements RepeaterSource {
 
   @override
   Future<List<RepeaterListing>> fetchByState(String stateCode) async {
-    final uri = Uri.https(host, '/repeaters', {'state': stateCode});
-
-    http.Response response;
-    try {
-      response = await _client
-          .get(
-            uri,
-            headers: {'User-Agent': userAgent, 'Accept': 'application/json'},
-          )
-          .timeout(timeout);
-    } on TimeoutException {
-      throw _failure(
-        SourceFailureKind.network,
-        'myGMRS did not answer in time. Showing what was cached.',
-      );
-    } on http.ClientException catch (error) {
-      throw _failure(
-        SourceFailureKind.network,
-        'Could not reach myGMRS: ${error.message}',
-      );
-    } on SocketException catch (error) {
-      throw _failure(
-        SourceFailureKind.network,
-        'Could not reach myGMRS: ${error.message}',
-      );
-    }
-
-    if (response.statusCode == 429) {
-      throw _failure(
-        SourceFailureKind.rateLimited,
-        'myGMRS asked us to slow down. Try again in a few minutes.',
-      );
-    }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw _failure(
-        SourceFailureKind.network,
-        'myGMRS returned HTTP ${response.statusCode}.',
-      );
-    }
-
-    Object? decoded;
-    try {
-      decoded = jsonDecode(response.body);
-    } on FormatException {
-      throw _failure(
-        SourceFailureKind.parse,
-        'myGMRS sent something that was not JSON.',
-      );
-    }
+    final decoded = await getJson(
+      _client,
+      Uri.https(host, '/repeaters', {'state': stateCode}),
+      headers: {'User-Agent': userAgent, 'Accept': 'application/json'},
+      timeout: timeout,
+    );
     if (decoded is! Map<String, dynamic>) {
-      throw _failure(
+      throw failure(
         SourceFailureKind.parse,
         'myGMRS sent an unexpected response.',
       );
     }
     final items = decoded['items'];
     if (items is! List) {
-      throw _failure(SourceFailureKind.parse, 'myGMRS sent no repeater list.');
+      throw failure(SourceFailureKind.parse, 'myGMRS sent no repeater list.');
     }
 
     final listings = <RepeaterListing>[];
@@ -181,14 +134,4 @@ class MyGmrsClient implements RepeaterSource {
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
   }
-
-  RepeaterSourceException _failure(SourceFailureKind kind, String message) =>
-      RepeaterSourceException(
-        SourceFailure(
-          sourceId: sourceId,
-          displayName: 'myGMRS',
-          kind: kind,
-          message: message,
-        ),
-      );
 }

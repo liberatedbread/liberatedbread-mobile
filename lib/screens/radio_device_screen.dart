@@ -762,19 +762,11 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
   Future<RadioCodeplug> _read(
     RadioProgrammer programmer,
     RadioProfile profile,
-  ) async {
-    RadioCodeplug? result;
-    await programmer
-        .readCodeplug(
-          deviceId: _target.id,
-          profile: profile,
-          onResult: (codeplug) => result = codeplug,
-        )
-        .forEach(_onProgress);
-    final codeplug = result;
-    if (codeplug == null) throw const RadioProtocolException();
-    return codeplug;
-  }
+  ) => programmer.readWhole(
+    deviceId: _target.id,
+    profile: profile,
+    onProgress: _onProgress,
+  );
 
   void _onProgress(RadioProgressEvent event) {
     if (mounted) setState(() => _progress = event);

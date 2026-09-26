@@ -3,6 +3,12 @@
 //
 // The seam every online repeater directory plugs into.
 
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+
 import '../core/error_text.dart';
 import '../core/geo.dart';
 import '../models/radio_channel.dart';
@@ -159,4 +165,77 @@ abstract class RepeaterSource {
   /// Throws [RepeaterSourceException] on any failure. Returning an empty list
   /// means "this state genuinely has none", which is a different thing.
   Future<List<RepeaterListing>> fetchByState(String stateCode);
+}
+
+/// What every directory client shares: saying what went wrong, and a GET
+/// that turns each way it can fail into something the results screen shows.
+extension RepeaterSourceFetch on RepeaterSource {
+  /// A failure of this source, ready to throw.
+  RepeaterSourceException failure(SourceFailureKind kind, String message) =>
+      RepeaterSourceException(
+        SourceFailure(
+          sourceId: id,
+          displayName: displayName,
+          kind: kind,
+          message: message,
+        ),
+      );
+
+  /// GET [uri] and decode the JSON it answers with.
+  ///
+  /// [refused] words a 401 or 403 for a source with a credential to refuse;
+  /// without it those are errors like any other status.
+  Future<Object?> getJson(
+    http.Client client,
+    Uri uri, {
+    required Map<String, String> headers,
+    required Duration timeout,
+    String Function(http.Response response)? refused,
+  }) async {
+    http.Response response;
+    try {
+      response = await client.get(uri, headers: headers).timeout(timeout);
+    } on TimeoutException {
+      throw failure(
+        SourceFailureKind.network,
+        '$displayName did not answer in time. Anything cached is still shown.',
+      );
+    } on http.ClientException catch (error) {
+      throw failure(
+        SourceFailureKind.network,
+        'Could not reach $displayName: ${error.message}',
+      );
+    } on SocketException catch (error) {
+      throw failure(
+        SourceFailureKind.network,
+        'Could not reach $displayName: ${error.message}',
+      );
+    }
+
+    final status = response.statusCode;
+    if (status == 429) {
+      throw failure(
+        SourceFailureKind.rateLimited,
+        '$displayName asked us to slow down. Anything cached is still shown; '
+        'try again in a few minutes.',
+      );
+    }
+    if ((status == 401 || status == 403) && refused != null) {
+      throw failure(SourceFailureKind.auth, refused(response));
+    }
+    if (status < 200 || status >= 300) {
+      throw failure(
+        SourceFailureKind.network,
+        '$displayName returned HTTP $status.',
+      );
+    }
+    try {
+      return jsonDecode(response.body);
+    } on FormatException {
+      throw failure(
+        SourceFailureKind.parse,
+        '$displayName sent something that was not JSON.',
+      );
+    }
+  }
 }
