@@ -511,6 +511,8 @@ heading.
   covers is not drawn twice; a non-TV's button card is titled "Controls"; BLE
   locks say Lock/Unlock and confirm unlocking; a walking pad's verbs are drawn
   once; printers print from an editor that says "Print", not "LED image".
+  A parameter whose `labels` name a `min`..`max` range (aranet4, the Aurora
+  shoes' power) is offered as a labelled choice, not a bare slider.
 
 - **Local Roomba control, with no iRobot cloud in the loop.** A robot found on
   the LAN is adopted (hold HOME until the tones, the app reads its password

@@ -3366,10 +3366,9 @@ fn the_vendored_tvs_declare_their_pairing_tokens() {
 /// Two spellings are counted. The catalogue wrote these as a `values` table
 /// until upstream moved every one to the schema's `allowed` + index-paired
 /// `labels` form; a spec pack older than that move still says `values`, and
-/// both must read as the same choice. (aranet4's `request_history_v1.param`
-/// and aurora-led-shoes' `set_power.state` carry `labels` with no `allowed`,
-/// which the schema gives no meaning, so they are not counted; see
-/// SPECS_TO_FIX.md.)
+/// both must read as the same choice. So must `labels` beside a contiguous
+/// `min`..`max` range with no `allowed` (aranet4's history `param`,
+/// aurora-led-shoes' `state`): a range is how a set with no gaps is written.
 #[test]
 fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
     let mut coded: Vec<(String, String, String, usize)> = Vec::new();
@@ -3388,12 +3387,7 @@ fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
                         continue;
                     };
                     for (name, parameter) in &parameters.params {
-                        // `labels` names `allowed` by index and means nothing
-                        // on its own (the schema says so, and a consumer that
-                        // paired labels with a min..max range would be
-                        // guessing), so it is a code table only beside one.
-                        let paired = parameter.allowed.is_some() && parameter.labels.is_some();
-                        if parameter.values.is_none() && !paired {
+                        if parameter.values.is_none() && parameter.labels.is_none() {
                             continue;
                         }
                         let choices = parameter.allowed_with_labels().unwrap_or_else(|| {
@@ -3416,7 +3410,7 @@ fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
     }
     assert_eq!(
         coded.len(),
-        64,
+        66,
         "the catalogue's coded BLE parameters, each offering its codes: {coded:#?}"
     );
     assert!(

@@ -1225,15 +1225,15 @@ and a Vizio before it did), so adopting the registry in place of the Rust
 `_matter._tcp` `platform_fallback`, or a Matter node stops matching the moment
 that type becomes shared.
 
-### S-24 — `labels` without `allowed` on two BLE parameters
+### S-24 — the schema did not say what `labels` name without `allowed`
 
-aranet4's `request_history_v1.param` and aurora-led-shoes' `set_power.state`
-carry `labels` beside `min`/`max` but no `allowed`. The schema gives labels no
-meaning on their own, so both draw as unlabelled sliders. Fix: add `allowed`
-(`[1, 2, 3, 4]`, `[0, 1]`) and a schema `dependentRequired: {labels:
-[allowed]}` so the next one fails validation. The refresh that brings it moves
-`the_vendored_coded_parameters_offer_their_codes_as_choices` from 64 to 66 —
-that pin exists to notice exactly this.
+aranet4's `request_history_v1.param` (`min: 1, max: 4`) and
+aurora-led-shoes' `set_power.state` (`min: 0, max: 1`) label a contiguous
+range — the natural way to write a set with no gaps, `allowed` being for
+sets that have them. The schema described `labels` only beside `allowed`,
+so the app drew both as unlabelled sliders. The app now pairs labels with a
+min..max range when the count matches, and upstream's branch says so in the
+schema and checks the count in its test suite.
 
 ### S-25 — the TV specs' remaining remote keys carry no `key`
 
