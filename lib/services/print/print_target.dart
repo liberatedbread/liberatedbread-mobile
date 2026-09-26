@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show immutable;
@@ -217,4 +218,94 @@ class BleRasterTarget implements LabelPrintTarget {
     }
     return const PrintOk();
   }
+}
+
+/// A BLE printer the app is NOT connected to — one picked from the saved
+/// devices: connect for the print, then let go, the way a group run does. A
+/// scan still running is stopped first; connecting mid-scan is flaky on both
+/// platforms.
+class ConnectingBleTarget implements LabelPrintTarget {
+  final BleRasterTarget inner;
+  final Duration connectTimeout;
+
+  ConnectingBleTarget(
+    this.inner, {
+    this.connectTimeout = const Duration(seconds: 15),
+  });
+
+  @override
+  String get name => inner.name;
+
+  @override
+  LabelGeometry get geometry => inner.geometry;
+
+  @override
+  Future<PrintOutcome> printMono(
+    Uint8List rgb,
+    int width,
+    int height, {
+    int copies = 1,
+  }) async {
+    final ble = inner.ble;
+    final id = inner.deviceId;
+    try {
+      await ble.stopScan().catchError((Object _) {});
+      await ble.connect(id).timeout(connectTimeout);
+      await ble.discoverServices(id).timeout(connectTimeout);
+    } on Object catch (e) {
+      Log.ble.warning('print connect failed for $id', error: e);
+      await ble.disconnect(id).catchError((Object _) {});
+      return PrintFailed('Could not connect to ${inner.name}. Is it on?');
+    }
+    try {
+      return await inner.printMono(rgb, width, height, copies: copies);
+    } finally {
+      await ble.disconnect(id).catchError((Object _) {});
+    }
+  }
+}
+
+/// The media to print on: what a Brother QL reported loaded, or a
+/// conservative default — 62 mm continuous, the common DK-22205 roll — when
+/// it stayed silent.
+BrotherQlJobParamsDto brotherParamsFor(BrotherQlStatusDto? status) {
+  if (status == null) {
+    return const BrotherQlJobParamsDto(
+      mediaWidthMm: 62,
+      mediaLengthMm: 0,
+      mediaDieCut: false,
+      autoCut: true,
+    );
+  }
+  return BrotherQlJobParamsDto(
+    mediaWidthMm: status.mediaWidthMm,
+    mediaLengthMm: status.mediaLengthMm,
+    mediaDieCut: status.mediaType == 'die_cut',
+    autoCut: true,
+  );
+}
+
+/// Ask a Brother QL what is loaded, for a caller that has not asked yet (the
+/// printer picker). Null when it does not answer — the caller then prints on
+/// [brotherParamsFor]'s default.
+Future<BrotherQlStatusDto?> readBrotherStatus({
+  required SpecCodec codec,
+  required BrotherQlPrintService transport,
+  required String host,
+  required int port,
+}) async {
+  try {
+    final result = await transport.send(
+      host,
+      port,
+      await codec.brotherQlStatusRequest(),
+      readStatus: true,
+    );
+    if (result case BrotherQlSendOk(:final statusReply?)) {
+      return await codec.decodeBrotherQlStatus(reply: statusReply);
+    }
+  } on Object catch (e) {
+    Log.spec.debug('brother status read failed', error: e);
+  }
+  return null;
 }
