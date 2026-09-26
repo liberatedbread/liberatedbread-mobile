@@ -59,6 +59,9 @@ REQUIRED_STRING_KEYS=(
   "NSBluetoothAlwaysUsageDescription"
   "NSBluetoothPeripheralUsageDescription"
   "NSLocalNetworkUsageDescription"
+  # image_picker: the app is killed on first use of the picker without these.
+  "NSPhotoLibraryUsageDescription"
+  "NSCameraUsageDescription"
 )
 
 # The FFI dispatcher entry points flutter_rust_bridge 2.9 exports from the

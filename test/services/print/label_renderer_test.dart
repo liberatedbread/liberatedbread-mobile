@@ -4,6 +4,9 @@
 // renderLabel: the composer's pixels, in head coordinates at the printer's
 // real width — the one dimension a label printer will not negotiate.
 import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:flutter/painting.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/print/label_content.dart';
@@ -21,6 +24,24 @@ int _dark(Uint8List rgba) {
 bool _whiteAt(RenderedLabel l, int x, int y) {
   final i = (y * l.width + x) * 4;
   return l.rgba[i] > 200 && l.rgba[i + 1] > 200 && l.rgba[i + 2] > 200;
+}
+
+/// A [w]x[h] PNG, black on its left half and white on its right.
+Future<Uint8List> _png(int w, int h) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawRect(
+    Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+    Paint()..color = const Color(0xFFFFFFFF),
+  );
+  canvas.drawRect(
+    Rect.fromLTWH(0, 0, w / 2, h.toDouble()),
+    Paint()..color = const Color(0xFF000000),
+  );
+  final image = await recorder.endRecording().toImage(w, h);
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return data!.buffer.asUint8List();
 }
 
 const _brother62 = LabelGeometry(widthDots: 696, dpi: 300);
@@ -103,5 +124,49 @@ void main() {
   test('fitsInQr refuses what no QR version can hold', () {
     expect(fitsInQr('hello'), isTrue);
     expect(fitsInQr('x' * 5000), isFalse);
+  });
+
+  testWidgets('a photo fills the head width and keeps its aspect', (
+    tester,
+  ) async {
+    final label = (await tester.runAsync(() async {
+      return renderPhoto(await _png(200, 100), _brother62);
+    }))!;
+    expect(label.width, 696);
+    expect(label.height, 348);
+    // Left half black, right half white — orientation kept.
+    expect(_whiteAt(label, 10, 100), isFalse);
+    expect(_whiteAt(label, 680, 100), isTrue);
+  });
+
+  testWidgets('along the tape, a photo runs down the feed', (tester) async {
+    final label = (await tester.runAsync(() async {
+      return renderPhoto(
+        await _png(200, 100),
+        const LabelGeometry(widthDots: 96, dpi: 203),
+        alongTape: true,
+      );
+    }))!;
+    expect(label.width, 96);
+    expect(label.height, 192);
+  });
+
+  testWidgets('a die-cut label fits the photo inside it', (tester) async {
+    final label = (await tester.runAsync(() async {
+      return renderPhoto(await _png(100, 400), _d11);
+    }))!;
+    expect((label.width, label.height), (96, 240));
+  });
+
+  testWidgets('bytes that are not an image are an error', (tester) async {
+    Object? error;
+    await tester.runAsync(() async {
+      try {
+        await renderPhoto(Uint8List.fromList([1, 2, 3]), _d11);
+      } on Object catch (e) {
+        error = e;
+      }
+    });
+    expect(error, isNotNull);
   });
 }

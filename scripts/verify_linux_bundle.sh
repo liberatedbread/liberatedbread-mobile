@@ -83,12 +83,14 @@ FRB_SYMBOL_PATTERN='frb_(pde_ffi_dispatcher_primary|get_rust_content_hash)$'
 # the FFI check above would not:
 #   flutter_secure_storage_linux  Home Assistant token storage (libsecret)
 #   url_launcher_linux            opening the HA/docs links in the UI
+#   file_selector_linux           the file dialog for printing a photo or PDF
 # NOTE: flutter_blue_plus_linux is deliberately NOT here. Its Linux
 # implementation is pure Dart over BlueZ's D-Bus API, so it ships no .so and
 # never appears in the bundle — asserting on it would fail every build.
 REQUIRED_PLUGIN_LIBS=(
   "libflutter_secure_storage_linux_plugin.so"
   "liburl_launcher_linux_plugin.so"
+  "libfile_selector_linux_plugin.so"
 )
 
 # Size floor for the Rust library. A real debug build is ~26 MB (unstripped,

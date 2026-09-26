@@ -94,6 +94,10 @@
 		<string>_viziocast._tcp</string>
 		<string>_wled._tcp</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Liberated Bread prints the photos you choose on your label printer.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Liberated Bread prints the photos you take on your label printer.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Liberated Bread finds IoT devices on your Wi-Fi network, and connects to your Home Assistant server.</string>
 	<key>UIApplicationSceneManifest</key>
