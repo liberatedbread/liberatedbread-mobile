@@ -136,6 +136,7 @@ void main() {
     await tester.tap(find.byTooltip('Copy for a bug report'));
     await tester.pumpAndSettle();
 
+    expect(copied.single, startsWith('Liberated Bread dev build\n'));
     expect(copied.single, contains('SSDP discovery failed'));
     expect(copied.single, isNot(contains('chatter')));
   });

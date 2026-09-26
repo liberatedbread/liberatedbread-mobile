@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/constants.dart';
 import '../core/log.dart';
 import '../core/mono_text.dart';
 
@@ -47,16 +48,21 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
         .toList();
   }
 
+  static const String _build =
+      '${AppConstants.appName} ${AppConstants.appVersion}';
+
   Future<void> _copy() async {
     final buffer = Log.buffer;
     final messenger = ScaffoldMessenger.of(context);
     if (buffer == null) return;
     // What was on screen, not everything: a report of thirty relevant lines
     // gets read and one of five hundred does not.
-    final text = buffer.export(
+    final lines = buffer.export(
       minLevel: _showFrom,
       categories: _showOnly.isEmpty ? null : _showOnly,
     );
+    // Line one names the build, so a pasted report can be traced to a commit.
+    final text = lines.isEmpty ? '' : '$_build\n$lines';
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
     messenger.showSnackBar(
@@ -102,6 +108,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Text(_build, style: Theme.of(context).textTheme.bodySmall),
+            ),
             _CaptureControls(onChanged: () => setState(() {})),
             const Divider(height: 1),
             _ViewControls(

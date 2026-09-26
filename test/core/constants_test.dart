@@ -13,18 +13,19 @@ void main() {
     expect(AppConstants.nearbyRssiThreshold, -70);
   });
 
-  test('appVersion matches the pubspec.yaml version', () {
-    // appVersion is sent to Home Assistant as app_version; a drift from the
-    // released version makes support logs lie. flutter test runs from the
-    // package root, so pubspec.yaml resolves relatively.
-    final pubspec = File('pubspec.yaml').readAsStringSync();
-    final match = RegExp(
-      r'^version:\s*(\S+)',
-      multiLine: true,
-    ).firstMatch(pubspec);
-    expect(match, isNotNull, reason: 'pubspec.yaml must declare a version');
-    // The '+buildNumber' suffix is not part of the human-facing version.
-    final version = match!.group(1)!.split('+').first;
-    expect(AppConstants.appVersion, version);
+  test('appVersion is the release stamp, and admits when there is none', () {
+    // A test build is not stamped, so it must not pass for a release.
+    expect(AppConstants.appVersion, 'dev build');
+    // scripts/release.sh stamps releases. If the define it passes and the one
+    // constants.dart reads ever drift apart, every store build reports
+    // "dev build" and its bug reports lose their commit. flutter test runs from
+    // the package root, so both paths resolve relatively.
+    for (final file in ['lib/core/constants.dart', 'scripts/release.sh']) {
+      expect(
+        File(file).readAsStringSync(),
+        contains('LIBERATED_BREAD_BUILD'),
+        reason: '$file must use the LIBERATED_BREAD_BUILD define',
+      );
+    }
   });
 }

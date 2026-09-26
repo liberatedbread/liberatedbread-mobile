@@ -538,6 +538,8 @@ is faked.
 
 - [Architecture Walkthrough](docs/WALKTHROUGH.md) — E2E code walkthrough
 - [Build & Test Guide](docs/BUILD_AND_TEST.md) — Setup, build, run, and test
+- [Releasing](docs/RELEASE.md) — Tags, build stamps, Google Play, websites
+- [App Store Submission](docs/APP_STORE_SUBMISSION.md) — The Apple side, step by step
 - [Branding](docs/BRANDING.md) — Palette and app-icon pipeline
 - [iOS from Linux](docs/ios-from-linux.md) — iPhone workflows without leaving Linux
 - [Contributing](CONTRIBUTING.md) — How to contribute
