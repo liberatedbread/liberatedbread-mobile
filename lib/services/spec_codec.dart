@@ -32,6 +32,8 @@ export '../src/rust/api/device_api.dart'
         PanelResolutionDto,
         ImageWriteDto,
         ImageWritePlanDto,
+        ReplyWaitDto,
+        CompletionPollDto,
         StoredUploadDto,
         StoredUploadPlanDto,
         StoredUploadEventDto,

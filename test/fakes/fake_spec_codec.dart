@@ -382,6 +382,7 @@ class FakeSpecCodec implements SpecCodec {
           ],
           // One packet consumed, like a real single-packet frame.
           nextFrameIndex: frameIndex + 1,
+          replyWaits: const [],
         );
   }
 

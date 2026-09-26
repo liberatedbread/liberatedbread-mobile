@@ -22,11 +22,16 @@ class LabelGeometry {
   /// The loaded roll's name, for the composer's header, when known.
   final String? mediaName;
 
+  /// False when the printer's spec says its protocol has not been run on
+  /// real hardware; the composer says so before the first print.
+  final bool hardwareTested;
+
   const LabelGeometry({
     required this.widthDots,
     required this.dpi,
     this.lengthDots,
     this.mediaName,
+    this.hardwareTested = true,
   });
 
   /// Continuous stock with no content yet still needs some length to show.
@@ -91,11 +96,13 @@ class BrotherQlTarget implements LabelPrintTarget {
     required this.params,
     required this.name,
     required LabelCanvasDto canvas,
+    bool hardwareTested = true,
   }) : geometry = LabelGeometry(
          widthDots: canvas.widthDots,
          lengthDots: canvas.lengthDots,
          dpi: canvas.dpi,
          mediaName: canvas.mediaName,
+         hardwareTested: hardwareTested,
        );
 
   /// Resolve the canvas for [params] and build the target.
@@ -119,6 +126,9 @@ class BrotherQlTarget implements LabelPrintTarget {
       specYaml: specYaml,
       params: params,
     ),
+    hardwareTested:
+        (await codec.rasterPrintForSpec(specYaml: specYaml))?.hardwareTested ??
+        true,
   );
 
   @override
@@ -177,6 +187,7 @@ class BleRasterTarget implements LabelPrintTarget {
          // any BLE thermal printer in the catalogue is.
          widthDots: raster.printableDots ?? raster.headDots ?? 384,
          dpi: raster.dpi,
+         hardwareTested: raster.hardwareTested,
        );
 
   @override
@@ -210,6 +221,18 @@ class BleRasterTarget implements LabelPrintTarget {
       for (var i = 0; i < copies; i++) {
         await runImageWritePlan(ble, deviceId, plan);
       }
+    } on DeviceRefusedException catch (e) {
+      Log.ble.warning('printer $deviceId refused the job', error: e);
+      return const PrintFailed(
+        'The printer refused the label. Check the lid is shut and the '
+        'labels are loaded.',
+      );
+    } on TimeoutException catch (e) {
+      Log.ble.warning('printer $deviceId stopped answering', error: e);
+      return const PrintFailed(
+        'The printer stopped answering partway through. Check it is on and '
+        'in range, then try again.',
+      );
     } on Object catch (e) {
       Log.ble.warning('print write failed for $deviceId', error: e);
       return const PrintFailed(
