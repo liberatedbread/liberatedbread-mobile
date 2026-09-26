@@ -4,6 +4,9 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show immutable;
 
+import '../../core/log.dart';
+import '../ble_service.dart';
+import '../ble_write_plan_runner.dart';
 import '../brother_ql_print_service.dart';
 import '../spec_codec.dart';
 
@@ -141,6 +144,76 @@ class BrotherQlTarget implements LabelPrintTarget {
       if (result case BrotherQlSendFailed(:final reason)) {
         return PrintFailed(reason);
       }
+    }
+    return const PrintOk();
+  }
+}
+
+/// A BLE raster printer the app is connected to (cat printer, Fichero D11):
+/// the label is encoded by the spec's image-upload handler into a GATT
+/// write plan and written over the live connection.
+class BleRasterTarget implements LabelPrintTarget {
+  final SpecCodec codec;
+  final BleService ble;
+  final String deviceId;
+  final String specYaml;
+
+  @override
+  final String name;
+
+  @override
+  final LabelGeometry geometry;
+
+  BleRasterTarget({
+    required this.codec,
+    required this.ble,
+    required this.deviceId,
+    required this.specYaml,
+    required this.name,
+    required RasterPrintDto raster,
+  }) : geometry = LabelGeometry(
+         // 384 is the 58 mm roll every cat printer takes, and the widest
+         // any BLE thermal printer in the catalogue is.
+         widthDots: raster.printableDots ?? raster.headDots ?? 384,
+         dpi: raster.dpi,
+       );
+
+  @override
+  Future<PrintOutcome> printMono(
+    Uint8List rgb,
+    int width,
+    int height, {
+    int copies = 1,
+  }) async {
+    var mtu = 23;
+    try {
+      mtu = await ble.mtu(deviceId);
+    } on Object {
+      // Sizing for the floor is always safe, just slower.
+    }
+    final ImageWritePlanDto plan;
+    try {
+      plan = await codec.encodeImageFrame(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: rgb,
+        frameIndex: 0,
+        maxPayloadPerWrite: writePayloadForMtu(mtu),
+      );
+    } on Object catch (e) {
+      Log.ble.warning('print encode failed for $deviceId', error: e);
+      return const PrintFailed('Could not encode the label for this printer.');
+    }
+    try {
+      for (var i = 0; i < copies; i++) {
+        await runImageWritePlan(ble, deviceId, plan);
+      }
+    } on Object catch (e) {
+      Log.ble.warning('print write failed for $deviceId', error: e);
+      return const PrintFailed(
+        'The printer stopped responding. Check it is on and in range.',
+      );
     }
     return const PrintOk();
   }
