@@ -7,9 +7,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/screens/diagnostics_screen.dart';
+import 'package:liberated_bread_mobile/services/print/os_print_service.dart';
+
+import '../fakes/fake_os_print_service.dart';
 
 void main() {
   late LogSink? suiteDefaultSink;
@@ -29,8 +33,16 @@ void main() {
     Log.reset();
   });
 
-  Future<void> pump(WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: DiagnosticsScreen()));
+  Future<void> pump(WidgetTester tester, {OsPrintService? printer}) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          if (printer != null)
+            osPrintServiceProvider.overrideWithValue(printer),
+        ],
+        child: const MaterialApp(home: DiagnosticsScreen()),
+      ),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -177,5 +189,21 @@ void main() {
 
     expect(find.textContaining('token=<redacted>'), findsOneWidget);
     expect(find.textContaining('s3cret-token'), findsNothing);
+  });
+
+  testWidgets('Print sends what is on screen to the print dialog', (
+    tester,
+  ) async {
+    Log.minLevel = LogLevel.debug;
+    Log.net.info('network scan finished');
+    final printer = FakeOsPrintService();
+
+    await pump(tester, printer: printer);
+    await tester.tap(find.byTooltip('Print'));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pumpAndSettle();
+
+    expect(printer.jobs.single.name, 'Liberated Bread diagnostics');
+    expect(String.fromCharCodes(printer.jobs.single.pdf.take(5)), '%PDF-');
   });
 }

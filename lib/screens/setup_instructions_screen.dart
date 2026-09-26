@@ -1,7 +1,13 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'package:flutter/material.dart';
+import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../core/log.dart';
+import '../services/print/os_print_service.dart';
+import '../services/print/pdf_documents.dart';
 import '../services/spec_codec.dart'
     show
         SetupInstructionsDto,
@@ -22,7 +28,7 @@ import '../services/spec_codec.dart'
 /// touch the device, so it is safe to reach from an error state where there is
 /// no live connection. Sections a spec omits are simply absent — the screen
 /// never renders an empty heading.
-class SetupInstructionsScreen extends StatelessWidget {
+class SetupInstructionsScreen extends ConsumerWidget {
   /// The matched product's name — "Ember Mug" — for the intro line.
   final String deviceName;
   final SetupInstructionsDto instructions;
@@ -33,8 +39,29 @@ class SetupInstructionsScreen extends StatelessWidget {
     required this.instructions,
   });
 
+  Future<void> _print(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(osPrintServiceProvider)
+          .printDocument(
+            name: '$deviceName setup',
+            build: (format) => setupInstructionsPdf(
+              format: format,
+              deviceName: deviceName,
+              instructions: instructions,
+            ),
+          );
+    } on Object catch (e) {
+      Log.app.warning('printing setup notes failed', error: e);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not open the print dialog.')),
+      );
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -51,7 +78,16 @@ class SetupInstructionsScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: scheme.surface,
-      appBar: AppBar(title: const Text('Setup & troubleshooting')),
+      appBar: AppBar(
+        title: const Text('Setup & troubleshooting'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.print_outlined),
+            tooltip: 'Print',
+            onPressed: () => unawaited(_print(context, ref)),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),

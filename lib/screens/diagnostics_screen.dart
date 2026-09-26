@@ -1,10 +1,15 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
 import '../core/mono_text.dart';
+import '../services/print/os_print_service.dart';
+import '../services/print/pdf_documents.dart';
 
 /// What the app has been saying, on the device it is saying it on.
 ///
@@ -18,14 +23,14 @@ import '../core/mono_text.dart';
 /// and is a live setting on [Log]; VIEW decides what is shown of it. Turning a
 /// category up does not retroactively fill the buffer, so the capture controls
 /// are at the top where they are seen before the reading starts.
-class DiagnosticsScreen extends StatefulWidget {
+class DiagnosticsScreen extends ConsumerStatefulWidget {
   const DiagnosticsScreen({super.key});
 
   @override
-  State<DiagnosticsScreen> createState() => _DiagnosticsScreenState();
+  ConsumerState<DiagnosticsScreen> createState() => _DiagnosticsScreenState();
 }
 
-class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
+class _DiagnosticsScreenState extends ConsumerState<DiagnosticsScreen> {
   /// View filter: hide anything below this. Independent of the capture level —
   /// a reader narrowing to warnings must not stop the app recording debug
   /// lines they may want a moment later.
@@ -70,6 +75,47 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     );
   }
 
+  /// Print what is on screen through the system print dialog — for a bug
+  /// report on paper, or a PDF the dialog saves.
+  Future<void> _print() async {
+    final buffer = Log.buffer;
+    if (buffer == null) return;
+    final text = buffer.export(
+      minLevel: _showFrom,
+      categories: _showOnly.isEmpty ? null : _showOnly,
+    );
+    if (text.isEmpty) return;
+    final lines = text.split('\n');
+    // Chunks rather than one block: a page break can only fall between
+    // paragraphs, and a log is thousands of lines.
+    final chunks = [
+      for (var i = 0; i < lines.length; i += 40)
+        lines.sublist(i, (i + 40).clamp(0, lines.length)).join('\n'),
+    ];
+    final stamp = DateTime.now().toIso8601String().split('.').first;
+    try {
+      await ref
+          .read(osPrintServiceProvider)
+          .printDocument(
+            name: 'Liberated Bread diagnostics',
+            build: (format) => textDocumentPdf(
+              format: format,
+              title: 'Liberated Bread diagnostics',
+              subtitle: '${_visible.length} line(s), $stamp',
+              sections: [(heading: null, paragraphs: chunks)],
+              monospace: true,
+            ),
+          );
+    } on Object catch (e) {
+      Log.app.warning('printing diagnostics failed', error: e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open the print dialog.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final records = _visible;
@@ -81,6 +127,11 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
             icon: const Icon(Icons.copy_all_outlined),
             tooltip: 'Copy for a bug report',
             onPressed: records.isEmpty ? null : _copy,
+          ),
+          IconButton(
+            icon: const Icon(Icons.print_outlined),
+            tooltip: 'Print',
+            onPressed: records.isEmpty ? null : () => unawaited(_print()),
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline),

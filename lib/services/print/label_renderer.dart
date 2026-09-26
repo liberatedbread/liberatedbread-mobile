@@ -83,9 +83,9 @@ Future<RenderedLabel> renderLabel(
   if (content.hasQr) {
     try {
       qr = QrImage(
-        QrCode(
-          payload: QrPayload.fromString(content.qrData!.trim()),
-          errorCorrectLevel: QrErrorCorrectLevel.medium,
+        QrCode.fromData(
+          data: content.qrData!.trim(),
+          errorCorrectLevel: QrErrorCorrectLevel.M,
         ),
       );
     } on Object {
@@ -219,9 +219,9 @@ Future<RenderedLabel> renderLabel(
 /// Whether [data] fits in a QR code at all (version 40, medium correction).
 bool fitsInQr(String data) {
   try {
-    QrCode(
-      payload: QrPayload.fromString(data),
-      errorCorrectLevel: QrErrorCorrectLevel.medium,
+    // The overflow surfaces when the modules are laid out, not before.
+    QrImage(
+      QrCode.fromData(data: data, errorCorrectLevel: QrErrorCorrectLevel.M),
     );
     return true;
   } on Object {

@@ -45,13 +45,19 @@ dependencies:
     path: rust_builder
   multicast_dns: ^0.3.3+1
   # Printing. QR codes on labels, drawn onto the label canvas (pure Dart,
-  # BSD-3).
-  qr: ^4.0.0
+  # BSD-3). 3.x, not 4.x: pdf's barcode dependency pins qr ^3.
+  qr: ^3.0.2
   # A photo for a label: camera and gallery on mobile, a file dialog on
   # Linux. Needs NSPhotoLibraryUsageDescription/NSCameraUsageDescription.
   image_picker: ^1.2.3
   # Picking a PDF or image file to print, on every platform.
   file_selector: ^1.1.0
+  # The OS print dialog (AirPrint, Android's print service, the GTK/CUPS
+  # dialog on Linux) for regular printers, and rasterising PDF pages for a
+  # label printer (Apache-2.0). The Linux build downloads PDFium.
+  printing: ^5.15.1
+  # Building the PDF those dialogs print (pure Dart, Apache-2.0).
+  pdf: ^3.13.1
 
 dev_dependencies:
   flutter_test:
