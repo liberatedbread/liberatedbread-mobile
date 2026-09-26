@@ -15,7 +15,8 @@ import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/label_printer_screen.dart';
 import 'package:liberated_bread_mobile/services/brother_ql_print_service.dart';
-import 'package:liberated_bread_mobile/src/rust/api/device_api.dart';
+import 'package:liberated_bread_mobile/screens/print_label_screen.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_spec_codec.dart';
 
@@ -30,7 +31,8 @@ class _HangingCodec extends FakeSpecCodec {
 /// [status], so the screen's print gate can be driven without a socket.
 class _StatusCodec extends FakeSpecCodec {
   final BrotherQlStatusDto status;
-  _StatusCodec(this.status);
+  _StatusCodec(this.status, {LabelCanvasDto? canvas})
+    : super(brotherLabelCanvas: canvas);
 
   @override
   Future<Uint8List> brotherQlStatusRequest() async => Uint8List(3);
@@ -68,11 +70,12 @@ const _ready = BrotherQlStatusDto(
 Future<void> _pumpScreen(
   WidgetTester tester, {
   required List<BrotherQlSendResult> results,
+  FakeSpecCodec? codec,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        specCodecProvider.overrideWithValue(_StatusCodec(_ready)),
+        specCodecProvider.overrideWithValue(codec ?? _StatusCodec(_ready)),
         brotherQlPrintServiceProvider.overrideWithValue(
           _ScriptedPrinter(results),
         ),
@@ -176,5 +179,37 @@ void main() {
     await tester.tap(find.text('Print test label'));
     await tester.pumpAndSettle();
     expect(find.textContaining('62 mm continuous roll'), findsOneWidget);
+  });
+
+  testWidgets('Compose a label opens the composer sized to the roll', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await _pumpScreen(
+      tester,
+      results: [BrotherQlSendOk(Uint8List(32))],
+      codec: _StatusCodec(
+        _ready,
+        canvas: const LabelCanvasDto(
+          widthDots: 306,
+          dpi: 300,
+          mediaName: '29mm x 90mm die-cut (DK-11201)',
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Compose a label'));
+    // Not pumpAndSettle: the composer's preview spinner runs until its
+    // (real, async) render lands, which a fake clock never lets happen.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(PrintLabelScreen), findsOneWidget);
+    expect(
+      find.text('Brother QL-820NWB · 29mm x 90mm die-cut (DK-11201)'),
+      findsOneWidget,
+    );
   });
 }

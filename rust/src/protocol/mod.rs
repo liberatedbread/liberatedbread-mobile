@@ -8,6 +8,7 @@ pub mod daniao;
 pub mod daniao_store;
 pub mod daniao_upload;
 pub mod dispatch;
+pub mod dither;
 pub mod fichero_d11;
 pub mod generic;
 pub mod http;
