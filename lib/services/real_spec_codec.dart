@@ -1113,6 +1113,23 @@ class RealSpecCodec implements SpecCodec {
   );
 
   @override
+  Future<bool> ippStatusSupported({required String specYaml}) =>
+      print_rust.ippStatusSupported(specYaml: specYaml);
+
+  @override
+  Future<Uint8List> ippStatusRequest({
+    required String printerUri,
+    required int requestId,
+  }) => print_rust.ippGetPrinterAttributesRequest(
+    printerUri: printerUri,
+    requestId: requestId,
+  );
+
+  @override
+  Future<IppPrinterStatusDto> decodeIppStatus({required List<int> reply}) =>
+      print_rust.decodeIppPrinterAttributes(reply: reply);
+
+  @override
   Future<LabelCanvasDto> brotherQlLabelCanvas({
     required String specYaml,
     required BrotherQlJobParamsDto params,

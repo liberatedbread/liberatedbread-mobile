@@ -134,6 +134,13 @@ class MainActivity : FlutterActivity() {
                     }
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PRINT_SETTINGS_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "open" -> result.success(openPrintSettings())
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIFI_SCAN_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -185,6 +192,21 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
+     * The system print-service settings, for "add to system printers": the
+     * app cannot add a printer itself, but it can open the page where the
+     * user turns on the service that finds them. False when no activity
+     * handles the intent, and the Dart side then says where to look.
+     */
+    private fun openPrintSettings(): Boolean {
+        return try {
+            startActivity(Intent(Settings.ACTION_PRINT_SETTINGS))
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Idempotent: a second scan starting while one is running must not stack a
      * second lock that the matching single release would then leave held.
      */
@@ -221,6 +243,7 @@ class MainActivity : FlutterActivity() {
         private const val WIFI_SCAN_CHANNEL = "ca.pigscanfly.liberatedbread/wifi_scan"
         private const val LOCK_TAG = "liberatedbread-network-scan"
         private const val SHARE_CHANNEL = "ca.pigscanfly.liberatedbread/share_in"
+        private const val PRINT_SETTINGS_CHANNEL = "ca.pigscanfly.liberatedbread/print_settings"
         private const val MAX_SHARE_BYTES = 32 * 1024 * 1024
     }
 }

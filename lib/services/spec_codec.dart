@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart' show immutable;
 
 import '../src/rust/api/device_api.dart';
 import '../src/rust/api/print_api.dart'
-    show LabelCanvasDto, PrintDither, RasterPrintDto;
+    show IppPrinterStatusDto, LabelCanvasDto, PrintDither, RasterPrintDto;
 import '../src/rust/api/spec_handle.dart'
     show CatalogueEntryDto, SpecLoadFailureDto, UdpProbeDto;
 
@@ -132,6 +132,8 @@ export '../src/rust/api/spec_handle.dart'
 // The printing DTOs, from their own generated module for the same reason.
 export '../src/rust/api/print_api.dart'
     show
+        IppMarkerDto,
+        IppPrinterStatusDto,
         LabelCanvasDto,
         PrintChoiceDto,
         PrintDither,
@@ -1038,6 +1040,18 @@ abstract class SpecCodec {
     required String specYaml,
     required BrotherQlJobParamsDto params,
   });
+
+  /// Whether the spec reads its status over IPP Get-Printer-Attributes.
+  Future<bool> ippStatusSupported({required String specYaml});
+
+  /// The body of an IPP Get-Printer-Attributes POST for [printerUri].
+  Future<Uint8List> ippStatusRequest({
+    required String printerUri,
+    required int requestId,
+  });
+
+  /// Decode a Get-Printer-Attributes reply body (throws when malformed).
+  Future<IppPrinterStatusDto> decodeIppStatus({required List<int> reply});
 
   /// Encode a composed black-and-white RGB888 label as a whole Brother QL
   /// raster job, placed on the head for the given media.

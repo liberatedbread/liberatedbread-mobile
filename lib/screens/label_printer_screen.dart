@@ -13,6 +13,7 @@ import '../services/brother_ql_print_service.dart';
 import '../services/print/print_target.dart';
 import '../services/spec_codec.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/print/add_system_printer_sheet.dart';
 import 'print_label_screen.dart';
 
 /// Control screen for a raster label printer (Brother QL family).
@@ -263,7 +264,19 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
                   : const Icon(Icons.print_outlined),
               label: Text(_printing ? 'Sending…' : 'Print test label'),
             ),
-            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => unawaited(
+                showAddSystemPrinterSheet(
+                  context,
+                  printerName: widget.device.displayName,
+                  host: widget.device.host,
+                  labelPrinter: true,
+                ),
+              ),
+              icon: const Icon(Icons.help_outline),
+              label: const Text('Print from other apps?'),
+            ),
+            const SizedBox(height: 4),
             Text(
               'Label printing is local: the job goes straight to the printer '
               'over your network, no account or cloud.',

@@ -295,6 +295,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw);
 
   @protected
+  IppMarkerDto dco_decode_ipp_marker_dto(dynamic raw);
+
+  @protected
+  IppPrinterStatusDto dco_decode_ipp_printer_status_dto(dynamic raw);
+
+  @protected
   KasaRequestDto dco_decode_kasa_request_dto(dynamic raw);
 
   @protected
@@ -369,6 +375,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> dco_decode_list_image_write_dto(dynamic raw);
+
+  @protected
+  List<IppMarkerDto> dco_decode_list_ipp_marker_dto(dynamic raw);
 
   @protected
   List<LifxZoneColorDto> dco_decode_list_lifx_zone_color_dto(dynamic raw);
@@ -1217,6 +1226,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  IppMarkerDto sse_decode_ipp_marker_dto(SseDeserializer deserializer);
+
+  @protected
+  IppPrinterStatusDto sse_decode_ipp_printer_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   KasaRequestDto sse_decode_kasa_request_dto(SseDeserializer deserializer);
 
   @protected
@@ -1315,6 +1332,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> sse_decode_list_image_write_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<IppMarkerDto> sse_decode_list_ipp_marker_dto(
     SseDeserializer deserializer,
   );
 
@@ -2400,6 +2422,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_ipp_marker_dto(IppMarkerDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_ipp_printer_status_dto(
+    IppPrinterStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_kasa_request_dto(
     KasaRequestDto self,
     SseSerializer serializer,
@@ -2531,6 +2562,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_image_write_dto(
     List<ImageWriteDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_ipp_marker_dto(
+    List<IppMarkerDto> self,
     SseSerializer serializer,
   );
 

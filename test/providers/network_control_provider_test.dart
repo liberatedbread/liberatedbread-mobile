@@ -187,6 +187,15 @@ void main() {
       expect(controls, isNull);
     });
 
+    test('an IPP printer is admitted for its status screen', () async {
+      final controls = await resolve(
+        FakeSpecCodec(networkEntities: (_) => const [], ippStatus: true),
+      );
+      expect(controls, isNotNull);
+      expect(controls!.ippStatus, isTrue);
+      expect(controls.rasterPrintHandler, isNull);
+    });
+
     test('a BLE write-plan printer is not a network control', () async {
       final controls = await resolve(
         FakeSpecCodec(

@@ -14,6 +14,7 @@ pub mod generic;
 pub mod http;
 pub mod idotmatrix;
 pub mod image_upload;
+pub mod ipp;
 pub mod kasa;
 pub mod ledbadge_bitmap;
 pub mod lifx;
