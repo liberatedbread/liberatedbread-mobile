@@ -181,7 +181,7 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   /// The starting value for one parameter's control.
   void _seed(ParameterDto p) {
     {
-      final allowed = p.allowed;
+      final allowed = choicesFor(p);
       final isDropdown =
           allowed != null &&
           allowed.isNotEmpty &&
@@ -466,7 +466,7 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         ),
       );
     }
-    final allowed = p.allowed;
+    final allowed = choicesFor(p);
     if (allowed != null && allowed.isNotEmpty) {
       return _buildAllowedParam(p, allowed);
     }
@@ -590,3 +590,30 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     );
   }
 }
+
+/// The values to offer [p] as a choice rather than a slider, or null.
+///
+/// `allowed` when the spec lists its values (a set with gaps, or a labelled
+/// range the Rust layer expanded), and otherwise a small integer range: the
+/// catalogue writes a contiguous set as `min`/`max` rather than a list that
+/// restates it, and a 0..3 orientation or a 0..1 flag is four or two things
+/// to pick, not a slider to aim along. Ranges with a unit or a scale are
+/// quantities, not options, and stay sliders whatever their size.
+@visibleForTesting
+List<BigInt>? choicesFor(ParameterDto p) {
+  final allowed = p.allowed;
+  if (allowed != null && allowed.isNotEmpty) return allowed;
+  final min = p.min;
+  final max = p.max;
+  if (min == null || max == null) return null;
+  if (p.scale != null || p.valueOffset != null || p.unit != null) return null;
+  if (min != min.roundToDouble() || max != max.roundToDouble()) return null;
+  final count = max - min + 1;
+  if (count < 2 || count > maxRangeChoices) return null;
+  return [for (var v = min.toInt(); v <= max.toInt(); v++) BigInt.from(v)];
+}
+
+/// The widest unlabelled range [choicesFor] offers as a picker. Eight covers
+/// every small mode/direction table in the catalogue; a wider range reads
+/// better as a slider.
+const int maxRangeChoices = 8;
