@@ -122,21 +122,4 @@ void main() {
       }
     });
   });
-
-  group('mightBeRadio — the loose test the programming screen uses', () {
-    test('accepts the programming service alone', () {
-      expect(
-        mightBeRadio(name: 'anonymous', serviceUuids: [baofengUartService]),
-        isTrue,
-      );
-    });
-
-    test('accepts anything the strict test accepts', () {
-      expect(mightBeRadio(name: 'UV-5R Mini', serviceUuids: const []), isTrue);
-    });
-
-    test('still rejects a device with neither', () {
-      expect(mightBeRadio(name: 'ACME_Bulb', serviceUuids: const []), isFalse);
-    });
-  });
 }

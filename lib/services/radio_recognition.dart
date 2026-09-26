@@ -14,10 +14,9 @@ import 'baofeng_ble_programmer.dart' show baofengUartService;
 /// Deliberately NOT "mini": some of these radios spell themselves that way,
 /// and so do half the speakers and LED strips in any scan. Nor is the UART
 /// service enough on its own — it is the generic HM-10 serial service, and a
-/// score of catalogue devices advertise it too. A radio that shows neither is
-/// still found by the programming screen's scan, which is looking for a radio
-/// and so can afford [mightBeRadio]'s looser test; it is just not announced
-/// as one in the Nearby list.
+/// score of catalogue devices advertise it too. So a radio whose name carries
+/// none of these is not offered as a radio anywhere: this list is the only
+/// way into programming one over Bluetooth.
 const List<String> radioNameTokens = [
   'baofeng',
   'uv-5r',
@@ -70,12 +69,6 @@ RadioSighting? recogniseRadio({
     nameSuggests: _profileNamed(lower),
   );
 }
-
-/// The looser test, for a scan that is already looking for a radio: the
-/// UART service alone qualifies. Anything [recogniseRadio] accepts does too.
-bool mightBeRadio({required String name, required List<String> serviceUuids}) =>
-    serviceUuids.any(isRadioUartService) ||
-    recogniseRadio(name: name, serviceUuids: serviceUuids) != null;
 
 /// The one Bluetooth profile [lowerName] names, if it names exactly one. A
 /// name carrying two models' tokens is ambiguous, and suggests nothing.
