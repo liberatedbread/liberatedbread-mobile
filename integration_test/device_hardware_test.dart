@@ -38,7 +38,10 @@
 //                                is a failure and not a note
 //   LB_LIVE_BLE_NAME=<name>      a BLE peripheral advertising under that name
 //                                is in range: scan for it, connect, discover
-//                                its services, read MTU and RSSI, disconnect
+//                                its services, read MTU and RSSI, disconnect.
+//                                "Laser Distance Meter" additionally runs the
+//                                JLX meter's whole session: it subscribes to
+//                                f154 and WRITES init / link / measure to f151
 //   LB_LIVE_BLE_ANY=true         the same, against the strongest CONNECTABLE
 //                                advertiser in range. Read-only: connect,
 //                                discover, disconnect — nothing is written
@@ -55,6 +58,7 @@
 @Tags(['hardware'])
 library;
 
+import 'dart:async' show Completer, StreamSubscription, Timer, unawaited;
 import 'dart:convert' show jsonDecode;
 import 'dart:io' show Platform;
 import 'dart:typed_data' show Uint16List;
@@ -70,6 +74,8 @@ import 'package:liberated_bread_mobile/app.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/core/error_text.dart'
     show UserFacingException;
+import 'package:liberated_bread_mobile/core/hex.dart'
+    show bytesToHex, normalizeUuid;
 import 'package:liberated_bread_mobile/main.dart' as app;
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
@@ -79,6 +85,10 @@ import 'package:liberated_bread_mobile/providers/scan_match_provider.dart'
     show specIdentitiesProvider;
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart'
     show specAssetPath, specManifestPath;
+import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart'
+    show specCatalogueProvider;
+import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart'
+    show specCodecProvider;
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/screens/terms_screen.dart';
 import 'package:liberated_bread_mobile/services/mock_ble_service.dart'
@@ -105,6 +115,80 @@ const bool _liveBleAny = bool.fromEnvironment('LB_LIVE_BLE_ANY');
 /// The Battery Service, the same probe native_core_test.dart uses: a standard
 /// profile the Rust side recognises without any spec loaded.
 const String _batteryService = '0000180f-0000-1000-8000-00805f9b34fb';
+
+/// The Johnson JLX LDM330 laser distance meter, as
+/// vendor/protocol-specs/device-specs/devices/jlx-laser-distance-meter.yaml
+/// describes it: the name it advertises, its spec's file in the catalogue,
+/// and the vendor service with its write (f151) and notify (f154) pair.
+const String _ldmName = 'Laser Distance Meter';
+const String _ldmSpecFile = 'jlx-laser-distance-meter.yaml';
+const String _ldmService = '0000f150-0000-1000-8000-00805f9b34fb';
+const String _ldmWrite = '0000f151-0000-1000-8000-00805f9b34fb';
+const String _ldmNotify = '0000f154-0000-1000-8000-00805f9b34fb';
+
+/// The three commands the spec declares on f151 as plain `value:` byte
+/// lists, restated so the test can hold the app's codec to them: init is a
+/// fixed 6-byte frame; the other two are '#' LF `<command>` NUL-padded to 12
+/// bytes plus an 8-bit sum checksum (0xBB for "Link", 0x9A for "m").
+const List<int> _ldmInit = [0x03, 0x0D, 0x0A, 0x03, 0x0D, 0x0A];
+const List<int> _ldmLink = [
+  0x23, 0x0A, 0x4C, 0x69, 0x6E, 0x6B, // '#' LF "Link"
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xBB,
+];
+const List<int> _ldmMeasure = [
+  0x23, 0x0A, 0x6D, // '#' LF "m"
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9A,
+];
+
+/// Byte 7 of a measurement frame: the unit the meter's DISPLAY is set to.
+/// The value itself is always metres. A code outside a..j is reported as
+/// unknown — the vendor app's default branch shows one as "Zbleoff", a
+/// power-down, which the spec's parse_rules say not to copy.
+const Map<String, String> _ldmDisplayUnits = {
+  'a': 'm',
+  'b': 'ft',
+  'c': 'in',
+  'd': "ft'in\" 1/32",
+  'e': 'in 1/32',
+  'f': 'in 1/16',
+  'g': 'in 1/8',
+  'h': 'in 1/4',
+  'i': 'in 1/2',
+  'j': 'Taiwanese foot',
+};
+
+/// A meter frame as text: printable ASCII as is, everything else (the NUL
+/// padding, mostly) as \xNN, so a garbled frame is still legible in the log.
+String _ldmShow(List<int> bytes) => bytes
+    .map(
+      (b) => b >= 0x20 && b < 0x7f
+          ? String.fromCharCode(b)
+          : '\\x${b.toRadixString(16).padLeft(2, '0')}',
+    )
+    .join();
+
+/// A non-control f154 frame read per the spec's parse_rules: byte 0 a prefix
+/// the vendor app discards, bytes 1-6 a fixed-width decimal ALWAYS in
+/// metres, byte 7 the display-unit code, bytes 8-9 NUL. Null for anything
+/// that is not a reading — an 'errorN' failure frame (bytes 1-6 are "rrorN",
+/// not a number; the vendor app crashes on it) or a short frame.
+///
+/// In Dart rather than through the codec: the spec describes f154's frames
+/// in prose and payload_formats, not as a `format:` on the characteristic,
+/// so `decodeValue` has nothing to decode with and reports "no format".
+({double metres, String unit, String prefix})? _ldmReading(List<int> bytes) {
+  if (bytes.length < 8) return null;
+  final text = String.fromCharCodes(bytes);
+  final metres = double.tryParse(text.substring(1, 7));
+  if (metres == null) return null;
+  return (
+    metres: metres,
+    unit:
+        _ldmDisplayUnits[text[7]] ??
+        'unknown unit code ${_ldmShow([bytes[7]])}',
+    prefix: text[0],
+  );
+}
 
 /// Whether this process is the iOS Simulator.
 ///
@@ -662,6 +746,320 @@ void main() {
           '— and the app is still running, which is what F-006 is about',
         );
       } finally {
+        await ble.disconnect(id);
+      }
+    },
+  );
+
+  testWidgets(
+    'live BLE: the JLX laser meter, end to end through the shipping services',
+    (tester) async {
+      if (_skipUnlessHardware()) return;
+      if (_liveBleName != _ldmName) {
+        markTestSkipped(
+          'pass --dart-define=LB_LIVE_BLE_NAME="$_ldmName" '
+          '(run-ios-device-tests.sh --live-ble-name) with a JLX meter in '
+          'range and its Bluetooth on',
+        );
+        return;
+      }
+      if (!MockBleService.rustAvailable) await RustLib.init();
+
+      // The generic live test above proves the phone can connect to whatever
+      // LB_LIVE_BLE_NAME names. This one is device-specific: it drives the
+      // meter's whole session — handshake, keep-alives, a reading — through
+      // the SAME services and codec the device screen uses, so it is the
+      // end-to-end check that the catalogue still names the meter, that the
+      // spec's commands still encode to the bytes the meter wants, and that
+      // the phone holds the link the way the spec describes.
+      // test/live/direct_att_live_test.dart is the Linux-only twin of this,
+      // over a raw ATT channel; nothing here is shared with it.
+
+      // SCAN, as the generic test does.
+      final ble = RealBleService();
+      IoTDevice? target;
+      _say('scanning up to 30 s for an advertiser named "$_ldmName"');
+      await for (final device in ble.scan(
+        timeout: const Duration(seconds: 30),
+      )) {
+        if (device.name == _ldmName) {
+          target = device;
+          break; // cancels the subscription, which stops the native scan
+        }
+      }
+      expect(
+        target,
+        isNotNull,
+        reason:
+            'no advertiser named "$_ldmName" was heard in 30 s — hold the '
+            'meter\'s Bluetooth button until its icon shows',
+      );
+      final id = target!.id;
+      _say(
+        'found "${target.name}" as $id (rssi ${target.rssi}; advertised '
+        '${target.serviceUuids.length} service uuid(s))',
+      );
+
+      // CATALOGUE: the real assertion of this test. The merged catalogue must
+      // still name the JLX spec as its best match for a REAL advertisement —
+      // through the provider the scan screen reads and the matcher it calls,
+      // so a refresh that changed the spec's identity block, or a sibling
+      // spec that now outranks it, fails here with the winner named.
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final catalogue = await container.read(specCatalogueProvider.future);
+      final identities = await container.read(specIdentitiesProvider.future);
+      final codec = container.read(specCodecProvider);
+      final matches = await codec.matchScannedDevice(
+        identities: identities,
+        device: ScannedDeviceDto(
+          name: target.name,
+          serviceUuids: target.serviceUuids,
+          companyIds: Uint16List.fromList(target.companyIds),
+          macAddress: null,
+        ),
+      );
+      expect(
+        matches,
+        isNotEmpty,
+        reason:
+            'nothing in ${identities.length} identities claims a '
+            '"$_ldmName" advertising ${target.serviceUuids}',
+      );
+      final best = matches.first;
+      // specIndex indexes the identities list, which specIdentitiesProvider
+      // builds in catalogue order, so it is the catalogue index too.
+      final spec = catalogue.specs[best.specIndex];
+      _say(
+        'catalogue: -> ${best.deviceName} (${best.manufacturer}, '
+        '${best.confidence.name}; ${matches.length} candidate(s)) from '
+        '${spec.key}',
+      );
+      expect(
+        spec.key,
+        endsWith(_ldmSpecFile),
+        reason:
+            'the catalogue\'s best match for the meter is ${spec.key}, not '
+            'the JLX spec: the merged catalogue no longer recognises it',
+      );
+
+      // ENCODE the spec's three f151 commands through the app's codec — the
+      // call the typed command widget makes, with the YAML the catalogue
+      // holds — and hold the bytes to the spec's literals. They are plain
+      // `value:` commands, which the codec hands back verbatim; the check is
+      // that the spec still declares them and the codec still finds them.
+      Future<List<int>> encode(String command) async =>
+          (await codec.encodeCommand(
+            specYaml: spec.yaml,
+            charUuid: _ldmWrite,
+            commandName: command,
+            params: const {},
+          )).toList();
+      final init = await encode('init');
+      final link = await encode('link_keepalive');
+      final measure = await encode('measure');
+      _say(
+        'codec: init [${bytesToHex(init)}], link_keepalive '
+        '[${bytesToHex(link)}], measure [${bytesToHex(measure)}]',
+      );
+      expect(init, _ldmInit, reason: 'init is not the spec\'s fixed frame');
+      expect(link, _ldmLink, reason: 'link_keepalive is not "#\\nLink" + 0xBB');
+      expect(measure, _ldmMeasure, reason: 'measure is not "#\\nm" + 0x9A');
+
+      // CONNECT. The meter refuses connections outright while its radio is
+      // transitioning ("retry rather than diagnose", says the spec), so up
+      // to three attempts, 2 s apart.
+      Object? refusal;
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await ble.connect(id);
+          refusal = null;
+          break;
+        } catch (e) {
+          refusal = e;
+          _say('connect attempt $attempt of 3 failed: $e');
+          if (attempt == 3) break;
+          // Best-effort: clear whatever half-open link the attempt left
+          // before asking again.
+          await ble.disconnect(id);
+          await Future<void>.delayed(const Duration(seconds: 2));
+        }
+      }
+      if (refusal != null) {
+        await ble.disconnect(id);
+        fail('the meter refused three connection attempts; last: $refusal');
+      }
+      _say('connected');
+
+      StreamSubscription<List<int>>? sub;
+      final timers = <Timer>[];
+      try {
+        // DISCOVER: the vendor pair the whole session runs over.
+        final services = await ble.discoverServices(id);
+        _say(
+          '${services.length} service(s): '
+          '${services.map((s) => s.uuid.substring(4, 8)).join(' ')}',
+        );
+        final ldm = services.where(
+          (s) => normalizeUuid(s.uuid) == normalizeUuid(_ldmService),
+        );
+        expect(ldm, hasLength(1), reason: 'service f150 was not discovered');
+        final chars = {
+          for (final c in ldm.single.characteristics) normalizeUuid(c.uuid): c,
+        };
+        final write = chars[normalizeUuid(_ldmWrite)];
+        final notify = chars[normalizeUuid(_ldmNotify)];
+        expect(write, isNotNull, reason: 'f150 has no f151 (command_rx)');
+        expect(notify, isNotNull, reason: 'f150 has no f154 (data_tx)');
+        expect(notify!.canNotify, isTrue, reason: 'f154 does not notify');
+        // BleService offers no write-mode choice: the shipping service picks
+        // per characteristic, and prefers with-response whenever the
+        // peripheral declares it. f151 declares both (props 0x0c), so where
+        // the vendor app writes without response this app writes WITH — the
+        // meter accepting that is one of the things this run shows.
+        final withoutResponse = useWriteWithoutResponse(
+          canWriteWithResponse: write!.canWriteWithResponse,
+          canWriteWithoutResponse: write.canWriteWithoutResponse,
+        );
+        _say(
+          'f151 declares write=${write.canWriteWithResponse} '
+          'write-without-response=${write.canWriteWithoutResponse}; '
+          'the service writes ${withoutResponse ? 'without' : 'with'} '
+          'response',
+        );
+
+        // SESSION: 25 s on f154. Every Ztest01 is answered with init and
+        // every Ztest02 with the link frame, or the meter says Zbleoff and
+        // hangs up ~44 s in; init goes once at 2 s (the spec's setup step,
+        // whether or not a Ztest01 ever asks — one live session never sent
+        // one) and measure once at 5 s. Real time throughout: this binding
+        // has no fake clock, so the window is a Completer that the timer, a
+        // Zbleoff or a dead stream completes.
+        final clock = Stopwatch()..start();
+        String at() =>
+            '${(clock.elapsedMilliseconds / 1000).toStringAsFixed(1)} s';
+        var handshakes = 0;
+        var keepAlives = 0;
+        var keepAlivesAnswered = 0;
+        var writeFailures = 0;
+        final readings = <double>[];
+        final done = Completer<String>();
+        void finish(String why) {
+          if (!done.isCompleted) done.complete(why);
+        }
+
+        Future<bool> send(String what, List<int> bytes) async {
+          try {
+            await ble.writeCharacteristic(id, _ldmService, _ldmWrite, bytes);
+            _say('${at()} -> $what');
+            return true;
+          } catch (e) {
+            // Reported, not thrown: a write that fails as the meter hangs up
+            // is part of the story, and an error escaping a listener would
+            // end the test without the summary below.
+            writeFailures++;
+            _say('${at()} -> $what FAILED: $e');
+            return false;
+          }
+        }
+
+        sub = ble
+            .subscribeCharacteristic(id, _ldmService, _ldmNotify)
+            .listen(
+              (frame) {
+                final text = _ldmShow(frame);
+                final control = String.fromCharCodes(frame.take(7));
+                switch (control) {
+                  case 'Ztest01':
+                    handshakes++;
+                    _say('${at()} <- Ztest01 (handshake): answering with init');
+                    unawaited(send('init', init));
+                  case 'Ztest02':
+                    keepAlives++;
+                    _say(
+                      '${at()} <- Ztest02 (keep-alive): answering with Link',
+                    );
+                    unawaited(
+                      send('link_keepalive', link).then((ok) {
+                        if (ok) keepAlivesAnswered++;
+                      }),
+                    );
+                  case 'Zbleoff':
+                    _say(
+                      '${at()} <- Zbleoff: the meter is powering its '
+                      'radio down',
+                    );
+                    finish('the meter sent Zbleoff at ${at()}');
+                  default:
+                    final reading = _ldmReading(frame);
+                    if (reading == null) {
+                      final kind = control.startsWith('error')
+                          ? 'a measurement failure frame'
+                          : 'not a measurement frame';
+                      _say(
+                        '${at()} <- "$text": $kind (${frame.length} byte(s))',
+                      );
+                    } else {
+                      readings.add(reading.metres);
+                      final metres = reading.metres.toStringAsFixed(3);
+                      _say(
+                        '${at()} <- reading $metres m (display unit '
+                        '${reading.unit}; prefix ${reading.prefix}; '
+                        'raw "$text")',
+                      );
+                    }
+                }
+              },
+              onError: (Object e) {
+                _say('${at()} f154 subscription failed: $e');
+                finish('the f154 subscription failed: $e');
+              },
+              onDone: () => finish('the f154 stream closed at ${at()}'),
+            );
+        timers.add(
+          Timer(const Duration(seconds: 2), () {
+            unawaited(send('init (the setup step)', init));
+          }),
+        );
+        timers.add(
+          Timer(const Duration(seconds: 5), () {
+            unawaited(send('measure', measure));
+          }),
+        );
+        timers.add(
+          Timer(
+            const Duration(seconds: 25),
+            () => finish('the 25 s window elapsed'),
+          ),
+        );
+        _say(
+          'subscribed to f154; 25 s session: init at 2 s, measure at 5 s, '
+          'every Ztest01/Ztest02 answered — press the meter\'s button too',
+        );
+        final why = await done.future;
+        _say(
+          'session over: $why. $handshakes Ztest01, $keepAlives Ztest02 '
+          '($keepAlivesAnswered answered), ${readings.length} reading(s), '
+          '$writeFailures failed write(s)',
+        );
+        // A meter whose display has slept still sends Ztest02 every ~5.5 s,
+        // so a session with neither an answered keep-alive nor a reading is
+        // one where the subscription or the writes are not reaching it. A
+        // Zbleoff AFTER either is the meter's normal way of ending a session
+        // it decided was over, and is reported above rather than failed.
+        expect(
+          keepAlivesAnswered > 0 || readings.isNotEmpty,
+          isTrue,
+          reason:
+              'in the window the meter neither had a keep-alive answered nor '
+              'sent a reading ($why; $keepAlives Ztest02 heard, '
+              '$writeFailures failed write(s))',
+        );
+      } finally {
+        for (final timer in timers) {
+          timer.cancel();
+        }
+        await sub?.cancel();
         await ble.disconnect(id);
       }
     },
