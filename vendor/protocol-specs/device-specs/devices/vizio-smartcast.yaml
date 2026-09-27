@@ -1557,6 +1557,7 @@ entities:
       discrete off. turn_on is reliable only from a warm power mode.
   - platform: "button"
     name: "Power Key"
+    key: "power_toggle"
     icon: "mdi:power"
     commands:
       press: "press_power_toggle"
@@ -1627,12 +1628,14 @@ entities:
       press: "press_seek_back"
   - platform: "button"
     name: "Play"
+    key: "play"
     icon: "mdi:play"
     commands:
       press: "press_play"
     notes: "Play and pause are discrete keys here, not one toggle."
   - platform: "button"
     name: "Pause"
+    key: "pause"
     icon: "mdi:pause"
     commands:
       press: "press_pause"

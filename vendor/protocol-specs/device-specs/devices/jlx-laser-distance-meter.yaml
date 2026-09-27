@@ -28,15 +28,19 @@ device:
       sw "1000", serial "00001", battery 100% — so the hardware platform is a
       Precaster BLE module, and what fails is narrower than "reads": the
       vendor-app capture shows the meter answering every Read By Type it was
-      sent, so the broken path is bluetoothd's Database Hash (0x2b2a) read
-      specifically, not the by-type opcode in general (see BLUEZ QUIRK).
+      sent, so the broken path is the one by-type read bluetoothd opens with,
+      Server Supported Features (0x2b3a), not the by-type opcode in general
+      (see BLUEZ QUIRK and device.host_compatibility).
 
       `minimally-verified` because the LDM130 was never in the room, a repeat
       'm' sixty seconds later (display presumably re-slept) returned nothing,
       and — the load-bearing caveat — this device cannot be enumerated through
       BlueZ's bluetoothd at all (see the BLUEZ QUIRK note), so every live
       result above came through a raw ATT channel (gatttool) or the vendor-app
-      capture.
+      capture. The bluetoothd failure itself was observed on BlueZ 5.85 (a
+      32.5 s stall, then an empty resolve); no btmon capture of that session
+      is in the captures repo, so which request it stalls on is read from
+      bluetoothd's source, not off the air.
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -119,16 +123,20 @@ device:
     with Zbleoff within seconds and the remote 'm' command produces nothing.
 
     BLUEZ QUIRK, the reason a Linux desktop sees zero services: the meter
-    never answers an ATT Read By Type for the Database Hash (0x2b2a) — the
-    request bluetoothd (BlueZ >= 5.62 robust caching, reproduced on 5.85)
-    sends during GATT client init. The read gets silence, not an error;
+    never answers an ATT Read By Type for Server Supported Features
+    (0x2b3a) — the request bluetoothd sends first on a new connection,
+    right after Exchange MTU, with primary discovery queued behind it (read
+    from src/shared/gatt-client.c, unchanged BlueZ 5.66 through master;
+    reproduced on 5.72 and 5.85). The read gets silence, not an error;
     bluetoothd eats the 30 s ATT transaction timeout, abandons init, and
     reports the device "resolved" with an EMPTY service database (reproduced:
     32.5 s to an empty resolve, and the stalled read leaves the ATT channel
-    dead). The breakage is specific to the Read By Type opcode: by-type reads
-    of other UUIDs also error or hang (GAP device name by type got silence),
-    while PLAIN Read Requests by handle work perfectly — every Device
-    Information string and the battery level read fine that way.
+    dead). An earlier reading of this note blamed the Database Hash (0x2b2a);
+    bluetoothd reads that before discovery only when a cached database
+    already holds one, never on a first contact. In gatttool sessions GAP
+    device name by type also got silence, while PLAIN Read Requests by handle
+    work perfectly — every Device Information string and the battery level
+    read fine that way.
     NARROWER THAN IT LOOKS (from the vendor-app HCI capture, re-read
     2026-08-20): in that capture the meter answered EVERY Read By Type it was
     sent — 29 by-type plus 9 by-group-type requests, 38 responses, no
@@ -136,18 +144,17 @@ device:
     by-type reads of UUIDs it does not carry (0x2a01, 0x2802). So the
     firmware's Read By Type handler is not broken across the board, and the
     Android stack drives it fine. What that capture never contains is a read
-    of 0x2b2a: robust caching is the one thing bluetoothd does that the
-    vendor app does not. Untested and worth one experiment before writing
-    Linux off — whether bluetoothd's `[GATT] Cache = no` in
-    /etc/bluetooth/main.conf skips the Database Hash read and lets init
-    complete. If it does, Linux desktop clients work after a config change
-    rather than not at all. Exchange MTU
-    is answered instantly, and discovery, writes and notifications all work,
-    so Android/iOS clients and raw ATT channels (gatttool, a custom L2CAP
-    CID 4 client) are unaffected. Consequence: this device cannot be used
-    through bluetoothd-based stacks (bleak, flutter_blue_plus on Linux) until
-    BlueZ or the firmware changes; nothing an application layered on
-    bluetoothd can do fixes it.
+    of 0x2b3a (or 0x2b2a): Android skips both for a peer like this one, which
+    reports LL version 0x01 and no LE features. No bluetoothd setting helps:
+    `[GATT] Cache = no` in /etc/bluetooth/main.conf suppresses only the
+    cached hash read, and no main.conf key skips the 0x2b3a read. Exchange
+    MTU is answered instantly, and discovery, writes and notifications all
+    work, so Android/iOS clients and raw ATT channels (gatttool, a custom
+    L2CAP CID 4 client that opens the channel itself and never sends 0x2b3a)
+    are unaffected. Consequence: this device cannot be used through
+    bluetoothd's GATT client (bleak, stock flutter_blue_plus on Linux) until
+    BlueZ or the firmware changes; a Linux client has to own the ATT channel
+    instead (device.host_compatibility, workaround raw_att).
 
     HARDWARE, GATT extras the static analysis could not see: a parallel
     vendor service 0000fff3 with 0000fff4 (notify) + 0000fff5
@@ -277,6 +284,33 @@ device:
     bonding: "none"
     enter_pairing_mode:
       required: false
+  host_compatibility:
+    - stack: bluez
+      status: incompatible
+      symptom: stall_then_empty
+      cause:
+        att_opcode: read_by_type
+        uuid: "00002b3a-0000-1000-8000-00805f9b34fb"
+        response: none
+      workaround: raw_att
+      observed_versions: ["5.72", "5.85"]
+      verification: confirmed
+      notes: >
+        The stall is confirmed live on an LDM330: 32.5 s to an empty resolve
+        on BlueZ 5.85, and 31 s on 5.72 (2026-09-26) before a raw ATT channel
+        on L2CAP CID 4 took the same unit over and discovered all 9 services
+        in 2 s, then held the f154 keep-alive loop. The cause is read from
+        bluetoothd's source (src/shared/gatt-client.c, unchanged 5.66 through
+        master), not captured off the air: on a first connection, right after
+        Exchange MTU, bluetoothd sends Read By Type 0x2b3a (Server Supported
+        Features) over 0x0001-0xFFFF and queues primary discovery behind it.
+        The meter never answers, so discovery never starts. No main.conf key
+        skips that request (`[GATT] Cache = no` only suppresses the cached
+        Database Hash read). Android reads 0x2b3a only after discovery, if at
+        all, which is why the vendor app works. Unscoped although only the
+        LDM330 was tested: the LDM130 is the same Precaster BLE module and
+        firmware family behind the same generic advertised name, so a client
+        cannot tell them apart before connecting anyway.
   variants:
     - model: "LDM330 (40-6013)"
       notes: "330 ft range, integrated angle sensor. Angle is not exposed over the recovered BLE protocol."

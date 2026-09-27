@@ -1295,6 +1295,17 @@ ENTITY_KEY_VOCABULARY = frozenset(
         "search", "find_remote", "keyboard",
         "input_hdmi1", "input_hdmi2", "input_hdmi3", "input_hdmi4",
         "input_av", "input_tuner",
+        # The raw power key beside a stateful Power switch (which owns
+        # `power`): a keypress that toggles, not a direction.
+        "power_toggle",
+        # Discrete transport keys, for remotes that have them apart from (or
+        # instead of) play_pause. `pause` and `stop` are shared with the
+        # treadmill card below: the same verb on a different surface.
+        "play", "previous", "next", "record",
+        # The number pad and the four colour keys.
+        "num_0", "num_1", "num_2", "num_3", "num_4",
+        "num_5", "num_6", "num_7", "num_8", "num_9",
+        "red", "green", "yellow", "blue",
         # Treadmill / fitness cards.
         "start", "pause", "stop", "speed",
     }
@@ -1843,11 +1854,33 @@ def test_ble_write_parameters_enumerate_with_allowed_and_labels(specs):
                     )
                     allowed = parameter.get("allowed")
                     labels = parameter.get("labels")
-                    if allowed is not None and labels is not None:
+                    if allowed is not None and len(allowed) >= 2:
+                        ordered = sorted(allowed)
+                        assert ordered != list(range(ordered[0], ordered[-1] + 1)), (
+                            f"{device_id}: {name}.{key} lists `allowed: {allowed}`, "
+                            "a contiguous run -- write it as `min: "
+                            f"{ordered[0]}, max: {ordered[-1]}` (labels pair with the "
+                            "range the same way); `allowed` is for sets with gaps"
+                        )
+                    if labels is None:
+                        continue
+                    # Labels name the list when there is one, else the
+                    # contiguous min..max range, one per value, min first.
+                    if allowed is not None:
                         assert len(allowed) == len(labels), (
                             f"{device_id}: {name}.{key} has {len(allowed)} allowed "
                             f"values but {len(labels)} labels"
                         )
+                        continue
+                    lo, hi = parameter.get("min"), parameter.get("max")
+                    assert lo is not None and hi is not None, (
+                        f"{device_id}: {name}.{key} has labels but neither an "
+                        "`allowed` list nor a min..max range for them to name"
+                    )
+                    assert hi - lo + 1 == len(labels), (
+                        f"{device_id}: {name}.{key} labels {len(labels)} values "
+                        f"but its range {lo}..{hi} holds {hi - lo + 1}"
+                    )
 
 
 def test_locate_commands_are_never_advanced(specs):

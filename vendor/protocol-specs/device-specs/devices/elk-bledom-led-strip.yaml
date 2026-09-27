@@ -234,7 +234,7 @@ services:
             parameters:
               seq: { type: "uint8", default: 0x00 }
               cmd: { type: "uint8" }
-              state: { type: "uint8", allowed: [0, 1], labels: ["off", "on"] }
+              state: { type: "uint8", min: 0, max: 1, labels: ["off", "on"] }
               flag: { type: "uint8", default: 0x00 }
           turn_on:
             description: >
@@ -283,7 +283,7 @@ services:
               seq: { type: "uint8", default: 0x00 }
               hours: { type: "uint8", min: 0, max: 23 }
               minutes: { type: "uint8", min: 0, max: 59 }
-              on_off: { type: "uint8", allowed: [0, 1], labels: ["schedule on", "schedule off"] }
+              on_off: { type: "uint8", min: 0, max: 1, labels: ["schedule on", "schedule off"] }
               days: { type: "uint8" }
           sync_time:
             description: >
@@ -315,7 +315,7 @@ services:
             template: [0x7E, "{seq}", 0x04, 0x07, "{state}", 0xFF, 0xFF, 0xFF, "{flag}", 0xEF]
             parameters:
               seq: { type: "uint8", default: 0x00 }
-              state: { type: "uint8", allowed: [0, 1], labels: ["off", "on"] }
+              state: { type: "uint8", min: 0, max: 1, labels: ["off", "on"] }
               flag: { type: "uint8", default: 0x00 }
 
       - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"

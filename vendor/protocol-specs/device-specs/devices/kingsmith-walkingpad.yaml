@@ -387,7 +387,6 @@ services:
                 type: "uint8"
                 min: 0
                 max: 2
-                allowed: [0, 1, 2]
                 labels: ["automatic", "manual", "standby"]
               checksum:
                 type: "uint8"

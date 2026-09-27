@@ -904,6 +904,7 @@ entities:
       one-way off.
   - platform: "button"
     name: "Power Key"
+    key: "power_toggle"
     icon: "mdi:power"
     commands:
       press: "press_power"
@@ -1027,17 +1028,20 @@ entities:
       press: "press_rewind"
   - platform: "button"
     name: "Play"
+    key: "play"
     icon: "mdi:play"
     commands:
       press: "press_play"
   - platform: "button"
     name: "Pause"
+    key: "pause"
     icon: "mdi:pause"
     commands:
       press: "press_pause"
     notes: "Separate from Play on Samsung — there is no combined play/pause toggle key."
   - platform: "button"
     name: "Stop"
+    key: "stop"
     icon: "mdi:stop"
     commands:
       press: "press_stop"
@@ -1049,42 +1053,52 @@ entities:
       press: "press_fast_forward"
   - platform: "button"
     name: "1"
+    key: "num_1"
     commands:
       press: "press_digit_1"
   - platform: "button"
     name: "2"
+    key: "num_2"
     commands:
       press: "press_digit_2"
   - platform: "button"
     name: "3"
+    key: "num_3"
     commands:
       press: "press_digit_3"
   - platform: "button"
     name: "4"
+    key: "num_4"
     commands:
       press: "press_digit_4"
   - platform: "button"
     name: "5"
+    key: "num_5"
     commands:
       press: "press_digit_5"
   - platform: "button"
     name: "6"
+    key: "num_6"
     commands:
       press: "press_digit_6"
   - platform: "button"
     name: "7"
+    key: "num_7"
     commands:
       press: "press_digit_7"
   - platform: "button"
     name: "8"
+    key: "num_8"
     commands:
       press: "press_digit_8"
   - platform: "button"
     name: "9"
+    key: "num_9"
     commands:
       press: "press_digit_9"
   - platform: "button"
     name: "0"
+    key: "num_0"
     commands:
       press: "press_digit_0"
   - platform: "button"

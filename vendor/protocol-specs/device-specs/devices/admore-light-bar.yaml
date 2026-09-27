@@ -509,7 +509,8 @@ services:
             parameters:
               value:
                 type: "int32"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           # Motion Management Settings (MMS)
           set_accel_toggle:
@@ -518,7 +519,8 @@ services:
             parameters:
               value:
                 type: "int32"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
                 notes: >
                   MMS_DECEL_TOGGLE is app-local: lb_config.xml marks it
@@ -559,7 +561,8 @@ services:
             parameters:
               value:
                 type: "int32"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           set_tipover:
             description: "Enable tip-over flash"
@@ -567,7 +570,8 @@ services:
             parameters:
               value:
                 type: "int32"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           set_accel_toggle_on:
             description: "Accelerometer sensor ON (MMS_DECEL_TOGGLE = 1)."
@@ -604,7 +608,8 @@ services:
             parameters:
               value:
                 type: "int32"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           set_two_wire:
             description: "Enable two lamp mode (firmware ^1+)"
@@ -612,7 +617,8 @@ services:
             parameters:
               value:
                 type: "int32"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           # DSS (Data Storage Subsystem) commands
           # Settings are sent as protobuf t_cmdDssSetData messages with

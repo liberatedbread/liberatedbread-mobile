@@ -17,6 +17,8 @@ _services._dns-sd._udp.local.	mdns	The DNS-SD service enumeration meta-type; not
 _workstation._tcp.local.	mdns	Avahi's default workstation announcement; every Linux desktop.
 ssdp:all	ssdp	The wildcard search target; every SSDP responder answers.
 upnp:rootdevice	ssdp	Every UPnP root device on the link answers it: routers, printers, NAS, TVs.
+urn:dial-multiscreen-org:device:dial:1	ssdp	Every DIAL second-screen receiver: smart TVs of every make, Roku, Fire TV, Chromecast.
+urn:dial-multiscreen-org:service:dial:1	ssdp	The DIAL service type; answered by the same receivers as the device type.
 urn:schemas-upnp-org:device:Basic:1	ssdp	The generic UPnP device type; Hue bridges, cameras and many others.
 urn:schemas-upnp-org:device:MediaRenderer:1	ssdp	Every DLNA renderer -- Samsung, Philips, Hisense, LG sets alike; narrow with identification.ssdp_match.
 urn:schemas-upnp-org:device:MediaServer:1	ssdp	Every DLNA media server: NAS, PCs, some routers.

@@ -345,7 +345,8 @@ services:
               light_mode:
                 type: "uint8"
                 default: 0x00
-                allowed: [0, 1, 2, 3]
+                min: 0
+                max: 3
                 labels: ["all", "RGB", "white", "CCT"]
           set_effect_speed:
             description: "Set effect change speed 0-100 (opcode 0x02)."
@@ -421,7 +422,7 @@ services:
             parameters:
               flags: { type: "uint8", default: 0xE0 }
               mode: { type: "uint8", min: 0, max: 3 }
-              state: { type: "uint8", allowed: [0, 1], labels: ["off", "on"] }
+              state: { type: "uint8", min: 0, max: 1, labels: ["off", "on"] }
           set_mic_sensitivity:
             description: "External (on-device) mic sensitivity 0-100 (opcode 0x06). Not on MELK-OE/OB/TX."
             template: [0x7E, 0x04, 0x06, "{sensitivity}", 0xFF, 0xFF, 0xFF, 0x00, 0xEF]
@@ -431,7 +432,7 @@ services:
             description: "External (on-device) mic on/off (opcode 0x07)."
             template: [0x7E, 0x04, 0x07, "{state}", 0xFF, 0xFF, 0xFF, 0x00, 0xEF]
             parameters:
-              state: { type: "uint8", allowed: [0, 1], labels: ["off", "on"] }
+              state: { type: "uint8", min: 0, max: 1, labels: ["off", "on"] }
           set_mic_eq_mode:
             description: >
               External-mic EQ mode (opcode 0x03 with the 0x80 bit set):
@@ -480,7 +481,7 @@ services:
               hours: { type: "uint8", min: 0, max: 23 }
               minutes: { type: "uint8", min: 0, max: 59 }
               seconds: { type: "uint8", min: 0, max: 59 }
-              mode: { type: "uint8", allowed: [0, 1], labels: ["on-alarm", "off-alarm"] }
+              mode: { type: "uint8", min: 0, max: 1, labels: ["on-alarm", "off-alarm"] }
               weekdays: { type: "uint8" }
           query_timer:
             description: >
@@ -490,7 +491,7 @@ services:
               enabled). mode selects which alarm to query (0/1).
             template: [0x7E, 0x08, 0x82, 0xFF, 0xFF, 0xFF, "{mode}", 0xFF, 0xEF]
             parameters:
-              mode: { type: "uint8", allowed: [0, 1], labels: ["on-alarm", "off-alarm"] }
+              mode: { type: "uint8", min: 0, max: 1, labels: ["on-alarm", "off-alarm"] }
           set_countdown:
             description: >
               Countdown timer (opcode 0x76, Lotus Lantern builds only —

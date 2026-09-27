@@ -388,7 +388,8 @@ services:
                 description: "Seconds the material stays up in a rotation; the app offers 5, 10, 30, 60 or 300 and sends 0 with material_type 12."
               material_type:
                 type: "uint8"
-                allowed: [12, 13]
+                min: 12
+                max: 13
                 labels: ["plain upload (display time ignored, sent as 0)", "timed material (display_seconds applies)"]
                 default: 12
                 description: "The app's material-type byte; 12 (0x0C) for a plain upload, 13 (0x0D) for a material shown for display_seconds."
@@ -441,7 +442,8 @@ services:
                 description: "Seconds the GIF stays up in a rotation; 5 is what every hardware-verified client sends."
               material_type:
                 type: "uint8"
-                allowed: [12, 13]
+                min: 12
+                max: 13
                 labels: ["plain upload (display time ignored, sent as 0)", "timed material (display_seconds applies)"]
                 default: 13
                 description: "13 (0x0D) in every hardware-verified GIF upload."

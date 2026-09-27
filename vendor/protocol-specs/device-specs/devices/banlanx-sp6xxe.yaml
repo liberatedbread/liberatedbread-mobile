@@ -312,7 +312,8 @@ services:
             parameters:
               which:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["Colour level", "White level"]
                 default: 0
               level:
@@ -390,7 +391,8 @@ services:
             parameters:
               reverse:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["Forward", "Reverse"]
             verification: reported
           sp6xxe_effect_play:
@@ -399,7 +401,8 @@ services:
             parameters:
               play:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["Pause", "Play"]
             verification: reported
           sp6xxe_set_effect_loop:
@@ -408,7 +411,8 @@ services:
             parameters:
               loop:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["Off", "On"]
             verification: reported
           sp6xxe_set_audio_input:
@@ -429,7 +433,8 @@ services:
             parameters:
               state:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["Off", "On"]
             verification: reported
           sp6xxe_set_on_power:
@@ -438,7 +443,8 @@ services:
             parameters:
               mode:
                 type: "uint8"
-                allowed: [0, 1, 2]
+                min: 0
+                max: 2
                 labels: ["Light off", "Light on", "Last state"]
             verification: reported
           sp6xxe_set_onoff_effect:
@@ -450,11 +456,13 @@ services:
             parameters:
               effect:
                 type: "uint8"
-                allowed: [1, 2, 3, 4]
+                min: 1
+                max: 4
                 labels: ["Flow forward", "Flow backward", "Gradient", "Stars"]
               speed:
                 type: "uint8"
-                allowed: [1, 2, 3]
+                min: 1
+                max: 3
                 labels: ["Slow", "Medium", "Fast"]
               pixels_hi:
                 type: "uint8"
@@ -501,7 +509,8 @@ services:
               channel: { type: "uint8", min: 0, max: 255 }
               state:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["Off", "On"]
             verification: reported
           sp601e_set_brightness:

@@ -132,14 +132,18 @@ A BlueZ-based client — `bleak`, `flutter_blue_plus` on Linux, anything layered
 on `bluetoothd` — connects to this meter, negotiates an MTU, and then discovers
 **no services at all**. That is this device, not your code.
 
-`bluetoothd` (BlueZ ≥ 5.62, reproduced on 5.85) reads the Database Hash
-(`0x2b2a`) by type during GATT client init. The meter answers that particular
-read with silence rather than an error, so `bluetoothd` waits out the 30 s ATT
-transaction timeout, abandons init, and reports the device "resolved" with an
-empty database — about 32.5 s in, with the ATT channel left dead. A client that
-gives up sooner (the app retries discovery for ~6 s) just sees the empty result
-earlier; waiting longer does not help, because the database is still empty when
-`bluetoothd` finally answers.
+On a first connection, right after the MTU exchange, `bluetoothd` sends a Read
+By Type for Server Supported Features (`0x2b3a`) and queues primary discovery
+behind it (`src/shared/gatt-client.c`, unchanged from BlueZ 5.66 through master;
+reproduced on 5.72 and 5.85). The meter answers that read with silence rather
+than an error, so `bluetoothd` waits out the 30 s ATT transaction timeout,
+abandons init, and reports the device "resolved" with an empty database — about
+32.5 s in, with the ATT channel left dead. A client that gives up sooner (the
+app retries discovery for ~6 s) just sees the empty result earlier; waiting
+longer does not help, because the database is still empty when `bluetoothd`
+finally answers. (An earlier version of this page blamed the Database Hash,
+`0x2b2a`; `bluetoothd` reads that before discovery only when a cached database
+already contains one, never on a first contact.)
 
 What still works: plain Read Requests **by handle** (every Device Information
 string and the battery level read fine), Exchange MTU, and — over a raw ATT
@@ -149,14 +153,17 @@ Narrower than it first looked. In the vendor-app HCI capture the meter answered
 every Read By Type it received (29 by-type and 9 by-group-type requests, 38
 responses, no silences), including correct `Attribute Not Found` (`0x0a`) errors
 for by-type reads of UUIDs it does not carry. The handler is not broken in
-general; what that capture never contains is a read of `0x2b2a`. Robust caching
-is the one thing `bluetoothd` does that the vendor app does not.
+general; what that capture never contains is a read of `0x2b3a`. Android skips
+it for a peer like this one, which reports LL version `0x01` and no LE features.
 
-**Untested, and worth trying before writing Linux off:** set `Cache = no` under
-`[GATT]` in `/etc/bluetooth/main.conf` and restart `bluetoothd`. If that skips
-the Database Hash read, Linux clients work after a config change rather than not
-at all. Otherwise use a raw ATT path (`gatttool`, or a custom L2CAP CID 4
-client), or drive the meter from Android or iOS.
+**No `bluetoothd` setting fixes it.** `Cache = no` under `[GATT]` in
+`/etc/bluetooth/main.conf` suppresses only the cached hash read, and no key
+skips the `0x2b3a` read. What works on Linux is a client that owns the ATT fixed
+channel (L2CAP CID 4) itself and never sends `0x2b3a`: `gatttool`, or an app
+that opens the channel directly. The spec records this as
+`device.host_compatibility` (`stack: bluez`, `status: incompatible`,
+`workaround: raw_att`), so such a client can go direct from the first
+connection. Otherwise, drive the meter from Android or iOS.
 
 ## Family survey (Bluetooth laser distance meters)
 

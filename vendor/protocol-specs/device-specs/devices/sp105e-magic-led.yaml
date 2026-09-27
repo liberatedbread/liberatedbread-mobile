@@ -443,7 +443,8 @@ services:
             parameters:
               order:
                 type: "uint8"
-                allowed: [0, 1, 2, 3, 4, 5]
+                min: 0
+                max: 5
                 labels: ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR"]
           set_ic_type:
             description: >
@@ -456,7 +457,8 @@ services:
             parameters:
               ic:
                 type: "uint8"
-                allowed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+                min: 0
+                max: 26
                 labels: ["SM16703", "TM1804", "UCS1903", "WS2811", "WS2801", "SK6812", "SK6812-RGBW", "LPD6803", "LPD8806", "APA102", "APA105", "TM1814", "TM1914", "TM1913", "P9813", "INK1003", "DMX512", "P943S", "P9411", "P9412", "P9413", "P9414", "TX1812", "TX1813", "GS8206", "GS8208", "SK9822"]
 
 entities:

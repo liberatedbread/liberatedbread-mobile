@@ -386,7 +386,8 @@ services:
             parameters:
               mode:
                 type: "uint8"
-                allowed: [1, 2, 3]
+                min: 1
+                max: 3
                 labels: ["Face", "Basic", "Pro"]
           get_flash_mode:
             description: "Read flash mode (old firmware)."
