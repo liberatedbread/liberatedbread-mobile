@@ -50,4 +50,29 @@ void main() {
   test('a zero-byte take returns at once', () async {
     expect(await ByteInbox().take(0, const Duration(seconds: 1)), isEmpty);
   });
+
+  test('a failed feed ends a waiting take with its error, at once', () async {
+    // A reader learned of a dead notification stream only by waiting out
+    // its whole timeout, then reported silence instead of the cause.
+    final inbox = ByteInbox();
+    final stopwatch = Stopwatch()..start();
+    final taking = inbox.take(4, const Duration(seconds: 5));
+    final refusal = StateError('CCCD write refused');
+    inbox.fail(refusal);
+    // The first failure wins: the done event that follows adds nothing.
+    inbox.fail(StateError('stream closed'));
+
+    await expectLater(taking, throwsA(same(refusal)));
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
+  });
+
+  test('bytes that already arrived are still served after a failure', () async {
+    final inbox = ByteInbox()..add([1, 2]);
+    inbox.fail(StateError('link gone'));
+    expect(await inbox.take(2, const Duration(seconds: 1)), [1, 2]);
+    await expectLater(
+      inbox.take(1, const Duration(seconds: 1)),
+      throwsA(isA<StateError>()),
+    );
+  });
 }

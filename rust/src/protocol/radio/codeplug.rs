@@ -42,6 +42,47 @@ pub enum Tone {
     },
 }
 
+/// A channel's transmit power, by name.
+///
+/// By name rather than by the record's two-bit index, because the index means
+/// different things on different radios: on a UV-32 it is High, Low, Medium
+/// (2 is Medium); on a BF-F8HP it is High, Med, Low (2 is Low). A `low_power`
+/// flag could not say Medium, so the encoder kept whatever non-zero level
+/// the slot's old record held -- and a channel that moved slot took on its
+/// neighbour's, writing a plan's Low as a UV-32's Medium (5 W, not 2 W).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Power {
+    #[default]
+    High,
+    Medium,
+    Low,
+}
+
+/// The two levels most of these radios have: 0 High, 1 Low (CHIRP
+/// `UV17Pro.POWER_LEVELS`, `uv5r.UV5R_POWER_LEVELS`).
+pub const TWO_POWER_LEVELS: &[Power] = &[Power::High, Power::Low];
+
+/// A record's power index as a level, from `levels` -- the model's list,
+/// indexed as the radio indexes it.
+///
+/// An index past the list reads as the first level, High, as CHIRP reads it
+/// (`levels[0]` on IndexError in both drivers).
+pub fn decode_power(raw: u8, levels: &[Power]) -> Power {
+    levels.get(usize::from(raw)).copied().unwrap_or(Power::High)
+}
+
+/// The index `power` has in `levels`.
+///
+/// A level the model does not have -- Medium, from a plan made for a UV-32,
+/// written to a Mini -- goes out as Low: the nearer level that does not
+/// transmit harder than the plan asked for.
+pub fn encode_power(power: Power, levels: &[Power]) -> u8 {
+    let find = |wanted: Power| levels.iter().position(|&l| l == wanted);
+    let index = find(power).or_else(|| find(Power::Low)).unwrap_or(0);
+    // A power list has at most four entries: the field is two bits wide.
+    index as u8
+}
+
 /// One memory channel, in the terms the app speaks.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ChannelRecord {
@@ -54,7 +95,7 @@ pub struct ChannelRecord {
     pub rx_tone: Tone,
     /// Narrow (12.5 kHz) rather than wide.
     pub narrow: bool,
-    pub low_power: bool,
+    pub power: Power,
     /// Skipped when scanning.
     pub skip: bool,
 }
@@ -152,18 +193,59 @@ fn is_tx_inhibited(tx: &[u8]) -> bool {
     tx.iter().all(|&b| b == 0xFF) || tx.iter().all(|&b| b == 0x00)
 }
 
-/// Trim a name field: the radio pads with 0xFF or 0x00, and neither is text.
+/// Trim a name field: the radio pads with 0xFF, 0x00 or ASCII space, and
+/// none of those is text.
+///
+/// Each byte is one char (Latin-1), so the field is carried as opaque single
+/// bytes: a name the vendor software wrote in GBK shows as the wrong letters
+/// here but goes back byte for byte -- see [`encode_name`]. Only ASCII space
+/// is trimmed: `str::trim_end` also strips Unicode whitespace, which in a
+/// Latin-1 decode includes 0x85 and 0xA0 -- valid GBK trail bytes -- and
+/// 0x09..0x0D, so a GBK name ending in one lost its last byte on every
+/// read-then-write.
 fn decode_name(raw: &[u8]) -> String {
     raw.iter()
         .take_while(|&&b| b != 0xFF && b != 0x00)
         .map(|&b| b as char)
         .collect::<String>()
-        .trim_end()
+        .trim_end_matches(' ')
         .to_string()
 }
 
-/// Read one 32-byte record. `None` for an empty slot.
-pub fn decode_channel(record: &[u8], name_len: usize) -> Option<ChannelRecord> {
+/// Write `name` into a name field, one byte per char: the inverse of
+/// [`decode_name`].
+///
+/// Writing `name.bytes()` (UTF-8) against a Latin-1 decode turned byte 0xC3
+/// into C3 83 on every read-then-write, so a non-ASCII name grew and garbled
+/// each pass and was cut mid-character at the field's end. A char with no
+/// single-byte form, or one that would read back as the end of the name
+/// (0x00, 0xFF), is written as a space.
+///
+/// The padding follows the field's old padding (0x00, 0xFF or space) so an
+/// untouched name is rewritten byte for byte; a field with none to follow
+/// -- a fresh slot, or a name that filled it -- pads with 0xFF, as CHIRP's
+/// `UV17Pro.set_memory` does (`mem.name.ljust(_namelength, '\xFF')`).
+fn encode_name(field: &mut [u8], name: &str) {
+    let pad = match field.last() {
+        Some(&b) if b == 0x00 || b == 0xFF || b == b' ' => b,
+        _ => 0xFF,
+    };
+    field.fill(pad);
+    for (slot, c) in field.iter_mut().zip(name.chars()) {
+        *slot = u8::try_from(u32::from(c))
+            .ok()
+            .filter(|&b| b != 0x00 && b != 0xFF)
+            .unwrap_or(b' ');
+    }
+}
+
+/// Read one 32-byte record, whose power index means what `power_levels`
+/// says. `None` for an empty slot.
+pub fn decode_channel(
+    record: &[u8],
+    name_len: usize,
+    power_levels: &[Power],
+) -> Option<ChannelRecord> {
     if record.len() < CHANNEL_RECORD_LEN as usize || is_empty_record(record) {
         return None;
     }
@@ -188,11 +270,8 @@ pub fn decode_channel(record: &[u8], name_len: usize) -> Option<ChannelRecord> {
     };
 
     // Byte 14 packs its fields most-significant first; transmit power is the
-    // bottom two bits, an index into the model's power levels where 0 is
-    // high. Most models have two (1 is low); the UV-32 has three, and 2 is
-    // its Medium. Any non-zero level reads as low here, and the encoder keeps
-    // a non-zero level as it was, so a Medium channel stays Medium.
-    let low_power = (record[14] & 0x03) != 0;
+    // bottom two bits, an index into the model's power levels.
+    let power = decode_power(record[14] & 0x03, power_levels);
     // Byte 15, same packing. The bit named "wide" in the layout is set for
     // NARROW -- worth stating, because the obvious reading is backwards.
     let narrow = (record[15] & 0x40) != 0;
@@ -207,7 +286,7 @@ pub fn decode_channel(record: &[u8], name_len: usize) -> Option<ChannelRecord> {
         tx_tone,
         rx_tone,
         narrow,
-        low_power,
+        power,
         skip,
     })
 }
@@ -223,6 +302,7 @@ pub fn encode_channel(
     record: &mut [u8],
     channel: &ChannelRecord,
     name_len: usize,
+    power_levels: &[Power],
 ) -> Result<(), ProtocolError> {
     if record.len() < CHANNEL_RECORD_LEN as usize {
         return Err(ProtocolError::BufferTooShort {
@@ -232,9 +312,13 @@ pub fn encode_channel(
     }
 
     // A slot that was empty has no settings worth keeping, and its 0xFF fill
-    // would otherwise survive into the flag bytes.
+    // would otherwise survive into the flag bytes. The second half stays
+    // 0xFF: that is CHIRP's fresh record (`UV17Pro.set_memory`,
+    // `b"\x00"*16 + b"\xff"*16`), and zeroing it sent the unidentified
+    // bytes 16..19 a value the reference driver never has.
     if is_empty_record(record) {
-        record[..CHANNEL_RECORD_LEN as usize].fill(0x00);
+        record[..16].fill(0x00);
+        record[16..CHANNEL_RECORD_LEN as usize].fill(0xFF);
     }
 
     encode_bcd(channel.rx_freq_hz, &mut record[0..4])?;
@@ -253,19 +337,10 @@ pub fn encode_channel(
     record[8..10].copy_from_slice(&rx_tone.to_le_bytes());
     record[10..12].copy_from_slice(&tx_tone.to_le_bytes());
 
-    // Forcing 1 for "low" turned a UV-32's Medium (2) into Low (1) on every
-    // read-edit-write, including channels nobody touched. A record already
-    // at a non-zero level keeps it; only a high one (or a fresh slot, zeroed
-    // above) gets 1. Not uv5r.rs's "fresh low is 2": here 2 is Medium.
-    // Like the other preserved bits, this follows slot i, so a channel that
-    // moves slot takes on the record it lands on.
-    let prior = record[14] & 0x03;
-    let power = match (channel.low_power, prior) {
-        (false, _) => 0,
-        (true, 0) => 1,
-        (true, kept) => kept,
-    };
-    record[14] = (record[14] & !0x03) | power;
+    // The level the channel carries, never the one the slot's old record
+    // held: that followed the slot, so a channel moved by a delete or a
+    // reorder took on its neighbour's power.
+    record[14] = (record[14] & !0x03) | encode_power(channel.power, power_levels);
     let mut flags = record[15] & !(0x40 | 0x04);
     if channel.narrow {
         flags |= 0x40;
@@ -275,11 +350,7 @@ pub fn encode_channel(
     }
     record[15] = flags;
 
-    let field = &mut record[20..20 + name_len];
-    field.fill(0x00);
-    for (slot, byte) in field.iter_mut().zip(channel.name.bytes().take(name_len)) {
-        *slot = byte;
-    }
+    encode_name(&mut record[20..20 + name_len], &channel.name);
     Ok(())
 }
 
@@ -308,9 +379,9 @@ pub fn decode_channels(
     }
     Ok((0..model.channel_count)
         .map(|index| {
-            model
-                .channel_range(index)
-                .and_then(|(start, end)| decode_channel(&image[start..end], NAME_LEN))
+            model.channel_range(index).and_then(|(start, end)| {
+                decode_channel(&image[start..end], NAME_LEN, model.power_levels)
+            })
         })
         .collect())
 }
@@ -347,7 +418,7 @@ pub fn encode_channels(
         };
         match channels.get(index as usize) {
             Some(channel) => {
-                encode_channel(&mut out[start..end], channel, NAME_LEN)?;
+                encode_channel(&mut out[start..end], channel, NAME_LEN, model.power_levels)?;
             }
             None => clear_channel(&mut out[start..end])?,
         }
@@ -358,7 +429,7 @@ pub fn encode_channels(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::radio::models::{UV17R_PLUS, UV5R_MINI};
+    use crate::protocol::radio::models::{UV17R_PLUS, UV32, UV5R_MINI};
 
     /// A blank image the size a Mini reads back, filled the way an unwritten
     /// radio is.
@@ -375,7 +446,7 @@ mod tests {
             tx_tone: Tone::Ctcss(1000),
             rx_tone: Tone::None,
             narrow: false,
-            low_power: false,
+            power: Power::High,
             skip: false,
         }
     }
@@ -535,31 +606,34 @@ mod tests {
     #[test]
     fn an_unwritten_slot_decodes_as_empty() {
         let record = [0xFFu8; 32];
-        assert!(decode_channel(&record, 12).is_none());
+        assert!(decode_channel(&record, 12, TWO_POWER_LEVELS).is_none());
     }
 
     #[test]
     fn a_channel_round_trips_through_a_record() {
         let mut record = [0xFFu8; 32];
         let original = channel("W1AW");
-        encode_channel(&mut record, &original, 12).unwrap();
-        assert_eq!(decode_channel(&record, 12), Some(original));
+        encode_channel(&mut record, &original, 12, TWO_POWER_LEVELS).unwrap();
+        assert_eq!(
+            decode_channel(&record, 12, TWO_POWER_LEVELS),
+            Some(original)
+        );
     }
 
     #[test]
     fn every_flag_round_trips() {
         for narrow in [false, true] {
-            for low_power in [false, true] {
+            for power in [Power::High, Power::Low] {
                 for skip in [false, true] {
                     let mut record = [0xFFu8; 32];
                     let mut original = channel("FLAGS");
                     original.narrow = narrow;
-                    original.low_power = low_power;
+                    original.power = power;
                     original.skip = skip;
-                    encode_channel(&mut record, &original, 12).unwrap();
-                    let decoded = decode_channel(&record, 12).unwrap();
+                    encode_channel(&mut record, &original, 12, TWO_POWER_LEVELS).unwrap();
+                    let decoded = decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap();
                     assert_eq!(decoded.narrow, narrow);
-                    assert_eq!(decoded.low_power, low_power);
+                    assert_eq!(decoded.power, power);
                     assert_eq!(decoded.skip, skip);
                 }
             }
@@ -567,31 +641,82 @@ mod tests {
     }
 
     #[test]
+    fn the_uv32_power_index_is_high_low_medium() {
+        // CHIRP UV32.POWER_LEVELS: High 10 W, Low 2 W, Medium 5 W, in that
+        // order, so 2 is Medium and 1 is Low.
+        assert_eq!(UV32.power_levels, &[Power::High, Power::Low, Power::Medium]);
+        for (raw, power) in [(0, Power::High), (1, Power::Low), (2, Power::Medium)] {
+            assert_eq!(decode_power(raw, UV32.power_levels), power);
+            assert_eq!(encode_power(power, UV32.power_levels), raw);
+        }
+        // Two-level radios: no Medium, and an index past the list reads as
+        // High, as CHIRP reads it.
+        assert_eq!(decode_power(2, UV5R_MINI.power_levels), Power::High);
+        assert_eq!(decode_power(3, UV32.power_levels), Power::High);
+        // Medium on a radio without it is the nearer level that does not
+        // transmit harder than asked.
+        assert_eq!(encode_power(Power::Medium, UV5R_MINI.power_levels), 1);
+    }
+
+    #[test]
     fn a_uv32_medium_channel_stays_medium_through_a_rewrite() {
         // On the UV-32 the power field is 0 High, 1 Low, 2 Medium. Writing 1
         // for every "low" silently turned 5 W channels into 2 W ones.
+        let levels = UV32.power_levels;
         let mut record = [0xFFu8; 32];
-        encode_channel(&mut record, &channel("MED"), 12).unwrap();
+        encode_channel(&mut record, &channel("MED"), 12, levels).unwrap();
         record[14] = (record[14] & !0x03) | 0x02;
 
-        let decoded = decode_channel(&record, 12).unwrap();
-        assert!(decoded.low_power);
-        encode_channel(&mut record, &decoded, 12).unwrap();
+        let decoded = decode_channel(&record, 12, levels).unwrap();
+        assert_eq!(decoded.power, Power::Medium);
+        encode_channel(&mut record, &decoded, 12, levels).unwrap();
         assert_eq!(record[14] & 0x03, 0x02);
 
         // Switched to high it is high, whatever it was before.
         let mut high = decoded.clone();
-        high.low_power = false;
-        encode_channel(&mut record, &high, 12).unwrap();
+        high.power = Power::High;
+        encode_channel(&mut record, &high, 12, levels).unwrap();
         assert_eq!(record[14] & 0x03, 0x00);
+    }
+
+    #[test]
+    fn a_channel_that_moves_slot_keeps_its_own_power_on_a_uv32() {
+        // Slots High, Medium, Low; delete the first and write. The level used
+        // to follow the slot: the old Medium channel landed on the High
+        // record and went out Low (1), and the Low channel landed on the
+        // Medium record and went out Medium (2) -- 5 W from a channel the
+        // app showed as low. Fails on the slot-following encoder.
+        let image = vec![0xFFu8; UV32.image_len as usize];
+        let mut high = channel("HIGH");
+        high.power = Power::High;
+        let mut medium = channel("MEDIUM");
+        medium.power = Power::Medium;
+        let mut low = channel("LOW");
+        low.power = Power::Low;
+        let written = encode_channels(&image, &[high, medium.clone(), low.clone()], &UV32).unwrap();
+        assert_eq!(
+            [
+                written[14] & 0x03,
+                written[32 + 14] & 0x03,
+                written[64 + 14] & 0x03
+            ],
+            [0, 2, 1]
+        );
+
+        let moved = encode_channels(&written, &[medium, low], &UV32).unwrap();
+        assert_eq!(moved[14] & 0x03, 2, "the Medium channel, now in slot 1");
+        assert_eq!(moved[32 + 14] & 0x03, 1, "the Low channel, now in slot 2");
+        let read = decode_channels(&moved, &UV32).unwrap();
+        assert_eq!(read[0].as_ref().unwrap().power, Power::Medium);
+        assert_eq!(read[1].as_ref().unwrap().power, Power::Low);
     }
 
     #[test]
     fn a_fresh_low_power_channel_is_written_as_low() {
         let mut record = [0xFFu8; 32];
         let mut original = channel("LOW");
-        original.low_power = true;
-        encode_channel(&mut record, &original, 12).unwrap();
+        original.power = Power::Low;
+        encode_channel(&mut record, &original, 12, TWO_POWER_LEVELS).unwrap();
         assert_eq!(record[14] & 0x03, 0x01);
     }
 
@@ -604,10 +729,10 @@ mod tests {
         original.rx_only = true;
         original.rx_freq_hz = 162_550_000;
         original.tx_freq_hz = 162_550_000;
-        encode_channel(&mut record, &original, 12).unwrap();
+        encode_channel(&mut record, &original, 12, TWO_POWER_LEVELS).unwrap();
 
         assert_eq!(&record[4..8], &[0xFF, 0xFF, 0xFF, 0xFF]);
-        let decoded = decode_channel(&record, 12).unwrap();
+        let decoded = decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap();
         assert!(decoded.rx_only);
         assert_eq!(decoded.tx_freq_hz, decoded.rx_freq_hz);
         assert_eq!(decoded.tx_tone, Tone::None);
@@ -617,7 +742,7 @@ mod tests {
     fn a_zeroed_transmit_field_also_reads_as_receive_only() {
         let mut record = [0x00u8; 32];
         encode_bcd(162_550_000, &mut record[0..4]).unwrap();
-        let decoded = decode_channel(&record, 12).unwrap();
+        let decoded = decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap();
         assert!(decoded.rx_only);
     }
 
@@ -627,7 +752,7 @@ mod tests {
         let mut original = channel("QUIET");
         original.rx_only = true;
         original.tx_tone = Tone::Ctcss(1000);
-        encode_channel(&mut record, &original, 12).unwrap();
+        encode_channel(&mut record, &original, 12, TWO_POWER_LEVELS).unwrap();
         assert_eq!(&record[10..12], &[0x00, 0x00]);
     }
 
@@ -636,10 +761,13 @@ mod tests {
         let mut record = [0x00u8; 32];
         let mut original = channel("A NAME FAR TOO LONG");
         original.name = "A NAME FAR TOO LONG".to_string();
-        encode_channel(&mut record, &original, 12).unwrap();
+        encode_channel(&mut record, &original, 12, TWO_POWER_LEVELS).unwrap();
 
         // Nothing written past the record.
-        assert_eq!(decode_channel(&record, 12).unwrap().name, "A NAME FAR T");
+        assert_eq!(
+            decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap().name,
+            "A NAME FAR T"
+        );
         assert_eq!(record.len(), 32);
     }
 
@@ -649,10 +777,16 @@ mod tests {
         encode_bcd(146_940_000, &mut record[0..4]).unwrap();
         encode_bcd(146_940_000, &mut record[4..8]).unwrap();
         record[20..32].copy_from_slice(b"W1AW\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
-        assert_eq!(decode_channel(&record, 12).unwrap().name, "W1AW");
+        assert_eq!(
+            decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap().name,
+            "W1AW"
+        );
 
         record[20..32].copy_from_slice(b"W1AW        ");
-        assert_eq!(decode_channel(&record, 12).unwrap().name, "W1AW");
+        assert_eq!(
+            decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap().name,
+            "W1AW"
+        );
     }
 
     #[test]
@@ -666,7 +800,7 @@ mod tests {
         record[15] = 0x08; // bcl
         record[16..20].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
 
-        encode_channel(&mut record, &channel("KEEP"), 12).unwrap();
+        encode_channel(&mut record, &channel("KEEP"), 12, TWO_POWER_LEVELS).unwrap();
 
         assert_eq!(record[12], 0x03);
         assert_eq!(record[13], 0x02);
@@ -682,30 +816,117 @@ mod tests {
         let mut record = [0xFFu8; 32];
         let mut original = channel("FRESH");
         original.narrow = false;
-        original.low_power = false;
+        original.power = Power::High;
         original.skip = false;
-        encode_channel(&mut record, &original, 12).unwrap();
+        encode_channel(&mut record, &original, 12, TWO_POWER_LEVELS).unwrap();
 
-        let decoded = decode_channel(&record, 12).unwrap();
+        let decoded = decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap();
         assert!(!decoded.narrow);
-        assert!(!decoded.low_power);
+        assert_eq!(decoded.power, Power::High);
         assert!(!decoded.skip);
+    }
+
+    #[test]
+    fn a_fresh_record_is_chirps_zeroes_then_0xff() {
+        // CHIRP's UV17Pro.set_memory starts a record as 16 bytes of 0x00 and
+        // 16 of 0xFF, and pads the name with 0xFF. Zeroing all 32 sent the
+        // unidentified bytes 16..19 a value the reference driver never has.
+        let mut record = [0xFFu8; 32];
+        encode_channel(&mut record, &channel("W1AW"), 12, TWO_POWER_LEVELS).unwrap();
+        assert_eq!(&record[12..14], &[0x00, 0x00]);
+        assert_eq!(&record[16..20], &[0xFF; 4]);
+        assert_eq!(&record[20..32], b"W1AW\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF");
+    }
+
+    #[test]
+    fn a_high_byte_name_survives_a_read_then_write_byte_for_byte() {
+        // Latin-1 decode against a UTF-8 encode wrote C3 A9 back as
+        // C3 83 C2 A9: a GBK name from the vendor software grew and garbled
+        // on every rewrite. Fails on the `name.bytes()` encoder.
+        let mut record = [0x00u8; 32];
+        encode_bcd(146_940_000, &mut record[0..4]).unwrap();
+        encode_bcd(146_940_000, &mut record[4..8]).unwrap();
+        record[20..32].copy_from_slice(&[0xC3, 0xA9, 0xD6, 0xD0, 0xB0, 0xA1, 0, 0, 0, 0, 0, 0]);
+        let before = record;
+
+        let decoded = decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap();
+        encode_channel(&mut record, &decoded, 12, TWO_POWER_LEVELS).unwrap();
+        assert_eq!(record, before);
+
+        // And the same through the whole-image path, twice.
+        let mut image = vec![0xFFu8; UV5R_MINI.image_len as usize];
+        image[..32].copy_from_slice(&before);
+        let channels: Vec<ChannelRecord> = decode_channels(&image, &UV5R_MINI)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        let once = encode_channels(&image, &channels, &UV5R_MINI).unwrap();
+        assert_eq!(&once[..32], &before);
+    }
+
+    #[test]
+    fn a_gbk_name_ending_in_a_unicode_whitespace_byte_survives() {
+        // 0x85 and 0xA0 are GBK trail bytes but Unicode whitespace once
+        // decoded as Latin-1 (NEL, NBSP); `str::trim_end` dropped them, so
+        // 81 85 / 81 A0 came back as 81 then padding. Fails on trim_end.
+        for trail in [0x85u8, 0xA0] {
+            for pad in [0x00u8, 0xFF, b' '] {
+                let mut record = [0x00u8; 32];
+                encode_bcd(146_940_000, &mut record[0..4]).unwrap();
+                encode_bcd(146_940_000, &mut record[4..8]).unwrap();
+                record[20..32].fill(pad);
+                record[20..24].copy_from_slice(&[b'A', b'B', 0x81, trail]);
+                let before = record;
+
+                let decoded = decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap();
+                encode_channel(&mut record, &decoded, 12, TWO_POWER_LEVELS).unwrap();
+                assert_eq!(record, before, "trail {trail:#04x} pad {pad:#04x}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_name_char_with_no_single_byte_form_is_a_space() {
+        // UTF-8 bytes in a single-byte field are cut mid-character and show
+        // as garbage on the radio.
+        let mut record = [0xFFu8; 32];
+        let mut original = channel("x");
+        original.name = "Caf\u{e9} \u{4e2d}\u{1F4FB}AB".to_string();
+        encode_channel(&mut record, &original, 12, TWO_POWER_LEVELS).unwrap();
+        assert_eq!(&record[20..29], b"Caf\xE9   AB");
+        assert_eq!(&record[29..32], &[0xFF; 3]);
+    }
+
+    #[test]
+    fn an_untouched_name_keeps_the_padding_it_had() {
+        for pad in [0x00u8, 0xFF, b' '] {
+            let mut record = [0x00u8; 32];
+            encode_bcd(146_940_000, &mut record[0..4]).unwrap();
+            encode_bcd(146_940_000, &mut record[4..8]).unwrap();
+            record[20..32].fill(pad);
+            record[20..24].copy_from_slice(b"W1AW");
+            let before = record;
+            let decoded = decode_channel(&record, 12, TWO_POWER_LEVELS).unwrap();
+            encode_channel(&mut record, &decoded, 12, TWO_POWER_LEVELS).unwrap();
+            assert_eq!(record, before, "pad 0x{pad:02X}");
+        }
     }
 
     #[test]
     fn clearing_a_slot_makes_it_empty_again() {
         let mut record = [0x00u8; 32];
-        encode_channel(&mut record, &channel("GONE"), 12).unwrap();
+        encode_channel(&mut record, &channel("GONE"), 12, TWO_POWER_LEVELS).unwrap();
         clear_channel(&mut record).unwrap();
-        assert!(decode_channel(&record, 12).is_none());
+        assert!(decode_channel(&record, 12, TWO_POWER_LEVELS).is_none());
     }
 
     #[test]
     fn a_short_record_is_an_error_rather_than_a_panic() {
         let mut short = [0u8; 8];
-        assert!(encode_channel(&mut short, &channel("X"), 12).is_err());
+        assert!(encode_channel(&mut short, &channel("X"), 12, TWO_POWER_LEVELS).is_err());
         assert!(clear_channel(&mut short).is_err());
-        assert!(decode_channel(&short, 12).is_none());
+        assert!(decode_channel(&short, 12, TWO_POWER_LEVELS).is_none());
     }
 
     #[test]

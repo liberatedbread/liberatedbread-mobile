@@ -58,6 +58,26 @@ class _PingingBroker extends _ScriptedBroker {
   }
 }
 
+/// A codec that refuses to render the first CONNECT, as the Rust codec does
+/// for a client id or credential past the two-byte length prefix.
+class _RefusingConnectCodec extends FakeSpecCodec {
+  var refusals = 1;
+
+  @override
+  Future<List<int>> mqttConnectPacket({
+    required String clientId,
+    String? username,
+    String? password,
+  }) async {
+    if (refusals-- > 0) throw StateError('credential too long to encode');
+    return super.mqttConnectPacket(
+      clientId: clientId,
+      username: username,
+      password: password,
+    );
+  }
+}
+
 void main() {
   late FakeSpecCodec codec;
 
@@ -87,6 +107,39 @@ void main() {
     );
     return (session, broker);
   }
+
+  test(
+    'a CONNECT that cannot be rendered never opens or strands a socket',
+    () async {
+      // The render used to run after `_socket = socket`, outside the try that
+      // releases it: a failure left the socket set with no CONNACK, and the
+      // next connect() returned early — "connected" on a session the broker
+      // never authenticated.
+      final refusing = _RefusingConnectCodec();
+      var dials = 0;
+      final session = MqttSession(
+        codec: refusing,
+        connect: (host, port, timeout) async {
+          dials++;
+          final broker = _ScriptedBroker();
+          scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
+          return broker;
+        },
+      );
+      addTearDown(session.dispose);
+
+      await expectLater(
+        session.connect('10.0.0.5', 1883, clientId: 'c'),
+        throwsStateError,
+      );
+      expect(session.isConnected, isFalse);
+      expect(dials, 0, reason: 'nothing to say, so no socket is opened');
+
+      await session.connect('10.0.0.5', 1883, clientId: 'c');
+      expect(session.isConnected, isTrue);
+      expect(dials, 1, reason: 'the retry really connects');
+    },
+  );
 
   test('connects with the credentials it was given', () async {
     final (session, _) = await connected();

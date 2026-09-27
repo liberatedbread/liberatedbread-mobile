@@ -27,13 +27,35 @@ class BinarySensorCard extends StatelessWidget {
 
   /// What "on" and "off" mean for this sensor, worded by device_class when
   /// one is declared. `problem` inverts the visual emphasis: "on" is the bad
-  /// state.
+  /// state. So does `lock`: in Home Assistant's semantics a lock sensor's
+  /// "on" is UNLOCKED, which read as 'On' under a green check — an open
+  /// door shown as all-clear.
   (String, String) get _labels => switch (entity.deviceClass) {
     'problem' => ('Problem', 'OK'),
+    'lock' => ('Unlocked', 'Locked'),
     'running' => ('Running', 'Stopped'),
     'battery_charging' => ('Charging', 'Not charging'),
     _ => ('On', 'Off'),
   };
+
+  /// Whether "on" is the state that wants attention (warning icon in the
+  /// error colour) rather than a check mark.
+  bool get _onNeedsAttention =>
+      entity.deviceClass == 'problem' || entity.deviceClass == 'lock';
+
+  /// Why no verdict can be drawn from [value] even though it decoded: the
+  /// spec names neither a value field nor an is_on field, and the
+  /// characteristic decodes to several fields. [EntityLiveValue.primary]
+  /// then falls back to field 0 — on BioKey's multiplexed notify frame that
+  /// is the `opcode` byte (0xFF on status frames), so 'Lock State' read
+  /// 'On' for ever, whatever the bolt did. Null when a verdict is sound.
+  String? _ambiguousFields(EntityLiveValue value) {
+    if (entity.valueField != null || entity.isOnField != null) return null;
+    if (value.decoded.length <= 1) return null;
+    final names = value.decoded.map((d) => d.name).join(', ');
+    return 'The spec names no value field for this multi-field '
+        'characteristic ($names).';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,8 +68,9 @@ class BinarySensorCard extends StatelessWidget {
       entity: entity,
       specYaml: specYaml,
       builder: (context, value) {
-        final isOn = value.isOn;
-        final isProblem = entity.deviceClass == 'problem';
+        final ambiguous = _ambiguousFields(value);
+        final isOn = ambiguous == null ? value.isOn : null;
+        final isProblem = _onNeedsAttention;
         final active = isOn == true;
         final iconColor = active
             ? (isProblem ? scheme.error : scheme.primary)
@@ -108,7 +131,7 @@ class BinarySensorCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    _buildState(value, isOn, scheme, text),
+                    _buildState(value, isOn, ambiguous, scheme, text),
                   ],
                 ),
               ),
@@ -122,6 +145,7 @@ class BinarySensorCard extends StatelessWidget {
   Widget _buildState(
     EntityLiveValue value,
     bool? isOn,
+    String? ambiguous,
     ColorScheme scheme,
     TextTheme text,
   ) {
@@ -157,7 +181,8 @@ class BinarySensorCard extends StatelessWidget {
       case EntityValueStatus.live:
         if (isOn == null) {
           return Text(
-            value.primaryError ??
+            ambiguous ??
+                value.primaryError ??
                 'The decoded value has no on/off interpretation.',
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           );

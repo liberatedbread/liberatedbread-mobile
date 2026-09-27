@@ -82,15 +82,13 @@ SPEC-GAP section above absorbs.
 
 ## Follow-up chores
 
-- **Refresh the vendored specs** after the weekly-review branch of
-  `liberatedbread-protocol-specs` merges: an ordinary
-  `./scripts/update-specs.sh`, then `./scripts/test.sh`. Expected deltas:
-  ignis-pixel stops auto-matching the shared Nordic UART UUID, hello-fairy's
-  variant matcher narrows, clean-room placeholder text (the review's second
-  scrub adds Lutron/SmartThings/Rachio hostname identifiers, the Kasa
-  verification alias, and research-note vendor class names), and the Samsung
-  connect path may spell `{samsung_token}` (the fill rule handles both).
-- **Dependabot [#55](https://github.com/liberatedbread/liberatedbread-mobile/pull/55)**
-  (cargo aes/cbc/getrandom/md-5/base64): merge after this branch lands — the
-  Magic Display decrypt roundtrip in `vendored_assets.rs` is the regression
-  net those bumps need. Re-check it still applies cleanly post-merge.
+- **Refresh the vendored specs** — mostly delivered by the September
+  refreshes (latest ddbca535): ignis-pixel no longer auto-matches the shared
+  Nordic UART UUID (it declares no identification block, deliberately), and
+  samsung-tizen-tv's connect path spells `{samsung_token}`. Not rechecked on
+  2026-09-27: whether hello-fairy's variant matcher narrowed and whether the
+  clean-room placeholder scrub landed. Drop this bullet once those are
+  confirmed.
+- Dependabot [#55](https://github.com/liberatedbread/liberatedbread-mobile/pull/55)
+  (cargo aes/cbc/getrandom/md-5/base64) is superseded: 36c19302 made those
+  bumps and migrated the call sites. Close the PR if it is still open.

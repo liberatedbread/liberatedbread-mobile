@@ -93,23 +93,34 @@ String? normalizeMacHex(String raw) {
 /// valid hex.
 ///
 /// Tolerant of common formatting: surrounding/interior whitespace, `0x`
-/// prefixes, and `:`/`-` separators (e.g. `01 aa`, `0x01,0xAA`, `01:aa`,
-/// `01AA`). After separators are stripped the remaining digits must be an even
-/// number of `[0-9a-fA-F]` characters. An empty string returns an empty list.
+/// prefixes, and `,`/`:`/`-` separators (e.g. `01 aa`, `0x01,0xAA`, `01:aa`,
+/// `01AA`). The input is split on separators FIRST and each token must hold
+/// whole bytes: an even number of hex digits after an optional leading `0x`.
+/// A single-digit token (`0x1, 0x2`, `1 2 3 4`) is rejected rather than
+/// glued to its neighbour, which used to turn `0x1, 0x2` into the one byte
+/// 0x12 and send that to the device from the raw write console. An empty
+/// string returns an empty list.
 List<int>? tryParseHex(String input) {
-  // Drop whitespace and byte separators, and any 0x/0X prefixes.
-  final cleaned = input
-      .replaceAll(RegExp(r'0[xX]'), '')
-      .replaceAll(RegExp(r'[\s:,\-]'), '');
-  if (cleaned.isEmpty) return const [];
-  if (cleaned.length.isOdd) return null;
-  if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleaned)) return null;
+  final tokens = input
+      .split(_hexSeparators)
+      .where((t) => t.isNotEmpty)
+      .toList(growable: false);
   final bytes = <int>[];
-  for (var i = 0; i < cleaned.length; i += 2) {
-    bytes.add(int.parse(cleaned.substring(i, i + 2), radix: 16));
+  for (final raw in tokens) {
+    // Only a LEADING 0x is a prefix; `a0x1` is garbage, not `a1`.
+    final token = raw.replaceFirst(_hexPrefix, '');
+    if (token.isEmpty || token.length.isOdd) return null;
+    if (!_anyCaseHex.hasMatch(token)) return null;
+    for (var i = 0; i < token.length; i += 2) {
+      bytes.add(int.parse(token.substring(i, i + 2), radix: 16));
+    }
   }
   return bytes;
 }
+
+final _hexSeparators = RegExp(r'[\s:,\-]+');
+final _hexPrefix = RegExp(r'^0[xX]');
+final _anyCaseHex = RegExp(r'^[0-9a-fA-F]+$');
 
 /// [bytes] rendered as text when every byte is printable ASCII, else null.
 ///

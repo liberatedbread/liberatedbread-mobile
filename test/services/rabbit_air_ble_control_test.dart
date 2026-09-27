@@ -198,9 +198,16 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
 
         expect(
-          await store.userKey('abc123_0000'),
+          await store.userKey('abc123_0000.local'),
           _rightKey,
-          reason: 'the Wi-Fi screen finds this purifier by its Thing ID',
+          reason:
+              'the Wi-Fi screen finds this purifier by its mDNS hostname, '
+              '<Thing ID>.local — the bare id is a scope it never reads',
+        );
+        expect(
+          await store.userKey('abc123_0000'),
+          isNull,
+          reason: 'filed under the hostname, not the bare Thing ID',
         );
       },
     );

@@ -182,4 +182,35 @@ void main() {
 
     expect(help, isNull);
   });
+
+  test('a pack copy shadowing a bundled spec gives the pack\'s help', () async {
+    // Both entries are "Ember Mug|Ember"; the pack's loads after the bundled
+    // one and must win. The matcher breaks the tie by lower index, so only
+    // the bundled entry came back — and help read matches.first.specIndex,
+    // handing out the bundled copy's steps (fails on the old code: the
+    // extraction was asked about 'ember-yaml').
+    final codec = FakeSpecCodec(
+      spec: _spec,
+      scanMatches: (_) => [_match(MatchConfidence.strong)],
+    )..setupInstructionsFor = (_) => _instructions;
+    final c = ProviderContainer(
+      overrides: [
+        specCodecProvider.overrideWithValue(codec),
+        deviceSpecsProvider.overrideWith(
+          (ref) => {
+            'ember-mug.yaml': 'ember-yaml',
+            'pack:fixes/ember-mug.yaml': 'pack-yaml',
+          },
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+
+    final help = await c.read(
+      deviceSetupHelpProvider(ScanIdentity.of(_dev())).future,
+    );
+
+    expect(help?.deviceName, 'Ember Mug');
+    expect(codec.setupInstructionsCalls, ['pack-yaml']);
+  });
 }

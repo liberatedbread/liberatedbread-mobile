@@ -13,6 +13,7 @@ import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
 import '../services/saved_network_device_store.dart';
 import '../services/device_credential_store.dart';
+import '../services/direct_att/direct_att_router.dart';
 import '../services/rabbit_air_key_store.dart';
 import '../services/roomba_credential_store.dart';
 import '../services/tls_trust.dart';
@@ -134,6 +135,7 @@ Future<void> forgetDevice({
   required DeviceGroupsNotifier groups,
   required String deviceId,
   RabbitAirKeyStore? rabbitAir,
+  DirectAttRouter? directAtt,
   SpecChoiceStore? specChoices,
   SavedDesignsStore? savedDesigns,
   PanelResolutionCache? panelResolutions,
@@ -152,6 +154,12 @@ Future<void> forgetDevice({
   // that scope. Forgetting the device has to mean forgetting it — see the
   // network sibling below for the longer argument.
   await rabbitAir?.forget('ble-$deviceId');
+  // And the Linux direct-ATT routing (null off Linux). A hand-over remembers
+  // a device for good, and the heuristic behind it cannot tell a one-off slow
+  // drop from the silent-probe stall: without this a misrouted device stayed
+  // off BlueZ — no RSSI, no BlueZ pairing — across Remove and re-save, with
+  // nothing in the app able to route it back.
+  await directAtt?.forget(deviceId);
 }
 
 /// [forgetDevice]'s network sibling, with the same crash-safe order. The

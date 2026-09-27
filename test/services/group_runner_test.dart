@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -154,6 +155,35 @@ class _PerDeviceFakeBle extends FakeBleService {
   ) async {
     if (writeFails.contains(deviceId)) throw Exception('write refused');
     return super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
+  }
+}
+
+/// Keeps RealBleService's claim books: a connect that resolves takes a
+/// claim whether or not anyone is still waiting, and a release with no
+/// claim is the platform disconnect that cancels whatever connect is
+/// running. Connects wait on [gate].
+class _ClaimBooksBle extends FakeBleService {
+  _ClaimBooksBle({required this.gate, super.servicesToReturn});
+
+  final Completer<void> gate;
+  int claims = 0;
+  int unclaimedReleases = 0;
+
+  @override
+  Future<void> connect(String deviceId) async {
+    await gate.future;
+    claims++;
+    return super.connect(deviceId);
+  }
+
+  @override
+  Future<void> disconnect(String deviceId) async {
+    if (claims > 0) {
+      claims--;
+    } else {
+      unclaimedReleases++;
+    }
+    return super.disconnect(deviceId);
   }
 }
 
@@ -409,5 +439,39 @@ void main() {
 
     expect(ble.events, contains('connect:A'));
     expect(ble.events, contains('disconnect:A'));
+  });
+
+  test('a connect that lands after the timeout gives its claim back', () async {
+    // Future.timeout stops the wait, not the connect. The late connect
+    // took a claim nobody released, so the device stayed connected (and
+    // stopped advertising) until the app died; and the run's finally sent
+    // a release it had no claim for, which on the real service cancelled
+    // whichever connect was running — another owner's included. Fails on
+    // the old code: one unclaimed release, and one claim left behind.
+    final gate = Completer<void>();
+    final ble = _ClaimBooksBle(
+      gate: gate,
+      servicesToReturn: const [_controlService],
+    );
+    final runner = GroupRunner(
+      ble: ble,
+      codec: FakeSpecCodec(encoded: Uint8List.fromList([0x00])),
+      connectTimeout: const Duration(milliseconds: 20),
+    );
+
+    final events = await runner.run(GroupOp.turnOff, [
+      _member('A', spec: _bulbSpec(), yaml: 'y'),
+    ], stop: StopSignal()).toList();
+
+    expect(events.last.status, GroupDeviceStatus.failed);
+    expect(ble.events, ['cancel:A'], reason: 'no release without a claim');
+
+    gate.complete();
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(ble.unclaimedReleases, 0);
+    expect(ble.claims, 0);
+    expect(ble.events, ['cancel:A', 'connect:A', 'disconnect:A']);
   });
 }

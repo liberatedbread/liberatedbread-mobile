@@ -136,6 +136,8 @@ class SavedDevicesScreen extends ConsumerWidget {
       deviceId: saved.id,
       // A Rabbit Air set up over BLE files its key under the BLE scope.
       rabbitAir: ref.read(rabbitAirKeyStoreProvider),
+      // A device the Linux router handed over stays direct until forgotten.
+      directAtt: ref.read(directAttRouterProvider),
       // The per-device preferences keyed by this id. A re-saved device gets
       // the same id back, so without these a removal left the old spec
       // choice, LED designs and panel size to reappear under it.

@@ -85,6 +85,13 @@ void main() {
       }),
       isNull,
     );
+    // A non-string readAt used to throw a TypeError out of fromJson
+    // instead of returning null, failing the provider that maps every
+    // stored entry through it.
+    expect(
+      OriginalBandLimits.fromJson({..._stock.toJson(), 'readAt': 1758326400}),
+      isNull,
+    );
   });
 
   test('two readings of the same limits are equal', () {

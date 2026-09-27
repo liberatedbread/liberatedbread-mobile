@@ -82,9 +82,25 @@ class DirectAttRegistry {
   /// Route [deviceId] direct for this process, on the catalogue's word.
   void declare(String deviceId) => _declared.add(normalizeDeviceId(deviceId));
 
-  /// Whether [deviceId] is routed direct only on the catalogue's word.
+  /// Whether [deviceId] is declared direct on the catalogue's word (it may
+  /// be remembered or forced as well).
   bool isDeclared(String deviceId) =>
       _declared.contains(normalizeDeviceId(deviceId));
+
+  /// Whether the catalogue's word is the ONLY reason [deviceId] is routed
+  /// direct — the one routing a corrected spec can take back.
+  bool isOnlyDeclared(String deviceId) {
+    final id = normalizeDeviceId(deviceId);
+    return _declared.contains(id) &&
+        !_devices.contains(id) &&
+        !forced.contains(id);
+  }
+
+  /// Withdraw the catalogue's word for [deviceId]: its spec choice changed
+  /// and the new one does not say BlueZ cannot drive it. Remembered and
+  /// forced routing are untouched.
+  void undeclare(String deviceId) =>
+      _declared.remove(normalizeDeviceId(deviceId));
 
   /// Remember [deviceId] as routed direct.
   Future<void> add(String deviceId) async {

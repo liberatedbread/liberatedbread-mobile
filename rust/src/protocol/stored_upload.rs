@@ -27,7 +27,7 @@
 //! express without inventing a bytecode.
 
 use super::daniao::fragment_packet;
-use super::daniao_store::{self, StoredProgram};
+use super::daniao_store::{self, StoredAnimation, StoredProgram, StoredText};
 use super::daniao_upload;
 use super::image_upload::FragmentRequest;
 use super::{service_for_characteristic, EncodedWrite};
@@ -39,10 +39,29 @@ use std::collections::HashMap;
 /// A named container encoder — the entry a spec's `stored_upload.container_format`
 /// resolves to. Mirrors [`super::ImageUploadHandler`] for the persisted path;
 /// only the container layout is device-specific, the transport is shared.
+///
+/// Every stored kind is a field, so a new format must supply (or refuse) each
+/// one: the encode functions dispatch through the RESOLVED encoder, and a
+/// second format can never be handed Daniao's containers by default.
+#[derive(Clone, Copy)]
 pub struct StoredContainerEncoder {
     pub name: &'static str,
     /// Build the file blob to persist from a canvas + playback options.
     pub build_image: fn(&StoredProgram<'_>) -> Result<Vec<u8>, ProtocolError>,
+    /// Build a scrolling-text marquee's file blob.
+    pub build_text: fn(&StoredText<'_>) -> Result<Vec<u8>, ProtocolError>,
+    /// Build a multi-frame animation's file blob.
+    pub build_animation: fn(&StoredAnimation<'_>) -> Result<Vec<u8>, ProtocolError>,
+    /// File kind an animation uploads as — a platform fact of this
+    /// container, not the spec's `file_type` (the image/text kind).
+    pub animation_file_type: u32,
+    /// Upload path an animation is filed under, from its cid.
+    pub animation_path: fn(u32) -> String,
+}
+
+/// Daniao files an `.eff` animation as `<cid>.eff`.
+fn daniao_animation_path(cid: u32) -> String {
+    format!("{cid}.eff")
 }
 
 /// Every implemented stored-content container encoder. Single source of truth
@@ -51,6 +70,12 @@ pub struct StoredContainerEncoder {
 const CONTAINER_ENCODERS: &[StoredContainerEncoder] = &[StoredContainerEncoder {
     name: "daniao_amx",
     build_image: daniao_store::build_image_container,
+    build_text: daniao_store::build_text_container,
+    build_animation: daniao_store::build_animation_container,
+    // The raw "DNMX" `.eff` uploads as file kind 0, where the AMX microapp
+    // is the spec's file_type 3.
+    animation_file_type: 0,
+    animation_path: daniao_animation_path,
 }];
 
 /// Look up the implemented encoder for a `container_format` name.
@@ -125,8 +150,20 @@ pub fn encode_stored_image(
     program: &StoredProgram<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
-    let feature = require_stored_feature(spec)?;
-    let container = daniao_store::build_image_container(program)?;
+    encode_stored_image_in(CONTAINER_ENCODERS, spec, max_write, program, sequence)
+}
+
+/// [`encode_stored_image`] against an explicit encoder registry, so a test
+/// can prove the container comes from the format the spec names.
+fn encode_stored_image_in(
+    registry: &[StoredContainerEncoder],
+    spec: &DeviceSpec,
+    max_write: Option<usize>,
+    program: &StoredProgram<'_>,
+    sequence: u16,
+) -> Result<StoredUploadPlan, ProtocolError> {
+    let (feature, encoder) = require_stored_feature(registry, spec)?;
+    let container = (encoder.build_image)(program)?;
     let file_type = feature.file_type.unwrap_or(3);
     assemble_plan(
         spec,
@@ -148,8 +185,8 @@ pub fn encode_stored_text(
     program: &daniao_store::StoredText<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
-    let feature = require_stored_feature(spec)?;
-    let container = daniao_store::build_text_container(program)?;
+    let (feature, encoder) = require_stored_feature(CONTAINER_ENCODERS, spec)?;
+    let container = (encoder.build_text)(program)?;
     let file_type = feature.file_type.unwrap_or(3);
     assemble_plan(
         spec,
@@ -165,25 +202,25 @@ pub fn encode_stored_text(
 
 /// Store a multi-frame animation (raw "DNMX" `.eff`).
 ///
-/// The `.eff` animation uploads as file kind 0 with a `<cid>.eff` path — a
-/// Daniao platform fact tied to THIS container kind, not the spec's default
-/// `file_type` (which is the AMX microapp's 3). Both are played back the same
-/// way (by cid).
+/// The file kind and path come from the container encoder (Daniao's `.eff`
+/// is file kind 0 at `<cid>.eff`) — a platform fact tied to that container
+/// kind, not the spec's default `file_type` (the AMX microapp's 3). Both are
+/// played back the same way (by cid).
 pub fn encode_stored_animation(
     spec: &DeviceSpec,
     max_write: Option<usize>,
     anim: &daniao_store::StoredAnimation<'_>,
     sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
-    let feature = require_stored_feature(spec)?;
-    let container = daniao_store::build_animation_container(anim)?;
-    let path = format!("{}.eff", anim.cid);
+    let (feature, encoder) = require_stored_feature(CONTAINER_ENCODERS, spec)?;
+    let container = (encoder.build_animation)(anim)?;
+    let path = (encoder.animation_path)(anim.cid);
     assemble_plan(
         spec,
         feature,
         &container,
         anim.cid,
-        0,
+        encoder.animation_file_type,
         Some(&path),
         sequence,
         max_write,
@@ -191,8 +228,12 @@ pub fn encode_stored_animation(
 }
 
 /// Validate that `spec` declares a `stored_upload` feature whose
-/// `container_format` this build implements, returning the feature.
-fn require_stored_feature(spec: &DeviceSpec) -> Result<&Feature, ProtocolError> {
+/// `container_format` `registry` implements, returning the feature and the
+/// encoder that builds its containers.
+fn require_stored_feature<'s, 'r>(
+    registry: &'r [StoredContainerEncoder],
+    spec: &'s DeviceSpec,
+) -> Result<(&'s Feature, &'r StoredContainerEncoder), ProtocolError> {
     let feature = stored_feature(spec).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
         reason: "spec declares no stored_upload feature".to_string(),
     })?;
@@ -201,10 +242,12 @@ fn require_stored_feature(spec: &DeviceSpec) -> Result<&Feature, ProtocolError> 
             reason: "stored_upload feature names no container_format".to_string(),
         }
     })?;
-    container_encoder(format).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
-        reason: format!("no container encoder registered for '{format}' in this build"),
+    let encoder = registry.iter().find(|e| e.name == format).ok_or_else(|| {
+        ProtocolError::ImageUploadUnsupported {
+            reason: format!("no container encoder registered for '{format}' in this build"),
+        }
     })?;
-    Ok(feature)
+    Ok((feature, encoder))
 }
 
 /// Carry a finished container over the uploader transport and, when the spec
@@ -616,7 +659,8 @@ fn command_channel<'a>(
                     .and_then(|t| u8::try_from(t).ok())
                     .ok_or_else(|| ProtocolError::InvalidFraming {
                         reason: format!(
-                            "characteristic {} declares channel_tag {value:?}, which is not a                              byte; a fragment channel tag is 0..=255",
+                            "characteristic {} declares channel_tag {value:?}, which is \
+                             not a byte; a fragment channel tag is 0..=255",
                             characteristic.uuid
                         ),
                     })?,
@@ -775,6 +819,65 @@ services:
                 rgb,
             },
         }
+    }
+
+    /// A second container format with nothing in common with Daniao AMX.
+    fn marker_image(_: &StoredProgram<'_>) -> Result<Vec<u8>, ProtocolError> {
+        Ok(b"NOT-AN-AMX-CONTAINER".to_vec())
+    }
+    fn refuse_text(_: &StoredText<'_>) -> Result<Vec<u8>, ProtocolError> {
+        Err(ProtocolError::EmptyCommand)
+    }
+    fn refuse_animation(_: &StoredAnimation<'_>) -> Result<Vec<u8>, ProtocolError> {
+        Err(ProtocolError::EmptyCommand)
+    }
+    const TWO_FORMATS: &[StoredContainerEncoder] = &[
+        CONTAINER_ENCODERS[0],
+        StoredContainerEncoder {
+            name: "other_fmt",
+            build_image: marker_image,
+            build_text: refuse_text,
+            build_animation: refuse_animation,
+            animation_file_type: 9,
+            animation_path: daniao_animation_path,
+        },
+    ];
+
+    /// The container comes from the encoder the spec's `container_format`
+    /// resolves to. The registry lookup used to be an existence check only,
+    /// and the image path called Daniao's AMX builder regardless — so a
+    /// second registered format would have put AMX bytes on its wire.
+    #[test]
+    fn the_container_comes_from_the_resolved_format() {
+        let rgb = red_2x2();
+        let other = parse_device_spec(&SPEC.replace(r#""daniao_amx""#, r#""other_fmt""#)).unwrap();
+        let plan = encode_stored_image_in(TWO_FORMATS, &other, None, &program(&rgb), 0).unwrap();
+        let stream: Vec<u8> = plan
+            .upload_writes
+            .iter()
+            .flat_map(|w| w.bytes.iter().copied())
+            .collect();
+        assert!(
+            stream
+                .windows(b"NOT-AN-AMX-CONTAINER".len())
+                .any(|w| w == b"NOT-AN-AMX-CONTAINER"),
+            "the other format's container must be what is uploaded"
+        );
+        // And the Daniao spec still gets exactly the AMX container.
+        let daniao = encode_stored_image_in(TWO_FORMATS, &spec(), None, &program(&rgb), 0).unwrap();
+        let shipped = encode_stored_image(&spec(), None, &program(&rgb), 0).unwrap();
+        assert_eq!(
+            daniao
+                .upload_writes
+                .iter()
+                .map(|w| &w.bytes)
+                .collect::<Vec<_>>(),
+            shipped
+                .upload_writes
+                .iter()
+                .map(|w| &w.bytes)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -947,6 +1050,9 @@ services:
                 matches!(&error, ProtocolError::InvalidFraming { .. }),
                 "{hostile}: {error}"
             );
+            // The reason reaches the UI; a joined source line once left a
+            // run of indentation spaces in the middle of it.
+            assert!(!error.to_string().contains("  "), "{error:?}");
         }
     }
 

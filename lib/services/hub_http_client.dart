@@ -82,8 +82,8 @@ class HubHttpClient {
   ///
   /// Picks the scheme the store remembers for [bridgeId]; with nothing
   /// remembered, probes HTTPS:443 and falls back to HTTP:80 only on a
-  /// connection-level failure (no listener — the BSB001 case), remembering
-  /// whichever worked. Writes' v1 envelopes are checked here — error type 1
+  /// refused connect (no listener — the BSB001 case), remembering whichever
+  /// worked. Writes' v1 envelopes are checked here — error type 1
   /// surfaces as [HubAuthException] so the UI can offer re-pairing.
   Future<String> send(
     String host,
@@ -147,6 +147,14 @@ class HubHttpClient {
       // failed verification. Falling back would hand them the credential.
       rethrow;
     } on SocketException catch (e) {
+      // Only a refused connect means "no 443 listener". A reset, a timeout
+      // mid-stream, an unreachable network during a Wi-Fi blip — each of
+      // those was once read as BSB001 and persisted 'http' for the life of
+      // the pairing, putting the whitelist username in clear on every later
+      // request, from one transient hiccup at first contact.
+      if (!isConnectionRefused(e)) {
+        throw HubTransportException('bridge unreachable over https: $e');
+      }
       // "Has spoken HTTPS before" is the pin, not just the scheme record. The
       // pin and the scheme are two separate keychain writes (saveCertPin then
       // saveScheme); a crash or a failed second write between them would leave
@@ -183,8 +191,12 @@ class HubHttpClient {
         : await _credentials.certPin(bridgeId);
     String? tlsFailure;
     String? observedPin;
+    // Whether a TLS peer presented a certificate: proof that something IS
+    // listening on 443, so no later failure on this exchange is BSB001.
+    var handshakeSeen = false;
 
     bool evaluate(X509Certificate cert, String certHost, int port) {
+      handshakeSeen = true;
       final fingerprint = sha256.convert(cert.der).toString();
       final cn = _subjectCn(cert.subject);
       if (cn != null) onCn?.call(cn);
@@ -227,6 +239,13 @@ class HubHttpClient {
       final reason = tlsFailure ?? 'TLS handshake failed: $e';
       Log.hub.warning('TLS rejected for ${bridgeId ?? host}: $reason');
       throw HubTlsException(reason);
+    } on SocketException catch (e) {
+      // A reset after the certificate was presented is an https bridge
+      // failing, not a missing listener: never grounds for plain http.
+      if (handshakeSeen) {
+        throw HubTransportException('bridge dropped the https exchange: $e');
+      }
+      rethrow;
     } finally {
       client.close();
     }
@@ -236,10 +255,22 @@ class HubHttpClient {
     final client = _plainClientFactory?.call() ?? http.Client();
     try {
       return await _dispatch(client, 'http', host, httpPort, request);
+    } on SocketException catch (e) {
+      // The same transport failure type the https branch raises. A raw
+      // SocketException from a plain-http (BSB001) bridge escaped the pairing
+      // loop's "one dropped poll" tolerance and ended the pairing the button
+      // press would have completed, as an unclassified error.
+      throw HubTransportException('bridge unreachable over http: $e');
     } finally {
       client.close();
     }
   }
+
+  /// Whether [e] is a refused TCP connect — nothing listening on the port —
+  /// as opposed to any other socket failure. ECONNREFUSED is 61 on Darwin,
+  /// 111 on Linux and Android, 10061 on Windows.
+  static bool isConnectionRefused(SocketException e) =>
+      const {61, 111, 10061}.contains(e.osError?.errorCode);
 
   Future<String> _dispatch(
     http.Client client,
@@ -274,10 +305,18 @@ class HubHttpClient {
           'unsupported method ${request.method}',
         ),
       };
+    } on SocketException {
+      // package:http's socket failures implement SocketException and keep
+      // their osError, which is what tells a refused connect from the rest.
+      rethrow;
     } on http.ClientException catch (e) {
-      // package:http wraps connection failures; unwrap the socket-level
-      // cause so the caller's fallback logic sees one exception type.
-      throw SocketException(e.message);
+      // Anything else package:http wraps is an HTTP-level failure — "closed
+      // before full header", a bad response line — which means a server DID
+      // answer. Converting it to a SocketException once made it read as "no
+      // 443 listener" and downgraded a new bridge to cleartext for good.
+      throw HubTransportException(
+        '${request.method} to $host failed: ${e.message}',
+      );
     }
 
     if (response.statusCode != 200) {

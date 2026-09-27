@@ -16,23 +16,27 @@ tags:
   # scripts/ci-netdisco-tests.sh, which explains why.
   netdisco: {}
   # Smoke tests against REAL hardware over the machine's own BlueZ stack.
-  # Doubly guarded: the tag keeps them out of `--exclude-tags` runs, and each
-  # test also skips itself unless LB_LIVE_BLE=1, so even a bare `flutter test`
-  # on a developer machine cannot start writing to whatever is advertising
-  # nearby. Run deliberately, with the device you mean to poke in view.
+  # Doubly guarded: ./scripts/test.sh and CI pass
+  # `--exclude-tags=...,live_ble,live_radio,live_wifi,hardware` (a tag only
+  # keeps a test out of a run that excludes it; declaring it here excludes
+  # nothing), and each test also skips itself unless LB_LIVE_BLE=1, so even a
+  # bare `flutter test` on a developer machine cannot start writing to
+  # whatever is advertising nearby. Run deliberately, with the device you mean
+  # to poke in view.
   live_ble: {}
   # Programming a REAL radio, over its own Bluetooth or a USB cable. Guarded
-  # the same way as live_ble -- the tag, plus a self-skip unless
-  # LB_LIVE_RADIO=1 -- and the guard matters more here than anywhere else in
-  # this file: these tests do not read a sensor, they overwrite a radio's
-  # memory. A bare `flutter test` on a developer machine must never be able
-  # to start one.
+  # the same way as live_ble -- the test.sh/CI exclusion, plus a self-skip
+  # unless LB_LIVE_RADIO=1 -- and the guard matters more here than anywhere
+  # else in this file: these tests do not read a sensor, they overwrite a
+  # radio's memory. A bare `flutter test` on a developer machine must never
+  # be able to start one.
   live_radio: {}
   # The Wi-Fi counterpart: smoke tests against a REAL device on the LAN, over
-  # the machine's own network stack. Guarded the same way — the tag, plus a
-  # self-skip unless LB_LIVE_ROKU=1 — so a bare `flutter test` on a developer
-  # machine cannot start pressing buttons on whatever TV is in earshot. Run
-  # deliberately, with the device you mean to drive in view.
+  # the machine's own network stack. Guarded the same way — the test.sh/CI
+  # exclusion, plus a self-skip unless LB_LIVE_ROKU=1 — so a bare
+  # `flutter test` on a developer machine cannot start pressing buttons on
+  # whatever TV is in earshot. Run deliberately, with the device you mean to
+  # drive in view.
   live_wifi: {}
   # integration_test/device_hardware_test.dart: the shipping services against
   # a PHYSICAL phone's radio, Wi-Fi and keychain. Kept out of the CI aggregate

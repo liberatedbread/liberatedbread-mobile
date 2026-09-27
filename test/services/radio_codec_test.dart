@@ -31,7 +31,7 @@ rust.RadioChannelDto _dto(
   rust.ToneDto? tx,
   rust.ToneDto? rx,
   bool narrow = false,
-  bool lowPower = false,
+  String power = 'high',
   bool skip = false,
 }) => rust.RadioChannelDto(
   slot: slot,
@@ -42,7 +42,7 @@ rust.RadioChannelDto _dto(
   txTone: tx ?? _tone('none'),
   rxTone: rx ?? _tone('none'),
   narrow: narrow,
-  lowPower: lowPower,
+  power: power,
   skip: skip,
 );
 
@@ -104,6 +104,18 @@ void main() {
       expect(back.power, PowerLevel.low);
       expect(back.skip, isTrue);
       expect(back, channel);
+    });
+
+    test('medium power crosses the boundary as medium', () {
+      // A low-power flag could not say medium: a UV-32's Medium channel read
+      // as low, and the encoder then took the level from whatever record
+      // sat in the slot the channel was written to.
+      final medium = channel.copyWith(power: PowerLevel.medium);
+      expect(channelToDto(medium, slot: 1).power, 'medium');
+      expect(channelFromDto(_dto(1, power: 'medium')).power, PowerLevel.medium);
+      expect(channelFromDto(_dto(1, power: 'low')).power, PowerLevel.low);
+      expect(channelFromDto(_dto(1)).power, PowerLevel.high);
+      expect(channelFromDto(_dto(1, power: '?')).power, PowerLevel.high);
     });
 
     test('a scan-skipped memory stays skipped in both directions', () {
@@ -385,6 +397,54 @@ void main() {
         ),
         throwsA(predicate((e) => '$e'.contains('do not fit'))),
       );
+    });
+
+    test('a UV-32 channel moved by a delete keeps its own power', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // Slots High, Medium, Low; delete the first and write. The level used
+      // to follow the slot, so the Low channel went out Medium (5 W) and the
+      // Medium one went out Low.
+      const high = RadioChannel(
+        name: 'H',
+        rxFreqHz: 146520000,
+        txFreqHz: 146520000,
+      );
+      final medium = high.copyWith(name: 'M', power: PowerLevel.medium);
+      final low = high.copyWith(name: 'L', power: PowerLevel.low);
+      const encoder = CodeplugEncoder();
+      final full = await encoder.encode(
+        await _blank(uv32Profile),
+        uv32Profile,
+        [high, medium, low],
+      );
+      final moved = await encoder.encode(
+        RadioCodeplug(modelId: 'uv-32', image: full, readAt: DateTime(2026)),
+        uv32Profile,
+        [medium, low],
+      );
+      // Byte 14's low two bits: CHIRP UV32.POWER_LEVELS is High, Low, Medium.
+      expect(moved[14] & 0x03, 2, reason: 'Medium, now in slot 1');
+      expect(moved[32 + 14] & 0x03, 1, reason: 'Low, now in slot 2');
+      final read = await const CodeplugDecoder().decode(
+        RadioCodeplug(modelId: 'uv-32', image: moved, readAt: DateTime(2026)),
+        uv32Profile,
+      );
+      expect(
+        [for (final c in read.channels) c.power],
+        [PowerLevel.medium, PowerLevel.low],
+      );
+    });
+
+    test('a radio without medium is written low for it', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      const medium = RadioChannel(
+        name: 'M',
+        rxFreqHz: 146520000,
+        txFreqHz: 146520000,
+        power: PowerLevel.medium,
+      );
+      final read = await _nativeRoundTrip(uv5rMiniProfile, [medium]);
+      expect(read.channels.single.power, PowerLevel.low);
     });
 
     for (final profile in [uv5rMiniProfile, uv32Profile, uv5rProfile]) {

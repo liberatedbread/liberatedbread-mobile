@@ -33,7 +33,10 @@
 //! from, and a write can then check it is going back to the same kind of
 //! radio.
 
-use super::codeplug::{decode_bcd, decode_tone, encode_bcd, encode_tone, ChannelRecord};
+use super::codeplug::{
+    decode_bcd, decode_power, decode_tone, encode_bcd, encode_power, encode_tone, ChannelRecord,
+    Power, TWO_POWER_LEVELS,
+};
 pub use super::Block;
 use super::{read_reply_len, REPLY_HEADER_LEN};
 use crate::error::ProtocolError;
@@ -124,26 +127,32 @@ pub struct Uv5rModel {
     /// Tried in order. A radio acknowledges one and ignores the rest.
     pub idents: &'static [[u8; 7]],
 
-    /// High, mid and low power, rather than high and low.
-    pub tri_power: bool,
+    /// The transmit power levels, indexed as a record's power bits index
+    /// them: High/Low on two-level radios (CHIRP `UV5R_POWER_LEVELS`),
+    /// High/Med/Low on three-level ones (`UV5R_POWER_LEVELS3`) -- so 2 is
+    /// Low here, where on a UV-32 it is Medium.
+    pub power_levels: &'static [Power],
 
     /// Uses the newer band-limit layout whatever its firmware string says.
     pub always_new_limits: bool,
 }
+
+/// High, Med, Low: CHIRP `UV5R_POWER_LEVELS3`, for the tri-power models.
+const THREE_POWER_LEVELS: &[Power] = &[Power::High, Power::Medium, Power::Low];
 
 /// The UV-5R, which the app's profile also offers for the UV-82 and GT-5R —
 /// hence the UV-82's ident in its list.
 pub const UV5R: Uv5rModel = Uv5rModel {
     id: "uv5r",
     idents: &[MAGIC_291, MAGIC_ORIGINAL, MAGIC_UV82],
-    tri_power: false,
+    power_levels: TWO_POWER_LEVELS,
     always_new_limits: false,
 };
 
 pub const BF_F8HP: Uv5rModel = Uv5rModel {
     id: "bf-f8hp",
     idents: &[MAGIC_291, MAGIC_A58],
-    tri_power: true,
+    power_levels: THREE_POWER_LEVELS,
     always_new_limits: true,
 };
 
@@ -151,7 +160,7 @@ pub const BF_F8HP: Uv5rModel = Uv5rModel {
 pub const AR152: Uv5rModel = Uv5rModel {
     id: "ar-152",
     idents: &[MAGIC_291, MAGIC_A58],
-    tri_power: true,
+    power_levels: THREE_POWER_LEVELS,
     always_new_limits: true,
 };
 
@@ -531,14 +540,23 @@ fn encode_frequency(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
 ///
 /// A slot whose frequency is not valid BCD also reads as `None`: there is
 /// nothing it could honestly be shown as.
-pub fn decode_channels(image: &[u8]) -> Result<Vec<Option<ChannelRecord>>, ProtocolError> {
+pub fn decode_channels(
+    image: &[u8],
+    model: &Uv5rModel,
+) -> Result<Vec<Option<ChannelRecord>>, ProtocolError> {
     check_image(image)?;
     Ok((0..CHANNEL_COUNT)
-        .map(|slot| decode_channel(&image[record_range(slot)], &image[name_range(slot)]))
+        .map(|slot| {
+            decode_channel(
+                &image[record_range(slot)],
+                &image[name_range(slot)],
+                model.power_levels,
+            )
+        })
         .collect())
 }
 
-fn decode_channel(record: &[u8], name: &[u8]) -> Option<ChannelRecord> {
+fn decode_channel(record: &[u8], name: &[u8], power_levels: &[Power]) -> Option<ChannelRecord> {
     if record[0] == 0xFF {
         return None;
     }
@@ -549,7 +567,6 @@ fn decode_channel(record: &[u8], name: &[u8]) -> Option<ChannelRecord> {
     } else {
         decode_bcd(&record[4..8])?
     };
-    let power_level = record[14] & 0x03;
     Some(ChannelRecord {
         name: decode_text(&name[..NAME_LEN]),
         rx_freq_hz,
@@ -557,9 +574,7 @@ fn decode_channel(record: &[u8], name: &[u8]) -> Option<ChannelRecord> {
         rx_only,
         rx_tone: decode_tone(u16::from_le_bytes([record[8], record[9]])),
         tx_tone: decode_tone(u16::from_le_bytes([record[10], record[11]])),
-        // Two-level radios: 0 high, 1 low. Three-level: 0 high, 1 mid,
-        // 2 low. Anything but high reads as low; encode keeps a mid a mid.
-        low_power: power_level != 0,
+        power: decode_power(record[14] & 0x03, power_levels),
         narrow: record[15] & 0x40 == 0,
         skip: record[15] & 0x04 == 0,
     })
@@ -621,19 +636,10 @@ fn encode_channel(
         record[12] = previous[12] & 0x0F;
         record[15] = previous[15] & 0x0B;
     }
-    record[14] = if !channel.low_power {
-        0
-    } else if model.tri_power {
-        // A three-level radio's mid setting reads back as low. Writing it
-        // back must not quietly turn mid into low.
-        if occupied && previous[14] & 0x03 == 1 {
-            1
-        } else {
-            2
-        }
-    } else {
-        1
-    };
+    // The channel's own level. Keeping a mid already in the slot followed
+    // the slot, not the channel: a Low channel moved onto a mid record went
+    // out mid, and a mid one moved onto a high record went out low.
+    record[14] = encode_power(channel.power, model.power_levels);
     if !channel.narrow {
         record[15] |= 0x40;
     }
@@ -925,7 +931,7 @@ mod tests {
                     inverted: true,
                 },
                 narrow: true,
-                low_power: true,
+                power: Power::Low,
                 skip: true,
                 rx_only: false,
             },
@@ -952,7 +958,7 @@ mod tests {
             },
         ];
         let image = encode_channels(&blank(), &channels, &UV5R).unwrap();
-        let decoded = decode_channels(&image).unwrap();
+        let decoded = decode_channels(&image, &UV5R).unwrap();
         let back: Vec<_> = decoded.iter().flatten().cloned().collect();
         assert_eq!(back, channels);
         assert_eq!(
@@ -1003,7 +1009,7 @@ mod tests {
         let name = &image[name_range(0)];
         // Seven characters; '_' is not on the display, so it is a space.
         assert_eq!(&name[..NAME_LEN], b"SIMPLEX");
-        let decoded = decode_channels(&image).unwrap()[0].clone().unwrap();
+        let decoded = decode_channels(&image, &UV5R).unwrap()[0].clone().unwrap();
         assert_eq!(decoded.name, "SIMPLEX");
 
         let short =
@@ -1021,7 +1027,7 @@ mod tests {
         let range = name_range(0);
         image[range.start + 2] = 0xFF;
         image[range.start + 3] = b'C';
-        let decoded = decode_channels(&image).unwrap()[0].clone().unwrap();
+        let decoded = decode_channels(&image, &UV5R).unwrap()[0].clone().unwrap();
         assert_eq!(decoded.name, "AB C");
     }
 
@@ -1034,7 +1040,7 @@ mod tests {
         ];
         let full = encode_channels(&blank(), &three, &UV5R).unwrap();
         let one = encode_channels(&full, &three[..1], &UV5R).unwrap();
-        let decoded = decode_channels(&one).unwrap();
+        let decoded = decode_channels(&one, &UV5R).unwrap();
         assert!(decoded[0].is_some());
         assert!(decoded[1..].iter().all(Option::is_none));
         assert!(one[record_range(1)].iter().all(|&b| b == 0xFF));
@@ -1068,16 +1074,17 @@ mod tests {
 
     #[test]
     fn a_three_level_radio_keeps_mid_power() {
+        // CHIRP UV5R_POWER_LEVELS3: 0 High, 1 Med, 2 Low.
         let mut low = channel("A", 146_520_000, 146_520_000);
-        low.low_power = true;
+        low.power = Power::Low;
         let image = encode_channels(&blank(), &[low.clone()], &BF_F8HP).unwrap();
         let range = record_range(0);
         assert_eq!(image[range.start + 14] & 0x03, 2, "low on a fresh slot");
 
         let mut mid = image.clone();
         mid[range.start + 14] = (mid[range.start + 14] & !0x03) | 1;
-        let decoded = decode_channels(&mid).unwrap()[0].clone().unwrap();
-        assert!(decoded.low_power, "mid reads as not-high");
+        let decoded = decode_channels(&mid, &BF_F8HP).unwrap()[0].clone().unwrap();
+        assert_eq!(decoded.power, Power::Medium);
         let rewritten = encode_channels(&mid, &[decoded], &BF_F8HP).unwrap();
         assert_eq!(
             rewritten[range.start + 14] & 0x03,
@@ -1091,18 +1098,48 @@ mod tests {
             1,
             "a two-level radio's low is 1"
         );
+        let mut medium = channel("A", 146_520_000, 146_520_000);
+        medium.power = Power::Medium;
+        let two = encode_channels(&blank(), &[medium], &UV5R).unwrap();
+        assert_eq!(two[range.start + 14] & 0x03, 1, "and so is its medium");
+    }
+
+    #[test]
+    fn a_channel_that_moves_slot_keeps_its_own_power_on_a_three_level_radio() {
+        // Slots High, Mid, Low; delete the first and write. The encoder kept
+        // a mid already in the slot, so the Low channel landing on the mid
+        // record went out mid, and the mid channel landing on the high
+        // record went out low. Fails on the slot-following encoder.
+        let mut high = channel("H", 146_520_000, 146_520_000);
+        high.power = Power::High;
+        let mut mid = channel("M", 146_540_000, 146_540_000);
+        mid.power = Power::Medium;
+        let mut low = channel("L", 146_560_000, 146_560_000);
+        low.power = Power::Low;
+        let full = encode_channels(&blank(), &[high, mid.clone(), low.clone()], &BF_F8HP).unwrap();
+        let moved = encode_channels(&full, &[mid, low], &BF_F8HP).unwrap();
+        assert_eq!(
+            moved[record_range(0).start + 14] & 0x03,
+            1,
+            "mid, now slot 1"
+        );
+        assert_eq!(
+            moved[record_range(1).start + 14] & 0x03,
+            2,
+            "low, now slot 2"
+        );
     }
 
     #[test]
     fn a_record_that_is_not_bcd_reads_as_empty() {
         let mut image = blank();
         image[record_range(0)][..4].copy_from_slice(&[0x0A, 0x00, 0x00, 0x00]);
-        assert!(decode_channels(&image).unwrap()[0].is_none());
+        assert!(decode_channels(&image, &UV5R).unwrap()[0].is_none());
     }
 
     #[test]
     fn an_image_of_the_wrong_size_is_refused() {
-        assert!(decode_channels(&[0u8; 0x1808]).is_err());
+        assert!(decode_channels(&[0u8; 0x1808], &UV5R).is_err());
         assert!(encode_channels(&[0u8; 0x1808], &[], &UV5R).is_err());
         assert!(encode_channels(&blank(), &vec![ChannelRecord::default(); 129], &UV5R).is_err());
     }

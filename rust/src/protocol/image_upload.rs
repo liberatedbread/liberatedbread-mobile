@@ -299,8 +299,8 @@ pub(crate) fn declared_static_key(
     Ok(key)
 }
 
-/// Shared canvas validation for handlers that do not run [`encode_frame`]'s
-/// pipeline: the RGB buffer must match `width * height`, and every canvas
+/// Shared canvas validation for every image handler, [`encode_frame`]'s
+/// pipeline included: the RGB buffer must match `width * height`, and every canvas
 /// bound the spec's `image_upload` feature declares is enforced — each axis
 /// independently, because a spec may bound only one (the badge declares
 /// `max_height` alone; its width is variable by design).
@@ -491,19 +491,10 @@ pub fn encode_frame_with(
     let handler = defaults.handler;
     let invalid = |reason: String| ProtocolError::ImageDimensionsInvalid { reason };
 
-    let expected = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|px| px.checked_mul(3))
-        .ok_or_else(|| invalid(format!("{width}x{height} overflows the pixel buffer size")))?;
-    if expected == 0 {
-        return Err(invalid(format!("{width}x{height} has no pixels")));
-    }
-    if rgb.len() != expected {
-        return Err(invalid(format!(
-            "expected {expected} bytes of RGB888 for {width}x{height}, got {}",
-            rgb.len()
-        )));
-    }
+    // The buffer and the spec's declared canvas bounds, each axis on its
+    // own: a copy of these checks here once honoured the declared ceiling
+    // only when BOTH axes were bounded, so a spec bounding one axis lost it.
+    validate_rgb_canvas(spec, rgb, width, height)?;
 
     let feature = image_feature(spec);
     let registered = codecs
@@ -514,19 +505,8 @@ pub fn encode_frame_with(
         })?;
 
     // The canvas ceiling is whichever is tighter: what the panel says it can
-    // hold, or what the codec's own wire format can address. Both are real
-    // limits and neither implies the other.
-    let declared_max = feature.and_then(|f| match (f.max_width, f.max_height) {
-        (Some(w), Some(h)) => Some((w, h)),
-        _ => None,
-    });
-    if let Some((max_w, max_h)) = declared_max {
-        if width > max_w || height > max_h {
-            return Err(invalid(format!(
-                "{width}x{height} exceeds the {max_w}x{max_h} the spec declares"
-            )));
-        }
-    }
+    // hold (checked above), or what the codec's own wire format can address.
+    // Both are real limits and neither implies the other.
     if let Some(limit) = registered.max_dimension {
         if width > limit || height > limit {
             return Err(invalid(format!(
@@ -854,8 +834,34 @@ services:
         )
         .unwrap_err();
         assert!(
-            format!("{err:?}").contains("64x64"),
-            "the error should quote the spec's declared bounds, got {err:?}"
+            format!("{err:?}").contains("width 65 exceeds the 64"),
+            "the error should quote the spec's declared bound, got {err:?}"
+        );
+    }
+
+    /// A spec may bound only one axis; the pipeline must still enforce it.
+    /// The old inline check applied the declared ceiling only when both
+    /// `max_width` and `max_height` were present, so this encoded.
+    #[test]
+    fn a_single_declared_axis_bound_is_enforced() {
+        let only_height = parse_device_spec(&PANEL_YAML.replace("    max_width: 64\n", ""))
+            .expect("the one-axis panel parses");
+        let err = encode_frame_with(
+            TEST_SCHEMES,
+            TEST_CODECS,
+            &only_height,
+            &[0u8; 4 * 65 * 3],
+            4,
+            65,
+            0,
+            509,
+            &TEST_DEFAULTS,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ImageDimensionsInvalid { reason }
+                if reason.contains("height 65 exceeds the 64")),
+            "got {err:?}"
         );
     }
 

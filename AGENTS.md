@@ -54,7 +54,8 @@ flutter analyze --fatal-infos
 cd rust && cargo clippy --all-targets -- -D warnings
 ```
 
-Pass `--exclude-tags=netdisco` — exactly as `scripts/test.sh` and CI do. The
+Pass `--exclude-tags=netdisco` — as `scripts/test.sh` and CI do (they also
+exclude `live_ble,live_radio,live_wifi,hardware`, the real-device suites). The
 local-network discovery suites (`@Tags(['netdisco'])`) are only *declared* in
 `dart_test.yaml`, not skipped by default, so a bare `flutter test` runs them;
 they bind ports 5353/1900 and wait real seconds for real datagrams, and fail on
@@ -104,8 +105,9 @@ optional here — they're a feature.
 - **Keep both transports in mind.** BLE lives in `*ble_service.dart` /
   `rust/src/protocol/profiles/`; Wi-Fi lives in `*network_scan_service.dart`,
   `*_control_service.dart` (HTTP/SOAP), and `rust/src/protocol/{http,soap}.rs`.
-  Radios live in `rust/src/protocol/radio/` (codecs), `*radio_programmer.dart`
-  (sessions) and `*serial_port_service.dart` (cables).
+  Radios live in `rust/src/protocol/radio/` (codecs), `*_programmer.dart`
+  (sessions: serial, and the radio's own BLE in `baofeng_ble_programmer.dart`,
+  all implementing `RadioProgrammer`) and `*serial_port_service.dart` (cables).
 - Bundled specs are discovered from the subtree's `device-specs/index.json`,
   not a list in Dart: adding a device is a spec refresh, never a Dart edit.
   `rust/tests/vendored_assets.rs` fails if `device_spec_provider.dart` names a

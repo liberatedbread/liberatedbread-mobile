@@ -90,6 +90,13 @@ void main() {
         expect(channel.isSimplex, isTrue);
       }
     });
+
+    test('is low power on every channel: MURS is capped at 2 W', () {
+      // 47 CFR 95.2767. High on a UV-5R-class radio is 4-8 W.
+      for (final channel in mursChannels()) {
+        expect(channel.power, PowerLevel.low, reason: channel.name);
+      }
+    });
   });
 
   group('weather', () {

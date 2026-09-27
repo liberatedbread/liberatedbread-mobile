@@ -258,10 +258,16 @@ user has installed (keyed `pack:<name>/<file>`, so keys can never collide).
 Bundled specs always load even when no pack is installed; a pack failure never
 removes a bundled spec.
 
-Note: `AssetBundle` doesn't support directory listing, so bundled spec files
-are enumerated explicitly in a hardcoded list — new bundled specs must be
-added there (and to the `rust/tests/vendored_assets.rs` assertion). A missing
-asset is skipped silently; malformed YAML is logged.
+Bundled specs are discovered from the subtree's own
+`vendor/protocol-specs/device-specs/index.json`, or from the gitignored local
+`examples/index-temp.json` (rebuilt by `scripts/regen-spec-index.sh`), which
+takes precedence so a stale upstream index still loads every vendored spec.
+If the index is missing or unreadable the loader falls back to
+`examples/example-bulb.yaml`. Adding a device is a spec refresh
+(`./scripts/update-specs.sh`), never a Dart edit:
+`rust/tests/vendored_assets.rs` fails if the Dart loader names any spec file
+but that fallback. An index entry
+that is not bundled is skipped with a warning; malformed YAML is logged.
 
 ### `specCodecProvider` — `lib/providers/spec_codec_provider.dart`
 
@@ -426,20 +432,26 @@ answering on both transports is merged by `NetworkScanCoalescer` into one row.
 Matching goes through `match_network_device` in the Rust api, which shares
 `MatchAxes` and therefore `MatchConfidence` with the BLE matcher — a badge means
 the same thing on either tab. An mDNS service type or SSDP search target rates
-Strong (vendor-specific identifiers the device volunteered); a `default_port` is
-the network's OUI equivalent and only ever ranks, since port 80 says nothing
-about who is listening. A spec declaring nothing about the network can never
+Strong (vendor-specific identifiers the device volunteered). A declared
+`default_port` gates a spec into the network path, so its name prefix gets a
+hearing, but it is never evidence and never ranks: port 80 says nothing about
+who is listening. A spec declaring nothing about the network can never
 match a host on it, so a BLE spec whose `local_name_prefix` happens to prefix an
 mDNS instance name stays off this tab.
 
 Two platform gotchas, both of which fail *silently*:
 
-* iOS will not deliver an mDNS answer for a service type absent from
-  `NSBonjourServices` in `Info.plist`.
+* iOS silently drops raw multicast (the app's own `multicast_dns` socket on
+  5353 and its SSDP M-SEARCH) unless the app carries
+  `com.apple.developer.networking.multicast`, an entitlement Apple grants by
+  hand (see `docs/ios-from-linux.md`). `NSBonjourServices` is kept accurate
+  for App Review and a future NWBrowser path, but it does not gate the
+  current scan.
 * Android filters multicast frames out to save power unless the app can take a
   multicast lock, which needs `CHANGE_WIFI_MULTICAST_STATE`.
 
-Both are pinned by `test/platform/`. A denied local-network permission also
+Both are pinned by `test/platform/` (`ios_entitlements_test.dart` and
+`android_manifest_test.dart`). A denied local-network permission also
 looks exactly like an empty network from inside the app, so on Apple platforms
 that case raises `LocalNetworkDeniedException` and gets its own guidance with a
 settings link rather than a "no devices found" dead end.
@@ -846,9 +858,12 @@ parsed-and-preserved by name but not yet executed — `Command.setting_id` /
 `.encoding` / `.payload`, `Parameter.allowed` / `.labels` / `.notes`,
 `ParameterSet.color_order`, `Characteristic.encryption` / `.framing`,
 `Service.notes`, `device.variants` / `.protobuf` / `.state_machine` /
-`.version_fields`, and `identification.mdns_service_type` / `.ssid_prefix` /
-`.default_port`. Anything else unrecognized at the top level or under
-`identification` lands in a flattened `extensions` catch-all instead of
+`.version_fields`. (`identification.mdns_service_type`, `.ssid_prefix` and
+`.default_port` are executed: they drive network matching — §5 and
+`match_network_axes` in `rust/src/api/device_api.rs` — and SoftAP setup
+matching in `rust/src/spec/setup.rs`.) Anything else unrecognized at the top
+level or under `identification` lands in a flattened `extensions` catch-all
+instead of
 failing the parse (under `parameters`, every key that isn't the reserved
 `color_order` is simply a parameter definition). The structs that drive
 actual reads and writes keep `deny_unknown_fields`, so typos there still fail
@@ -927,7 +942,7 @@ Device discovered with service UUIDs: ["180f", "180a", "fff0"]
 ### What's Working
 - Complete Rust protocol system (spec parsing, codec, profiles)
 - Flutter BLE scanning, connection, service discovery, read/write/notify
-- Mock mode with two simulated devices, driven by the Rust simulator
+- Mock mode with four simulated devices, driven by the Rust simulator
 - Standard BLE profile decoding (Battery, Device Info)
 - FRB bridge wired end-to-end: `RustLib.init()` at startup,
   `MockBleService` delegates to `rust/src/api/mock_api.rs`
@@ -946,6 +961,3 @@ Device discovered with service UUIDs: ["180f", "180a", "fff0"]
   declarations, protobuf `setting_id` commands, and `json`/`tlv` payload
   encodings parse fine (see §7) but the codec doesn't execute them yet; the
   raw-byte fallback stays visible for those characteristics.
-- **Non-BLE transports** — WiFi specs parse (their `mqtt_topics` /
-  `http_endpoints` ride in the `extensions` bag), but the app speaks BLE
-  only.

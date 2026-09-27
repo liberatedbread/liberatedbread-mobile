@@ -80,9 +80,9 @@ void main() {
   });
 
   test('lists newest first', () async {
-    await store.save(_codeplug(readAt: DateTime.utc(2026, 1)));
-    await store.save(_codeplug(readAt: DateTime.utc(2026, 8)));
-    await store.save(_codeplug(readAt: DateTime.utc(2026, 4)));
+    await store.save(_codeplug(fill: 1, readAt: DateTime.utc(2026, 1)));
+    await store.save(_codeplug(fill: 2, readAt: DateTime.utc(2026, 8)));
+    await store.save(_codeplug(fill: 3, readAt: DateTime.utc(2026, 4)));
 
     final all = await store.list();
     expect(all, hasLength(3));
@@ -95,22 +95,54 @@ void main() {
     }
   });
 
-  test('keeps a bounded number per radio', () async {
+  test('keeps a bounded number per model, and always the first', () async {
     // A backup from four months and two firmware updates ago is not the one
-    // anybody restores, and each is 33 kB.
-    for (var i = 0; i < CodeplugBackupStore.keepPerModel + 5; i++) {
-      await store.save(_codeplug(readAt: DateTime.utc(2026, 1, 1 + i)));
+    // anybody restores, and each is 33 kB -- except the very first, the
+    // radio's programming from before the app ever wrote to it.
+    const keep = CodeplugBackupStore.keepPerModel;
+    for (var i = 0; i < keep + 5; i++) {
+      await store.save(
+        _codeplug(fill: i, readAt: DateTime.utc(2026, 1, 1 + i)),
+      );
     }
     final all = await store.list();
-    expect(all, hasLength(CodeplugBackupStore.keepPerModel));
-    // The survivors are the newest.
-    expect(all.first.takenAt.day, greaterThan(all.last.takenAt.day));
+    expect(all, hasLength(keep + 1));
+    // The survivors are the newest, plus the oldest.
+    expect(all.last.takenAt, DateTime.utc(2026, 1, 1));
+    expect(
+      all.take(keep).map((b) => b.takenAt.day),
+      List.generate(keep, (i) => keep + 5 - i),
+    );
   });
+
+  // Fails on the old code: the first backup was pruned after ten more
+  // sessions, and every re-read of an unchanged radio used up a slot.
+  test(
+    're-reading an unchanged radio never evicts the pre-write image',
+    () async {
+      final factory = await store.save(
+        _codeplug(fill: 0x11, readAt: DateTime.utc(2026, 1, 1)),
+      );
+      for (var i = 0; i < CodeplugBackupStore.keepPerModel + 5; i++) {
+        final again = await store.save(
+          _codeplug(fill: 0x22, readAt: DateTime.utc(2026, 2, 1 + i)),
+        );
+        // Identical to the newest: that one is handed back, nothing written.
+        expect(again.takenAt, DateTime.utc(2026, 2, 1));
+      }
+      final all = await store.list();
+      expect(all, hasLength(2));
+      expect(all.last.file.path, factory.file.path);
+      expect((await store.load(all.last)).image.first, 0x11);
+    },
+  );
 
   test('does not prune another radio\'s backups', () async {
     await store.save(_codeplug(modelId: 'uv-32', readAt: DateTime.utc(2025)));
     for (var i = 0; i < CodeplugBackupStore.keepPerModel + 3; i++) {
-      await store.save(_codeplug(readAt: DateTime.utc(2026, 1, 1 + i)));
+      await store.save(
+        _codeplug(fill: i, readAt: DateTime.utc(2026, 1, 1 + i)),
+      );
     }
     final all = await store.list();
     expect(all.where((b) => b.modelId == 'uv-32'), hasLength(1));

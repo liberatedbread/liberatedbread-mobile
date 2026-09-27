@@ -232,9 +232,15 @@ abstract class SpecCodec {
   /// that is what the user picked. Inverting the spec's linear transform to
   /// get raw bytes happens in Rust, so the UI never has to know whether a
   /// device speaks centidegrees or `raw * 0.5 + 85`.
+  ///
+  /// Pass [entityIndex] ([EntityDto.entityIndex]) whenever the DTO carries
+  /// one: a family spec can declare two entities with one name (the
+  /// walking pad's WiLink and FTMS "Target Speed"), and by name alone Rust
+  /// refuses rather than encoding against the wrong one.
   Future<EntityWriteDto> encodeEntityValue({
     required String specYaml,
     required String entityName,
+    int? entityIndex,
     required double value,
   });
 
@@ -1057,6 +1063,27 @@ abstract class SpecCatalogue {
   /// transport per vendor — adding a device that answers its own broadcast
   /// then takes a spec and nothing else (SPECS_TO_FIX.md S-10).
   Future<List<UdpProbeDto>> udpBroadcastProbes();
+
+  /// Rank the catalogue against one device seen during a BLE scan, best
+  /// first; `specIndex` is a [specs] index.
+  ///
+  /// On the catalogue rather than the codec because the catalogue already
+  /// holds the identities: the codec's by-value [SpecCodec.matchScannedDevice]
+  /// SSE-encoded ~200 of them on the UI isolate for every newly seen device,
+  /// and BLE privacy mode mints a new one every few minutes per device.
+  Future<List<ScanMatch>> matchScanned(ScannedDeviceDto device);
+
+  /// [matchScanned]'s Wi-Fi twin.
+  Future<List<ScanMatch>> matchNetwork(NetworkDeviceDto device);
+
+  /// The soft-AP setup methods of the specs at [indices] ([specs] indices),
+  /// in that order — without re-sending and re-parsing their YAML.
+  Future<List<SoftApProfileDto>> softApProfiles(List<int> indices);
+
+  /// The BLE-provisioning setup methods of the specs at [indices].
+  Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
+    List<int> indices,
+  );
 }
 
 /// One catalogue member as the non-rendering paths see it: the YAML it was
@@ -1182,6 +1209,23 @@ class EmptySpecCatalogue implements SpecCatalogue {
 
   @override
   Future<List<UdpProbeDto>> udpBroadcastProbes() async => const [];
+
+  @override
+  Future<List<ScanMatch>> matchScanned(ScannedDeviceDto device) async =>
+      const [];
+
+  @override
+  Future<List<ScanMatch>> matchNetwork(NetworkDeviceDto device) async =>
+      const [];
+
+  @override
+  Future<List<SoftApProfileDto>> softApProfiles(List<int> indices) async =>
+      const [];
+
+  @override
+  Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
+    List<int> indices,
+  ) async => const [];
 }
 
 /// Whether [error] is flutter_rust_bridge saying the native core was never
@@ -1289,6 +1333,29 @@ class FallbackSpecCatalogue implements SpecCatalogue {
   /// "none" costs only the probes the dedicated transports send anyway.
   @override
   Future<List<UdpProbeDto>> udpBroadcastProbes() async => const [];
+
+  // The by-value codec doors, over this catalogue's own entries: this
+  // catalogue has no Rust-side parse to match against.
+  List<SpecIdentityDto> get _identities => [
+    for (final entry in specs) entry.identity,
+  ];
+
+  @override
+  Future<List<ScanMatch>> matchScanned(ScannedDeviceDto device) =>
+      _codec.matchScannedDevice(identities: _identities, device: device);
+
+  @override
+  Future<List<ScanMatch>> matchNetwork(NetworkDeviceDto device) =>
+      _codec.matchNetworkDevice(identities: _identities, device: device);
+
+  @override
+  Future<List<SoftApProfileDto>> softApProfiles(List<int> indices) =>
+      _codec.softApProfiles([for (final i in indices) specs[i].yaml]);
+
+  @override
+  Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
+    List<int> indices,
+  ) => _codec.bleProvisioningProfiles([for (final i in indices) specs[i].yaml]);
 
   @override
   Future<List<SpecMatch>> matchDevice({

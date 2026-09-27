@@ -424,6 +424,48 @@ void main() {
     expect(find.text('Hold the HOME button'), findsOneWidget);
   });
 
+  // Before the fix the reveal always drew a Password row, blank on this
+  // route (Home Assistant holds the password), with a working Copy button
+  // under text calling it what every local client will ask for.
+  testWidgets('adopting through Home Assistant reveals the entity, not a '
+      'blank password', (tester) async {
+    tester.view.physicalSize = const Size(500, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final api = FakeHaApiClient();
+    api.entities = {
+      'vacuum.dorita': const HaEntityState(
+        entityId: 'vacuum.dorita',
+        state: 'docked',
+        attributes: {'friendly_name': 'Dorita'},
+      ),
+    };
+    await tester.pumpWidget(
+      wrap(
+        homeAssistant: HaRoombaClient(
+          api: api,
+          config: const HaConfig(
+            baseUrl: 'http://ha.local:8123',
+            token: 'llat',
+            deviceId: 'device',
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Use Home Assistant'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('vacuum.dorita'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Adopted — saved to this device'), findsOneWidget);
+    expect(find.text('Password'), findsNothing);
+    expect(find.byTooltip('Copy Password'), findsNothing);
+    expect(find.text('Home Assistant entity'), findsOneWidget);
+    expect(find.text('vacuum.dorita'), findsOneWidget);
+    expect((await stored())?.haEntityId, 'vacuum.dorita');
+  });
+
   /// And when it is not connected, the option is absent rather than a dead
   /// button: there would be nothing to pick from.
   testWidgets('offers no Home Assistant route when it is not connected', (

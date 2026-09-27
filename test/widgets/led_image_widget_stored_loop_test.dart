@@ -235,6 +235,37 @@ void main() {
     });
   });
 
+  testWidgets('a frame the firmware never confirms does not pin the notify '
+      'subscription open', (tester) async {
+    // Old code: each frame waited with `firstWhere(...).timeout(15 s)`, and
+    // Future.timeout cancels nothing — the timed-out listener stayed on
+    // the broadcast stream, so its onCancel never ran and the CCCD interest
+    // leaked (liveSubscriberCount stayed 1).
+    final notify = StreamController<List<int>>.broadcast();
+    addTearDown(notify.close);
+    final ble = FakeBleService(notifyStream: notify.stream);
+    final codec = FakeSpecCodec()..storedResponseChar = 'notify';
+    await tester.pumpWidget(_editor(ble: ble, codec: codec));
+
+    await _twoFrames(tester);
+    await _startSave(tester);
+    // Diy clear + pacing, two silent 15 s frame waits, the effect-list read.
+    await _pumpFor(tester, const Duration(seconds: 3));
+    await _pumpFor(tester, const Duration(seconds: 1));
+    await _pumpFor(tester, const Duration(seconds: 15));
+    await _pumpFor(tester, const Duration(seconds: 15));
+    await _pumpFor(tester, const Duration(seconds: 3));
+
+    expect(ble.subscriptions.where((c) => c == 'notify'), hasLength(1));
+    expect(
+      ble.liveSubscriberCount['notify'],
+      0,
+      reason: 'an unanswered frame must not keep the interest alive',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   group('R-115: a stored animation wipes the other designs', () {
     testWidgets('the picture entries it removed leave the replay strip', (
       tester,

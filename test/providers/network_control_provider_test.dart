@@ -135,6 +135,71 @@ void main() {
     expect(asked, ['urn:Belkin:device:crockpot:1']);
   });
 
+  // Before the fix the provider took the FIRST catalogue entry with this
+  // name+manufacturer, which is the bundled copy: a pack's corrected YAML
+  // (loaded after it) never reached the Wi-Fi controls or group sends.
+  test("an installed pack's copy of a bundled spec wins", () async {
+    final codec = FakeSpecCodec(networkEntities: (_) => const [_plugEntity]);
+    final container = ProviderContainer(
+      overrides: [
+        specCodecProvider.overrideWithValue(codec),
+        specCatalogueProvider.overrideWith(
+          (ref) async => FallbackSpecCatalogue.fromParsed(
+            ref.watch(specCodecProvider),
+            [
+              (
+                spec: _spec('Belkin Wemo Smart Devices', 'Belkin'),
+                yaml: 'bundled-yaml',
+              ),
+              (
+                spec: _spec('Belkin Wemo Smart Devices', 'Belkin'),
+                yaml: 'pack-yaml',
+              ),
+            ],
+            keys: const ['vendor/wemo.yaml', 'pack:Fixes/wemo.yaml'],
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controls = await container.read(
+      networkControlsProvider(_request).future,
+    );
+    expect(controls?.specYaml, 'pack-yaml');
+  });
+
+  test('the Rabbit Air spec lookup lets a pack copy win too', () {
+    DeviceSpecDto rabbit() => DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallbackTypes: const [],
+      txtMatchGroups: const [],
+      hiddenEntityNames: const [],
+      deviceName: 'MinusA2',
+      manufacturer: 'Rabbit Air',
+      manufacturerStatus: 'active',
+      protocol: 'wifi',
+      localNamePrefixes: const [],
+      localNames: const [],
+      serviceUuids: const [],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceTypes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      entities: const [],
+      services: const [],
+      protocolHandler: 'rabbit_air_lan',
+    );
+    final catalogue = FallbackSpecCatalogue.fromParsed(FakeSpecCodec(), [
+      (spec: rabbit(), yaml: 'bundled-yaml'),
+      (spec: _spec('Hue Bridge', 'Signify'), yaml: 'hue-yaml'),
+      (spec: rabbit(), yaml: 'pack-yaml'),
+    ]);
+    expect(rabbitAirSpecOf(catalogue.specs)?.yaml, 'pack-yaml');
+  });
+
   test('a spec declaring no network entities resolves to null', () async {
     final codec = FakeSpecCodec(networkEntities: (_) => const []);
     final container = _container(

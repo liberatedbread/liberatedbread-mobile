@@ -618,6 +618,72 @@ void main() {
       expect(await service.loadCachedSpecs(), isEmpty);
     });
 
+    // The one installed pack's directory under the cache root.
+    Future<Directory> packDir() async {
+      final root = Directory('${tempDir.path}/spec_packs');
+      return (await root.list().toList()).whereType<Directory>().single;
+    }
+
+    Future<SpecPackService> installed() async {
+      final service = _service(tempDir, (request) async {
+        if (request.url.path.endsWith('pack.json')) {
+          return http.Response(_manifestJson(), 200);
+        }
+        return http.Response('yaml', 200);
+      });
+      await service.install(_manifestUrl);
+      return service;
+    }
+
+    // Fails on the old code: a staging directory left by a crash between
+    // its manifest write and the swap was listed as a second copy.
+    test('a staging directory left by a crash is not a pack', () async {
+      final service = await installed();
+      final dir = await packDir();
+      final slug = dir.uri.pathSegments.lastWhere((p) => p.isNotEmpty);
+      final staging = Directory('${dir.parent.path}/.staging-$slug');
+      await staging.create();
+      await File(
+        '${dir.path}/manifest.json',
+      ).copy('${staging.path}/manifest.json');
+
+      expect(await service.listInstalledPacks(), hasLength(1));
+    });
+
+    // Fails on the old code: there was no aside copy — the swap deleted the
+    // installed pack first, so dying before the rename lost it.
+    test(
+      'a pack swapped aside by an interrupted reinstall is put back',
+      () async {
+        final service = await installed();
+        final dir = await packDir();
+        final slug = dir.uri.pathSegments.lastWhere((p) => p.isNotEmpty);
+        await dir.rename('${dir.parent.path}/.old-$slug');
+
+        final packs = await service.listInstalledPacks();
+        expect(packs.map((p) => p.name), ['Test Pack']);
+        expect(await service.loadCachedSpecs(), {
+          'pack:Test Pack/bulb.yaml': 'yaml',
+        });
+        expect(
+          await Directory('${dir.parent.path}/.old-$slug').exists(),
+          isFalse,
+        );
+      },
+    );
+
+    test('a reinstall leaves nothing aside', () async {
+      final service = await installed();
+      await service.install(_manifestUrl);
+      final root = Directory('${tempDir.path}/spec_packs');
+      final names = [
+        for (final e in await root.list().toList())
+          e.uri.pathSegments.lastWhere((p) => p.isNotEmpty),
+      ];
+      expect(names.where((n) => n.startsWith('.')), isEmpty);
+      expect(await service.listInstalledPacks(), hasLength(1));
+    });
+
     test('loadCachedSpecs is empty before anything is installed', () async {
       final service = _service(tempDir, (_) async => http.Response('', 200));
       expect(await service.loadCachedSpecs(), isEmpty);

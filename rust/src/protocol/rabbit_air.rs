@@ -136,6 +136,18 @@ fn envelope(body: &str, id: u32, ts: u32) -> Result<String, ProtocolError> {
             )))
         }
     };
+    // Only `cmd` and `data` are body content — the reference renderer
+    // (protocol-specs scripts/test_rabbit_air_spec.py render_envelope) takes
+    // exactly those. A body spelling `id` would overwrite the per-send nonce
+    // in place while RabbitAirRequest.id still reported the fresh one, so
+    // every reply would fail the id match and the purifier would read as
+    // dead; refuse it (and any other stray key) at render time instead.
+    if let Some(stray) = fields.keys().find(|k| *k != "cmd" && *k != "data") {
+        return Err(ProtocolError::InvalidStateReply(format!(
+            "a Rabbit Air command body carries only `cmd` and `data`; `{stray}` is \
+             not body content (`id`/`ts` are stamped per send), got: {body}"
+        )));
+    }
     // `preserve_order` is on, so the body's declared order survives the parse;
     // `data` is lifted out first so it can be re-appended LAST regardless of
     // where a body spelled it — the vendor client reads by key, but the spec's
@@ -244,9 +256,12 @@ pub fn decrypt(key: &[u8; USER_KEY_LEN], datagram: &[u8]) -> Result<Vec<u8>, Pro
 /// `ts = local_now + offset`, extrapolating the device clock — the spec's
 /// handshake, with a re-sync whenever the socket is re-created.
 ///
-/// A reply carrying a truthy `error`, no `data.ts`, or a non-numeric `ts` is
-/// rejected: stamping requests from a guessed clock produces anti-replay
-/// rejections that read as a dead device.
+/// A reply carrying any `error` other than null or `false`, no `data.ts`, or
+/// a non-numeric `ts` is rejected: stamping requests from a guessed clock
+/// produces anti-replay rejections that read as a dead device. The spec says
+/// "truthy", but hardware has only ever sent `error:true` (success omits the
+/// field), so an off-spec falsy value like `0` fails closed here — as the
+/// Dart control and provisioning services also treat it.
 pub fn time_sync_offset(reply_json: &str, local_now_secs: u32) -> Result<i64, ProtocolError> {
     let reply = serde_json::from_str::<serde_json::Value>(reply_json)
         .map_err(|e| ProtocolError::MalformedReply(format!("time-sync reply is not JSON: {e}")))?;
@@ -363,6 +378,29 @@ entities:
         assert_eq!(
             request.json,
             r#"{"id":42,"cmd":4,"ts":99,"data":{"mode":2,"speed":3}}"#
+        );
+    }
+
+    /// A body that spells `id` used to overwrite the per-send nonce while
+    /// the returned request kept the caller's id, so no reply ever matched.
+    /// Anything but `cmd`/`data` is refused, as the reference renderer
+    /// drops it.
+    #[test]
+    fn a_body_declaring_envelope_fields_is_refused() {
+        for body in [
+            r#"{"id":1,"cmd":4}"#,
+            r#"{"cmd":4,"ts":5}"#,
+            r#"{"cmd":4,"x":1}"#,
+        ] {
+            let err = envelope(body, 77, 99).unwrap_err();
+            assert!(
+                matches!(&err, ProtocolError::InvalidStateReply(_)),
+                "{body}: {err}"
+            );
+        }
+        assert_eq!(
+            envelope(r#"{"data":{"a":1},"cmd":4}"#, 77, 99).unwrap(),
+            r#"{"id":77,"cmd":4,"ts":99,"data":{"a":1}}"#
         );
     }
 

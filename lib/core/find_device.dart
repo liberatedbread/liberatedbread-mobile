@@ -420,21 +420,6 @@ FindAlertKind? classifyAlertCommandByName(String commandName) {
   return null;
 }
 
-/// Detect every alert action this device supports, from two sources:
-///
-/// 1. **Spec commands** — fixed, encodable commands the spec declares as
-///    locators, or failing that whose name says they make the device
-///    beep/blink (see [classifyAlertCommand]). The command's
-///    characteristic must also have been *discovered* on this device
-///    (writable), because a spec may describe a bigger variant than the unit
-///    in front of us. This resolves against GATT endpoints, so it is BLE-only:
-///    a Wi-Fi spec's `http_endpoints`/`mqtt_topics` do not cross the FFI at
-///    all today, and lighting these buttons up for one would need both that
-///    and a transport-neutral endpoint type here.
-/// 2. **The standard Immediate Alert service**, when discovery found it with
-///    a writable Alert Level — no spec needed. Skipped when a spec command
-///    already targets that characteristic (the spec knows the device's
-///    dialect better than the generic profile does).
 /// The normalized `service|characteristic` key both write-admission maps use.
 String discoveredPairKey(String serviceUuid, String charUuid) =>
     '${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
@@ -462,6 +447,21 @@ Map<String, ({String serviceUuid, String charUuid})> discoveredWritablePairs(
   return writable;
 }
 
+/// Detect every alert action this device supports, from two sources:
+///
+/// 1. **Spec commands** — fixed, encodable commands the spec declares as
+///    locators, or failing that whose name says they make the device
+///    beep/blink (see [classifyAlertCommand]). The command's
+///    characteristic must also have been *discovered* on this device
+///    (writable), because a spec may describe a bigger variant than the unit
+///    in front of us. This resolves against GATT endpoints, so it is BLE-only:
+///    a Wi-Fi spec's `http_endpoints`/`mqtt_topics` do not cross the FFI at
+///    all today, and lighting these buttons up for one would need both that
+///    and a transport-neutral endpoint type here.
+/// 2. **The standard Immediate Alert service**, when discovery found it with
+///    a writable Alert Level — no spec needed. Skipped when a spec command
+///    already targets that characteristic (the spec knows the device's
+///    dialect better than the generic profile does).
 List<FindAlertAction> detectAlertActions({
   DeviceSpecDto? spec,
   String? specYaml,

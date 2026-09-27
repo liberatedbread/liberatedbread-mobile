@@ -63,6 +63,16 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
   /// the new entity's name.
   int _generation = 0;
 
+  /// Arrival order of the bytes being decoded, stamped when they ARRIVE (a
+  /// read returning, a notification landing) — not when the decode ends.
+  /// Each decode is its own FFI call on FRB's worker pool, so the seed
+  /// read's decode could finish after a later notification's and put the
+  /// older reading back; on a device that notifies only on change (lock,
+  /// switch, setpoint) it then stayed on screen. A result whose stamp is
+  /// below [_appliedSeq] is dropped.
+  int _arrivalSeq = 0;
+  int _appliedSeq = 0;
+
   @override
   void initState() {
     super.initState();
@@ -104,6 +114,8 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
   /// before the first build, [didUpdateWidget] wraps it).
   void _start() {
     final generation = ++_generation;
+    _arrivalSeq = 0;
+    _appliedSeq = 0;
     final stateChar = widget.entity.stateCharacteristic;
     if (stateChar == null || !widget.entity.hasFormat) {
       _value = EntityLiveValue(
@@ -165,13 +177,19 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
   }
 
   Future<void> _read(String stateChar, int generation) async {
+    // What had arrived when the read went out: a failure is not news once
+    // something newer than that has been applied.
+    final issuedAt = _arrivalSeq;
     try {
       final bytes = await ref
           .read(bleServiceProvider)
           .readCharacteristic(widget.deviceId, widget.serviceUuid, stateChar);
-      await _decodeAndSet(stateChar, bytes, generation);
+      if (!mounted || generation != _generation) return;
+      await _decodeAndSet(stateChar, bytes, generation, ++_arrivalSeq);
     } catch (e) {
       if (!mounted || generation != _generation) return;
+      // A late failure must not mark a newer live reading as an error.
+      if (_appliedSeq > issuedAt) return;
       setState(() {
         _value = EntityLiveValue(
           entity: widget.entity,
@@ -199,6 +217,7 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
               stateChar,
               bytes,
               generation,
+              ++_arrivalSeq,
             ).catchError((Object _) {}),
           ),
           onError: (Object error) {
@@ -234,6 +253,7 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
     String stateChar,
     List<int> bytes,
     int generation,
+    int seq,
   ) async {
     final decoded = await ref
         .read(specCodecProvider)
@@ -244,6 +264,9 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
           bytes: bytes,
         );
     if (!mounted || generation != _generation) return;
+    // Older bytes than what is on screen; see [_arrivalSeq].
+    if (seq < _appliedSeq) return;
+    _appliedSeq = seq;
     setState(() {
       _value = EntityLiveValue(
         entity: widget.entity,

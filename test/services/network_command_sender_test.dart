@@ -619,19 +619,64 @@ void main() {
         );
     });
 
+    /// The ports the sender dialled, in order.
+    late List<int> dialled;
+    setUp(() => dialled = []);
+
+    /// A Hisense set as discovery really reports it: the SSDP descriptor
+    /// server's port (38400), with the broker only in the spec's
+    /// `default_port` (hisense-vidaa.yaml: 36669).
     NetworkCommandSender mqttSender({
       Map<String, String> credentials = const {
         'client_id': 'phone',
         'username': 'hisenseservice',
         'password': 'multimqttservice',
       },
+      int? devicePort = 38400,
+      int? defaultPort = 36669,
     }) => sender(
       withCodec: mqttCodec,
-      devicePort: 36669,
+      devicePort: devicePort,
+      capabilities: NetworkCapabilitiesDto(
+        defaultPort: defaultPort,
+        tlsSelfSigned: true,
+        advertisedPortUnreliable: false,
+        mqttClientIdGenerated: false,
+      ),
       storedCredentials: credentials,
       mqttConnect: (host, port, timeout) async {
+        dialled.add(port);
         scheduleMicrotask(() => broker.send([0x20, 0x02, 0x00, 0x00]));
         return broker;
+      },
+    );
+
+    test(
+      'dials the spec\'s broker port, not the port discovery heard',
+      () async {
+        // Discovery's port for a Hisense set is the DLNA descriptor (or Cast)
+        // service; preferring it opened every session against 38400 and failed
+        // with "could not reach" or a TLS error.
+        final s = mqttSender();
+        addTearDown(s.close);
+        await s.sendAction(
+          action('press', 'press_power', transport: 'mqtt'),
+          {},
+        );
+        expect(dialled, [36669]);
+      },
+    );
+
+    test(
+      'falls back to the discovered port when the spec declares none',
+      () async {
+        final s = mqttSender(devicePort: 1883, defaultPort: null);
+        addTearDown(s.close);
+        await s.sendAction(
+          action('press', 'press_power', transport: 'mqtt'),
+          {},
+        );
+        expect(dialled, [1883]);
       },
     );
 
@@ -1109,6 +1154,109 @@ void main() {
       expect(tv.closed, isTrue);
     });
   });
+
+  // ── A frame the TV received is never sent twice ────────────────────────
+
+  group('an ECP2 request that reached the device', () {
+    /// A Roku whose ECP2 session answers the handshake and queries normally
+    /// but handles key-press through [keyAnswer] (null: never answers), and
+    /// whose plain path records every request it takes.
+    NetworkCommandSender roku({
+      required String? keyAnswer,
+      required List<http.Request> plain,
+      bool answerQueries = true,
+      String method = 'POST',
+      String path = '/keypress/VolumeUp',
+    }) {
+      final ecpCodec = FakeSpecCodec()
+        ..networkHttpRequest = (name, values) =>
+            HttpRequestDto(method: method, path: path, body: '');
+      return NetworkCommandSender(
+        host: '192.0.2.9',
+        discoveredControlPort: 8060,
+        devicePort: null,
+        ssdpTargets: const ['roku:ecp'],
+        capabilities: rokuCapabilities,
+        specYaml: 'yaml',
+        codec: ecpCodec,
+        http: HttpControlClient(
+          httpClient: MockClient((request) async {
+            plain.add(request);
+            return http.Response('<apps/>', 200);
+          }),
+        ),
+        soap: SoapControlClient(
+          httpClient: MockClient(
+            (request) async => fail('no SOAP exchange belongs in this test'),
+          ),
+        ),
+        kasa: KasaControlClient(ecpCodec),
+        rabbitAir: RabbitAirControlClient(ecpCodec),
+        ecp2: Ecp2ControlService(
+          timeout: const Duration(milliseconds: 100),
+          connector: (host, port) async {
+            final socket = _SelectiveEcp2Socket(
+              keyAnswer: keyAnswer,
+              answerQueries: answerQueries,
+            );
+            socket.begin();
+            return socket;
+          },
+        ),
+      );
+    }
+
+    test('a keypress that timed out is not resent over plain ECP', () async {
+      // Before the fix the timeout fell back to plain ECP: VolumeUp moved two
+      // steps, Mute toggled back — and a Limited-mode set's 403 then blamed
+      // "enable network control" for what was a slow answer.
+      final plain = <http.Request>[];
+      final s = roku(keyAnswer: null, plain: plain);
+      addTearDown(s.close);
+      await expectLater(
+        s.sendAction(action('volume_up', 'volume_up'), {}),
+        throwsA(isA<ControlTimeoutException>()),
+      );
+      expect(plain, isEmpty, reason: 'the TV may already have acted');
+    });
+
+    test(
+      'a keypress answered with an unexpected status is not resent',
+      () async {
+        final plain = <http.Request>[];
+        final s = roku(keyAnswer: '202', plain: plain);
+        addTearDown(s.close);
+        await expectLater(
+          s.sendAction(action('volume_up', 'volume_up'), {}),
+          throwsA(
+            isA<Ecp2Exception>().having(
+              (e) => e.message,
+              'message',
+              contains('202'),
+            ),
+          ),
+        );
+        expect(plain, isEmpty);
+      },
+    );
+
+    test('a query that timed out still falls back: it is idempotent', () async {
+      final plain = <http.Request>[];
+      final s = roku(
+        keyAnswer: '200',
+        answerQueries: false,
+        plain: plain,
+        method: 'GET',
+        path: '/query/apps',
+      );
+      addTearDown(s.close);
+      final body = await s.sendHttpRequest(
+        const HttpRequestDto(method: 'GET', path: '/query/apps', body: ''),
+      );
+      expect(body, '<apps/>');
+      expect(plain.single.url.path, '/query/apps');
+    });
+  });
 }
 
 /// A scripted broker behind the sender's MQTT socket seam.
@@ -1160,4 +1308,39 @@ class _GatedPinStore implements SettingsStore {
 
   @override
   Future<Map<String, String>> readAll() async => Map.of(_values);
+}
+
+/// An ECP2 device that answers the handshake, then key-press with
+/// [keyAnswer] (null: silence) and queries with 200 (or silence when
+/// [answerQueries] is false) — the slow or odd reply after the frame landed.
+class _SelectiveEcp2Socket extends FakeEcp2Socket {
+  final String? keyAnswer;
+  final bool answerQueries;
+
+  _SelectiveEcp2Socket({required this.keyAnswer, required this.answerQueries});
+
+  void begin() => receive({
+    'notify': 'authenticate',
+    'param-challenge': 'QUJDREVGR0hJSg==',
+  });
+
+  @override
+  void add(String frame) {
+    super.add(frame);
+    final decoded = sent.last;
+    final request = '${decoded['request']}';
+    final status = switch (request) {
+      'authenticate' => '200',
+      'key-press' => keyAnswer,
+      _ => answerQueries ? '200' : null,
+    };
+    if (status == null) return;
+    scheduleMicrotask(
+      () => receive({
+        'response': request,
+        'response-id': '${decoded['request-id']}',
+        'status': status,
+      }),
+    );
+  }
 }

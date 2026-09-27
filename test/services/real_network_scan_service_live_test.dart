@@ -16,10 +16,11 @@
 // and no privileges — just a host whose stack will loop a multicast datagram
 // back to another socket, which is the same thing the app does on a phone.
 //
-// TAGGED, AND RUN SEPARATELY. `flutter test` excludes `netdisco` and a CI job
-// of its own runs it, for two reasons: it opens ports 5353 and 1900, which a
-// developer's machine may already have an mDNS responder on, and it spends
-// real seconds waiting for datagrams rather than pumping a fake clock. Neither
+// TAGGED, AND RUN SEPARATELY. `./scripts/test.sh` and CI exclude `netdisco`
+// (a bare `flutter test` does not) and a CI job of its own runs it, for two
+// reasons: it opens ports 5353 and 1900, which a developer's machine may
+// already have an mDNS responder on, and it spends real seconds waiting for
+// datagrams rather than pumping a fake clock. Neither
 // belongs in the suite that has to stay fast.
 @Tags(['netdisco'])
 library;

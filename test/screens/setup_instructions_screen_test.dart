@@ -133,6 +133,49 @@ void main() {
     expect(find.text('Overview'), findsNothing);
   });
 
+  // Before the fix the method filter admitted any non-null description and
+  // the reset section any non-null block, while the widgets hid blank text,
+  // so both headings rendered over nothing.
+  testWidgets('blank descriptions and effects render no empty headings', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      const SetupInstructionsDto(
+        notes: 'Some overview.',
+        methods: [
+          SetupMethodDto(
+            methodType: 'ble_direct',
+            description: '   ',
+            stages: [],
+            steps: [],
+            troubleshooting: [],
+          ),
+        ],
+        factoryReset: FactoryResetDto(effect: '  ', procedures: []),
+      ),
+    );
+
+    expect(find.text('Overview'), findsOneWidget);
+    expect(find.text('How to pair'), findsNothing);
+    expect(find.text('Factory reset'), findsNothing);
+  });
+
+  testWidgets('a not-applicable reset with no procedures is not drawn', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      const SetupInstructionsDto(
+        notes: 'Some overview.',
+        methods: [],
+        factoryReset: FactoryResetDto(effect: 'n/a', procedures: []),
+      ),
+    );
+
+    expect(find.text('Factory reset'), findsNothing);
+  });
+
   testWidgets('a staged route renders every phase with its own steps', (
     tester,
   ) async {

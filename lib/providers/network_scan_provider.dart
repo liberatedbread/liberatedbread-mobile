@@ -132,15 +132,16 @@ class NetworkIdentity {
 /// with DHCP, and dead identities must not accumulate for the app's lifetime.
 final networkGuessProvider = FutureProvider.autoDispose
     .family<ScanGuess?, NetworkIdentity>((ref, identity) async {
-      final codec = ref.watch(specCodecProvider);
+      final catalogue = await ref.watch(specCatalogueProvider.future);
       final identities = await ref.watch(specIdentitiesProvider.future);
       if (identities.isEmpty) return null;
 
       final List<ScanMatch> matches;
       try {
-        matches = await codec.matchNetworkDevice(
-          identities: identities,
-          device: NetworkDeviceDto(
+        // Through the catalogue, which holds the identities — see
+        // scanGuessProvider.
+        matches = await catalogue.matchNetwork(
+          NetworkDeviceDto(
             name: identity.name,
             hostname: identity.hostname,
             serviceTypes: identity.serviceTypes,
@@ -159,7 +160,10 @@ final networkGuessProvider = FutureProvider.autoDispose
         );
         return null;
       }
-      return ScanGuess.fromMatches(matches);
+      // With the identities, as scanGuessProvider does: a pack copy that
+      // shadows a bundled spec must speak for the row even when only the
+      // bundled entry came back from the matcher.
+      return ScanGuess.fromMatches(matches, identities: identities);
     });
 
 /// A network device paired with what the catalogue makes of it.

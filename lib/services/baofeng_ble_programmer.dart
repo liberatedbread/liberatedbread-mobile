@@ -6,10 +6,14 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter_rust_bridge/flutter_rust_bridge.dart'
+    show AnyhowException;
+
 import '../core/log.dart';
 import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
 import '../src/rust/api/radio_api.dart' as rust;
+import 'ble_connect_within.dart';
 import 'ble_service.dart';
 import 'byte_inbox.dart';
 import 'radio_codec.dart';
@@ -51,7 +55,19 @@ class BleTiming {
 /// and the disconnect in a `finally`, which also runs when a listener cancels
 /// mid-session. Leaving a radio connected and half-written is the one outcome
 /// worth designing against.
-class BaofengBleProgrammer implements RadioProgrammer {
+/// A programmer that can say, without touching the radio, that it will
+/// refuse to write a model it otherwise reads.
+///
+/// For the caller that reads (and backs up) before it writes: without the
+/// question, a write the programmer was always going to refuse still cost a
+/// connect and a full read first, and then failed.
+abstract interface class RadioWritePreflight {
+  /// Completes when [profile] can be written; throws a
+  /// [RadioUnsupportedException] naming why when it cannot.
+  Future<void> checkCanWrite(RadioProfile profile);
+}
+
+class BaofengBleProgrammer implements RadioProgrammer, RadioWritePreflight {
   final BleService _ble;
   final BleTiming timing;
 
@@ -140,6 +156,8 @@ class BaofengBleProgrammer implements RadioProgrammer {
     required RadioCodeplug base,
     required List<RadioChannel> channels,
   }) async* {
+    // Refused before the encode, so the reason given is the real one.
+    await checkCanWrite(profile);
     final image = await rust.radioEncodeChannels(
       image: base.image,
       channels: [
@@ -159,12 +177,37 @@ class BaofengBleProgrammer implements RadioProgrammer {
     );
   }
 
+  /// Asks Rust for the write plan, which is pure and refuses a model whose
+  /// Bluetooth write frame nobody has captured (the UV-32).
+  ///
+  /// The plan used to be asked for only inside the session, so a UV-32
+  /// write connected, woke the radio and only then failed with Rust's raw
+  /// error text.
+  @override
+  Future<void> checkCanWrite(RadioProfile profile) async {
+    await _writePlan(profile);
+  }
+
+  Future<List<rust.CodeplugBlockDto>> _writePlan(RadioProfile profile) async {
+    if (!supports(profile)) throw const RadioUnsupportedException();
+    try {
+      return await rust.radioWritePlan(modelId: profile.id);
+    } on AnyhowException catch (error) {
+      // Rust's message already says which radio and that nothing was
+      // written.
+      throw RadioUnsupportedException(error.message);
+    }
+  }
+
   @override
   Stream<RadioProgressEvent> restoreCodeplug({
     required String deviceId,
     required RadioProfile profile,
     required RadioCodeplug codeplug,
   }) async* {
+    // Before the size check and the session: a model this cannot write is
+    // refused without a connect.
+    final plan = await _writePlan(profile);
     if (!await rust.radioImageIsComplete(
       imageLen: codeplug.length,
       modelId: profile.id,
@@ -176,8 +219,6 @@ class BaofengBleProgrammer implements RadioProgrammer {
     }
 
     yield* _session(deviceId, profile, (session) async* {
-      final plan = await rust.radioWritePlan(modelId: profile.id);
-
       yield const RadioProgressEvent(
         stage: RadioProgressStage.writing,
         message: 'Writing to the radio — do not turn it off…',
@@ -225,7 +266,10 @@ class BaofengBleProgrammer implements RadioProgrammer {
     var connected = false;
     StreamSubscription<List<int>>? notifications;
     try {
-      await _ble.connect(deviceId).timeout(timing.connect);
+      // connectWithin, not a bare timeout: a connect that landed after this
+      // gave up took a claim nothing released, and the radio stayed
+      // connected — and stopped advertising — until the app died.
+      await connectWithin(_ble, deviceId, timing.connect);
       connected = true;
       await _ble.discoverServices(deviceId).timeout(timing.step);
 
@@ -238,7 +282,18 @@ class BaofengBleProgrammer implements RadioProgrammer {
             baofengUartService,
             baofengUartCharacteristic,
           )
-          .listen(inbox.add);
+          // A failed notify setup (a refused CCCD write, a pairing demand)
+          // arrives as an error on this stream. Unhandled, it went to the
+          // zone and the session sent magic after magic into a
+          // characteristic that would never answer, then blamed the
+          // radio's programming mode. In the inbox, the next read throws
+          // the real cause at once. The stream only ends on its own when
+          // the link does, and a cancel does not end it.
+          .listen(
+            inbox.add,
+            onError: inbox.fail,
+            onDone: () => inbox.fail(const BleLinkDroppedException()),
+          );
 
       final session = _RadioSession(
         ble: _ble,

@@ -136,6 +136,16 @@ final rabbitAirBleControlsProvider = FutureProvider.autoDispose
       }
     });
 
+/// The catalogue's Rabbit Air spec, or null when it carries none.
+///
+/// Selected by the protocol handler this app implements — the same join the
+/// Rust admission gate trusts — not by a discovery string that could move.
+/// LAST match, not first: pack specs load after bundled ones, and a pack's
+/// corrected copy must win exactly as it does in [specEntriesByKey]. A
+/// first-wins pick kept encoding against the stale bundled YAML.
+CatalogueSpec? rabbitAirSpecOf(List<CatalogueSpec> specs) =>
+    specs.where((p) => p.protocolHandler == 'rabbit_air_lan').lastOrNull;
+
 /// The Rabbit Air spec's YAML and entity surface, resolved from the
 /// catalogue by its mDNS service type rather than by a device match: a
 /// setup-mode purifier ("RabbitAirSetup") is met before it can be matched,
@@ -144,15 +154,11 @@ final rabbitAirSpecSurfaceProvider =
     FutureProvider.autoDispose<
       ({String specYaml, List<NetworkEntityDto> entities})?
     >((ref) async {
-      final catalogue = await ref.watch(specCatalogueProvider.future);
-      final spec = catalogue.specs
-          // The spec is selected by the protocol handler this app implements —
-          // the same join the Rust admission gate trusts — not by a discovery
-          // string that could move.
-          .where((p) => p.protocolHandler == 'rabbit_air_lan')
-          .firstOrNull;
-      if (spec == null) return null;
+      // Watched before the await: a watch after one is unsound.
       final codec = ref.watch(specCodecProvider);
+      final catalogue = await ref.watch(specCatalogueProvider.future);
+      final spec = rabbitAirSpecOf(catalogue.specs);
+      if (spec == null) return null;
       try {
         final entities = (await codec.networkEntitiesForDevice(
           specYaml: spec.yaml,
@@ -180,12 +186,7 @@ final rabbitAirProvisionServiceProvider = Provider<RabbitAirProvisionService>((
     linkFactory: () => RabbitAirBleClient(ref.watch(bleServiceProvider), codec),
     verifier: ({required thingId, required userKey}) async {
       final catalogue = await ref.read(specCatalogueProvider.future);
-      final spec = catalogue.specs
-          // The spec is selected by the protocol handler this app implements —
-          // the same join the Rust admission gate trusts — not by a discovery
-          // string that could move.
-          .where((p) => p.protocolHandler == 'rabbit_air_lan')
-          .firstOrNull;
+      final spec = rabbitAirSpecOf(catalogue.specs);
       if (spec == null) return false;
       final scanner = ref.read(networkScanServiceProvider);
       final client = ref.read(rabbitAirControlClientProvider);
@@ -373,37 +374,34 @@ class NetworkControls {
 /// details sheet, not break the scan list that asked.
 final networkControlsProvider = FutureProvider.autoDispose
     .family<NetworkControls?, NetworkControlRequest>((ref, request) async {
-      final catalogue = await ref.watch(specCatalogueProvider.future);
-      final match = catalogue.specs
-          .where(
-            (p) =>
-                p.deviceName == request.deviceName &&
-                p.manufacturer == request.manufacturer,
-          )
-          .toList();
-      if (match.isEmpty) return null;
-
+      // Watched before the await: a watch after one is unsound.
       final codec = ref.watch(specCodecProvider);
+      final catalogue = await ref.watch(specCatalogueProvider.future);
+      // Through the ONE shadowing rule (pack wins over bundled). A first-wins
+      // scan here handed the Wi-Fi controls, and the group runner's network
+      // members, the stale bundled YAML while BLE members got the pack's fix.
+      final spec = specEntriesByKey(
+        catalogue.specs,
+      )[specKeyOf(request.deviceName, request.manufacturer)];
+      if (spec == null) return null;
+
       try {
         final surface = await codec.networkEntitiesForDevice(
-          specYaml: match.first.yaml,
+          specYaml: spec.yaml,
           ssdpTargets: request.ssdpTargets,
         );
         // A raster label printer (Brother QL) resolves no entities — its surface is
         // a raster byte stream, not commands — so admit it on its protocol_handler
         // rather than letting the empty-entity check drop it to the details sheet.
-        final rasterPrintHandler =
-            match.first.protocolHandler == 'brother_ql_raster'
-            ? match.first.protocolHandler
+        final rasterPrintHandler = spec.protocolHandler == 'brother_ql_raster'
+            ? spec.protocolHandler
             : null;
         if (surface.entities.isEmpty && rasterPrintHandler == null) return null;
         return NetworkControls(
-          specYaml: match.first.yaml,
+          specYaml: spec.yaml,
           entities: surface.entities,
           hiddenNames: surface.hiddenNames,
-          capabilities: await codec.networkCapabilities(
-            specYaml: match.first.yaml,
-          ),
+          capabilities: await codec.networkCapabilities(specYaml: spec.yaml),
           rasterPrintHandler: rasterPrintHandler,
         );
       } catch (e) {

@@ -205,11 +205,6 @@ pub struct CameraKeepalive {
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
 
-/// One `features:` entry — a declared high-level capability.
-///
-/// Every field but `type` is optional and unknown keys sweep into
-/// `extensions`: these blocks are hand-written across the catalogue and a new
-/// annotation must not fail existing parses.
 /// How to read the real panel resolution from the BLE advertisement's
 /// manufacturer-specific data. Offsets index into the manufacturer-data VALUE
 /// — the bytes after the 2-byte company id, as most stacks report it (e.g.
@@ -223,6 +218,11 @@ pub struct ResolutionAdvertisement {
     pub height_offset: usize,
 }
 
+/// One `features:` entry — a declared high-level capability.
+///
+/// Every field but `type` is optional and unknown keys sweep into
+/// `extensions`: these blocks are hand-written across the catalogue and a new
+/// annotation must not fail existing parses.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Feature {
     #[serde(rename = "type")]
@@ -1303,6 +1303,18 @@ pub struct UdpBroadcastProbe {
     /// this is an address rather than a flag.
     #[serde(default)]
     pub broadcast_address: Option<String>,
+    /// The multicast group to send to INSTEAD of `broadcast_address` (Govee's
+    /// LAN API and Yeelight's search use 239.255.255.250). The schema: "When
+    /// present, `broadcast_address` is ignored". Unread, it was dropped by
+    /// serde and the probe went to the broadcast address the device does not
+    /// listen on.
+    #[serde(default)]
+    pub multicast_group: Option<String>,
+    /// The port replies arrive on when it differs from `port` (Govee: probed
+    /// on 4001, answers to 4002). A consumer must bind it before sending or
+    /// it never hears the reply.
+    #[serde(default)]
+    pub listen_port: Option<u16>,
     /// The probe payload as hex. Absent means listen-only.
     #[serde(default)]
     pub probe_hex: Option<String>,
@@ -2130,6 +2142,58 @@ pub struct Service {
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
 
+/// `initialization:` read one step at a time: a step that does not parse
+/// ENDS the handshake there, and the device stays.
+///
+/// Every other advisory block on a spec is read tolerantly (`udp_broadcast`,
+/// `local_name`, `mdns`), and this one once was not. The schema lets `write`
+/// carry any integer, so a pack installed from a URL that writes `[0, 256]`,
+/// or says `delay_ms: -1`, or omits `characteristic`, used to fail the whole
+/// spec's parse and make the device unmatchable, although every command and
+/// format in it was fine.
+///
+/// But the steps are ORDERED because they depend on each other, so a step
+/// cannot simply be filtered out: dropping a middle one put a different byte
+/// sequence on the wire (the steps after it, without it) and nothing said
+/// so — the handshake ran "complete". An unreadable step is treated the way
+/// the executor treats a step that fails at runtime: the steps before it
+/// stay, it and everything after it do not run, and in its place goes a
+/// prose step naming what could not be read. [`crate::spec::initialization`]
+/// routes prose into `Handshake::described`, which the caller already logs as
+/// "this handshake is only part of one".
+fn tolerant_initialization<'de, D>(deserializer: D) -> Result<Vec<InitializationStep>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_yaml::Value::deserialize(deserializer)?;
+    let serde_yaml::Value::Sequence(entries) = raw else {
+        return Ok(Vec::new());
+    };
+    let total = entries.len();
+    let mut steps = Vec::with_capacity(total);
+    for (index, entry) in entries.into_iter().enumerate() {
+        match serde_yaml::from_value::<InitializationStep>(entry) {
+            Ok(step) => steps.push(step),
+            Err(error) => {
+                let skipped = total - index - 1;
+                let mut description = format!(
+                    "initialization step {} could not be read ({error}); the \
+                     handshake stops before it",
+                    index + 1
+                );
+                if skipped > 0 {
+                    description.push_str(&format!(
+                        ", so the {skipped} step(s) after it were not run either"
+                    ));
+                }
+                steps.push(InitializationStep::unreadable(description));
+                break;
+            }
+        }
+    }
+    Ok(steps)
+}
+
 /// One step of a spec's `initialization` handshake.
 ///
 /// The schema's words: "Ordered handshake / setup steps executed after
@@ -2143,32 +2207,6 @@ pub struct Service {
 /// fresh per session and cannot be written from a spec. Those are counted and
 /// reported rather than executed or silently dropped — see
 /// [`crate::spec::initialization::Handshake`].
-/// `initialization:` read one step at a time: a step that does not parse is
-/// dropped, and the rest — and the device — stay.
-///
-/// Every other advisory block on a spec is read this way (`udp_broadcast`,
-/// `local_name`, `mdns`: `filter_map(..ok())`), and this one was not. The
-/// schema lets `write` carry any integer, so a pack installed from a URL that
-/// writes `[0, 256]`, or says `delay_ms: -1`, or omits `characteristic`, used
-/// to fail the whole spec's parse and make the device unmatchable, although
-/// every command and format in it was fine. A step lost here is a step the
-/// handshake will not run — the device may ignore its first command, which
-/// is what an un-handshaken device did before any of this existed — not a
-/// device the catalogue has never heard of.
-fn tolerant_initialization<'de, D>(deserializer: D) -> Result<Vec<InitializationStep>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let raw = serde_yaml::Value::deserialize(deserializer)?;
-    Ok(match raw {
-        serde_yaml::Value::Sequence(steps) => steps
-            .into_iter()
-            .filter_map(|v| serde_yaml::from_value(v).ok())
-            .collect(),
-        _ => Vec::new(),
-    })
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct InitializationStep {
     /// The GATT characteristic this step acts on, as the spec spells it
@@ -2192,11 +2230,31 @@ pub struct InitializationStep {
     /// What the step does, when the spec can only say it in prose.
     #[serde(default)]
     pub description: Option<String>,
+    /// Set only on the placeholder [`tolerant_initialization`] leaves where a
+    /// step could not be read. Never read from YAML: a spec cannot claim it.
+    #[serde(skip)]
+    pub unreadable: bool,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
 
 impl InitializationStep {
+    /// A prose-only placeholder for a step that could not be read, so the
+    /// loss is reported through `Handshake::described` rather than silent.
+    /// Addresses nothing: `is_executable` is false by construction.
+    fn unreadable(description: String) -> Self {
+        Self {
+            characteristic: String::new(),
+            write: None,
+            read: false,
+            subscribe: false,
+            delay_ms: None,
+            description: Some(description),
+            unreadable: true,
+            extensions: HashMap::new(),
+        }
+    }
+
     /// Whether this step states an action a GATT client can carry out.
     ///
     /// The gate between the two kinds of step the catalogue actually holds:
@@ -2804,16 +2862,6 @@ impl Parameter {
     pub fn has_number_semantics(&self) -> bool {
         self.scale.is_some() || self.value_offset.is_some()
     }
-
-    /// Invert the parameter's linear transform to get the raw value a decoded
-    /// `value` encodes to. `None` when `scale` is zero (not invertible).
-    pub fn invert_transform(&self, value: f64) -> Option<f64> {
-        let scale = self.scale.unwrap_or(1.0);
-        if scale == 0.0 {
-            return None;
-        }
-        Some(((value - self.value_offset.unwrap_or(0.0)) / scale).round())
-    }
 }
 
 /// The trust policy for a `default_scheme: https` LAN device's certificate.
@@ -2960,27 +3008,6 @@ impl FormatField {
     pub fn is_big_endian(&self) -> bool {
         self.endianness.as_deref() == Some("big")
     }
-
-    /// Apply the field's linear transform: `value = raw * scale +
-    /// value_offset`. Returns the raw value unchanged when neither is
-    /// declared, which is the common case.
-    pub fn apply_transform(&self, raw: f64) -> f64 {
-        raw * self.scale.unwrap_or(1.0) + self.value_offset.unwrap_or(0.0)
-    }
-
-    /// Invert the linear transform to get the raw value a decoded `value`
-    /// encodes to: `raw = round((value - value_offset) / scale)`.
-    ///
-    /// `None` when `scale` is zero — that transform is not invertible, and
-    /// silently substituting 1.0 would write a number the user never asked
-    /// for.
-    pub fn invert_transform(&self, value: f64) -> Option<f64> {
-        let scale = self.scale.unwrap_or(1.0);
-        if scale == 0.0 {
-            return None;
-        }
-        Some(((value - self.value_offset.unwrap_or(0.0)) / scale).round())
-    }
 }
 
 /// Deserialize a `values:` code table, accepting integer, hex-string or
@@ -3094,9 +3121,6 @@ impl ValueType {
         }
     }
 
-    /// Inclusive `[min, max]` range that fits in this type, used to validate
-    /// `Parameter.min`/`max` declarations at parse time. Returns `None` for
-    /// variable-length types where bounds don't apply.
     /// Whether `coerce_param` can turn an FFI `f64` into wire bytes of this
     /// type.
     ///
@@ -3110,6 +3134,9 @@ impl ValueType {
         !matches!(self, ValueType::Bytes | ValueType::String)
     }
 
+    /// Inclusive `[min, max]` range that fits in this type, used to validate
+    /// `Parameter.min`/`max` declarations at parse time. Returns `None` for
+    /// variable-length types where bounds don't apply.
     pub fn integer_range(&self) -> Option<(i64, i64)> {
         match self {
             ValueType::Bool => Some((0, 1)),

@@ -199,9 +199,11 @@ void main() {
     expect(find.byIcon(Icons.play_arrow), findsOneWidget);
     expect(find.byIcon(Icons.pause), findsOneWidget);
     expect(find.byIcon(Icons.stop), findsOneWidget);
-    // The speed control presents in decoded units, seeded at range bottom.
+    // With no live reading and nothing sent yet, the speed is unknown — not
+    // the bottom of the range dressed up as a reading.
     expect(find.text('Speed'), findsOneWidget);
-    expect(find.text('0.0 km/h'), findsOneWidget);
+    expect(find.text('—'), findsOneWidget);
+    expect(find.text('0.0 km/h'), findsNothing);
     expect(find.byType(Slider), findsOneWidget);
   });
 
@@ -267,7 +269,7 @@ void main() {
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
 
     // Hold a speed write in flight.
-    await tester.tap(find.byIcon(Icons.add));
+    tester.widget<Slider>(find.byType(Slider)).onChangeEnd!(2.0);
     await tester.pump();
     expect(
       tester.widget<Slider>(find.byType(Slider)).onChanged,
@@ -295,17 +297,20 @@ void main() {
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
 
-    // 0.0 -> 0.5 km/h on tap, which is raw 5 at scale 0.1 — and the
-    // encoder-filled checksum parameter is never supplied by the card.
+    // A committed 3.0 km/h is the baseline; 3.0 -> 3.5 km/h on tap, which
+    // is raw 35 at scale 0.1 — and the encoder-filled checksum parameter is
+    // never supplied by the card.
+    tester.widget<Slider>(find.byType(Slider)).onChangeEnd!(3.0);
+    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
 
-    expect(find.text('0.5 km/h'), findsOneWidget);
-    final call = codec.encodeCalls.firstWhere(
+    expect(find.text('3.5 km/h'), findsOneWidget);
+    final call = codec.encodeCalls.lastWhere(
       (c) => c.commandName == 'set_speed',
     );
-    expect(call.params, {'speed': 5.0});
-    expect(ble.writes.single.value, [0xF7, 0xFD]);
+    expect(call.params, {'speed': 35.0});
+    expect(ble.writes.last.value, [0xF7, 0xFD]);
   });
 
   testWidgets('the slider commits on release, not on every drag tick', (
@@ -344,7 +349,7 @@ void main() {
     );
     await tester.pumpWidget(_wrap(ble: ble, codec: codec));
 
-    await tester.tap(find.byIcon(Icons.add));
+    tester.widget<Slider>(find.byType(Slider)).onChangeEnd!(2.0);
     await tester.pumpAndSettle();
 
     expect(
@@ -553,6 +558,8 @@ void main() {
 
     // The speed control sends only the speed param; the slope rides its spec
     // default, so nothing here fabricates an incline the pad does not have.
+    tester.widget<Slider>(find.byType(Slider)).onChangeEnd!(10);
+    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     final speedCall = codec.encodeCalls.lastWhere(
@@ -814,6 +821,193 @@ void main() {
       'ftms_start',
       reason: 'the belt in front of us is the FTMS generation',
     );
+  });
+
+  testWidgets('the steppers never nudge from an invented baseline', (
+    tester,
+  ) async {
+    // The card has no live speed reading. It used to open at the range
+    // bottom and step from there, so on a belt already running at 5 km/h
+    // 'Speed up' sent 0.5 km/h. Old code: the tap sent {'speed': 5.0}.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
+    await tester.pumpWidget(_wrap(ble: ble, codec: codec));
+
+    IconButton stepper(String tip) => tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byIcon(tip == 'Speed up' ? Icons.add : Icons.remove),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(stepper('Speed up').onPressed, isNull);
+    expect(stepper('Slow down').onPressed, isNull);
+    await tester.tap(find.byIcon(Icons.add), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls, isEmpty);
+    expect(ble.writes, isEmpty);
+
+    // An absolute target from the slider is a real baseline.
+    tester.widget<Slider>(find.byType(Slider)).onChangeEnd!(4.0);
+    await tester.pumpAndSettle();
+    expect(stepper('Speed up').onPressed, isNotNull);
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.last.params, {'speed': 45.0});
+  });
+
+  testWidgets("the slider's screen-reader text uses the spec's unit and "
+      'precision', (tester) async {
+    // Old code announced 'Speed 3.0 km/h' whatever the spec declared.
+    final spec = _spedSpec(const [
+      CommandDto(
+        name: 'set_speed',
+        description: 'Set speed',
+        isFixed: false,
+        isEncodable: true,
+        unsupportedEncoding: null,
+        advanced: false,
+        parameters: [
+          ParameterDto(
+            name: 'speed',
+            valueType: 'uint16',
+            min: 0,
+            max: 800,
+            scale: 0.01,
+            unit: 'mph',
+            userSettable: true,
+          ),
+        ],
+      ),
+    ]);
+    await tester.pumpWidget(
+      _wrap(ble: FakeBleService(), codec: FakeSpecCodec(), spec: spec),
+    );
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.semanticFormatterCallback!(3), 'Speed 3.00 mph');
+  });
+
+  testWidgets("an FTMS pad's slider stops at the entity's decoded 12 km/h, "
+      'not the raw parameter bound', (tester) async {
+    // kingsmith-walkingpad.yaml FTMS: set_target_speed.speed is uint16,
+    // scale 0.01, max 2500 RAW (25 km/h); the 'Target Speed' entity clamps at
+    // 12. The action DTO's min/max are RAW, so the old clamp compared 2500
+    // against 25 km/h, kept 25, and let the card send raw 2500.
+    const ftmsSvc = '00001826-0000-1000-8000-00805f9b34fb';
+    const ftmsChar = '00002ad9-0000-1000-8000-00805f9b34fb';
+    final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallbackTypes: const [],
+      txtMatchGroups: const [],
+      hiddenEntityNames: const [],
+      deviceName: 'FTMS Pad',
+      manufacturer: 'KingSmith',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'treadmill',
+      localNamePrefixes: const [],
+      localNames: const [],
+      serviceUuids: const [ftmsSvc],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceTypes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      entities: const [
+        EntityDto(
+          options: [],
+          name: 'Target Speed',
+          key: 'speed',
+          platform: 'number',
+          canNotify: false,
+          hasFormat: false,
+          onWhenNonzero: false,
+          setpointMin: 0,
+          setpointMax: 12,
+          actions: [
+            EntityActionDto(
+              role: 'set_value',
+              serviceUuid: ftmsSvc,
+              characteristicUuid: ftmsChar,
+              commandName: 'set_target_speed',
+              userParams: ['speed'],
+              min: 0,
+              max: 2500,
+            ),
+          ],
+          variants: [],
+        ),
+      ],
+      services: const [
+        ServiceDto(
+          uuid: ftmsSvc,
+          name: 'ftms',
+          characteristics: [
+            CharacteristicDto(
+              uuid: ftmsChar,
+              name: 'Treadmill Control Point',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              formatFields: [],
+              commands: [
+                CommandDto(
+                  name: 'set_target_speed',
+                  description: 'Set target speed',
+                  isFixed: false,
+                  isEncodable: true,
+                  unsupportedEncoding: null,
+                  advanced: false,
+                  parameters: [
+                    ParameterDto(
+                      name: 'speed',
+                      valueType: 'uint16',
+                      min: 0,
+                      max: 2500,
+                      scale: 0.01,
+                      unit: 'km/h',
+                      userSettable: true,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+    const services = [
+      BleDiscoveredService(
+        uuid: ftmsSvc,
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: ftmsChar,
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+          ),
+        ],
+      ),
+    ];
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x02]));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, spec: spec, services: services),
+    );
+
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.max, closeTo(12.0, 1e-9));
+
+    // Speed up from the top stops at raw 1200, never above.
+    slider.onChangeEnd!(12.0);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    expect(
+      codec.encodeCalls.map((c) => c.params['speed']),
+      everyElement(lessThanOrEqualTo(1200.0)),
+    );
+    expect(codec.encodeCalls.last.params, {'speed': 1200.0});
   });
 
   // F-055: the sent-status line used a Colors.green literal, which fails

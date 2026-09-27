@@ -97,10 +97,17 @@ class FakeRadioProgrammer implements BandLimitProgrammer {
     deviceIds.add(deviceId);
     final failure = error;
     if (failure != null) throw failure;
-    yield* Stream.fromIterable(events);
+    // RadioProgrammer.readCodeplug's contract, which the serial and BLE
+    // programmers keep: the image reaches [onResult] BEFORE the last event.
+    // This fake used to call it after, so a screen treating the final event
+    // as "result ready" would behave differently here than on hardware.
+    if (events.isNotEmpty) {
+      yield* Stream.fromIterable(events.take(events.length - 1));
+    }
     onResult(
       RadioCodeplug(modelId: profile.id, image: image, readAt: DateTime.now()),
     );
+    if (events.isNotEmpty) yield events.last;
   }
 
   @override

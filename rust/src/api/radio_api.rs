@@ -8,7 +8,7 @@
 //! That is the house split, and it is also what lets a whole programming
 //! session be tested against an emulated peripheral with no radio present.
 
-use crate::protocol::radio::codeplug::{self, ChannelRecord, Tone};
+use crate::protocol::radio::codeplug::{self, ChannelRecord, Power, Tone};
 use crate::protocol::radio::models::{self, RadioModel};
 use crate::protocol::radio::uv17pro;
 use crate::protocol::radio::uv5r::{self, BandLimit, BandLimits, LimitLayout, Uv5rModel};
@@ -24,6 +24,34 @@ pub struct RadioModelDto {
     pub image_len: u32,
     pub channel_count: u16,
     pub name_len: u32,
+    /// The transmit power levels the radio has, as [`RadioChannelDto::power`]
+    /// names them, in the order its records index them.
+    pub power_levels: Vec<String>,
+}
+
+/// A power level's name at the boundary.
+fn power_name(power: Power) -> String {
+    match power {
+        Power::High => "high",
+        Power::Medium => "medium",
+        Power::Low => "low",
+    }
+    .to_string()
+}
+
+/// A power level from its name. Anything else is refused rather than
+/// guessed: a guess here is a transmit power nobody chose.
+fn power_from_name(name: &str) -> anyhow::Result<Power> {
+    match name {
+        "high" => Ok(Power::High),
+        "medium" => Ok(Power::Medium),
+        "low" => Ok(Power::Low),
+        other => Err(anyhow::anyhow!("{other:?} is not a power level")),
+    }
+}
+
+fn power_names(levels: &[Power]) -> Vec<String> {
+    levels.iter().map(|&p| power_name(p)).collect()
 }
 
 /// One block of a read or a write.
@@ -112,13 +140,17 @@ pub struct RadioChannelDto {
     pub tx_tone: ToneDto,
     pub rx_tone: ToneDto,
     pub narrow: bool,
-    pub low_power: bool,
+    /// "high", "medium" or "low". A name rather than the record's index,
+    /// because the index means different levels on different radios, and a
+    /// name rather than a low-power flag, because a flag cannot say medium.
+    /// A level the radio lacks is written as the nearest one below it.
+    pub power: String,
     pub skip: bool,
 }
 
 impl RadioChannelDto {
-    fn to_channel(&self) -> ChannelRecord {
-        ChannelRecord {
+    fn to_channel(&self) -> anyhow::Result<ChannelRecord> {
+        Ok(ChannelRecord {
             name: self.name.clone(),
             rx_freq_hz: self.rx_freq_hz,
             tx_freq_hz: self.tx_freq_hz,
@@ -126,9 +158,9 @@ impl RadioChannelDto {
             tx_tone: self.tx_tone.to_tone(),
             rx_tone: self.rx_tone.to_tone(),
             narrow: self.narrow,
-            low_power: self.low_power,
+            power: power_from_name(&self.power)?,
             skip: self.skip,
-        }
+        })
     }
 
     fn from_channel(slot: u16, channel: &ChannelRecord) -> Self {
@@ -141,7 +173,7 @@ impl RadioChannelDto {
             tx_tone: ToneDto::from_tone(channel.tx_tone),
             rx_tone: ToneDto::from_tone(channel.rx_tone),
             narrow: channel.narrow,
-            low_power: channel.low_power,
+            power: power_name(channel.power),
             skip: channel.skip,
         }
     }
@@ -176,12 +208,14 @@ pub fn radio_models() -> Vec<RadioModelDto> {
         image_len: model.image_len,
         channel_count: model.channel_count,
         name_len: models::NAME_LEN as u32,
+        power_levels: power_names(model.power_levels),
     });
     let older = uv5r::MODELS.iter().map(|model| RadioModelDto {
         id: model.id.to_string(),
         image_len: uv5r::IMAGE_LEN as u32,
         channel_count: uv5r::CHANNEL_COUNT as u16,
         name_len: uv5r::NAME_LEN as u32,
+        power_levels: power_names(model.power_levels),
     });
     newer.chain(older).collect()
 }
@@ -227,12 +261,27 @@ pub fn radio_read_plan(model_id: String) -> anyhow::Result<Vec<CodeplugBlockDto>
 /// Bigger blocks than a read: the tunnel re-blocks uploads to 0x80. Over a
 /// cable this family writes 0x40, which is what this would take as a
 /// parameter the day there is a cable driver for it.
+///
+/// An error, before anything is sent, for a model whose Bluetooth write
+/// frame nobody has seen: the padded frames overwrite memory past each
+/// region's end, which is known harmless only where CHIRP does the same.
+/// See [`RadioModel::ble_write_frame`].
 pub fn radio_write_plan(model_id: String) -> anyhow::Result<Vec<CodeplugBlockDto>> {
     let model = model_or_error(&model_id)?;
-    Ok(block_dtos(uv17pro::read_plan(
-        model.regions,
-        uv17pro::BLE_WRITE_BLOCK_SIZE,
-    )))
+    let frame = model.ble_write_frame.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Writing a {} over Bluetooth is turned off until someone captures \
+             what it accepts: the way the Minis are written would overwrite \
+             memory this app never read. Nothing was written.",
+            model.display_name
+        )
+    })?;
+    // `radio_write_command` sends one frame size; a plan cut to another
+    // would have its blocks padded or refused mid-write.
+    if frame != uv17pro::BLE_WRITE_BLOCK_SIZE {
+        anyhow::bail!("no write command for 0x{frame:02X}-byte frames");
+    }
+    Ok(block_dtos(uv17pro::read_plan(model.regions, frame)))
 }
 
 /// The request that reads `len` bytes from `addr`.
@@ -298,7 +347,10 @@ pub fn radio_encode_channels(
     model_id: String,
 ) -> anyhow::Result<Vec<u8>> {
     let model = model_or_error(&model_id)?;
-    let decoded: Vec<ChannelRecord> = channels.iter().map(|c| c.to_channel()).collect();
+    let decoded = channels
+        .iter()
+        .map(RadioChannelDto::to_channel)
+        .collect::<anyhow::Result<Vec<ChannelRecord>>>()?;
     Ok(codeplug::encode_channels(&image, &decoded, model)?)
 }
 
@@ -463,8 +515,8 @@ pub fn uv5r_decode_channels(
     image: Vec<u8>,
     model_id: String,
 ) -> anyhow::Result<Vec<RadioChannelDto>> {
-    uv5r_model_or_error(&model_id)?;
-    Ok(uv5r::decode_channels(&image)?
+    let model = uv5r_model_or_error(&model_id)?;
+    Ok(uv5r::decode_channels(&image, model)?
         .into_iter()
         .enumerate()
         .filter_map(|(index, channel)| {
@@ -481,7 +533,10 @@ pub fn uv5r_encode_channels(
     model_id: String,
 ) -> anyhow::Result<Vec<u8>> {
     let model = uv5r_model_or_error(&model_id)?;
-    let decoded: Vec<ChannelRecord> = channels.iter().map(|c| c.to_channel()).collect();
+    let decoded = channels
+        .iter()
+        .map(RadioChannelDto::to_channel)
+        .collect::<anyhow::Result<Vec<ChannelRecord>>>()?;
     Ok(uv5r::encode_channels(&image, &decoded, model)?)
 }
 
@@ -579,7 +634,7 @@ mod tests {
             tx_tone: ToneDto::none(),
             rx_tone: ToneDto::none(),
             narrow: false,
-            low_power: false,
+            power: "high".into(),
             skip: false,
         }
     }
@@ -632,6 +687,52 @@ mod tests {
         assert_eq!(frame.len(), 0x84);
         assert!(frame[0x44..].iter().all(|&b| b == 0xFF));
         assert!(radio_write_command(0, vec![0; 0x81]).is_err());
+    }
+
+    #[test]
+    fn only_models_with_a_known_bluetooth_frame_get_a_write_plan() {
+        // The UV-32 was sent the Minis' padded 0x80 frames, writing 0xFF over
+        // 0xA2C0-0xA2FF and 0xD040-0xD07F, which nobody reads or backs up.
+        for id in ["uv-5r-mini", "uv-5g-mini"] {
+            assert!(!radio_write_plan(id.into()).unwrap().is_empty(), "{id}");
+        }
+        for id in ["uv-32", "uv-17r-plus"] {
+            let err = radio_write_plan(id.into()).unwrap_err().to_string();
+            assert!(err.contains("Nothing was written"), "{id}: {err}");
+        }
+    }
+
+    #[test]
+    fn power_crosses_the_boundary_by_name() {
+        // A low-power flag could not say medium: a UV-32 channel read at
+        // Medium came back as "low", and one moved to another slot was
+        // written as whatever that slot held.
+        let image = vec![0xFFu8; models::UV32.image_len as usize];
+        let mut channels = vec![dto(1, "M", 146_520_000), dto(2, "L", 146_540_000)];
+        channels[0].power = "medium".into();
+        channels[1].power = "low".into();
+        let written = radio_encode_channels(image.clone(), channels, "uv-32".into()).unwrap();
+        assert_eq!(written[14] & 0x03, 2);
+        assert_eq!(written[32 + 14] & 0x03, 1);
+        let read = radio_decode_channels(written, "uv-32".into()).unwrap();
+        assert_eq!(read[0].power, "medium");
+        assert_eq!(read[1].power, "low");
+
+        let mut bad = dto(1, "X", 146_520_000);
+        bad.power = "loud".into();
+        assert!(radio_encode_channels(image, vec![bad], "uv-32".into()).is_err());
+
+        let levels = |id: &str| {
+            radio_models()
+                .into_iter()
+                .find(|m| m.id == id)
+                .unwrap()
+                .power_levels
+        };
+        assert_eq!(levels("uv-32"), ["high", "low", "medium"]);
+        assert_eq!(levels("uv-5r-mini"), ["high", "low"]);
+        assert_eq!(levels("bf-f8hp"), ["high", "medium", "low"]);
+        assert_eq!(levels("uv5r"), ["high", "low"]);
     }
 
     #[test]

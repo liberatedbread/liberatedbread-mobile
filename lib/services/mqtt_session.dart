@@ -451,6 +451,19 @@ class MqttSession {
   }) async {
     if (_socket != null) return;
 
+    // Rendered BEFORE the socket opens, so nothing is awaited between
+    // `_socket = socket` and the try that releases it. Rendered after, a
+    // render failure (an over-length credential the codec refuses) left the
+    // socket set with no CONNACK — the next connect() returned early at the
+    // guard above and reported an unauthenticated session as connected — and
+    // a hang-up inside the render's FFI await failed `_connected` with no
+    // handler attached yet, an unhandled async error.
+    final connectPacket = await _codec.mqttConnectPacket(
+      clientId: clientId,
+      username: username,
+      password: password,
+    );
+
     final socket = await _connect(host, port, connectTimeout);
     _socket = socket;
     _failed = false;
@@ -468,14 +481,6 @@ class MqttSession {
       cancelOnError: false,
     );
 
-    socket.add(
-      await _codec.mqttConnectPacket(
-        clientId: clientId,
-        username: username,
-        password: password,
-      ),
-    );
-
     try {
       final acknowledged = _connected!.future;
       // The timeout below gives up on this future, and then close() shuts the
@@ -487,6 +492,9 @@ class MqttSession {
       // second copy marks it handled without changing what `await` below
       // sees, so a genuine refusal still propagates.
       unawaited(acknowledged.catchError((Object _) {}));
+      // Inside the try: a sink that refuses the write still releases the
+      // socket below.
+      socket.add(connectPacket);
       await acknowledged.timeout(ackWait);
     } on TimeoutException {
       await close();

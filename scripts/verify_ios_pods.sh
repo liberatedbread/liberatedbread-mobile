@@ -2,16 +2,25 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Liberated Bread Mobile — assert that CocoaPods actually resolved, and that
-# the pods whose absence is silently fatal at runtime are in the lockfile.
+# Liberated Bread Mobile — assert that the pods whose absence is silently
+# fatal at runtime are locked, and (after a build) installed.
 #
-# WHY A ZERO EXIT FROM `flutter build ios` IS NOT THIS CHECK
+# WHAT GUARDS WHAT
 #
-# `flutter build ios` runs pod install itself, so a FAILED pod install does
-# fail the build. A SKIPPED one does not — and a skipped one leaves the plugin
-# pods unlinked while the Runner target still compiles and the build still
-# reports success. Podfile.lock is the artifact that proves resolution
-# happened; the pod list proves the plugins the app depends on were part of it.
+# A SKIPPED or out-of-sync pod install is not this script's job: the Runner
+# target's first build phase, "[CP] Check Pods Manifest.lock", diffs
+# Pods/Manifest.lock against Podfile.lock and fails `flutter build ios` with
+# "The sandbox is not in sync with the Podfile.lock". A pod install that ran
+# and changed the lockfile is caught by ci.yml's drift step. This header used
+# to claim Podfile.lock proved resolution happened; ios/Podfile.lock is
+# committed, so it exists after checkout whatever the build did.
+#
+# What this script adds is the pod LIST: the three runtime-critical federated
+# pods must be in the committed lockfile, so dropping or renaming a plugin
+# fails here rather than as a MissingPluginException on a phone. When
+# Pods/Manifest.lock exists (it is gitignored and written only by a real
+# `pod install`) the same pods are asserted there too, so the check also reads
+# what was actually installed.
 #
 # The pod names are the federated iOS implementations from
 # .flutter-plugins-dependencies, NOT the pub package names — flutter_blue_plus
@@ -26,8 +35,8 @@
 #   ./scripts/verify_ios_pods.sh            # against ios/
 #   ./scripts/verify_ios_pods.sh macos      # against macos/
 #
-# Runs on a Mac after any `flutter build ios`. It reads committed and generated
-# files only — no Xcode, no simulator — so it is also the cheapest of the iOS
+# Runs on a Mac, normally after `flutter build ios`. It reads committed and
+# generated files only — no Xcode, no simulator — so it is also the cheapest of the iOS
 # checks to run while iterating.
 
 set -uo pipefail
@@ -36,6 +45,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
 
 PLATFORM_DIR="${1:-ios}"
 LOCKFILE="$PLATFORM_DIR/Podfile.lock"
+MANIFEST="$PLATFORM_DIR/Pods/Manifest.lock"
 
 # The pods whose absence is silently fatal at runtime: each provides a platform
 # channel the app calls unconditionally, and a missing one is a
@@ -48,22 +58,33 @@ REQUIRED_PODS=(
 
 log() { printf '\033[1;32m[verify-pods]\033[0m %s\n' "$*"; }
 
+# ios/Podfile.lock is committed; macos/Podfile.lock is not, so there a
+# missing file does mean CocoaPods never resolved for that platform.
 if [ ! -f "$LOCKFILE" ]; then
-  echo "::error file=$PLATFORM_DIR/Podfile::$LOCKFILE is absent after the build — CocoaPods never resolved, so no plugin pod is linked into the app." >&2
+  echo "::error file=$PLATFORM_DIR/Podfile::$LOCKFILE does not exist — run the build (or pod install) for $PLATFORM_DIR/ first; no plugin pod can be linked without it." >&2
   exit 1
 fi
 
+lockfiles=("$LOCKFILE")
+if [ -f "$MANIFEST" ]; then
+  lockfiles+=("$MANIFEST")
+else
+  log "$MANIFEST absent (no pod install here yet): checking the committed lockfile only."
+fi
+
 missing=0
-for pod in "${REQUIRED_PODS[@]}"; do
-  # `^ +- <pod> (` matches the PODS: section's entries, not the
-  # DEPENDENCIES/SPEC CHECKSUMS ones, so a pod named only as a dependency of
-  # something that failed to install cannot satisfy this.
-  if grep -qE "^ +- ${pod} \(" "$LOCKFILE"; then
-    log "  ok  pod ${pod}"
-  else
-    echo "::error file=$PLATFORM_DIR/Podfile::Pod '${pod}' is missing from $LOCKFILE — its platform channels would be unavailable at runtime." >&2
-    missing=1
-  fi
+for file in "${lockfiles[@]}"; do
+  for pod in "${REQUIRED_PODS[@]}"; do
+    # `^ +- <pod> (` matches the PODS: section's entries, not the
+    # DEPENDENCIES/SPEC CHECKSUMS ones, so a pod named only as a dependency of
+    # something that failed to install cannot satisfy this.
+    if grep -qE "^ +- ${pod} \(" "$file"; then
+      log "  ok  pod ${pod} in ${file}"
+    else
+      echo "::error file=$PLATFORM_DIR/Podfile::Pod '${pod}' is missing from $file — its platform channels would be unavailable at runtime." >&2
+      missing=1
+    fi
+  done
 done
 
 # Informational, not asserted. This is the exact knob behind the iOS BLE

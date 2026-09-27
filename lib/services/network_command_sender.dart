@@ -571,7 +571,14 @@ class NetworkCommandSender {
     if (_closed) {
       throw const MqttConnectionException('This device screen has closed.');
     }
-    final port = devicePort ?? capabilities?.defaultPort;
+    // The spec's declared broker port first. The discovered port is the port
+    // of whatever service discovery heard — a Hisense set's SSDP descriptor
+    // server (38400/18400) or its _googlecast._tcp (8009), a Bambu printer's
+    // _http._tcp — never the broker, so preferring it dialled the wrong
+    // service on every press. Every MQTT spec in the catalogue declares its
+    // broker as `default_port` (hisense-vidaa 36669, bambu-lab-lan 8883,
+    // irobot-roomba 8883, dyson-air-purifier 1883 — where the two agree).
+    final port = capabilities?.defaultPort ?? devicePort;
     if (port == null) {
       throw const MqttConnectionException(
         'the device did not advertise a broker port',
@@ -745,6 +752,14 @@ class NetworkCommandSender {
     // leaving a registration nothing releases: the per-host leak the R-037
     // release in close() exists to prevent.
     if (_closed) throw StateError('NetworkCommandSender is closed');
+    // Only a GET query is safe to repeat. A keypress, keydown or launch that
+    // reached the TV and then timed out or answered oddly has probably
+    // already acted: sending it again over plain ECP pressed VolumeUp twice,
+    // or toggled Mute and Play/Pause back — the screen reporting success on
+    // a set left unchanged (HttpControlClient's rule: a command whose first
+    // send was merely slow is never sent twice).
+    final idempotent = request.method.toUpperCase() == 'GET';
+    Ecp2Exception? afterWrite;
     // At most two tries over the session: the one that finds it dead, and
     // one over its replacement.
     for (var attempt = 0; attempt < 2; attempt++) {
@@ -754,18 +769,37 @@ class NetworkCommandSender {
         return await session.send(request);
       } on ControlRefusedException {
         // ECP2 has no equivalent for this path, or the device refused it over
-        // the session — fall through to the plain path below.
+        // the session — nothing was acted on; fall through to plain below.
+        afterWrite = null;
         break;
-      } on Ecp2Exception {
-        // A session the device dropped UNDER this request (its socket
-        // closed mid-round-trip) is reopened by the next openSignedSession
-        // and the request retried once, so the press that discovers the
-        // drop still lands. Any other falter — a timeout on a session that
-        // is still up — falls back to plain ECP for this request only; the
-        // session stays owned by the keyboard watch and the next send
-        // tries it again.
+      } on Ecp2NotSentException {
+        // The frame never left: the session was already dead. Reopen and
+        // retry, or fall back to plain — nothing can land twice.
+        afterWrite = null;
+        if (!session.isClosed) break;
+      } on Ecp2Exception catch (e) {
+        // The frame WAS written, then the answer went missing.
+        if (idempotent) {
+          // A query may be asked again anywhere: reopen a dropped session,
+          // or fall back to plain for a still-open one that faltered.
+          if (!session.isClosed) break;
+          continue;
+        }
+        afterWrite = e;
+        // A socket that died under the write usually never delivered it
+        // (the set slept, the Wi-Fi blipped), and a lost press is the
+        // commoner harm — so a dropped session is reopened and the press
+        // retried ONCE: the one accepted at-most-twice case. A timeout or
+        // an unexpected status on a session still up is final.
         if (!session.isClosed) break;
       }
+    }
+    final failed = afterWrite;
+    if (failed != null) {
+      if (failed is Ecp2TimeoutException) {
+        throw const ControlTimeoutException();
+      }
+      throw failed;
     }
     // Asked AGAIN, because the session attempt above is an await a close()
     // can land inside. The gate at the top only covers a send that STARTS

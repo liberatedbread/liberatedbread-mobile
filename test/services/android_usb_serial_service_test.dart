@@ -38,6 +38,10 @@ class _FakePlugin {
   /// The Android device numbers opened, in order.
   final List<Object?> created = [];
   bool openSucceeds = true;
+
+  /// A port method that fails with a PlatformException, as a plugin
+  /// reporting a refused control request would.
+  String? failing;
   final List<MethodCall> portCalls = [];
   final List<Uint8List> written = [];
   MockStreamHandlerEventSink? input;
@@ -57,6 +61,9 @@ class _FakePlugin {
     });
     messenger.setMockMethodCallHandler(_port, (call) async {
       portCalls.add(call);
+      if (call.method == failing) {
+        throw PlatformException(code: 'IOException', message: 'refused');
+      }
       switch (call.method) {
         case 'open':
           return openSucceeds;
@@ -202,6 +209,18 @@ void main() {
         ),
       ),
     );
+  });
+
+  // Fails on the old code: the setup error escaped open() with the port
+  // still open and nothing returned for the caller to close.
+  test('a cable that opens but refuses its setup is closed again', () async {
+    plugin.failing = 'setDTR';
+    await expectLater(
+      service.open(cable, baudRate: 9600),
+      throwsA(isA<PlatformException>()),
+    );
+    final methods = [for (final c in plugin.portCalls) c.method];
+    expect(methods, containsAllInOrder(['open', 'setDTR', 'close']));
   });
 
   test('a cable no longer plugged in is refused before anything', () async {

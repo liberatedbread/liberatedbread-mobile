@@ -44,6 +44,14 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   String? _error;
   StreamSubscription<List<int>>? _notifySub;
 
+  /// Arrival order of the bytes being decoded, stamped when they arrive.
+  /// Decodes run concurrently on FRB's worker pool, so a seed read's decode
+  /// could finish after a later notification's and put the older reading
+  /// back — on screen and, worse, forwarded to Home Assistant as current.
+  /// A result stamped below [_appliedSeq] is dropped.
+  int _arrivalSeq = 0;
+  int _appliedSeq = 0;
+
   @override
   void initState() {
     super.initState();
@@ -57,7 +65,7 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
     super.dispose();
   }
 
-  Future<void> _decodeAndSet(List<int> bytes) async {
+  Future<void> _decodeAndSet(List<int> bytes, int seq) async {
     final codec = ref.read(specCodecProvider);
     final forwarder = ref.read(haForwarderProvider);
     final decoded = await codec.decodeValue(
@@ -65,6 +73,12 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
       charUuid: widget.specChar.uuid,
       bytes: bytes,
     );
+    // Superseded by newer bytes: neither shown nor forwarded.
+    if (seq < _appliedSeq) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    _appliedSeq = seq;
     // Best-effort side channel to Home Assistant; never blocks or breaks
     // the local UI (the forwarder swallows its own errors).
     unawaited(
@@ -88,6 +102,7 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
       _loading = true;
       _error = null;
     });
+    final issuedAt = _arrivalSeq;
     try {
       final ble = ref.read(bleServiceProvider);
       final bytes = await ble.readCharacteristic(
@@ -95,9 +110,12 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
         widget.serviceUuid,
         widget.specChar.uuid,
       );
-      await _decodeAndSet(bytes);
+      await _decodeAndSet(bytes, ++_arrivalSeq);
     } catch (e) {
-      if (mounted) {
+      // A late failure must not hide a newer live reading behind 'Error:'.
+      if (mounted && _appliedSeq > issuedAt) {
+        setState(() => _loading = false);
+      } else if (mounted) {
         setState(() {
           _error = friendlyErrorText(
             e,
@@ -121,7 +139,7 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
         .listen(
           (bytes) {
             unawaited(
-              _decodeAndSet(bytes).catchError((Object e) {
+              _decodeAndSet(bytes, ++_arrivalSeq).catchError((Object e) {
                 if (mounted) {
                   setState(
                     () => _error = friendlyErrorText(

@@ -25,10 +25,11 @@
 // Only after (2) has been eyeballed against CHIRP should anyone trust a
 // write on a radio they would mind losing.
 //
-// Doubly guarded, like the other live suites: the `live_radio` tag keeps it
-// out of every ordinary run, and it skips itself unless LB_LIVE_RADIO=1 --
-// so a bare `flutter test` on a developer machine can never start writing to
-// whatever is advertising nearby.
+// Doubly guarded, like the other live suites: ./scripts/test.sh and CI
+// exclude the `live_radio` tag, and the suite skips itself unless
+// LB_LIVE_RADIO=1 -- so a bare `flutter test` (which excludes nothing) is
+// held back by the env var alone, and a mirror run in a shell still carrying
+// it from a live session is held back by the exclusion.
 //
 // Run it (with the radio in view, and a backup you can restore):
 //   LB_LIVE_RADIO=1 LB_LIVE_RADIO_ID=AA:BB:CC:DD:EE:FF \

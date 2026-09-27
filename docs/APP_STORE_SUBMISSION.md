@@ -49,11 +49,10 @@ long pole is now Step 2 (a Distribution certificate under the LLC team).
 - **Marketing version** stays `0.1.0` (to ship as 1.0.0 edit only
   `pubspec.yaml`'s `version:` — consider doing so, since a 0.x version alongside
   any "early"/"preview" wording is part of what reads as a beta under Guideline
-  2.2). The **build number** — the
-  `+N` half — must increase on every upload; see the note in Step 5. Do not
-  freeze it: App Store Connect rejects a second upload carrying a
-  `CFBundleVersion` it has already seen, and `pubspec.yaml` is the only source
-  of that value.
+  2.2). The **build number** (`CFBundleVersion`) must rise on every upload;
+  `./scripts/release.sh ios` sets it from the clock, so the pubspec `+N` is
+  ignored and needs no bump (see the note in Step 5 and
+  [RELEASE.md](RELEASE.md)).
 
 **On-Mac validation (Mac Mini, Xcode 26.3 / Flutter 3.44.8):**
 - `flutter build ios --release --no-codesign` → builds clean (Runner.app 38.5 MB);
@@ -132,8 +131,8 @@ then dead at runtime; re-add in 0.1.1. Ask me to stage that if needed.)*
 
 ## Step 2 — Apple **Distribution** certificate
 
-The Mac has only an "Apple Development" cert on the *individual* team. Create an
-**Apple Distribution** cert **under Pigs Can Fly Labs LLC (GQ358PSWM3)**:
+Create an **Apple Distribution** cert **under Pigs Can Fly Labs LLC
+(GQ358PSWM3)**:
 Xcode ▸ **Settings ▸ Accounts** ▸ select the *Pigs Can Fly Labs LLC* team ▸
 **Manage Certificates ▸ + ▸ Apple Distribution**. (Or developer.apple.com ▸
 Certificates, with the LLC team selected top-right.)
@@ -156,8 +155,7 @@ Xcode manage it) so it's in the login keychain on the build Mac.
 
 ## Step 5 — Build + upload the signed IPA (on the Mac)
 
-The Mac is already staged: Flutter 3.44.8 is at `~/flutter-3.44.8`. Build from a
-clean checkout of this branch:
+Build from a clean checkout of main:
 ```sh
 # release.sh puts the repo-managed SDK (~/.flutter-sdk, or FLUTTER_HOME) first
 # on PATH and upgrades it to CI's pinned Flutter, so the SDK on PATH here is
@@ -168,7 +166,8 @@ git clone -b main git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb &
 # APIs or App Store Connect rejects the upload (ITMS-91053). `unfuck`, which
 # this line used to clone, predates that declaration AND the committed
 # DEVELOPMENT_TEAM; following the runbook verbatim reproduced the rejection it
-# says is fixed. Until the branch carrying the fix is on main, clone that one.
+# says is fixed. main carries the declaration; the grep stops a build from
+# an older branch that does not.
 grep -q NSPrivacyAccessedAPICategoryFileTimestamp ios/Runner/PrivacyInfo.xcprivacy || { echo "privacy manifest lacks the FileTimestamp declaration — wrong branch"; exit 1; }
 flutter pub get
 # release.sh refuses an untagged or dirty checkout (docs/RELEASE.md): check out
@@ -178,9 +177,11 @@ flutter pub get
                            # ExportOptions plist, plus the build stamp
 ```
 
-**`--build-number` is not optional on a re-upload.** `pubspec.yaml`'s
-`version: 0.1.0+1` is the only source of `CFBundleVersion` (`Info.plist` reads
-`$(FLUTTER_BUILD_NUMBER)`), and nothing bumps it. The first upload succeeds; the
+**`--build-number` is not optional on a re-upload.** `release.sh` always
+passes one (a UTC `YYYYMMDDHHMM` timestamp), so the pubspec `+N` is ignored.
+Without it, a bare `flutter build ipa` takes `CFBundleVersion` from
+`pubspec.yaml`'s `version: 0.1.0+1` (`Info.plist` reads
+`$(FLUTTER_BUILD_NUMBER)`), which nothing bumps. The first upload succeeds; the
 second — a TestFlight build after a rejection, or the re-export once the
 multicast entitlement is granted — is refused by App Store Connect for a
 duplicate build number, and the refusal arrives by email after the upload, not

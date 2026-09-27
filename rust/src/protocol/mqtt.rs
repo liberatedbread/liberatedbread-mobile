@@ -166,7 +166,8 @@ pub fn publish_packet(topic: &str, payload: &str) -> Result<Vec<u8>, ProtocolErr
             name: "payload".to_string(),
             value: variable.len() as f64,
             reason: format!(
-                "an MQTT packet's remaining length is a four-byte varint, so a                  PUBLISH cannot carry more than {MAX_REMAINING_LENGTH} bytes"
+                "an MQTT packet's remaining length is a four-byte varint, so a \
+                 PUBLISH cannot carry more than {MAX_REMAINING_LENGTH} bytes"
             ),
         });
     }
@@ -284,7 +285,8 @@ fn encode_string(out: &mut Vec<u8>, what: &str, value: &str) -> Result<(), Proto
         name: what.to_string(),
         value: bytes.len() as f64,
         reason: format!(
-            "an MQTT string is prefixed with a two-byte length, so it cannot              carry more than {} bytes",
+            "an MQTT string is prefixed with a two-byte length, so it cannot \
+             carry more than {} bytes",
             u16::MAX
         ),
     })?;
@@ -727,6 +729,9 @@ mod tests {
             matches!(&error, ProtocolError::ParameterInvalid { name, .. } if name == "topic"),
             "{error}"
         );
+        // The reason reaches the UI; a joined source line once left a run of
+        // indentation spaces in the middle of it.
+        assert!(!error.to_string().contains("  "), "{error:?}");
 
         let error =
             subscribe_packet(&long, 1).expect_err("no encoding exists for this topic filter");
@@ -941,6 +946,38 @@ commands:
             matches!(&error, ProtocolError::ParameterInvalid { name, .. } if name == "volume"),
             "{error}"
         );
+    }
+
+    /// `volume` declares `min: 0, max: 100`. The BLE codec has always refused
+    /// a value outside a parameter's declared bounds; the network renderers
+    /// checked only the type's width, so 500 went out to the TV as-is.
+    #[test]
+    fn a_body_placeholder_outside_its_declared_bounds_is_refused() {
+        for (raw, value) in [("500", 500.0), ("-1", -1.0), ("101", 101.0)] {
+            let error = render_request(
+                &spec(),
+                "set_volume",
+                &values(&[("client_id", "phone1"), ("volume", raw)]),
+            )
+            .expect_err("an out-of-range volume must not reach the set");
+            assert!(
+                matches!(
+                    &error,
+                    ProtocolError::ParameterOutOfRange { name, value: v, min, max }
+                        if name == "volume" && *v == value && *min == 0.0 && *max == 100.0
+                ),
+                "{raw}: {error}"
+            );
+        }
+        for edge in ["0", "100"] {
+            let request = render_request(
+                &spec(),
+                "set_volume",
+                &values(&[("client_id", "phone1"), ("volume", edge)]),
+            )
+            .expect("the declared bounds are inclusive");
+            assert_eq!(request.payload, edge);
+        }
     }
 
     /// A `string` parameter still goes out verbatim: a bare-string payload has

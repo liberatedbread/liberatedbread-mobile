@@ -857,4 +857,64 @@ void main() {
       contains(allOf(contains('loading 1 spec(s)'), contains('took'))),
     );
   });
+
+  group('builtInSpecsShadowedByPack', () {
+    SpecIdentityDto identity(String name, String mfr) => SpecIdentityDto(
+      deviceName: name,
+      manufacturer: mfr,
+      category: _spec.category,
+      pictogram: _spec.pictogram,
+      adminUrl: _spec.adminUrl,
+      integration: _spec.integration,
+      securityAdvisory: _spec.securityAdvisory,
+      bluezRawAtt: _spec.bluezRawAtt,
+      localNamePrefixes: _spec.localNamePrefixes,
+      localNames: _spec.localNames,
+      serviceUuids: _spec.serviceUuids,
+      companyIds: _spec.companyIds,
+      manufacturerDataPrefixes: _spec.manufacturerDataPrefixes,
+      macPrefixes: _spec.macPrefixes,
+      mdnsServiceTypes: _spec.mdnsServiceTypes,
+      ssdpSearchTargets: _spec.ssdpSearchTargets,
+      lanProtocols: _spec.lanProtocols,
+      defaultPort: _spec.defaultPort,
+      nameMatchers: _spec.nameMatchers,
+      txtMatchGroups: _spec.txtMatchGroups,
+      platformFallbackTypes: _spec.platformFallbackTypes,
+    );
+    CatalogueSpec entry(int index, String key, String name, String mfr) =>
+        CatalogueSpec(
+          index: index,
+          key: key,
+          yaml: key,
+          identity: identity(name, mfr),
+          protocolHandler: null,
+          gattServiceUuids: const [],
+        );
+
+    // The pack-wins shadowing used to be invisible: the install screen said
+    // only "Installed X (N specs)" while a built-in definition, TLS policy
+    // included, had been replaced.
+    test('names only the built-ins this pack replaces', () {
+      final specs = [
+        entry(0, 'vendor/a/roomba.yaml', 'Roomba', 'iRobot'),
+        entry(1, 'vendor/a/envoy.yaml', 'Envoy', 'Enphase'),
+        entry(2, 'pack:Fixes/roomba.yaml', 'Roomba', 'iRobot'),
+        entry(3, 'pack:Fixes/new.yaml', 'Brand New', 'Acme'),
+        entry(4, 'pack:Other/envoy.yaml', 'Envoy', 'Enphase'),
+        entry(5, 'pack:Fixes Two/envoy.yaml', 'Envoy', 'Enphase'),
+      ];
+      expect(builtInSpecsShadowedByPack(specs, 'Fixes'), ['iRobot Roomba']);
+      expect(builtInSpecsShadowedByPack(specs, 'Other'), ['Enphase Envoy']);
+      expect(builtInSpecsShadowedByPack(specs, 'Missing'), isEmpty);
+    });
+
+    test('a pack spec shadowing another pack is not a built-in', () {
+      final specs = [
+        entry(0, 'pack:A/x.yaml', 'X', 'Acme'),
+        entry(1, 'pack:B/x.yaml', 'X', 'Acme'),
+      ];
+      expect(builtInSpecsShadowedByPack(specs, 'B'), isEmpty);
+    });
+  });
 }

@@ -263,6 +263,45 @@ void main() {
     });
   });
 
+  testWidgets('palette swatches are named, selectable buttons with a 48 dp '
+      'target', (tester) async {
+    // Old code: bare 28 px GestureDetectors with no label or selected state,
+    // so a screen reader could not find the eraser or tell what was picked.
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(
+      _wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          specYaml: 'yaml',
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final eraser = find.byKey(const Key('led-palette-9'));
+    expect(tester.getSize(eraser), const Size(48, 48));
+    expect(
+      tester.getSemantics(eraser),
+      isSemantics(label: 'Black (eraser)', isButton: true, isSelected: false),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const Key('led-palette-1'))),
+      isSemantics(label: 'Red', isButton: true, isSelected: true),
+    );
+
+    await tester.ensureVisible(eraser);
+    await tester.tap(eraser);
+    await tester.pump();
+    expect(
+      tester.getSemantics(eraser),
+      isSemantics(label: 'Black (eraser)', isSelected: true),
+    );
+    handle.dispose();
+  });
+
   testWidgets('painting a pixel and sending encodes + writes the plan', (
     tester,
   ) async {

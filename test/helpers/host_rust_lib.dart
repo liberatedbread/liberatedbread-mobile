@@ -214,26 +214,78 @@ void _ensureHostBuild() {
 /// Initialize [RustLib] against a host build of the Rust core.
 ///
 /// Returns true when the native library loaded and the FFI is usable, false
-/// when no host build could be found — callers skip in that case rather than
-/// failing, since not every environment has a Rust toolchain.
+/// when it did not — callers skip in that case rather than failing, since not
+/// every environment has a Rust toolchain. "Did not" covers two cases: no host
+/// build could be found, and one was found but would not open (wrong
+/// architecture, an unresolved symbol, an FRB content-hash mismatch). The
+/// second used to be swallowed by `catch (_)`, so every FFI-backed suite
+/// skipped green and nothing said why; the reasons are now printed.
+///
+/// With LB_REQUIRE_RUST_LIB=1 (set by scripts/test.sh and the CI unit-test
+/// step, both of which have already built the library) either case throws a
+/// [StateError] naming each candidate's error instead, so a library that is
+/// present but unloadable fails the run rather than shrinking it.
 Future<bool> initHostRustLib() async {
+  // A second call in the same isolate would otherwise hit FRB's "Should not
+  // initialize flutter_rust_bridge twice" and report the library as absent.
+  if (RustLib.instance.initialized) return true;
   _ensureHostBuild();
-  for (final path in _candidatePaths()) {
-    if (!File(path).existsSync()) continue;
+  return loadHostRustLib(
+    candidates: _candidatePaths(),
+    init: (path) => path == null
+        ? RustLib.init()
+        : RustLib.init(externalLibrary: ExternalLibrary.open(path)),
+    requireLoaded: _envFlag('LB_REQUIRE_RUST_LIB'),
+  );
+}
+
+/// The load loop behind [initHostRustLib], with the FFI entry point injected
+/// so the reporting can be tested without touching the process-wide RustLib.
+///
+/// Tries each existing path in [candidates], then [init] with a null path (the
+/// default loader). Returns true on the first success. On failure it writes
+/// every collected error to [log]; with [requireLoaded] it throws a
+/// [StateError] carrying them instead of returning false.
+Future<bool> loadHostRustLib({
+  required List<String> candidates,
+  required Future<void> Function(String? path) init,
+  bool requireLoaded = false,
+  void Function(String line)? log,
+}) async {
+  final errors = <String>[];
+  for (final path in candidates) {
+    if (!File(path).existsSync()) {
+      errors.add('$path: not built');
+      continue;
+    }
     try {
-      await RustLib.init(externalLibrary: ExternalLibrary.open(path));
+      await init(path);
       return true;
-    } catch (_) {
+    } catch (e) {
       // Try the next candidate; a stale or wrong-arch artifact should not stop
-      // a good one further down the list from being used.
+      // a good one further down the list from being used. Kept, not dropped:
+      // it is the only record of why the suite is about to skip.
+      errors.add('$path: $e');
     }
   }
   // Last resort: whatever the default loader can find (a platform build, or a
   // library already on the system search path).
   try {
-    await RustLib.init();
+    await init(null);
     return true;
-  } catch (_) {
-    return false;
+  } catch (e) {
+    errors.add('default loader: $e');
   }
+  final report = errors.map((e) => '  $e').join('\n');
+  if (requireLoaded) {
+    throw StateError(
+      'LB_REQUIRE_RUST_LIB is set but the host Rust library did not load; '
+      'every FFI-backed test would skip:\n$report',
+    );
+  }
+  (log ?? stdout.writeln)(
+    '[host_rust_lib] Rust lib did not load; FFI-backed tests in this file '
+    'will skip:\n$report',
+  );
+  return false;
 }

@@ -14,10 +14,11 @@ import 'settings_store.dart';
 /// in the platform keychain via [SettingsStore], never in plain preferences,
 /// never logged.
 ///
-/// Keyed by the device's stable identity — the Thing ID, which IS its mDNS
-/// hostname — and never by IP alone, because the IP is a DHCP lease. A caller
-/// without a hostname falls back to the host, which strands the key if DHCP
-/// reassigns; that is a re-prompt, not a leak onto another device.
+/// Keyed by the device's stable identity — its mDNS hostname,
+/// `<Thing ID>.local` (see [rabbitAirThingHostname]) — and never by IP alone,
+/// because the IP is a DHCP lease. A caller without a hostname falls back to
+/// the host, which strands the key if DHCP reassigns; that is a re-prompt,
+/// not a leak onto another device.
 class RabbitAirKeyStore {
   final SettingsStore _store;
 
@@ -33,10 +34,45 @@ class RabbitAirKeyStore {
   static bool isValidUserKey(String key) =>
       RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(key.trim());
 
+  /// The key filed under [deviceId]. For an mDNS-hostname scope
+  /// (`<ThingID>.local`, possibly with the root's trailing dot) this also
+  /// looks under the bare Thing ID: builds before the scope fix filed a
+  /// provisioned key there, while the LAN path looks up the SRV target — so
+  /// without the rescue an already-provisioned purifier would ask for a key
+  /// the app generated and never showed. A hit is re-filed under the exact
+  /// scope asked for, so the rescue runs once per install.
   Future<String?> userKey(String deviceId) async {
     final key = await _store.read(_key(deviceId));
-    Log.registerSecret(key);
-    return key;
+    if (key != null) {
+      Log.registerSecret(key);
+      return key;
+    }
+    for (final alias in _hostnameAliases(deviceId)) {
+      final legacy = await _store.read(_key(alias));
+      if (legacy == null) continue;
+      Log.registerSecret(legacy);
+      await _store.write(_key(deviceId), legacy);
+      return legacy;
+    }
+    return null;
+  }
+
+  /// The other spellings of an mDNS hostname scope, most specific first:
+  /// `X.local.` → `X.local`, `X`; `X.local` → `X`. Empty for anything
+  /// that is not a `.local` name (a bare host or Thing ID), and no case
+  /// folding — the uppercase `RabbitAir-<MAC>.local` entries must keep
+  /// resolving exactly as filed.
+  static List<String> _hostnameAliases(String scope) {
+    final aliases = <String>[];
+    var name = scope;
+    if (name.endsWith('.')) {
+      name = name.substring(0, name.length - 1);
+      aliases.add(name);
+    }
+    if (name.endsWith('.local') && name.length > '.local'.length) {
+      aliases.add(name.substring(0, name.length - '.local'.length));
+    }
+    return aliases;
   }
 
   Future<void> saveUserKey(String deviceId, String key) {
@@ -56,7 +92,12 @@ class RabbitAirKeyStore {
     final all = await _store.readAll();
     final keys = <String>[];
     void add(String? key) {
-      if (key != null && !keys.contains(key)) keys.add(key);
+      if (key == null || keys.contains(key)) return;
+      // Registered here too, not only in [userKey]/[saveUserKey]: on a cold
+      // start the BLE path reaches the keys through this door alone, and an
+      // unregistered key logged by a failed handshake went out verbatim.
+      Log.registerSecret(key);
+      keys.add(key);
     }
 
     if (preferredScope != null) add(all[_key(preferredScope)]);
@@ -88,3 +129,11 @@ String? rabbitAirFallbackHostname(String? mac) {
   if (!RegExp(r'^[0-9A-F]{12}$').hasMatch(compact)) return null;
   return 'RabbitAir-$compact.local';
 }
+
+/// The scope a provisioned purifier's key is filed under once its Thing ID
+/// is known: the mDNS hostname it announces, `<ThingID>.local` — the SRV
+/// target the LAN control path keys its lookup on. Filing under the bare
+/// Thing ID (cmd 255 `data.name`) left the key where the Wi-Fi panel never
+/// looks. A [thingId] that already carries `.local` is returned unchanged.
+String rabbitAirThingHostname(String thingId) =>
+    thingId.endsWith('.local') ? thingId : '$thingId.local';

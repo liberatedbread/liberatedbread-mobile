@@ -61,6 +61,10 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      // Forget the last roll: a Refresh that fails (after the user swapped
+      // rolls, say) must not leave the previous media's width and die-cut
+      // flag driving _printParams while the card shows only the error.
+      _status = null;
     });
     final codec = ref.read(specCodecProvider);
     final printer = ref.read(brotherQlPrintServiceProvider);
@@ -111,8 +115,11 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
   /// when it is reachable but reported no status at all (some firmware only
   /// answers status while idle — the card says a test label should still
   /// print, so the button must honour that). A reported not-ready (real error)
-  /// keeps it disabled.
-  bool get _canPrint => _status == null || _status!.readyToPrint;
+  /// keeps it disabled, and so does a status read that FAILED: an unreachable
+  /// printer also leaves [_status] null, and without the [_error] check the
+  /// dialog claimed it "did not report its media" and offered a 62 mm guess.
+  bool get _canPrint =>
+      _error == null && (_status == null || _status!.readyToPrint);
 
   /// The media to print on: what the printer reported, or a conservative
   /// default (62 mm continuous, the common DK-2205 roll) when it stayed silent.

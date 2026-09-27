@@ -212,4 +212,150 @@ void main() {
       );
     },
   );
+
+  group('the generic path sends only what the action can take', () {
+    NetworkActionDto generic(
+      String role,
+      List<String> params, {
+      double? min,
+      double? max,
+    }) => NetworkActionDto(
+      role: role,
+      commandName: role,
+      transport: 'http',
+      userParams: params,
+      readBack: const [],
+      credentials: const [],
+      instanceParams: const [],
+      min: min,
+      max: max,
+    );
+
+    Future<List<(String, Map<String, String>)>> pump(
+      WidgetTester tester,
+      List<NetworkActionDto> actions,
+    ) async {
+      final sent = <(String, Map<String, String>)>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(FakeSpecCodec()),
+            lifxControlClientProvider.overrideWithValue(_FakeLifxClient()),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: NetworkLightCard(
+                  entity: NetworkEntityDto(
+                    name: 'Lamp',
+                    platform: 'light',
+                    transport: 'http',
+                    isInstanced: false,
+                    stateCommand: '',
+                    options: const [],
+                    actions: actions,
+                  ),
+                  specYaml: 'y',
+                  host: '10.0.0.7',
+                  targetMac: '',
+                  sendAction: (action, values) async =>
+                      sent.add((action.commandName, values)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    testWidgets('colour temperature fills the spec\'s one parameter', (
+      tester,
+    ) async {
+      // Yeelight's shape: set_color_temperature owns `ct`, beside a
+      // set_brightness. Old code sent {'kelvin', 'brightness'} — two keys,
+      // so the rename to `ct` never happened and `ct` was missing.
+      final sent = await pump(tester, [
+        generic('set_brightness', ['bright'], min: 1, max: 100),
+        generic('set_color_temperature', ['ct'], min: 1700, max: 6500),
+      ]);
+      final slider = tester.widget<Slider>(
+        find.byWidgetPredicate((w) => w is Slider && w.max == 6500),
+      );
+      slider.onChangeEnd!(slider.value);
+      await tester.pumpAndSettle();
+      expect(sent.single.$1, 'set_color_temperature');
+      expect(sent.single.$2, {'ct': '3500'});
+    });
+
+    testWidgets('a one-parameter colour action draws no swatches', (
+      tester,
+    ) async {
+      // A packed `rgb` needs an encoding the spec has not declared; the old
+      // swatches sent red/green/blue and failed on every tap.
+      await pump(tester, [
+        generic('set_color', ['rgb']),
+      ]);
+      expect(find.bySemanticsLabel('Red'), findsNothing);
+      expect(find.byType(InkWell), findsNothing);
+    });
+
+    testWidgets('an r/g/b colour action gets only its own names', (
+      tester,
+    ) async {
+      final sent = await pump(tester, [
+        generic('set_brightness', ['brightness'], min: 1, max: 100),
+        generic('set_color', ['red', 'green', 'blue']),
+      ]);
+      await tester.tap(find.bySemanticsLabel('Red').first);
+      await tester.pumpAndSettle();
+      expect(sent.single.$1, 'set_color');
+      expect(sent.single.$2.keys.toSet(), {'red', 'green', 'blue'});
+    });
+  });
+
+  testWidgets('zone chips are named, stateful buttons', (tester) async {
+    // Old code: a bare InkWell per zone, announced as an unnamed button.
+    final handle = tester.ensureSemantics();
+    final codec = FakeSpecCodec()
+      ..lifxZones = const LifxZonesDto(
+        zonesCount: 2,
+        zoneIndex: 0,
+        colors: [
+          LifxZoneColorDto(red: 255, green: 0, blue: 0, brightness: 255),
+          LifxZoneColorDto(red: 0, green: 0, blue: 255, brightness: 255),
+        ],
+      );
+    await tester.pumpWidget(
+      _wrap(_lightEntity(multizone: true), codec, _AnsweringLifxClient()),
+    );
+    await tester.pumpAndSettle();
+
+    final zone1 = find.byKey(const Key('zone-chip-0'));
+    expect(tester.getSize(zone1), const Size(48, 48));
+    expect(
+      tester.getSemantics(zone1),
+      isSemantics(label: 'Zone 1, Red', isButton: true, isSelected: false),
+    );
+    await tester.tap(zone1);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(zone1),
+      isSemantics(label: 'Zone 1, Red', isSelected: true),
+    );
+    handle.dispose();
+  });
+}
+
+/// A client whose reads answer, so the zone row has live colours to show.
+class _AnsweringLifxClient extends _FakeLifxClient {
+  @override
+  Future<Uint8List?> request(
+    String host,
+    Uint8List packet, {
+    required int sequence,
+    Duration timeout = const Duration(seconds: 1),
+    int retries = 2,
+  }) async => Uint8List.fromList([0]);
 }

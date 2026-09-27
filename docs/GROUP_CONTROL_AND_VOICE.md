@@ -24,8 +24,13 @@ be *saved*, a "TVs" group appears in the Groups tab with no UI work at all.
 That is the one genuinely free part of this feature, and it is worth designing
 towards deliberately rather than adding a bespoke TV screen beside it.
 
-Four things stand in the way. They are independent, and only the third needs
-anything from upstream.
+Four things stood in the way. **§1-§4 below are historical: they describe the
+state before phases 2, 3 and F**, kept because the reasoning still explains
+the design. Today Wi-Fi devices persist (`saved_network_device_store.dart`),
+network sends go through `NetworkCommandSender`
+(`lib/services/network_command_sender.dart`), and the `toggle` role exists;
+only §4, the voice surface, is still open. They were independent, and only
+the third needed anything from upstream.
 
 ### 1. Wi-Fi devices are never persisted
 
@@ -71,18 +76,24 @@ edits there are invisible upstream and fail CI. P13 lands upstream first, then
 
 ### 4. No voice surface
 
-One `MethodChannel` exists in the entire repo (`lib/services/multicast_lock.dart`,
-for the Wi-Fi multicast lock). No App Intents, no SiriKit, no Android shortcuts.
+Two `MethodChannel`s exist in the repo — `lib/services/multicast_lock.dart`
+(the Wi-Fi multicast lock) and `lib/services/wifi_network_scanner.dart` — and
+neither is a voice surface. No App Intents, no SiriKit, no Android shortcuts.
 
 ## What is actually reachable today
 
-Worth stating plainly, because it makes the feature smaller than it looks. Of
-the nine TV specs, only **Roku, Sony Bravia, Vizio and Panasonic Viera** are
-controllable from this app: LG (websocket), Samsung (websocket), Hisense (MQTT)
-and Android TV (TLS-protobuf) declare transports the Rust core does not speak,
-so `qualify_network` returns `None` and they resolve to no controls at all.
+Rewritten 2026-09-27; it used to say LG, Samsung and Hisense were out of
+reach. Of the nine TV specs, **Roku, Sony Bravia, Vizio and Panasonic Viera**
+are controllable outright, and **LG and Samsung (websocket) and Hisense
+(MQTT)** now qualify too — `qualify_network` in `rust/src/spec/bindings.rs`
+has `websocket::TRANSPORT` and `mqtt::TRANSPORT` arms — once the set is paired
+or given its credentials. Only **Android TV** (TLS-protobuf) still declares a
+transport the Rust core does not speak, so it resolves to no controls.
 
-Of those four, three have discrete power-off commands. Only Viera is
+The power-role paragraph below predates that and covers only the first four;
+which of LG, Samsung and Hisense resolve a `turn_off` or `toggle` role after
+P13 has not been rechecked. Of those four, three have discrete power-off
+commands. Only Viera is
 toggle-only — and P13 excludes it from the Power switch outright (see §E), so it
 resolves no power role at all rather than an unusable one. A first cut of "turn
 all TVs off" therefore turns off Roku, Sony and Vizio, and honestly reports that

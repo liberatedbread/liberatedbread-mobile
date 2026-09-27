@@ -10,6 +10,7 @@
 // channel capacity refuses a channel the radio would have taken, which the
 // user sees and can report. Too large a one silently overruns the codeplug.
 
+import 'radio_channel.dart';
 import 'radio_target.dart';
 
 /// An inclusive frequency span, in Hz.
@@ -144,6 +145,10 @@ class RadioProfile {
   final ProgrammerSupport programmerSupport;
   final TxUnlock txUnlock;
 
+  /// The transmit power levels the radio has. Kept in step with the codec's
+  /// model table by a test; the channel editor offers exactly these.
+  final List<PowerLevel> powerLevels;
+
   const RadioProfile({
     required this.id,
     required this.displayName,
@@ -155,6 +160,7 @@ class RadioProfile {
     this.gmrsLocked = false,
     this.programmerSupport = ProgrammerSupport.none,
     this.txUnlock = TxUnlock.unsupported,
+    this.powerLevels = _twoPowerLevels,
   });
 
   /// Whether this build can read and write this radio directly.
@@ -219,6 +225,14 @@ class RadioProfile {
 // ---------------------------------------------------------------------------
 // The catalogue.
 // ---------------------------------------------------------------------------
+
+/// High and low: most of these radios (CHIRP `UV17Pro.POWER_LEVELS`,
+/// `uv5r.UV5R_POWER_LEVELS`).
+const _twoPowerLevels = [PowerLevel.high, PowerLevel.low];
+
+/// High, medium and low: the UV-32 (CHIRP `UV32.POWER_LEVELS`) and the
+/// tri-power UV-5R variants (`UV5R_POWER_LEVELS3`).
+const _threePowerLevels = [PowerLevel.high, PowerLevel.medium, PowerLevel.low];
 
 /// Broadcast FM, which every one of these radios receives and none transmits.
 const _fmBroadcast = FreqRange(65000000, 108000000);
@@ -285,6 +299,7 @@ const RadioProfile uv5rProfile = RadioProfile(
 const RadioProfile bfF8hpProfile = RadioProfile(
   id: 'bf-f8hp',
   displayName: 'BaoFeng BF-F8HP',
+  powerLevels: _threePowerLevels,
   rxRanges: [_fmBroadcast, _vhfRx, _uhfRx],
   factoryTxRanges: [
     FreqRange(144000000, 148000000),
@@ -306,6 +321,7 @@ const RadioProfile bfF8hpProfile = RadioProfile(
 const RadioProfile ar152Profile = RadioProfile(
   id: 'ar-152',
   displayName: 'Baofeng AR-152',
+  powerLevels: _threePowerLevels,
   rxRanges: [_fmBroadcast, _vhfRx, _uhfRx],
   factoryTxRanges: [
     FreqRange(144000000, 148000000),
@@ -394,6 +410,7 @@ const RadioProfile uv5gMiniProfile = RadioProfile(
 const RadioProfile uv32Profile = RadioProfile(
   id: 'uv-32',
   displayName: 'Baofeng UV-32',
+  powerLevels: _threePowerLevels,
   rxRanges: [_fmBroadcast, _vhfRx, _uhfRx],
   factoryTxRanges: [
     FreqRange(144000000, 148000000),

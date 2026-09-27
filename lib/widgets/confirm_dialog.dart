@@ -33,3 +33,17 @@ Future<bool> confirmAction(
   );
   return confirmed ?? false;
 }
+
+/// Ask before anything that opens a lock, answering true only for Unlock.
+///
+/// One helper for every card that can actuate a lock — the bolt switch and a
+/// lock's momentary buttons — so the wording and the Cancel default cannot
+/// drift. A lock whose spec modelled unlocking as a `button` used to fire on
+/// one tap under a generic 'Press', while the switch beside it asked first.
+Future<bool> confirmUnlock(BuildContext context, String entityName) =>
+    confirmAction(
+      context,
+      title: 'Unlock $entityName?',
+      message: 'This opens the lock for anyone at the door.',
+      confirmLabel: 'Unlock',
+    );

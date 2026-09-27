@@ -15,9 +15,22 @@ import 'dart:async';
 class ByteInbox {
   final List<int> _buffer = [];
   Completer<void>? _waiter;
+  Object? _error;
 
   void add(List<int> chunk) {
     _buffer.addAll(chunk);
+    final waiter = _waiter;
+    if (waiter != null && !waiter.isCompleted) waiter.complete();
+  }
+
+  /// The link feeding this inbox has failed with [error]: every [take] that
+  /// cannot be served from what already arrived throws it, at once.
+  ///
+  /// Without it a reader learned of a dead feed only by waiting out its
+  /// timeout, and then reported silence instead of the cause. The first
+  /// failure wins; a stream's done event after its error adds nothing.
+  void fail(Object error) {
+    _error ??= error;
     final waiter = _waiter;
     if (waiter != null && !waiter.isCompleted) waiter.complete();
   }
@@ -26,9 +39,12 @@ class ByteInbox {
   ///
   /// Throws [TimeoutException] when they do not, leaving whatever did arrive
   /// in the buffer — [clear] is the caller's decision, not a side effect.
+  /// Throws the [fail] error instead once the feed has failed.
   Future<List<int>> take(int count, Duration timeout) async {
     final deadline = DateTime.now().add(timeout);
     while (_buffer.length < count) {
+      final error = _error;
+      if (error != null) throw error;
       final remaining = deadline.difference(DateTime.now());
       if (remaining <= Duration.zero) {
         throw TimeoutException('waiting for $count bytes', timeout);

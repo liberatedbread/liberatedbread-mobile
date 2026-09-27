@@ -235,13 +235,17 @@ class RabbitAirProvisionService {
       // the link, which fails the exchange), or the app was killed in
       // between, the old order left a unit that had left setup mode with a
       // key nobody stored — recoverable only by a factory reset. Filed where
-      // the LAN control path looks: under the mDNS hostname, which is the
-      // Thing ID when the vendor cloud flow ran, and RabbitAir-<WIFI
-      // MAC>.local when it did not (hardware-verified). A purifier that
+      // the LAN control path looks: under the mDNS hostname, which is
+      // <Thing ID>.local when the vendor cloud flow ran (the bare Thing ID is
+      // a scope the LAN panel never reads), and RabbitAir-<WIFI MAC>.local
+      // when it did not (hardware-verified). A purifier that
       // answered cmd 255 with neither name nor mac falls back to the BLE
       // identity, which strands the key from LAN use but keeps BLE control
       // working.
-      final scope = _thingId ?? _fallbackHostname ?? 'ble-$_deviceId';
+      final thingId = _thingId;
+      final scope = thingId != null
+          ? rabbitAirThingHostname(thingId)
+          : _fallbackHostname ?? 'ble-$_deviceId';
       await keyStore.saveUserKey(scope, key);
 
       emit(_state.copyWith(step: RabbitAirProvisionStep.leaving));

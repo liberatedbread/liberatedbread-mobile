@@ -277,17 +277,28 @@ fn validate_auto_role(name: &str, param: &Parameter) -> Result<(), SpecError> {
     let Some(role) = param.auto else {
         return Ok(());
     };
+    // A length and every checksum are patched in after the packet is built,
+    // into a slot reserved by `fixed_byte_size` — so a variable-width type has
+    // nothing to reserve, and the encoder refuses every send with "an auto
+    // checksum must be a fixed-width type". `varint` passes the range check
+    // below (0..u32::MAX holds any checksum), which is how `type: varint,
+    // auto: crc8` used to load clean and then fail in front of the device.
+    // Only `sequence` is exempt: it is the caller's counter and goes through
+    // the ordinary numeric path, where a varint encodes fine. A type with no
+    // number at all is left to the clearer "carries no number" error below,
+    // except for a length, which has always been reported here.
+    let numeric = param.value_type.integer_range().is_some();
+    if role != AutoRole::Sequence
+        && (numeric || role == AutoRole::PacketLength)
+        && param.value_type.fixed_byte_size().is_none()
+    {
+        return Err(SpecError::AutoRoleOnVariableWidthType {
+            parameter_name: name.to_string(),
+            role: role.to_string(),
+            value_type: param.value_type.clone(),
+        });
+    }
     if role == AutoRole::PacketLength {
-        // The length is patched in after the packet is built, into a slot
-        // reserved by width — so a variable-width type has nothing to
-        // reserve. The encoder says the same thing; saying it here names the
-        // spec instead of the send.
-        if param.value_type.fixed_byte_size().is_none() {
-            return Err(SpecError::AutoLengthOnVariableWidthType {
-                parameter_name: name.to_string(),
-                value_type: param.value_type.clone(),
-            });
-        }
         return Ok(());
     }
     let Some((_, holds)) = param.value_type.integer_range() else {
@@ -1548,6 +1559,33 @@ services:
         let err = parse_device_spec(&spec_with_auto("varint", "packet_length"))
             .expect_err("a varint reserves no fixed slot");
         assert!(err.to_string().contains("fixed width"), "{err}");
+    }
+
+    /// A checksum is reserved by width exactly as a length is, so a `varint`
+    /// checksum has no slot either. It used to parse (varint's range holds
+    /// any checksum) and then fail every send in the encoder.
+    #[test]
+    fn rejects_a_checksum_on_a_variable_width_type() {
+        for role in [
+            "checksum",
+            "xor_checksum",
+            "subtract_checksum",
+            "crc8",
+            "crc16_modbus",
+        ] {
+            let err = parse_device_spec(&spec_with_auto("varint", role))
+                .expect_err("a varint reserves no fixed slot");
+            let msg = err.to_string();
+            assert!(msg.contains("fixed width") && msg.contains(role), "{msg}");
+        }
+    }
+
+    /// `sequence` goes through the ordinary numeric path, where a varint
+    /// encodes, so the fixed-width rule must not catch it.
+    #[test]
+    fn accepts_a_sequence_on_a_varint() {
+        parse_device_spec(&spec_with_auto("varint", "sequence"))
+            .expect("a varint sequence encodes like any number");
     }
 
     /// An `auto` role on a `bytes` parameter has no number to fill in at all.

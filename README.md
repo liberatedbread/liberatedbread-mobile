@@ -281,7 +281,7 @@ What does and doesn't work there:
 ./scripts/test.sh
 
 # Or individually:
-flutter test                       # Dart unit + widget tests
+flutter test --exclude-tags=netdisco   # Dart unit + widget tests (see CONTRIBUTING)
 cd rust && cargo test              # Rust unit tests
 
 # Integration tests (needs a device/emulator). ci_all_test.dart bundles the
@@ -291,13 +291,12 @@ cd rust && cargo test              # Rust unit tests
 flutter test integration_test/ci_all_test.dart
 
 # Integration tests on the Linux desktop — no emulator, no display needed.
-# One file per invocation here (a flutter_tools VM-service bug; see
-# docs/BUILD_AND_TEST.md), skipping the device-jobs aggregate:
-for t in integration_test/*_test.dart; do
-  [ "$(basename "$t")" = ci_all_test.dart ] && continue
-  xvfb-run -a flutter test "$t" -d linux --exclude-tags=e2e \
-    --dart-define=LIBERATED_BREAD_MOCK=true
-done
+# The script CI runs: one file per invocation (a flutter_tools VM-service bug;
+# see docs/BUILD_AND_TEST.md), the hardware-tagged suite skipped and the
+# bluez-tagged one run inside its virtual-BlueZ wrapper. A hand-written loop
+# ran both bare and failed in ways that read like app bugs.
+./scripts/ci-linux-tests.sh
+LB_LINUX_TEST_FILES=integration_test/<file> ./scripts/ci-linux-tests.sh  # one file
 ```
 
 Linting:
@@ -347,7 +346,7 @@ the built library against cargo's own record of what went into it and runs
 re-running the tests tests the edit:
 
 ```bash
-flutter test
+flutter test --exclude-tags=netdisco
 ./scripts/ensure-rust-lib.sh   # or build it yourself, ahead of time
 ```
 
@@ -505,8 +504,10 @@ app-store release:
 - **What it fetches** — a JSON pack manifest of the shape
   `{"name": ..., "version": ..., "specs": ["bulb.yaml", ...]}`, each entry a
   filename resolved relative to the manifest URL. The default URL points at
-  [opengreeniot-device-specs](https://github.com/PigsCanFlyLabs/opengreeniot-device-specs)'
-  `pack.json` (`AppConstants.defaultSpecPackUrl` in `lib/core/constants.dart`);
+  [liberatedbread-protocol-specs](https://github.com/liberatedbread/liberatedbread-protocol-specs)'
+  `pack.json`, which that repo's CI publishes from `main` — the same repo
+  vendored under `vendor/protocol-specs/`
+  (`AppConstants.defaultSpecPackUrl` in `lib/core/constants.dart`);
   the user can override it, and the override persists in `SharedPreferences`.
 - **How** — `lib/services/spec_pack_service.dart` does the fetching: requests
   are same-origin-only (redirects included), size-capped, and every downloaded
@@ -520,11 +521,15 @@ app-store release:
   cached pack. Pack specs are namespaced `pack:<name>/<file>` so they can never
   collide with bundled keys, and a pack failure never removes a bundled spec.
 
-The bundled fallback specs themselves are a hardcoded list in
-`lib/providers/device_spec_provider.dart` (`AssetBundle` can't list a
-directory). Adding a bundled spec means adding it there **and** updating the
-expected-file assertion in `rust/tests/vendored_assets.rs`, which parses every
-bundled spec through the real Rust parser.
+The bundled fallback specs are discovered from the subtree's own
+`vendor/protocol-specs/device-specs/index.json` (or the gitignored local
+`examples/index-temp.json` that `scripts/regen-spec-index.sh` rebuilds, which
+wins when present), not from a list in Dart. Adding a device is a spec refresh
+(`./scripts/update-specs.sh`), never a Dart edit. `rust/tests/vendored_assets.rs`
+parses every indexed spec through the real Rust parser, checks that
+`index.json` and the files on disk agree (`manifest_and_spec_files_agree`),
+and fails if `device_spec_provider.dart` names any spec file other than the
+example-bulb fallback (`dart_loader_does_not_hardcode_spec_filenames`).
 
 ## Mock Mode
 
@@ -534,8 +539,10 @@ Run with `--mock` to use simulated BLE devices without hardware:
 ./scripts/run.sh --mock
 ```
 
-Mock mode provides two fake devices (ACME_Living_Room, ACME_Bedroom) with
-Control Service and Battery Service. All byte-level simulation runs through the
+Mock mode provides four simulated devices — the two ACME devices with the
+Control and Battery services, plus two that build their services from vendored
+specs; [WALKTHROUGH §MockBleService](docs/WALKTHROUGH.md) lists them. All
+byte-level simulation runs through the
 Rust core, so the data flow is identical to real BLE — only the transport layer
 is faked.
 

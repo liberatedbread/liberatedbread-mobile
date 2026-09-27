@@ -97,7 +97,12 @@ class RabbitAirControlsPanelState
         _error = friendlyErrorText(
           e,
           context: 'device control',
-          fallback: 'Could not reach the purifier. Try again.',
+          // A wrong key and an unreachable purifier look the same from
+          // here (no reply, or none that decrypts), so the text names both
+          // and the panel offers the way to re-enter the key below it.
+          fallback:
+              'Could not reach the purifier. Check that it is on this '
+              'network, or re-enter its user key if it was reset.',
         );
       });
     }
@@ -236,6 +241,22 @@ class RabbitAirControlsPanelState
               style: text.bodyMedium?.copyWith(color: scheme.error),
             ),
           ),
+        // A saved but wrong key (copied from another purifier, mistyped)
+        // used to be a dead end: the entry card shows only while no key is
+        // stored, so every retry reused the bad one and the only way out
+        // was forgetting the whole device.
+        if (_error != null && _key != null && !_loading)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => unawaited(_promptRabbitAirKey()),
+                icon: const Icon(Icons.key_outlined),
+                label: const Text('Enter a different user key'),
+              ),
+            ),
+          ),
         if (_loading) ...[
           const SizedBox(height: 48),
           const Center(child: CircularProgressIndicator()),
@@ -339,55 +360,34 @@ class RabbitAirControlsPanelState
   /// says so immediately instead. On save the panel reloads, and the first
   /// poll proves the key against the device.
   Future<void> _promptRabbitAirKey() async {
-    final controller = TextEditingController();
-    String? validation;
+    // Captured before the await: the panel may rebuild under the dialog.
+    final messenger = ScaffoldMessenger.maybeOf(context);
     final entered = await showDialog<String>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Rabbit Air user key'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            autocorrect: false,
-            maxLength: 32,
-            decoration: InputDecoration(
-              isDense: true,
-              border: const OutlineInputBorder(),
-              hintText: '32 hex characters, from the Rabbit Air app',
-              helperText: 'Device page → Rename → tap the device name',
-              errorText: validation,
+      builder: (context) => const _RabbitAirKeyDialog(),
+    );
+    if (entered == null || !mounted) return;
+    try {
+      await widget.transport.saveUserKey(entered);
+    } catch (e) {
+      // A keychain refusal (errSecInteractionNotAllowed on a locked
+      // iPhone) used to escape the unawaited() caller as an unhandled
+      // error while the card silently stayed up. The text never echoes the
+      // key.
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              e,
+              context: 'store Rabbit Air user key',
+              fallback: 'Could not store the Rabbit Air user key.',
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final key = controller.text.trim();
-                if (!RabbitAirKeyStore.isValidUserKey(key)) {
-                  setDialogState(
-                    () => validation =
-                        'The user key is exactly 32 hex characters (0-9, a-f).',
-                  );
-                  return;
-                }
-                Navigator.of(context).pop(key);
-              },
-              child: const Text('Save'),
-            ),
-          ],
         ),
-      ),
-    );
-    // The controller is deliberately NOT disposed here: the dialog's pop
-    // animation still builds the TextField for a few frames after showDialog
-    // returns, and a focused field schedules a caret frame that would touch
-    // a disposed controller. It is dialog-scoped and collected with the tree.
-    if (entered == null || !mounted) return;
-    await widget.transport.saveUserKey(entered);
+      );
+      return;
+    }
+    if (!mounted) return;
     setState(() => _key = entered);
     await refresh();
   }
@@ -723,6 +723,69 @@ class _RabbitAirBleControlsPanelState
         entities: widget.entities,
         transport: _transport,
       ),
+    ],
+  );
+}
+
+/// The key-entry dialog, owning (and disposing) its controller — the old
+/// inline dialog left it undisposed because the pop animation still built
+/// the field after showDialog returned; a State's dispose runs after that.
+class _RabbitAirKeyDialog extends StatefulWidget {
+  const _RabbitAirKeyDialog();
+
+  @override
+  State<_RabbitAirKeyDialog> createState() => _RabbitAirKeyDialogState();
+}
+
+class _RabbitAirKeyDialogState extends State<_RabbitAirKeyDialog> {
+  final _controller = TextEditingController();
+  String? _validation;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final key = _controller.text.trim();
+    if (!RabbitAirKeyStore.isValidUserKey(key)) {
+      setState(
+        () => _validation =
+            'The user key is exactly 32 hex characters (0-9, a-f).',
+      );
+      return;
+    }
+    Navigator.of(context).pop(key);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Rabbit Air user key'),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      autocorrect: false,
+      // The key encrypts every exchange with the purifier; the keyboard's
+      // suggestion model must not learn it and offer it in other apps. Not
+      // obscured: a 32-character hex key is transcribed by eye and has to
+      // be checkable.
+      enableSuggestions: false,
+      maxLength: 32,
+      decoration: InputDecoration(
+        isDense: true,
+        border: const OutlineInputBorder(),
+        hintText: '32 hex characters, from the Rabbit Air app',
+        helperText: 'Device page → Rename → tap the device name',
+        errorText: _validation,
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(onPressed: _save, child: const Text('Save')),
     ],
   );
 }

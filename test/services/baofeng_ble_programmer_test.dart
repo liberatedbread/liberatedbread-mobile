@@ -20,6 +20,7 @@ import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart' as rust;
 
 import '../fakes/emulated_ble.dart';
 import '../fakes/emulated_radio.dart';
+import '../fakes/fake_ble_service.dart';
 import '../helpers/host_rust_lib.dart';
 
 const _deviceId = 'AA:BB:CC:DD:EE:99';
@@ -342,6 +343,74 @@ void main() {
   });
 
   group('writing', () {
+    group('a UV-32, whose Bluetooth write nobody has captured,', () {
+      // Old code asked Rust for the write plan inside the session: the
+      // write connected, woke the radio, and only then failed with Rust's
+      // raw error. Now it is refused before a connect, with that reason.
+      late FakeBleService fake;
+      late BaofengBleProgrammer offline;
+      late RadioCodeplug whole;
+
+      setUp(() async {
+        if (!rustReady) return;
+        fake = FakeBleService();
+        offline = BaofengBleProgrammer(fake, timing: _fast);
+        final model = (await rust.radioModels()).singleWhere(
+          (m) => m.id == uv32Profile.id,
+        );
+        whole = RadioCodeplug(
+          modelId: uv32Profile.id,
+          image: Uint8List(model.imageLen),
+          readAt: DateTime(2026, 9, 27),
+        );
+      });
+
+      final refused = throwsA(
+        isA<RadioUnsupportedException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('UV-32'), contains('Nothing was written')),
+        ),
+      );
+
+      test('is refused by the preflight', () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        await expectLater(offline.checkCanWrite(uv32Profile), refused);
+        await offline.checkCanWrite(uv5rMiniProfile);
+      });
+
+      test('a restore never connects', () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        await expectLater(
+          offline
+              .restoreCodeplug(
+                deviceId: _deviceId,
+                profile: uv32Profile,
+                codeplug: whole,
+              )
+              .drain<void>(),
+          refused,
+        );
+        expect(fake.events, isEmpty, reason: 'not so much as a connect');
+      });
+
+      test('a channel write never connects', () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        await expectLater(
+          offline
+              .writeChannels(
+                deviceId: _deviceId,
+                profile: uv32Profile,
+                base: whole,
+                channels: const [],
+              )
+              .drain<void>(),
+          refused,
+        );
+        expect(fake.events, isEmpty, reason: 'not so much as a connect');
+      });
+    });
+
     test(
       'writes every block and the radio ends up holding the plan',
       () async {

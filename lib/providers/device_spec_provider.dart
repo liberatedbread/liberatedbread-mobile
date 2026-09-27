@@ -58,6 +58,30 @@ String specAssetPath(String indexPath) => '$specsRoot/$indexPath';
 /// `pack:<name>/<file>`). The two key spaces cannot collide, and a failure
 /// loading remote packs never removes a bundled spec.
 final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
+  final specs = {...await ref.watch(bundledDeviceSpecsProvider.future)};
+  final bundledCount = specs.length;
+
+  // Remote (cached) packs. Namespaced keys guarantee no collision with the
+  // bundled asset paths above. This provider already swallows its own errors.
+  final cached = await ref.watch(cachedSpecPacksProvider.future);
+  specs.addAll(cached);
+
+  Log.spec.info(
+    '${specs.length} spec(s) available '
+    '($bundledCount bundled, ${cached.length} from packs)',
+  );
+  return specs;
+});
+
+/// The bundled half of [deviceSpecsProvider] alone, keyed by asset path.
+///
+/// Separate because the spec-pack security floor
+/// (SpecPackService.bundledSecurityFloor) compares each pack spec with the
+/// bundled one it shadows WHILE the merged map is being built — reading the
+/// merged map from there would wait on itself.
+final bundledDeviceSpecsProvider = FutureProvider<Map<String, String>>((
+  ref,
+) async {
   final specs = <String, String>{};
 
   // All ~70 loads in flight together: these are independent asset-channel
@@ -94,16 +118,6 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   for (final loaded in loads) {
     if (loaded != null) specs[loaded.path] = loaded.yaml;
   }
-
-  // Remote (cached) packs. Namespaced keys guarantee no collision with the
-  // bundled asset paths above. This provider already swallows its own errors.
-  final cached = await ref.watch(cachedSpecPacksProvider.future);
-  specs.addAll(cached);
-
-  Log.spec.info(
-    '${specs.length} spec(s) available '
-    '(${specs.length - cached.length} bundled, ${cached.length} from packs)',
-  );
   return specs;
 });
 

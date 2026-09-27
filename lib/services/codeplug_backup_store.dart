@@ -34,9 +34,13 @@ class CodeplugBackup {
 class CodeplugBackupStore {
   static const String _dirName = 'radio_backups';
 
-  /// Keep this many per radio. Old ones are pruned oldest-first: a backup
-  /// from four months and two firmware updates ago is not the one anybody
-  /// restores, and the images are 33 kB each.
+  /// Keep this many recent backups per MODEL (a filename carries only the
+  /// model, so two radios of one model share the pool), plus that model's
+  /// oldest backup, which is never pruned: it is the image taken before the
+  /// app first touched the radio, the only copy of its original programming.
+  /// Past that, old ones go oldest-first: a backup from four months and two
+  /// firmware updates ago is not the one anybody restores, and the images
+  /// are 33 kB each.
   static const int keepPerModel = 10;
 
   final CacheDirResolver _resolveDir;
@@ -62,6 +66,13 @@ class CodeplugBackupStore {
     // separator because model ids contain dashes and do not contain
     // underscores.
     final safeModel = codeplug.modelId.replaceAll(RegExp(r'[^A-Za-z0-9-]'), '');
+    // An image identical to the newest one is already saved. Every read
+    // saves, so without this ten plain re-reads filled the pool and pruned
+    // everything older.
+    final newest = await _newest(safeModel);
+    if (newest != null && await _sameImage(newest, codeplug.image)) {
+      return newest;
+    }
     final stamp = codeplug.readAt.toUtc().millisecondsSinceEpoch;
     final file = File('${dir.path}/${safeModel}_$stamp.bin');
     await file.writeAsBytes(codeplug.image, flush: true);
@@ -137,7 +148,29 @@ class CodeplugBackupStore {
     );
   }
 
-  /// Drop the oldest backups for one model past [keepPerModel].
+  Future<CodeplugBackup?> _newest(String modelPrefix) async {
+    for (final backup in await list()) {
+      if (backup.modelId == modelPrefix) return backup;
+    }
+    return null;
+  }
+
+  static Future<bool> _sameImage(CodeplugBackup backup, Uint8List image) async {
+    try {
+      final stored = await backup.file.readAsBytes();
+      if (stored.length != image.length) return false;
+      for (var i = 0; i < stored.length; i++) {
+        if (stored[i] != image[i]) return false;
+      }
+      return true;
+    } catch (_) {
+      // Unreadable: save a fresh copy rather than trust it.
+      return false;
+    }
+  }
+
+  /// Drop the backups for one model past the newest [keepPerModel], but
+  /// never its oldest one (see [keepPerModel]).
   Future<void> _prune(String modelPrefix) async {
     try {
       final all = await list();
@@ -145,7 +178,9 @@ class CodeplugBackupStore {
         for (final backup in all)
           if (backup.modelId == modelPrefix) backup,
       ];
-      for (final backup in mine.skip(keepPerModel)) {
+      if (mine.length <= keepPerModel + 1) return;
+      // Newest first: keep the head and the last (oldest) entry.
+      for (final backup in mine.sublist(keepPerModel, mine.length - 1)) {
         await delete(backup);
       }
     } catch (error) {

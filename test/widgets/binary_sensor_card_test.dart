@@ -139,4 +139,86 @@ void main() {
 
     expect(find.textContaining('cannot be decoded'), findsOneWidget);
   });
+
+  group('a lock-state sensor', () {
+    EntityDto lockState({String? valueField}) => EntityDto(
+      options: const [],
+      name: 'Lock State',
+      platform: 'binary_sensor',
+      deviceClass: 'lock',
+      stateCharacteristic: _stateChar,
+      canNotify: false,
+      hasFormat: true,
+      valueField: valueField,
+      onWhenNonzero: false,
+      actions: const [],
+      variants: const [],
+    );
+
+    testWidgets("reads Unlocked with a warning, never 'On' with a check", (
+      tester,
+    ) async {
+      // HA semantics: a lock sensor's on is UNLOCKED. Old code: 'On' and
+      // Icons.check_circle.
+      final codec = FakeSpecCodec(
+        decoded: const [
+          DecodedValueDto(
+            name: 'bolt',
+            valueType: 'uint',
+            display: '1',
+            uintValue: 1,
+          ),
+        ],
+      );
+      await tester.pumpWidget(_wrap(lockState(valueField: 'bolt'), codec));
+      await tester.pumpAndSettle();
+      expect(find.text('Unlocked'), findsOneWidget);
+      expect(find.text('On'), findsNothing);
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+    });
+
+    testWidgets('reads Locked when off', (tester) async {
+      final codec = FakeSpecCodec(
+        decoded: const [
+          DecodedValueDto(
+            name: 'bolt',
+            valueType: 'uint',
+            display: '0',
+            uintValue: 0,
+          ),
+        ],
+      );
+      await tester.pumpWidget(_wrap(lockState(valueField: 'bolt'), codec));
+      await tester.pumpAndSettle();
+      expect(find.text('Locked'), findsOneWidget);
+    });
+
+    testWidgets("BioKey's 5-field status frame draws no verdict from the "
+        'opcode byte', (tester) async {
+      // biokey-touchlock: `opcode, error_code, status_byte, ...` with no
+      // state_mapping. Old code judged field 0 (opcode 0xFF) -> 'On' + check.
+      DecodedValueDto field(String name, int raw) => DecodedValueDto(
+        name: name,
+        valueType: 'uint',
+        display: '$raw',
+        uintValue: raw,
+      );
+      final codec = FakeSpecCodec(
+        decoded: [
+          field('opcode', 0xFF),
+          field('error_code', 0),
+          field('status_byte', 0x83),
+          field('reserved', 0),
+          field('checksum', 0x7A),
+        ],
+      );
+      await tester.pumpWidget(_wrap(lockState(), codec));
+      await tester.pumpAndSettle();
+      expect(find.text('On'), findsNothing);
+      expect(find.text('Unlocked'), findsNothing);
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(find.textContaining('names no value field'), findsOneWidget);
+    });
+  });
 }

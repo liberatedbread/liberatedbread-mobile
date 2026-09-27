@@ -7,6 +7,7 @@ import '../core/error_text.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import 'confirm_dialog.dart';
 import 'entity_value.dart';
 import 'unclaimed_actions.dart';
 
@@ -101,24 +102,8 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
     required bool on,
   }) async {
     if (widget.isLock && !on) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text('Unlock ${widget.entity.name}?'),
-          content: const Text('This opens the lock for anyone at the door.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Unlock'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !mounted) return;
+      final confirmed = await confirmUnlock(context, widget.entity.name);
+      if (!confirmed || !mounted) return;
     }
     await _send(action, assume: on);
   }

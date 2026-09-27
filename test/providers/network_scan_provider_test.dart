@@ -90,6 +90,43 @@ void main() {
   });
 
   group('networkGuessProvider', () {
+    test(
+      'a pack copy speaks for the row though only the bundled matched',
+      () async {
+        // Both entries are "Hue Bridge|Signify"; the pack's loads second and
+        // must win, but the matcher's tie-break returned only the bundled one.
+        // Without the identities the guess could not re-point at the pack copy
+        // (fails on the old code: specIndex stayed 0).
+        final codec = FakeSpecCodec(
+          spec: _spec,
+          networkMatches: (_) => [_match(MatchConfidence.strong)],
+        );
+        final c = ProviderContainer(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            deviceSpecsProvider.overrideWith(
+              (ref) => {
+                'hue.yaml': 'dummy-yaml',
+                'pack:p/hue.yaml': 'pack-yaml',
+              },
+            ),
+          ],
+        );
+        addTearDown(c.dispose);
+
+        final guess = await c.read(
+          networkGuessProvider(
+            NetworkIdentity.of(
+              _device(serviceTypes: const ['_hue._tcp.local']),
+            ),
+          ).future,
+        );
+
+        expect(guess!.specIndex, 1);
+        expect(guess.namesAProduct, isTrue);
+      },
+    );
+
     test('reports the best match', () async {
       final codec = FakeSpecCodec(
         spec: _spec,

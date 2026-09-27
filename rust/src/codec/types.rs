@@ -372,20 +372,6 @@ pub(crate) enum TypedParam {
     Varint(u64),
 }
 
-/// Encode a command to bytes for a BLE write.
-///
-/// For fixed commands, returns the `value` directly without consulting any
-/// parameters — fixed commands are by definition parameterless.
-///
-/// For templated commands, every `{param}` placeholder is looked up in
-/// `params`, validated against the parameter's declared type and `min`/`max`
-/// bounds, and encoded little-endian per the type's byte width.
-/// The higher-level encoding a command declares when it has no raw-byte
-/// `value`/`template`, or `None` when the command is byte-encodable (or is
-/// simply empty, which is a spec error rather than an unsupported encoding).
-///
-/// Single source of truth: `encode_command` rejects on it and `CommandDto`
-/// flags the UI from it, so the encoder and the control can never disagree.
 /// Why this command cannot be sent as raw bytes on THIS characteristic, or
 /// `None` when it can.
 ///
@@ -405,21 +391,8 @@ pub fn unsupported_write_kind(
     characteristic: &Characteristic,
     command: &Command,
 ) -> Option<String> {
-    if characteristic.encryption.is_some() {
-        return Some("characteristic encryption".to_string());
-    }
-    if characteristic.framing.is_some() {
-        // A framing scheme this build actually executes is not a blocker: the
-        // generic encoder wraps the template's bytes in it (see
-        // `protocol::image_upload::frame_command`). Anything else — a scheme
-        // this build does not implement, or a framing block that names no
-        // scheme at all (coolledx's length prefix) — makes a raw write wrong.
-        let scheme = framing_scheme_name(characteristic);
-        let implemented = scheme.as_deref().is_some_and(implemented_framing_scheme);
-        if !implemented {
-            let label = scheme.unwrap_or_else(|| "framing".to_string());
-            return Some(format!("characteristic framing ({label})"));
-        }
+    if let Some(kind) = unsupported_characteristic_transform(characteristic) {
+        return Some(kind);
     }
     // Checked here rather than inside `unsupported_encoding_kind` so the
     // low-level encoder keeps reporting the precise
@@ -427,6 +400,34 @@ pub fn unsupported_write_kind(
     // is the capability question — may the UI offer a Send at all — and the
     // answer is no.
     unsupported_parameter_kind(command).or_else(|| unsupported_encoding_kind(command))
+}
+
+/// The characteristic half of [`unsupported_write_kind`]: the byte transform
+/// every payload written to `characteristic` must pass through that this
+/// build does not execute, or `None` when a raw write lands as written.
+///
+/// `encryption` (shining-mask's AES-128-ECB, pax's OFB) is never executed. A
+/// `framing` scheme this build DOES execute (Daniao's DDP fragment header) is
+/// not a blocker — the generic encoder wraps the template's bytes in it (see
+/// `protocol::image_upload::frame_command`). Anything else — a scheme this
+/// build does not implement, or a framing block that names no scheme at all
+/// (coolledx's length prefix) — makes a raw write wrong.
+///
+/// Public on its own for the one caller with no command to ask about: the
+/// entity binder's direct write of a value to a one-field characteristic.
+pub fn unsupported_characteristic_transform(characteristic: &Characteristic) -> Option<String> {
+    if characteristic.encryption.is_some() {
+        return Some("characteristic encryption".to_string());
+    }
+    if characteristic.framing.is_some() {
+        let scheme = framing_scheme_name(characteristic);
+        let implemented = scheme.as_deref().is_some_and(implemented_framing_scheme);
+        if !implemented {
+            let label = scheme.unwrap_or_else(|| "framing".to_string());
+            return Some(format!("characteristic framing ({label})"));
+        }
+    }
+    None
 }
 
 /// Canonical name of the one fragment-framing scheme this build executes
@@ -484,6 +485,12 @@ fn unsupported_parameter_kind(command: &Command) -> Option<String> {
     None
 }
 
+/// The higher-level encoding a command declares when it has no raw-byte
+/// `value`/`template`, or `None` when the command is byte-encodable (or is
+/// simply empty, which is a spec error rather than an unsupported encoding).
+///
+/// Single source of truth: `encode_command` rejects on it and `CommandDto`
+/// flags the UI from it, so the encoder and the control can never disagree.
 pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
     if command.value.is_some() || command.template.is_some() {
         return None;
@@ -512,6 +519,14 @@ pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
     Some("nothing to send (no value, template or payload)".to_string())
 }
 
+/// Encode a command to bytes for a BLE write.
+///
+/// For fixed commands, returns the `value` directly without consulting any
+/// parameters — fixed commands are by definition parameterless.
+///
+/// For templated commands, every `{param}` placeholder is looked up in
+/// `params`, validated against the parameter's declared type and `min`/`max`
+/// bounds, and encoded little-endian per the type's byte width.
 pub fn encode_command(
     command: &Command,
     params: &HashMap<String, f64>,
@@ -718,6 +733,19 @@ pub fn encode_command_with_bytes(
     Ok(bytes)
 }
 
+/// The widest frame a spec may declare.
+///
+/// A BLE ATT payload is 512 bytes at the protocol's own ceiling and every
+/// framed command in the catalogue is far under it; the bound is generous
+/// rather than tight because its job is to stop an ALLOCATION, not to police
+/// spec authors. `fixed_length` goes straight to `Vec::resize`, so without it
+/// a spec declaring `fixed_length: 67108864` on a one-byte command makes the
+/// device allocate 64 MB the moment someone presses Send — a multi-gigabyte
+/// memset on 64-bit, an allocation failure and process abort on 32-bit
+/// Android. Specs arrive from a user-configurable remote manifest, so "the
+/// catalogue would never" is not a bound.
+pub const MAX_FIXED_LENGTH: usize = 4096;
+
 /// Zero-pad an encoded frame up to the command's declared [`Command::fixed_length`].
 ///
 /// Applied BEFORE the length fixups, deliberately: `auto: packet_length` means
@@ -734,19 +762,6 @@ pub fn encode_command_with_bytes(
 /// specs list their pad bytes in the template instead, which leaves this a
 /// no-op for them. That is the honest division: this pads, it does not
 /// rearrange.
-/// The widest frame a spec may declare.
-///
-/// A BLE ATT payload is 512 bytes at the protocol's own ceiling and every
-/// framed command in the catalogue is far under it; the bound is generous
-/// rather than tight because its job is to stop an ALLOCATION, not to police
-/// spec authors. `fixed_length` goes straight to `Vec::resize`, so without it
-/// a spec declaring `fixed_length: 67108864` on a one-byte command makes the
-/// device allocate 64 MB the moment someone presses Send — a multi-gigabyte
-/// memset on 64-bit, an allocation failure and process abort on 32-bit
-/// Android. Specs arrive from a user-configurable remote manifest, so "the
-/// catalogue would never" is not a bound.
-pub const MAX_FIXED_LENGTH: usize = 4096;
-
 fn pad_to_fixed_length(mut bytes: Vec<u8>, command: &Command) -> Result<Vec<u8>, ProtocolError> {
     let Some(width) = command.fixed_length else {
         return Ok(bytes);

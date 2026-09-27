@@ -424,6 +424,7 @@ pub(crate) fn typed_json(
                     });
                 }
             }
+            check_declared_range(parameter, name, integer as f64)?;
             Ok(serde_json::Value::from(integer))
         }
         DeclaredType::Number => {
@@ -431,9 +432,11 @@ pub(crate) fn typed_json(
                 .trim()
                 .parse()
                 .map_err(|_| invalid(&format!("declared {declared}, and this is not a number")))?;
-            serde_json::Number::from_f64(number)
+            let json = serde_json::Number::from_f64(number)
                 .map(serde_json::Value::Number)
-                .ok_or_else(|| invalid(&format!("declared {declared}, and this is not finite")))
+                .ok_or_else(|| invalid(&format!("declared {declared}, and this is not finite")))?;
+            check_declared_range(parameter, name, number)?;
+            Ok(json)
         }
         DeclaredType::Boolean => match raw.trim() {
             "true" | "1" => Ok(serde_json::Value::Bool(true)),
@@ -444,6 +447,29 @@ pub(crate) fn typed_json(
         },
         DeclaredType::String => Ok(serde_json::Value::String(raw.to_string())),
     }
+}
+
+/// The parameter's own declared `min`/`max`, on top of its type's width.
+///
+/// The BLE codec has always refused a value outside these bounds
+/// (`codec::types::validate_param_range`); without this the network renderers
+/// sent it as-is, so a stored or typed `volume: 500` reached a TV whose spec
+/// says 0..=100. Same error shape as BLE: an unset bound reads as infinite.
+fn check_declared_range(
+    parameter: Option<&SpecCommandParameter>,
+    name: &str,
+    value: f64,
+) -> Result<(), ProtocolError> {
+    let (min, max) = parameter.map_or((None, None), |p| (p.min, p.max));
+    if min.is_some_and(|m| value < m) || max.is_some_and(|m| value > m) {
+        return Err(ProtocolError::ParameterOutOfRange {
+            name: name.to_string(),
+            value,
+            min: min.unwrap_or(f64::NEG_INFINITY),
+            max: max.unwrap_or(f64::INFINITY),
+        });
+    }
+    Ok(())
 }
 
 /// A literal argument's YAML value as JSON, type intact.
@@ -488,8 +514,8 @@ fn substitute(
     command_name: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    fill_placeholders(template, command, command_name, values, |_, raw| {
-        Ok(percent_encode(raw))
+    fill_placeholders(template, command, command_name, values, |param, raw| {
+        path_value(param, raw)
     })
 }
 
@@ -638,7 +664,7 @@ pub fn fill_path(
             })
             .or_else(|| spec_wide_default(spec, param))
             .ok_or_else(|| ProtocolError::ParameterMissing(format!("{label}.{param}")))?;
-        out.push_str(&percent_encode(&value));
+        out.push_str(&path_value(param, &value)?);
         rest = &tail[end + 1..];
     }
     out.push_str(rest);
@@ -938,12 +964,33 @@ fn walk<'a>(value: &'a serde_json::Value, dotted: &str) -> Option<&'a serde_json
     Some(current)
 }
 
+/// One substituted value, made safe for a path: refused when it is exactly
+/// `.` or `..`, percent-encoded otherwise.
+///
+/// A whole-segment `..` (`/lights/{id}/state` with id `..`) would otherwise
+/// render as a dot-segment that URI resolution collapses, sending the request
+/// to `/state` — a different resource than the command names. Encoding the
+/// dots as `%2E` does not help: Dart's `Uri` decodes unreserved escapes and
+/// then removes dot segments, and so do many servers. Refusing is the only
+/// outcome that does not depend on the far end.
+fn path_value(param: &str, raw: &str) -> Result<String, ProtocolError> {
+    if raw == "." || raw == ".." {
+        return Err(ProtocolError::ParameterInvalid {
+            name: param.to_string(),
+            value: 0.0,
+            reason: format!("'{raw}' would become a path dot-segment"),
+        });
+    }
+    Ok(percent_encode(raw))
+}
+
 /// Percent-encode one substituted value for a path segment.
 ///
 /// Unreserved characters (RFC 3986) pass through; everything else is encoded
 /// byte-wise. Deliberately strict: a substituted value is data, never path
 /// structure, so even `/` is encoded — the spec's literal text is where
-/// structure lives.
+/// structure lives. Encoding alone cannot stop a value of exactly `.` or
+/// `..` from acting as a dot-segment; [`path_value`] refuses those.
 fn percent_encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.bytes() {
@@ -1127,6 +1174,59 @@ commands:
         // Structure stays the author's; data cannot add path segments.
         let sneaky = render_request(&spec(), "type_char", &values(&[("char", "a/b")])).unwrap();
         assert_eq!(sneaky.path, "/keypress/Lit_a%2Fb");
+    }
+
+    /// A parameter's declared `min`/`max` bind on the network path as they
+    /// do on BLE, for numbers as well as integers; an unset bound is open.
+    /// `typed_json` used to check only the type's width, so these rendered.
+    #[test]
+    fn typed_values_are_held_to_the_declared_bounds() {
+        let param = |yaml: &str| -> SpecCommandParameter { serde_yaml::from_str(yaml).unwrap() };
+        let number = param("{ type: number, min: 0.5, max: 2.5 }");
+        assert!(matches!(
+            typed_json(Some(&number), "gain", "2.6"),
+            Err(ProtocolError::ParameterOutOfRange { min, max, .. }) if min == 0.5 && max == 2.5
+        ));
+        assert!(typed_json(Some(&number), "gain", "2.5").is_ok());
+        let floor_only = param("{ type: integer, min: 10 }");
+        assert!(matches!(
+            typed_json(Some(&floor_only), "n", "9"),
+            Err(ProtocolError::ParameterOutOfRange { min, max, .. })
+                if min == 10.0 && max == f64::INFINITY
+        ));
+        assert!(typed_json(Some(&floor_only), "n", "1000000").is_ok());
+        // A string's min/max is not a numeric range; it stays verbatim.
+        let text = param("{ type: string, min: 0, max: 1 }");
+        assert!(typed_json(Some(&text), "s", "500").is_ok());
+    }
+
+    /// A value of exactly `.` or `..` would render `/keypress/..`-style
+    /// dot-segments that URI resolution collapses onto another resource;
+    /// the old encoder passed them through. Dots inside a value still pass.
+    #[test]
+    fn a_whole_dot_segment_value_is_refused() {
+        for dots in [".", ".."] {
+            let err = render_request(&spec(), "launch_defaulted", &values(&[("app_id", dots)]))
+                .unwrap_err();
+            assert!(
+                matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "app_id"),
+                "{dots:?}: {err:?}"
+            );
+            let err = fill_path(
+                &spec(),
+                "/lights/{id}/state",
+                &values(&[("id", dots)]),
+                "state",
+            )
+            .unwrap_err();
+            assert!(
+                matches!(&err, ProtocolError::ParameterInvalid { name, .. } if name == "id"),
+                "{dots:?}: {err:?}"
+            );
+        }
+        let fine =
+            render_request(&spec(), "launch_defaulted", &values(&[("app_id", "a..b")])).unwrap();
+        assert_eq!(fine.path, "/launch/a..b");
     }
 
     #[test]

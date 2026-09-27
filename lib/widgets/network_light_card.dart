@@ -146,6 +146,31 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     'set_zone_color',
   };
 
+  /// Whether a colour action can carry what the swatches send. LIFX renders
+  /// its own bytes. On the generic path the card sends red/green/blue (and
+  /// brightness, and a zone), so the action must own exactly those names: a
+  /// spec that packs colour into ONE parameter (Yeelight's `rgb`, an HSV
+  /// hue, a hex string) needs an encoding the spec has not declared and the
+  /// card must not guess — drawing swatches there was a control that failed
+  /// on every tap with the parameter missing.
+  bool _carriesRgb(NetworkActionDto? action) {
+    if (action == null) return false;
+    if (widget.isLifx) return true;
+    const sendable = {'red', 'green', 'blue', 'brightness', 'zone'};
+    final owned = action.userParams;
+    return owned.contains('red') &&
+        owned.contains('green') &&
+        owned.contains('blue') &&
+        owned.every(sendable.contains);
+  }
+
+  /// The one value a single-parameter action takes, by role: what the card
+  /// calls it, before it is renamed to the spec's own parameter name.
+  static const _primaryValueOf = {
+    'set_brightness': 'brightness',
+    'set_color_temperature': 'kelvin',
+  };
+
   bool get _hasBrightness =>
       _setBrightness != null ||
       (_setColor?.userParams.contains('brightness') ?? false);
@@ -232,14 +257,26 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         if (resolved == null || send == null) {
           throw StateError('no generic path for $action');
         }
-        // The card names its values by role vocabulary ('brightness'); a
-        // one-value action takes them under whatever the spec called its
-        // parameter, so the name is remapped rather than assumed.
+        // The card names its values by role vocabulary ('brightness',
+        // 'kelvin'); a one-value action takes the role's value under
+        // whatever the spec called its parameter (Yeelight's `ct`). Chosen
+        // by role, not by how many values the card had: the temperature
+        // slider also sends brightness, and that extra key used to defeat
+        // the rename, so `ct` was missing on every send. A multi-value
+        // action gets only the names it owns.
         final owned = resolved.userParams;
+        final primary =
+            params[_primaryValueOf[action]] ??
+            (params.length == 1 ? params.values.first : null);
+        final chosen = owned.length == 1 && primary != null
+            ? {owned.first: primary}
+            : {
+                for (final entry in params.entries)
+                  if (owned.contains(entry.key)) entry.key: entry.value,
+              };
         final values = <String, String>{
-          for (final entry in params.entries)
-            (owned.length == 1 && params.length == 1 ? owned.first : entry.key):
-                entry.value.round().toString(),
+          for (final entry in chosen.entries)
+            entry.key: entry.value.round().toString(),
         };
         await send(resolved, values);
       }
@@ -267,7 +304,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   /// Apply the current colour: to the whole strip, or to the selected zone.
   void _applyColor() {
     final zone = _selectedZone;
-    if (zone != null && _setZoneColor != null) {
+    if (zone != null && _carriesRgb(_setZoneColor)) {
       final params = _colorParams()..['zone'] = zone.toDouble();
       _send('set_zone_color', params);
       if (zone < _zoneColors.length) {
@@ -483,11 +520,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                 ],
               ),
             ],
-            if (_setZoneColor != null && _zoneColors.length > 1) ...[
+            if (_carriesRgb(_setZoneColor) && _zoneColors.length > 1) ...[
               const SizedBox(height: 10),
               _zoneRow(scheme, text),
             ],
-            if (_setColor != null || _setZoneColor != null) ...[
+            if (_carriesRgb(_setColor) || _carriesRgb(_setZoneColor)) ...[
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
@@ -566,34 +603,54 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                   ? null
                   : (_) => setState(() => _selectedZone = null),
             ),
+            // Named and stateful for a screen reader — a bare InkWell was an
+            // unnamed tappable per zone, so a blind user could not tell
+            // which zone the next swatch would write. 48 dp target around
+            // the 30 px chip; MergeSemantics so the InkWell adds no second,
+            // unlabelled node.
             for (var i = 0; i < _zoneColors.length; i++)
-              InkWell(
-                onTap: _sending
-                    ? null
-                    : () => setState(() => _selectedZone = i),
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    color: _zoneColors[i],
+              MergeSemantics(
+                child: Semantics(
+                  label: 'Zone ${i + 1}, ${colorSwatchName(_zoneColors[i])}',
+                  button: true,
+                  selected: _selectedZone == i,
+                  enabled: !_sending,
+                  child: InkWell(
+                    key: Key('zone-chip-$i'),
+                    onTap: _sending
+                        ? null
+                        : () => setState(() => _selectedZone = i),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: _selectedZone == i
-                          ? scheme.primary
-                          : scheme.outlineVariant,
-                      width: _selectedZone == i ? 3 : 1,
+                    child: SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Center(
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: _zoneColors[i],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _selectedZone == i
+                                  ? scheme.primary
+                                  : scheme.outlineVariant,
+                              width: _selectedZone == i ? 3 : 1,
+                            ),
+                          ),
+                          child: _selectedZone == i
+                              ? Icon(
+                                  Icons.check,
+                                  size: 14,
+                                  color: _zoneColors[i].computeLuminance() > 0.5
+                                      ? Colors.black87
+                                      : Colors.white,
+                                )
+                              : null,
+                        ),
+                      ),
                     ),
                   ),
-                  child: _selectedZone == i
-                      ? Icon(
-                          Icons.check,
-                          size: 14,
-                          color: _zoneColors[i].computeLuminance() > 0.5
-                              ? Colors.black87
-                              : Colors.white,
-                        )
-                      : null,
                 ),
               ),
           ],

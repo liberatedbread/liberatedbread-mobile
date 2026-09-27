@@ -43,6 +43,26 @@ const _lampId = 'AA:BB:CC:DD:EE:02';
 /// as broken.
 const _lockId = 'AA:BB:CC:DD:EE:03';
 
+/// Polls [condition] until it holds, failing after [timeout].
+///
+/// Most waits in this file are fixed sleeps, and at the adapter's default
+/// zero latency those are deterministic: deliveries go out as microtasks, and
+/// timers fire in deadline order however late. The exception is a wait on a
+/// production timer that re-arms itself from when it last FIRED — load
+/// stretches that chain but not a fixed sleep — so those waits poll instead.
+Future<void> _until(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('condition not reached within $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 void main() {
   late EmulatedBleAdapter ble;
   late RealBleService service;
@@ -778,12 +798,13 @@ void main() {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
       final result = startContinuous();
 
-      await Future<void>.delayed(const Duration(milliseconds: 140));
+      // Polled, not a fixed 140 ms: each 40 ms refresh is armed only after
+      // the previous one's startScan returns, so one ~60 ms stall on a loaded
+      // runner pushed the second refresh past the sleep and left 2 starts.
+      int starts() => ble.platformCalls.where((c) => c == 'startScan').length;
+      await _until(() => starts() > 2);
 
-      expect(
-        ble.platformCalls.where((c) => c == 'startScan').length,
-        greaterThan(2),
-      );
+      expect(starts(), greaterThan(2));
       expect(
         result.done,
         isEmpty,

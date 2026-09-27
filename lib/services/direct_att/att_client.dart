@@ -63,7 +63,12 @@ class AttErrorException implements Exception {
   final int errorCode;
   const AttErrorException(this.requestOpcode, this.handle, this.errorCode);
 
-  /// Whether the peer wants a paired/encrypted link for this attribute.
+  /// Whether the user should be told "pair first": the same codes as
+  /// real_ble_service.dart's `_attPairingErrorCodes`. Deliberately NOT the
+  /// set [AttClient] raises link security for (`_securityTarget`):
+  /// authorization (0x08) is refused by the application, which encryption
+  /// cannot fix, and a too-short key (0x0C) is fixed by re-encrypting, not
+  /// by the user. Aligning the two would make this disagree with the UI.
   bool get needsPairing =>
       errorCode == AttError.insufficientAuthentication ||
       errorCode == AttError.insufficientAuthorization ||
@@ -457,6 +462,17 @@ class AttClient {
   /// that may support no LE encryption at all: the error is then simply the
   /// answer.
   Future<void> write(int handle, List<int> value, {bool secure = true}) async {
+    // No attribute is longer (Vol 3 Part F 3.2.9), and past 0xFFFF bytes a
+    // Prepare Write's 16-bit offset would wrap: refused here, before a
+    // lenient peer can commit an oversize value, as BlueZ and Android refuse
+    // it locally.
+    if (value.length > attMaxAttributeLength) {
+      throw ArgumentError.value(
+        value.length,
+        'value.length',
+        'an attribute value is at most $attMaxAttributeLength bytes',
+      );
+    }
     if (value.length <= mtu - 3) {
       AttDecode.writeResponse(
         await _send(AttEncode.write(handle, value), secure: secure),
@@ -472,14 +488,16 @@ class AttClient {
     required bool secure,
   }) async {
     // A Prepare Write carries opcode, handle and offset: MTU-5 value bytes.
-    // Taken once — an exchange mid-write can only grow the MTU.
-    final chunk = mtu - 5;
+    // Sized per piece from the current MTU: the peer's own Exchange MTU
+    // Request can LOWER it mid-write (_serve follows the latest exchange, as
+    // bt_att does), and a piece sized for the old MTU would then overrun
+    // the bearer.
     var queued = false;
     try {
-      for (var offset = 0; offset < value.length; offset += chunk) {
-        final end = offset + chunk < value.length
-            ? offset + chunk
-            : value.length;
+      var offset = 0;
+      while (offset < value.length) {
+        final room = mtu - 5;
+        final end = offset + room < value.length ? offset + room : value.length;
         final part = value.sublist(offset, end);
         final echo = AttDecode.prepareWrite(
           await _send(
@@ -498,6 +516,7 @@ class AttClient {
             'offset $offset does not match what was sent',
           );
         }
+        offset = end;
       }
     } catch (_) {
       // Leave nothing half-written in the server's queue for the next long

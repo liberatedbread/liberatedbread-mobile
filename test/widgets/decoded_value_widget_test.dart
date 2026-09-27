@@ -69,6 +69,37 @@ Widget _wrap(
   child: MaterialApp(home: Scaffold(body: child)),
 );
 
+/// A codec whose decodes finish only when the test says so, one Completer
+/// per call in call order — to finish a later decode before an earlier one.
+class _GatedCodec extends FakeSpecCodec {
+  final List<Completer<List<DecodedValueDto>>> pending = [];
+
+  @override
+  Future<List<DecodedValueDto>> decodeValue({
+    String? specYaml,
+    String? serviceUuid,
+    required String charUuid,
+    required List<int> bytes,
+  }) {
+    final c = Completer<List<DecodedValueDto>>();
+    pending.add(c);
+    return c.future;
+  }
+}
+
+List<DecodedValueDto> _reading(String name, int raw) => [
+  DecodedValueDto(
+    name: name,
+    valueType: 'uint',
+    display: '$raw',
+    uintValue: raw,
+    rawNumber: raw.toDouble(),
+    decodedNumber: raw.toDouble(),
+    decodedText: '$raw',
+    decimals: 0,
+  ),
+];
+
 void main() {
   testWidgets('reads then shows decoded named fields', (tester) async {
     final ble = FakeBleService(
@@ -594,5 +625,46 @@ void main() {
       tester.widget<Text>(find.text('(no value)')).style?.color,
       scheme.onSurfaceVariant,
     );
+  });
+
+  testWidgets('a read decoded after a newer notification does not replace '
+      'it', (tester) async {
+    // Old code: last decode to finish won, older reading back on screen.
+    final notify = StreamController<List<int>>();
+    addTearDown(notify.close);
+    final ble = FakeBleService(
+      readValues: const {
+        '0000fff2-0000-1000-8000-00805f9b34fb': [10],
+      },
+      notifyStream: notify.stream,
+    );
+    final codec = _GatedCodec();
+    await tester.pumpWidget(
+      _wrap(
+        const DecodedValueWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _statusChar,
+          canRead: true,
+          canNotify: true,
+        ),
+        ble: ble,
+        codec: codec,
+      ),
+    );
+    await tester.pump();
+    expect(codec.pending, hasLength(1));
+    notify.add(const [30]);
+    await tester.pump();
+    expect(codec.pending, hasLength(2));
+
+    codec.pending[1].complete(_reading('brightness', 30));
+    await tester.pump();
+    codec.pending[0].complete(_reading('brightness', 10));
+    await tester.pump();
+
+    expect(find.text('Brightness: 30'), findsOneWidget);
+    expect(find.text('Brightness: 10'), findsNothing);
   });
 }

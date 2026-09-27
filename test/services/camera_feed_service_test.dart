@@ -181,9 +181,25 @@ void main() {
         const service = CameraFeedService();
         final got = <Uint8List>[];
         final sub = service.frames(host: host, stream: stream).listen(got.add);
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        expect(got, isEmpty);
-        await sub.cancel();
+        try {
+          // Wait for a SECOND fetch rather than a fixed 500 ms: polls are
+          // sequential, so a second hit proves the first body was read and
+          // ran through the magic-byte check. The fixed sleep passed with no
+          // fetch at all (a 404ing path, a slow runner, a feed that never
+          // started) because `got` is empty then too.
+          final deadline = DateTime.now().add(const Duration(seconds: 3));
+          while (frameTag < 2 && DateTime.now().isBefore(deadline)) {
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+          expect(
+            frameTag,
+            greaterThanOrEqualTo(2),
+            reason: 'the error page was fetched and a later poll followed it',
+          );
+          expect(got, isEmpty);
+        } finally {
+          await sub.cancel();
+        }
       },
     );
 

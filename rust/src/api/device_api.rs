@@ -377,6 +377,16 @@ pub struct EntityDto {
     /// dialects. Checked against `ble_variant_names_for_device`, which is the
     /// half that knows which model is in front of us.
     pub variants: Vec<String>,
+    /// This entity's position in the spec's `entities:` list — its identity,
+    /// where the name is not one. Pass it back to [`encode_entity_value`] so a
+    /// setpoint is encoded against THIS entity: kingsmith-walkingpad declares
+    /// "Target Speed" twice (WiLink, max 6; FTMS, max 12), and a lookup by
+    /// name alone encoded the FTMS card's value against the WiLink command.
+    ///
+    /// Always set for an entity this crate builds. Optional only so a DTO
+    /// assembled by hand (the Dart test fakes) need not state it; the name
+    /// then addresses the entity, and an ambiguous name is refused.
+    pub entity_index: Option<u32>,
     /// Machine-stable semantic token from the spec's documented vocabulary
     /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
     /// remote grid, a treadmill card — can place this entity without
@@ -680,7 +690,11 @@ pub struct MatchResult {
     pub spec: DeviceSpecDto,
     pub matched_by_name_prefix: bool,
     /// The advertised service UUIDs (lowercased) that intersect with the
-    /// spec's identification. Empty when no UUIDs matched.
+    /// spec's identification and are VENDOR-allocated. A SIG-assigned match
+    /// (0x1802, 0x1826, 0x181A …) is left out: it admits the match at
+    /// `Possible` but says nothing about who built the device, and a caller
+    /// ranking on this list would otherwise let it outrank a name. Empty when
+    /// no vendor UUID matched.
     pub matched_service_uuids: Vec<String>,
     /// How much this match is worth. See [`MatchConfidence`].
     pub confidence: MatchConfidence,
@@ -1359,6 +1373,11 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
     Some(EntityDto {
         name: entity.name.clone(),
         variants: crate::spec::bindings::entity_variants(entity).unwrap_or_default(),
+        entity_index: spec
+            .entities
+            .iter()
+            .position(|e| std::ptr::eq(e, entity))
+            .and_then(|i| u32::try_from(i).ok()),
         key: entity.key.clone(),
         options: entity
             .options()
@@ -1716,13 +1735,18 @@ pub struct EntityWriteDto {
 /// Both `set_value` shapes are handled: a command carrying the value in its
 /// single un-defaulted parameter, and a direct write of the encoded value to
 /// a characteristic the entity explicitly nominates.
+///
+/// `entity_index` is [`EntityDto::entity_index`]: which of several entities
+/// sharing `entity_name` is meant. `None` addresses by name alone, and is
+/// refused when the name is ambiguous rather than guessing the first.
 pub fn encode_entity_value(
     spec_yaml: String,
     entity_name: String,
+    entity_index: Option<u32>,
     value: f64,
 ) -> anyhow::Result<EntityWriteDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    encode_entity_value_with_spec(&spec, entity_name, value)
+    encode_entity_value_with_spec(&spec, entity_name, entity_index, value)
 }
 
 /// [`encode_entity_value`] against a spec that is already parsed — the body
@@ -1730,13 +1754,10 @@ pub fn encode_entity_value(
 pub(crate) fn encode_entity_value_with_spec(
     spec: &DeviceSpec,
     entity_name: String,
+    entity_index: Option<u32>,
     value: f64,
 ) -> anyhow::Result<EntityWriteDto> {
-    let entity = spec
-        .entities
-        .iter()
-        .find(|e| e.name == entity_name)
-        .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
+    let entity = select_entity(spec, &entity_name, entity_index)?;
 
     let actions = bindings::resolve_entity_actions(spec, entity);
     let action = actions
@@ -3365,7 +3386,10 @@ pub struct MqttIncomingDto {
     /// PUBLISH only.
     pub payload: String,
     /// CONNACK's return code — 0 is accepted, 4 is a bad username or
-    /// password. SUBACK's packet id. Zero elsewhere.
+    /// password. SUBACK's packet id. For `other`, the MQTT control packet
+    /// type (the fixed header's high nibble: 4 is PUBACK, 14 DISCONNECT), so
+    /// a reader must not take a nonzero value there for a return code. Zero
+    /// for publish and pingresp.
     pub code: u16,
 }
 
@@ -3662,10 +3686,43 @@ fn find_entity<'a>(
     spec: &'a crate::spec::types::DeviceSpec,
     entity_name: &str,
 ) -> anyhow::Result<&'a crate::spec::types::Entity> {
-    spec.entities
-        .iter()
-        .find(|e| e.name == entity_name)
-        .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))
+    select_entity(spec, entity_name, None)
+}
+
+/// The entity a caller means: the one at `index` when it gives one (checked
+/// against `name`, so a DTO from a different spec cannot address the wrong
+/// entity), otherwise the ONE entity carrying `name`.
+///
+/// A name is not an identity — a family spec declares one entity per model,
+/// and two can share a name (kingsmith-walkingpad's WiLink and FTMS "Target
+/// Speed"). Taking the first match encoded one model's value against the
+/// other's command, so an ambiguous name is refused instead.
+fn select_entity<'a>(
+    spec: &'a crate::spec::types::DeviceSpec,
+    name: &str,
+    index: Option<u32>,
+) -> anyhow::Result<&'a crate::spec::types::Entity> {
+    if let Some(index) = index {
+        let entity = spec
+            .entities
+            .get(index as usize)
+            .ok_or_else(|| anyhow::anyhow!("no entity {index} in this spec"))?;
+        anyhow::ensure!(
+            entity.name == name,
+            "entity {index} is '{}', not '{name}'",
+            entity.name
+        );
+        return Ok(entity);
+    }
+    let mut named = spec.entities.iter().filter(|e| e.name == name);
+    let entity = named
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no entity named '{name}' in this spec"))?;
+    anyhow::ensure!(
+        named.next().is_none(),
+        "more than one entity is named '{name}'; address it by its entity_index"
+    );
+    Ok(entity)
 }
 
 // ── Credentials ─────────────────────────────────────────────────────────────
@@ -4590,17 +4647,6 @@ fn is_sig_assigned_service(uuid: &str) -> bool {
         .any(|line| line.split('\t').next() == Some(padded.as_str()))
 }
 
-/// Compare one spec identity against one device seen on the local network.
-///
-/// Deliberately the same [`MatchAxes`] and therefore the same confidence rule
-/// as the BLE path: an mDNS service type or an SSDP search target is a
-/// vendor-specific identifier the device volunteered, which is the network
-/// equivalent of a vendor service UUID. A declared `default_port` gates a spec
-/// into this path but never becomes evidence within it -- port 80 tells you
-/// nothing about who is listening on it.
-/// `device_types` is `device.service_types` already through
-/// [`normalize_service_type`], computed once by the caller for the same reason
-/// [`match_axes`] takes the MAC pre-normalized: this runs per identity.
 /// The best of a spec's `mac_prefixes` that `address` falls in.
 ///
 /// Best-first rather than first-declared: a spec listing both a vetted block
@@ -4627,6 +4673,17 @@ fn best_mac_prefix(prefixes: &[MacPrefixDto], address: Option<&str>) -> Option<M
         .cloned()
 }
 
+/// Compare one spec identity against one device seen on the local network.
+///
+/// Deliberately the same [`MatchAxes`] and therefore the same confidence rule
+/// as the BLE path: an mDNS service type or an SSDP search target is a
+/// vendor-specific identifier the device volunteered, which is the network
+/// equivalent of a vendor service UUID. A declared `default_port` gates a spec
+/// into this path but never becomes evidence within it -- port 80 tells you
+/// nothing about who is listening on it.
+/// `device_types` is `device.service_types` already through
+/// [`normalize_service_type`], computed once by the caller for the same reason
+/// [`match_axes`] takes the MAC pre-normalized: this runs per identity.
 fn match_network_axes(
     identity: &SpecIdentityDto,
     device: &NetworkDeviceDto,
@@ -4956,8 +5013,16 @@ pub(crate) fn match_connected_device(
     device: &ScannedDeviceDto,
 ) -> Option<ConnectedMatch> {
     let axes = match_axes(identity, device, None);
-    // Built before the struct moves the axes apart.
-    let matched_service_uuids = axes.all_service_uuids();
+    // The VENDOR UUIDs only, not `all_service_uuids`. The post-connect ranker
+    // (`rankSpecMatches` in Dart) reads a non-empty list as UUID evidence,
+    // which outranks a name. With the SIG-assigned half included, any device
+    // whose GATT table carries Immediate Alert (0x1802) had the iTag spec
+    // picked over its own name-matched spec, and every FTMS treadmill raised a
+    // Kingsmith-vs-Urevo chooser on 0x1826 alone. A shared UUID still admits
+    // the match, at `Possible`, and the Dart side then weighs it by that
+    // confidence and checks it against the spec's GATT services like any
+    // other match with no vendor UUID behind it.
+    let matched_service_uuids = axes.service_uuids.clone();
     (!axes.is_empty()).then(|| ConnectedMatch {
         matched_by_name_prefix: axes.by_name_prefix,
         confidence: axes.confidence(),
@@ -4980,8 +5045,22 @@ pub(crate) struct ConnectedMatch {
 /// The Wi-Fi counterpart of [`match_scanned_device`], sharing its confidence
 /// rule so a "Likely supported" badge means the same thing on both tabs.
 /// Returns `vec![]` when nothing matches.
+///
+/// The catalogue handle's [`super::spec_handle::CatalogueHandle::match_network`]
+/// runs the same body over the identities it already holds; this by-value
+/// door stays for tests and codec fakes.
 pub fn match_network_device(
     identities: Vec<SpecIdentityDto>,
+    device: NetworkDeviceDto,
+) -> Vec<ScanMatch> {
+    let refs: Vec<&SpecIdentityDto> = identities.iter().collect();
+    match_network_over(&refs, device)
+}
+
+/// [`match_network_device`] over borrowed identities — the one body both the
+/// by-value door and the catalogue handle run, so they agree by construction.
+pub(crate) fn match_network_over(
+    identities: &[&SpecIdentityDto],
     device: NetworkDeviceDto,
 ) -> Vec<ScanMatch> {
     // Normalized once here, not per identity — see match_network_axes.
@@ -5017,7 +5096,7 @@ pub fn match_network_device(
                 })
         })
         .collect();
-    rank_matches(&identities, |identity| {
+    rank_matches(identities, |identity| {
         match_network_axes(identity, &device, &device_types, &narrowed_types)
     })
 }
@@ -5030,7 +5109,7 @@ pub fn match_network_device(
 /// the result is stable for a given catalogue rather than depending on sort
 /// implementation details.
 fn rank_matches(
-    identities: &[SpecIdentityDto],
+    identities: &[&SpecIdentityDto],
     axes_for: impl Fn(&SpecIdentityDto) -> MatchAxes,
 ) -> Vec<ScanMatch> {
     let mut matches: Vec<ScanMatch> = identities
@@ -5088,13 +5167,29 @@ fn rank_matches(
 /// anything with a result — a [`MatchConfidence::Possible`] match is one shared
 /// OUI and says only that the device is worth a human's attention, not that the
 /// spec describes it.
+///
+/// The catalogue handle's [`super::spec_handle::CatalogueHandle::match_scanned`]
+/// is the door the app uses: it matches against the identities the handle
+/// already holds, so a scan no longer SSE-encodes ~200 identities on the UI
+/// isolate for every newly seen (or re-randomised) device. This by-value door
+/// stays for tests and codec fakes.
 pub fn match_scanned_device(
     identities: Vec<SpecIdentityDto>,
     device: ScannedDeviceDto,
 ) -> Vec<ScanMatch> {
+    let refs: Vec<&SpecIdentityDto> = identities.iter().collect();
+    match_scanned_over(&refs, device)
+}
+
+/// [`match_scanned_device`] over borrowed identities — the one body both the
+/// by-value door and the catalogue handle run.
+pub(crate) fn match_scanned_over(
+    identities: &[&SpecIdentityDto],
+    device: ScannedDeviceDto,
+) -> Vec<ScanMatch> {
     // Normalized once here, not per identity — see match_axes.
     let device_mac = device.mac_address.as_deref().and_then(normalize_mac);
-    rank_matches(&identities, |identity| {
+    rank_matches(identities, |identity| {
         match_axes(identity, &device, device_mac.as_deref())
     })
 }
@@ -5448,19 +5543,6 @@ fn brother_ql_test_canvas(width: usize, height: usize) -> Vec<u8> {
     rgb
 }
 
-/// Encode the BLE writes that PERSIST a picture on the device so it plays
-/// standalone after disconnect, dispatched on the spec's `stored_upload`
-/// feature.
-///
-/// `rgb` is the canvas, row-major `width * height * 3`, already reduced to at
-/// most 16 distinct colours (the editor quantises before calling). `name` is
-/// the label stored on the device, `cid` the id it is stored under (novel ids
-/// are accepted), `time_secs` the run/scroll duration, `scroll` one of
-/// `none`/`left`/`right`/`up`/`down`, and `speed` the scroll-speed byte.
-///
-/// Returns the ordered Uploader-characteristic writes plus, when the spec
-/// declares a `play_command`, a fragment-framed write that plays the item
-/// immediately. Errors are typed and user-presentable.
 /// Refuse a stored-design canvas the "DN" container's layer header cannot
 /// describe, before the spec is even parsed.
 ///
@@ -5498,6 +5580,19 @@ fn check_stored_layer_edges(
 
 // The flat argument list is the FFI surface flutter_rust_bridge exposes to
 // Dart; grouping into a struct would churn the generated bindings.
+/// Encode the BLE writes that PERSIST a picture on the device so it plays
+/// standalone after disconnect, dispatched on the spec's `stored_upload`
+/// feature.
+///
+/// `rgb` is the canvas, row-major `width * height * 3`, already reduced to at
+/// most 16 distinct colours (the editor quantises before calling). `name` is
+/// the label stored on the device, `cid` the id it is stored under (novel ids
+/// are accepted), `time_secs` the run/scroll duration, `scroll` one of
+/// `none`/`left`/`right`/`up`/`down`, and `speed` the scroll-speed byte.
+///
+/// Returns the ordered Uploader-characteristic writes plus, when the spec
+/// declares a `play_command`, a fragment-framed write that plays the item
+/// immediately. Errors are typed and user-presentable.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_stored_image(
     spec_yaml: String,
@@ -6108,12 +6203,24 @@ pub struct SoftApProfileDto {
 /// Another catalogue sweep, so it stays off the spec cache for the reason
 /// [`load_device_spec`] gives: one pass over every spec would clear the cache
 /// out from under whatever the app is actually polling.
+///
+/// The app asks [`super::spec_handle::CatalogueHandle::soft_ap_profiles`]
+/// instead, which crosses indices rather than megabytes of YAML and re-parses
+/// nothing; this by-YAML door stays for tests and codec fakes.
 pub fn soft_ap_profiles(spec_yamls: Vec<String>) -> Vec<SoftApProfileDto> {
     let specs: Vec<DeviceSpec> = spec_yamls
         .iter()
         .filter_map(|yaml| parse_device_spec(yaml).ok())
         .collect();
-    crate::spec::setup::soft_ap_profiles(specs.iter())
+    soft_ap_profiles_over(specs.iter())
+}
+
+/// [`soft_ap_profiles`] over specs already parsed — the one body both doors
+/// run.
+pub(crate) fn soft_ap_profiles_over<'a>(
+    specs: impl Iterator<Item = &'a DeviceSpec>,
+) -> Vec<SoftApProfileDto> {
+    crate::spec::setup::soft_ap_profiles(specs)
         .into_iter()
         .map(|p| SoftApProfileDto {
             spec_name: p.spec_name,
@@ -6157,12 +6264,23 @@ pub struct BleProvisioningProfileDto {
 ///
 /// Same whole-catalogue sweep caveat as [`soft_ap_profiles`]: specs that fail
 /// to parse are skipped, and the pass stays off the spec cache.
+///
+/// The app asks
+/// [`super::spec_handle::CatalogueHandle::ble_provisioning_profiles`] instead.
 pub fn ble_provisioning_profiles(spec_yamls: Vec<String>) -> Vec<BleProvisioningProfileDto> {
     let specs: Vec<DeviceSpec> = spec_yamls
         .iter()
         .filter_map(|yaml| parse_device_spec(yaml).ok())
         .collect();
-    crate::spec::setup::ble_provisioning_profiles(specs.iter())
+    ble_provisioning_profiles_over(specs.iter())
+}
+
+/// [`ble_provisioning_profiles`] over specs already parsed — the one body
+/// both doors run.
+pub(crate) fn ble_provisioning_profiles_over<'a>(
+    specs: impl Iterator<Item = &'a DeviceSpec>,
+) -> Vec<BleProvisioningProfileDto> {
+    crate::spec::setup::ble_provisioning_profiles(specs)
         .into_iter()
         .map(|p| BleProvisioningProfileDto {
             spec_name: p.spec_name,
@@ -8463,10 +8581,11 @@ device:
     }
 
     /// A state topic fills from stored values by exact placeholder name, one
-    /// pass, and what nothing fills survives verbatim so the caller can see
-    /// the topic is not subscribable yet.
+    /// pass. A placeholder nothing fills is an error naming it, never a
+    /// literal left in the topic, so a caller needs no `{` re-scan of the
+    /// answer; a brace that arrives inside a VALUE lands verbatim.
     #[test]
-    fn a_state_topic_fills_from_stored_values_and_keeps_what_it_cannot_fill() {
+    fn a_state_topic_fills_from_stored_values_and_refuses_what_it_cannot_fill() {
         let values: HashMap<String, String> = [
             ("serial".to_string(), "NN2-EU-ABC1234D".to_string()),
             ("productType".to_string(), "455".to_string()),

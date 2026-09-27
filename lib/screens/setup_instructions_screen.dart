@@ -89,12 +89,11 @@ class SetupInstructionsScreen extends StatelessWidget {
                 ),
               ),
             for (final method in instructions.methods)
-              if (method.description != null ||
-                  method.steps.isNotEmpty ||
-                  method.stages.isNotEmpty)
+              if (_MethodSection.hasContent(method))
                 _MethodSection(method: method),
-            if (instructions.factoryReset != null)
-              _FactoryResetSection(reset: instructions.factoryReset!),
+            if (instructions.factoryReset case final reset?
+                when _FactoryResetSection.hasContent(reset))
+              _FactoryResetSection(reset: reset),
           ],
         ),
       ),
@@ -253,6 +252,12 @@ class _MethodSection extends StatelessWidget {
   final SetupMethodDto method;
   const _MethodSection({required this.method});
 
+  /// Whether the card would say anything; see [_hasText].
+  static bool hasContent(SetupMethodDto method) =>
+      _hasText(method.description) ||
+      method.steps.isNotEmpty ||
+      method.stages.isNotEmpty;
+
   /// What a `role` means to the reader. `primary` (and absent) get no label:
   /// the first card needs no qualifier, and a label saying "the normal way"
   /// would only make people look for a catch. A role this build has never
@@ -295,7 +300,7 @@ class _MethodSection extends StatelessWidget {
             ),
             const SizedBox(height: 6),
           ],
-          if ((method.description ?? '').trim().isNotEmpty) ...[
+          if (_hasText(method.description)) ...[
             Text(
               method.description!.trim(),
               style: text.bodyMedium?.copyWith(height: 1.4),
@@ -433,6 +438,16 @@ class _FactoryResetSection extends StatelessWidget {
   final FactoryResetDto reset;
   const _FactoryResetSection({required this.reset});
 
+  /// Whether the section would say anything. A reset block with a blank
+  /// effect and no procedures used to render a bare "Factory reset" heading;
+  /// the catalogue's `effect: "n/a"` (not applicable) with none reads the
+  /// same way to a user.
+  static bool hasContent(FactoryResetDto reset) {
+    final effect = (reset.effect ?? '').trim();
+    return reset.procedures.isNotEmpty ||
+        (effect.isNotEmpty && effect.toLowerCase() != 'n/a');
+  }
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
@@ -442,7 +457,7 @@ class _FactoryResetSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if ((reset.effect ?? '').trim().isNotEmpty) ...[
+          if (_hasText(reset.effect)) ...[
             Text(
               reset.effect!.trim(),
               style: text.bodyMedium?.copyWith(height: 1.4),
@@ -495,3 +510,8 @@ class _ResetProcedure extends StatelessWidget {
     );
   }
 }
+
+/// Non-blank text. The ONE test both the section filters and the widgets
+/// use: the method filter once admitted any non-null description while the
+/// widget hid a blank one, giving a titled card with nothing under it.
+bool _hasText(String? s) => (s ?? '').trim().isNotEmpty;

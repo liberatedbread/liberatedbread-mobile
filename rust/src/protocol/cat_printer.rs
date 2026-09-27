@@ -45,14 +45,12 @@
 //! table's business respectively; this encoder emits the documented default
 //! sequence for the family.
 //!
-//! SPEC-GAP: the spec carries its whole command set in PROSE — the TX
-//! characteristic declares no `commands:` block — so every opcode, fixed
-//! payload and default below is transcribed from device.notes rather than
-//! read from a command template. Each should become a named command on the
-//! 0xAE01 characteristic (`get_device_state`, `set_dpi_as_200`, `set_speed`,
-//! `set_energy`, `apply_energy`, `update_device`, `start_lattice`,
-//! `end_lattice`, `draw_bitmap`, `feed_paper`) so this module can resolve
-//! them by name the way the other handlers do.
+//! The fixed frames below are hand-copied from the spec's `commands:` block
+//! on the TX characteristic (0xAE01); the test
+//! `every_fixed_frame_matches_the_vendored_spec_command` compares each one
+//! byte for byte with the vendored `commands.<name>.value`, so a spec
+//! correction fails CI instead of drifting silently off the wire (as
+//! apply_energy's payload once did: 0x00 here, 0x01 in the spec).
 
 use super::image_upload::{
     brightness_mask, is_writable, printhead_row_bytes, validate_rgb_canvas, MIN_PAYLOAD_PER_WRITE,
@@ -93,21 +91,19 @@ const DPI_200_VALUE: u8 = 50;
 /// Spec: "set_speed (0xBD) — lower = faster feed, default 32".
 const DEFAULT_SPEED: u8 = 32;
 /// Spec: "set_energy (0xAF) — thermal strength, 0x0000-0xFFFF, default
-/// ~0x3000". Sent little-endian like the protocol's other u16 payloads
-/// (retract/feed pixel counts are "uint16 LE").
-// SPEC-GAP: the energy field's byte order is not stated; it should be.
+/// ~0x3000". Sent little-endian, as the spec's `set_energy` parameter
+/// declares (`endianness: "little"`, NaitLee's byte order).
 const DEFAULT_ENERGY: u16 = 0x3000;
 /// Spec step 11: "set_speed(8) + feed_paper(128)".
 const FEED_SPEED: u8 = 8;
 const FEED_AFTER_PRINT: u16 = 128;
-/// The one-byte payload of get_device_state / start_printing (the spec
-/// writes the latter's frame prefix as "0xA3 0x00 0x01": command, fixed
-/// zero, length 1), apply_energy and update_device.
-// SPEC-GAP: the spec states these commands' ids and the payload LENGTH but
-// not the byte's value; 0x00 is the neutral value and what get_device_info
-// (the one query whose payload the spec does state) uses.
+/// The one-byte payloads of get_device_state (which also serves as
+/// start_printing, step 2), apply_energy and update_device, per the spec's
+/// `commands:` block. apply_energy's byte is 0x01, not 0x00 ("The payload
+/// byte is 0x01, not 0x00 (NaitLee commander.py)"): a 0x00 there may leave
+/// the energy from set_energy uncommitted, printing at the default darkness.
 const STATE_PAYLOAD: [u8; 1] = [0x00];
-const APPLY_ENERGY_PAYLOAD: [u8; 1] = [0x00];
+const APPLY_ENERGY_PAYLOAD: [u8; 1] = [0x01];
 const UPDATE_DEVICE_PAYLOAD: [u8; 1] = [0x00];
 
 /// Encode one RGB888 canvas as a complete print job on the TX
@@ -343,7 +339,7 @@ services:
     ///
     /// - A3 [00] -> crc 00 (steps 1, 2 and 12)
     /// - A4 [32] -> crc 9E;  BD [20] -> crc E0;  AF [00 30] -> crc 90
-    /// - BE [00] -> crc 00;  A9 [00] -> crc 00
+    /// - BE [01] -> crc 07;  A9 [00] -> crc 00
     /// - A6 lattice start -> crc A1;  A6 lattice end -> crc 11
     /// - A2 row 0: all 8 dots black -> MSB-first FF, bit-reversed FF,
     ///   47 blank bytes -> crc ED
@@ -369,7 +365,7 @@ services:
         expected.extend(frame_bytes(0xA4, &[0x32], 0x9E)); // 3 set_dpi_as_200
         expected.extend(frame_bytes(0xBD, &[0x20], 0xE0)); // 4 set_speed 32
         expected.extend(frame_bytes(0xAF, &[0x00, 0x30], 0x90)); // 5 energy
-        expected.extend(frame_bytes(0xBE, &[0x00], 0x00)); // 6 apply_energy
+        expected.extend(frame_bytes(0xBE, &[0x01], 0x07)); // 6 apply_energy
         expected.extend(frame_bytes(0xA9, &[0x00], 0x00)); // 7 update_device
         expected.extend(frame_bytes(0xA6, &LATTICE_START, 0xA1)); // 8
         expected.extend(frame_bytes(0xA2, &row_with_first(0xFF), 0xED)); // 9
@@ -471,6 +467,72 @@ services:
     fn wrong_buffer_length_is_rejected() {
         let err = encode_print_job(&spec(), &[0; 5], 8, 2, 0, 509).unwrap_err();
         assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
+    }
+
+    /// The vendored spec's `commands:` block on 0xAE01 states every fixed
+    /// frame of the sequence byte for byte. Encoding a job against the real
+    /// spec file and comparing each of those frames with the emitted one
+    /// catches a spec correction the hand-copied constants missed (the
+    /// apply_energy payload shipped as 0x00 against the spec's 0x01).
+    #[test]
+    fn every_fixed_frame_matches_the_vendored_spec_command() {
+        let vendored = parse_device_spec(include_str!(
+            "../../../vendor/protocol-specs/device-specs/devices/cat-printer.yaml"
+        ))
+        .unwrap();
+        let commands = vendored
+            .services
+            .iter()
+            .flat_map(|s| &s.characteristics)
+            .find(|c| c.uuid.eq_ignore_ascii_case(TX))
+            .and_then(|c| c.commands.as_ref())
+            .expect("the TX characteristic declares commands");
+        let spec_value = |name: &str| -> Vec<u8> {
+            commands
+                .get(name)
+                .and_then(|c| c.value.clone())
+                .unwrap_or_else(|| panic!("spec command {name} has a fixed value"))
+        };
+        let mut ours = Vec::new();
+        push_frame(&mut ours, CMD_APPLY_ENERGY, &APPLY_ENERGY_PAYLOAD);
+        assert_eq!(ours, spec_value("apply_energy"));
+        for (name, cmd, payload) in [
+            ("get_device_state", CMD_GET_DEVICE_STATE, &STATE_PAYLOAD[..]),
+            ("set_dpi_as_200", CMD_SET_DPI_AS_200, &[DPI_200_VALUE][..]),
+            (
+                "update_device",
+                CMD_UPDATE_DEVICE,
+                &UPDATE_DEVICE_PAYLOAD[..],
+            ),
+            ("start_lattice", CMD_LATTICE, &LATTICE_START[..]),
+            ("end_lattice", CMD_LATTICE, &LATTICE_END[..]),
+        ] {
+            let mut ours = Vec::new();
+            push_frame(&mut ours, cmd, payload);
+            assert_eq!(ours, spec_value(name), "{name} drifted from the spec");
+        }
+
+        // And the job the vendored spec actually produces carries each of
+        // them, in order.
+        let job = stream_of(&encode_print_job(&vendored, &tiny(), 8, 2, 0, 509).unwrap());
+        let mut at = 0;
+        for name in [
+            "get_device_state",
+            "get_device_state",
+            "set_dpi_as_200",
+            "apply_energy",
+            "update_device",
+            "start_lattice",
+            "end_lattice",
+            "get_device_state",
+        ] {
+            let want = spec_value(name);
+            let found = job[at..]
+                .windows(want.len())
+                .position(|w| w == want.as_slice())
+                .unwrap_or_else(|| panic!("{name} missing from the job after byte {at}"));
+            at += found + want.len();
+        }
     }
 
     #[test]

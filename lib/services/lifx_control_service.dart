@@ -4,6 +4,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'real_network_scan_service.dart' show isLocalNetworkDenied;
+
 /// The transport half of LIFX control: move datagram bytes over UDP.
 ///
 /// LIFX is the first device this app *controls* over UDP (the network scan
@@ -74,23 +76,61 @@ class LifxControlClient {
     return address;
   }
 
+  /// A send the OS refused, as the typed failure this class documents.
+  ///
+  /// dart:io never throws a refused send from `send()`: it returns 0, puts
+  /// the SocketException on the socket's stream a microtask later and closes
+  /// the socket. Every listener here routes that error through this, so iOS
+  /// Local Network denial reads as that — not as a silent "write-only"
+  /// light, an empty setup network, or an uncaught zone error.
+  static LifxTransportException _sendError(Object error) {
+    if (isLocalNetworkDenied(
+      error,
+      isApplePlatform: Platform.isIOS || Platform.isMacOS,
+    )) {
+      return const LifxTransportException(
+        'the phone could not send to the light: Local Network access is off '
+        'for this app (Settings → Privacy & Security → Local Network).',
+      );
+    }
+    final detail = error is SocketException
+        ? (error.osError?.message ?? error.message)
+        : '$error';
+    return LifxTransportException(
+      'the phone could not send to the light ($detail).',
+    );
+  }
+
   /// Send [packet] to [host]:56700 and return without waiting for a reply.
   ///
   /// Sent [sends] times (default twice) because a dropped datagram on lossy UDP
   /// would otherwise silently fail a set. Broadcast is enabled so the same
-  /// method can drive a `255.255.255.255` provisioning/discovery packet.
+  /// method can drive a `255.255.255.255` provisioning/discovery packet. A
+  /// send the OS refuses throws [LifxTransportException].
   Future<void> send(String host, Uint8List packet, {int sends = 2}) async {
     final socket = await _bind();
+    // Listened to only so a refused send is seen: without a listener the
+    // error is never delivered and the set silently does nothing.
+    Object? sendError;
+    final subscription = socket.listen(
+      (_) {},
+      onError: (Object e) => sendError ??= e,
+    );
     try {
       socket.broadcastEnabled = true;
       final dest = _address(host);
-      for (var i = 0; i < sends; i++) {
+      for (var i = 0; i < sends && sendError == null; i++) {
         socket.send(packet, dest, port);
-        if (i + 1 < sends) {
-          await Future<void>.delayed(const Duration(milliseconds: 40));
-        }
+        // One event-loop turn lets a refusal land before the next send, and
+        // before the socket is closed below.
+        await Future<void>.delayed(
+          i + 1 < sends ? const Duration(milliseconds: 40) : Duration.zero,
+        );
       }
+      final failed = sendError;
+      if (failed != null) throw _sendError(failed);
     } finally {
+      await subscription.cancel();
       socket.close();
     }
   }
@@ -98,7 +138,8 @@ class LifxControlClient {
   /// Send [packet] to [host]:56700 and wait for the reply whose header sequence
   /// byte (offset 23) equals [sequence]. Retries the send on timeout; returns
   /// the raw reply bytes for the Rust decoder, or null once every attempt has
-  /// timed out (a write-only or unreachable device).
+  /// timed out (a write-only or unreachable device). A send the OS refuses
+  /// throws [LifxTransportException] instead.
   Future<Uint8List?> request(
     String host,
     Uint8List packet, {
@@ -110,29 +151,39 @@ class LifxControlClient {
     // RawDatagramSocket is single-subscription, so listen once for the whole
     // exchange and re-send inside that subscription rather than per attempt.
     final completer = Completer<Uint8List>();
-    final subscription = socket.listen((event) {
-      if (event != RawSocketEvent.read) return;
-      final datagram = socket.receive();
-      if (datagram == null || completer.isCompleted) return;
-      // Correlate by source host and sequence: a datagram from this device
-      // whose header echoes the sequence we asked with is our answer.
-      if (datagram.address.address != host) return;
-      final data = datagram.data;
-      // R-160: the 23 is the LIFX header's sequence byte, whose layout lives
-      // in `lifx::parse_header`. It is read here rather than asked for,
-      // deliberately: correlation has to work on a build whose native library
-      // failed to load — main() carries on without it by design — and a
-      // transport that silently stops matching replies in that case is worse
-      // than a restated offset. What the offset must not do is DRIFT, so
-      // `lifx_control_service_test.dart` decodes a crafted frame through Rust
-      // and requires the two to agree; a layout change fails there.
-      if (data.length > 23 && data[23] == sequence) {
-        completer.complete(Uint8List.fromList(data));
-      }
-    });
+    var failed = false;
+    final subscription = socket.listen(
+      (event) {
+        if (event != RawSocketEvent.read) return;
+        final datagram = socket.receive();
+        if (datagram == null || completer.isCompleted) return;
+        // Correlate by source host and sequence: a datagram from this device
+        // whose header echoes the sequence we asked with is our answer.
+        if (datagram.address.address != host) return;
+        final data = datagram.data;
+        // R-160: the 23 is the LIFX header's sequence byte, whose layout lives
+        // in `lifx::parse_header`. It is read here rather than asked for,
+        // deliberately: correlation has to work on a build whose native library
+        // failed to load — main() carries on without it by design — and a
+        // transport that silently stops matching replies in that case is worse
+        // than a restated offset. What the offset must not do is DRIFT, so
+        // `lifx_control_service_test.dart` decodes a crafted frame through Rust
+        // and requires the two to agree; a layout change fails there.
+        if (data.length > 23 && data[23] == sequence) {
+          completer.complete(Uint8List.fromList(data));
+        }
+      },
+      // A refused send ends the exchange as a transport failure at once.
+      // Unhandled, it was an uncaught zone error, every retry sent into the
+      // closed socket, and the light read as write-only after 3 s.
+      onError: (Object e) {
+        failed = true;
+        if (!completer.isCompleted) completer.completeError(_sendError(e));
+      },
+    );
     try {
       final dest = _address(host);
-      for (var attempt = 0; attempt <= retries; attempt++) {
+      for (var attempt = 0; attempt <= retries && !failed; attempt++) {
         socket.send(packet, dest, port);
         try {
           return await completer.future.timeout(timeout);
@@ -173,23 +224,37 @@ class LifxControlClient {
     final socket = await _bind();
     socket.broadcastEnabled = true;
     final replies = <Uint8List>[];
-    final subscription = socket.listen((event) {
-      if (event != RawSocketEvent.read) return;
-      final datagram = socket.receive();
-      if (datagram == null) return;
-      final data = datagram.data;
-      if (data.length > 23 && (!matchSequence || data[23] == sequence)) {
-        replies.add(Uint8List.fromList(data));
-      }
-    });
+    // A refused send (iOS Local Network off, no route to the setup AP's
+    // broadcast address) used to be an uncaught zone error, leave the socket
+    // dead for the whole window and return [] — which the adopt flow reads
+    // as "no device / no networks", the wrong diagnosis.
+    final refused = Completer<Object>();
+    final subscription = socket.listen(
+      (event) {
+        if (event != RawSocketEvent.read) return;
+        final datagram = socket.receive();
+        if (datagram == null) return;
+        final data = datagram.data;
+        if (data.length > 23 && (!matchSequence || data[23] == sequence)) {
+          replies.add(Uint8List.fromList(data));
+        }
+      },
+      onError: (Object e) {
+        if (!refused.isCompleted) refused.complete(e);
+      },
+    );
     try {
       final dest = _address(host);
-      for (var i = 0; i < sends; i++) {
+      for (var i = 0; i < sends && !refused.isCompleted; i++) {
         socket.send(packet, dest, port);
         await Future<void>.delayed(const Duration(milliseconds: 250));
       }
       // Collect until quiet: StateAccessPoint replies trickle in over seconds.
-      await Future<void>.delayed(window);
+      // A refusal ends the wait: nothing more can arrive on a closed socket.
+      if (!refused.isCompleted) {
+        await Future.any([Future<void>.delayed(window), refused.future]);
+      }
+      if (refused.isCompleted) throw _sendError(await refused.future);
       return replies;
     } finally {
       await subscription.cancel();
@@ -199,8 +264,9 @@ class LifxControlClient {
 }
 
 /// The LIFX transport failed in a way worth surfacing (bind failure, an
-/// unresolvable host). A timed-out [LifxControlClient.request] is not one of
-/// these — it returns null, because a write-only strip is a normal outcome.
+/// unresolvable host, a send the OS refused). A timed-out
+/// [LifxControlClient.request] is not one of these — it returns null,
+/// because a write-only strip is a normal outcome.
 class LifxTransportException implements Exception {
   final String message;
   const LifxTransportException(this.message);

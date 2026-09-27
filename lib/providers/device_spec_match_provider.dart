@@ -167,6 +167,48 @@ Map<String, CatalogueSpec> specEntriesByKey(List<CatalogueSpec> parsed) => {
     specKeyOf(entry.deviceName, entry.manufacturer): entry,
 };
 
+/// Whether [entry] came from an installed pack rather than the app bundle.
+/// Pack entries are keyed `pack:<name>/<file>` by the spec-pack cache.
+bool isPackSpec(CatalogueSpec entry) => entry.key.startsWith('pack:');
+
+/// The built-in specs the installed pack [packName] REPLACES under
+/// [specEntriesByKey]'s pack-wins rule, as sorted "Manufacturer Device"
+/// labels.
+///
+/// The shadowing is deliberate (a pack ships corrected copies), but a
+/// replaced spec brings its own commands, TLS policy and credential mapping,
+/// and the install screen used to report only "Installed X (N specs)" — the
+/// user was never told a built-in definition had been swapped out.
+List<String> builtInSpecsShadowedByPack(
+  List<CatalogueSpec> specs,
+  String packName,
+) {
+  final prefix = 'pack:$packName/';
+  final builtIn = {
+    for (final e in specs)
+      if (!isPackSpec(e)) specKeyOf(e.deviceName, e.manufacturer),
+  };
+  final labels = {
+    for (final e in specs)
+      if (e.key.startsWith(prefix) &&
+          builtIn.contains(specKeyOf(e.deviceName, e.manufacturer)))
+        e.manufacturer.isEmpty
+            ? e.deviceName
+            : '${e.manufacturer} ${e.deviceName}',
+  };
+  return labels.toList()..sort();
+}
+
+/// [builtInSpecsShadowedByPack] over the live catalogue, for the spec-pack
+/// screen to name what an install replaced. Keyed by pack name; not
+/// autoDispose because the screen reads it once through a captured container
+/// and a handful of pack names is nothing to hold.
+final packShadowedBuiltInsProvider =
+    FutureProvider.family<List<String>, String>((ref, packName) async {
+      final catalogue = await ref.watch(specCatalogueProvider.future);
+      return builtInSpecsShadowedByPack(catalogue.specs, packName);
+    });
+
 /// Strength of the evidence behind one [SpecMatch], strongest first.
 ///
 /// The ordering encodes which axis is trustworthy on its own. A matched
@@ -219,14 +261,59 @@ bool isContradictedNameOnlyMatch(
   );
 }
 
+/// Services nearly every BLE peripheral exposes whatever it is — GAP, GATT,
+/// Device Information, Battery — so a spec declaring them says nothing about
+/// which device this is, and [gattFingerprintOf] leaves them out.
+const Set<String> _infrastructureServices = {'1800', '1801', '180a', '180f'};
+
+/// How many of [match]'s declared GATT services the connected device carries,
+/// when it carries ALL of them and there are at least two (infrastructure
+/// services aside); 0 otherwise.
+///
+/// A multi-service fingerprint that is wholly present is the strongest
+/// evidence a post-connect GATT table can give, and the matcher's confidence
+/// cannot see it: a real iTag (1802, 1803, ffe0, 180f) came back with eight
+/// Strong matches on ffe0 alone — LED strips, a scale, an OBD adapter — all
+/// outranking the iTag spec, whose every declared service was present but
+/// whose only identification UUID is the SIG 0x1802 (so `possible`). A
+/// single declared service is not a fingerprint (that is just the UUID match
+/// the tiers already weigh), and a partly-present one is not either — an
+/// optional service a unit omits must not demote its own spec below one
+/// that happens to declare fewer.
+int gattFingerprintOf(
+  SpecMatch match, {
+  required List<String> discoveredUuids,
+}) {
+  final declared = {
+    for (final uuid in match.entry.gattServiceUuids) normalizeUuid(uuid),
+  }..removeAll(_infrastructureServices);
+  if (declared.length < 2) return 0;
+  final discovered = {for (final uuid in discoveredUuids) normalizeUuid(uuid)};
+  return discovered.containsAll(declared) ? declared.length : 0;
+}
+
 /// Filter and rank raw matcher output: contradicted name-only matches are
-/// dropped, then candidates sort by [MatchEvidence] tier and, within a tier,
-/// by how many service UUIDs matched. Pure so the policy is unit-testable
-/// without providers or the FFI codec.
+/// dropped, then candidates sort by [gattFingerprintOf] (a wholly-present
+/// multi-service fingerprint first, bigger first), then by
+/// [SpecMatch.confidence], then by
+/// [MatchEvidence] tier and, within a tier, by how many service UUIDs
+/// matched. Pure so the policy is unit-testable without providers or the FFI
+/// codec.
+///
+/// Confidence leads because it is the one field that tells a match admitted
+/// only by a SIG-assigned service (0x1802 Immediate Alert, 0x1826 FTMS — at
+/// `possible`) from a name match (`likely`): both carry no vendor UUID, so
+/// the tiers alone tied them and every device exposing Immediate Alert got a
+/// chooser offering the iTag spec beside its own.
 List<SpecMatch> rankSpecMatches(
   List<SpecMatch> matches, {
   required List<String> discoveredUuids,
 }) {
+  final fingerprints = Map<SpecMatch, int>.identity()
+    ..addEntries([
+      for (final m in matches)
+        MapEntry(m, gattFingerprintOf(m, discoveredUuids: discoveredUuids)),
+    ]);
   final kept =
       matches
           .where(
@@ -237,6 +324,11 @@ List<SpecMatch> rankSpecMatches(
           )
           .toList()
         ..sort((a, b) {
+          final fingerprint = fingerprints[b]!.compareTo(fingerprints[a]!);
+          if (fingerprint != 0) return fingerprint;
+          // Strongest first: the enum is declared weakest to strongest.
+          final confidence = b.confidence.index.compareTo(a.confidence.index);
+          if (confidence != 0) return confidence;
           final tier = matchEvidenceOf(
             a,
           ).index.compareTo(matchEvidenceOf(b).index);
@@ -248,16 +340,26 @@ List<SpecMatch> rankSpecMatches(
   return kept;
 }
 
-/// The leading run of [ranked] that ties with its first element (same
-/// evidence tier, same matched-UUID count). More than one element means
-/// ranking cannot separate them and the user should choose. Pure for tests;
-/// assumes [ranked] came from [rankSpecMatches].
-List<SpecMatch> topTiedSpecMatches(List<SpecMatch> ranked) {
+/// The leading run of [ranked] that ties with its first element (same GATT
+/// fingerprint, confidence, evidence tier and matched-UUID count). More than
+/// one element means ranking cannot separate them and the user should
+/// choose. Pure for tests; assumes [ranked] came from [rankSpecMatches] over
+/// the same [discoveredUuids] (without them no fingerprint is seen, which is
+/// how ranking treats an empty discovery too).
+List<SpecMatch> topTiedSpecMatches(
+  List<SpecMatch> ranked, {
+  List<String> discoveredUuids = const [],
+}) {
   if (ranked.isEmpty) return const [];
   final top = ranked.first;
+  int fingerprint(SpecMatch m) =>
+      gattFingerprintOf(m, discoveredUuids: discoveredUuids);
+  final topFingerprint = fingerprint(top);
   return ranked
       .where(
         (m) =>
+            fingerprint(m) == topFingerprint &&
+            m.confidence == top.confidence &&
             matchEvidenceOf(m) == matchEvidenceOf(top) &&
             m.matchedServiceUuids.length == top.matchedServiceUuids.length,
       )
@@ -458,7 +560,10 @@ final matchedDeviceSpecProvider = FutureProvider.autoDispose
       // and guessing the brand silently would pin wrong names/commands to the
       // device with no way to notice.
       final tiedByKey = <String, SpecMatch>{};
-      for (final m in topTiedSpecMatches(ranked)) {
+      for (final m in topTiedSpecMatches(
+        ranked,
+        discoveredUuids: req.serviceUuids,
+      )) {
         // First occurrence wins, keeping candidates in rank order; duplicate
         // identities (a bundled spec shadowed by a remote refresh) collapse to
         // one choice.

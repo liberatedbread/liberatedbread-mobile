@@ -6,8 +6,11 @@
 // caller persists), and fail visibly on everything that is not the button.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/services/hub_credential_store.dart';
 import 'package:liberated_bread_mobile/services/hub_http_client.dart';
 import 'package:liberated_bread_mobile/services/hue_pairing_service.dart';
@@ -155,4 +158,39 @@ void main() {
 
     await expectLater(pairing, throwsA(isA<PairingCancelledException>()));
   });
+
+  test(
+    'a dropped poll to a plain-http bridge does not end the pairing',
+    () async {
+      // The real client, remembered as a BSB001 bridge: its first poll's
+      // connection drops. That surfaced as a raw SocketException, which the
+      // loop's tolerance (HubTransportException, TimeoutException) let through.
+      final store = HubCredentialStore(InMemorySettingsStore());
+      await store.saveScheme('BRIDGE', 'http');
+      var polls = 0;
+      final client = HubHttpClient(
+        credentials: store,
+        secureClientFactory: (_) => MockClient(
+          (_) async => fail('a BSB001 bridge is not probed on 443'),
+        ),
+        plainClientFactory: () => MockClient((_) async {
+          polls += 1;
+          if (polls == 1) {
+            throw const SocketException('Connection reset by peer');
+          }
+          return http.Response(_success, 200);
+        }),
+      );
+
+      final result = await HuePairingService(codec: codec, client: client).pair(
+        specYaml: 'yaml',
+        host: '10.0.0.2',
+        bridgeId: 'BRIDGE',
+        interval: Duration.zero,
+      );
+
+      expect(result.username, 'nUP9k2sQ4vG7xB3f');
+      expect(polls, 2);
+    },
+  );
 }

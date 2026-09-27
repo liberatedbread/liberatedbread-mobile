@@ -34,9 +34,12 @@
 #   ./scripts/verify_ios_app.sh <path-to-Runner.app | path-to.ipa> [--skip-symbols]
 #
 # Options:
-#   --skip-symbols   Only verify Info.plist. Use for release/profile artifacts,
-#                    whose binaries are stripped — see the note on the symbol
-#                    check below.
+#   --skip-symbols   Only verify Info.plist. NOT needed for a release build:
+#                    the frb_ exports live in the embedded
+#                    liberated_bread_core.framework and survive stripping (CI
+#                    verifies build/ios/iphoneos/Runner.app without it). Keep
+#                    it for an artifact whose binary really is stripped — see
+#                    the note on the symbol check below.
 #
 # Environment:
 #   PLISTBUDDY   Path to PlistBuddy (default /usr/libexec/PlistBuddy)

@@ -198,6 +198,13 @@ emulator_available() {
   [[ -n "$e" ]] && "$e" -list-avds 2>/dev/null | grep -qx "$AVD_NAME"
 }
 
+# Sets BOOTED_SERIAL to the emulator it booted. Every adb call after launch
+# names that serial: with a phone also online (`--emulator` promises to work
+# then), a bare `adb wait-for-device` returned at once and a bare
+# `adb shell getprop` either read the PHONE's sys.boot_completed (so "booted"
+# was logged before the emulator existed) or failed with "more than one
+# device" until the 180 s ran out and the script went on anyway.
+BOOTED_SERIAL=""
 boot_emulator() {
   local emulator
   emulator="$(find_emulator || true)"
@@ -209,17 +216,40 @@ boot_emulator() {
     err "AVD '$AVD_NAME' not found. Run ./scripts/setup.sh to create it."
     exit 1
   fi
+  # Emulators already attached in ANY state, so the new one can be told apart
+  # from a half-registered leftover.
+  local before
+  before="$(adb_devices_states | awk '$1 ~ /^emulator-/ {printf "%s ", $1}')"
   log "Launching emulator $AVD_NAME..."
   "$emulator" -avd "$AVD_NAME" -no-snapshot-load >/dev/null 2>&1 &
+  local pid=$!
   log "Waiting for the emulator to boot..."
-  "$ADB" wait-for-device
-  local timeout=180 elapsed=0 booted
+  local timeout=180 elapsed=0 serial="" booted
   while (( elapsed < timeout )); do
-    booted="$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-    [[ "$booted" == "1" ]] && { log "Emulator booted."; return; }
+    if ! kill -0 "$pid" 2>/dev/null; then
+      err "The emulator process exited before it booted."
+      exit 1
+    fi
+    if [[ -z "$serial" ]]; then
+      serial="$(adb_devices_states | awk -v before="$before" '
+        BEGIN { n = split(before, b, " "); for (i = 1; i <= n; i++) old[b[i]] = 1 }
+        $1 ~ /^emulator-/ && !($1 in old) { print $1; exit }')"
+    fi
+    if [[ -n "$serial" ]]; then
+      booted="$("$ADB" -s "$serial" shell getprop sys.boot_completed 2>/dev/null \
+        | tr -d '\r' || true)"
+      if [[ "$booted" == "1" ]]; then
+        log "Emulator $serial booted."
+        BOOTED_SERIAL="$serial"
+        return
+      fi
+    fi
     sleep 2; elapsed=$((elapsed + 2))
   done
-  warn "Emulator boot timed out after ${timeout}s; continuing anyway."
+  # Carrying on here handed flutter/adb an emulator that was still booting (or
+  # none at all), so the failure surfaced later as an unrelated install error.
+  err "Emulator did not finish booting within ${timeout}s."
+  exit 1
 }
 
 # Resolve DEVICE_ID from the chosen target, booting the emulator if that is what
@@ -247,7 +277,7 @@ resolve_device() {
       ;;
     emulator)
       DEVICE_ID="$(first_emulator)"
-      [[ -n "$DEVICE_ID" ]] || { boot_emulator; DEVICE_ID="$(first_emulator)"; }
+      [[ -n "$DEVICE_ID" ]] || { boot_emulator; DEVICE_ID="$BOOTED_SERIAL"; }
       [[ -n "$DEVICE_ID" ]] || { err "No emulator serial visible to adb after boot."; exit 1; }
       ;;
     auto)
@@ -269,7 +299,7 @@ resolve_device() {
         if emulator_available; then
           log "No Android device connected; falling back to the $AVD_NAME emulator."
           boot_emulator
-          DEVICE_ID="$(list_online_devices | head -n1)"
+          DEVICE_ID="$BOOTED_SERIAL"
         else
           err "Nothing to run on: no phone connected, and the '$AVD_NAME' emulator"
           err "is not set up here."
@@ -332,7 +362,10 @@ APK="build/app/outputs/flutter-apk/app-${BUILD_TYPE}.apk"
 
 log "Building the ${BUILD_TYPE} APK..."
 BUILD_ARGS=("build" "apk" "--${BUILD_TYPE}")
-BUILD_ARGS+=("${DEFINES[@]}")
+# Guarded like the live path: an empty array under `set -u` is "unbound" on
+# bash 3.2 (macOS /bin/bash), which killed every --sideload/--copy without
+# --mock before the build started.
+(( ${#DEFINES[@]} > 0 )) && BUILD_ARGS+=("${DEFINES[@]}")
 flutter "${BUILD_ARGS[@]}"
 [[ -f "$APK" ]] || { err "Expected APK not found at $APK after the build."; exit 1; }
 

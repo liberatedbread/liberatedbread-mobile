@@ -10,6 +10,7 @@ import '../../core/error_text.dart';
 import '../../providers/ble_provider.dart';
 import '../../providers/spec_codec_provider.dart';
 import '../../services/spec_codec.dart';
+import '../confirm_dialog.dart';
 import '../entity_value.dart';
 import '../unclaimed_actions.dart';
 
@@ -31,12 +32,21 @@ class BleEntityActionCard extends ConsumerStatefulWidget {
   final EntityDto entity;
   final String specYaml;
 
+  /// Whether the device is a lock. On a lock every momentary action — a
+  /// `button` press, a cover's open, a role nobody draws — asks first, as
+  /// [SwitchControlCard]'s unlock does: BioKey's 'Unlock' is a `button`, and
+  /// it fired `open_lock` on one tap under a generic 'Press'. Not guessed
+  /// from the entity's name or icon — a missed 'Release' opens a door, an
+  /// extra confirm on a harmless button costs one tap.
+  final bool isLock;
+
   const BleEntityActionCard({
     super.key,
     required this.deviceId,
     required this.stateServiceUuid,
     required this.entity,
     required this.specYaml,
+    this.isLock = false,
   });
 
   @override
@@ -54,7 +64,8 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   double? _assumed;
   List<DecodedValueDto>? _assumedBaseline;
 
-  /// The fan slider's position while a drag is in progress, cleared when the
+  /// The fan or cover slider's position while a drag is in progress, cleared
+  /// when the
   /// gesture ends and the value is sent. Kept apart from [_assumed] because
   /// [_buildCard] clears that whenever the live value's decode is not the
   /// one it was set against — and during a drag it never is: the baseline is
@@ -105,6 +116,15 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   Future<void> _sendRole(String role) async {
     final action = _action(role);
     if (action == null) return;
+    await _sendConfirmedOnLock(action);
+  }
+
+  /// [_send] for a momentary action, asking first on a lock; see [isLock].
+  Future<void> _sendConfirmedOnLock(EntityActionDto action) async {
+    if (widget.isLock) {
+      final confirmed = await confirmUnlock(context, widget.entity.name);
+      if (!confirmed || !mounted) return;
+    }
     await _send(action);
   }
 
@@ -272,12 +292,16 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
       children: [
         Align(
           alignment: Alignment.centerLeft,
+          // On a lock the button says what it does ('Unlock'), not 'Press'.
           child: FilledButton.tonalIcon(
             onPressed: (press == null || _sendingRole != null)
                 ? null
-                : () => unawaited(_send(press)),
-            icon: const Icon(Icons.touch_app, size: 18),
-            label: const Text('Press'),
+                : () => unawaited(_sendConfirmedOnLock(press)),
+            icon: Icon(
+              widget.isLock ? entityIcon(widget.entity) : Icons.touch_app,
+              size: 18,
+            ),
+            label: Text(widget.isLock ? widget.entity.name : 'Press'),
           ),
         ),
         _unclaimed(const {'press'}),
@@ -432,23 +456,29 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
     final min = position?.min ?? 0;
     final max = position?.max ?? 100;
 
-    Widget motion(EntityActionDto? action, IconData icon, String label) =>
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: (action == null || busy)
-                ? null
-                : () => unawaited(_send(action)),
-            icon: Icon(icon, size: 18),
-            label: Text(label),
-          ),
-        );
+    Widget motion(
+      EntityActionDto? action,
+      IconData icon,
+      String label, {
+      bool opens = false,
+    }) => Expanded(
+      child: OutlinedButton.icon(
+        onPressed: (action == null || busy)
+            ? null
+            : () => unawaited(
+                opens ? _sendConfirmedOnLock(action) : _send(action),
+              ),
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            motion(open, Icons.arrow_upward, 'Open'),
+            motion(open, Icons.arrow_upward, 'Open', opens: true),
             const SizedBox(width: 8),
             motion(stop, Icons.stop, 'Stop'),
             const SizedBox(width: 8),
@@ -461,22 +491,27 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
           Slider(
             semanticFormatterCallback: (v) =>
                 '${widget.entity.name} ${v.round()}',
-            value: positionValue.clamp(min, max),
+            // The thumb follows the finger while it is down — `(_) {}` kept
+            // it pinned at the reported position, so the user could not see
+            // which position a release would drive the motor to. Once
+            // released it follows the live position as the cover moves;
+            // nothing is assumed, because showing the target would claim the
+            // cover is already there.
+            value: (_dragging ?? positionValue).clamp(min, max),
             min: min,
             max: max,
-            onChanged: busy ? null : (_) {},
+            onChanged: busy ? null : (v) => setState(() => _dragging = v),
             onChangeEnd: busy
                 ? null
                 : (v) {
                     final param = position.userParams.firstOrNull;
-                    _assumedBaseline = value?.decoded;
+                    setState(() => _dragging = null);
                     unawaited(
                       _send(
                         position,
                         params: param == null
                             ? const {}
                             : {param: v.roundToDouble()},
-                        assume: v,
                       ),
                     );
                   },

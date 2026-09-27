@@ -230,7 +230,10 @@ class EmulatedRadio {
   /// the recorded bytes back into plaintext.
   Future<List<int>> plaintextWrittenAt(int addr, int len) async {
     final frame = written[addr];
-    if (frame == null) throw StateError('nothing written at 0x$addr');
+    if (frame == null) {
+      final hex = addr.toRadixString(16).padLeft(4, '0');
+      throw StateError('nothing written at 0x$hex');
+    }
     final scrambled = frame.sublist(0, len);
     return rust.radioParseReadReply(
       reply: [0x52, (addr >> 8) & 0xFF, addr & 0xFF, len, ...scrambled],

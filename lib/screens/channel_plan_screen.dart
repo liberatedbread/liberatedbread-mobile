@@ -211,7 +211,9 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
         'simplex',
       if (!channel.txTone.isNone) 'tone ${channel.txTone.label}',
       channel.mode.chirpName,
-      if (channel.power == PowerLevel.low) 'low power',
+      // Medium said out loud: it read as "low power" when the codec could
+      // only say high or low, while the radio sent 5 W, not 2.
+      if (channel.power != PowerLevel.high) '${channel.power.name} power',
     ];
     return parts.join(' · ');
   }
@@ -542,9 +544,21 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
               const Text('Power'),
               const SizedBox(width: 12),
               SegmentedButton<PowerLevel>(
-                segments: const [
-                  ButtonSegment(value: PowerLevel.high, label: Text('High')),
-                  ButtonSegment(value: PowerLevel.low, label: Text('Low')),
+                // The radio's own levels, plus the channel's if the radio
+                // lacks it (a UV-32 plan retargeted at a Mini) so what it
+                // holds is still shown; that one is written as low.
+                segments: [
+                  for (final level in PowerLevel.values)
+                    if (widget.profile.powerLevels.contains(level) ||
+                        level == widget.channel.power)
+                      ButtonSegment(
+                        value: level,
+                        label: Text(switch (level) {
+                          PowerLevel.high => 'High',
+                          PowerLevel.medium => 'Medium',
+                          PowerLevel.low => 'Low',
+                        }),
+                      ),
                 ],
                 selected: {_power},
                 onSelectionChanged: (values) =>
@@ -599,6 +613,19 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
       setState(() => _error = 'Transmit frequency should look like 146.340.');
       return;
     }
+    // Only "> 0" used to be checked, so a dropped digit (46.940) was saved
+    // and written as a channel the radio cannot tune, and an extra one
+    // (1462.550) failed every Write after a full read and backup.
+    if (channelRangeProblem(
+          widget.profile,
+          rxFreqHz: rx,
+          txFreqHz: tx,
+          rxOnly: _rxOnly,
+        )
+        case final String problem) {
+      setState(() => _error = problem);
+      return;
+    }
     Navigator.of(context).pop(
       widget.channel.copyWith(
         name: _name.text,
@@ -613,4 +640,29 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
       ),
     );
   }
+}
+
+/// Why [profile] cannot hold a channel on these frequencies, or null if it
+/// can.
+///
+/// Receive must be in the radio's receive ranges. Transmit, unless the
+/// channel is receive-only, is held to the same ranges rather than to the
+/// transmit ones: whether transmit is unlocked is the radio's setting, not
+/// the plan's, and a suggested channel the radio may not transmit on is
+/// still a channel it listens to. What this catches is a typo: a frequency
+/// the radio cannot tune at all, or one the codeplug cannot encode.
+String? channelRangeProblem(
+  RadioProfile profile, {
+  required int rxFreqHz,
+  required int txFreqHz,
+  required bool rxOnly,
+}) {
+  String outside(String what, int hz) =>
+      '$what ${formatHzAsMegahertz(hz)} MHz is outside what the '
+      '${profile.displayName} can tune: ${profile.rxRanges.join(', ')}.';
+  if (!profile.canReceive(rxFreqHz)) return outside('Receive', rxFreqHz);
+  if (!rxOnly && !profile.canReceive(txFreqHz)) {
+    return outside('Transmit', txFreqHz);
+  }
+  return null;
 }

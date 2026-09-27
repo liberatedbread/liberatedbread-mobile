@@ -9,11 +9,13 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/services/ws_connect_deadline.dart';
 import 'package:liberated_bread_mobile/services/ws_control_service.dart';
 
 import '../fakes/fake_spec_codec.dart';
@@ -1247,4 +1249,142 @@ void main() {
       );
     },
   );
+
+  // ── Review fixes: token leak, channel-wait hang-up, late channel socket ──
+
+  test('a refused upgrade never quotes the token from the URL', () async {
+    // dart:io's WebSocketException message is "Connection to '<uri>' was not
+    // upgraded to websocket" — the full query string, Samsung's pairing token
+    // included. Appending it undid redactUrl on the same line and put the
+    // token on screen and into the exportable log.
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) {
+      request.response
+        ..statusCode = HttpStatus.forbidden
+        ..close();
+    });
+
+    final connect = wsConnectorFor(samsungSurface);
+    Object? failure;
+    try {
+      await connect(
+        'ws://127.0.0.1:${server.port}/api/v2/channels/samsung.remote.control'
+        '?name=TGliZXJhdGVk&token=12345678',
+        const {},
+      );
+    } catch (e) {
+      failure = e;
+    }
+    expect(failure, isA<WsConnectionException>());
+    final message = (failure! as WsConnectionException).message;
+    expect(message, isNot(contains('12345678')));
+    expect('$failure', isNot(contains('12345678')));
+    expect(message, contains('HTTP 403'));
+  });
+
+  group('the runtime-channel address wait', () {
+    WsSession lgSession(
+      ScriptedWsSocket main,
+      Future<WsSocket> Function(String url) channel,
+    ) {
+      codec.websocketFrameFor = (command, id) => switch (command) {
+        'get_pointer_socket' => WebSocketFrameDto(
+          channel: 'ssap',
+          text: jsonEncode({'id': id, 'type': 'request'}),
+        ),
+        _ => const WebSocketFrameDto(
+          channel: 'pointer',
+          text: 'type:button\nname:HOME\n\n',
+        ),
+      };
+      var opened = 0;
+      return WsSession(
+        codec: codec,
+        specYaml: 'yaml',
+        host: '10.0.0.5',
+        surface: lgSurface,
+        credential: 'abc123',
+        connect: (url, headers) async {
+          if (opened++ == 0) {
+            scheduleMicrotask(
+              () => main.send(
+                jsonEncode({
+                  'type': 'registered',
+                  'payload': {'client-key': 'abc123'},
+                }),
+              ),
+            );
+            return main;
+          }
+          return channel(url);
+        },
+      );
+    }
+
+    test(
+      'a hang-up while waiting ends it at once, blaming the hang-up',
+      () async {
+        // The watcher had no onError: the main socket's hang-up (added to the
+        // frames stream as an error) was an uncaught zone error — which fails
+        // this test — and the wait sat out its full 10 s, then said the device
+        // "did not hand over" its socket.
+        final main = ScriptedWsSocket();
+        final session = lgSession(main, (_) async => ScriptedWsSocket());
+        addTearDown(session.dispose);
+        await session.open();
+
+        final pressing = session.send('press_home', const {});
+        await Future<void>.delayed(Duration.zero);
+        await main.hangUp();
+
+        await expectLater(
+          pressing.timeout(const Duration(seconds: 3)),
+          throwsA(
+            isA<WsConnectionException>().having(
+              (e) => e.message,
+              'message',
+              contains('closed the connection'),
+            ),
+          ),
+        );
+      },
+    );
+  });
+
+  // Every WebSocket connect with a deadline (the session's main and runtime
+  // channel sockets, ECP2, the camera keepalive) goes through this helper;
+  // before it, only the main socket closed a late arrival and the other
+  // three leaked it with its HttpClient. (The channel site is not driven
+  // under fakeAsync: a broadcast subscription's cancel() resolves in the
+  // root zone, so the session cannot be stepped through fake time.)
+  test('connectWithinDeadline discards what arrives late, and only that', () {
+    fakeAsync((async) {
+      final discarded = <String>[];
+      Object? failure;
+      connectWithinDeadline(
+        Future<String>.delayed(const Duration(seconds: 5), () => 'late'),
+        const Duration(seconds: 1),
+        discard: (s) async => discarded.add(s),
+      ).catchError((Object e) {
+        failure = e;
+        return '';
+      });
+      async.elapse(const Duration(seconds: 2));
+      expect(failure, isA<TimeoutException>());
+      expect(discarded, isEmpty);
+      async.elapse(const Duration(seconds: 5));
+      expect(discarded, ['late']);
+
+      String? got;
+      connectWithinDeadline(
+        Future<String>.delayed(const Duration(milliseconds: 10), () => 'ok'),
+        const Duration(seconds: 1),
+        discard: (s) async => discarded.add(s),
+      ).then((s) => got = s);
+      async.elapse(const Duration(seconds: 2));
+      expect(got, 'ok');
+      expect(discarded, ['late'], reason: 'an in-time socket is kept');
+    });
+  });
 }

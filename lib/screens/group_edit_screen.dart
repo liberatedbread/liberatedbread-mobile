@@ -62,6 +62,12 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
             isGroupable(device.category))
           networkMemberId(device.id),
     ];
+    // Only hidden stale ids were selected: saving would write a group with
+    // no members, which the disabled button exists to prevent.
+    if (ordered.isEmpty) {
+      setState(() => _saving = false);
+      return;
+    }
     try {
       if (existing == null) {
         await notifier.create(name: name, deviceIds: ordered);
@@ -119,7 +125,32 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await ref.read(deviceGroupsProvider.notifier).remove(group.id);
+    // Same guard as _save: a failed prefs write used to escape the tap as an
+    // unhandled error, leaving the screen up with no word of what happened
+    // and Save/Delete live during the write.
+    final messenger = ScaffoldMessenger.of(context);
+    final notifier = ref.read(deviceGroupsProvider.notifier);
+    setState(() => _saving = true);
+    try {
+      await notifier.remove(group.id);
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              e,
+              context: 'delete group',
+              fallback: 'Could not delete this group.',
+            ),
+          ),
+        ),
+      );
+      return;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+    // Backed out mid-write: popping now would dismiss whatever replaced us.
+    if (!mounted) return;
     // Pop past the (now dangling) detail screen when editing, straight back
     // to the groups list.
     navigator.popUntil((route) => route.isFirst);
@@ -155,6 +186,13 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
             detail: device.host,
           ),
     ];
+    // Counted over the visible rows only. _selected is seeded with every
+    // stored id, including members that have since recorded a non-groupable
+    // category and so have no checkbox; counting those overstated the header
+    // and kept Save enabled after every visible box was unticked.
+    final picked = candidates
+        .where((c) => _selected.contains(c.memberId))
+        .length;
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -183,7 +221,7 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            SectionHeader(label: 'Devices', count: _selected.length),
+            SectionHeader(label: 'Devices', count: picked),
             const SizedBox(height: 8),
             if (candidates.isEmpty)
               Text(
@@ -215,8 +253,7 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
             ListenableBuilder(
               listenable: _name,
               builder: (context, _) {
-                final canSave =
-                    _name.text.trim().isNotEmpty && _selected.isNotEmpty;
+                final canSave = _name.text.trim().isNotEmpty && picked > 0;
                 return FilledButton.icon(
                   onPressed: canSave && !_saving ? _save : null,
                   style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),

@@ -43,6 +43,7 @@ EntityDto _entity(
   double? valueScale,
   double? precision,
   String? unit,
+  List<String> variants = const [],
 }) => EntityDto(
   options: const [],
   name: name,
@@ -57,7 +58,7 @@ EntityDto _entity(
   unit: unit,
   onWhenNonzero: false,
   actions: actions,
-  variants: const [],
+  variants: variants,
 );
 
 DeviceSpecDto _spec({
@@ -241,6 +242,76 @@ void main() {
   });
 
   group('resolveGroupWrites', () {
+    // The seeblue-motorcycle-led shape: two same-named lights on two
+    // dialects, told apart only by variant, both writing one characteristic.
+    final familySpec = _spec(
+      entities: [
+        _entity(
+          'Motorcycle LEDs',
+          platform: 'light',
+          variants: const ['Direct'],
+          actions: [_action('turn_on', commandName: 'direct_power_on')],
+        ),
+        _entity(
+          'Motorcycle LEDs',
+          platform: 'light',
+          variants: const ['LEDGlow-V2'],
+          actions: [_action('turn_on', commandName: 'ledglow_v2_power_on')],
+        ),
+      ],
+    );
+
+    // Before the fix a null/empty narrowing let BOTH dialects' frames go out
+    // back to back on the same characteristic.
+    test('an unidentified family member gets one dialect, as the panel '
+        'sends', () {
+      for (final narrowing in const <List<String>?>[null, []]) {
+        final writes = resolveGroupWrites(
+          op: GroupOp.turnOn,
+          spec: familySpec,
+          services: [_discovered()],
+          matchedVariants: narrowing,
+        );
+        expect(writes.map((w) => w.commandName), [
+          'direct_power_on',
+        ], reason: 'narrowing $narrowing');
+      }
+    });
+
+    test('an identified family member gets its own dialect', () {
+      final writes = resolveGroupWrites(
+        op: GroupOp.turnOn,
+        spec: familySpec,
+        services: [_discovered()],
+        matchedVariants: const ['LEDGlow-V2'],
+      );
+      expect(writes.map((w) => w.commandName), ['ledglow_v2_power_on']);
+    });
+
+    test('two unscoped switches on one characteristic both write', () {
+      // Guards against "fixing" the above with a characteristic dedupe: a
+      // multi-outlet switch drives every relay through one characteristic.
+      final writes = resolveGroupWrites(
+        op: GroupOp.turnOn,
+        spec: _spec(
+          entities: [
+            _entity(
+              'Outlet',
+              platform: 'switch',
+              actions: [_action('turn_on', commandName: 'relay_1_on')],
+            ),
+            _entity(
+              'Outlet',
+              platform: 'switch',
+              actions: [_action('turn_on', commandName: 'relay_2_on')],
+            ),
+          ],
+        ),
+        services: [_discovered()],
+      );
+      expect(writes.map((w) => w.commandName), ['relay_1_on', 'relay_2_on']);
+    });
+
     final onOffSpec = _spec(
       entities: [
         _entity(

@@ -35,10 +35,11 @@ const _password = ':1:1700000000:AbCdEfGhIjKlMnOp';
 /// CONNACK, accepted.
 const _connack = [0x20, 0x02, 0x00, 0x00];
 
-/// A disclosure reply in the wire shape the codec parses: `[0xf0][length]`,
-/// a few non-printable bytes, then the password.
+/// A disclosure reply in the shape real robots send: `[0xf0][length]`, the
+/// probe's magic echoed back plus a status byte, then the password (see
+/// protocol::roomba::parse_password_reply).
 List<int> _disclosure(String password) {
-  final body = [0x00, 0x00, 0x00, ...utf8.encode(password)];
+  final body = [0xef, 0xcc, 0x3b, 0x29, 0x00, ...utf8.encode(password)];
   return [0xf0, body.length, ...body];
 }
 

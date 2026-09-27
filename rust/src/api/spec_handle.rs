@@ -11,7 +11,10 @@
 //!   spec (up to 123 KB) to do it, once per subscribed widget per packet;
 //! * matching a connected device against the catalogue shipped all 203 parsed
 //!   specs across the boundary per call, and the catalogue itself came back
-//!   as 203 full DTOs to be decoded on the UI isolate.
+//!   as 203 full DTOs to be decoded on the UI isolate;
+//! * matching each newly seen scan result shipped every spec's identity, and
+//!   the adopt surface's setup sweeps re-sent and re-parsed every spec's YAML
+//!   — both now ask [`CatalogueHandle`] by index.
 //!
 //! So the spec stays here and Dart holds a handle to it. [`LoadedSpec`] is
 //! one spec; [`CatalogueHandle`] is the whole catalogue, matched by index.
@@ -33,12 +36,14 @@ use crate::spec::parser::parse_device_spec;
 use crate::spec::types::DeviceSpec;
 
 use super::device_api::{
-    decode_with_protocol, encode_command_with_spec, encode_entity_value_with_spec,
-    list_network_instances_with_spec, match_connected_device, read_network_entity_with_spec,
+    ble_provisioning_profiles_over, decode_with_protocol, encode_command_with_spec,
+    encode_entity_value_with_spec, list_network_instances_with_spec, match_connected_device,
+    match_network_over, match_scanned_over, read_network_entity_with_spec,
     read_network_instance_with_spec, render_network_http_state_request_with_spec,
-    render_network_state_request_with_spec, DecodedValueDto, DeviceSpecDto, EntityWriteDto,
-    HttpRequestDto, MatchConfidence, NetworkInstanceDto, NetworkReadingDto, NetworkRoleReadingDto,
-    ScannedDeviceDto, SoapRequestDto, SpecIdentityDto,
+    render_network_state_request_with_spec, soft_ap_profiles_over, BleProvisioningProfileDto,
+    DecodedValueDto, DeviceSpecDto, EntityWriteDto, HttpRequestDto, MatchConfidence,
+    NetworkDeviceDto, NetworkInstanceDto, NetworkReadingDto, NetworkRoleReadingDto, ScanMatch,
+    ScannedDeviceDto, SoapRequestDto, SoftApProfileDto, SpecIdentityDto,
 };
 
 /// One parsed spec, held by Rust for as long as Dart holds the handle.
@@ -116,12 +121,15 @@ impl LoadedSpec {
 
     /// Encode a setpoint the user picked, in decoded units, into the write
     /// that applies it.
+    /// `entity_index` is [`crate::api::device_api::EntityDto::entity_index`];
+    /// see [`crate::api::device_api::encode_entity_value`].
     pub fn encode_entity_value(
         &self,
         entity_name: String,
+        entity_index: Option<u32>,
         value: f64,
     ) -> anyhow::Result<EntityWriteDto> {
-        encode_entity_value_with_spec(&self.spec, entity_name, value)
+        encode_entity_value_with_spec(&self.spec, entity_name, entity_index, value)
     }
 
     /// Render the HTTP request that reads a state command's values — the
@@ -302,6 +310,11 @@ pub struct CatalogueMatchDto {
     pub index: u32,
     pub matched_by_name_prefix: bool,
     pub confidence: MatchConfidence,
+    /// The matched VENDOR service UUIDs, as [`MatchResult::matched_service_uuids`]
+    /// defines them: a SIG-assigned UUID admits a match but is never listed
+    /// here, because the Dart ranker reads this list as identity evidence.
+    ///
+    /// [`MatchResult::matched_service_uuids`]: crate::api::device_api::MatchResult::matched_service_uuids
     pub matched_service_uuids: Vec<String>,
 }
 
@@ -408,6 +421,57 @@ impl CatalogueHandle {
             .collect()
     }
 
+    /// Rank the catalogue against one device seen during a BLE scan — the
+    /// same body as [`crate::api::device_api::match_scanned_device`], over the
+    /// identities this handle already holds. `spec_index` is the catalogue
+    /// index.
+    ///
+    /// The by-value door made every newly seen device (and every rotated
+    /// private address) SSE-encode ~200 identities on the UI isolate and
+    /// decode them again here; only the device crosses now.
+    pub fn match_scanned(&self, device: ScannedDeviceDto) -> Vec<ScanMatch> {
+        match_scanned_over(&self.identities(), device)
+    }
+
+    /// [`Self::match_scanned`]'s Wi-Fi twin: the body of
+    /// [`crate::api::device_api::match_network_device`] over the held
+    /// identities.
+    pub fn match_network(&self, device: NetworkDeviceDto) -> Vec<ScanMatch> {
+        match_network_over(&self.identities(), device)
+    }
+
+    /// The soft-AP setup methods of the specs at `indices`, in the order
+    /// given — [`crate::api::device_api::soft_ap_profiles`] over the held
+    /// parses. The by-YAML door re-sent and re-parsed the whole catalogue
+    /// (megabytes, serially) each time the adopt surface loaded.
+    pub fn soft_ap_profiles(&self, indices: Vec<u32>) -> anyhow::Result<Vec<SoftApProfileDto>> {
+        let specs = self.specs_at(&indices)?;
+        Ok(soft_ap_profiles_over(specs.into_iter()))
+    }
+
+    /// The BLE-provisioning setup methods of the specs at `indices`, as
+    /// [`Self::soft_ap_profiles`] does for soft-AP.
+    pub fn ble_provisioning_profiles(
+        &self,
+        indices: Vec<u32>,
+    ) -> anyhow::Result<Vec<BleProvisioningProfileDto>> {
+        let specs = self.specs_at(&indices)?;
+        Ok(ble_provisioning_profiles_over(specs.into_iter()))
+    }
+
+    #[frb(ignore)]
+    fn identities(&self) -> Vec<&SpecIdentityDto> {
+        self.entries.iter().map(|entry| &entry.identity).collect()
+    }
+
+    #[frb(ignore)]
+    fn specs_at(&self, indices: &[u32]) -> anyhow::Result<Vec<&DeviceSpec>> {
+        indices
+            .iter()
+            .map(|&index| Ok(self.entry_at(index)?.spec.as_ref()))
+            .collect()
+    }
+
     /// A handle to the spec at `index`, sharing the catalogue's parse.
     ///
     /// This is how a screen goes from "spec 41 matched" to driving the
@@ -489,13 +553,6 @@ device:
         catalogue
     }
 
-    /// A `probe_hex` carrying a multi-byte character used to abort the whole
-    /// catalogue walk, not the one spec: `decode_hex` sliced `&str[i..i + 2]`
-    /// by BYTE index, and "6\u{e9}9" puts a char boundary in the middle of the
-    /// first slice. The even-length guard does not catch it — the string is
-    /// four bytes. Spec packs install from arbitrary URLs, so one of them
-    /// could silently cost every catalogue UDP probe for as long as it stayed
-    /// installed, which is the opposite of what this function documents.
     /// The handle answers the way the by-YAML door does for a standard
     /// service the spec omits — dispatch's
     /// `a_standard_service_the_spec_omits_falls_through_to_its_profile`, from
@@ -511,6 +568,90 @@ device:
         assert_eq!(decoded[0].uint_value, Some(55));
     }
 
+    /// One-spec catalogue whose single `udp_broadcast` method is `body`.
+    fn probes_for(body: &str) -> Vec<UdpProbeDto> {
+        let yaml = format!(
+            r#"
+device:
+  name: "Probe Thing"
+  manufacturer: "Acme"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  discovery:
+    methods:
+      - type: udp_broadcast
+        udp_broadcast:
+{body}
+"#
+        );
+        let mut catalogue = new_catalogue();
+        let failures = catalogue
+            .add_specs(vec!["probe.yaml".into()], vec![yaml])
+            .unwrap();
+        assert!(failures.is_empty(), "{failures:?}");
+        catalogue.udp_broadcast_probes()
+    }
+
+    /// A pack's `broadcast_address` is a free string: a public unicast
+    /// literal used to make every scan send pack-chosen bytes to that host.
+    /// Only LAN-scoped destinations survive, and they come back canonical.
+    #[test]
+    fn a_probe_destination_off_the_local_network_is_dropped() {
+        let dest = |address: &str| -> Option<String> {
+            probes_for(&format!(
+                "          port: 9999\n          probe_hex: \"01\"\n          broadcast_address: \"{address}\""
+            ))
+            .first()
+            .map(|p| p.broadcast_address.clone())
+        };
+        assert_eq!(dest("203.0.113.7"), None, "public unicast");
+        assert_eq!(dest("8.8.8.8"), None, "public unicast");
+        assert_eq!(dest("evil.example"), None, "a hostname");
+        assert_eq!(dest("127.0.0.1"), None, "loopback");
+        assert_eq!(dest("::1"), None, "IPv6");
+        assert_eq!(dest("192.168.1.127").as_deref(), Some("192.168.1.127"));
+        assert_eq!(dest("10.0.0.255").as_deref(), Some("10.0.0.255"));
+        assert_eq!(dest(" 230.0.0.1 ").as_deref(), Some("230.0.0.1"));
+        assert_eq!(dest("169.254.255.255").as_deref(), Some("169.254.255.255"));
+        assert_eq!(dest("255.255.255.255").as_deref(), Some("255.255.255.255"));
+        let default = probes_for("          port: 9999\n          probe_hex: \"01\"");
+        assert_eq!(default[0].broadcast_address, "255.255.255.255");
+    }
+
+    /// The schema's `multicast_group` REPLACES `broadcast_address`. Serde
+    /// dropped it, so a Yeelight-shaped probe went to 255.255.255.255, where
+    /// a device that only answers the group never hears it.
+    #[test]
+    fn a_multicast_group_is_the_probe_destination() {
+        let probes = probes_for(
+            "          port: 1982\n          probe_hex: \"01\"\n          broadcast_address: \"255.255.255.255\"\n          multicast_group: \"239.255.255.250\"",
+        );
+        assert_eq!(probes.len(), 1);
+        assert_eq!(probes[0].broadcast_address, "239.255.255.250");
+    }
+
+    /// A reply that arrives on another port (Govee: probed on 4001, answers
+    /// to 4002) is lost by a sender that listens where it sent from, so the
+    /// probe is withheld rather than emitted to fail silently. A listen port
+    /// equal to the probe port changes nothing.
+    #[test]
+    fn a_probe_whose_replies_arrive_elsewhere_is_withheld() {
+        let with_listen = |listen: u16| {
+            probes_for(&format!(
+                "          port: 4001\n          probe_hex: \"01\"\n          multicast_group: \"239.255.255.250\"\n          listen_port: {listen}"
+            ))
+        };
+        assert!(with_listen(4002).is_empty());
+        assert_eq!(with_listen(4001).len(), 1);
+    }
+
+    /// A `probe_hex` carrying a multi-byte character used to abort the whole
+    /// catalogue walk, not the one spec: `decode_hex` sliced `&str[i..i + 2]`
+    /// by BYTE index, and "6\u{e9}9" puts a char boundary in the middle of the
+    /// first slice. The even-length guard does not catch it — the string is
+    /// four bytes. Spec packs install from arbitrary URLs, so one of them
+    /// could silently cost every catalogue UDP probe for as long as it stayed
+    /// installed, which is the opposite of what this function documents.
     #[test]
     fn decode_hex_refuses_non_ascii_instead_of_panicking() {
         assert_eq!(decode_hex("6\u{e9}9"), None, "a char boundary mid-slice");
@@ -711,9 +852,12 @@ pub struct UdpProbeDto {
     pub display_name: String,
     /// The port to send to, and for a passive probe the port to listen on.
     pub port: u16,
-    /// Where to send it. Usually the v4 broadcast address; the Aqara hub names
-    /// a multicast group instead, which a caller must join rather than
-    /// broadcast to.
+    /// Where to send it, as a canonical dotted quad: the v4 broadcast address
+    /// by default, a spec's `multicast_group` when it names one (the schema
+    /// says the group REPLACES `broadcast_address`), or its own
+    /// `broadcast_address`. Only a broadcast, multicast, private or
+    /// link-local destination ever reaches this field — see
+    /// [`permitted_probe_destination`].
     pub broadcast_address: String,
     /// The bytes to send, decoded from `probe_hex`. Empty when the spec
     /// declares none, which is only meaningful together with [`Self::passive_ok`].
@@ -752,14 +896,31 @@ impl CatalogueHandle {
     ///
     /// The scan service asks this once and sends what comes back, instead of
     /// holding a constant and a transport per vendor. A spec whose probe is
-    /// unusable — no port, or `probe_hex` that is not hex — is left out rather
-    /// than reported: discovery is best-effort by nature, and one bad block
-    /// should cost that device, not the scan.
+    /// unusable — no port, `probe_hex` that is not hex, a destination off the
+    /// local network, or a reply port this DTO cannot carry — is left out
+    /// rather than reported: discovery is best-effort by nature, and one bad
+    /// block should cost that device, not the scan.
     pub fn udp_broadcast_probes(&self) -> Vec<UdpProbeDto> {
         let mut out = Vec::new();
         for (index, entry) in self.entries.iter().enumerate() {
             for probe in entry.spec.device.udp_broadcast_probes() {
                 let Some(port) = probe.port else { continue };
+                // A reply port other than the probe's own cannot be honoured:
+                // the sender listens where it sent from, and a Govee strip
+                // unicasts its answer to 4002. Emitting the probe anyway sends
+                // a scan whose every reply is lost, so fail closed until the
+                // DTO carries a listen port the sender binds first.
+                if probe.listen_port.is_some_and(|listen| listen != port) {
+                    continue;
+                }
+                let Some(destination) = permitted_probe_destination(
+                    probe
+                        .multicast_group
+                        .as_deref()
+                        .or(probe.broadcast_address.as_deref()),
+                ) else {
+                    continue;
+                };
                 let bytes = match probe.probe_hex.as_deref() {
                     Some(hex) => match decode_hex(hex) {
                         Some(bytes) => bytes,
@@ -786,9 +947,7 @@ impl CatalogueHandle {
                     index: index as u32,
                     display_name: entry.identity.device_name.clone(),
                     port,
-                    broadcast_address: probe
-                        .broadcast_address
-                        .unwrap_or_else(|| "255.255.255.255".to_string()),
+                    broadcast_address: destination.to_string(),
                     probe: bytes,
                     passive_ok,
                     lan_protocols: entry.identity.lan_protocols.clone(),
@@ -800,6 +959,32 @@ impl CatalogueHandle {
         }
         out
     }
+}
+
+/// The address a catalogue probe may be sent to, or `None` to drop it.
+///
+/// `broadcast_address` is a free string in the schema and spec packs install
+/// from arbitrary URLs, so without this a pack declaring
+/// `broadcast_address: "203.0.113.7"` made every Wi-Fi scan send pack-chosen
+/// bytes from the phone to a public host — leaking the user's address and
+/// scan times, and aiming traffic at a third party. A probe is discovery on
+/// the LAN: the limited broadcast, a multicast group, or an address in
+/// private (RFC 1918) or link-local space, which covers any directed subnet
+/// broadcast on a home network (a /25's `.127` as much as a /24's `.255`)
+/// and at worst reaches a LAN host, never the internet. A hostname or IPv6
+/// literal fails the parse and is refused with the rest. The parsed address
+/// is returned so the Dart grouping key is canonical.
+#[frb(ignore)]
+fn permitted_probe_destination(declared: Option<&str>) -> Option<std::net::Ipv4Addr> {
+    let address = match declared {
+        None => std::net::Ipv4Addr::BROADCAST,
+        Some(text) => text.trim().parse::<std::net::Ipv4Addr>().ok()?,
+    };
+    (address.is_broadcast()
+        || address.is_multicast()
+        || address.is_private()
+        || address.is_link_local())
+    .then_some(address)
 }
 
 /// Decode an even-length ASCII hex string, or None if it is not one.

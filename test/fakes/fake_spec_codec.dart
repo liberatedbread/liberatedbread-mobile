@@ -33,8 +33,19 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [encodeCommand].
   final Uint8List encoded;
 
-  /// Returned by [decodeValue].
+  /// Returned by [decodeValue] when [decodedFor] is null.
   final List<DecodedValueDto> decoded;
+
+  /// Answers [decodeValue] per characteristic and bytes, ahead of [decoded].
+  /// A single canned answer made every card's read bytes decorative: a card
+  /// that decoded the wrong characteristic, or showed a stale decode after a
+  /// rebind, rendered the same text either way.
+  final List<DecodedValueDto> Function(String charUuid, List<int> bytes)?
+  decodedFor;
+
+  /// Every [decodeValue] call, in order — what a card asked to have decoded.
+  final List<({String? serviceUuid, String charUuid, List<int> bytes})>
+  decodeCalls = [];
 
   /// Per-YAML spec overrides for [loadDeviceSpec], keyed by the YAML string.
   /// Lets a test bundle several distinct specs.
@@ -53,6 +64,11 @@ class FakeSpecCodec implements SpecCodec {
   /// Setpoints requested through [encodeEntityValue], in DECODED units — what
   /// a card believes the user picked.
   final List<({String entityName, double value})> encodeEntityValueCalls = [];
+
+  /// The `entityIndex` each [encodeEntityValue] call carried, in call order —
+  /// beside [encodeEntityValueCalls] rather than in it so that record's shape
+  /// stays what existing tests destructure.
+  final List<int?> encodeEntityValueIndexes = [];
 
   /// Returned by [encodeImageFrame]; defaults to a single write echoing the
   /// pixels, targeting service 'srv' / characteristic 'chr'.
@@ -209,6 +225,7 @@ class FakeSpecCodec implements SpecCodec {
     this.networkMatches,
     Uint8List? encoded,
     this.decoded = const [],
+    this.decodedFor,
     this.specByYaml,
     this.loadError,
     this.encodeError,
@@ -326,8 +343,13 @@ class FakeSpecCodec implements SpecCodec {
     required String charUuid,
     required List<int> bytes,
   }) async {
+    decodeCalls.add((
+      serviceUuid: serviceUuid,
+      charUuid: charUuid,
+      bytes: List.of(bytes),
+    ));
     if (decodeError != null) throw decodeError!;
-    return decoded;
+    return decodedFor?.call(charUuid, bytes) ?? decoded;
   }
 
   @override
@@ -339,9 +361,11 @@ class FakeSpecCodec implements SpecCodec {
   Future<EntityWriteDto> encodeEntityValue({
     required String specYaml,
     required String entityName,
+    int? entityIndex,
     required double value,
   }) async {
     encodeEntityValueCalls.add((entityName: entityName, value: value));
+    encodeEntityValueIndexes.add(entityIndex);
     if (encodeEntityValueError != null) throw encodeEntityValueError!;
     return entityWrite ??
         EntityWriteDto(
@@ -817,8 +841,10 @@ class FakeSpecCodec implements SpecCodec {
   // Implemented for real rather than canned, the same way the Kasa cipher above
   // is: a RoombaMqttClient test drives connect -> subscribe -> publish -> parse
   // against a loopback socket, and canned bytes would only prove the fake
-  // agrees with itself. Kept deliberately parallel to `protocol::roomba` so a
-  // divergence shows up as a failing round-trip rather than as silence.
+  // agrees with itself. A hand copy of `protocol::roomba`, so it must be
+  // updated with it; test/fakes/fake_spec_codec_roomba_parity_test.dart runs
+  // the password reply through both (when the host Rust lib is built), which
+  // is the only thing that makes a divergence fail.
 
   @override
   Future<List<int>> roombaDiscoveryProbe() async => utf8.encode('irobotmcs');
@@ -882,14 +908,32 @@ class FakeSpecCodec implements SpecCodec {
     if (reply.length < 8) {
       throw StateError('the robot was not in disclosure mode');
     }
-    final body = reply.sublist(2);
+    var body = reply.sublist(2);
+    // As in protocol::roomba: firmware echoes the probe's magic plus a status
+    // byte ahead of the password, and two magic bytes are printable (`;)`).
+    // Without this strip the fake returned ";)\x00<password>" for the real
+    // reply shape, where Rust returns the password.
+    const echoedMagic = [0xef, 0xcc, 0x3b, 0x29];
+    if (body.length >= echoedMagic.length &&
+        List.generate(
+          echoedMagic.length,
+          (i) => body[i] == echoedMagic[i],
+        ).every((ok) => ok)) {
+      body = body.length > echoedMagic.length + 1
+          ? body.sublist(echoedMagic.length + 1)
+          : const <int>[];
+    }
     var start = 0;
     while (start < body.length &&
         !(body[start] >= 0x20 && body[start] < 0x7F)) {
       start++;
     }
     if (start == body.length) throw StateError('no printable bytes');
-    return utf8.decode(body.sublist(start)).replaceAll(RegExp(r'\x00+$'), '');
+    final password = utf8
+        .decode(body.sublist(start))
+        .replaceAll(RegExp(r'\x00+$'), '');
+    if (password.isEmpty) throw StateError("reply's printable run is empty");
+    return password;
   }
 
   @override

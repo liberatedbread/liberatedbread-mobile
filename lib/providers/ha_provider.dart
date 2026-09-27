@@ -85,7 +85,14 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
     }
     if (raw == null) return null;
     try {
-      return HaConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      final config = HaConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      // Registered for redaction as every other credential store does on
+      // load: otherwise an uncaught error main.dart forwards verbatim, or a
+      // '$e' quoting the `.../api/webhook/<id>` URL, reached the exportable
+      // Diagnostics buffer in clear.
+      Log.registerSecret(config.token);
+      Log.registerSecret(config.webhookId);
+      return config;
     } catch (e) {
       // Stored blob is corrupt or truncated (FormatException) or has an
       // unexpected shape (TypeError). Clear it so a healthy re-registration
@@ -124,6 +131,9 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
     final store = ref.read(settingsStoreProvider);
     final api = ref.read(haApiClientProvider);
     final normalized = normalizeHaBaseUrl(baseUrl);
+    // Before the request: a failure registering is the error likeliest to
+    // quote the token.
+    Log.registerSecret(token);
     final deviceId = await _ensureDeviceId(store);
     final result = await api.registerDevice(
       baseUrl: normalized,
@@ -141,6 +151,9 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
         'supports_encryption': false,
       },
     );
+    Log.registerSecret(result.webhookId);
+    // It embeds a webhook id of its own.
+    Log.registerSecret(result.cloudhookUrl);
     final config = HaConfig(
       baseUrl: normalized,
       token: token,

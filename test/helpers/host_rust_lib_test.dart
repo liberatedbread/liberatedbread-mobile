@@ -23,6 +23,73 @@ import 'package:flutter_test/flutter_test.dart';
 import 'host_rust_lib.dart';
 
 void main() {
+  group('loadHostRustLib', () {
+    // A library that exists but will not open used to be swallowed by
+    // `catch (_)`: every FFI-backed suite skipped green and nothing said why.
+    late Directory tmp;
+    late String present;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('host_rust_lib_test');
+      present = '${tmp.path}/libliberated_bread_core.so';
+      File(present).writeAsStringSync('not a shared object');
+    });
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    Future<void> refuse(String? path) async =>
+        throw ArgumentError('dlopen refused ${path ?? 'default'}');
+
+    test('prints why a present library failed to load', () async {
+      final lines = <String>[];
+      final loaded = await loadHostRustLib(
+        candidates: [present, '${tmp.path}/absent.so'],
+        init: refuse,
+        log: lines.add,
+      );
+      expect(loaded, isFalse);
+      expect(lines, hasLength(1));
+      expect(lines.single, contains('$present: Invalid argument'));
+      expect(lines.single, contains('dlopen refused $present'));
+      expect(lines.single, contains('absent.so: not built'));
+      expect(lines.single, contains('default loader'));
+    });
+
+    test('throws instead of skipping when a load is required', () async {
+      await expectLater(
+        loadHostRustLib(
+          candidates: [present],
+          init: refuse,
+          requireLoaded: true,
+          log: (_) {},
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('LB_REQUIRE_RUST_LIB'), contains(present)),
+          ),
+        ),
+      );
+    });
+
+    test('a good candidate after a bad one still loads', () async {
+      final tried = <String?>[];
+      final second = '${tmp.path}/second.so';
+      File(second).writeAsStringSync('');
+      final loaded = await loadHostRustLib(
+        candidates: [present, second],
+        init: (path) async {
+          tried.add(path);
+          if (path == present) throw ArgumentError('wrong arch');
+        },
+        requireLoaded: true,
+        log: (_) => fail('nothing to report on success'),
+      );
+      expect(loaded, isTrue);
+      expect(tried, [present, second]);
+    });
+  });
+
   group('parseCargoDepInfo', () {
     test('reads every dependency off a rule line', () {
       final deps = parseCargoDepInfo(

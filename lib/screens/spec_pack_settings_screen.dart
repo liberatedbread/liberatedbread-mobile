@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/device_spec_match_provider.dart';
 import '../providers/spec_pack_provider.dart';
 import '../services/spec_pack_service.dart';
 import '../core/error_text.dart';
@@ -65,7 +66,9 @@ class _SpecPackSettingsScreenState
             const Text(
               'Install a pack of device specs from a URL so new device support '
               'arrives without an app update. The URL points at a JSON manifest '
-              'listing the spec files to download.',
+              'listing the spec files to download. A pack can also replace a '
+              'built-in device definition, including how the app connects to '
+              'that device; the install result names any it replaced.',
             ),
             const SizedBox(height: 16),
             TextField(
@@ -205,6 +208,8 @@ class _SpecPackSettingsScreenState
       });
       return;
     }
+    final container = ProviderScope.containerOf(context, listen: false);
+    final service = container.read(specPackServiceProvider);
     setState(() {
       _busy = true;
       _errorMessage = null;
@@ -212,23 +217,26 @@ class _SpecPackSettingsScreenState
     });
     try {
       // Persist the URL so it survives even if the download fails.
-      await ref.read(specPackUrlProvider.notifier).setUrl(url);
-      // mounted check before touching ref again: ConsumerState.ref throws a
-      // StateError once the screen is disposed.
+      await container.read(specPackUrlProvider.notifier).setUrl(url);
+      // Gone before the download started: do not start it.
       if (!mounted) return;
-      final result = await ref.read(specPackServiceProvider).install(url);
+      final InstallResult result;
+      try {
+        result = await service.install(url);
+      } finally {
+        _invalidatePacks(container);
+      }
+      final shadowed = await _shadowedBy(container, result);
       if (!mounted) return;
       switch (result) {
         case InstallOk(:final pack, :final partialFailures):
-          ref.invalidate(installedSpecPacksProvider);
-          ref.invalidate(cachedSpecPacksProvider);
-          final base =
-              'Installed "${pack.name}" v${pack.version} (${pack.specCount} '
-              '${pack.specCount == 1 ? 'spec' : 'specs'}).';
           setState(
-            () => _successMessage = partialFailures.isEmpty
-                ? base
-                : '$base ${partialFailures.length} file(s) were skipped.',
+            () => _successMessage = _okMessage(
+              'Installed',
+              pack,
+              partialFailures.length,
+              shadowed,
+            ),
           );
         case InstallFailed(:final error):
           setState(() => _errorMessage = _friendlyError(error));
@@ -261,16 +269,20 @@ class _SpecPackSettingsScreenState
   }
 
   Future<void> _removePack(SpecPack pack) async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    final service = container.read(specPackServiceProvider);
     setState(() {
       _busy = true;
       _errorMessage = null;
       _successMessage = null;
     });
     try {
-      await ref.read(specPackServiceProvider).removePack(pack.name);
+      try {
+        await service.removePack(pack.name);
+      } finally {
+        _invalidatePacks(container);
+      }
       if (!mounted) return;
-      ref.invalidate(installedSpecPacksProvider);
-      ref.invalidate(cachedSpecPacksProvider);
       setState(() => _successMessage = 'Removed "${pack.name}".');
     } catch (e) {
       if (mounted) {
@@ -291,32 +303,47 @@ class _SpecPackSettingsScreenState
   /// pack can be pulled without re-typing the URL into the global field.
   Future<void> _refreshPack(SpecPack pack) async {
     final url = pack.sourceUrl;
-    if (!SpecPackService.isValidManifestUrl(url)) {
+    final problem = SpecPackService.manifestUrlProblem(url);
+    if (problem != null) {
+      // Pass the reason through: a pack installed from a public http://
+      // address before https was required used to get only "no valid source
+      // URL", with no hint that reinstalling over https fixes it. The
+      // install field's "Enter a valid http(s) URL." prompt makes no sense
+      // here, so an empty source gets its own line.
       setState(() {
-        _errorMessage = 'This pack has no valid source URL to update from.';
+        _errorMessage = url.trim().isEmpty
+            ? 'This pack has no source URL to update from.'
+            : 'This pack cannot be updated from its saved address. '
+                  '${problem.message}';
         _successMessage = null;
       });
       return;
     }
+    final container = ProviderScope.containerOf(context, listen: false);
+    final service = container.read(specPackServiceProvider);
     setState(() {
       _busy = true;
       _errorMessage = null;
       _successMessage = null;
     });
     try {
-      final result = await ref.read(specPackServiceProvider).refresh(url);
+      final InstallResult result;
+      try {
+        result = await service.refresh(url);
+      } finally {
+        _invalidatePacks(container);
+      }
+      final shadowed = await _shadowedBy(container, result);
       if (!mounted) return;
       switch (result) {
         case InstallOk(:final pack, :final partialFailures):
-          ref.invalidate(installedSpecPacksProvider);
-          ref.invalidate(cachedSpecPacksProvider);
-          final base =
-              'Updated "${pack.name}" v${pack.version} (${pack.specCount} '
-              '${pack.specCount == 1 ? 'spec' : 'specs'}).';
           setState(
-            () => _successMessage = partialFailures.isEmpty
-                ? base
-                : '$base ${partialFailures.length} file(s) were skipped.',
+            () => _successMessage = _okMessage(
+              'Updated',
+              pack,
+              partialFailures.length,
+              shadowed,
+            ),
           );
         case InstallFailed(:final error):
           setState(() => _errorMessage = _friendlyError(error));
@@ -357,18 +384,22 @@ class _SpecPackSettingsScreenState
         ],
       ),
     );
-    // mounted before the ref.read: ConsumerState.ref throws after dispose.
+    // mounted before touching context: the screen may be gone.
     if (confirmed != true || !mounted) return;
+    final container = ProviderScope.containerOf(context, listen: false);
+    final service = container.read(specPackServiceProvider);
     setState(() {
       _busy = true;
       _errorMessage = null;
       _successMessage = null;
     });
     try {
-      await ref.read(specPackServiceProvider).clearCache();
+      try {
+        await service.clearCache();
+      } finally {
+        _invalidatePacks(container);
+      }
       if (!mounted) return;
-      ref.invalidate(installedSpecPacksProvider);
-      ref.invalidate(cachedSpecPacksProvider);
       // Ask what actually survived rather than trusting the call. clearCache
       // is best-effort BY DESIGN — a delete it cannot do is logged and
       // swallowed, because a pack cache that will not clear must not become an
@@ -377,7 +408,7 @@ class _SpecPackSettingsScreenState
       // packs." off that return printed success over a list the user could
       // still see below it, on the one screen whose whole job is telling them
       // what is installed.
-      final remaining = await ref.read(installedSpecPacksProvider.future);
+      final remaining = await container.read(installedSpecPacksProvider.future);
       if (!mounted) return;
       setState(() {
         if (remaining.isEmpty) {
@@ -405,6 +436,53 @@ class _SpecPackSettingsScreenState
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Drop both pack caches after a mutation, through a container captured
+  /// BEFORE the first await. Doing it via `ref` behind a `mounted` check
+  /// skipped it whenever the user backed out mid-download: the pack landed
+  /// on (or left) disk while the non-autoDispose catalogue kept matching
+  /// devices against the old or removed specs until the app restarted. Run
+  /// from a `finally`, because a throw after a partial write or a partial
+  /// clear still changed the disk.
+  static void _invalidatePacks(ProviderContainer container) {
+    container
+      ..invalidate(installedSpecPacksProvider)
+      ..invalidate(cachedSpecPacksProvider);
+  }
+
+  /// The built-in definitions an installed pack replaced, or empty when the
+  /// install failed or the catalogue could not be read (the install itself
+  /// succeeded; a naming failure must not turn it into an error).
+  static Future<List<String>> _shadowedBy(
+    ProviderContainer container,
+    InstallResult result,
+  ) async {
+    if (result is! InstallOk) return const [];
+    try {
+      return await container.read(
+        packShadowedBuiltInsProvider(result.pack.name).future,
+      );
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static String _okMessage(
+    String verb,
+    SpecPack pack,
+    int skipped,
+    List<String> shadowed,
+  ) {
+    final parts = [
+      '$verb "${pack.name}" v${pack.version} (${pack.specCount} '
+          '${pack.specCount == 1 ? 'spec' : 'specs'}).',
+      if (skipped > 0) '$skipped file(s) were skipped.',
+      if (shadowed.isNotEmpty)
+        'It replaces the built-in definition'
+            '${shadowed.length == 1 ? '' : 's'} for: ${shadowed.join(', ')}.',
+    ];
+    return parts.join(' ');
   }
 
   String _friendlyError(SpecPackError error) {

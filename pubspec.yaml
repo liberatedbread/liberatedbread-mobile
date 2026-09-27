@@ -125,8 +125,10 @@ flutter:
     - vendor/protocol-specs/device-specs/index.json
     # The radio subsystem's own bundled data: coarse state extents, used to
     # turn "here plus a radius" into the state-scoped queries RepeaterBook and
-    # myGMRS accept. Generated -- see assets/radio/README.md.
-    - assets/radio/
+    # myGMRS accept. Generated -- see assets/radio/README.md. By name, not
+    # the directory: the directory entry also shipped that README and any
+    # stray file dropped beside it.
+    - assets/radio/us_state_bounds.json
     - vendor/protocol-specs/device-specs/devices/
     - vendor/protocol-specs/device-specs/examples/
     # Registries listed file by file rather than as a directory so SOURCES.md,

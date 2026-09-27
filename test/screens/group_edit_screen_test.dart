@@ -241,11 +241,84 @@ void main() {
     // The saved devices themselves are untouched.
     expect(container.read(savedDevicesProvider), hasLength(3));
   });
+
+  // Before the fix the header counted _selected, which still held the hidden
+  // Dongle, and Save stayed enabled with every visible box unticked -- the
+  // save then wrote a group with no members.
+  testWidgets('a hidden stale member neither counts nor keeps Save enabled', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      ..._saved(),
+      'device_groups_v1': jsonEncode([
+        {
+          'id': 'g1',
+          'name': 'Garage',
+          'deviceIds': ['AA:01', 'AA:03'],
+        },
+      ]),
+    });
+    _prefs = await SharedPreferences.getInstance();
+    const group = DeviceGroup(
+      id: 'g1',
+      name: 'Garage',
+      deviceIds: ['AA:01', 'AA:03'],
+    );
+    await tester.pumpWidget(_wrap(group: group));
+    await tester.pump();
+
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('2'), findsNothing);
+
+    await tester.tap(find.text('Bulb'));
+    await tester.pump();
+    final button = tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Save'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton),
+      ),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  // Before the fix a failed remove escaped the tap unhandled: no message and
+  // the screen just sat there.
+  testWidgets('a failed delete reports and stays on the editor', (
+    tester,
+  ) async {
+    const group = DeviceGroup(id: 'g1', name: 'Doomed', deviceIds: ['AA:01']);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          deviceGroupsProvider.overrideWith(
+            (ref) => _ExplodingGroupsNotifier(DeviceGroupStore(_prefs)),
+          ),
+        ],
+        child: const MaterialApp(home: GroupEditScreen(group: group)),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(GroupEditScreen), findsOneWidget);
+    expect(find.text('Could not delete this group.'), findsOneWidget);
+  });
 }
 
 /// A notifier whose persistence always fails, for the failed-save path.
 class _ExplodingGroupsNotifier extends DeviceGroupsNotifier {
   _ExplodingGroupsNotifier(super.store);
+
+  @override
+  Future<void> remove(String id) async {
+    throw Exception('disk full');
+  }
 
   @override
   Future<DeviceGroup> create({

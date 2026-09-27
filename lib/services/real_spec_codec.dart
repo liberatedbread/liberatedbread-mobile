@@ -313,16 +313,22 @@ class RealSpecCodec implements SpecCodec {
   Future<EntityWriteDto> encodeEntityValue({
     required String specYaml,
     required String entityName,
+    int? entityIndex,
     required double value,
   }) {
     final held = _held(specYaml);
     if (held != null) {
-      return held.encodeEntityValue(entityName: entityName, value: value);
+      return held.encodeEntityValue(
+        entityName: entityName,
+        entityIndex: entityIndex,
+        value: value,
+      );
     }
     unawaited(_holdSpec(specYaml));
     return rust.encodeEntityValue(
       specYaml: specYaml,
       entityName: entityName,
+      entityIndex: entityIndex,
       value: value,
     );
   }
@@ -1169,6 +1175,24 @@ class RustSpecCatalogue implements SpecCatalogue {
   @override
   Future<List<UdpProbeDto>> udpBroadcastProbes() =>
       _handle.udpBroadcastProbes();
+
+  // Only the device crosses: the identities and parses stay in Rust.
+  @override
+  Future<List<ScanMatch>> matchScanned(ScannedDeviceDto device) =>
+      _handle.matchScanned(device: device);
+
+  @override
+  Future<List<ScanMatch>> matchNetwork(NetworkDeviceDto device) =>
+      _handle.matchNetwork(device: device);
+
+  @override
+  Future<List<SoftApProfileDto>> softApProfiles(List<int> indices) =>
+      _handle.softApProfiles(indices: indices);
+
+  @override
+  Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles(
+    List<int> indices,
+  ) => _handle.bleProvisioningProfiles(indices: indices);
 
   @override
   Future<List<SpecMatch>> matchDevice({

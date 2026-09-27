@@ -29,8 +29,9 @@
 // values have been checked against CHIRP and against the target doc — not
 // by a test.
 //
-// Guarded like the other live suites: the `live_radio` tag keeps it out of
-// every ordinary run, and it skips itself unless LB_LIVE_RADIO=1.
+// Guarded like the other live suites: ./scripts/test.sh and CI exclude the
+// `live_radio` tag, and it skips itself unless LB_LIVE_RADIO=1 (the only
+// guard on a bare `flutter test`).
 //
 // Run it (Linux or macOS, the radio on and cabled, a backup you can restore):
 //   LB_LIVE_RADIO=1 LB_LIVE_RADIO_PORT=/dev/ttyUSB0 LB_LIVE_RADIO_MODEL=uv5r \

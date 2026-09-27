@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/error_text.dart';
+import '../core/log.dart';
 import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
@@ -96,7 +98,37 @@ Future<bool> _adopted({
   if (!isRoomba) return true;
 
   final store = ref.read(roombaCredentialStoreProvider);
-  final stored = await store.credentials(blid);
+  // Both callers fire this from a tap and drop the future, so a keychain
+  // fault here used to vanish into the zone handler: the tap did nothing
+  // and said nothing. A read failure is NOT "no credential" — sending the
+  // user to adoption would overwrite a password that is probably still
+  // stored — so say what happened and stop.
+  final RoombaCredentials? stored;
+  try {
+    stored = await store.credentials(blid);
+  } catch (e, st) {
+    Log.ui.warning(
+      'could not read robot credentials',
+      error: e,
+      stackTrace: st,
+    );
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyErrorText(
+              e,
+              context: 'keychain',
+              fallback:
+                  "Could not read this robot's saved password from the "
+                  'device keychain.',
+            ),
+          ),
+        ),
+      );
+    }
+    return false;
+  }
   if (!context.mounted) return false;
   if (stored == null) {
     final adopted = await Navigator.of(context).push<RoombaCredentials>(
@@ -114,7 +146,17 @@ Future<bool> _adopted({
     return adopted != null && context.mounted;
   }
   // The lease may have moved since the last session; the sighting that got us
-  // here just told us where it is now.
-  await store.rememberAddress(blid, device.host);
+  // here just told us where it is now. Best effort: a failed write used to
+  // throw out of here and block a robot whose credentials read fine from
+  // opening at all, over a convenience for the NEXT session.
+  try {
+    await store.rememberAddress(blid, device.host);
+  } catch (e, st) {
+    Log.ui.warning(
+      'could not remember the robot address',
+      error: e,
+      stackTrace: st,
+    );
+  }
   return context.mounted;
 }

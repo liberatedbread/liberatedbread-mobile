@@ -97,16 +97,6 @@ class BlePairingRequiredException implements UserFacingException {
   String toString() => message;
 }
 
-/// A saved device the system has no record of any more.
-///
-/// Distinct from "connect timed out" because the remedy is different, and the
-/// generic advice ("move closer, then retry") is actively wrong here. On Apple
-/// platforms a device id is a system-minted per-app UUID rather than a MAC,
-/// and CoreBluetooth drops it for an unbonded peripheral after a Bluetooth
-/// reset or reboot, or when the peripheral's random address rotated. The link
-/// cannot be opened at any distance until the device advertises again and the
-/// system re-registers it — so the useful instruction is "make sure it is
-/// powered on and in range, then scan", not "move closer".
 /// A characteristic the device never answered.
 ///
 /// Found on a real Schlage lock (2026-09-17): one of its vendor
@@ -160,6 +150,16 @@ class BleLinkDroppedException implements UserFacingException {
   String toString() => message;
 }
 
+/// A saved device the system has no record of any more.
+///
+/// Distinct from "connect timed out" because the remedy is different, and the
+/// generic advice ("move closer, then retry") is actively wrong here. On Apple
+/// platforms a device id is a system-minted per-app UUID rather than a MAC,
+/// and CoreBluetooth drops it for an unbonded peripheral after a Bluetooth
+/// reset or reboot, or when the peripheral's random address rotated. The link
+/// cannot be opened at any distance until the device advertises again and the
+/// system re-registers it — so the useful instruction is "make sure it is
+/// powered on and in range, then scan", not "move closer".
 class BleDeviceUnheardException implements UserFacingException {
   @override
   final String message;

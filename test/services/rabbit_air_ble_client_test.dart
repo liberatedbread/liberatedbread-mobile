@@ -54,7 +54,11 @@ void main() {
     }
   }
 
-  void setUpClient({int mtu = 515, Duration? responseTimeout}) {
+  void setUpClient({
+    int mtu = 515,
+    Duration? responseTimeout,
+    FakeSpecCodec? codec,
+  }) {
     notifications = StreamController<List<int>>.broadcast();
     ble = FakeBleService(
       servicesToReturn: const [_rabbitService],
@@ -63,7 +67,7 @@ void main() {
     );
     client = RabbitAirBleClient(
       ble,
-      FakeSpecCodec(),
+      codec ?? FakeSpecCodec(),
       responseTimeout: responseTimeout ?? const Duration(milliseconds: 500),
     );
   }
@@ -174,6 +178,34 @@ void main() {
     },
   );
 
+  // Fails on the old code: the chunk's handling completed the exchange the
+  // disconnect had already failed, the StateError left the chunk chain
+  // errored, and every later reply on this client was dropped.
+  test('a disconnect while a reply is being decoded leaves the client '
+      'usable', () async {
+    final codec = _GatedCodec();
+    setUpClient(codec: codec);
+    await client.connect('01');
+
+    final gate = codec.gate = Completer<void>();
+    final first = client.sendCommand([1]);
+    final failed = expectLater(first, throwsA(isA<RabbitAirBleException>()));
+    await Future<void>.delayed(Duration.zero);
+    answer([1, 2], 510);
+    await Future<void>.delayed(Duration.zero);
+    await client.disconnect();
+    codec.gate = null;
+    gate.complete();
+    await failed;
+    await Future<void>.delayed(Duration.zero);
+
+    await client.connect('01');
+    final second = client.sendCommand([2]);
+    await Future<void>.delayed(Duration.zero);
+    answer([3, 4], 510);
+    expect(await second, [3, 4]);
+  });
+
   test('an unanswered command throws after the response window', () async {
     setUpClient(responseTimeout: const Duration(milliseconds: 50));
     await client.connect('01');
@@ -265,4 +297,19 @@ void main() {
     );
     expect(ble.liveSubscriberCount[_charUuid] ?? 0, 0);
   });
+}
+
+/// A codec whose length decode waits on [gate] while one is set: the FRB
+/// round trip a disconnect can land in the middle of.
+class _GatedCodec extends FakeSpecCodec {
+  Completer<void>? gate;
+
+  @override
+  Future<int?> rabbitAirBleExpectedPayloadLen({
+    required List<int> firstChunk,
+  }) async {
+    final waitFor = gate;
+    if (waitFor != null) await waitFor.future;
+    return super.rabbitAirBleExpectedPayloadLen(firstChunk: firstChunk);
+  }
 }

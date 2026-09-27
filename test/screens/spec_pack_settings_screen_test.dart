@@ -1,9 +1,12 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
+import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/spec_pack_settings_screen.dart';
 import 'package:liberated_bread_mobile/services/spec_pack_service.dart';
@@ -23,15 +26,43 @@ SpecPack _pack({
   installedAt: DateTime(2026, 7, 11, 9, 30),
 );
 
-Widget _wrap(FakeSpecPackService service) => ProviderScope(
+Widget _wrap(
+  FakeSpecPackService service, {
+  Map<String, List<String>> shadowed = const {},
+}) => ProviderScope(
   overrides: [
     prefsSettingsStoreProvider.overrideWith(
       (ref) async => InMemorySettingsStore(),
     ),
     specPackServiceProvider.overrideWithValue(service),
+    // The real catalogue crosses the FFI; the screen only needs the answer.
+    packShadowedBuiltInsProvider.overrideWith(
+      (ref, name) async => shadowed[name] ?? const [],
+    ),
   ],
   child: const MaterialApp(home: SpecPackSettingsScreen()),
 );
+
+/// Holds [install] open until [gate] completes, and counts catalogue reads,
+/// so a test can leave the screen mid-download and see what happens after.
+class _GatedService extends FakeSpecPackService {
+  final gate = Completer<void>();
+  int cachedReads = 0;
+
+  _GatedService({super.nextResult});
+
+  @override
+  Future<InstallResult> install(String manifestUrl) async {
+    await gate.future;
+    return super.install(manifestUrl);
+  }
+
+  @override
+  Future<Map<String, String>> loadCachedSpecs() async {
+    cachedReads++;
+    return const {};
+  }
+}
 
 void main() {
   testWidgets('seeds the URL field with the default constant', (tester) async {
@@ -124,6 +155,129 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('1 file(s) were skipped'), findsOneWidget);
+  });
+
+  // Before the fix every mutation returned on `!mounted` BEFORE invalidating,
+  // so backing out mid-download left the non-autoDispose catalogue serving
+  // the old specs until restart.
+  testWidgets('leaving mid-install still refreshes the pack catalogue', (
+    tester,
+  ) async {
+    final service = _GatedService(nextResult: InstallOk(_pack(name: 'Late')));
+    final container = ProviderContainer(
+      overrides: [
+        prefsSettingsStoreProvider.overrideWith(
+          (ref) async => InMemorySettingsStore(),
+        ),
+        specPackServiceProvider.overrideWithValue(service),
+        packShadowedBuiltInsProvider.overrideWith(
+          (ref, name) async => const <String>[],
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    // Keep the catalogue alive the way deviceSpecsProvider does in the app.
+    final sub = container.listen(cachedSpecPacksProvider, (_, _) {});
+    addTearDown(sub.close);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SpecPackSettingsScreen(),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await container.read(cachedSpecPacksProvider.future);
+    final before = service.cachedReads;
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
+    await tester.tap(find.text('Install / Refresh'));
+    await tester.pump();
+    // Back out while the download is still running.
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(SpecPackSettingsScreen), findsNothing);
+
+    service.gate.complete();
+    await tester.pumpAndSettle();
+    await container.read(cachedSpecPacksProvider.future);
+    expect(service.cachedReads, greaterThan(before));
+  });
+
+  testWidgets('an install names the built-in definitions it replaced', (
+    tester,
+  ) async {
+    final service = FakeSpecPackService(
+      nextResult: InstallOk(_pack(name: 'Fixes')),
+    );
+    await tester.pumpWidget(
+      _wrap(
+        service,
+        shadowed: const {
+          'Fixes': ['Enphase Envoy', 'iRobot Roomba'],
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
+    await tester.tap(find.text('Install / Refresh'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining(
+        'replaces the built-in definitions for: Enphase Envoy, iRobot Roomba',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  // Before the fix a pack saved from a public http:// source got only "no
+  // valid source URL", with no hint that https is what is required.
+  testWidgets('refresh explains why a saved http source is refused', (
+    tester,
+  ) async {
+    final service = FakeSpecPackService(
+      packs: [
+        SpecPack(
+          name: 'Old',
+          version: '1.0.0',
+          sourceUrl: 'http://example.com/pack.json',
+          specFiles: const ['a.yaml'],
+          installedAt: DateTime(2026, 7, 11),
+        ),
+      ],
+    );
+    await tester.pumpWidget(_wrap(service));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.refresh));
+    await tester.pumpAndSettle();
+
+    expect(service.refreshedUrls, isEmpty);
+    expect(
+      find.textContaining('cannot be updated from its saved address'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('https'), findsWidgets);
   });
 
   testWidgets('removes a pack from the list', (tester) async {

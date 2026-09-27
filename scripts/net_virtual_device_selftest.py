@@ -20,8 +20,11 @@ themselves need ports 5353/1900 and a real scan.
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import pathlib
 import sys
+import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 MODULE = HERE / 'net_virtual_device.py'
@@ -127,6 +130,32 @@ def main() -> int:
           deaf.ssdp_replies('ssdp:all') == [])
     check('a wildcard-deaf device answers its own ST',
           len(deaf.ssdp_replies('roku:ecp')) == 1)
+
+    # The ready file must never be visible empty or half-written: the final
+    # name is only ever renamed into place, never opened for writing.
+    with tempfile.TemporaryDirectory() as tmp:
+        ready = os.path.join(tmp, 'ready.json')
+        opened_for_write = []
+        real_open = open
+
+        def spy(file, mode='r', *a, **k):
+            if 'w' in mode:
+                opened_for_write.append(str(file))
+            return real_open(file, mode, *a, **k)
+
+        nvd.open = spy
+        try:
+            nvd.write_ready_file(ready, {'address': '127.0.0.1',
+                                         'hue_ports': {'Virtual Hue': 1}})
+        finally:
+            del nvd.open
+        check('the ready file name is never opened for writing',
+              ready not in opened_for_write, repr(opened_for_write))
+        with real_open(ready) as handle:
+            check('the ready file holds the whole JSON',
+                  json.load(handle)['hue_ports'] == {'Virtual Hue': 1})
+        check('no temporary file is left behind',
+              os.listdir(tmp) == ['ready.json'], repr(os.listdir(tmp)))
 
     if _status == 0:
         print('net_virtual_device selftest: all passed')

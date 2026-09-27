@@ -212,10 +212,11 @@ pub enum SpecError {
     },
 
     #[error(
-        "parameter '{parameter_name}' declares auto: packet_length, which is patched into a reserved slot, but type {value_type} has no fixed width to reserve"
+        "parameter '{parameter_name}' declares auto: {role}, which is patched into a reserved slot, but type {value_type} has no fixed width to reserve"
     )]
-    AutoLengthOnVariableWidthType {
+    AutoRoleOnVariableWidthType {
         parameter_name: String,
+        role: String,
         value_type: crate::spec::types::ValueType,
     },
 }

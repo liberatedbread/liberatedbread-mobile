@@ -134,4 +134,44 @@ void main() {
     expect(RadarArcPainter.debugPaintCount, 0);
     expect(RadarTrackPainter.debugPaintCount, 1);
   });
+
+  testWidgets('reduce-motion runs no ticker while scanning', (tester) async {
+    // Old code: repeat() ran whenever scanning, arc built or not, so a
+    // frame was scheduled every vsync for the life of the ambient scan.
+    await pumpRadar(tester, scanning: true, reduceMotion: true);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('turning reduce-motion off mid-scan starts the sweep', (
+    tester,
+  ) async {
+    await pumpRadar(tester, scanning: true, reduceMotion: true);
+    await pumpRadar(tester, scanning: true);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(sweep, findsOneWidget);
+    expect(tester.binding.hasScheduledFrame, isTrue);
+  });
+
+  testWidgets('a scan restarted inside the settle keeps sweeping', (
+    tester,
+  ) async {
+    // Old code: repeat() ran only when !isAnimating, and the 240 ms settle
+    // counts as animating, so true -> false -> true inside it skipped the
+    // repeat; the settle then finished and the arc sat frozen at the top.
+    await pumpRadar(tester, scanning: true);
+    await tester.pump(const Duration(milliseconds: 100));
+    await pumpRadar(tester, scanning: false);
+    await tester.pump(const Duration(milliseconds: 100));
+    await pumpRadar(tester, scanning: true);
+    // Well past the end of the settle it would otherwise have finished.
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(sweep, findsOneWidget);
+    final turns = tester.widget<RotationTransition>(sweep).turns;
+    final before = turns.value;
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(turns.value, isNot(before), reason: 'the arc must still turn');
+    expect(tester.binding.hasScheduledFrame, isTrue);
+  });
 }

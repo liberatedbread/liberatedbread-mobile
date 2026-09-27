@@ -79,7 +79,6 @@ Map<String, CatalogueSpec> _specsByDeviceName(List<CatalogueSpec> parsed) {
 final adoptableDevicesProvider = FutureProvider<List<AdoptableDevice>>((
   ref,
 ) async {
-  final codec = ref.watch(specCodecProvider);
   final catalogue = await ref.watch(specCatalogueProvider.future);
   final byName = _specsByDeviceName(catalogue.specs);
   // Profiles come from the WINNING copies only. Generating them from every
@@ -87,8 +86,10 @@ final adoptableDevicesProvider = FutureProvider<List<AdoptableDevice>>((
   // different copy's YAML: the dedupe below keeps the first profile it sees
   // — the bundled one — while the name join hands back the pack's YAML, so an
   // installed pack override was shown wearing the bundled spec's identity.
-  final profiles = await codec.softApProfiles([
-    for (final e in byName.values) e.yaml,
+  // By catalogue index: the parses are already held, so neither the YAML
+  // (megabytes across the whole catalogue) nor a re-parse crosses the FFI.
+  final profiles = await catalogue.softApProfiles([
+    for (final e in byName.values) e.index,
   ]);
 
   final devices = <AdoptableDevice>[];
@@ -143,14 +144,13 @@ class BleAdoptableDevice {
 final bleAdoptableDevicesProvider = FutureProvider<List<BleAdoptableDevice>>((
   ref,
 ) async {
-  final codec = ref.watch(specCodecProvider);
   final catalogue = await ref.watch(specCatalogueProvider.future);
   // The same join, the same shadowing rule — one definition for both flows.
   final byName = _specsByDeviceName(catalogue.specs);
   // Winning copies only, for the reason the softap join above gives: a
   // profile and the YAML beside it must come from the same spec.
-  final profiles = await codec.bleProvisioningProfiles([
-    for (final e in byName.values) e.yaml,
+  final profiles = await catalogue.bleProvisioningProfiles([
+    for (final e in byName.values) e.index,
   ]);
 
   final devices = <BleAdoptableDevice>[];

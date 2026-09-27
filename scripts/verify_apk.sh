@@ -59,12 +59,32 @@ EXPECTED_PACKAGE="ca.pigscanfly.liberatedbread"
 #   INTERNET               Home Assistant companion registration + webhooks
 #   BLUETOOTH_SCAN         flutter_blue_plus scan on API 31+
 #   BLUETOOTH_CONNECT      GATT connect on API 31+
-#   ACCESS_FINE_LOCATION   BLE scan on API 30 and below (minSdk is 21)
+#   ACCESS_FINE_LOCATION   BLE scan on API 30 and below (minSdk is 24)
+#   ACCESS_COARSE_LOCATION without it Android 12+ ignores the FINE request, so
+#                          every scan is denied
+#   CHANGE_WIFI_MULTICAST_STATE
+#                          the multicast lock; without it mDNS finds nothing
+#   BLUETOOTH, BLUETOOTH_ADMIN
+#                          scan/connect on API 24-30, where they are the only
+#                          grant; without them both throw SecurityException
+# Checked in the MERGED manifest because that is the only layer that sees a
+# dependency's tools:node="remove"; test/platform/android_manifest_test.dart
+# covers the source manifest.
 REQUIRED_PERMISSIONS=(
   "android.permission.INTERNET"
   "android.permission.BLUETOOTH_SCAN"
   "android.permission.BLUETOOTH_CONNECT"
   "android.permission.ACCESS_FINE_LOCATION"
+  "android.permission.ACCESS_COARSE_LOCATION"
+  "android.permission.CHANGE_WIFI_MULTICAST_STATE"
+  "android.permission.BLUETOOTH"
+  "android.permission.BLUETOOTH_ADMIN"
+)
+# The legacy pair must stay capped at API 30: uncapped, a 12+ install asks for
+# permissions the platform no longer grants and the Play listing shows them.
+LEGACY_MAX_SDK_PERMISSIONS=(
+  "android.permission.BLUETOOTH"
+  "android.permission.BLUETOOTH_ADMIN"
 )
 
 # Size floor for the Rust library. A successful build is far above this — the
@@ -302,10 +322,20 @@ else
     fi
 
     for perm in "${REQUIRED_PERMISSIONS[@]}"; do
+      # The closing quote keeps BLUETOOTH from matching BLUETOOTH_SCAN.
       if grep -q "^uses-permission: name='${perm}'" "$WORK/perms.txt"; then
         log "  ok  $perm"
       else
         fail "Merged manifest does not declare $perm — the app will fail at runtime, not at build time."
+      fi
+    done
+    for perm in "${LEGACY_MAX_SDK_PERMISSIONS[@]}"; do
+      line="$(grep "^uses-permission: name='${perm}'" "$WORK/perms.txt" || true)"
+      [[ -n "$line" ]] || continue  # already reported above
+      if [[ "$line" == *"maxSdkVersion='30'"* ]]; then
+        log "  ok  $perm capped at maxSdkVersion 30"
+      else
+        fail "Merged manifest declares $perm without maxSdkVersion='30' — the manifest merge dropped the cap."
       fi
     done
   fi

@@ -859,6 +859,9 @@ class _ControlsSection extends StatelessWidget {
                 stateServiceUuid: control.stateServiceUuid,
                 entity: control.entity,
                 specYaml: specYaml,
+                // Every momentary action on a lock asks first: BioKey's
+                // Unlock is a `button`, and it opened on one tap.
+                isLock: category == DeviceCategory.lock,
               ),
               _ => SwitchControlCard(
                 deviceId: deviceId,

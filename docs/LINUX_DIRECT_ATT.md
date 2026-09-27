@@ -211,8 +211,16 @@ links alike.
 
 When BlueZ can enumerate these devices (a configuration setting, or a
 `read_server_feat` that tolerates silence): delete `lib/services/direct_att/`,
-the `installDirectAttRouter` call in `ble_provider.dart`, the tests and fakes
-named above, and this file, and move `ffi`, `bluez`,
+`lib/providers/direct_att_hint_provider.dart` (it imports the router's
+`BleSighting` / `DirectAttRouteHint`, so it stops compiling) and
+`test/providers/direct_att_hint_provider_test.dart`, the router provider in
+`ble_provider.dart` (`directAttRouterProvider`: the `installDirectAttRouter`
+call, the `specDeclaresDirectAttProvider` hint it wires, and the
+`direct_att_hint_provider.dart` import), the tests and fakes named
+above, and this file, and move `ffi`, `bluez`,
 `flutter_blue_plus_linux` and `flutter_blue_plus_platform_interface` back to
 wherever nothing else needs them. The preference key
-`ble.linux.direct_att_devices` can be left to rot.
+`ble.linux.direct_att_devices` can be left to rot. Leave `bluezRawAtt` on the Rust
+and spec-identity side: it mirrors upstream's `host_compatibility` data, not
+router plumbing. `ScanGuess.bluezRawAtt` in `scan_match_provider.dart` loses
+its only consumer and can go with the provider.

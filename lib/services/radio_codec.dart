@@ -38,7 +38,7 @@ rust.RadioChannelDto channelToDto(RadioChannel channel, {required int slot}) {
     txTone: tone(channel.txTone),
     rxTone: tone(channel.rxTone),
     narrow: channel.mode == ChannelMode.nfm,
-    lowPower: channel.power == PowerLevel.low,
+    power: channel.power.wireName,
     skip: channel.skip,
   );
 }
@@ -70,7 +70,9 @@ RadioChannel channelFromDto(rust.RadioChannelDto dto) {
     txTone: tone(dto.txTone),
     rxTone: tone(dto.rxTone),
     mode: dto.narrow ? ChannelMode.nfm : ChannelMode.fm,
-    power: dto.lowPower ? PowerLevel.low : PowerLevel.high,
+    // The codec only ever names the three; anything else is a codec this
+    // build does not know, and high is what CHIRP reads an unknown level as.
+    power: PowerLevel.fromWire(dto.power) ?? PowerLevel.high,
     skip: dto.skip,
   );
 }

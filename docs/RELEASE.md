@@ -12,8 +12,10 @@ Store Connect, export compliance, listing copy) is in
 - **Tag**: `vX.Y.Z`, on the commit you ship. Never move a tag once a build from
   it has been uploaded.
 - **Build number**: both stores need it to rise on every upload.
-  `scripts/release.sh` reads it off the clock, so nobody bumps it and the
-  pubspec `+N` is ignored.
+  `scripts/release.sh` reads it off the clock in UTC (minutes since the epoch
+  on Android, `YYYYMMDDHHMM` on iOS), so nobody bumps it and the pubspec `+N`
+  is ignored. UTC, because a local-time stamp repeats an hour when clocks
+  fall back and App Store Connect refuses a number that does not rise.
 - **Stamp**: the app's record of which build it is. `scripts/release.sh`
   passes in `git describe --tags --always --dirty` as `AppConstants.appVersion`.
 
@@ -60,15 +62,15 @@ other ref as its bare SHA.
      source file leaves no trace at all. `LB_RELEASE_DIRTY=1` overrides.
    - **The tag disagrees with `pubspec.yaml`.** One version in the listing,
      another in every bug report. No override: fix the tag.
-   - **Untracked or ignored files under `device-specs/devices/` or
-     `device-specs/examples/`.** pubspec bundles those directories, so they
-     ship, and the stamp cannot see them. No override: remove them, or land
-     them upstream.
+   - **Untracked or ignored files under `device-specs/devices/`,
+     `device-specs/examples/` or `assets/radio/`.** pubspec bundles those
+     directories, so they ship, and the stamp cannot see them. No override:
+     remove them, or commit them (upstream, for the spec directories).
 
    Before it looks, the script deletes `device-specs/examples/index-temp.json`,
    the gitignored local index that `run-*.sh` rebuilds on every launch and the
    app prefers over `index.json`, so a release always reads the committed
-   index. It deletes a Finder `.DS_Store` in either directory for the same
+   index. It deletes a Finder `.DS_Store` in any of the three for the same
    reason: ignored, so the guard would refuse it, and written by merely
    opening the folder on the Mac that builds for iOS. The two overrides are
    for a throwaway build on a branch; a store upload should need neither.

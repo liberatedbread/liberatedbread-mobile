@@ -42,6 +42,11 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
   /// precise position than the one 'Forget location' is there to drop.
   SavedLocation? _location;
   bool _locating = false;
+
+  /// An "Add N channels" is picking or creating a plan and appending to it.
+  /// Without this a double tap, with no plan for this radio yet, ran the
+  /// whole path twice: two "Near X" plans, each holding the channels.
+  bool _adding = false;
   String? _locationError;
 
   /// Set once the user asks to search, so the screen does not fetch anything
@@ -392,7 +397,7 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
     child: Padding(
       padding: const EdgeInsets.all(12),
       child: FilledButton.icon(
-        onPressed: _addSelected,
+        onPressed: _adding ? null : _addSelected,
         icon: const Icon(Icons.playlist_add),
         label: Text(
           'Add ${_selected.length} '
@@ -404,8 +409,16 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
 
   Future<void> _addSelected() async {
     final request = _request;
-    if (request == null || _selected.isEmpty) return;
+    if (_adding || request == null || _selected.isEmpty) return;
+    setState(() => _adding = true);
+    try {
+      await _addSelectedTo(request);
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
 
+  Future<void> _addSelectedTo(SuggestionRequest request) async {
     final messenger = ScaffoldMessenger.of(context);
     final plansNotifier = ref.read(channelPlansProvider.notifier);
     final result = ref.read(radioSuggestionProvider(request)).value;
@@ -459,42 +472,58 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
     final notifier = ref.read(channelPlansProvider.notifier);
     final name = 'Near ${_location?.label ?? 'me'}';
 
-    if (plans.isEmpty) {
-      return notifier.create(name: name, radioProfileId: widget.profile.id);
-    }
+    Future<ChannelPlan> create() =>
+        notifier.create(name: name, radioProfileId: widget.profile.id);
 
-    return showModalBottomSheet<ChannelPlan>(
+    if (plans.isEmpty) return create();
+
+    final choice = await showModalBottomSheet<Object>(
       context: context,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            const ListTile(title: Text('Add to which plan?')),
-            for (final plan in plans)
+      builder: (context) {
+        // Once per sheet: a second tap in the same frame would otherwise pop
+        // again, and the route under the closing sheet is this screen.
+        void choose(Object choice) {
+          if (ModalRoute.of(context)?.isCurrent ?? false) {
+            Navigator.of(context).pop(choice);
+          }
+        }
+
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(title: Text('Add to which plan?')),
+              for (final plan in plans)
+                ListTile(
+                  leading: const Icon(Icons.list_alt_outlined),
+                  title: Text(plan.name),
+                  subtitle: Text('${plan.length} channels'),
+                  onTap: () => choose(plan),
+                ),
               ListTile(
-                leading: const Icon(Icons.list_alt_outlined),
-                title: Text(plan.name),
-                subtitle: Text('${plan.length} channels'),
-                onTap: () => Navigator.of(context).pop(plan),
+                leading: const Icon(Icons.add),
+                title: const Text('New plan'),
+                // Pops at once and the plan is made after the sheet closes.
+                // Creating it first and popping after the await popped this
+                // screen instead when the sheet was dismissed meanwhile or the
+                // tile tapped twice, leaving an extra empty plan behind.
+                onTap: () => choose(_newPlan),
               ),
-            ListTile(
-              leading: const Icon(Icons.add),
-              title: const Text('New plan'),
-              onTap: () async {
-                final navigator = Navigator.of(context);
-                final plan = await notifier.create(
-                  name: name,
-                  radioProfileId: widget.profile.id,
-                );
-                navigator.pop(plan);
-              },
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
+    return switch (choice) {
+      final ChannelPlan plan => plan,
+      _newPlan when mounted => create(),
+      _ => null,
+    };
   }
 }
+
+/// What the plan sheet returns for its "New plan" tile.
+const _newPlan = #newPlan;
 
 class _FailureTile extends StatelessWidget {
   final SourceFailure failure;

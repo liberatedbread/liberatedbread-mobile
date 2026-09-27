@@ -500,6 +500,39 @@ const Duration continuousScanRetry = Duration(seconds: 30);
 @visibleForTesting
 Duration appleRediscoveryWindow = const Duration(seconds: 6);
 
+/// A connect that [RealBleService.cancelConnect] stopped before it reached
+/// the platform.
+///
+/// Only the caller that backed out ever sees it, and that caller has already
+/// stopped listening (a disposed screen, a timed-out group run), so it is
+/// never shown to anyone. A type of its own so the log says "cancelled"
+/// rather than looking like the device refused.
+class BleConnectCancelledException implements Exception {
+  final String deviceId;
+  const BleConnectCancelledException(this.deviceId);
+
+  @override
+  String toString() => 'connect to $deviceId was cancelled';
+}
+
+/// One connect() call's cancellation, so [RealBleService.cancelConnect] can
+/// stop an attempt that has not reached the platform yet.
+///
+/// Per attempt rather than per device: a flag on the device would also
+/// cancel a later connect to it queued after the cancel.
+class _ConnectAttempt {
+  final Completer<void> _cancelled = Completer<void>();
+
+  bool get isCancelled => _cancelled.isCompleted;
+
+  /// Completes when the attempt is cancelled; never errors.
+  Future<void> get cancelled => _cancelled.future;
+
+  void cancel() {
+    if (!_cancelled.isCompleted) _cancelled.complete();
+  }
+}
+
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService
     implements BleService, BleAuthorizationWatcher, BleConnectCanceller {
@@ -1051,15 +1084,23 @@ class RealBleService
     // [cancelConnect] must not cancel it. Released inside the attempt, so the
     // count is down before the caller's await resumes.
     _pendingConnects[deviceId] = (_pendingConnects[deviceId] ?? 0) + 1;
+    final token = _ConnectAttempt();
+    (_connectAttempts[deviceId] ??= []).add(token);
     final attempt = previous.then((_) async {
       try {
-        await _connectNow(deviceId);
+        _throwIfCancelled(token, deviceId);
+        await _connectNow(deviceId, token);
       } finally {
         final left = (_pendingConnects[deviceId] ?? 1) - 1;
         if (left > 0) {
           _pendingConnects[deviceId] = left;
         } else {
           _pendingConnects.remove(deviceId);
+        }
+        final attempts = _connectAttempts[deviceId];
+        attempts?.remove(token);
+        if (attempts != null && attempts.isEmpty) {
+          _connectAttempts.remove(deviceId);
         }
       }
     });
@@ -1099,6 +1140,7 @@ class RealBleService
   Future<void> _connectResolvingAppleIdentifier(
     BluetoothDevice device,
     String deviceId,
+    _ConnectAttempt token,
   ) async {
     // 15 s per attempt, and NOT raised: fbp holds its process-wide "global"
     // mutex for the whole wait, so a longer attempt is a longer stall for
@@ -1112,6 +1154,9 @@ class RealBleService
       return;
     } catch (error) {
       if (!_isAppleUnknownPeripheral(error)) rethrow;
+      // Cancelled while the first attempt ran: cancelConnect's platform
+      // disconnect ended that one, and nothing may start a second.
+      _throwIfCancelled(token, deviceId);
       Log.ble.info(
         '$deviceId is not known to CoreBluetooth; scanning for it before '
         'giving up',
@@ -1134,14 +1179,23 @@ class RealBleService
         'a scan is already running; waiting for it to hear $deviceId rather '
         'than restarting the radio',
       );
-      await Future<void>.delayed(appleRediscoveryWindow);
+      // Cut short by a cancel: the caller has gone, and waiting the window
+      // out held the connect queue (and this device's pending count) for
+      // nothing.
+      await Future.any([
+        Future<void>.delayed(appleRediscoveryWindow),
+        token.cancelled,
+      ]);
     } else {
       try {
         await FlutterBluePlus.startScan(
           withRemoteIds: [deviceId],
           timeout: appleRediscoveryWindow,
         );
-        await FlutterBluePlus.isScanning.where((on) => !on).first;
+        await Future.any([
+          FlutterBluePlus.isScanning.where((on) => !on).first,
+          token.cancelled,
+        ]);
       } catch (error) {
         Log.ble.debug('rediscovery scan for $deviceId failed: $error');
       } finally {
@@ -1149,6 +1203,11 @@ class RealBleService
       }
     }
 
+    // A cancel that arrived during the rediscovery window found no platform
+    // connect to end, so it is honoured here: a second attempt would hold
+    // fbp's global mutex for up to 15 s after the caller left, stalling the
+    // next device's connect behind it.
+    _throwIfCancelled(token, deviceId);
     try {
       await _connectOnce(device, deviceId, timeout);
     } catch (error) {
@@ -1193,7 +1252,15 @@ class RealBleService
     return error.toString().toLowerCase().contains('peripheral not found');
   }
 
-  Future<void> _connectNow(String deviceId) async {
+  /// Throw [BleConnectCancelledException] once [cancelConnect] has
+  /// cancelled [token]'s attempt.
+  void _throwIfCancelled(_ConnectAttempt token, String deviceId) {
+    if (!token.isCancelled) return;
+    Log.ble.info('connect to $deviceId cancelled before reaching the radio');
+    throw BleConnectCancelledException(deviceId);
+  }
+
+  Future<void> _connectNow(String deviceId, _ConnectAttempt token) async {
     // Two lines, because the gap between them is the diagnosis: a connect can
     // sit here for the full 15s timeout. Failures surface to the UI, which
     // logs them via friendlyErrorText — logging them here too would duplicate.
@@ -1205,7 +1272,16 @@ class RealBleService
     // toggled off in Control Centre told the user to move closer. Judged
     // once the state has settled, so a saved device opened cold on iOS waits
     // for the permission prompt rather than failing underneath it.
-    final adapterState = await _settledAdapterState();
+    //
+    // Raced against a cancel: the settle wait can run 90 s on a first iOS
+    // launch, there is no platform connect yet for cancelConnect's
+    // disconnect to end, and the attempt would otherwise start one after the
+    // caller had gone.
+    final adapterState = await Future.any([
+      _settledAdapterState(),
+      token.cancelled.then((_) => BluetoothAdapterState.unknown),
+    ]);
+    _throwIfCancelled(token, deviceId);
     final adapterError = adapterStateError(adapterState);
     if (adapterError != null) {
       Log.ble.warning(
@@ -1220,7 +1296,7 @@ class RealBleService
     // must NOT expire live notify shares — CCCD state survives because the
     // link never dropped.
     final wasConnected = device.isConnected;
-    await _connectResolvingAppleIdentifier(device, deviceId);
+    await _connectResolvingAppleIdentifier(device, deviceId, token);
     Log.ble.info('connected to $deviceId');
     // Track overlapping owners: the device screen and a group run can both
     // hold the same physical link, and whichever disconnects first must not
@@ -1285,6 +1361,12 @@ class RealBleService
       return;
     }
     Log.ble.info('cancelling the pending connect to $deviceId');
+    // Marked first: a connect still waiting for the adapter to settle, or
+    // between the Apple rediscovery attempts, has no platform call for the
+    // disconnect below to end, and would start one after the caller left.
+    for (final token in _connectAttempts[deviceId] ?? const []) {
+      token.cancel();
+    }
     try {
       // queue: false jumps fbp's global mutex the pending connect holds —
       // the whole point (see disconnect()).
@@ -1299,12 +1381,25 @@ class RealBleService
     // Last claim out tears the link down; earlier releases just let go. A
     // release with no claim at all (cleanup after a failed connect) falls
     // through to the platform disconnect, which is the desired best-effort
-    // for a half-open link.
+    // for a half-open link — unless a connect is pending (below).
     final claims = _connectionClaims[deviceId] ?? 0;
     if (claims > 1) {
       _connectionClaims[deviceId] = claims - 1;
       Log.ble.debug(
         'disconnect($deviceId) released a claim; ${claims - 1} remain',
+      );
+      return;
+    }
+    // No claim to give back, but someone's connect is still pending: the
+    // platform disconnect below jumps fbp's queue and would cancel THAT
+    // connect. A release from an owner whose claim the link-drop watcher
+    // already expired, or from a caller that timed out its own connect,
+    // failed another owner's connect this way. Backing out of a pending
+    // connect is [cancelConnect]'s job, which checks it is the only one.
+    if (claims == 0 && (_pendingConnects[deviceId] ?? 0) > 0) {
+      Log.ble.debug(
+        'disconnect($deviceId) with no claim left alone: '
+        '${_pendingConnects[deviceId]} connect(s) pending',
       );
       return;
     }
@@ -1495,6 +1590,9 @@ class RealBleService
   /// included. [cancelConnect] cancels only when the caller's is the sole
   /// one.
   final Map<String, int> _pendingConnects = {};
+
+  /// The cancellation token of each connect() counted in [_pendingConnects].
+  final Map<String, List<_ConnectAttempt>> _connectAttempts = {};
 
   /// The tail of each device's in-flight connect queue — error-swallowed, so
   /// the next caller chains onto "the previous attempt finished" rather than
@@ -1828,20 +1926,6 @@ class RealBleService
   final Map<String, StreamSubscription<BluetoothConnectionState>>
   _linkDropSubs = {};
 
-  /// Drop the cached GATT table when the peripheral republishes it.
-  ///
-  /// `subscribeToServicesChanged: false` in [_loadServices] keeps fbp from
-  /// writing the Service Changed CCCD itself, but on Apple platforms the
-  /// event arrives anyway: CoreBluetooth subscribes on the app's behalf and
-  /// delivers `peripheral:didModifyServices:`, which the darwin plugin
-  /// forwards as `OnServicesReset` and fbp uses to clear ITS cache. Ours
-  /// was cleared only in [disconnect], so a peripheral that changes its
-  /// table mid-connection — after pairing completes, or on a DFU switch —
-  /// left [_findCharacteristic] walking a stale list: characteristics that
-  /// only exist after the change were "not found" until the user
-  /// disconnected by hand. Treated like a link turnover: the generation
-  /// moves so an in-flight discovery cannot repopulate the cache with the
-  /// old table, and notify shares expire because their handles are gone.
   /// Forget everything tied to a link that is no longer up.
   ///
   /// R-013: claims are a count of app-side owners, but the LINK can go away
@@ -1869,6 +1953,20 @@ class RealBleService
     }, onError: (Object e) => Log.ble.debug('link watch $deviceId: $e'));
   }
 
+  /// Drop the cached GATT table when the peripheral republishes it.
+  ///
+  /// `subscribeToServicesChanged: false` in [_loadServices] keeps fbp from
+  /// writing the Service Changed CCCD itself, but on Apple platforms the
+  /// event arrives anyway: CoreBluetooth subscribes on the app's behalf and
+  /// delivers `peripheral:didModifyServices:`, which the darwin plugin
+  /// forwards as `OnServicesReset` and fbp uses to clear ITS cache. Ours
+  /// was cleared only in [disconnect], so a peripheral that changes its
+  /// table mid-connection — after pairing completes, or on a DFU switch —
+  /// left [_findCharacteristic] walking a stale list: characteristics that
+  /// only exist after the change were "not found" until the user
+  /// disconnected by hand. Treated like a link turnover: the generation
+  /// moves so an in-flight discovery cannot repopulate the cache with the
+  /// old table, and notify shares expire because their handles are gone.
   void _watchServicesReset(String deviceId, BluetoothDevice device) {
     if (_servicesResetSubs.containsKey(deviceId)) return;
     _servicesResetSubs[deviceId] = device.onServicesReset.listen(

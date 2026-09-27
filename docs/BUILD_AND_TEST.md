@@ -468,8 +468,10 @@ flutter devices
 ### Flutter Tests
 
 ```bash
-# Run all tests
-flutter test
+# Run all tests. A bare `flutter test` runs the netdisco suites, which bind
+# ports 5353/1900 (./scripts/ci-netdisco-tests.sh runs those on purpose).
+# ./scripts/test.sh and CI also exclude live_ble,live_radio,live_wifi,hardware
+flutter test --exclude-tags=netdisco
 
 # Run specific test file
 flutter test test/models/iot_device_test.dart
@@ -478,7 +480,7 @@ flutter test test/models/iot_device_test.dart
 flutter test test/models/
 
 # Run with coverage
-flutter test --coverage
+flutter test --coverage --exclude-tags=netdisco
 
 # View coverage report (requires lcov)
 genhtml coverage/lcov.info -o coverage/html
@@ -747,10 +749,12 @@ Plus integration tests under `rust/tests/`:
 - `spec_tolerance.rs` — parses the real protocol-docs specs vendored under
   `rust/tests/specs/`, proving vendor extension blocks and WiFi specs are
   tolerated rather than rejected by `deny_unknown_fields`
-- `vendored_assets.rs` — asserts every bundled spec in
-  `vendor/protocol-specs/device-specs/`
-  parses through the real parser, and that the bundled set matches its
-  expected file list (update it when adding a bundled spec)
+- `vendored_assets.rs` — asserts every spec in
+  `vendor/protocol-specs/device-specs/` parses through the real parser, that
+  `index.json` and the spec files agree (`manifest_and_spec_files_agree`), and
+  that `device_spec_provider.dart` names no spec file but the example-bulb
+  fallback. There is no expected-file list to update: adding a device is a
+  spec refresh (`./scripts/update-specs.sh`), never a Dart edit
 
 ### Linting and Formatting
 
@@ -780,16 +784,22 @@ for:
 
 ### What Mock Mode Provides
 
-Two simulated devices:
-- **ACME_Living_Room** (strong signal, RSSI -45)
-- **ACME_Bedroom** (moderate signal, RSSI -62)
+Four simulated devices (the list lives in `lib/services/mock_ble_service.dart`;
+docs/WALKTHROUGH.md's MockBleService section explains what each exercises):
+- **ACME_Living_Room** (RSSI -45) — advertises its service UUID
+- **ACME_Bedroom** (RSSI -62) — recognisable by name alone
+- **Airthings Wave Plus** (RSSI -58) — recognisable by company ID alone
+- an unnamed device on a Xiaomi address block (RSSI -78) — identifiable only
+  by its address
 
-Each device has:
+The two ACME devices have:
 - **Control Service** (0x0000fff0)
   - Command characteristic (write)
   - Status characteristic (read + notify)
 - **Battery Service** (0x0000180f)
   - Battery Level characteristic (read + notify)
+
+The other two build their services from their vendored specs.
 
 ### How to Use
 
@@ -805,9 +815,10 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 
 ### What to Expect
 
-1. **Scan screen**: Two mock devices appear with slight RSSI jitter
+1. **Scan screen**: Four mock devices appear with slight RSSI jitter
 2. **Connect**: Simulated connection with brief delay
-3. **Service discovery**: Shows Control Service and Battery Service
+3. **Service discovery**: Control Service and Battery Service on the ACME
+   devices; the spec-derived services on the other two
 4. **Read**: Returns default values (brightness=80, battery=85, power=on)
 5. **Write**: Values are stored in memory; subsequent reads return written values
 6. **Notify**: Simulated notification stream
@@ -892,11 +903,13 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
   ```
 - **Apple Silicon**: The setup script auto-detects ARM64 and downloads the
   correct Flutter SDK.
-- **iOS simulator**: Has simulated BLE support — you can test basic flows.
-  For full BLE testing, use a physical device.
-- **Other scaffolds**: `macos/` and `web/` are committed alongside `android/`
-  and `ios/` (the branding pipeline generates icons for them too), but the
-  supported app targets are Android and iOS.
+- **iOS simulator**: no Bluetooth radio (see
+  [Integration tests on a physical iPhone](#integration-tests-on-a-physical-iphone));
+  run with `--mock` there and use a physical iPhone for real BLE.
+- **Other scaffolds**: `macos/` and `web/` are committed alongside `android/`,
+  `ios/` and `linux/` (the branding pipeline generates icons for them too), but
+  the supported app targets are Android, iOS and Linux; see the README's
+  "About platform scaffolds".
 
 ### Android
 
@@ -918,7 +931,7 @@ every pull request. Nine jobs:
 | Job | Runner | What it does |
 |-----|--------|--------------|
 | `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh` (with the shellcheck `scripts/ci-install-shellcheck.sh` fetches at the version pinned in `ci.yml`, not the runner's), then the selftests of the scripts that only ever run on an expensive job — `scripts/ci-ios-tests-selftest.sh`, `scripts/verify-ios-app-selftest.sh`, `scripts/device-select-selftest.sh`, `scripts/ci-emulator-tests-selftest.sh` — and two that guard a check rather than a job: `scripts/ci-format-selftest.sh` (which files the format check covers) and `scripts/net_virtual_device_selftest.py` (the emulated-network responder answers only what was asked). Then `scripts/ci-versions.sh --strict` (the toolchain pins are still readable by the setup scripts, and its fallbacks still say what the workflow says) and `scripts/update-specs.sh --check` (the vendored subtree is unmodified and its assets exist). Checks out full history for that last one, and `pub get --enforce-lockfile` here and nowhere else. Dart only — no Rust toolchain, nothing compiled |
-| `unit-tests` | ubuntu-latest | checks the FRB bindings haven't drifted from `rust/src/api/` (including brand-new untracked generated files), builds the host Rust lib with `scripts/ensure-rust-lib.sh` — in that order, see the comments there — then `flutter test --coverage --exclude-tags=netdisco`, audits the report for files no test imports (`scripts/ci-coverage-audit.sh`), and uploads it to Codecov under the `unit` flag |
+| `unit-tests` | ubuntu-latest | checks the FRB bindings haven't drifted from `rust/src/api/` (including brand-new untracked generated files), builds the host Rust lib with `scripts/ensure-rust-lib.sh` — in that order, see the comments there — then `flutter test --coverage --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware` with `LB_REQUIRE_RUST_LIB=1`, audits the report for files no test imports (`scripts/ci-coverage-audit.sh`), and uploads it to Codecov under the `unit` flag |
 | `network-discovery` | ubuntu-latest | the `netdisco`-tagged suites, via `scripts/ci-netdisco-tests.sh`, against the stdlib responder `scripts/net_virtual_device.py` on ports 5353/1900; uploads their coverage to Codecov under the `netdisco` flag. No Rust toolchain — the code under test is `dart:io` sockets |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, then `cargo clippy --all-targets --all-features --locked -- -D warnings` and `cargo test --all-features --locked` (`--locked` so a forgotten `Cargo.lock` is an error, not a silent update) |
 | `rust-coverage` | ubuntu-latest | `scripts/ci-rust-coverage.sh` — the same suite under `cargo-llvm-cov`, uploaded under the `rust` flag. Gates nothing and is gated by nothing, so a coverage tool never holds up the native matrix |
@@ -1240,7 +1253,7 @@ its own flag:
 
 | flag | job | what only it covers |
 | --- | --- | --- |
-| `unit` | `unit-tests` | `flutter test --coverage --exclude-tags=netdisco` |
+| `unit` | `unit-tests` | `flutter test --coverage --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware` |
 | `netdisco` | `network-discovery` | the suites that run excludes — the only place `RealNetworkScanService` executes |
 | `rust` | `rust-coverage` | the crate, via `cargo llvm-cov` |
 

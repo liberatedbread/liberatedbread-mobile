@@ -37,14 +37,23 @@ class _FakeTransport implements RabbitAirControlTransport {
   @override
   Future<String?> userKey() async => key;
 
+  /// Thrown by [saveUserKey] — a keychain that refuses the write.
+  Object? saveError;
+
+  /// Every key [syncClock] was called with, in order.
+  final List<String> clockKeys = [];
+
   @override
-  Future<void> saveUserKey(String value) async => key = value;
+  Future<void> saveUserKey(String value) async {
+    if (saveError != null) throw saveError!;
+    key = value;
+  }
 
   @override
   Future<void> syncClock({
     required String specYaml,
     required String userKey,
-  }) async {}
+  }) async => clockKeys.add(userKey);
 
   @override
   int nextRequestId() => ++_id;
@@ -235,5 +244,61 @@ void main() {
     );
     expect(find.textContaining('did not accept that'), findsNothing);
     expect(find.textContaining('could not read back'), findsOneWidget);
+  });
+
+  const newKey = '0123456789abcdef0123456789abcdef';
+
+  testWidgets('a saved but wrong key can be re-entered from the panel', (
+    tester,
+  ) async {
+    // Old code: the entry card showed only while no key was stored, so a
+    // valid-looking wrong key failed every refresh with no way out.
+    final transport = _FakeTransport()..pollError = StateError('no reply');
+    await _pumpPanel(tester, transport: transport, codec: _codec());
+    expect(find.text('Enter a different user key'), findsOneWidget);
+
+    transport.pollError = null;
+    await tester.tap(find.text('Enter a different user key'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), newKey);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(transport.key, newKey);
+    expect(transport.clockKeys.last, newKey);
+    expect(find.text('Enter a different user key'), findsNothing);
+  });
+
+  testWidgets('the key field keeps the keyboard from learning the key', (
+    tester,
+  ) async {
+    final transport = _FakeTransport()..key = null;
+    await _pumpPanel(tester, transport: transport, codec: _codec());
+    await tester.tap(find.text('Enter user key'));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.enableSuggestions, isFalse);
+    expect(field.autocorrect, isFalse);
+  });
+
+  testWidgets('a keychain refusal is a snackbar, not an unhandled error', (
+    tester,
+  ) async {
+    // Old code awaited saveUserKey unguarded inside an unawaited() call:
+    // the throw escaped as an uncaught error (failing this test).
+    final transport = _FakeTransport()
+      ..key = null
+      ..saveError = StateError('errSecInteractionNotAllowed');
+    await _pumpPanel(tester, transport: transport, codec: _codec());
+    await tester.tap(find.text('Enter user key'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), newKey);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(find.textContaining(newKey), findsNothing);
+    expect(find.text('This purifier needs its user key'), findsOneWidget);
+    expect(transport.clockKeys, isEmpty);
   });
 }

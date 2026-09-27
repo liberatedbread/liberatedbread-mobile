@@ -34,7 +34,15 @@ class _RawCharacteristicWidgetState
     extends ConsumerState<RawCharacteristicWidget> {
   List<int>? _value;
   bool _loading = false;
-  String? _error;
+
+  /// Why the last read failed, and why live updates stopped. Two fields,
+  /// not one: a single `_error` was cleared only by a read and checked
+  /// before the value, so one failed read (a read that needs pairing on a
+  /// characteristic that notifies freely) hid every later notification
+  /// behind a permanent 'Error:' line. A value that arrives replaces the
+  /// failed read's gap, and a notify error does not hide the last value.
+  String? _readError;
+  String? _notifyError;
   StreamSubscription<List<int>>? _notifySub;
 
   final TextEditingController _writeController = TextEditingController();
@@ -63,7 +71,7 @@ class _RawCharacteristicWidgetState
   Future<void> _read() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _readError = null;
     });
 
     try {
@@ -82,7 +90,7 @@ class _RawCharacteristicWidgetState
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = friendlyErrorText(
+          _readError = friendlyErrorText(
             e,
             context: 'read ${widget.characteristic.uuid}',
             fallback: 'Could not read this characteristic.',
@@ -157,12 +165,20 @@ class _RawCharacteristicWidgetState
         )
         .listen(
           (value) {
-            if (mounted) setState(() => _value = value);
+            // Data arriving means the stream is alive and the value on
+            // screen is fresh: neither error still describes it.
+            if (mounted) {
+              setState(() {
+                _value = value;
+                _readError = null;
+                _notifyError = null;
+              });
+            }
           },
           onError: (Object e) {
             if (mounted) {
               setState(
-                () => _error = friendlyErrorText(
+                () => _notifyError = friendlyErrorText(
                   e,
                   context: 'notify ${widget.characteristic.uuid}',
                   fallback: 'Live updates stopped.',
@@ -288,27 +304,31 @@ class _RawCharacteristicWidgetState
         style: TextStyle(fontStyle: FontStyle.italic),
       );
     }
-    if (_error != null) {
-      return Text(
-        'Error: $_error',
-        style: text.bodySmall?.copyWith(color: scheme.error),
-      );
-    }
-    if (_value == null) {
+    final errors = [?_readError, ?_notifyError];
+    final value = _value;
+    if (value == null && errors.isEmpty) {
       return Text(
         '(no value)',
         style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
       );
     }
-    final ascii = asciiPreview(_value!);
+    // The last value stays visible with any error beneath it, rather than
+    // the error replacing it.
+    final ascii = value == null ? null : asciiPreview(value);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(bytesToHex(_value!), style: monoTextStyleOf(fontSize: 13)),
+        if (value != null)
+          Text(bytesToHex(value), style: monoTextStyleOf(fontSize: 13)),
         if (ascii != null)
           Text(
             '"$ascii"',
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        for (final error in errors)
+          Text(
+            'Error: $error',
+            style: text.bodySmall?.copyWith(color: scheme.error),
           ),
       ],
     );

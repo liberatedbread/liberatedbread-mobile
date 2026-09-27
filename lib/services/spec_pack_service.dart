@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 
 import '../core/ha_url.dart' show isPrivateIpv4;
 import '../core/log.dart';
+import 'spec_codec.dart';
 
 /// Downloads and caches a "pack" of device-spec YAML files described by a remote
 /// JSON manifest, so new device support can ship without an app-store update.
@@ -33,6 +34,11 @@ typedef CacheDirResolver = Future<Directory> Function();
 /// visibly "succeed" while the match provider silently skips every spec. Returns
 /// true when [yaml] is a usable device spec, false (or throws) otherwise.
 typedef SpecValidator = Future<bool> Function(String yaml);
+
+/// Why a pack spec's YAML would weaken the security of the BUNDLED spec it
+/// shadows, or null when it shadows none or is at least as strict. See
+/// [SpecPackService.bundledSecurityFloor]; a throw is treated as a refusal.
+typedef SpecSecurityFloor = Future<String?> Function(String yaml);
 
 /// Hard limits on what we will download, to bound memory and disk use.
 class SpecPackLimits {
@@ -233,15 +239,124 @@ class SpecPackService {
   /// spec it cannot parse. Null in low-level unit tests that exercise pure
   /// download/cache mechanics without the native codec.
   final SpecValidator? _validateSpec;
+
+  /// The floor a pack spec that shadows a bundled one must not go below —
+  /// see [bundledSecurityFloor]. Applied at install AND every time the cache
+  /// is read ([loadCachedSpecs]), so neither a pack installed by a build
+  /// that did not check, nor an app update that made a bundled spec
+  /// stricter, lets the weaker copy into the catalogue. Null in unit tests
+  /// of the download mechanics.
+  final SpecSecurityFloor? _securityFloor;
   final Duration timeout;
 
   SpecPackService({
     required this._client,
     required CacheDirResolver cacheDirResolver,
     SpecValidator? specValidator,
+    this._securityFloor,
     this.timeout = const Duration(seconds: 15),
   }) : _resolveCacheDir = cacheDirResolver,
        _validateSpec = specValidator;
+
+  /// Why [pack]'s transport security is weaker than [bundled]'s, or null.
+  ///
+  /// A pack spec that shadows a bundled one wins the catalogue (pack-wins,
+  /// `specEntriesByKey`), and stored credentials and certificate pins are
+  /// keyed by the DEVICE, not the spec — so a pack that said
+  /// `tls.verification: none`, or dropped `default_scheme: https`, had the
+  /// bundle's Envoy token or Hue username sent under a policy that accepts
+  /// any certificate, or in clear. Ranked by what the client can actually
+  /// enforce: unstated verification is the blanket-trust fallback, the same
+  /// as `none`; `vendor_ca` is served as trust-on-first-use (TlsPolicy).
+  static String? securityDowngrade({
+    required NetworkCapabilitiesDto bundled,
+    required NetworkCapabilitiesDto pack,
+  }) {
+    if (bundled.defaultScheme == 'https' && pack.defaultScheme != 'https') {
+      return 'plain http where the built-in spec requires https';
+    }
+    // Unstated falls back to the port convention (1883 is plaintext), so
+    // only an explicit `tls` keeps a TLS broker's login off the wire.
+    if (bundled.mqttTransportSecurity == 'tls' &&
+        pack.mqttTransportSecurity != 'tls') {
+      return 'MQTT without TLS where the built-in spec requires it';
+    }
+    int rank(NetworkCapabilitiesDto c) {
+      // A self-signed claim is how the WebSocket path decides to accept
+      // any certificate, whatever `verification` says.
+      if (c.tlsSelfSigned && c.tlsVerification == null) return 0;
+      return switch (c.tlsVerification) {
+        null || 'none' => 0,
+        'standard' => 2,
+        // trust_on_first_use, vendor_ca, and anything newer (TlsPolicy
+        // resolves an unknown value to trust-on-first-use).
+        _ => 1,
+      };
+    }
+
+    if (rank(pack) < rank(bundled)) {
+      return 'TLS verification '
+          '"${pack.tlsVerification ?? 'unstated'}" where the built-in spec '
+          'requires "${bundled.tlsVerification}"';
+    }
+    if (pack.tlsSelfSigned &&
+        !bundled.tlsSelfSigned &&
+        bundled.tlsVerification != null) {
+      return 'a self-signed certificate where the built-in spec does not '
+          'allow one';
+    }
+    return null;
+  }
+
+  /// The production [SpecSecurityFloor]: the pack spec is compared with the
+  /// bundled spec of the same identity (device name + manufacturer — the
+  /// shadowing key), and refused when [securityDowngrade] finds it weaker.
+  ///
+  /// [bundledSpecs] must be the bundled catalogue ONLY: the floor runs while
+  /// the merged one is still being built. It is parsed once, lazily, on the
+  /// first pack spec checked — a user with no packs never pays for it.
+  static SpecSecurityFloor bundledSecurityFloor({
+    required SpecCodec codec,
+    required Future<Map<String, String>> Function() bundledSpecs,
+  }) {
+    Future<Map<(String, String), String>>? byIdentity;
+    Future<Map<(String, String), String>> load() async {
+      final catalogue = await codec.loadCatalogue(await bundledSpecs());
+      return {
+        for (final e in catalogue.specs) (e.deviceName, e.manufacturer): e.yaml,
+      };
+    }
+
+    return (yaml) async {
+      final spec = await codec.loadDeviceSpec(yaml);
+      // Not latched on failure: a bundle read that failed once must not
+      // refuse every pack for the life of the process.
+      final bundled = await (byIdentity ??= load().catchError((Object e) {
+        byIdentity = null;
+        throw e;
+      }));
+      final original = bundled[(spec.deviceName, spec.manufacturer)];
+      if (original == null) return null;
+      return securityDowngrade(
+        bundled: await codec.networkCapabilities(specYaml: original),
+        pack: await codec.networkCapabilities(specYaml: yaml),
+      );
+    };
+  }
+
+  /// [_securityFloor]'s verdict on [yaml], failing closed: a check that
+  /// throws is a refusal, because the alternative is letting an unchecked
+  /// pack spec shadow a bundled one.
+  Future<String?> _belowFloor(String yaml) async {
+    final floor = _securityFloor;
+    if (floor == null) return null;
+    try {
+      return await floor(yaml);
+    } catch (e) {
+      Log.packs.warning('could not check a pack spec\'s security', error: e);
+      return 'its security could not be checked';
+    }
+  }
 
   /// Whether [input] is a manifest URL an install would accept — see
   /// [manifestUrlProblem] for the reason when it is not.
@@ -437,6 +552,16 @@ class SpecPackService {
             continue;
           }
         }
+        final weaker = await _belowFloor(text);
+        if (weaker != null) {
+          failures.add(
+            SpecDownloadFailure(
+              specFile,
+              'weakens the built-in spec it replaces: $weaker',
+            ),
+          );
+          continue;
+        }
         downloaded[specFile] = bytes;
         totalBytes += bytes.length;
       } on _FetchException catch (e) {
@@ -523,8 +648,17 @@ class SpecPackService {
     final packs = <SpecPack>[];
     final root = await _cacheRoot();
     if (!await root.exists()) return packs;
+    await _restoreSwappedAside(root);
     await for (final entry in root.list()) {
       if (entry is! Directory) continue;
+      // `.staging-<slug>` and `.old-<slug>` hold a manifest too, and are no
+      // pack: a staging directory left by a crash mid-install was listed as
+      // a second copy of the pack, one that "remove" could never delete.
+      if (entry.uri.pathSegments
+          .lastWhere((p) => p.isNotEmpty)
+          .startsWith('.')) {
+        continue;
+      }
       final manifestFile = File('${entry.path}/manifest.json');
       if (!await manifestFile.exists()) continue;
       try {
@@ -546,6 +680,31 @@ class SpecPackService {
     }
     packs.sort((a, b) => b.installedAt.compareTo(a.installedAt));
     return packs;
+  }
+
+  /// Where [_persist] moves the installed pack while it swaps the new one
+  /// in. Dot-prefixed, which `_slug` strips, so no pack can own the name.
+  static const String _asidePrefix = '.old-';
+
+  /// Put back a pack [_persist] had renamed aside when it died before the
+  /// new one took its place; drop one whose replacement did land.
+  Future<void> _restoreSwappedAside(Directory root) async {
+    try {
+      await for (final entry in root.list()) {
+        if (entry is! Directory) continue;
+        final name = entry.uri.pathSegments.lastWhere((p) => p.isNotEmpty);
+        if (!name.startsWith(_asidePrefix)) continue;
+        final slug = name.substring(_asidePrefix.length);
+        final home = Directory('${root.path}/$slug');
+        if (await home.exists()) {
+          await entry.delete(recursive: true);
+        } else {
+          await entry.rename(home.path);
+        }
+      }
+    } catch (e) {
+      Log.packs.warning('could not tidy an interrupted pack swap', error: e);
+    }
   }
 
   /// Every cached spec YAML, keyed by a namespaced id `pack:<name>/<file>` so
@@ -576,7 +735,18 @@ class SpecPackService {
         try {
           final f = File('${dir.path}/specs/${_safeFileName(file)}');
           if (await f.exists()) {
-            result['pack:${pack.name}/$file'] = await f.readAsString();
+            final yaml = await f.readAsString();
+            // Re-checked on every read, not only at install: see
+            // [_securityFloor] for the two ways past an install-only check.
+            final weaker = await _belowFloor(yaml);
+            if (weaker != null) {
+              Log.packs.warning(
+                'skipping pack:${pack.name}/$file: it weakens the built-in '
+                'spec it replaces ($weaker)',
+              );
+              continue;
+            }
+            result['pack:${pack.name}/$file'] = yaml;
           } else {
             Log.packs.warning(
               'cached spec missing on disk: pack:${pack.name}/$file',
@@ -740,9 +910,30 @@ class SpecPackService {
       '${stagingDir.path}/manifest.json',
     ).writeAsString(jsonEncode(pack.toJson()), flush: true);
 
-    // Atomic swap: only after all writes succeed.
-    if (await dir.exists()) await dir.delete(recursive: true);
-    await stagingDir.rename(dir.path);
+    // The swap, only after all writes succeed. The old pack is renamed
+    // aside, not deleted first: deleting it and then failing the rename (or
+    // dying between the two) lost the installed pack. A crash between the
+    // renames leaves `.old-<slug>` and no `<slug>`, which
+    // [listInstalledPacks] puts back.
+    final aside = Directory(
+      '${root.path}/$_asidePrefix${_slug(manifest.name)}',
+    );
+    if (await aside.exists()) await aside.delete(recursive: true);
+    final hadOld = await dir.exists();
+    if (hadOld) await dir.rename(aside.path);
+    try {
+      await stagingDir.rename(dir.path);
+    } catch (_) {
+      if (hadOld) await aside.rename(dir.path);
+      rethrow;
+    }
+    if (hadOld) {
+      try {
+        await aside.delete(recursive: true);
+      } catch (e) {
+        Log.packs.debug('could not delete ${aside.path}', error: e);
+      }
+    }
     return (pack: pack, failures: failures);
   }
 

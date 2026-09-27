@@ -153,6 +153,51 @@ void main() {
         throwsA(isA<LifxTransportException>()),
       );
     });
+
+    // A send the OS refuses. dart:io never throws it from send(): it lands
+    // on the socket stream a microtask later and closes the socket. Port 0
+    // is refused on every host OS (EADDRNOTAVAIL on Darwin, EINVAL on
+    // Linux) — the stand-in for iOS Local Network denial's EHOSTUNREACH.
+    // Before the fix each of these was an uncaught zone error (which fails
+    // the test) and read as a silent null / empty list / no-op.
+    final refused = throwsA(
+      isA<LifxTransportException>().having(
+        (e) => e.message,
+        'message',
+        contains('could not send to the light'),
+      ),
+    );
+
+    test('a refused send on the request path is a transport failure, '
+        'not a write-only light', () async {
+      final client = LifxControlClient(port: 0);
+      final clock = Stopwatch()..start();
+      await expectLater(
+        client.request('127.0.0.1', Uint8List(36), sequence: 1),
+        refused,
+      );
+      expect(
+        clock.elapsed,
+        lessThan(const Duration(seconds: 1)),
+        reason: 'no retries into a closed socket',
+      );
+    });
+
+    test('a refused send on the collect path is a transport failure, '
+        'not an empty setup network', () async {
+      final client = LifxControlClient(port: 0);
+      final clock = Stopwatch()..start();
+      await expectLater(
+        client.collect('127.0.0.1', Uint8List(36), sequence: 1),
+        refused,
+      );
+      expect(clock.elapsed, lessThan(const Duration(seconds: 2)));
+    });
+
+    test('a refused set is a transport failure, not a silent no-op', () async {
+      final client = LifxControlClient(port: 0);
+      await expectLater(client.send('127.0.0.1', Uint8List(36)), refused);
+    });
   });
 
   group('the header layout the client reads (R-160)', () {

@@ -47,9 +47,8 @@ final deviceSetupHelpProvider = FutureProvider.autoDispose
 
       final List<ScanMatch> matches;
       try {
-        matches = await codec.matchScannedDevice(
-          identities: identities,
-          device: ScannedDeviceDto(
+        matches = await catalogue.matchScanned(
+          ScannedDeviceDto(
             name: identity.name,
             serviceUuids: identity.serviceUuids,
             companyIds: Uint16List.fromList(identity.companyIds),
@@ -65,26 +64,33 @@ final deviceSetupHelpProvider = FutureProvider.autoDispose
         return null;
       }
 
-      // Only offer help when the match names a product; a bare OUI tie could point
-      // the reset steps at the wrong device.
-      final guess = ScanGuess.fromMatches(matches);
+      // Only offer help when the match names a product; a bare OUI tie could
+      // point the reset steps at the wrong device. Through [ScanGuess] with
+      // the identities, as the scan row is: it collapses a pack's copy of a
+      // bundled spec onto the pack copy, and reading `matches.first` instead
+      // showed the BUNDLED copy's setup steps under the row the pack copy
+      // named — the stale instructions the pack exists to correct.
+      final guess = ScanGuess.fromMatches(matches, identities: identities);
       if (guess == null || !guess.namesAProduct) return null;
 
-      final best = matches.first;
       // `specIndex` is the position in the identities list, which is the
       // catalogue's own order — so it recovers the exact spec that matched.
-      // Guard the bound rather than trust it: a codec that returned a stale index
-      // must not throw a RangeError into a screen that is already an error state.
+      // Guard the bound rather than trust it: a codec that returned a stale
+      // index must not throw a RangeError into a screen that is already an
+      // error state.
+      final specIndex = guess.specIndex;
       final specs = catalogue.specs;
-      if (best.specIndex < 0 || best.specIndex >= specs.length) return null;
-      final yaml = specs[best.specIndex].yaml;
+      if (specIndex == null || specIndex < 0 || specIndex >= specs.length) {
+        return null;
+      }
+      final yaml = specs[specIndex].yaml;
 
       final SetupInstructionsDto? instructions;
       try {
         instructions = await codec.setupInstructions(yaml);
       } catch (e) {
         Log.spec.warning(
-          'setup-help extraction failed for "${best.deviceName}"',
+          'setup-help extraction failed for "${guess.deviceName}"',
           error: e,
         );
         return null;
@@ -92,7 +98,7 @@ final deviceSetupHelpProvider = FutureProvider.autoDispose
       if (instructions == null) return null;
 
       return DeviceSetupHelp(
-        deviceName: best.deviceName,
+        deviceName: guess.deviceName,
         instructions: instructions,
       );
     });

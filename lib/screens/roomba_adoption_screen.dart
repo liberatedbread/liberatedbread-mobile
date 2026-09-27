@@ -612,7 +612,6 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
 
   Future<void> _adopt(RoombaCredentials credentials) async {
     await ref.read(roombaCredentialStoreProvider).save(credentials);
-    ref.invalidate(roombaCredentialsProvider(credentials.blid));
     if (mounted) setState(() => _revealed = credentials);
   }
 
@@ -676,6 +675,7 @@ class _CredentialReveal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final haEntityId = credentials.haEntityId;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -702,14 +702,25 @@ class _CredentialReveal extends StatelessWidget {
                 Text('Screenshot this', style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
                 Text(
-                  'These only change if the robot is factory reset. They are '
-                  'what Home Assistant, dorita980 and any other local client '
-                  'will ask you for.',
+                  // Adopted through Home Assistant, the app never saw the
+                  // password: this used to show a blank Password row (with
+                  // a working Copy button) under text calling it what every
+                  // local client will ask for.
+                  haEntityId != null
+                      ? 'Home Assistant holds this robot\'s password; this '
+                            'app never saw it. It reaches the robot through '
+                            'the entity below.'
+                      : 'These only change if the robot is factory reset. '
+                            'They are what Home Assistant, dorita980 and any '
+                            'other local client will ask you for.',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 16),
                 _Field(label: 'BLID', value: credentials.blid),
-                _Field(label: 'Password', value: credentials.password),
+                if (haEntityId != null)
+                  _Field(label: 'Home Assistant entity', value: haEntityId)
+                else
+                  _Field(label: 'Password', value: credentials.password),
                 _Field(label: 'Address', value: host),
                 if (credentials.sku != null)
                   _Field(label: 'Model', value: credentials.sku!),

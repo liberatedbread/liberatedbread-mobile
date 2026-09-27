@@ -70,6 +70,23 @@ class _SlowParseCodec extends FakeSpecCodec {
   }
 }
 
+/// A codec whose state decode finishes out of order: the first document
+/// takes several event-loop turns, every later one answers at once — the
+/// FRB worker pool finishing a small push before a big one.
+class _UnevenDecodeCodec extends FakeSpecCodec {
+  var _calls = 0;
+
+  @override
+  Future<Map<String, String>> roombaStateFields({
+    required String payload,
+  }) async {
+    if (_calls++ == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    return super.roombaStateFields(payload: payload);
+  }
+}
+
 /// A disclosure reply whose password starts at [offset] of the whole reply,
 /// with non-printable filler in the gap — the shape the spec's extraction rule
 /// is stated against.
@@ -82,6 +99,15 @@ List<int> _passwordReply(String password, {int offset = 13}) {
     for (var i = 1; i <= gap; i++) i % 0x20,
     ...encoded,
   ];
+}
+
+/// The reply real robots send: the probe's magic echoed back (`ef cc 3b 29`,
+/// two of them printable), a status byte, then the password. The padded
+/// [_passwordReply] never exercised the echo strip, so the fake parser could
+/// return `;)\x00<password>` for this shape and no Dart test noticed.
+List<int> _echoedReply(String password) {
+  final encoded = utf8.encode(password);
+  return [0xf0, encoded.length + 5, 0xef, 0xcc, 0x3b, 0x29, 0x00, ...encoded];
 }
 
 void main() {
@@ -99,7 +125,7 @@ void main() {
         connect: (host, port, timeout) async {
           sawHost = host;
           sawPort = port;
-          scheduleMicrotask(() => robot.send(_passwordReply(password)));
+          scheduleMicrotask(() => robot.send(_echoedReply(password)));
           return robot;
         },
       );
@@ -347,6 +373,32 @@ void main() {
       expect(fields['state.reported.cleanMissionStatus.phase'], 'run');
       // false -> "0", so the binary_sensor's `on_when: nonzero` reads it.
       expect(fields['state.reported.bin.full'], '0');
+    });
+
+    test('state documents are applied in the order they arrived', () async {
+      // Stream.listen discards an async callback's future, so two pushes
+      // decoded side by side finished in whichever order the decoder did:
+      // the older document landed last and overwrote the newer one.
+      final (client, robot) = await connected(using: _UnevenDecodeCodec());
+      addTearDown(client.dispose);
+
+      String push(String phase) =>
+          '{"state":{"reported":{"cleanMissionStatus":{"phase":"$phase"}}}}';
+      final seen = <String?>[];
+      final sub = client.state.listen(
+        (f) => seen.add(f['state.reported.cleanMissionStatus.phase']),
+      );
+      addTearDown(sub.cancel);
+
+      robot.send(
+        await codec.mqttPublishPacket(topic: 'd', payload: push('run')),
+      );
+      robot.send(
+        await codec.mqttPublishPacket(topic: 'd', payload: push('charge')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(seen, ['run', 'charge'], reason: 'the newest state wins');
     });
 
     /// Two chunks arriving before the first has finished decoding.

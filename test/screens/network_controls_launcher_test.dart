@@ -15,6 +15,7 @@ import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/screens/label_printer_screen.dart';
 import 'package:liberated_bread_mobile/screens/network_controls_launcher.dart';
 import 'package:liberated_bread_mobile/screens/network_device_screen.dart';
 import 'package:liberated_bread_mobile/screens/roomba_adoption_screen.dart';
@@ -56,6 +57,29 @@ NetworkDevice _robot() => NetworkDevice(
   discoveredAt: DateTime(2026),
 );
 
+/// Throws on reads or writes of one credential field, like a keystore fault.
+class _FaultyStore extends InMemorySettingsStore {
+  final String failingField;
+  final bool failReads;
+  _FaultyStore(this.failingField, {this.failReads = false});
+
+  @override
+  Future<String?> read(String key) async {
+    if (failReads && key.endsWith(failingField)) {
+      throw Exception('keystore fault');
+    }
+    return super.read(key);
+  }
+
+  @override
+  Future<void> write(String key, String value) async {
+    if (!failReads && key.endsWith(failingField)) {
+      throw Exception('keystore fault');
+    }
+    return super.write(key, value);
+  }
+}
+
 void main() {
   late InMemorySettingsStore settings;
 
@@ -63,7 +87,7 @@ void main() {
 
   /// A host with one button that opens [_robot]'s controls through the
   /// launcher — the same call the scan list and the saved-devices list make.
-  Widget wrap() => ProviderScope(
+  Widget wrap({bool labelPrinter = false}) => ProviderScope(
     overrides: [
       settingsStoreProvider.overrideWithValue(settings),
       specCodecProvider.overrideWithValue(FakeSpecCodec()),
@@ -76,9 +100,12 @@ void main() {
               context: context,
               ref: ref,
               device: _robot(),
-              controls: const NetworkControls(
+              // The label printer screen stands in for "the controls were
+              // pushed": it settles on the fake codec without dialing.
+              controls: NetworkControls(
                 specYaml: 'yaml',
-                entities: [_robotEntity],
+                entities: const [_robotEntity],
+                rasterPrintHandler: labelPrinter ? 'brother_ql_raster' : null,
               ),
             ),
             child: const Text('Open'),
@@ -194,5 +221,40 @@ void main() {
       '198.51.100.12',
       reason: 'the sighting that opened this screen is where the robot is now',
     );
+  });
+
+  // Before the fix a throwing rememberAddress escaped _adopted, so a robot
+  // whose password read fine never opened.
+  testWidgets('a failed address write still opens the controls', (
+    tester,
+  ) async {
+    settings = _FaultyStore('last_ip');
+    await RoombaCredentialStore(
+      settings,
+    ).save(const RoombaCredentials(blid: _blid, password: ':1:9:secret'));
+
+    await tester.pumpWidget(wrap(labelPrinter: true));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(LabelPrinterScreen), findsOneWidget);
+  });
+
+  // Before the fix a keychain read fault vanished into the zone handler:
+  // the tap did nothing and said nothing.
+  testWidgets('a keychain read fault is reported, not swallowed', (
+    tester,
+  ) async {
+    settings = _FaultyStore('password', failReads: true);
+
+    await tester.pumpWidget(wrap(labelPrinter: true));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('saved password'), findsOneWidget);
+    expect(find.byType(RoombaAdoptionScreen), findsNothing);
+    expect(find.byType(LabelPrinterScreen), findsNothing);
   });
 }

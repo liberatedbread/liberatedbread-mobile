@@ -108,11 +108,18 @@ class DeviceCredentialStore {
   Future<Map<String, String>> credentials(String identity) async {
     final prefix = _key(identity, '');
     final all = await _store.readAll();
-    return {
+    final found = {
       for (final entry in all.entries)
         if (_nameIn(entry.key, prefix) case final String name)
           if (entry.value.isNotEmpty) name: entry.value,
     };
+    // Registered as [read] does, and it matters more here: this is the
+    // reader every send uses. Without it, after a relaunch no stored
+    // credential was registered until it was saved again, and an error
+    // quoting a credential-filled path (a Hue `/api/<username>/...`) reached
+    // the exportable Diagnostics buffer in clear.
+    found.values.forEach(Log.registerSecret);
+    return found;
   }
 
   /// Forget everything stored for one device — the un-pair half, which the

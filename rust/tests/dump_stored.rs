@@ -4,6 +4,10 @@
 //! Dump exactly what the Rust core generates for a STORED picture and a STORED
 //! animation (.eff), driven through the public FFI encoders. Run with:
 //!   cargo test --test dump_stored -- --nocapture
+//!
+//! The dump is also a test: the facts it prints (the START packet's advertised
+//! container size, the DNMX magic) are asserted, so a regression in them fails
+//! CI instead of only changing the printout nobody reads.
 
 use std::fs;
 use std::path::PathBuf;
@@ -69,8 +73,18 @@ fn upload_request_size(start: &[u8]) -> Option<u64> {
     None
 }
 
+/// The raw container a plan uploads: every DATA write after the START one,
+/// minus each packet's 8-byte transport header.
+fn reassemble(writes: &[liberated_bread_core::api::device_api::ImageWriteDto]) -> Vec<u8> {
+    let mut container = Vec::new();
+    for w in writes.iter().skip(1) {
+        container.extend_from_slice(&w.bytes[8..]);
+    }
+    container
+}
+
 #[test]
-fn dump_stored_picture_and_animation() {
+fn stored_uploads_advertise_their_container_size() {
     let yaml = spec_yaml();
 
     // ── Stored PICTURE: 2x2 solid red, cid 905000 ──
@@ -110,6 +124,19 @@ fn dump_stored_picture_and_animation() {
             hex(&pic.upload_writes[1].bytes)
         );
     }
+
+    // START must advertise exactly the bytes the DATA writes carry: a size
+    // the device disagrees with is an upload it never commits.
+    assert!(
+        pic.upload_writes.len() >= 2,
+        "a START and at least one DATA"
+    );
+    let pic_container = reassemble(&pic.upload_writes);
+    assert_eq!(
+        upload_request_size(&pic.upload_writes[0].bytes),
+        Some(pic_container.len() as u64),
+        "the picture's START advertises its container's size"
+    );
 
     // ── Stored ANIMATION: 2x2 three frames red/green/blue, cid 905001, 500ms ──
     let red: Vec<u8> = vec![255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0];
@@ -152,10 +179,17 @@ fn dump_stored_picture_and_animation() {
     // Reassemble the animation container from the DATA payloads (each DATA
     // packet after the 8-byte header is raw container bytes) to inspect the
     // DNMX header directly.
-    let mut container = Vec::new();
-    for w in anim.upload_writes.iter().skip(1) {
-        container.extend_from_slice(&w.bytes[8..]);
-    }
+    let container = reassemble(&anim.upload_writes);
+    assert!(
+        anim.upload_writes.len() >= 2,
+        "a START and at least one DATA"
+    );
+    assert_eq!(
+        upload_request_size(&anim.upload_writes[0].bytes),
+        Some(container.len() as u64),
+        "the animation's START advertises its container's size"
+    );
+    assert_eq!(&container[0..4], b"DNMX", "an .eff container opens DNMX");
     println!("reassembled animation container len: {}", container.len());
     println!(
         "container[0..64] hex: {}",

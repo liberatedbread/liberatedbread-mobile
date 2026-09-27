@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
 import 'spec_codec.dart';
+import 'ws_connect_deadline.dart';
 
 /// A live camera feed for a device whose spec declares a `camera:` block.
 ///
@@ -166,9 +167,15 @@ class _FeedSession {
     if (urlTemplate == null || startMethod == null) return;
     final WebSocket ws;
     try {
-      ws = await WebSocket.connect(
-        fillCameraUrl(urlTemplate, host),
-      ).timeout(connectTimeout);
+      // A camera that upgrades after the deadline has its socket closed, not
+      // orphaned — the reconnect loop below would otherwise leak one per
+      // retry for as long as the monitor stays open.
+      ws = await connectWithinDeadline(
+        WebSocket.connect(fillCameraUrl(urlTemplate, host)),
+        connectTimeout,
+        discard: discardWebSocket,
+        what: 'camera keepalive connect',
+      );
     } on Object catch (e) {
       Log.spec.debug('camera keepalive connect failed', error: e);
       // An INITIAL failure does not loop — some firmware refreshes without the

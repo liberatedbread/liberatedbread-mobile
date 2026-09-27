@@ -19,41 +19,10 @@ use super::types::{
     name_has_prefix, Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service,
     SpecCommand, TemplateElement, ValueType,
 };
-use crate::codec::types::unsupported_encoding_kind;
+use crate::codec::types::{unsupported_characteristic_transform, unsupported_write_kind};
 use crate::protocol::{http, kasa, mqtt, rabbit_air, soap, websocket};
 use std::borrow::Cow;
 use std::collections::HashMap;
-
-/// Whether a characteristic's payloads must pass through a byte transform
-/// this crate does not implement, making any raw write to it wrong on the
-/// wire.
-///
-/// `encryption` (shining-mask's AES-128-ECB, pax's OFB) and an UNIMPLEMENTED
-/// `framing` scheme (coolledx's length prefix, escaping and delimiters) are
-/// parsed and preserved but never executed — see [`Characteristic`]. Encoding
-/// a template for such a characteristic produces plaintext or unwrapped bytes
-/// the device rejects, so the honest answer is that the control does not
-/// resolve yet. Without this check the encoding gate only asks whether the
-/// *command* is encodable, and a spec whose transform lives one level up slips
-/// through.
-///
-/// A framing scheme this build DOES execute (Daniao's DDP fragment header) is
-/// not a blocker — the encode path wraps the bytes in it
-/// (`protocol::image_upload::frame_command`), so SmartDawn's `light` entity
-/// resolves its power and brightness roles instead of being dropped.
-fn needs_unimplemented_transform(characteristic: &Characteristic) -> bool {
-    if characteristic.encryption.is_some() {
-        return true;
-    }
-    if characteristic.framing.is_none() {
-        return false;
-    }
-    // A framing block blocks unless its scheme is one this build executes; a
-    // block naming no scheme (coolledx's length prefix) is never implemented.
-    !crate::codec::types::framing_scheme_name(characteristic)
-        .as_deref()
-        .is_some_and(crate::codec::types::implemented_framing_scheme)
-}
 
 /// Whether the characteristic accepts writes in either GATT mode.
 ///
@@ -509,10 +478,12 @@ fn qualify_valued<'a>(
     name: &'a str,
     command: &'a Command,
 ) -> Option<ResolvedAction<'a>> {
-    if needs_unimplemented_transform(characteristic)
-        || !is_writable(characteristic)
-        || unsupported_encoding_kind(command).is_some()
-    {
+    // The encoder's own predicate, not a copy of it: a hand-rolled triple
+    // here missed `unsupported_parameter_kind`, so the BIO-key lock's Unlock
+    // (a `bytes` credential parameter the f64 FFI cannot carry) resolved into
+    // a card whose every press the encoder refused, while the command browser
+    // marked the same command unencodable.
+    if unsupported_write_kind(characteristic, command).is_some() || !is_writable(characteristic) {
         return None;
     }
     // A fixed byte sequence cannot carry a value the user picked.
@@ -568,7 +539,9 @@ fn resolve_direct_write<'a>(
         spec.find_characteristic_where(uuid, |c| c.format.as_ref().is_some_and(|f| f.len() == 1))?;
     // Same gate as the command path: a raw value written to a characteristic
     // that encrypts or frames its payloads lands as the wrong bytes.
-    if needs_unimplemented_transform(characteristic) || !is_writable(characteristic) {
+    if unsupported_characteristic_transform(characteristic).is_some()
+        || !is_writable(characteristic)
+    {
         return None;
     }
     let field = characteristic.format.as_ref()?;
@@ -608,17 +581,16 @@ impl ValueTransform {
 
     /// Raw → decoded.
     pub fn decode(&self, raw: f64) -> f64 {
-        raw * self.scale + self.value_offset
+        // Delegated, not restated: a fourth copy of the formula is how the
+        // readers drifted before `codec::number` existed.
+        crate::codec::number::apply_transform(raw, Some(self.scale), Some(self.value_offset))
     }
 
     /// Decoded → raw, rounded to the nearest whole wire value. `None` when
     /// `scale` is zero: that map is not invertible, and quietly substituting
     /// 1.0 would write a number the user never asked for.
     pub fn encode(&self, value: f64) -> Option<f64> {
-        if self.scale == 0.0 {
-            return None;
-        }
-        Some(((value - self.value_offset) / self.scale).round())
+        crate::codec::number::invert_transform(value, Some(self.scale), Some(self.value_offset))
     }
 }
 
@@ -795,11 +767,11 @@ fn qualify<'a>(
 ) -> Option<ResolvedAction<'a>> {
     // JSON/protobuf/TLV commands can't be encoded at all yet, and neither can
     // any command on a characteristic whose bytes must be transformed on the
-    // way out — or one that takes no writes at all.
-    if needs_unimplemented_transform(characteristic)
-        || !is_writable(characteristic)
-        || unsupported_encoding_kind(command).is_some()
-    {
+    // way out, a template naming a `bytes`/`string` parameter the f64 FFI
+    // cannot carry, or a characteristic that takes no writes at all. One
+    // predicate with the encoder and `CommandDto`, so the card and the
+    // command browser cannot disagree about the same command.
+    if unsupported_write_kind(characteristic, command).is_some() || !is_writable(characteristic) {
         return None;
     }
 
@@ -1058,11 +1030,18 @@ fn resolve_network_roles<'a>(
     roles
         .iter()
         .filter_map(|role| {
-            let bound = role
-                .aliases
-                .iter()
-                .find_map(|alias| entity.command_for_role(alias))?;
-            let command = spec.commands.get(bound)?;
+            // The BLE resolver's rule, spelled the same way: the first alias
+            // whose binding names a DECLARED command settles the role, and a
+            // binding that names nothing (prose, a typo) is skipped rather
+            // than ending the search. Stopping at the first alias present
+            // dropped a role whose later alias named a real command. A real
+            // binding that fails to qualify still resolves nothing — falling
+            // through to another alias could send a command the author did
+            // not bind.
+            let (bound, command) = role.aliases.iter().find_map(|alias| {
+                let bound = entity.command_for_role(alias)?;
+                Some((bound, spec.commands.get(bound)?))
+            })?;
             qualify_network(spec, role.role, bound, command, role.takes_value)
         })
         .collect()
@@ -2767,6 +2746,39 @@ entities:
         let actions = resolve_network_actions(&spec, entities[0]);
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].role, "press");
+    }
+
+    /// A role binding that names no declared command (prose, a typo) proves
+    /// nothing, on the network side as on BLE: the next alias still gets its
+    /// turn. The old `find_map(command_for_role)?` stopped at `turn_on: see
+    /// notes` and dropped the role although `power_on` named a real command.
+    #[test]
+    fn a_prose_binding_does_not_hide_a_later_alias_on_the_network_path() {
+        let yaml = r#"
+device:
+  name: Test Plug
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  relay_on:
+    description: Fixed HTTP invocation.
+    transport: http
+    method: POST
+    path: /relay/on
+entities:
+  - name: Power
+    platform: switch
+    state_topic: /json/state
+    commands:
+      turn_on: see the vendor notes
+      power_on: relay_on
+"#;
+        let spec = parse_device_spec(yaml).expect("test spec should parse");
+        let actions = resolve_network_actions(&spec, &spec.entities[0]);
+        let on: Vec<_> = actions.iter().filter(|a| a.role == "turn_on").collect();
+        assert_eq!(on.len(), 1, "power_on names a real command: {actions:?}");
+        assert_eq!(on[0].command_name, "relay_on");
     }
 
     /// An HTTP command without its address is not sendable, so the control

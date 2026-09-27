@@ -8,7 +8,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `block_dtos`, `from_channel`, `from_limit`, `from_tone`, `model_or_error`, `none`, `to_channel`, `to_limit`, `to_tone`, `uv5r_layout`, `uv5r_model_or_error`
+// These functions are ignored because they are not marked as `pub`: `block_dtos`, `from_channel`, `from_limit`, `from_tone`, `model_or_error`, `none`, `power_from_name`, `power_name`, `power_names`, `to_channel`, `to_limit`, `to_tone`, `uv5r_layout`, `uv5r_model_or_error`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Every radio these codecs can program, both families.
@@ -42,6 +42,11 @@ Future<List<CodeplugBlockDto>> radioReadPlan({required String modelId}) =>
 /// Bigger blocks than a read: the tunnel re-blocks uploads to 0x80. Over a
 /// cable this family writes 0x40, which is what this would take as a
 /// parameter the day there is a cable driver for it.
+///
+/// An error, before anything is sent, for a model whose Bluetooth write
+/// frame nobody has seen: the padded frames overwrite memory past each
+/// region's end, which is known harmless only where CHIRP does the same.
+/// See [`RadioModel::ble_write_frame`].
 Future<List<CodeplugBlockDto>> radioWritePlan({required String modelId}) =>
     RustLib.instance.api.crateApiRadioApiRadioWritePlan(modelId: modelId);
 
@@ -382,7 +387,12 @@ class RadioChannelDto {
   final ToneDto txTone;
   final ToneDto rxTone;
   final bool narrow;
-  final bool lowPower;
+
+  /// "high", "medium" or "low". A name rather than the record's index,
+  /// because the index means different levels on different radios, and a
+  /// name rather than a low-power flag, because a flag cannot say medium.
+  /// A level the radio lacks is written as the nearest one below it.
+  final String power;
   final bool skip;
 
   const RadioChannelDto({
@@ -394,7 +404,7 @@ class RadioChannelDto {
     required this.txTone,
     required this.rxTone,
     required this.narrow,
-    required this.lowPower,
+    required this.power,
     required this.skip,
   });
 
@@ -408,7 +418,7 @@ class RadioChannelDto {
       txTone.hashCode ^
       rxTone.hashCode ^
       narrow.hashCode ^
-      lowPower.hashCode ^
+      power.hashCode ^
       skip.hashCode;
 
   @override
@@ -424,7 +434,7 @@ class RadioChannelDto {
           txTone == other.txTone &&
           rxTone == other.rxTone &&
           narrow == other.narrow &&
-          lowPower == other.lowPower &&
+          power == other.power &&
           skip == other.skip;
 }
 
@@ -436,11 +446,16 @@ class RadioModelDto {
   final int channelCount;
   final int nameLen;
 
+  /// The transmit power levels the radio has, as [`RadioChannelDto::power`]
+  /// names them, in the order its records index them.
+  final List<String> powerLevels;
+
   const RadioModelDto({
     required this.id,
     required this.imageLen,
     required this.channelCount,
     required this.nameLen,
+    required this.powerLevels,
   });
 
   @override
@@ -448,7 +463,8 @@ class RadioModelDto {
       id.hashCode ^
       imageLen.hashCode ^
       channelCount.hashCode ^
-      nameLen.hashCode;
+      nameLen.hashCode ^
+      powerLevels.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -458,7 +474,8 @@ class RadioModelDto {
           id == other.id &&
           imageLen == other.imageLen &&
           channelCount == other.channelCount &&
-          nameLen == other.nameLen;
+          nameLen == other.nameLen &&
+          powerLevels == other.powerLevels;
 }
 
 /// A read that is not part of the image: made, checked, and set aside.

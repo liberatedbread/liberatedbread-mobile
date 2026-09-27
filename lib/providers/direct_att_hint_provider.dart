@@ -48,7 +48,11 @@ final specDeclaresDirectAttProvider = Provider<DirectAttRouteHint>((ref) {
     // without a scan — the name it was saved under. (A device saved while
     // BlueZ stalled on it has a name and no spec: its discovery found
     // nothing to match.)
-    final name = seen?.name ?? saved?.name;
+    // An advertisement with no name (an ADV_IND before its scan response,
+    // a device BlueZ created before it learned the Name) has told us no
+    // name: fall back to the saved one rather than give up on ''.
+    final seenName = seen?.name ?? '';
+    final name = seenName.isNotEmpty ? seenName : saved?.name;
     if (name == null || name.isEmpty) return false;
     // Deliberately without manufacturer data: the router's sighting record
     // keeps ids only, and no spec that declares a payload prefix also asks

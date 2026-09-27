@@ -26,7 +26,7 @@ By participating you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ```bash
 flutter pub get
-flutter test
+flutter test --exclude-tags=netdisco   # see "netdisco" below for why
 ```
 
 ### Rust
@@ -166,7 +166,10 @@ frames of a fake clock.
 **They are not excluded by default** — `dart_test.yaml` only *declares* the tag
 so the runner does not warn about it. What excludes them is the
 `--exclude-tags=netdisco` that `./scripts/test.sh` and CI both pass, so a bare
-`flutter test` on your machine runs them and binds those ports. Use
+`flutter test` on your machine runs them and binds those ports. (Both also
+exclude `live_ble`, `live_radio`, `live_wifi` and `hardware`, the suites that
+drive real devices, so a shell still carrying `LB_LIVE_RADIO=1` from a live
+session cannot program a radio from the mirror.) Use
 `./scripts/test.sh`, or pass the flag yourself. (`exclude_tags` in
 `dart_test.yaml` would make the bare command safe, but it also wins over an
 explicit `--tags=netdisco`, and `flutter test` has no preset passthrough to

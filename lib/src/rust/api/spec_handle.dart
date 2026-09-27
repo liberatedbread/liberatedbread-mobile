@@ -10,7 +10,7 @@ import '../spec/types.dart';
 import 'device_api.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `decode_hex`, `entry_at`, `parse_chunk`
+// These functions are ignored because they are not marked as `pub`: `decode_hex`, `entry_at`, `identities`, `parse_chunk`, `permitted_probe_destination`, `specs_at`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CatalogueSpec`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
@@ -41,6 +41,12 @@ abstract class CatalogueHandle implements RustOpaqueInterface {
     required List<String> yamls,
   });
 
+  /// The BLE-provisioning setup methods of the specs at `indices`, as
+  /// [`Self::soft_ap_profiles`] does for soft-AP.
+  Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles({
+    required List<int> indices,
+  });
+
   /// The full DTO of the spec at `index`.
   Future<DeviceSpecDto> dtoAt({required int index});
 
@@ -58,6 +64,27 @@ abstract class CatalogueHandle implements RustOpaqueInterface {
     required List<String> serviceUuids,
   });
 
+  /// [`Self::match_scanned`]'s Wi-Fi twin: the body of
+  /// [`crate::api::device_api::match_network_device`] over the held
+  /// identities.
+  Future<List<ScanMatch>> matchNetwork({required NetworkDeviceDto device});
+
+  /// Rank the catalogue against one device seen during a BLE scan — the
+  /// same body as [`crate::api::device_api::match_scanned_device`], over the
+  /// identities this handle already holds. `spec_index` is the catalogue
+  /// index.
+  ///
+  /// The by-value door made every newly seen device (and every rotated
+  /// private address) SSE-encode ~200 identities on the UI isolate and
+  /// decode them again here; only the device crosses now.
+  Future<List<ScanMatch>> matchScanned({required ScannedDeviceDto device});
+
+  /// The soft-AP setup methods of the specs at `indices`, in the order
+  /// given — [`crate::api::device_api::soft_ap_profiles`] over the held
+  /// parses. The by-YAML door re-sent and re-parsed the whole catalogue
+  /// (megabytes, serially) each time the adopt surface loaded.
+  Future<List<SoftApProfileDto>> softApProfiles({required List<int> indices});
+
   /// A handle to the spec at `index`, sharing the catalogue's parse.
   ///
   /// This is how a screen goes from "spec 41 matched" to driving the
@@ -68,9 +95,10 @@ abstract class CatalogueHandle implements RustOpaqueInterface {
   ///
   /// The scan service asks this once and sends what comes back, instead of
   /// holding a constant and a transport per vendor. A spec whose probe is
-  /// unusable — no port, or `probe_hex` that is not hex — is left out rather
-  /// than reported: discovery is best-effort by nature, and one bad block
-  /// should cost that device, not the scan.
+  /// unusable — no port, `probe_hex` that is not hex, a destination off the
+  /// local network, or a reply port this DTO cannot carry — is left out
+  /// rather than reported: discovery is best-effort by nature, and one bad
+  /// block should cost that device, not the scan.
   Future<List<UdpProbeDto>> udpBroadcastProbes();
 }
 
@@ -103,8 +131,11 @@ abstract class LoadedSpec implements RustOpaqueInterface {
 
   /// Encode a setpoint the user picked, in decoded units, into the write
   /// that applies it.
+  /// `entity_index` is [`crate::api::device_api::EntityDto::entity_index`];
+  /// see [`crate::api::device_api::encode_entity_value`].
   Future<EntityWriteDto> encodeEntityValue({
     required String entityName,
+    int? entityIndex,
     required double value,
   });
 
@@ -205,6 +236,12 @@ class CatalogueMatchDto {
   final int index;
   final bool matchedByNamePrefix;
   final MatchConfidence confidence;
+
+  /// The matched VENDOR service UUIDs, as [`MatchResult::matched_service_uuids`]
+  /// defines them: a SIG-assigned UUID admits a match but is never listed
+  /// here, because the Dart ranker reads this list as identity evidence.
+  ///
+  /// [`MatchResult::matched_service_uuids`]: crate::api::device_api::MatchResult::matched_service_uuids
   final List<String> matchedServiceUuids;
 
   const CatalogueMatchDto({
@@ -309,9 +346,12 @@ class UdpProbeDto {
   /// The port to send to, and for a passive probe the port to listen on.
   final int port;
 
-  /// Where to send it. Usually the v4 broadcast address; the Aqara hub names
-  /// a multicast group instead, which a caller must join rather than
-  /// broadcast to.
+  /// Where to send it, as a canonical dotted quad: the v4 broadcast address
+  /// by default, a spec's `multicast_group` when it names one (the schema
+  /// says the group REPLACES `broadcast_address`), or its own
+  /// `broadcast_address`. Only a broadcast, multicast, private or
+  /// link-local destination ever reaches this field — see
+  /// [`permitted_probe_destination`].
   final String broadcastAddress;
 
   /// The bytes to send, decoded from `probe_hex`. Empty when the spec

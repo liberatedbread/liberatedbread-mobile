@@ -78,14 +78,24 @@ impl Handshake {
 /// author's own claim about where it sits (kingsmith's vendor preamble is
 /// declared under the FTMS service and nowhere else — an upstream problem
 /// noted in SPECS_TO_FIX.md, not one to paper over here).
+///
+/// A step the spec loader could not read ends the whole handshake there, not
+/// just its own block: the blocks run as one ordered sequence, and running a
+/// service's steps after a device-level step that never happened is the same
+/// half-initialised device the loader's truncation exists to prevent.
 pub fn handshake(spec: &DeviceSpec) -> Handshake {
     let mut out = Handshake::default();
-    for step in &spec.initialization {
-        push(&mut out, spec, step, None);
-    }
-    for service in &spec.services {
-        for step in &service.initialization {
-            push(&mut out, spec, step, Some(service));
+    let blocks = std::iter::once((None, &spec.initialization)).chain(
+        spec.services
+            .iter()
+            .map(|service| (Some(service), &service.initialization)),
+    );
+    for (owner, steps) in blocks {
+        for step in steps {
+            push(&mut out, spec, step, owner);
+            if step.unreadable {
+                return out;
+            }
         }
     }
     out
@@ -177,6 +187,52 @@ services:
                 },
             ]
         );
+    }
+
+    /// An unreadable MIDDLE step used to vanish, and the steps either side of
+    /// it went out as if they were the whole handshake — a byte sequence the
+    /// spec never wrote, reported as complete. Now the handshake stops at it,
+    /// says so in `described`, and no later block runs either.
+    #[test]
+    fn an_unreadable_step_ends_the_handshake_and_says_so() {
+        let spec = parse_spec(
+            r#"
+device:
+  name: "Panel"
+  manufacturer: "Test"
+  manufacturer_status: active
+  protocol: ble
+initialization:
+  - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+    write: [1]
+  - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+    write: [0, 256]
+  - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+    write: [3]
+services:
+  - uuid: "0000ff20-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    initialization:
+      - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+        write: [4]
+    characteristics:
+      - uuid: "0000ff21-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+"#,
+        )
+        .expect("a bad step must not fail the spec");
+        let handshake = handshake(&spec);
+        let writes: Vec<_> = handshake.steps.iter().map(|s| s.write.clone()).collect();
+        assert_eq!(
+            writes,
+            vec![Some(vec![1])],
+            "only the step before the bad one"
+        );
+        assert_eq!(handshake.described.len(), 1, "{:?}", handshake.described);
+        let said = &handshake.described[0];
+        assert!(said.contains("step 2"), "{said}");
+        assert!(said.contains("1 step(s) after"), "{said}");
     }
 
     /// The device's own block runs before any service's, and a top-level step

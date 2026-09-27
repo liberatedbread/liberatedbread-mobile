@@ -39,12 +39,17 @@ enum ChannelMode {
   }
 }
 
-/// Transmit power. Deliberately two levels: the mid setting exists on some of
-/// these radios and not others, and a plan that survives being retargeted at a
-/// different model is worth more than one that carries a level half the
-/// catalogue would have to round anyway.
+/// Transmit power.
+///
+/// Medium exists on some of these radios (the UV-32, the BF-F8HP) and not
+/// others; `RadioProfile.powerLevels` says which. It is carried rather than
+/// rounded to low because a two-level model left the codec keeping whatever
+/// level the slot already held -- so a channel moved by a delete or a reorder
+/// took on its neighbour's power, and a plan's Low went out as a UV-32's
+/// Medium. A radio without medium is written low.
 enum PowerLevel {
   high,
+  medium,
   low;
 
   String get wireName => name;

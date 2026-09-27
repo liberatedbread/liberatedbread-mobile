@@ -40,7 +40,8 @@ void main() {
         'lat': 47.6062,
         'lon': -122.3321,
       });
-      expect(decoded!.label, '47.6062, -122.3321');
+      // At the kept precision, not 4 decimals: see the rewrite test below.
+      expect(decoded!.label, '47.61, -122.33');
       expect(
         SavedLocation.fromJson(const {
           'lat': 47.6062,
@@ -157,6 +158,24 @@ void main() {
         expect(stored['lon'], -122.35);
       },
     );
+
+    test('a stored exact fix with no label keeps no finer label', () async {
+      // The label invented for a missing one used to be the point at 4
+      // decimals (~11 m); build() rounded the point, kept that label and
+      // wrote it back, so the exact position survived on disk as text.
+      final store = InMemorySettingsStore({
+        key: jsonEncode(const {'lat': 47.620422, 'lon': -122.349358}),
+      });
+
+      final location = await _container(
+        store,
+      ).read(lastLocationProvider.future);
+
+      expect(location!.label, '47.62, -122.35');
+      final stored = jsonDecode(store.values[key]!) as Map<String, dynamic>;
+      expect(stored['label'], '47.62, -122.35');
+      expect(stored['lat'], 47.62);
+    });
 
     test('forget removes it from disk and from memory', () async {
       final store = InMemorySettingsStore();

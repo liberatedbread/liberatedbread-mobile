@@ -485,8 +485,8 @@ fn vendored_specs_resolve_expected_setpoints() {
         (Some(0.0), Some(100.0), Some(1.0))
     );
 
-    let write =
-        encode_entity_value(yaml.clone(), "Heat Level 1".into(), 60.0).expect("60% should encode");
+    let write = encode_entity_value(yaml.clone(), "Heat Level 1".into(), None, 60.0)
+        .expect("60% should encode");
     assert_eq!(write.bytes, vec![60], "raw byte IS the percentage here");
     assert_eq!(
         write.characteristic_uuid,
@@ -494,13 +494,13 @@ fn vendored_specs_resolve_expected_setpoints() {
     );
     // The two channels are distinct characteristics; a card must not send
     // channel 2's value to channel 1.
-    let write2 = encode_entity_value(yaml.clone(), "Heat Level 2".into(), 60.0)
+    let write2 = encode_entity_value(yaml.clone(), "Heat Level 2".into(), None, 60.0)
         .expect("channel 2 should encode");
     assert_ne!(write.characteristic_uuid, write2.characteristic_uuid);
 
     // Out-of-range values fail loudly rather than wrapping to a byte.
     assert!(
-        encode_entity_value(yaml, "Heat Level 1".into(), 300.0).is_err(),
+        encode_entity_value(yaml, "Heat Level 1".into(), None, 300.0).is_err(),
         "300% must not silently wrap into a u8"
     );
 
@@ -522,7 +522,7 @@ fn vendored_specs_resolve_expected_setpoints() {
         (target.setpoint_min, target.setpoint_max),
         (Some(49.0), Some(63.0))
     );
-    assert!(encode_entity_value(yaml, "Target Temperature".into(), 55.0).is_err());
+    assert!(encode_entity_value(yaml, "Target Temperature".into(), None, 55.0).is_err());
 }
 
 /// The number-semantics vocabulary the subtree refresh brought in must reach
@@ -700,6 +700,44 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
                 entity.actions.iter().map(|a| &a.role).collect::<Vec<_>>()
             );
         }
+    }
+}
+
+/// The entity card and the command browser must agree about the BIO-key
+/// lock's `open_lock`: its template carries `bytes` credential parameters the
+/// f64 FFI cannot express, so the encoder refuses every press. The entity
+/// binder used its own copy of the encodability rule without the parameter
+/// check, and resolved an Unlock button that could never send while the
+/// `CommandDto` for the same command said unencodable.
+#[test]
+fn the_biokey_unlock_button_resolves_nothing_it_cannot_send() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let path = spec_path("biokey-touchlock-fingerprint-lock.yaml");
+    let yaml = fs::read_to_string(&path).expect("readable");
+    let dto = load_device_spec(yaml).expect("biokey should load");
+    // A stateless button with no action is not drawn: it is counted hidden.
+    if let Some(unlock) = dto.entities.iter().find(|e| e.name == "Unlock") {
+        panic!(
+            "Unlock was drawn with {:?}, but open_lock cannot encode",
+            unlock.actions.iter().map(|a| &a.role).collect::<Vec<_>>()
+        );
+    }
+    assert!(
+        dto.hidden_entity_names.iter().any(|n| n == "Unlock"),
+        "Unlock is declared, so it is counted hidden: {:?}",
+        dto.hidden_entity_names
+    );
+    let open_lock: Vec<_> = dto
+        .services
+        .iter()
+        .flat_map(|s| &s.characteristics)
+        .flat_map(|c| &c.commands)
+        .filter(|c| c.name == "open_lock")
+        .collect();
+    assert!(!open_lock.is_empty(), "open_lock is declared");
+    for command in open_lock {
+        assert!(!command.is_encodable, "the browser agrees: {command:?}");
     }
 }
 
@@ -3786,16 +3824,42 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
     // hand, which the catalogue now states too. Byte-for-byte the same, which
     // is what lets `_probesWithTheirOwnTransport` skip them without losing a
     // device.
-    let govee = by_key("govee-rgbic-light.yaml", 4001);
+    //
+    // Govee answers on `listen_port: 4002`, which the DTO cannot carry, so
+    // the handle withholds it rather than hand over a probe whose replies are
+    // lost; its bytes are pinned from the spec itself.
+    assert!(
+        by_key("govee-rgbic-light.yaml", 4001).is_empty(),
+        "a probe answered on another port is withheld from the DTO"
+    );
+    let govee_spec = parse_device_spec(
+        &fs::read_to_string(spec_path("govee-rgbic-light.yaml")).expect("readable"),
+    )
+    .expect("govee parses");
+    let govee = govee_spec.device.udp_broadcast_probes();
     assert_eq!(govee.len(), 1);
+    assert_eq!(govee[0].listen_port, Some(4002));
+    assert_eq!(govee[0].multicast_group.as_deref(), Some("239.255.255.250"));
+    let govee_hex = govee[0]
+        .probe_hex
+        .as_deref()
+        .expect("govee carries a probe");
+    let govee_bytes: Vec<u8> = (0..govee_hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&govee_hex[i..i + 2], 16).expect("hex"))
+        .collect();
     assert_eq!(
-        String::from_utf8(govee[0].probe.clone()).expect("the Govee probe is JSON"),
+        String::from_utf8(govee_bytes).expect("the Govee probe is JSON"),
         r#"{"msg":{"cmd":"scan","data":{"account_topic":"reserve"}}}"#,
         "must match `_goveeProbe` in real_network_scan_service.dart"
     );
     for key in ["yeelight-wifi.yaml", "yeelight-cube-lamp.yaml"] {
         let yeelight = by_key(key, 1982);
         assert_eq!(yeelight.len(), 1, "{key}: one probe on 1982");
+        assert_eq!(
+            yeelight[0].broadcast_address, "239.255.255.250",
+            "{key}: its multicast_group is the destination, not a broadcast"
+        );
         assert_eq!(
             String::from_utf8(yeelight[0].probe.clone()).expect("an M-SEARCH is ASCII"),
             "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1982\r\n\
@@ -3993,5 +4057,231 @@ fn a_gvh5075_advertisement_is_ranked_as_the_catalogue_stands() {
     assert_eq!(
         confidence_of(&legacy, THERMO),
         Some(MatchConfidence::Likely)
+    );
+}
+
+/// The whole bundled catalogue behind one handle, as the app loads it.
+fn vendored_catalogue() -> (
+    liberated_bread_core::api::spec_handle::CatalogueHandle,
+    Vec<String>,
+) {
+    use liberated_bread_core::api::spec_handle::new_catalogue;
+
+    let mut catalogue = new_catalogue();
+    let paths = vendored_yaml_paths();
+    let keys: Vec<String> = paths
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    let yamls: Vec<String> = paths
+        .iter()
+        .map(|p| fs::read_to_string(p).expect("spec file should be readable"))
+        .collect();
+    let failed = catalogue
+        .add_specs(keys.clone(), yamls)
+        .expect("the bundled catalogue should load");
+    assert!(failed.is_empty(), "specs failed to parse");
+    (catalogue, keys)
+}
+
+/// After connecting, a SIG-assigned service UUID admits a match but is not
+/// identity evidence. Dart ranks any match with a non-empty
+/// `matched_service_uuids` above a name match, so listing 0x1802 there made
+/// the iTag spec win over any device's own name-matched spec, and 0x1826
+/// (FTMS) raised a Kingsmith-vs-Urevo chooser for every treadmill.
+#[test]
+fn a_standard_service_uuid_is_not_reported_as_identity_after_connect() {
+    use liberated_bread_core::api::device_api::MatchConfidence;
+
+    let (catalogue, keys) = vendored_catalogue();
+    let hits = |uuids: &[&str]| -> Vec<(String, bool, MatchConfidence, Vec<String>)> {
+        catalogue
+            .match_device("Foo".into(), uuids.iter().map(|u| u.to_string()).collect())
+            .into_iter()
+            .map(|m| {
+                (
+                    keys[m.index as usize].clone(),
+                    m.matched_by_name_prefix,
+                    m.confidence,
+                    m.matched_service_uuids,
+                )
+            })
+            .collect()
+    };
+
+    let itag = hits(&["1802", "180f"]);
+    let (_, _, confidence, uuids) = itag
+        .iter()
+        .find(|(key, ..)| key == "itag-ble-tracker.yaml")
+        .expect("0x1802 still admits the iTag spec");
+    assert!(uuids.is_empty(), "0x1802 is SIG-assigned: {uuids:?}");
+    assert_eq!(*confidence, MatchConfidence::Possible);
+
+    let ftms = hits(&["1826"]);
+    for key in ["kingsmith-walkingpad.yaml", "urevo-walking-pad.yaml"] {
+        if let Some((_, _, confidence, uuids)) = ftms.iter().find(|(k, ..)| k == key) {
+            assert!(
+                uuids.is_empty(),
+                "{key}: 0x1826 is FTMS, not a vendor: {uuids:?}"
+            );
+            assert_eq!(*confidence, MatchConfidence::Possible, "{key}");
+        }
+    }
+    // No hit here carries a SIG UUID as evidence, whatever spec it is.
+    for (key, _, _, uuids) in itag.iter().chain(ftms.iter()) {
+        assert!(uuids.is_empty(), "{key} listed {uuids:?}");
+    }
+}
+
+/// kingsmith-walkingpad declares "Target Speed" twice: WiLink (max 6.0,
+/// `set_speed`) and FTMS (max 12.0, `set_target_speed`). Looked up by name,
+/// every FTMS setpoint went to the WiLink entity — 8.0 was refused against
+/// its max of 6, and anything lower was encoded as WiLink bytes. Addressed by
+/// the entity's own index it encodes the FTMS frame the spec documents:
+/// opcode 0x02 then the uint16 speed in 0.01 km/h, little-endian
+/// (kingsmith-walkingpad.yaml `set_target_speed`: 4.0 km/h is `02 90 01`).
+#[test]
+fn a_variant_scoped_setpoint_encodes_against_its_own_entity() {
+    use liberated_bread_core::api::device_api::{encode_entity_value, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("kingsmith-walkingpad.yaml")).expect("readable");
+    let dto = load_device_spec(yaml.clone()).expect("walkingpad loads");
+    let speeds: Vec<_> = dto
+        .entities
+        .iter()
+        .filter(|e| e.name == "Target Speed")
+        .collect();
+    assert_eq!(speeds.len(), 2, "WiLink and FTMS both declare Target Speed");
+    let ftms = speeds
+        .iter()
+        .find(|e| e.variants == ["FTMS"])
+        .expect("an FTMS Target Speed");
+    let index = ftms
+        .entity_index
+        .expect("Rust-built DTOs carry their index");
+
+    let write = encode_entity_value(yaml.clone(), "Target Speed".into(), Some(index), 8.0)
+        .expect("8.0 is within the FTMS entity's max of 12");
+    assert_eq!(write.bytes, vec![0x02, 0x20, 0x03], "800 = 0x0320, LE");
+    let four = encode_entity_value(yaml.clone(), "Target Speed".into(), Some(index), 4.0)
+        .expect("4.0 encodes");
+    assert_eq!(four.bytes, vec![0x02, 0x90, 0x01], "the spec's own example");
+
+    // By name alone the entity is ambiguous, and is refused, not guessed.
+    let refused = encode_entity_value(yaml.clone(), "Target Speed".into(), None, 4.0)
+        .expect_err("two entities share the name");
+    assert!(refused.to_string().contains("more than one"), "{refused}");
+    // An index that names a different entity is refused too.
+    assert!(encode_entity_value(yaml, "Target Speed".into(), Some(0), 4.0).is_err());
+}
+
+/// The catalogue handle's scan matchers and setup sweeps give exactly the
+/// answers the by-value doors give over the same catalogue. The handle doors
+/// exist so a scan stops shipping ~200 identities (and the adopt surface
+/// megabytes of YAML) across the FFI per call; they must not also change
+/// what matches.
+#[test]
+fn the_catalogue_handle_matches_and_sweeps_like_the_by_value_doors() {
+    use liberated_bread_core::api::device_api::{
+        ble_provisioning_profiles, match_network_device, match_scanned_device, soft_ap_profiles,
+        NetworkDeviceDto, ScannedDeviceDto,
+    };
+    use std::collections::HashMap;
+
+    let (catalogue, _) = vendored_catalogue();
+    let entries = catalogue.entries();
+    let identities: Vec<_> = entries.iter().map(|e| e.identity.clone()).collect();
+
+    let scanned = [
+        ScannedDeviceDto {
+            name: "WalkingPad".into(),
+            service_uuids: vec!["1826".into(), "fe00".into()],
+            company_ids: vec![],
+            manufacturer_data: vec![],
+            mac_address: None,
+        },
+        ScannedDeviceDto {
+            name: "LYWSD03MMC".into(),
+            service_uuids: vec!["181a".into()],
+            company_ids: vec![0x004c],
+            manufacturer_data: vec![],
+            mac_address: Some("A4:C1:38:00:11:22".into()),
+        },
+        ScannedDeviceDto {
+            name: "Unknown".into(),
+            service_uuids: vec![],
+            company_ids: vec![],
+            manufacturer_data: vec![],
+            mac_address: None,
+        },
+    ];
+    for device in scanned {
+        let by_value = match_scanned_device(identities.clone(), device.clone());
+        let by_handle = catalogue.match_scanned(device.clone());
+        assert_eq!(
+            format!("{by_handle:?}"),
+            format!("{by_value:?}"),
+            "{}",
+            device.name
+        );
+    }
+
+    let network = [
+        NetworkDeviceDto {
+            name: "Hue".into(),
+            hostname: None,
+            service_types: vec!["_hue._tcp".into()],
+            ssdp_targets: vec!["upnp:rootdevice".into()],
+            answered_lan_protocols: vec![],
+            port: Some(80),
+            txt: HashMap::new(),
+            mac: None,
+        },
+        NetworkDeviceDto {
+            name: "web".into(),
+            hostname: Some("nas.local".into()),
+            service_types: vec!["_http._tcp".into()],
+            ssdp_targets: vec![],
+            answered_lan_protocols: vec![],
+            port: None,
+            txt: HashMap::new(),
+            mac: None,
+        },
+    ];
+    for device in network {
+        let by_value = match_network_device(identities.clone(), device.clone());
+        let by_handle = catalogue.match_network(device.clone());
+        assert!(
+            !by_value.is_empty() || device.name == "web",
+            "{}",
+            device.name
+        );
+        assert_eq!(
+            format!("{by_handle:?}"),
+            format!("{by_value:?}"),
+            "{}",
+            device.name
+        );
+    }
+
+    let indices: Vec<u32> = entries.iter().map(|e| e.index).collect();
+    let yamls: Vec<String> = vendored_yaml_paths()
+        .iter()
+        .map(|p| fs::read_to_string(p).expect("readable"))
+        .collect();
+    let soft_ap = catalogue.soft_ap_profiles(indices.clone()).unwrap();
+    assert!(!soft_ap.is_empty(), "Wemo at least declares a soft-AP flow");
+    assert_eq!(
+        format!("{soft_ap:?}"),
+        format!("{:?}", soft_ap_profiles(yamls.clone()))
+    );
+    let ble = catalogue.ble_provisioning_profiles(indices).unwrap();
+    assert_eq!(
+        format!("{ble:?}"),
+        format!("{:?}", ble_provisioning_profiles(yamls))
+    );
+    assert!(
+        catalogue.soft_ap_profiles(vec![u32::MAX]).is_err(),
+        "an index past the catalogue is an error, not a silent drop"
     );
 }

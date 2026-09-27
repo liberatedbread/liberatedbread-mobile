@@ -71,17 +71,30 @@ class AndroidUsbSerialService implements SerialPortService {
         'it back in, and try again.',
       );
     }
-    await usb.setPortParameters(
-      baudRate,
-      UsbPort.DATABITS_8,
-      UsbPort.STOPBITS_1,
-      UsbPort.PARITY_NONE,
-    );
-    // Many programming cables power their level shifter from these lines,
-    // and a desktop serial port raises both on open. Doing the same here is
-    // what makes a cable that works with other programmers work here.
-    await usb.setDTR(true);
-    await usb.setRTS(true);
+    try {
+      await usb.setPortParameters(
+        baudRate,
+        UsbPort.DATABITS_8,
+        UsbPort.STOPBITS_1,
+        UsbPort.PARITY_NONE,
+      );
+      // Many programming cables power their level shifter from these lines,
+      // and a desktop serial port raises both on open. Doing the same here
+      // is what makes a cable that works with other programmers work here.
+      await usb.setDTR(true);
+      await usb.setRTS(true);
+    } catch (_) {
+      // The port is open but no link exists yet for the caller to close:
+      // without this the claimed interface would stay held until a replug.
+      // (usb_serial 0.5.2's setters do not report failures today; this is
+      // for a plugin that does.)
+      try {
+        await usb.close();
+      } catch (e) {
+        Log.radio.debug('closing a half-opened USB port failed', error: e);
+      }
+      rethrow;
+    }
     return _AndroidLink(usb);
   }
 }

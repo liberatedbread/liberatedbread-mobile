@@ -21,8 +21,8 @@
 //!   [4]     chunk flag: 0x00=first, 0x02=continuation
 //!   [5-8]   total data (file) length, uint32 LE
 //!   [9-12]  CRC32 of the ENTIRE file (java.util.zip.CRC32 = ISO-HDLC), LE
-//!   [13-14] time/delay, uint16 LE
-//!   [15]    speed/type byte
+//!   [13-14] display seconds, uint16 LE (0 for a plain upload)
+//!   [15]    material type (12 = 0x0C for a plain upload)
 //!   [16+]   payload
 //! ```
 //!
@@ -75,21 +75,20 @@ const FRAME_HEADER_LEN: usize = 16;
 const SESSION_OPEN_DEFAULT: &str = "enter_diy_mode";
 
 /// Payload bytes per framed chunk when the upload characteristic declares no
-/// `framing.max_chunk_size`.
-// SPEC-GAP: the 4096-byte framed-chunk payload is stated in the spec's
-// `device.notes` ("16-byte header per 4096-byte payload chunk") and declared
-// as `framing.max_chunk_size` only on the APP-PROVEN-UNUSED 0xFEE9
-// characteristic — it should become `framing.max_chunk_size` on the 0xFA02
-// Write Data characteristic the upload actually runs over.
+/// `framing.max_chunk_size` (the vendored 0xFA02 declares 4096; this is
+/// only the fallback for a spec that does not).
 const DEFAULT_CHUNK_PAYLOAD: usize = 4096;
 
-/// Header time/delay and speed/type bytes for a static image.
-// SPEC-GAP: the spec names the fields ("[13-14] time/delay", "[15]
-// speed/type") but states no value for a static image upload — the spec
-// should grow e.g. `image_upload.frame_header_defaults` for them. Zero, the
-// neutral value, until it does.
-const IMAGE_TIME_DELAY: u16 = 0;
-const IMAGE_SPEED_TYPE: u8 = 0;
+/// The spec command whose `parameters` carry the header's trailing defaults.
+const UPLOAD_IMAGE_CHUNK: &str = "upload_image_chunk";
+/// Fallbacks for header bytes [13-14] and [15] when the upload
+/// characteristic declares no `upload_image_chunk` defaults. The vendored
+/// spec states them: display_seconds 0 and material_type 12 (0x0C, "a plain
+/// upload"; 8none1's app captures show `00 00 0c`). A 0 material type is
+/// outside the declared 12..=13 range and is never what the vendor app
+/// sends, so it is not a neutral value.
+const DISPLAY_SECONDS_FALLBACK: u16 = 0;
+const MATERIAL_TYPE_PLAIN: u8 = 0x0C;
 
 /// Encode one RGB888 frame as a complete framed static-image upload.
 ///
@@ -167,6 +166,12 @@ pub fn encode_framed_upload(
     let chunk_payload = declared_max_chunk_size(upload_char)
         .unwrap_or(DEFAULT_CHUNK_PAYLOAD)
         .min(u16::MAX as usize - FRAME_HEADER_LEN);
+    // The header's trailing fields come from the spec's own
+    // upload_image_chunk defaults, so a spec correction reaches the wire.
+    let display_seconds: u16 =
+        header_default(upload_char, "display_seconds").unwrap_or(DISPLAY_SECONDS_FALLBACK);
+    let material_type: u8 =
+        header_default(upload_char, "material_type").unwrap_or(MATERIAL_TYPE_PLAIN);
 
     for (i, chunk) in png.chunks(chunk_payload).enumerate() {
         let mut packet = Vec::with_capacity(FRAME_HEADER_LEN + chunk.len());
@@ -180,8 +185,8 @@ pub fn encode_framed_upload(
         });
         packet.extend_from_slice(&total_len.to_le_bytes());
         packet.extend_from_slice(&crc.to_le_bytes());
-        packet.extend_from_slice(&IMAGE_TIME_DELAY.to_le_bytes());
-        packet.push(IMAGE_SPEED_TYPE);
+        packet.extend_from_slice(&display_seconds.to_le_bytes());
+        packet.push(material_type);
         packet.extend_from_slice(chunk);
         push_packet(
             &mut writes,
@@ -215,6 +220,27 @@ fn resolve_upload_characteristic(spec: &DeviceSpec) -> Result<&Characteristic, P
                  which anchors the framed upload channel"
             ),
         })
+}
+
+/// The declared `default` of one `upload_image_chunk` parameter on the upload
+/// characteristic, when it is a whole number that fits the header field.
+/// `None` (the caller's fallback applies) when the command, the parameter or
+/// a usable default is absent — a default that does not fit is a spec error
+/// that must not be truncated onto the wire.
+fn header_default<T: TryFrom<i64>>(upload_char: &Characteristic, param: &str) -> Option<T> {
+    let default = upload_char
+        .commands
+        .as_ref()?
+        .get(UPLOAD_IMAGE_CHUNK)?
+        .parameters
+        .as_ref()?
+        .params
+        .get(param)?
+        .default?;
+    if default.fract() != 0.0 {
+        return None;
+    }
+    T::try_from(default as i64).ok()
 }
 
 /// One logical packet, split into BLE-write-sized slices in order. The
@@ -464,7 +490,8 @@ services:
         // [0-1] = 82 + 16 = 98 = 0x0062 LE; type 2 (Image); sub-type 0;
         // flag 0 (first); total length 82 u32 LE; CRC32 of the whole PNG
         // 0x0B87B603 (java.util.zip.CRC32, cross-checked against Python's
-        // zlib.crc32) LE; time/delay 0; speed/type 0; then the file.
+        // zlib.crc32) LE; display seconds 0; material type 12 (0x0C, the
+        // fallback: this fixture declares no upload_image_chunk); the file.
         let packet = &frame.writes[1].bytes;
         assert_eq!(
             &packet[..FRAME_HEADER_LEN],
@@ -474,11 +501,38 @@ services:
                 0x00, // first chunk
                 0x52, 0x00, 0x00, 0x00, // total data length 82 LE
                 0x03, 0xB6, 0x87, 0x0B, // CRC32 0x0B87B603 LE
-                0x00, 0x00, // time/delay
-                0x00, // speed/type
+                0x00, 0x00, // display seconds
+                0x0C, // material type: plain upload
             ]
         );
         assert_eq!(&packet[FRAME_HEADER_LEN..], TINY_PNG);
+    }
+
+    /// The vendored spec's `upload_image_chunk` declares display_seconds 0
+    /// and material_type 12; the header must carry exactly those (the old
+    /// encoder sent material type 0, outside the declared 12..=13 range).
+    #[test]
+    fn the_vendored_spec_header_defaults_reach_the_wire() {
+        let vendored = parse_device_spec(include_str!(
+            "../../../vendor/protocol-specs/device-specs/devices/idotmatrix.yaml"
+        ))
+        .unwrap();
+        let frame = encode_framed_upload(&vendored, &tiny(), 2, 2, 1, 509).unwrap();
+        assert_eq!(&frame.writes[0].bytes[13..16], &[0x00, 0x00, 0x0C]);
+    }
+
+    /// Change the spec's declared defaults and the header follows them —
+    /// the bytes come from the spec, not from a constant.
+    #[test]
+    fn the_header_defaults_follow_the_spec() {
+        let yaml = SPEC_YAML.replace(
+            "        commands:\n",
+            "        commands:\n          upload_image_chunk:\n            description: \"chunk\"\n            template: [\"{display_seconds}\", \"{material_type}\"]\n            parameters:\n              display_seconds: { type: \"uint16\", default: 300 }\n              material_type: { type: \"uint8\", min: 12, max: 13, default: 13 }\n",
+        );
+        let s = parse_device_spec(&yaml).unwrap();
+        let frame = encode_framed_upload(&s, &tiny(), 2, 2, 1, 509).unwrap();
+        // 300 = 0x012C LE, then material type 13.
+        assert_eq!(&frame.writes[0].bytes[13..16], &[0x2C, 0x01, 0x0D]);
     }
 
     #[test]

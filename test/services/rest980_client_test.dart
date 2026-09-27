@@ -181,13 +181,23 @@ void main() {
       );
     });
 
-    test('probe returns the robot name the server reports', () async {
-      final client = Rest980Client(
-        codec: codec,
-        client: MockClient((_) async => http.Response(_restState, 200)),
-      );
-      expect(await client.probe('pi.local:3000'), 'Dorita');
-    });
+    test(
+      'probe returns the robot name the server reports, in one GET',
+      () async {
+        // It used to GET the state endpoint, discard the body, then GET it
+        // again through state().
+        final paths = <String>[];
+        final client = Rest980Client(
+          codec: codec,
+          client: MockClient((request) async {
+            paths.add(request.url.path);
+            return http.Response(_restState, 200);
+          }),
+        );
+        expect(await client.probe('pi.local:3000'), 'Dorita');
+        expect(paths, ['/api/local/info/state']);
+      },
+    );
   });
 
   group('roombaCommandSequence', () {

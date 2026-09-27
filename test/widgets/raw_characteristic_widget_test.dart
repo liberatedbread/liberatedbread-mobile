@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -295,5 +297,67 @@ void main() {
       tester.widget<Text>(find.textContaining('Wrote 01 aa ff')).style?.color,
       scheme.tertiary,
     );
+  });
+
+  testWidgets('a notification after a failed read shows the value, not the '
+      'read error', (tester) async {
+    // Old code: `_error` was cleared only by a read and checked before the
+    // value, so 'Error: Could not read...' stayed up while notifications
+    // kept arriving underneath it.
+    final notify = StreamController<List<int>>();
+    addTearDown(notify.close);
+    final fake = FakeBleService(
+      readError: StateError('denied'),
+      notifyStream: notify.stream,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ),
+        fake,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Could not read'), findsOneWidget);
+
+    notify.add(const [0x12, 0x34]);
+    await tester.pumpAndSettle();
+    expect(find.text('12 34'), findsOneWidget);
+    expect(find.textContaining('Could not read'), findsNothing);
+  });
+
+  testWidgets('a notify error keeps the last value on screen', (tester) async {
+    final notify = StreamController<List<int>>();
+    addTearDown(notify.close);
+    final fake = FakeBleService(notifyStream: notify.stream);
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: false,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ),
+        fake,
+      ),
+    );
+    notify.add(const [0xab]);
+    await tester.pumpAndSettle();
+    notify.addError(StateError('link lost'));
+    await tester.pumpAndSettle();
+    expect(find.text('ab'), findsOneWidget);
+    expect(find.textContaining('Live updates stopped'), findsOneWidget);
   });
 }

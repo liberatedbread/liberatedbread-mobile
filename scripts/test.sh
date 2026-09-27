@@ -183,6 +183,10 @@ log "run-ios-device-tests selftest"
 log "verify-ios-app selftest"
 ./scripts/verify-ios-app-selftest.sh
 
+# The APK verifier's merged-manifest permission check, against a stub aapt2.
+log "verify-apk selftest"
+./scripts/verify-apk-selftest.sh
+
 # The emulated-network responder answers only what was asked — the property the
 # netdisco suites' "the app sent the right query" claims rest on. No sockets,
 # so it runs here rather than in the netdisco job.
@@ -240,8 +244,19 @@ jobs="${LB_TEST_JOBS:-$( (sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || 
 # stdout is a pipe gets the default it always got.
 reporter=""
 [[ "${LEG_STDOUT_IS_TTY:-0}" == "1" ]] && reporter="--reporter=compact"
-log "flutter test --coverage --exclude-tags=netdisco --concurrency=$jobs ${reporter}"
-flutter test --coverage --exclude-tags=netdisco --concurrency="$jobs" ${reporter:+"$reporter"}
+# The hardware tags are excluded here, not in dart_test.yaml (an exclusion
+# there would beat an explicit --tags=live_radio and leave no way to run them
+# on purpose). Without it a shell still carrying LB_LIVE_RADIO=1 from a live
+# session had its radio's memory written by the mirror, next to every other
+# suite at full concurrency: the env var was the only guard.
+#
+# LB_REQUIRE_RUST_LIB=1: ensure-rust-lib.sh has already built the library, so
+# one that is present but will not load must fail the run. Without it every
+# FFI-backed suite skipped green (test/helpers/host_rust_lib.dart).
+tags_excluded="netdisco,live_ble,live_radio,live_wifi,hardware"
+log "flutter test --coverage --exclude-tags=$tags_excluded --concurrency=$jobs ${reporter}"
+LB_REQUIRE_RUST_LIB=1 flutter test --coverage --exclude-tags="$tags_excluded" \
+  --concurrency="$jobs" ${reporter:+"$reporter"}
 
 # A file no test imports is ABSENT from lcov rather than reported as zero, so
 # it silently leaves the percentage alone. Both reports are offered when the

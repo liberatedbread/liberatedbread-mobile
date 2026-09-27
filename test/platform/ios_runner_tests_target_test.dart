@@ -7,7 +7,6 @@
 // the project has to keep pointing at that file, and the target has to sign
 // with the app's team — a regression in any of the three is a device run
 // that fails a long way from the file that caused it.
-@Tags(['platform'])
 library;
 
 import 'dart:io';

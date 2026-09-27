@@ -255,12 +255,16 @@ services:
         properties: ["write"]
 "#;
     let spec = parse_device_spec(YAML).expect("a bad step must not fail the spec");
-    assert_eq!(
-        spec.initialization.len(),
-        1,
-        "256 is not a byte and a step with no characteristic addresses nothing; the one that parses stays"
+    // The steps are ordered, so the handshake stops at the first unreadable
+    // one (256 is not a byte) rather than running the later steps without
+    // it: what remains is a prose placeholder that reports the loss.
+    assert_eq!(spec.initialization.len(), 1, "{:?}", spec.initialization);
+    assert!(!spec.initialization[0].is_executable());
+    let said = spec.initialization[0].description.as_deref().unwrap_or("");
+    assert!(
+        said.contains("step 1") && said.contains("2 step(s) after"),
+        "{said}"
     );
-    assert_eq!(spec.initialization[0].write.as_deref(), Some(&[1u8][..]));
 }
 
 #[test]

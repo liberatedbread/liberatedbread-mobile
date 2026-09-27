@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
+import '../core/log.dart';
 import '../models/channel_plan.dart';
 import '../models/radio_band_limits.dart';
 import '../models/radio_profile.dart';
@@ -17,6 +18,7 @@ import '../providers/channel_plan_provider.dart';
 import '../providers/radio_profile_provider.dart';
 import '../providers/radio_programmer_provider.dart';
 import '../providers/saved_radio_provider.dart';
+import '../services/baofeng_ble_programmer.dart' show RadioWritePreflight;
 import '../services/codeplug_backup_store.dart';
 import '../services/radio_programmer.dart';
 import '../widgets/confirm_dialog.dart';
@@ -86,15 +88,21 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     _profile = _pickInitialProfile();
   }
 
-  /// The first of: what the caller suggested, what this radio was last used
-  /// as, and the Radio tab's radio — that can actually be programmed over
-  /// this link. Falls back to the first model that can.
+  /// The first of: what this radio was last used as, what the caller
+  /// suggested, and the Radio tab's radio — that can actually be programmed
+  /// over this link. Falls back to the first model that can.
+  ///
+  /// The saved model comes first because the callers' suggestions are
+  /// weaker: the scan list passes a guess from the advert name, and a
+  /// channel plan passes the model the plan was made for. Ranked above the
+  /// user's own choice, a UV-32 reopened as a Mini failed identify, and a
+  /// session that completed rewrote the saved model with the guess.
   RadioProfile? _pickInitialProfile() {
     final candidates = profilesProgrammableOver(_target.transport);
     final saved = ref.read(savedRadiosProvider.notifier).savedRadioFor(_target);
     final preferences = [
-      widget.initialProfile,
       radioProfileById(saved?.radioProfileId),
+      widget.initialProfile,
       ref.read(selectedRadioProfileProvider).valueOrNull,
     ];
     for (final profile in preferences) {
@@ -378,8 +386,8 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     // Remembered only for a radio already saved. Choosing a model is not
     // talking to the radio, and saving is for radios that have answered.
     if (savedRadios.contains(_target)) {
-      await savedRadios.touch(
-        target: _target,
+      await _rememberQuietly(
+        savedRadios,
         seenAt: savedRadios.savedRadioFor(_target)!.lastSeen,
         radioProfileId: chosen.id,
       );
@@ -464,6 +472,29 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       );
       return;
     }
+    // Likewise a channel this radio cannot tune: typed before the editor
+    // checked, or made for another model. Out of the encoder's range it was
+    // refused only after the read and backup ("The radio did not finish.");
+    // in range but off-band it was written as a channel the radio can't use.
+    for (final (index, channel) in plan.channels.indexed) {
+      final problem = channelRangeProblem(
+        profile,
+        rxFreqHz: channel.rxFreqHz,
+        txFreqHz: channel.txFreqHz,
+        rxOnly: channel.rxOnly,
+      );
+      if (problem == null) continue;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Channel ${index + 1} of "${plan.name}" (${channel.name}): '
+            '$problem Nothing was read or written.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (await _refusesWrite(profile) || !mounted) return;
     final confirmed = await confirmAction(
       context,
       title: 'Write to ${_target.displayName}?',
@@ -533,7 +564,33 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     );
   }
 
+  /// Whether this link's programmer will refuse to write [profile], saying
+  /// why when it will. Asked before the confirmation, the read and the
+  /// backup: a UV-32 over Bluetooth used to be connected to, woken and read
+  /// in full, and only then refused by the write it could never do.
+  Future<bool> _refusesWrite(RadioProfile profile) async {
+    final programmer = ref.read(
+      radioProgrammerForTransportProvider(_target.transport),
+    );
+    if (programmer is! RadioWritePreflight) return false;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await (programmer as RadioWritePreflight).checkCanWrite(profile);
+      return false;
+    } catch (error) {
+      final text = friendlyErrorText(
+        error,
+        fallback: 'This app cannot write that radio. Nothing was changed.',
+        context: 'radio write check',
+      );
+      if (mounted) setState(() => _error = text);
+      messenger.showSnackBar(SnackBar(content: Text(text)));
+      return true;
+    }
+  }
+
   Future<void> _restore(RadioProfile profile) async {
+    if (await _refusesWrite(profile) || !mounted) return;
     final backups = ref.read(codeplugBackupStoreProvider);
     final messenger = ScaffoldMessenger.of(context);
     final List<CodeplugBackup> mine;
@@ -785,18 +842,9 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         message: start,
       );
     });
+    final String outcome;
     try {
-      final outcome = await body(programmer);
-      await savedRadios.touch(
-        target: _target,
-        seenAt: DateTime.now(),
-        radioProfileId: profile.id,
-      );
-      if (!mounted) return;
-      setState(() {
-        _progress = null;
-        _outcome = outcome;
-      });
+      outcome = await body(programmer);
     } catch (error) {
       if (!mounted) return;
       final text = [
@@ -814,6 +862,43 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         _error = text;
       });
       messenger.showSnackBar(SnackBar(content: Text(text)));
+      return;
+    }
+    // Outside the session's try: a preferences failure here used to replace
+    // a finished, verified write with "The radio did not finish.", dropping
+    // the backup's name and inviting the user to write the radio again.
+    await _rememberQuietly(
+      savedRadios,
+      seenAt: DateTime.now(),
+      radioProfileId: profile.id,
+    );
+    if (!mounted) return;
+    setState(() {
+      _progress = null;
+      _outcome = outcome;
+    });
+  }
+
+  /// Save [_target] to the radio list, logging rather than throwing: the
+  /// list is a convenience, and failing to update it says nothing about
+  /// the radio.
+  Future<void> _rememberQuietly(
+    SavedRadiosNotifier savedRadios, {
+    required DateTime seenAt,
+    required String radioProfileId,
+  }) async {
+    try {
+      await savedRadios.touch(
+        target: _target,
+        seenAt: seenAt,
+        radioProfileId: radioProfileId,
+      );
+    } catch (error, stackTrace) {
+      Log.radio.warning(
+        'could not remember ${_target.id}',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 

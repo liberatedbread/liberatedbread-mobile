@@ -5,6 +5,14 @@ re-checked 2026-08-23 and two of its premises had already expired when this
 landed — see the notes inline. Moved out of the repo root at the same time:
 a plan is a document, and `docs/` is where the others live.
 
+**2026-09-27: the deadline passed unexecuted.** June's cloud shut down on
+2026-09-22 before M1/M2 ran, so minting pairing material through June's own
+cloud and validating against it are no longer possible. M0 (the Rust core
+proven against `vectors.json`) is still worth doing and has no deadline;
+M1/M2 now depend on a community replacement cloud reached through the
+`JuneEndpoints` override (§2.2), and M3/M4 are unchanged. The "Deadline
+2026-09-22" markers below are left as written so the reasoning stays readable.
+
 Companion document: `liberatedbread-protocol-specs/JUNE_OVEN_PLAN.md` (scope,
 sequencing, guardrails) and `.../targets/june-oven.md` (evidence, protocol
 constants). **Read the protocol constants from there** — this file does not
@@ -43,7 +51,10 @@ idea and it is a good one.
    Roomba's MQTT over TLS. What June actually needs that none of those give it
    is a long-lived AUTHENTICATED WebSocket session — the same gap the Samsung
    and LG TVs sit behind, which makes June the third customer for that work
-   rather than the only one.
+   rather than the only one. *Closed since (2026-09-27):* a spec-declared,
+   paired WebSocket session exists (`lib/services/ws_control_service.dart`,
+   `rust/src/protocol/websocket.rs`). June would build on it with its own
+   signed-frame and ack layer; what it still lacks is the §1.3 crypto.
 3. **No crypto, anywhere.** ~~The Rust core's entire dependency list is
    `flutter_rust_bridge`, `serde`, `indexmap`, `serde_yaml`, `thiserror`,
    `anyhow`.~~ *Also stale:* the tree carries AES-128-CBC (Rabbit Air), SHA-1
@@ -270,7 +281,8 @@ If the whole plan slips, the ordered fallback is:
 
 1. M0 alone — a verified Rust implementation of the protocol, in CI, permanently
    useful to anyone building a client. Real value, no deadline, no hardware.
-2. M0 + M1 — owners can bank pairing material before it becomes unmintable.
+2. ~~M0 + M1 — owners can bank pairing material before it becomes
+   unmintable.~~ Lapsed with June's cloud on 2026-09-22.
 3. Everything else.
 
 Do not start M2 before M1's export flow works. The export is the part with an

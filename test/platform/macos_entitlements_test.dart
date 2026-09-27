@@ -90,6 +90,33 @@ void main() {
           );
         });
 
+        test('grants com.apple.security.device.serial', () {
+          expect(
+            entitlements['com.apple.security.device.serial'],
+            isTrue,
+            reason:
+                'com.apple.security.device.serial must be <true/> in '
+                '$path. serialPortServiceFor("macos") returns '
+                'DesktopSerialPortService, which opens /dev/cu.* through the '
+                'Rust serialport crate; the App Sandbox denies that open() '
+                'without this key, so programming a radio over a USB cable '
+                'fails in $audience and the error blames another program.',
+          );
+        });
+
+        test('grants com.apple.security.personal-information.location', () {
+          expect(
+            entitlements['com.apple.security.personal-information.location'],
+            isTrue,
+            reason:
+                'com.apple.security.personal-information.location must be '
+                '<true/> in $path. Without it CoreLocation silently refuses '
+                'the sandboxed app, so "Suggest channels near me" never gets a '
+                'position in $audience and the app never shows up in System '
+                'Settings > Location Services.',
+          );
+        });
+
         test('grants com.apple.security.network.client', () {
           expect(
             entitlements['com.apple.security.network.client'],
@@ -121,6 +148,8 @@ void main() {
       // only whatever SSDP turned up.
       const required = [
         'com.apple.security.device.bluetooth',
+        'com.apple.security.device.serial',
+        'com.apple.security.personal-information.location',
         'com.apple.security.network.client',
         'com.apple.security.network.server',
         'keychain-access-groups',
@@ -191,6 +220,38 @@ void main() {
             'string in $_macosPlistPath. It is the key older macOS releases '
             'consult and the one notarisation/App Store review expects from a '
             'CoreBluetooth-linking binary.',
+      );
+    });
+
+    test('NSLocationUsageDescription matches the iOS location string', () {
+      // geolocator_apple's macOS path checks NSLocationUsageDescription; with
+      // it missing, requestPermission() raises
+      // PermissionDefinitionsNotFoundException and the Radio tab told a Mac
+      // with Location Services on that it "cannot report its position".
+      const reason =
+          'NSLocationUsageDescription and NSLocationWhenInUseUsageDescription '
+          'must be non-empty strings in $_macosPlistPath, word for word the '
+          'iOS NSLocationWhenInUseUsageDescription, so "Suggest channels near '
+          'me" can prompt on macOS and the two platforms describe the same '
+          'use of the position.';
+      expectNonEmptyString('NSLocationUsageDescription', reason: reason);
+      expectNonEmptyString(
+        'NSLocationWhenInUseUsageDescription',
+        reason: reason,
+      );
+      final ios = parsePlist(
+        readRepoFile(
+          'ios/Runner/Info.plist',
+          consequence: 'The iOS app has no bundle metadata.',
+        ),
+        label: 'ios/Runner/Info.plist',
+      );
+      final iosText = ios['NSLocationWhenInUseUsageDescription'];
+      expect(plist['NSLocationUsageDescription'], iosText, reason: reason);
+      expect(
+        plist['NSLocationWhenInUseUsageDescription'],
+        iosText,
+        reason: reason,
       );
     });
 

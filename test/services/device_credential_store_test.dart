@@ -7,6 +7,7 @@
 // uses.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/services/device_credential_store.dart';
 
 import '../fakes/in_memory_settings_store.dart';
@@ -27,6 +28,29 @@ void main() {
     expect(await store.read(printer, 'serial'), isNull);
     await store.save(printer, 'serial', '01P00A123456789');
     expect(await store.read(printer, 'serial'), '01P00A123456789');
+  });
+
+  // Fails on the old code: credentials() — the reader every send uses —
+  // registered nothing, so after a relaunch (an empty secret set) a stored
+  // credential quoted in an error reached the Diagnostics buffer in clear.
+  test('credentials read on a cold start are redacted from the log', () async {
+    await store.save(printer, 'username', 'hue-user-0123456789abcdef');
+    Log.clearSecrets();
+    final records = Log.captureRecords();
+    addTearDown(() {
+      Log.reset();
+      Log.clearSecrets();
+    });
+
+    final fresh = DeviceCredentialStore(settings);
+    expect(await fresh.credentials(printer), {
+      'username': 'hue-user-0123456789abcdef',
+    });
+    Log.net.warning('PUT /api/hue-user-0123456789abcdef/lights/1 failed');
+
+    final message = records.single.message;
+    expect(message, isNot(contains('hue-user-0123456789abcdef')));
+    expect(message, contains(redactedText));
   });
 
   test('credentials come back as the map a render is given', () async {

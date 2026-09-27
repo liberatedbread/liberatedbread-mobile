@@ -42,12 +42,16 @@ class SavedLocation {
     final point = GeoPoint.fromJson(json);
     if (point == null) return null;
     final label = json['label'];
+    // The invented label is at the kept precision: build() rounds only the
+    // point and writes this label back, so the old 4-decimal (~11 m) label
+    // kept on disk the position the rounding exists to drop.
+    const places = LastLocationNotifier.coarseDecimals;
     return SavedLocation(
       point: point,
       label: label is String && label.trim().isNotEmpty
           ? label.trim()
-          : '${point.lat.toStringAsFixed(4)}, '
-                '${point.lon.toStringAsFixed(4)}',
+          : '${point.lat.toStringAsFixed(places)}, '
+                '${point.lon.toStringAsFixed(places)}',
     );
   }
 

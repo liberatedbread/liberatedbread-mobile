@@ -11,11 +11,17 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_ble_client.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_control_transport.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_provision_service.dart';
 
 import '../fakes/fake_spec_codec.dart';
 import '../fakes/in_memory_settings_store.dart';
+
+/// The mDNS SRV target a cloud-provisioned purifier announces once it joins
+/// — the scope the Wi-Fi panel's `RabbitAirLanTransport.keyScope` carries.
+const _lanHostname = 'abcdef1234_000000000000000000.local';
 
 /// A stand-in purifier in setup mode: answers each cleartext setup command
 /// from a script, recording every envelope it was sent.
@@ -163,14 +169,25 @@ void main() {
     });
 
     // The pushed key is the fake codec's documented 32-char hex, filed where
-    // the LAN control path looks: under the Thing ID.
+    // the LAN control path looks: under the mDNS hostname <Thing ID>.local.
+    // Before the fix it landed under the bare Thing ID, a scope the Wi-Fi
+    // panel never reads, so LAN control asked for a key nobody had seen.
     final key = link.sent[4]['data']! as Map<String, Object?>;
     expect(key['type'], 4);
     expect(key['value'], matches(RegExp(r'^[0-9A-F]{32}$')));
+    final keyStore = RabbitAirKeyStore(store);
     expect(
-      await RabbitAirKeyStore(store).userKey('abcdef1234_000000000000000000'),
-      isNotNull,
+      await store.read('rabbitair.$_lanHostname.userkey'),
+      (key['value']! as String).toLowerCase(),
     );
+    final lan = RabbitAirLanTransport(
+      host: '192.0.2.9',
+      port: 9009,
+      keyScope: _lanHostname,
+      client: RabbitAirControlClient(FakeSpecCodec()),
+      keyStore: keyStore,
+    );
+    expect(await lan.userKey(), (key['value']! as String).toLowerCase());
   });
 
   test(
@@ -267,7 +284,7 @@ void main() {
       );
       expect(link.cmds, contains(5), reason: 'the purifier holds the key');
       expect(
-        await RabbitAirKeyStore(store).userKey('abcdef1234_000000000000000000'),
+        await RabbitAirKeyStore(store).userKey(_lanHostname),
         isNotNull,
         reason: 'the key the purifier now requires must not be lost with it',
       );
@@ -293,10 +310,7 @@ void main() {
     await joining;
 
     expect(service.state.step, RabbitAirProvisionStep.failed);
-    expect(
-      await RabbitAirKeyStore(store).userKey('abcdef1234_000000000000000000'),
-      isNotNull,
-    );
+    expect(await RabbitAirKeyStore(store).userKey(_lanHostname), isNotNull);
   });
 
   test('an unconfirmed join still ends done, verified false', () async {
@@ -308,10 +322,7 @@ void main() {
     expect(service.state.step, RabbitAirProvisionStep.done);
     expect(service.state.verified, isFalse);
     // The key is filed either way — the join may simply be slow.
-    expect(
-      await RabbitAirKeyStore(store).userKey('abcdef1234_000000000000000000'),
-      isNotNull,
-    );
+    expect(await RabbitAirKeyStore(store).userKey(_lanHostname), isNotNull);
   });
 
   test('a purifier with no Thing ID files the key under its RabbitAir-<MAC> '
@@ -371,5 +382,35 @@ void main() {
         RabbitAirProvisionStep.done,
       ]),
     );
+  });
+
+  group('a key filed under the bare Thing ID by an older build', () {
+    const bareKey = '00112233445566778899aabbccddeeff';
+
+    test('is found from the mDNS hostname scope and re-filed there', () async {
+      // An install that provisioned before the scope fix: the key sits under
+      // the bare Thing ID only. Without the rescue read the LAN panel asks
+      // for a key the user never saw.
+      final store = InMemorySettingsStore()
+        ..values['rabbitair.abcdef1234_000000000000000000.userkey'] = bareKey;
+      final keyStore = RabbitAirKeyStore(store);
+
+      expect(await keyStore.userKey(_lanHostname), bareKey);
+      expect(store.values['rabbitair.$_lanHostname.userkey'], bareKey);
+    });
+
+    test('is found from an SRV target that kept the root dot', () async {
+      final store = InMemorySettingsStore()
+        ..values['rabbitair.abcdef1234_000000000000000000.userkey'] = bareKey;
+
+      expect(await RabbitAirKeyStore(store).userKey('$_lanHostname.'), bareKey);
+    });
+
+    test('is not guessed for a scope that is not a .local name', () async {
+      final store = InMemorySettingsStore()
+        ..values['rabbitair.abcdef1234_000000000000000000.userkey'] = bareKey;
+
+      expect(await RabbitAirKeyStore(store).userKey('192.0.2.9'), isNull);
+    });
   });
 }

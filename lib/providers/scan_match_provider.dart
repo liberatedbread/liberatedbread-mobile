@@ -13,7 +13,6 @@ import '../core/log.dart';
 import '../models/iot_device.dart';
 import '../services/spec_codec.dart';
 import 'device_spec_match_provider.dart';
-import 'spec_codec_provider.dart';
 
 /// What a scanned device might be, according to the catalogue.
 @immutable
@@ -77,6 +76,11 @@ class ScanGuess {
   /// device off BlueZ from its first connection; nothing is drawn for it.
   final bool bluezRawAtt;
 
+  /// Catalogue index of the spec this guess speaks for — after pack
+  /// shadowing, so a pack's corrected copy rather than the bundled one it
+  /// replaced. Null on a hand-built guess.
+  final int? specIndex;
+
   const ScanGuess({
     required this.deviceName,
     required this.manufacturer,
@@ -89,6 +93,7 @@ class ScanGuess {
     this.adminUrl,
     this.isIdentifyOnly = false,
     this.bluezRawAtt = false,
+    this.specIndex,
   });
 
   /// This row is a security warning rather than a controllable device.
@@ -105,7 +110,16 @@ class ScanGuess {
   /// can never mean different things on different tabs. Rust returns matches
   /// best-first; `otherMatches` counts only ties at the best confidence,
   /// because a Strong match is not made ambiguous by a trailing Possible one.
-  static ScanGuess? fromMatches(List<ScanMatch> matches) {
+  ///
+  /// Matches are first collapsed by [collapseShadowed], so a pack's copy of a
+  /// bundled spec is one candidate, not a tie with itself; pass the
+  /// [identities] the matcher ran against so a shadowed match is re-pointed
+  /// at the pack copy even when only the bundled one matched.
+  static ScanGuess? fromMatches(
+    List<ScanMatch> raw, {
+    List<SpecIdentityDto>? identities,
+  }) {
+    final matches = collapseShadowed(raw, identities: identities);
     if (matches.isEmpty) return null;
     final best = matches.first;
     final tied = matches
@@ -136,8 +150,108 @@ class ScanGuess {
       bluezRawAtt:
           (best.bluezRawAtt ?? false) &&
           tied.every((m) => m.bluezRawAtt ?? false),
+      specIndex: best.specIndex,
     );
   }
+
+  /// [matches] with the pack-wins shadowing rule applied, best-first order
+  /// kept: one entry per `deviceName|manufacturer`, at the rank of that key's
+  /// best match, carrying the fields of the key's LAST catalogue entry.
+  ///
+  /// Pack specs load after bundled ones and must win ([specEntriesByKey]),
+  /// but the matcher ranks every catalogue entry and breaks ties by lower
+  /// index. A pack's corrected copy of a bundled spec therefore tied with
+  /// its own original: the row lost its product name ("Ember Mug" became
+  /// "Ember device"), setup help went quiet (it needs [namesAProduct]), and
+  /// the advisory, pictogram and admin URL came from the stale bundled copy.
+  ///
+  /// [identities] is the list the matcher ran against (so `specIndex`
+  /// indexes it). Without it only matches that both came back can collapse.
+  static List<ScanMatch> collapseShadowed(
+    List<ScanMatch> matches, {
+    List<SpecIdentityDto>? identities,
+  }) {
+    if (matches.isEmpty) return matches;
+    String keyOf(String name, String manufacturer) =>
+        specKeyOf(name, manufacturer);
+    final winner = <String, int>{};
+    if (identities != null) {
+      for (var i = 0; i < identities.length; i++) {
+        winner[keyOf(identities[i].deviceName, identities[i].manufacturer)] = i;
+      }
+    }
+    final byIndex = <int, ScanMatch>{};
+    for (final m in matches) {
+      byIndex[m.specIndex] = m;
+      final key = keyOf(m.deviceName, m.manufacturer);
+      final w = winner[key];
+      if (w == null || m.specIndex > w) winner[key] = m.specIndex;
+    }
+    final seen = <String>{};
+    final out = <ScanMatch>[];
+    for (final m in matches) {
+      final key = keyOf(m.deviceName, m.manufacturer);
+      if (!seen.add(key)) continue;
+      final w = winner[key]!;
+      if (w == m.specIndex) {
+        out.add(m);
+        continue;
+      }
+      final other = byIndex[w];
+      if (other != null) {
+        out.add(_withIdentityOf(m, other));
+      } else if (identities != null && w >= 0 && w < identities.length) {
+        out.add(_withIdentity(m, w, identities[w]));
+      } else {
+        out.add(m);
+      }
+    }
+    return out;
+  }
+
+  /// [evidence]'s rank and evidence, speaking for [source]'s spec.
+  static ScanMatch _withIdentityOf(ScanMatch evidence, ScanMatch source) =>
+      ScanMatch(
+        specIndex: source.specIndex,
+        deviceName: source.deviceName,
+        manufacturer: source.manufacturer,
+        category: source.category,
+        pictogram: source.pictogram,
+        adminUrl: source.adminUrl,
+        integration: source.integration,
+        securityAdvisory: source.securityAdvisory,
+        bluezRawAtt: source.bluezRawAtt,
+        confidence: evidence.confidence,
+        matchedByNamePrefix: evidence.matchedByNamePrefix,
+        matchedServiceUuids: evidence.matchedServiceUuids,
+        matchedCompanyIds: evidence.matchedCompanyIds,
+        matchedManufacturerPrefixes: evidence.matchedManufacturerPrefixes,
+        matchedMacPrefix: evidence.matchedMacPrefix,
+        matchedServiceTypes: evidence.matchedServiceTypes,
+      );
+
+  static ScanMatch _withIdentity(
+    ScanMatch evidence,
+    int specIndex,
+    SpecIdentityDto source,
+  ) => ScanMatch(
+    specIndex: specIndex,
+    deviceName: source.deviceName,
+    manufacturer: source.manufacturer,
+    category: source.category,
+    pictogram: source.pictogram,
+    adminUrl: source.adminUrl,
+    integration: source.integration,
+    securityAdvisory: source.securityAdvisory,
+    bluezRawAtt: source.bluezRawAtt,
+    confidence: evidence.confidence,
+    matchedByNamePrefix: evidence.matchedByNamePrefix,
+    matchedServiceUuids: evidence.matchedServiceUuids,
+    matchedCompanyIds: evidence.matchedCompanyIds,
+    matchedManufacturerPrefixes: evidence.matchedManufacturerPrefixes,
+    matchedMacPrefix: evidence.matchedMacPrefix,
+    matchedServiceTypes: evidence.matchedServiceTypes,
+  );
 
   /// Whether this guess is specific enough to put a product name in front of a
   /// user. A [MatchConfidence.possible] match is one shared OUI: it says the
@@ -392,15 +506,16 @@ final declaredManufacturerPrefixesProvider =
 /// keep their entry alive by watching it.
 final scanGuessProvider = FutureProvider.autoDispose
     .family<ScanGuess?, ScanIdentity>((ref, identity) async {
-      final codec = ref.watch(specCodecProvider);
+      final catalogue = await ref.watch(specCatalogueProvider.future);
       final identities = await ref.watch(specIdentitiesProvider.future);
       if (identities.isEmpty) return null;
 
       final List<ScanMatch> matches;
       try {
-        matches = await codec.matchScannedDevice(
-          identities: identities,
-          device: ScannedDeviceDto(
+        // Through the catalogue, which holds the identities: only the device
+        // crosses the FFI, not ~200 identities per newly seen device.
+        matches = await catalogue.matchScanned(
+          ScannedDeviceDto(
             name: identity.name,
             serviceUuids: identity.serviceUuids,
             companyIds: Uint16List.fromList(identity.companyIds),
@@ -417,7 +532,7 @@ final scanGuessProvider = FutureProvider.autoDispose
         );
         return null;
       }
-      return ScanGuess.fromMatches(matches);
+      return ScanGuess.fromMatches(matches, identities: identities);
     });
 
 /// A device paired with what the catalogue makes of it.

@@ -13,7 +13,8 @@ import 'package:liberated_bread_mobile/services/radio_codec.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart';
 
-/// LB_LIVE_RADIO=1: the second guard, after the `live_radio` tag.
+/// LB_LIVE_RADIO=1. The only guard on a bare `flutter test`; ./scripts/test.sh
+/// and CI also exclude the `live_radio` tag.
 final bool liveRadioEnabled = Platform.environment['LB_LIVE_RADIO'] == '1';
 
 /// The model LB_LIVE_RADIO_MODEL names, if it names one.

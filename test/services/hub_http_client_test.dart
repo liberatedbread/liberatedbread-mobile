@@ -32,6 +32,13 @@ const _get = HttpRequestDto(
   body: '',
 );
 
+/// What a closed port really raises: ECONNREFUSED in the OSError — the
+/// only failure the BSB001 downgrade may act on.
+final _refused = SocketException(
+  'Connection refused',
+  osError: OSError('Connection refused', Platform.isMacOS ? 61 : 111),
+);
+
 void main() {
   late HubCredentialStore store;
 
@@ -44,9 +51,8 @@ void main() {
     Future<http.Response> Function(http.Request)? plain,
   }) => HubHttpClient(
     credentials: store,
-    secureClientFactory: (_) => MockClient(
-      secure ?? (_) async => throw const SocketException('no 443'),
-    ),
+    secureClientFactory: (_) =>
+        MockClient(secure ?? (_) async => throw _refused),
     plainClientFactory: () =>
         MockClient(plain ?? (_) async => throw const SocketException('no 80')),
   );
@@ -257,5 +263,81 @@ void main() {
     expect(outcomes, hasLength(2));
     expect(outcomes![0].success?['username'], 'u');
     expect(outcomes[1].error?.isLinkButtonNotPressed, isTrue);
+  });
+
+  // ── Only a refused 443 is BSB001 ────────────────────────────────────────
+
+  group('a first-contact failure that is not a refused connect', () {
+    Future<void> expectNoDowngrade(Object failure) async {
+      var plainCalls = 0;
+      final hub = client(
+        secure: (_) async => throw failure,
+        plain: (_) async {
+          plainCalls += 1;
+          return http.Response('{}', 200);
+        },
+      );
+      await expectLater(
+        hub.send('10.0.0.2', _bridgeId, _get),
+        throwsA(isA<HubTransportException>()),
+      );
+      expect(plainCalls, 0, reason: 'the credential must not go out in clear');
+      expect(
+        await store.scheme(_bridgeId),
+        isNull,
+        reason: 'one transient failure must not persist a cleartext scheme',
+      );
+    }
+
+    test('an HTTP-level failure (a server answered) never downgrades', () {
+      // package:http wraps an HttpException as a plain ClientException; it
+      // was converted to a SocketException and read as "no 443 listener".
+      return expectNoDowngrade(
+        http.ClientException(
+          'Connection closed before full header was received',
+        ),
+      );
+    });
+
+    test('a reset never downgrades', () {
+      return expectNoDowngrade(
+        SocketException(
+          'Connection reset by peer',
+          osError: OSError(
+            'Connection reset by peer',
+            Platform.isMacOS ? 54 : 104,
+          ),
+        ),
+      );
+    });
+
+    test('a socket failure with no OS cause never downgrades', () {
+      return expectNoDowngrade(const SocketException('no 443'));
+    });
+  });
+
+  group('a plain-http (BSB001) bridge', () {
+    test('a dropped request is a HubTransportException, like https', () async {
+      // A raw SocketException from the plain path escaped every caller that
+      // handles the https branch's HubTransportException — the pairing
+      // loop's one-dropped-poll tolerance included.
+      await store.saveScheme(_bridgeId, 'http');
+      final hub = client(plain: (_) async => throw _refused);
+      await expectLater(
+        hub.send('10.0.0.2', _bridgeId, _get),
+        throwsA(isA<HubTransportException>()),
+      );
+    });
+
+    test('so is an HTTP-level failure on it', () async {
+      await store.saveScheme(_bridgeId, 'http');
+      final hub = client(
+        plain: (_) async => throw http.ClientException('Invalid response line'),
+      );
+      await expectLater(
+        hub.send('10.0.0.2', _bridgeId, _get),
+        throwsA(isA<HubTransportException>()),
+      );
+    });
   });
 }

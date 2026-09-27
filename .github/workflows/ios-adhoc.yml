@@ -209,14 +209,72 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: \
             -s -k "$KC_PASS" "$KEYCHAIN_NAME"
 
+      # Installed under its UUID into BOTH profile directories: Xcode 16 and
+      # later (the Xcode on macos-latest) reads only
+      # ~/Library/Developer/Xcode/UserData/Provisioning Profiles, and the
+      # legacy ~/Library/MobileDevice one is kept for older Xcodes. Writing it
+      # to the legacy directory alone left the manual export unable to find
+      # the profile by name. scripts/run-ios-device-tests.sh searches the same
+      # two places. The profile's own Name and team are exported so the steps
+      # below never depend on a secret having been typed to match them.
       - name: Install provisioning profile
+        id: profile
         if: steps.signing.outputs.available == 'true'
         env:
           PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$PROFILE_B64" | base64 --decode \
-            > ~/Library/MobileDevice/Provisioning\ Profiles/liberated-bread.mobileprovision
+          set -euo pipefail
+          profile="$RUNNER_TEMP/liberated-bread.mobileprovision"
+          echo "$PROFILE_B64" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/profile.plist"
+          uuid=$(plutil -extract UUID raw -o - "$RUNNER_TEMP/profile.plist")
+          name=$(plutil -extract Name raw -o - "$RUNNER_TEMP/profile.plist")
+          team=$(plutil -extract TeamIdentifier.0 raw -o - \
+            "$RUNNER_TEMP/profile.plist")
+          for dir in \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$profile" "$dir/$uuid.mobileprovision"
+          done
+          echo "Installed profile '$name' ($uuid, team $team)"
+          {
+            echo "uuid=$uuid"
+            echo "team=$team"
+            # Free-form text; a heredoc-style delimiter keeps any character
+            # in it from being read as the end of the value.
+            echo "name<<LB_PROFILE_NAME_EOF"
+            echo "$name"
+            echo "LB_PROFILE_NAME_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # The Runner target sets no CODE_SIGN_STYLE, so `flutter build ipa`
+      # archived under AUTOMATIC development signing on a runner with no Apple
+      # account and only a distribution certificate: the archive failed before
+      # the manual ad-hoc export in ExportOptions-adhoc.plist ever ran. The
+      # manual settings go into the workspace copy of ios/Flutter/Release.xcconfig,
+      # which is the base configuration of Runner's Profile build (the one this
+      # workflow archives) and of nothing else, so the Pods and RunnerTests
+      # targets never see the profile. Runner sets none of these at target
+      # level, so the xcconfig beats the project-level "iPhone Developer"
+      # default. The checked-in project stays on automatic signing for local
+      # development. DEVELOPMENT_TEAM is not set here: Runner pins it at target
+      # level, and the profile must belong to that team anyway.
+      - name: Sign the archive manually with the installed profile
+        if: steps.signing.outputs.available == 'true'
+        env:
+          PROFILE_NAME: ${{ steps.profile.outputs.name }}
+        run: |
+          set -euo pipefail
+          {
+            echo ''
+            echo '// Added by ios-adhoc.yml for the signed CI archive only.'
+            echo 'CODE_SIGN_STYLE = Manual'
+            echo "PROVISIONING_PROFILE_SPECIFIER = $PROFILE_NAME"
+            echo 'CODE_SIGN_IDENTITY = Apple Distribution'
+            echo 'CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Distribution'
+          } >> ios/Flutter/Release.xcconfig
+          cat ios/Flutter/Release.xcconfig
 
       # ios/ExportOptions-adhoc.plist is committed with YOUR_TEAM_ID and
       # "Liberated Bread Ad Hoc" placeholders so neither a real team ID nor one
@@ -229,14 +287,16 @@ jobs:
       - name: Inject team ID and profile name into ExportOptions plist
         if: steps.signing.outputs.available == 'true'
         env:
-          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
-          IOS_PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID || steps.profile.outputs.team }}
+          IOS_PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME || steps.profile.outputs.name }}
         run: |
+          # Both fall back to what the installed profile itself says, so the
+          # IOS_TEAM_ID / IOS_PROFILE_NAME secrets are optional overrides.
           if [[ -n "$IOS_TEAM_ID" ]]; then
             sed -i '' "s/YOUR_TEAM_ID/${IOS_TEAM_ID}/" ios/ExportOptions-adhoc.plist
-            echo "Substituted IOS_TEAM_ID into ios/ExportOptions-adhoc.plist"
+            echo "Substituted the team ID into ios/ExportOptions-adhoc.plist"
           else
-            echo "::warning::IOS_TEAM_ID secret not set — the export will fail unless ios/ExportOptions-adhoc.plist carries a real teamID."
+            echo "::warning::No team ID from IOS_TEAM_ID or the profile — the export will fail unless ios/ExportOptions-adhoc.plist carries a real teamID."
           fi
 
           if [[ -n "$IOS_PROFILE_NAME" ]]; then
@@ -252,9 +312,12 @@ jobs:
               | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
             name_sed=$(printf '%s' "$name_xml" | sed -e 's/[\\|&]/\\&/g')
             sed -i '' "s|Liberated Bread Ad Hoc|${name_sed}|" ios/ExportOptions-adhoc.plist
-            echo "Substituted IOS_PROFILE_NAME into ios/ExportOptions-adhoc.plist"
+            echo "Substituted the profile name into ios/ExportOptions-adhoc.plist"
           else
-            echo "::warning::IOS_PROFILE_NAME secret not set — -exportArchive will fail with \"No profile matching 'Liberated Bread Ad Hoc' found\" unless your Ad Hoc profile carries that exact name."
+            # Not the only possible cause of a "No profile matching" failure
+            # (a profile for another bundle id or team gives the same message),
+            # but the one this step can see.
+            echo "::warning::No profile name from IOS_PROFILE_NAME or the profile — -exportArchive looks for 'Liberated Bread Ad Hoc' and fails unless the installed profile carries that exact name."
           fi
 
       # ── build ──────────────────────────────────────────────────────────────

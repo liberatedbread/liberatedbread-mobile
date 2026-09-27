@@ -10,6 +10,7 @@ import '../core/log.dart';
 import '../services/prefs_settings_store.dart';
 import '../services/settings_store.dart';
 import '../services/spec_pack_service.dart';
+import 'device_spec_provider.dart';
 import 'spec_codec_provider.dart';
 
 /// SharedPreferences-backed store for non-secret settings (the pack URL). Tests
@@ -43,6 +44,13 @@ final specPackServiceProvider = Provider<SpecPackService>((ref) {
         return false;
       }
     },
+    // A pack spec that shadows a bundled one may not weaken its TLS policy
+    // or scheme: stored credentials and pins follow the device, not the
+    // spec. Checked at install and on every cache read.
+    securityFloor: SpecPackService.bundledSecurityFloor(
+      codec: codec,
+      bundledSpecs: () => ref.read(bundledDeviceSpecsProvider.future),
+    ),
   );
 });
 

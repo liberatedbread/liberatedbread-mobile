@@ -63,7 +63,15 @@
 
 set -uo pipefail
 
-cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
+# Resolved BEFORE the cd below. `$(dirname "$0")` after it pointed at the
+# wrong directory whenever the script was started by a relative path from
+# anywhere but the repo root (`./update-specs.sh` from scripts/,
+# `../scripts/update-specs.sh` from lib/): the regen-* sources failed, the run
+# exited 1 after the subtree pull had already committed, and Info.plist was
+# left behind the catalogue. `--help` printed nothing for the same reason.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)" || exit 1
+SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]:-$0}")"
+cd "$SCRIPT_DIR/.." || exit 1
 
 PREFIX="vendor/protocol-specs"
 DEFAULT_REMOTE="https://github.com/liberatedbread/liberatedbread-protocol-specs.git"
@@ -80,7 +88,7 @@ INDEX_PATH="$PREFIX/$INDEX_REL"
 # Print the header's usage block. Deliberately keyed off the "# Usage:" line
 # rather than off line numbers: the previous `sed -n '5,28p'` silently started
 # printing the wrong paragraph the first time anyone added a sentence above it.
-usage() { awk '/^# Usage:/ {p=1} p && /^#/ {sub(/^# ?/, ""); print; next} p {exit}' "$0"; }
+usage() { awk '/^# Usage:/ {p=1} p && /^#/ {sub(/^# ?/, ""); print; next} p {exit}' "$SCRIPT_PATH"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -729,8 +737,8 @@ run_checks || exit 1
 # run-*.sh scripts also regenerate it, so this just makes a bare `update-specs`
 # self-sufficient. See scripts/regen-spec-index.sh.
 # shellcheck source=regen-spec-index.sh
-source "$(dirname "$0")/regen-spec-index.sh"
-regen_spec_index
+source "$SCRIPT_DIR/regen-spec-index.sh" || exit 1
+regen_spec_index || exit 1
 
 # Rewrite the iOS Bonjour allow-list from the catalogue. Unlike the index this
 # output is COMMITTED — it ships in the iOS bundle — so it lands in the working
@@ -738,7 +746,7 @@ regen_spec_index
 # what makes a new Wi-Fi spec discoverable on iOS without anyone remembering to
 # edit a plist. See scripts/regen-bonjour-services.sh.
 # shellcheck source=regen-bonjour-services.sh
-source "$(dirname "$0")/regen-bonjour-services.sh"
+source "$SCRIPT_DIR/regen-bonjour-services.sh" || exit 1
 # `|| exit 1` like every other generated artefact here, and for the reason that
 # function's own header states: this script runs under `set -uo pipefail` with
 # no `-e`, so a bare call discards the status. A malformed spec, a permissions

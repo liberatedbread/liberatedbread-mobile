@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -52,7 +53,18 @@ class SoapControlClient {
   /// eventually) then prints a line no one can act on. During adoption a dozen
   /// different exchanges can time out identically, so the deadline names
   /// itself.
-  Future<http.Response> _bounded(http.Request request, String what) {
+  ///
+  /// The deadline ABORTS the request through its trigger, as
+  /// HttpControlClient's does. A bare `Future.timeout` only abandons the
+  /// future: the request stayed in flight holding a socket until the device
+  /// or the OS gave up, and a Wemo — a handful of worker threads, known to
+  /// crash when hammered — collected one more pending connection per timed-
+  /// out screen poll, group read-back and adoption port probe.
+  Future<http.Response> _bounded(
+    http.AbortableRequest request,
+    Completer<void> abort,
+    String what,
+  ) {
     return () async {
       final streamed = await _http.send(request);
       final bytes = BytesBuilder(copy: false);
@@ -74,10 +86,13 @@ class SoapControlClient {
       );
     }().timeout(
       timeout,
-      onTimeout: () => throw SoapTransportException(
-        '$what timed out after ${timeout.inSeconds}s '
-        '(${request.url})',
-      ),
+      onTimeout: () {
+        if (!abort.isCompleted) abort.complete();
+        throw SoapTransportException(
+          '$what timed out after ${timeout.inSeconds}s '
+          '(${request.url})',
+        );
+      },
     );
   }
 
@@ -95,8 +110,10 @@ class SoapControlClient {
     String path = '/setup.xml',
   }) async {
     final uri = Uri(scheme: 'http', host: host, port: port, path: path);
+    final abort = Completer<void>();
     final response = await _bounded(
-      http.Request('GET', uri),
+      http.AbortableRequest('GET', uri, abortTrigger: abort.future),
+      abort,
       'description fetch',
     );
     if (response.statusCode != 200) {
@@ -135,15 +152,17 @@ class SoapControlClient {
       controlUrl: controlPath,
       urlBase: urlBase,
     );
-    final httpRequest = http.Request('POST', uri)
-      ..headers.addAll({
-        // The quotes in SOAPACTION are part of the value; the DTO carries
-        // them already. Charset spelling is the one the spec publishes.
-        'Content-Type': 'text/xml; charset="utf-8"',
-        'SOAPACTION': request.soapAction,
-      })
-      ..body = request.body;
-    final response = await _bounded(httpRequest, request.action);
+    final abort = Completer<void>();
+    final httpRequest =
+        http.AbortableRequest('POST', uri, abortTrigger: abort.future)
+          ..headers.addAll({
+            // The quotes in SOAPACTION are part of the value; the DTO carries
+            // them already. Charset spelling is the one the spec publishes.
+            'Content-Type': 'text/xml; charset="utf-8"',
+            'SOAPACTION': request.soapAction,
+          })
+          ..body = request.body;
+    final response = await _bounded(httpRequest, abort, request.action);
     final body = decodeDeviceBody(response);
     if (response.statusCode != 200) {
       // UPnP delivers action-level errors as HTTP 500 with a Fault body,

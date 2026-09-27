@@ -386,6 +386,18 @@ class RoombaMqttClient {
   final _state = StreamController<Map<String, String>>.broadcast();
   StreamSubscription<MqttMessage>? _messages;
 
+  /// The tail of the state-decode chain. Each push is decoded after the one
+  /// before it: `Stream.listen` discards an async callback's future, and the
+  /// decode is an FRB call on a worker pool, so two pushes decoded side by
+  /// side could finish out of order and the OLDER document overwrite the
+  /// newer (phase stuck on 'run' after the robot said 'charge'). The same
+  /// shape as MqttSession's byte pump.
+  Future<void> _decodeTail = Future<void>.value();
+
+  /// Bumped per subscription, so a decode still in flight from a session a
+  /// reconnect replaced cannot land after the new session's first push.
+  int _generation = 0;
+
   /// [trust] pins the robot's certificate (see [roombaTlsConnect]); [connect]
   /// replaces the socket entirely and is the test seam.
   RoombaMqttClient({required this._codec, this._connect, this._trust}) {
@@ -487,10 +499,25 @@ class RoombaMqttClient {
     // than the spec's topic names (which shape a given firmware publishes
     // locally is not settled — the spec grades the shadow topic `low`), and
     // the payload is a Roomba state document the codec knows how to flatten.
+    final generation = ++_generation;
+    _decodeTail = Future<void>.value();
     _messages = _session.messages.listen(
-      (message) async {
-        final fields = await _codec.roombaStateFields(payload: message.payload);
-        if (fields.isNotEmpty && !_state.isClosed) _state.add(fields);
+      (message) {
+        _decodeTail = _decodeTail
+            .then((_) async {
+              if (generation != _generation) return;
+              final fields = await _codec.roombaStateFields(
+                payload: message.payload,
+              );
+              if (generation != _generation) return;
+              if (fields.isNotEmpty && !_state.isClosed) _state.add(fields);
+            })
+            // The codec is infallible by design (an unparseable document is
+            // an empty map); only a native panic lands here, and it must not
+            // break the chain for every later push.
+            .catchError((Object e) {
+              Log.hub.warning('roomba state decode failed', error: e);
+            });
       },
       onError: (Object error) {
         if (_state.isClosed) return;
@@ -534,6 +561,8 @@ class RoombaMqttClient {
   ///
   /// Idempotent, and safe to call on a session that never finished connecting.
   Future<void> close() async {
+    // A decode still in flight belongs to the session being closed.
+    _generation++;
     await _messages?.cancel();
     _messages = null;
     await _session.close();

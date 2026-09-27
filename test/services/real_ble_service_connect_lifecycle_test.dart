@@ -32,38 +32,30 @@ void main() {
     service = RealBleService();
   });
 
-  test('disconnect during a pending connect does not wait for it', () async {
-    // fbp's default disconnect(queue: true) waits on the process-wide
-    // "global" mutex, which a pending connect() holds until the peripheral
-    // answers or 15 s pass. So a screen left during "Connecting..." could
-    // not cancel anything, and the next device's connect queued behind the
-    // abandoned one. The emulated peripheral answers after [latency]; a
-    // queued disconnect would take at least that long.
-    const answerAfter = Duration(milliseconds: 1500);
+  test('a release with no claim leaves a pending connect alone', () async {
+    // disconnect() with no claim fell through to fbp's queue-jumping
+    // platform disconnect, which cancels whatever connect is running. A
+    // stale release — an owner whose claim the link-drop watcher had
+    // already expired, or a group run that timed out its own connect —
+    // failed another owner's connect that way. Backing out of a pending
+    // connect is cancelConnect's job, and it checks the connect is the
+    // caller's own. Fails on the old code: the platform disconnect ran and
+    // the pending connect was the one it cancelled.
     ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-    ble.latency = answerAfter;
-    final connecting = service
-        .connect(_bulbId)
-        .then<Object?>((_) => null, onError: (Object e) => e);
-    await Future<void>.delayed(const Duration(milliseconds: 150));
+    ble.latency = const Duration(milliseconds: 300);
+    final connecting = service.connect(_bulbId);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(ble.platformCalls, contains('connect:$_bulbId'));
 
-    final stopwatch = Stopwatch()..start();
     await service.disconnect(_bulbId);
-    stopwatch.stop();
+    expect(ble.platformCalls, isNot(contains('disconnect:$_bulbId')));
 
-    expect(
-      stopwatch.elapsed,
-      lessThan(const Duration(milliseconds: 1000)),
-      reason: 'the cancel must jump the queue the pending connect holds',
-    );
-    expect(ble.platformCalls, contains('disconnect:$_bulbId'));
-
-    // The emulator does not model the cancel, so its connect still lands;
-    // release that link so reset() starts from nothing.
+    // The connect lands with its claim, and its owner's release is the
+    // one that drops the link.
     await connecting;
     ble.latency = Duration.zero;
     await service.disconnect(_bulbId);
+    expect(ble.platformCalls, contains('disconnect:$_bulbId'));
   });
 
   group('cancelConnect', () {
@@ -122,6 +114,80 @@ void main() {
       expect(bulb.isConnected, isTrue);
       await service.disconnect(_bulbId);
       expect(ble.platformCalls, contains('disconnect:$_bulbId'));
+    });
+
+    test('stops a connect still waiting for the adapter to settle', () async {
+      // No platform connect exists yet, so the platform disconnect has
+      // nothing to end — and the attempt used to start one after the
+      // caller had left, holding fbp's global mutex for up to 15 s. Fails
+      // on the old code: the connect reached the platform once the
+      // adapter settled.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      ble.adapterState = EmulatedAdapterState.unknown;
+      final connecting = service
+          .connect(_bulbId)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      await service.cancelConnect(_bulbId);
+      ble.adapterState = EmulatedAdapterState.on;
+
+      expect(await connecting, isA<BleConnectCancelledException>());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(ble.platformCalls, isNot(contains('connect:$_bulbId')));
+    });
+
+    test('stops an Apple reconnect between its two attempts', () async {
+      // A saved device CoreBluetooth has forgotten: the first attempt
+      // fails at once, then a rediscovery scan runs before a second one.
+      // A cancel during that scan found no platform connect to end, and the
+      // second attempt ran after the screen had gone. Fails on the old
+      // code: two platform connects, and the bulb ends up connected.
+      service.isApple = true;
+      appleRediscoveryWindow = const Duration(seconds: 2);
+      addTearDown(() => appleRediscoveryWindow = const Duration(seconds: 6));
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId))
+        ..unknownToSystem = true;
+      final stopwatch = Stopwatch()..start();
+      final connecting = service
+          .connect(_bulbId)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      while (!ble.platformCalls.contains('startScan')) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      await service.cancelConnect(_bulbId);
+
+      expect(await connecting, isA<BleConnectCancelledException>());
+      expect(
+        stopwatch.elapsed,
+        lessThan(const Duration(milliseconds: 1500)),
+        reason: 'the cancel must not wait the rediscovery window out',
+      );
+      expect(
+        ble.platformCalls.where((c) => c == 'connect:$_bulbId'),
+        hasLength(1),
+      );
+      expect(ble.platformCalls, contains('stopScan'));
+      expect(bulb.isConnected, isFalse);
+    });
+
+    test('a later connect to the same device is not cancelled', () async {
+      // The cancel belongs to one attempt: a connect started after it
+      // must run normally.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      ble.adapterState = EmulatedAdapterState.unknown;
+      final first = service
+          .connect(_bulbId)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await service.cancelConnect(_bulbId);
+      ble.adapterState = EmulatedAdapterState.on;
+      expect(await first, isA<BleConnectCancelledException>());
+
+      await service.connect(_bulbId);
+      expect(ble.platformCalls, contains('connect:$_bulbId'));
+      await service.disconnect(_bulbId);
     });
 
     test('does not cancel a connect someone else has queued', () async {

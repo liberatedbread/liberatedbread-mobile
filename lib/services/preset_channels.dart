@@ -47,6 +47,7 @@ const int _gmrsRepeaterOffsetHz = 5000000;
 
 /// MURS, 47 CFR Part 95 subpart J. The first three are narrowband; the last
 /// two may be wide, and are the ones the retail "blister pack" radios use.
+/// All five are [PowerLevel.low]: MURS is limited to 2 W (95.2767).
 const List<({String name, int hz, ChannelMode mode})> _mursChannels = [
   (name: 'MURS 1', hz: 151820000, mode: ChannelMode.nfm),
   (name: 'MURS 2', hz: 151880000, mode: ChannelMode.nfm),
@@ -113,6 +114,10 @@ List<RadioChannel> mursChannels() => [
       name: channel.name,
       rxFreqHz: channel.hz,
       txFreqHz: channel.hz,
+      // MURS is capped at 2 W transmitter output (47 CFR 95.2767). Left at
+      // the default High, a UV-5R-class radio puts 4-8 W on a channel this
+      // list tells unlicensed users is theirs; Low is about 1 W.
+      power: PowerLevel.low,
       mode: channel.mode,
       comment: 'MURS — no licence required',
     ),

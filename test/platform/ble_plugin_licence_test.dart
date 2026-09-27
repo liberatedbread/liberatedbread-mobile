@@ -9,7 +9,6 @@
 // That is a licence boundary, not a preference, and `pub upgrade --major`
 // would cross it silently — so the pin is asserted here rather than left to a
 // comment in pubspec.yaml.
-@Tags(['platform'])
 library;
 
 import 'dart:io';

@@ -44,7 +44,7 @@ void main() {
     ),
     rxTone: noTone(),
     narrow: false,
-    lowPower: false,
+    power: 'high',
     skip: false,
   );
 
@@ -66,6 +66,14 @@ void main() {
       expect(profile, isNotNull, reason: 'no Dart profile for ${model.id}');
       expect(profile!.channelCapacity, model.channelCount, reason: model.id);
       expect(profile.nameLength, model.nameLen, reason: model.id);
+      // The editor offers the profile's levels; the codec writes a level
+      // the model lacks as low. Disagreeing, a Medium picked in the editor
+      // would quietly go out Low, or a real Medium would not be offered.
+      expect(
+        {for (final level in profile.powerLevels) level.wireName},
+        model.powerLevels.toSet(),
+        reason: model.id,
+      );
     }
   });
 
@@ -100,6 +108,18 @@ void main() {
       write.fold<int>(0, (sum, b) => sum + b.len),
       read.fold<int>(0, (sum, b) => sum + b.len),
     );
+  });
+
+  test('a UV-32 has no Bluetooth write plan until a capture', () async {
+    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+    // It was sent the Minis' padded 0x80 frames, writing 0xFF over memory
+    // past each region (0xA2C0-0xA2FF, 0xD040-0xD07F) that nobody reads or
+    // backs up. Refused before anything is sent; reads still work.
+    await expectLater(
+      radioWritePlan(modelId: 'uv-32'),
+      throwsA(predicate((e) => '$e'.contains('Nothing was written'))),
+    );
+    expect(await radioReadPlan(modelId: 'uv-32'), isNotEmpty);
   });
 
   test('an unknown model is an error, not an empty plan', () async {

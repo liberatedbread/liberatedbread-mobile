@@ -44,6 +44,27 @@ void main() {
       expect(tryParseHex('zz'), isNull);
       expect(tryParseHex('01gg'), isNull);
     });
+
+    // Separators split bytes BEFORE digits are paired. The old parser
+    // stripped them first, so '0x1, 0x2' became the single byte 0x12 and
+    // '1 2 3 4' became [0x12, 0x34] -- different bytes on the wire than the
+    // user typed into the raw write console.
+    test('a separator never glues single-digit bytes together', () {
+      expect(tryParseHex('0x1, 0x2'), isNull);
+      expect(tryParseHex('1 2 3 4'), isNull);
+      expect(tryParseHex('0x1,0x2,0x3,0x4'), isNull);
+      expect(tryParseHex('a 0b c'), isNull);
+    });
+
+    test('0x is a prefix only at the start of a token', () {
+      expect(tryParseHex('a0x1'), isNull);
+    });
+
+    test('a token may hold several whole bytes', () {
+      expect(tryParseHex('0x01AA 02'), const [0x01, 0xaa, 0x02]);
+      expect(tryParseHex('0102 03'), const [0x01, 0x02, 0x03]);
+      expect(tryParseHex('0102 3'), isNull);
+    });
   });
 
   group('normalizeUuid', () {

@@ -99,12 +99,3 @@ final rest980ClientProvider = Provider<Rest980Client>((ref) {
   ref.onDispose(client.close);
   return client;
 });
-
-/// Whether the app holds credentials for one robot, by BLID.
-///
-/// autoDispose + family so a screen watching it re-reads after adoption or
-/// after forgetting — callers invalidate it after either.
-final roombaCredentialsProvider = FutureProvider.autoDispose
-    .family<RoombaCredentials?, String>(
-      (ref, blid) => ref.watch(roombaCredentialStoreProvider).credentials(blid),
-    );

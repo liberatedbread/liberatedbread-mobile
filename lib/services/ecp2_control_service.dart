@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 
 import 'http_control_service.dart' show ControlRefusedException;
 import 'spec_codec.dart' show HttpRequestDto;
+import 'ws_connect_deadline.dart';
 
 /// ECP2: the authenticated WebSocket session every Roku also listens on, and
 /// the way through the "Control by mobile apps = Limited" gate that plain ECP
@@ -40,12 +41,19 @@ class Ecp2ControlService {
   /// verified this protocol sent `Origin: Android`; the device takes either,
   /// so both go out.
   static Future<Ecp2Socket> _defaultConnector(String host, int port) async {
+    // A set that completes the upgrade after the deadline is closed, not
+    // leaked with its HttpClient (connectWithinDeadline).
     // ignore: close_sinks — ownership passes to the session, which closes it.
-    final socket = await WebSocket.connect(
-      'ws://$host:$port/ecp-session',
-      protocols: ['ecp-2'],
-      headers: const {'Origin': 'Android', 'Sec-WebSocket-Origin': 'Android'},
-    ).timeout(_timeout);
+    final socket = await connectWithinDeadline(
+      WebSocket.connect(
+        'ws://$host:$port/ecp-session',
+        protocols: ['ecp-2'],
+        headers: const {'Origin': 'Android', 'Sec-WebSocket-Origin': 'Android'},
+      ),
+      _timeout,
+      discard: discardWebSocket,
+      what: 'ecp2 connect',
+    );
     return _WebSocketEcp2Socket(socket);
   }
 
@@ -258,16 +266,25 @@ class Ecp2Session {
     String request,
     Map<String, Object?> params,
   ) {
-    if (_closed) throw const Ecp2Exception('the session is closed');
+    if (_closed) throw const Ecp2NotSentException('the session is closed');
     final id = '${++_nextId}';
     final completer = Completer<({String status, String body})>();
     _pending[id] = completer;
-    _socket.add(jsonEncode({'request': request, 'request-id': id, ...params}));
+    try {
+      _socket.add(
+        jsonEncode({'request': request, 'request-id': id, ...params}),
+      );
+    } catch (e) {
+      // A sink that shut between the check above and the write: the frame
+      // never left, so the caller may send it elsewhere.
+      _pending.remove(id);
+      throw Ecp2NotSentException('$request: the session could not send ($e)');
+    }
     return completer.future.timeout(
       _timeout,
       onTimeout: () {
         _pending.remove(id);
-        throw Ecp2Exception('$request: no answer within $_timeout');
+        throw Ecp2TimeoutException('$request: no answer within $_timeout');
       },
     );
   }
@@ -411,4 +428,20 @@ class Ecp2Exception implements Exception {
   const Ecp2Exception(this.message);
   @override
   String toString() => 'Ecp2Exception: $message';
+}
+
+/// An [Ecp2Exception] thrown BEFORE the request's frame was written — the
+/// session was already closed. The one ECP2 failure after which the same
+/// request may be sent again (over a reopened session or plain ECP) without
+/// risking a key pressed twice: every other failure comes after the frame
+/// reached the device, which may already have acted on it.
+class Ecp2NotSentException extends Ecp2Exception {
+  const Ecp2NotSentException(super.message);
+}
+
+/// The frame was written and no answer came within the session's deadline.
+/// The device may well have acted (a set slow out of deep standby), so this
+/// is never grounds to resend a command.
+class Ecp2TimeoutException extends Ecp2Exception {
+  const Ecp2TimeoutException(super.message);
 }

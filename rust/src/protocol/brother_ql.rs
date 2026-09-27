@@ -47,7 +47,9 @@
 //! label is small. Two-colour rows (`77 …`, QL-800 red layer) do not apply to
 //! this monochrome head.
 
-use super::image_upload::{brightness_mask, printhead_row_bytes, validate_rgb_canvas};
+use super::image_upload::{
+    brightness_mask, image_feature, printhead_row_bytes, validate_rgb_canvas,
+};
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
 
@@ -100,6 +102,21 @@ impl MediaType {
         }
     }
 
+    /// The FALLBACK feed margin for this media kind, used only when the
+    /// spec's `image_upload.media` table has no entry for the loaded media
+    /// (see [`spec_feed_margin_dots`], which wins when it matches). The table
+    /// (transcribed from brother_ql's labels.py) gives every continuous roll
+    /// `feed_margin_dots: 35` and most die-cut labels none, i.e. labels.py's
+    /// default of 0 — but not all: the 12 mm round DK-11219 carries 35.
+    /// Sending 35 on a rectangular die-cut label feeds ~3 mm past where the
+    /// reference client starts, pushing content toward the next label.
+    pub fn default_feed_margin_dots(self) -> u16 {
+        match self {
+            MediaType::Continuous => 35,
+            MediaType::DieCut => 0,
+        }
+    }
+
     fn from_wire(byte: u8) -> Option<MediaType> {
         match byte {
             0x0A => Some(MediaType::Continuous),
@@ -119,13 +136,16 @@ pub struct Media {
     pub length_mm: u8,
 }
 
-/// Print-time options. Defaults: auto-cut on, standard quality, a 35-dot feed
-/// margin (the spec's typical value).
+/// Print-time options. Defaults: auto-cut on, standard quality, and the
+/// media's own feed margin — the spec media table's `feed_margin_dots` for
+/// the loaded roll ([`spec_feed_margin_dots`]), else
+/// [`MediaType::default_feed_margin_dots`] (35 continuous, 0 die-cut).
 #[derive(Clone, Copy, Debug)]
 pub struct JobOptions {
     pub auto_cut: bool,
     pub high_quality: bool,
-    pub margin_dots: u16,
+    /// An explicit feed margin in dots; `None` takes the media's default.
+    pub margin_dots: Option<u16>,
 }
 
 impl Default for JobOptions {
@@ -133,8 +153,36 @@ impl Default for JobOptions {
         JobOptions {
             auto_cut: true,
             high_quality: false,
-            margin_dots: 35,
+            margin_dots: None,
         }
+    }
+}
+
+/// The feed margin the spec's media table gives the loaded roll: the
+/// `image_upload.media` entry whose `media_type_code`, `width_mm` and
+/// `length_mm` (absent = 0, continuous) match `media`. A matching entry with
+/// no `feed_margin_dots` is labels.py's default, 0. `None` when the spec has
+/// no table or no entry matches, so the caller falls back to the per-kind
+/// default. This exists because the per-kind default alone sent 0 on the
+/// 12 mm round die-cut (DK-11219), whose table entry says 35 (labels.py
+/// `d12`, feed_margin=35).
+pub fn spec_feed_margin_dots(spec: &DeviceSpec, media: Media) -> Option<u16> {
+    let table = image_feature(spec)?
+        .extensions
+        .get("media")?
+        .as_sequence()?;
+    let num =
+        |entry: &serde_yaml::Value, key: &str| entry.get(key).and_then(serde_yaml::Value::as_u64);
+    let entry = table.iter().find(|entry| {
+        num(entry, "media_type_code") == Some(u64::from(media.media_type.wire()))
+            && num(entry, "width_mm") == Some(u64::from(media.width_mm))
+            && num(entry, "length_mm").unwrap_or(0) == u64::from(media.length_mm)
+    })?;
+    match entry.get("feed_margin_dots") {
+        None => Some(0),
+        // A malformed margin (not a u16) is no statement about this roll;
+        // fall back rather than send a truncated number.
+        Some(v) => v.as_u64().and_then(|n| u16::try_from(n).ok()),
     }
 }
 
@@ -187,7 +235,11 @@ pub fn encode_print_job(
     }
     out.extend_from_slice(&EXPANDED_CUT_AT_END);
     out.extend_from_slice(&MARGIN);
-    out.extend_from_slice(&options.margin_dots.to_le_bytes());
+    let margin = options
+        .margin_dots
+        .or_else(|| spec_feed_margin_dots(spec, media))
+        .unwrap_or(media.media_type.default_feed_margin_dots());
+    out.extend_from_slice(&margin.to_le_bytes());
 
     // Rows: dark pixel = black dot = bit 1, MSB first, image mirrored L-R so
     // column 0 is the highest bit index, padded white to the head width.
@@ -444,6 +496,95 @@ device:
             .unwrap();
         // flags valid|type|width|length = 0x8E, type 0x0B, width 102, length 51.
         assert_eq!(&out[mq + 3..mq + 7], &[0x8E, 0x0B, 102, 51]);
+    }
+
+    /// Die-cut labels carry no feed margin in the vendored media table
+    /// (brother_ql labels.py default 0), so the default job sends
+    /// `1B 69 64 00 00`; continuous tape keeps 35 (`1B 69 64 23 00`). The
+    /// old media-blind default sent 35 on both.
+    #[test]
+    fn the_feed_margin_follows_the_media_unless_overridden() {
+        let margin_of = |media_type: MediaType, options: JobOptions| {
+            let m = Media {
+                media_type,
+                width_mm: 102,
+                length_mm: if media_type == MediaType::DieCut {
+                    51
+                } else {
+                    0
+                },
+            };
+            let out = encode_print_job(&spec(), &white_row(), 16, 1, m, options).unwrap();
+            let at = out
+                .windows(3)
+                .position(|w| w == [0x1B, 0x69, 0x64])
+                .expect("a margin command");
+            out[at..at + 5].to_vec()
+        };
+        assert_eq!(
+            margin_of(MediaType::DieCut, JobOptions::default()),
+            [0x1B, 0x69, 0x64, 0x00, 0x00]
+        );
+        assert_eq!(
+            margin_of(MediaType::Continuous, JobOptions::default()),
+            [0x1B, 0x69, 0x64, 0x23, 0x00]
+        );
+        let explicit = JobOptions {
+            margin_dots: Some(12),
+            ..JobOptions::default()
+        };
+        assert_eq!(
+            margin_of(MediaType::DieCut, explicit),
+            [0x1B, 0x69, 0x64, 0x0C, 0x00],
+            "an explicit margin still wins"
+        );
+    }
+
+    /// The vendored media table decides the margin, not the media kind: the
+    /// 12 mm round die-cut DK-11219 carries `feed_margin_dots: 35`
+    /// (brother-ql-1110nwb.yaml, labels.py `d12`) so its job sends
+    /// `1B 69 64 23 00`, where the old per-kind default sent `00 00`; the
+    /// 29x90 die-cut DK-11201 has no margin in the table, so `00 00`.
+    #[test]
+    fn the_feed_margin_comes_from_the_vendored_media_table() {
+        let vendored = parse_device_spec(include_str!(
+            "../../../vendor/protocol-specs/device-specs/devices/brother-ql-1110nwb.yaml"
+        ))
+        .unwrap();
+        let margin_of = |width_mm: u8, length_mm: u8, media_type: MediaType| {
+            let m = Media {
+                media_type,
+                width_mm,
+                length_mm,
+            };
+            let rgb = vec![255u8; 8 * 3];
+            let out = encode_print_job(&vendored, &rgb, 8, 1, m, JobOptions::default()).unwrap();
+            let at = out
+                .windows(3)
+                .position(|w| w == [0x1B, 0x69, 0x64])
+                .expect("a margin command");
+            out[at..at + 5].to_vec()
+        };
+        assert_eq!(
+            margin_of(12, 12, MediaType::DieCut),
+            [0x1B, 0x69, 0x64, 0x23, 0x00],
+            "12mm round die-cut (DK-11219) carries 35 in the table"
+        );
+        assert_eq!(
+            margin_of(29, 90, MediaType::DieCut),
+            [0x1B, 0x69, 0x64, 0x00, 0x00],
+            "29x90 die-cut (DK-11201) has no margin in the table"
+        );
+        assert_eq!(
+            margin_of(62, 0, MediaType::Continuous),
+            [0x1B, 0x69, 0x64, 0x23, 0x00],
+            "62mm continuous (DK-22205) is 35"
+        );
+        // A size the table does not list falls back to the per-kind default.
+        assert_eq!(
+            margin_of(13, 13, MediaType::DieCut),
+            [0x1B, 0x69, 0x64, 0x00, 0x00]
+        );
     }
 
     #[test]

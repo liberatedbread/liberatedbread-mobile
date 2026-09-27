@@ -18,9 +18,11 @@
 //! `lifx_lan_protocol` block, so this asserts the two match — a spec that
 //! renumbers a message fails the build.
 //!
-//! The fixture is a verbatim copy of the upstream spec, like every other file
-//! under `tests/specs/`, and is ahead of `vendor/protocol-specs` until the next
-//! subtree pull.
+//! The spec is read from the vendored catalogue, the file the app ships. It
+//! used to be a copy under `tests/specs/` that claimed to lead upstream; the
+//! subtree moved past it, and the test went on proving the control path
+//! against YAML no build loads, where a vendor change that broke it would
+//! have gone unnoticed.
 
 use std::collections::HashMap;
 
@@ -30,7 +32,7 @@ use liberated_bread_core::api::device_api::{
 use liberated_bread_core::protocol::lifx::{self, msg, Hsbk};
 use liberated_bread_core::spec::parser::parse_device_spec;
 
-const LIFX: &str = include_str!("specs/lifx-z.yaml");
+const LIFX: &str = include_str!("../../vendor/protocol-specs/device-specs/devices/lifx-z.yaml");
 const TARGET_MAC: &str = "d0:73:d5:aa:bb:cc";
 const TARGET: [u8; 6] = [0xd0, 0x73, 0xd5, 0xaa, 0xbb, 0xcc];
 

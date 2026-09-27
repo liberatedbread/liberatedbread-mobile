@@ -23,6 +23,21 @@
 	<true/>
 	<key>com.apple.security.device.bluetooth</key>
 	<true/>
+	<!-- The Radio tab's USB cable path (DesktopSerialPortService) opens
+	     /dev/cu.* directly through the Rust serialport crate. The App Sandbox
+	     denies that open() without this key, so the cable is listed (IOKit
+	     enumeration still works) and every open fails with a message that
+	     blames "another program". test/platform/macos_entitlements_test.dart
+	     pins it in both files. -->
+	<key>com.apple.security.device.serial</key>
+	<true/>
+	<!-- "Suggest channels near me" asks geolocator for a position. Under the
+	     sandbox CoreLocation refuses an app without this key, silently: the
+	     request reads as denied and the app never appears in System Settings >
+	     Location Services. Info.plist's NSLocationUsageDescription is the
+	     other half. -->
+	<key>com.apple.security.personal-information.location</key>
+	<true/>
 	<!-- Required by flutter_secure_storage 9.x under the App Sandbox: without a
 	     keychain-access-groups entitlement (an empty array is enough — it makes
 	     the app use its own default access group) every SecItem* call fails with

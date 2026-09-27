@@ -316,4 +316,28 @@ void main() {
       );
     },
   );
+
+  test('a send the OS refuses reads as "could not reach", at once', () async {
+    // Exercises the REAL default reply stream. A socket bound without
+    // broadcastEnabled that sends to the limited broadcast address is
+    // refused (EACCES on macOS and Linux) — the stand-in for EHOSTUNREACH
+    // with iOS Local Network off. dart:io never throws that from send(): it
+    // arrives on the socket stream a microtask later. With no onError it was
+    // an uncaught zone error (which fails this test) and the dead socket sat
+    // out every window: 6 s, then "did not answer".
+    final c = RabbitAirControlClient(codec, random: Random(7));
+    final rendered = await request(c);
+    final clock = Stopwatch()..start();
+    await expectLater(
+      c.send('255.255.255.255', 9009, rendered, userKey: key),
+      throwsA(
+        isA<RabbitAirControlException>().having(
+          (e) => e.message,
+          'message',
+          contains('could not reach'),
+        ),
+      ),
+    );
+    expect(clock.elapsed, lessThan(RabbitAirControlClient.timeout));
+  });
 }

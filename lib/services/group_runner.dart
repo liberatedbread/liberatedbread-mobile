@@ -9,6 +9,7 @@ import '../core/log.dart';
 import '../core/stop_signal.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/network_device.dart';
+import 'ble_connect_within.dart';
 import 'ble_service.dart';
 import 'json_fields.dart';
 import 'network_command_sender.dart';
@@ -137,14 +138,22 @@ class GroupRunner {
 
   /// A belt over [BleService.connect]'s own internal 15s timeout, so a
   /// platform call that never returns cannot wedge the whole run.
-  static const connectTimeout = Duration(seconds: 20);
+  static const defaultConnectTimeout = Duration(seconds: 20);
   static const discoverTimeout = Duration(seconds: 10);
 
   /// Per read/write. Generous for one GATT round trip; short enough that a
   /// dead link fails one member, not the evening.
   static const ioTimeout = Duration(seconds: 8);
 
-  GroupRunner({required this._ble, required this._codec, this._resolveSpec});
+  /// [defaultConnectTimeout] unless a test shortens it.
+  final Duration connectTimeout;
+
+  GroupRunner({
+    required this._ble,
+    required this._codec,
+    this._resolveSpec,
+    this.connectTimeout = defaultConnectTimeout,
+  });
 
   Stream<GroupRunEvent> run(
     GroupOp op,
@@ -187,8 +196,12 @@ class GroupRunner {
       );
 
       GroupRunEvent result;
+      // Whether this member's connect resolved, i.e. whether the run holds
+      // a claim to release. See connectWithin for the connect it times out.
+      var connected = false;
       try {
-        await _ble.connect(member.id).timeout(connectTimeout);
+        await connectWithin(_ble, member.id, connectTimeout);
+        connected = true;
         yield GroupRunEvent(
           deviceId: member.id,
           status: GroupDeviceStatus.discovering,
@@ -245,7 +258,13 @@ class GroupRunner {
       } finally {
         // Also reached when the listener cancels mid-member: async* runs
         // enclosing finally blocks on cancel, so no connection outlives a run.
-        await _ble.disconnect(member.id).catchError((Object _) {});
+        //
+        // Only with a claim: a release for a connect that never resolved
+        // found no claim and made the platform disconnect, which cancelled
+        // whichever connect was running — another owner's included.
+        if (connected) {
+          await _ble.disconnect(member.id).catchError((Object _) {});
+        }
       }
       yield result;
     }

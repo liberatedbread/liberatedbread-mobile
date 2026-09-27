@@ -8,123 +8,34 @@ is tracked in the app-side audit notes, which are kept out of this repo.
 Found by the 2026-09-15 review (one reader dedicated to the vendored catalogue against `rust/src/spec` and `rust/src/protocol`,
 plus the finders' incidental spec notes). Verified items were put to an adversarial second reader; the rest are single-reader leads.
 
-**5 verified, 10 unverified.**
+**Open: 2 verified, 9 unverified.** Five more were delivered upstream; see
+below.
+
+## Delivered by the 2026-09-26 catalogue refresh
+
+Closed here on 2026-09-27 against the vendored tree; each line names what
+resolves it, so nobody reopens them as upstream PRs.
+
+- **R-141 / R-214** (xkglow-chrome `set_rgb_color` declared both `value` and
+  `template`) — `set_rgb_color` is template-only (its description notes the
+  "previous revision" that also carried a fixed `value`), `zone` has
+  `default: 0`, and fixed `turn_on_white` / `turn_off_black` commands exist;
+  the light entity binds `turn_on: turn_on_white`, `turn_off: turn_off_black`,
+  `set_color: set_rgb_color` (xkglow-chrome.yaml ~245-300, 368-370). Still
+  open as an idea: a schema rule forbidding `value` and `template` on one
+  command.
+- **R-151** (magic-home-zengge-wifi `auto: "sum_checksum"`) — now
+  `auto: "checksum"` (magic-home-zengge-wifi.yaml:237).
+- **R-213** (yeelight-cube-lamp claimed `_miio._udp` unnarrowed) — the spec
+  declares no `mdns_service_type`, deliberately (yeelight-cube-lamp.yaml:82).
+- **R-223** (three popled_json specs tied on `local_name_prefix: "YS"`) —
+  only autobaba-led-backpack.yaml:47 declares the YS/TL family fallback;
+  led-space matches on its Wi-Fi `ssid_prefix` and nyan-bt-image-controller
+  documents the tie instead of matching on it.
+- **R-192, half of it** — bambu-lab-lan.yaml:163 now declares
+  `transport_security: "tls"`; hisense-vidaa.yaml still does not (below).
 
 ## Verified
-
-### R-141 — Command declaring both `value` and `template` is accepted; `value` silently wins so xkglow set_rgb_color shows live sliders that are ignored and loses its set_color role
-
-`rust/src/spec/parser.rs:84` · **medium** · spec-upstream · found by rust-spec · verified by 1 adversarial reader
-
-**Evidence.**
-
-`validate_spec` (parser.rs:84-124) never rejects a command with both
-envelopes. `encode_command_with_bytes` returns `value` first (`if let Some(ref
-value) = command.value { return pad_to_fixed_length(value.clone(), command);
-}`, codec/types.rs:470) and `qualify` treats it as fixed (`if
-command.value.is_some() || command.payload_bytes().is_some()`,
-bindings.rs:807). xkglow-chrome.yaml:245-266 declares `set_rgb_color` with
-`value: [0x00,0x00,0x04,0xFF,0x00,0x00]` AND `template: [0x00, "{zone}", 0x04,
-"{red}", "{green}", "{blue}"]` plus four parameters, and its light entity
-binds both `turn_on: set_rgb_color` and `set_color: set_rgb_color` (xkglow-
-chrome.yaml:335-336).
-
-**Scenario.**
-
-The light entity resolves `turn_on` (sends red to zone 0) but `set_color` is
-dropped because the command is 'fixed' and needs user input; in the raw
-browser `set_rgb_color` shows as a fixed 'Set solid RGB colour' button that
-always writes red, ignoring zone/red/green/blue.
-
-**Fix.**
-
-App side (rust/src/spec/parser.rs validate_spec): reject a command that
-declares both `value` and `template` (or `value` plus `parameters`) with a new
-SpecError, or at minimum log a warning and let `template` win in
-encode_command_with_bytes when parameters are declared. Also add a test
-fixture with both envelopes so the choice is pinned. Upstream (xkglow-
-chrome.yaml): remove `value` from `set_rgb_color`, add `default: 0` to `zone`
-so the templated command qualifies for `set_color`, and add a separate fixed
-`turn_on` command (e.g. value [0x00,0x00,0x04,0xFF,0xFF,0xFF]) for the
-entity's `turn_on` binding. Consider a schema.json `not: {required: [value,
-template]}` on the BLE command block so upstream CI catches the next one.
-
-**Verifier's note.**
-
-Every literal claim checks out on this branch. `validate_spec`
-(rust/src/spec/parser.rs:84-124) only checks format fields, duplicate names,
-parameter validity and `validate_template_references`; nothing rejects or
-warns when a command carries both `value` and `template`, and the `Command`
-struct (rust/src/spec/types.rs:1770) is a plain serde derive with both as
-independent `Option`s. `encode_command_with_bytes`
-(rust/src/codec/types.rs:470) returns `pad_to_fixed_length(value)` before ever
-looking at `template` or `params`, and the FFI `encode_command`
-(device_api.rs:4500) routes the raw browser's params into that same encoder,
-so supplied zone/red/green/blue are discarded. `qualify` (bindings.rs:807)
-treats `value.is_some()` as a fixed envelope and returns None for any role
-that `needs_user_input()`, so `set_color` is dropped while `turn_on` resolves.
-The vendored xkglow-chrome.yaml:245-266 does declare both envelopes plus four
-parameters, the light entity binds `turn_on` and `set_color` to it (lines
-335-336), and the spec is in the shipped index (device-specs/index.json:7036)
-which pubspec bundles. The upstream schema.json's command block has no
-oneOf/not rule for value vs templat
-
-### R-214 — xkglow-chrome set_rgb_color declares both `value` and `template`; the encoder sends the fixed bytes so the zone/RGB controls in the raw command browser do nothing
-
-`vendor/protocol-specs/device-specs/devices/xkglow-chrome.yaml:248` · **medium** · spec-upstream · found by spec-vs-code · verified by 1 adversarial reader
-
-**Evidence.**
-
-xkglow-chrome.yaml:245-266: `set_rgb_color: value: [0x00, 0x00, 0x04, 0xFF,
-0x00, 0x00]` AND `template: [0x00, "{zone}", 0x04, "{red}", "{green}",
-"{blue}"]` with four uint8 parameters. `encode_command_with_bytes` returns
-`value` first (rust/src/codec/types.rs:470-472) before ever looking at the
-template; `CommandDto::from` still lists all four parameters
-(device_api.rs:1339-1349) with `is_fixed: true, is_encodable: true`; the typed
-command widget draws a control for every user-settable parameter regardless of
-isFixed (lib/widgets/typed_command_widget.dart:373-374). bindings.rs:2136-2138
-already notes the conflict. The parser accepts the pair without complaint
-(parser.rs validate_spec has no value/template exclusivity rule).
-
-**Scenario.**
-
-On an XKGLOW Chrome controller the raw command browser shows
-zone/red/green/blue sliders for set_rgb_color; whatever the user picks, Send
-writes 00 00 04 FF 00 00 (zone 0, pure red). The light entity's set_color role
-is (correctly) refused by qualify(), so there is no colour picker either.
-
-**Fix.**
-
-Upstream (vendor/protocol-specs, via the subtree workflow, not a local edit):
-delete the `value:` line from set_rgb_color so the template is the command.
-App side: add a value/template exclusivity check to `validate_spec` in
-rust/src/spec/parser.rs (next to `validate_template_references`) so a spec
-that declares both is rejected at load, and/or make `CommandDto::from` in
-rust/src/api/device_api.rs emit an empty `parameters` list when `is_fixed` so
-lib/widgets/typed_command_widget.dart cannot draw controls the encoder
-ignores. Add a codec test asserting the chosen behaviour for a command
-declaring both.
-
-**Verifier's note.**
-
-Every link in the chain is literally true on this branch. (1) vendor/protocol-
-specs/device-specs/devices/xkglow-chrome.yaml:245-266 declares `set_rgb_color`
-with BOTH `value: [0x00,0x00,0x04,0xFF,0x00,0x00]` and `template:
-[0x00,"{zone}",0x04,"{red}","{green}","{blue}"]` plus four uint8 params with
-no auto/default/source. (2) rust/src/codec/types.rs:470-472
-`encode_command_with_bytes` returns `pad_to_fixed_length(value)` before the
-template is ever consulted, so the params are ignored. (3)
-rust/src/api/device_api.rs:1325-1349 builds CommandDto with `is_fixed:
-cmd.value.is_some()` and still emits every parameter;
-rust/src/spec/types.rs:2176 `is_user_settable` is only `auto/default/source`
-all None, so all four params come across as userSettable. (4)
-lib/widgets/typed_command_widget.dart:172 seeds and :373-374 draws a control
-for every userSettable param; the only use of `isFixed` in that widget (:414)
-just changes the button label.
-lib/widgets/typed_characteristic_widget.dart:38-47 routes to
-TypedCommandWidget whenever any command is encodable and the char is writable,
-which holds here. (5) The widget's `_send` (:262) calls `codec.encodeCommand`,
-which is the Rust encoder above. (6)
 
 ### R-216 — sony-bravia and divoom-pixoo `state_command` names resolve to no endpoint or command; Sony's JSON-RPC state reads also need a POST body the http renderer drops
 
@@ -253,66 +164,12 @@ of `parse_rules`/service data in rust/src or lib), so the spec's advertisement
 table does not rescue the entities. (6) Re-ran the programmatic pass: exactly
 17 specs, 42 entities, matching the re
 
-### R-213 — yeelight-cube-lamp claims _miio._udp unnarrowed, so every miIO device ties Strong with the Xiaomi platform spec and shows as a nameless 'Supported device'
-
-`vendor/protocol-specs/device-specs/devices/yeelight-cube-lamp.yaml:87` · **low** · spec-upstream · found by spec-vs-code · verified by 1 adversarial reader
-
-**Evidence.**
-
-yeelight-cube-lamp.yaml:87 `mdns_service_type: "_miio._udp.local."` and its
-discovery method declares `_miio._udp.local.` with an `identity_mapping` but
-no `txt_match`; xiaomi-miio.yaml declares the same type with
-`platform_fallback: true`. `_miio._udp` is deliberately NOT in
-`is_shared_service_type` (rust/src/api/device_api.rs:4303-4318: "yeelight-
-cube-lamp also claims the type unnarrowed, so a vacuum comes back badged as a
-lamp ... Filed upstream rather than papered over here"). Because the type is
-non-shared, `match_network_axes` puts it in `service_types` and `confidence()`
-returns Strong; the platform spec stands aside only for a *narrowed* claimant,
-and yeelight-cube-lamp is not narrowed. This is not tracked in
-the app-side audit notes.
-
-**Scenario.**
-
-A Roborock S7 or Xiaomi air purifier advertising _miio._udp is listed on the
-Wi-Fi tab as a Strong 'Yeelight Cube Lamp' ahead of the honest 'Xiaomi miIO
-device' platform entry, with the lamp's controls offered.
-
-**Fix.**
-
-Upstream (vendor/protocol-specs is a subtree): on yeelight-cube-lamp.yaml's
-`_miio._udp.local.` discovery method add `txt_match: [{key: model, match:
-prefix, value: yeelink.light}]` (or the confirmed cube model prefix once
-hardware fills it in), or drop the mDNS claim and rely on the `yeelight-lan`
-probe / `wifi_bulb` SSDP target the spec already declares. Once the cube
-narrows the type, the existing fallback_ok rule makes xiaomi-miio stand aside
-for real cubes and win cleanly for everything else. No app-side code change;
-optionally add a matcher test with two identities (platform fallback +
-unnarrowed product on a non-shared type) pinning the tie-break so a catalogue
-reorder cannot flip which name wins.
-
-**Verifier's note.**
-
-The spec-level facts are literally true on this branch: vendor/protocol-
-specs/device-specs/devices/yeelight-cube-lamp.yaml:87 sets
-identification.mdns_service_type to `_miio._udp.local.` and its discovery mdns
-method (lines 98-111) declares the same type with an identity_mapping and no
-txt_match; xiaomi-miio.yaml (lines 68-78) claims the same type with
-`platform_fallback: true`; `_miio._udp` is deliberately absent from
-is_shared_service_type (rust/src/api/device_api.rs:4291-4330, with a comment
-that names this exact defect and says it was "filed upstream"). In
-match_network_axes (4123-4200) a non-shared type lands in `service_types`, so
-confidence() (3707) returns Strong for BOTH specs; `fallback_ok` only makes
-the platform stand aside when another spec NARROWED the type (narrowed_types,
-4405-4419), and `platform_fallback_match` only fires for shared types (4193),
-so the platform flag is inert here. So a Roborock/purifier advertising
-`_miio._udp` produces two Strong matches.  The claimed user-visible
-consequence, however, is not what the code does. rank_matches (4462-4469)
-breaks a Strong/Strong tie on volunteered-identifier count (1 each) and then
-on spec_index, and the catalogue
-
 ## Unverified leads
 
-### R-192 — hisense-vidaa.yaml and bambu-lab-lan.yaml declare an MQTT broker without mqtt.transport_security, so the app infers TLS from the port number
+### R-192 — hisense-vidaa.yaml declares an MQTT broker without mqtt.transport_security, so the app infers TLS from the port number
+
+(Narrowed 2026-09-27: bambu-lab-lan.yaml now declares `transport_security:
+"tls"`. The evidence below is as first reported.)
 
 `lib/services/mqtt_session.dart:142` · **low** · spec-upstream · found by ios-native-and-boundary · unverified (low; reported by one reader)
 
@@ -338,7 +195,7 @@ level fix available.
 **Fix.**
 
 Upstream in liberatedbread-protocol-specs: add `mqtt.transport_security:
-"tls"` to hisense-vidaa.yaml and bambu-lab-lan.yaml (and make the schema
+"tls"` to hisense-vidaa.yaml (and make the schema
 require it for every mqtt block); then drop mqttConnectorFor's port heuristic
 here once the catalogue is complete.
 
@@ -378,28 +235,6 @@ set_density/set_paper_type/enable/stop; write_badge_data `modes:`;
 `framing.max_chunk_size` on 0xFA02; `channel_tag`/role on WRITE2;
 `frame_header_defaults`). Here: resolve by name and fall back to the constants
 only for pre-key packs, as daniao.rs already does.
-
-### R-223 — Three popled_json specs (autobaba-led-backpack, led-space, nyan-bt-image-controller) declare the identical local_name_prefix "YS" and service 0xFFF0, so every YS* device ties three ways
-
-`vendor/protocol-specs/device-specs/devices/autobaba-led-backpack.yaml:40` · **low** · spec-upstream · found by spec-vs-code · unverified (low; reported by one reader)
-
-**Evidence.**
-
-autobaba-led-backpack.yaml:40, led-space.yaml:60 and nyan-bt-image-
-controller.yaml:44 all set `local_name_prefix: "YS"`, all list `0000fff0-...`
-in service_uuids and all declare `protocol_handler: popled_json`.
-`rank_matches` sorts by confidence then volunteered-count then spec index, so
-the tie is broken by catalogue order and the Dart side reports needsChoice.
-
-**Scenario.**
-
-Any YS-prefixed LED panel prompts the user to pick between three identically-
-matched specs on every scan.
-
-**Fix.**
-
-Upstream: merge into one `popled` family spec with `variants`, or narrow each
-with `discovery.methods[].ble.local_name` regexes on the model suffix.
 
 ### R-219 — Twelve SPEC-GAP comments: cat-printer, fichero-d11, idotmatrix, led-name-badge and magic-display protocol facts live only in prose or in Rust constants, not in the spec's command templates
 
@@ -520,37 +355,6 @@ with `path`/frame), the Tuya heartbeat a `body`, and move the soil-tester's
 BLE commands onto the 2b11 characteristic's `commands:`; schema-side, require
 `path`+`method` when transport is http and `body` when tcp-json.
 
-### R-151 — magic-home-zengge-wifi declares `auto: "sum_checksum"`, a role no schema vocabulary or encoder knows
-
-`vendor/protocol-specs/device-specs/devices/magic-home-zengge-wifi.yaml:234` · **low** · spec-upstream · found by rust-codec · unverified (low; reported by one reader)
-
-**Evidence.**
-
-`checksum: {type: uint8, auto: "sum_checksum", description: "(sum of preceding
-bytes) & 0xFF; encoder-filled."}` on the top-level `set_color` command (`body:
-"31 {red} {green} {blue} {white} F0 0F {checksum}"`). The schema's only `auto`
-enum is `[sequence, packet_length, checksum, xor_checksum, crc16_modbus]`
-(schema.json, services/.../parameters) — the additive role is spelled
-`checksum`, and no `auto` key exists on network command parameters at all. The
-Rust `SpecCommandParameter` (spec/types.rs:469-497) sweeps the key into
-`extensions`, `AutoRole` (spec/types.rs:2084) has no such variant, and
-`resolve_parameter` (protocol/mod.rs:114-137) will report
-`ParameterMissing(set_color.checksum)` for a value the spec says the encoder
-fills. The catalogue's other 16 additive checksums use `auto: "checksum"`.
-
-**Scenario.**
-
-Any consumer that renders `set_color` from this spec either fails with a
-missing `checksum` parameter or asks the user for a checksum byte; the frame
-can never be sent correctly from spec data alone.
-
-**Fix.**
-
-Upstream (liberatedbread-protocol-specs): change to `auto: "checksum"` with
-`checksum_start: 0` (the frame sums from byte 0), and extend the network-
-parameter schema with the same `auto` enum so the validator catches the next
-misspelling. Locally, nothing to change beyond refreshing the subtree.
-
 ### R-222 — Four ONVIF camera specs claim the identical SSDP target urn:schemas-onvif-org:service:Media, which ONVIF devices do not announce over SSDP, so the target is both dead and ambiguous
 
 `vendor/protocol-specs/device-specs/devices/onvif.yaml:75` · **low** · spec-upstream · found by spec-vs-code · unverified (low; reported by one reader)
@@ -651,14 +455,11 @@ every press still goes out unauthenticated.
 
 ## App-side status of the verified items (2026-09-16)
 
-- **R-141 / R-214 (xkglow-chrome `set_rgb_color`)** — the app now lets
+- **R-141 / R-214 (xkglow-chrome `set_rgb_color`)** — the app lets
   `template` win when a command declares both, so the zone/RGB sliders work.
-  Consequence: the light entity's `turn_on` role, which the fixed `value`
-  bytes used to serve, no longer resolves because `zone` has no default.
-  Upstream: delete `value:` from `set_rgb_color`, add `default: 0` to `zone`
-  (so `set_color` qualifies), add a separate fixed `turn_on` command for the
-  entity, and consider a schema rule that forbids `value` and `template` on
-  one command.
+  Upstream has since delivered the rest (see "Delivered by the 2026-09-26
+  catalogue refresh" above): the light entity's `turn_on` resolves through
+  the fixed `turn_on_white` command, so nothing here is outstanding.
 - **R-211 (hisense-vidaa)** — its only identification axis is the shared
   `MediaRenderer:1`, which the matcher now treats like a SIG-assigned UUID
   (reported, never promoting), so the spec matches nothing on the network scan

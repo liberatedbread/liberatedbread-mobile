@@ -75,7 +75,7 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
             .as_ref()
             .and_then(|v| coerce_mock_default(v, &field.field_type))
         {
-            write_value(slice, val, &field.field_type);
+            write_value(slice, val, &field.field_type, field.is_big_endian());
             continue;
         }
 
@@ -122,7 +122,7 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
             | (ValueType::Bytes | ValueType::String, _) => None,
         };
         if let Some(val) = heuristic {
-            write_value(slice, val, &field.field_type);
+            write_value(slice, val, &field.field_type, field.is_big_endian());
         }
     }
 
@@ -149,8 +149,8 @@ fn coerce_mock_default(val: &serde_yaml::Value, ty: &ValueType) -> Option<i64> {
     }
 }
 
-/// Write `val` into the low bytes of `slice`, honoring the byte width and
-/// little-endian layout of `ty`.
+/// Write `val` into the low bytes of `slice`, honoring the byte width of `ty`
+/// and the field's declared byte order.
 ///
 /// `slice` is the field's full `length` extent and may legally be *longer*
 /// than the type's fixed width — the parser deliberately tolerates over-long
@@ -161,18 +161,50 @@ fn coerce_mock_default(val: &serde_yaml::Value, ty: &ValueType) -> Option<i64> {
 /// code is reachable from Dart via `mock_read_characteristic` on remote
 /// spec-pack YAML (H1). `slice` is never *shorter* than the fixed width: the
 /// parser rejects that at load time (`FieldLengthMismatch`).
-fn write_value(slice: &mut [u8], val: i64, ty: &ValueType) {
+///
+/// `big_endian` is `FormatField::is_big_endian`, the same flag `decode_field`
+/// reads with. Writing little-endian regardless demoed the Beurer cuff's
+/// big-endian `systolic_sfloat` (a plausible 100) as 25600 mmHg: the mock
+/// encoded one order and the decoder read the other.
+fn write_value(slice: &mut [u8], val: i64, ty: &ValueType, big_endian: bool) {
+    fn put<const N: usize>(slice: &mut [u8], le: [u8; N], be: [u8; N], big: bool) {
+        slice[..N].copy_from_slice(if big { &be } else { &le });
+    }
     match ty {
         ValueType::Bool => slice[0] = if val == 0 { 0 } else { 1 },
         ValueType::Uint8 => slice[0] = val as u8,
         ValueType::Int8 => slice[0] = val as i8 as u8,
-        ValueType::Uint16 => slice[..2].copy_from_slice(&(val as u16).to_le_bytes()),
-        ValueType::Int16 => slice[..2].copy_from_slice(&(val as i16).to_le_bytes()),
-        ValueType::Int32 => slice[..4].copy_from_slice(&(val as i32).to_le_bytes()),
-        ValueType::Uint32 => slice[..4].copy_from_slice(&(val as u32).to_le_bytes()),
-        // The low three bytes of the little-endian encoding — the same
-        // widen-and-drop the codec's own emitter does.
-        ValueType::Uint24 => slice[..3].copy_from_slice(&(val as u32).to_le_bytes()[..3]),
+        ValueType::Uint16 => {
+            let v = val as u16;
+            put(slice, v.to_le_bytes(), v.to_be_bytes(), big_endian)
+        }
+        ValueType::Int16 => {
+            let v = val as i16;
+            put(slice, v.to_le_bytes(), v.to_be_bytes(), big_endian)
+        }
+        ValueType::Int32 => {
+            let v = val as i32;
+            put(slice, v.to_le_bytes(), v.to_be_bytes(), big_endian)
+        }
+        ValueType::Uint32 => {
+            let v = val as u32;
+            put(slice, v.to_le_bytes(), v.to_be_bytes(), big_endian)
+        }
+        // The low three bytes of the value — the same widen-and-drop the
+        // codec's own emitter (`append_typed`) does. Big-endian, those are
+        // the LAST three bytes of the u32's big-endian encoding, not the
+        // first.
+        ValueType::Uint24 => {
+            let v = val as u32;
+            let le = v.to_le_bytes();
+            let be = v.to_be_bytes();
+            put(
+                slice,
+                [le[0], le[1], le[2]],
+                [be[1], be[2], be[3]],
+                big_endian,
+            )
+        }
         // mock_default is ignored for these (variable/opaque width).
         ValueType::Varint | ValueType::Bytes | ValueType::String => {}
     }
@@ -243,7 +275,7 @@ fn nominal_for(field: &FormatField) -> f64 {
 
 /// Invert a spec's transform to get the raw count a device would report for
 /// `physical`: `raw = (physical - offset) / scale`, the inverse of
-/// `FormatField::apply_transform`. A non-positive or non-finite scale is
+/// [`crate::codec::number::apply_transform`]. A non-positive or non-finite scale is
 /// meaningless as a divisor, so the physical value passes through unchanged
 /// rather than producing an infinity.
 fn raw_for_physical(physical: f64, scale: f64, offset: f64) -> i64 {
@@ -456,6 +488,56 @@ mod tests {
         }];
         // 1234 = 0x04D2, little-endian = [0xD2, 0x04]
         assert_eq!(generate_defaults(&fields), vec![0xD2, 0x04]);
+    }
+
+    /// A big-endian field is mocked in big-endian order, so the value the
+    /// simulator chose is the value `decode_field` reads back. Before, every
+    /// width was written little-endian: 1234 read back as 0xD204 = 53764.
+    #[test]
+    fn big_endian_fields_round_trip_through_decode_field() {
+        use crate::codec::types::{decode_field, DecodedValue};
+        let big = |name: &str, ty: ValueType, length: usize, default: Option<i64>| FormatField {
+            offset: 0,
+            length,
+            name: name.into(),
+            field_type: ty,
+            endianness: Some("big".into()),
+            mock_default: default.map(|d| serde_yaml::Value::Number(d.into())),
+            ..Default::default()
+        };
+        let pinned = big("lux", ValueType::Uint16, 2, Some(1234));
+        assert_eq!(
+            generate_defaults(std::slice::from_ref(&pinned)),
+            vec![0x04, 0xD2]
+        );
+
+        let uint24 = big("count", ValueType::Uint24, 3, Some(0x0A0B0C));
+        assert_eq!(
+            generate_defaults(std::slice::from_ref(&uint24)),
+            vec![0x0A, 0x0B, 0x0C]
+        );
+
+        // The heuristic path too: the Beurer cuff's `systolic_sfloat` shape.
+        let heuristic = big("systolic_sfloat", ValueType::Uint16, 2, None);
+        let int16 = big("t", ValueType::Int16, 2, Some(-300));
+        let int32 = big("e", ValueType::Int32, 4, Some(-70000));
+        let uint32 = big("u", ValueType::Uint32, 4, Some(3_000_000_000));
+        for (field, want) in [
+            (&pinned, 1234.0),
+            (&uint24, f64::from(0x0A0B0Cu32)),
+            (&heuristic, 100.0),
+            (&int16, -300.0),
+            (&int32, -70000.0),
+            (&uint32, 3_000_000_000.0),
+        ] {
+            let bytes = generate_defaults(std::slice::from_ref(field));
+            let got = match decode_field(&bytes, field).unwrap() {
+                DecodedValue::Uint(v) => v as f64,
+                DecodedValue::Int(v) => v as f64,
+                other => panic!("{}: unexpected {other:?}", field.name),
+            };
+            assert_eq!(got, want, "{} round-trips big-endian", field.name);
+        }
     }
 
     #[test]

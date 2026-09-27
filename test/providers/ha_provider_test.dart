@@ -83,6 +83,37 @@ void main() {
       expect(config.baseUrl, 'http://ha.local:8123');
     });
 
+    // Fails on the old code: loading the config registered nothing, so an
+    // error quoting the webhook URL after a relaunch was logged in clear.
+    test('a loaded config is redacted from every later record', () async {
+      Log.clearSecrets();
+      final records = Log.captureRecords();
+      addTearDown(() {
+        Log.reset();
+        Log.clearSecrets();
+      });
+      const token = 'lltok-$_secretMarker';
+      const webhook = 'wh-$_secretMarker-2';
+      final store = InMemorySettingsStore({
+        HaConfigNotifier.configKey: jsonEncode(
+          const HaConfig(
+            baseUrl: 'http://ha.local:8123',
+            token: token,
+            deviceId: 'dev1',
+            webhookId: webhook,
+          ).toJson(),
+        ),
+      });
+      expect(await _loadConfig(store), isNotNull);
+
+      Log.ha.warning('POST http://ha.local:8123/api/webhook/$webhook failed');
+      Log.ha.warning('Bearer $token refused');
+
+      final logged = records.map((r) => r.format()).join('\n');
+      expect(logged, isNot(contains(_secretMarker)));
+      expect(logged, contains(redactedText));
+    });
+
     test('recovers from a truncated/non-JSON blob and clears it', () async {
       final store = InMemorySettingsStore({
         HaConfigNotifier.configKey: '{"base_url":"http://ha', // truncated

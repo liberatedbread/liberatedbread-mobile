@@ -151,6 +151,13 @@ class _CredentialDialog extends StatefulWidget {
 class _CredentialDialogState extends State<_CredentialDialog> {
   final _controller = TextEditingController();
 
+  /// Hidden by default, for every credential. What lands here can be a
+  /// password (Dyson's sticker Wi-Fi password) or a token, and it was typed
+  /// in clear — on screen and in the app-switcher snapshot. The spec carries
+  /// no secret flag and guessing from the name misses one, so all are
+  /// hidden and 'Show' is one tap for a serial that needs checking.
+  bool _obscured = true;
+
   @override
   void dispose() {
     _controller.dispose();
@@ -177,10 +184,18 @@ class _CredentialDialogState extends State<_CredentialDialog> {
             // What lands here is a serial, a client id, a token: the
             // keyboard's suggestion model must not learn it and offer it
             // back in other apps' text fields.
+            // Both stay off with the text shown too: un-obscuring must not
+            // bring back autocorrect or the suggestion model.
             enableSuggestions: false,
-            decoration: const InputDecoration(
+            obscureText: _obscured,
+            decoration: InputDecoration(
               isDense: true,
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: _obscured ? 'Show' : 'Hide',
+                icon: Icon(_obscured ? Icons.visibility : Icons.visibility_off),
+                onPressed: () => setState(() => _obscured = !_obscured),
+              ),
             ),
             onSubmitted: (value) {
               final trimmed = value.trim();

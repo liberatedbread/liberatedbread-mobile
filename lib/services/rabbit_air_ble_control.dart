@@ -161,9 +161,10 @@ class RabbitAirBleControl implements RabbitAirControlTransport {
   }
 
   /// Learn the Thing ID over the encrypted channel and file the key under
-  /// it, so the LAN path finds the same credential by the device's mDNS
-  /// hostname. Best-effort: a purifier that does not answer cmd 255 over BLE
-  /// keeps the BLE-scoped key and loses nothing this path needs. A unit with
+  /// `<Thing ID>.local` — the device's mDNS hostname, which is where the LAN
+  /// path looks the credential up. Best-effort: a purifier that does not
+  /// answer cmd 255 over BLE keeps the BLE-scoped key and loses nothing this
+  /// path needs. A unit with
   /// no Thing ID (local-only provisioning — `data.name` is "") falls back to
   /// its `RabbitAir-<WIFI MAC>.local` hostname, derived from cmd 255's
   /// `data.mac` (hardware-verified 2026-08-15).
@@ -187,7 +188,7 @@ class RabbitAirBleControl implements RabbitAirControlTransport {
       final name = data is Map ? data['name'] : null;
       final mac = data is Map ? data['mac'] : null;
       final scope = (name is String && name.isNotEmpty)
-          ? name
+          ? rabbitAirThingHostname(name)
           : rabbitAirFallbackHostname(mac is String ? mac : null);
       if (scope != null && scope != bleScope) {
         await keyStore.saveUserKey(scope, userKey);

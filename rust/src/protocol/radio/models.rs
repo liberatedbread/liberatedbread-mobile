@@ -3,6 +3,7 @@
 //
 //! What each radio in the UV-17Pro family looks like in memory.
 
+use super::codeplug::{Power, TWO_POWER_LEVELS};
 use super::uv17pro::{HandshakeExchange, HANDSHAKE_UV17PRO, HANDSHAKE_UV17PRO_GPS};
 
 /// One radio's programming parameters.
@@ -40,6 +41,22 @@ pub struct RadioModel {
     /// How many memory channels the image holds, from the start of the
     /// image.
     pub channel_count: u16,
+
+    /// The transmit power levels, indexed as a record's power bits index
+    /// them (CHIRP's `POWER_LEVELS`, in its order).
+    pub power_levels: &'static [Power],
+
+    /// The frame every write over the radio's own Bluetooth goes out in, or
+    /// `None` where no one has seen what that radio accepts.
+    ///
+    /// A frame pads a region's short tail with 0xFF out to its full length,
+    /// which writes 0xFF over radio memory past the end of the image -- memory
+    /// the app never read and a backup cannot put back. CHIRP does exactly
+    /// that on the Minis (`UV5RMini._upload`, `BLE_UP_BLOCK_SIZE = 0x80`), so
+    /// there it is known to be harmless. On a radio CHIRP never writes that
+    /// way it is a guess that could overwrite calibration, so it is `None`
+    /// and the write is refused before a byte is sent.
+    pub ble_write_frame: Option<u16>,
 }
 
 /// 32 bytes per channel record, for every model in this family.
@@ -57,6 +74,8 @@ pub const UV5R_MINI: RadioModel = RadioModel {
     regions: &[(0x0000, 0x8040), (0x9000, 0x0040), (0xA000, 0x01C0)],
     image_len: 0x8240,
     channel_count: 999,
+    power_levels: TWO_POWER_LEVELS,
+    ble_write_frame: Some(0x80),
 };
 
 /// UV-5G Mini / Mini 5: the GMRS Mini, same protocol and same layout.
@@ -77,8 +96,14 @@ pub const UV5G_MINI: RadioModel = RadioModel {
 /// GPS branch's 7-byte `M` reply and the UV-17Pro's 1000-slot memory table
 /// (999 is the Mini's figure; with it slot 1000 was never read, written or
 /// cleared). Both, like every number here, are CHIRP's and unread off a radio.
-/// Its Bluetooth write size and 0x80 padding follow the Minis, not CHIRP
-/// (CHIRP's UV17ProGPS has no BLE upload branch), and need a capture to confirm.
+/// Three power levels, High/Low/Medium in that order (CHIRP
+/// `UV32.POWER_LEVELS`).
+///
+/// No Bluetooth write. CHIRP's UV32 has no BLE upload branch -- it writes
+/// 0x40 blocks, never past a region's end -- and the Minis' 0x80 frames
+/// would pad 0xFF over 0x8040-0x807F, 0x9040-0x907F, 0xA2C0-0xA2FF and
+/// 0xD040-0xD07F, none of which the app reads or backs up. Reads work; a
+/// write waits for a capture of what its Bluetooth module accepts.
 pub const UV32: RadioModel = RadioModel {
     id: "uv-32",
     display_name: "Baofeng UV-32",
@@ -92,6 +117,8 @@ pub const UV32: RadioModel = RadioModel {
     ],
     image_len: 0x8380,
     channel_count: 1000,
+    power_levels: &[Power::High, Power::Low, Power::Medium],
+    ble_write_frame: None,
 };
 
 /// UV-17R Plus. No transport in this build -- it needs a cable -- but the
@@ -110,6 +137,9 @@ pub const UV17R_PLUS: RadioModel = RadioModel {
     ],
     image_len: 0x8380,
     channel_count: 1000,
+    power_levels: TWO_POWER_LEVELS,
+    // No Bluetooth: it needs a cable.
+    ble_write_frame: None,
 };
 
 /// Every model this codec knows.
@@ -200,6 +230,44 @@ mod tests {
         assert_eq!(UV32.channel_count, UV17R_PLUS.channel_count);
         assert_eq!(UV32.regions, UV17R_PLUS.regions);
         assert_eq!(UV32.image_len, UV17R_PLUS.image_len);
+    }
+
+    #[test]
+    fn bluetooth_write_padding_touches_only_what_chirp_pads() {
+        // Every byte a padded frame writes past a region's end, per model.
+        // The Minis' match CHIRP's UV5RMini._upload; any other model picking
+        // up padding by copying a Mini would overwrite memory nobody read.
+        let padded = |model: &RadioModel| -> Vec<(u32, u32)> {
+            let Some(frame) = model.ble_write_frame else {
+                return Vec::new();
+            };
+            model
+                .regions
+                .iter()
+                .filter_map(|&(start, size)| {
+                    let tail = size % frame;
+                    (tail != 0).then(|| {
+                        let end = u32::from(start) + u32::from(size);
+                        (end, end + u32::from(frame - tail) - 1)
+                    })
+                })
+                .collect()
+        };
+        let mini = vec![(0x8040, 0x807F), (0x9040, 0x907F), (0xA1C0, 0xA1FF)];
+        assert_eq!(padded(&UV5R_MINI), mini);
+        assert_eq!(padded(&UV5G_MINI), mini);
+        assert_eq!(UV32.ble_write_frame, None);
+        assert_eq!(UV17R_PLUS.ble_write_frame, None);
+    }
+
+    #[test]
+    fn only_the_uv32_has_a_medium_power_level() {
+        for model in MODELS {
+            let medium = model.power_levels.contains(&Power::Medium);
+            assert_eq!(medium, model.id == "uv-32", "{}", model.id);
+            assert_eq!(model.power_levels[0], Power::High, "{}", model.id);
+            assert!(model.power_levels.len() <= 4, "a two-bit field");
+        }
     }
 
     #[test]

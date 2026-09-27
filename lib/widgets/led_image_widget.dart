@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/color_names.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import '../providers/ble_provider.dart';
@@ -1500,31 +1501,58 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           codec: codec,
           specYaml: specYaml,
         );
-        final Future<bool> confirmed = notify == null
-            ? Future.value(false)
-            : notify
-                  .asyncMap(reader.feed)
-                  .where((e) => e != null)
-                  .cast<StoredUploadEventDto>()
-                  .firstWhere(
-                    (e) =>
-                        e.kind == StoredUploadEventKind.complete ||
-                        e.kind == StoredUploadEventKind.failed ||
-                        e.kind == StoredUploadEventKind.startRejected,
-                  )
-                  .then((e) => e.kind == StoredUploadEventKind.complete)
-                  .timeout(const Duration(seconds: 15), onTimeout: () => false)
-                  .catchError((_) => false);
-        unawaited(confirmed.then((_) {}, onError: (_) {}));
-        for (final write in plan.uploadWrites) {
-          await ble.writeCharacteristic(
-            widget.deviceId,
-            serviceUuid,
-            write.characteristicUuid,
-            write.bytes,
-          );
+        // An explicit subscription, cancelled in `finally` whether the
+        // verdict arrives or the timer fires. The old `firstWhere(...)
+        // .timeout(...)` chain left its listener attached after a timeout
+        // (Future.timeout cancels nothing), so a frame the firmware never
+        // answered kept the broadcast stream subscribed past
+        // [notifyKeepAlive]'s cancel — `onCancel` never ran and the BLE
+        // notify interest leaked for the life of the link — and a late
+        // verdict could land on the next frame's wait.
+        final verdict = Completer<bool>();
+        void settle(bool ok) {
+          if (!verdict.isCompleted) verdict.complete(ok);
         }
-        if (await confirmed) confirmedCount++;
+
+        final verdictSub = notify?.listen((bytes) async {
+          final StoredUploadEventDto? event;
+          try {
+            event = await reader.feed(bytes);
+          } catch (_) {
+            settle(false);
+            return;
+          }
+          switch (event?.kind) {
+            case StoredUploadEventKind.complete:
+              settle(true);
+            case StoredUploadEventKind.failed:
+            case StoredUploadEventKind.startRejected:
+              settle(false);
+            case StoredUploadEventKind.startAccepted:
+            case StoredUploadEventKind.progress:
+            case null:
+              break; // transfer in flight; keep listening
+          }
+        }, onError: (Object _) => settle(false));
+        if (verdictSub == null) settle(false);
+        try {
+          for (final write in plan.uploadWrites) {
+            await ble.writeCharacteristic(
+              widget.deviceId,
+              serviceUuid,
+              write.characteristicUuid,
+              write.bytes,
+            );
+          }
+          final ok = await verdict.future.timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => false,
+          );
+          if (ok) confirmedCount++;
+        } finally {
+          // Detached before the next frame subscribes; see above.
+          unawaited(verdictSub?.cancel());
+        }
         Log.ble.info(
           '${widget.deviceId} stored frame ${i + 1}/'
           '${frames.length} cid=${frameCids[i]}',
@@ -2974,6 +3002,13 @@ class _GridPainter extends CustomPainter {
 }
 
 /// Color swatches; the selected one gets a ring.
+///
+/// Each swatch is a labelled, selectable button with a 48 dp hit area around
+/// the 28 px circle. They were bare GestureDetectors: to TalkBack and
+/// VoiceOver ten nameless nodes, no way to tell which colour was selected or
+/// which one was the eraser, on the only control that picks the brush.
+/// MergeSemantics, as the light cards' swatches use, so the InkResponse does
+/// not add a second, unlabelled node.
 class _PaletteRow extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onSelected;
@@ -2984,21 +3019,38 @@ class _PaletteRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Wrap(
-      spacing: 8,
       children: [
         for (var i = 0; i < _palette.length; i++)
-          GestureDetector(
-            key: Key('led-palette-$i'),
-            onTap: () => onSelected(i),
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: _palette[i],
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: i == selected ? scheme.primary : scheme.outlineVariant,
-                  width: i == selected ? 3 : 1,
+          MergeSemantics(
+            child: Semantics(
+              button: true,
+              selected: i == selected,
+              label: _palette[i] == Colors.black
+                  ? 'Black (eraser)'
+                  : colorSwatchName(_palette[i]),
+              child: InkResponse(
+                key: Key('led-palette-$i'),
+                onTap: () => onSelected(i),
+                radius: 24,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: _palette[i],
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: i == selected
+                              ? scheme.primary
+                              : scheme.outlineVariant,
+                          width: i == selected ? 3 : 1,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

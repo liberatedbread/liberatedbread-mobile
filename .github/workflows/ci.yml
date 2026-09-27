@@ -345,6 +345,10 @@ jobs:
       # the Rust library entirely. See the header of the selftest.
       - name: Self-test the iOS bundle verifier
         run: ./scripts/verify-ios-app-selftest.sh
+      # The APK verifier's merged-manifest permission list, against a stub
+      # aapt2: each runtime-fatal permission it must catch being stripped.
+      - name: Self-test the APK verifier
+        run: ./scripts/verify-apk-selftest.sh
       - name: device-select selftest
         run: ./scripts/device-select-selftest.sh
       # The emulator job's retry loop, driven against stub binaries on a runner
@@ -528,8 +532,19 @@ jobs:
         run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/rust/target/debug" >> $GITHUB_ENV
       # --exclude-tags=netdisco: those suites bind ports 5353 and 1900 and wait
       # real seconds for multicast datagrams. They have a job of their own — see
-      # scripts/ci-netdisco-tests.sh for why they are not part of this one.
-      - run: flutter test --coverage --exclude-tags=netdisco
+      # scripts/ci-netdisco-tests.sh for why they are not part of this one. The
+      # live_*/hardware tags drive REAL devices; their env-var self-skip was
+      # the only thing keeping them out, so they are excluded here as in
+      # scripts/test.sh.
+      #
+      # LB_REQUIRE_RUST_LIB: the step above built the library, so one that is
+      # present but will not load (wrong arch, missing symbol, content-hash
+      # mismatch) fails here instead of turning every FFI suite into a skip.
+      - run: >-
+          flutter test --coverage
+          --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware
+        env:
+          LB_REQUIRE_RUST_LIB: '1'
       # `flutter test --coverage` instruments only what a test imports, so a
       # library no test reaches is ABSENT from the report rather than reported
       # as zero — and therefore absent from the denominator, contributing
@@ -887,7 +902,7 @@ jobs:
     # limit fires first and setup/teardown still get headroom. Both came down
     # (75/60) once the Gradle cache, the x64-only warm-up and the single test
     # cycle landed: the job ran ~10m45s before those, and the emulator step
-    # ~3m45s, so 50/30 is still many times the observed cost — loose enough
+    # ~3m45s, so 60/35 is still many times the observed cost — loose enough
     # that a cold cache cannot trip it, tight enough that a genuinely hung
     # emulator stops costing an hour.
     timeout-minutes: 60
@@ -1075,14 +1090,18 @@ jobs:
     # Merging costs granularity — a flaky test also reddens the build smoke —
     # which is the deliberate trade for roughly halving the macOS spend.
     #
-    # The sum of the step ceilings below (5 + 25 + 25 + 34 = 89), with a
-    # little over. It was 60 while there was one iOS build in this job; the
+    # The sum of the step ceilings below (5 + 25 + 25 + 34 = 89) plus about
+    # six minutes for the steps that carry no timeout of their own (checkout,
+    # flutter-action, the Rust toolchain and cache restore, pub get, the
+    # verify steps and the log upload). At 90 those untimed minutes came out
+    # of the test step's budget, so the worst case below was still cancelled
+    # at the job level. It was 60 while there was one iOS build in this job; the
     # device (aarch64-apple-ios, release, AOT) build added on ios-self-fix
     # brought its own 25-minute step and nobody raised the job's — so a cold
     # rust-cache plus a double simulator failure was cancelled mid test-step
     # and reported as a cancellation rather than the underlying failure. The
     # test step still carries its own tighter timeout below.
-    timeout-minutes: 90
+    timeout-minutes: 95
     needs: [analyze, rust]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1232,11 +1251,13 @@ jobs:
         run: flutter build ios --release --no-codesign --no-pub
 
       # ── verify the artifact, not just the exit code ─────────────────────────
-      # Why a lockfile check is not redundant with a green build, which pods are
-      # asserted and which deliberately are not: scripts/verify_ios_pods.sh.
-      # It moved out of this file for the reason all the other CI shell did —
-      # a check nobody can run outside a macOS job is a check nobody maintains.
-      - name: Verify CocoaPods resolution happened
+      # A skipped or out-of-sync pod install already fails the build above, in
+      # the Runner target's "[CP] Check Pods Manifest.lock" phase. This step
+      # asserts the runtime-critical pods are locked and installed; which pods
+      # and why: scripts/verify_ios_pods.sh. It moved out of this file for the
+      # reason all the other CI shell did — a check nobody can run outside a
+      # macOS job is a check nobody maintains.
+      - name: Verify required CocoaPods are locked and installed
         run: ./scripts/verify_ios_pods.sh ios
       # The committed ios/ project must BE what the build uses, not a thing the
       # toolchain silently rewrites on the way past.
@@ -1353,8 +1374,18 @@ jobs:
             done < <(find rust/target -name 'libliberated_bread_core.a' 2>/dev/null)
           } 2>&1 | tee ios-rust-artifacts.txt
 
-      - name: Verify built .app bundle (Info.plist + linked Rust library)
-        run: ./scripts/verify_ios_app.sh build/ios/iphonesimulator/Runner.app
+      # Both bundles. The simulator one is the debug build of the test
+      # entrypoint; the iphoneos one is the release build of lib/main.dart,
+      # the path that ships. Checking only the first let a release-only loss
+      # (a plist key dropped in Release preprocessing, frb_ exports stripped
+      # or hidden in the Release config) pass CI and surface first in the
+      # secrets-gated ad-hoc workflow. No --skip-symbols: the release
+      # framework keeps the frb_ exports (see ios-adhoc.yml), and with no
+      # embedded.mobileprovision the entitlements check skips itself.
+      - name: Verify built .app bundles (simulator debug + device release)
+        run: |
+          ./scripts/verify_ios_app.sh build/ios/iphonesimulator/Runner.app
+          ./scripts/verify_ios_app.sh build/ios/iphoneos/Runner.app
 
       # ── integration tests on a simulator ────────────────────────────────────
       # Regression this catches: before this job existed, NO integration test

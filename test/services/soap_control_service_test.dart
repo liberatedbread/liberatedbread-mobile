@@ -450,5 +450,51 @@ void main() {
         );
       });
     });
+
+    // A bare Future.timeout only abandoned the future: the request stayed in
+    // flight holding a socket against a Wemo that has a handful of worker
+    // threads. HttpControlClient aborts through the trigger; SOAP now does.
+    for (final (name, run)
+        in <(String, Future<Object?> Function(SoapControlClient))>[
+          (
+            'an action',
+            (c) => c.send(
+              '10.22.22.1',
+              49153,
+              '/upnp/control/basicevent1',
+              _request,
+            ),
+          ),
+          (
+            'a description fetch',
+            (c) => c.fetchDescription('10.22.22.1', 49153),
+          ),
+        ]) {
+      test('the deadline aborts $name, not just the waiting', () {
+        fakeAsync((async) {
+          var aborted = false;
+          final client = SoapControlClient(
+            httpClient: MockClient.streaming((request, body) async {
+              if (request case http.Abortable(:final abortTrigger?)) {
+                unawaited(abortTrigger.then((_) => aborted = true));
+              }
+              // Connected, then silent.
+              return http.StreamedResponse(
+                StreamController<List<int>>().stream,
+                200,
+              );
+            }),
+          );
+          Object? thrown;
+          unawaited(
+            run(client).then<void>((_) {}, onError: (Object e) => thrown = e),
+          );
+
+          async.elapse(SoapControlClient.timeout + const Duration(seconds: 1));
+          expect(thrown, isA<SoapTransportException>());
+          expect(aborted, isTrue, reason: 'the request must actually end');
+        });
+      });
+    }
   });
 }

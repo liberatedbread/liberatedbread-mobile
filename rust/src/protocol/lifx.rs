@@ -797,15 +797,28 @@ pub fn render_command(
         "turn_off" => Ok(set_power(target, false, 0, sequence)),
         "set_color" => Ok(set_color(target, &color_with_brightness(), 0, sequence)),
         "set_brightness" => {
-            // No colour picked: drive brightness as a neutral warm white so the
-            // strip dims/brightens without lurching to a colour.
+            // Brightness is all the caller said. A `SetColor` would have to
+            // invent hue, saturation and kelvin, snapping a lamp set to
+            // 2700K to KELVIN_DEFAULT on every slider move — the kelvin
+            // arm's bug in the other direction. `SetWaveformOptional` applies
+            // the brightness alone and leaves the rest as the lamp has it.
             let c = Hsbk {
                 hue: 0,
                 saturation: 0,
                 brightness: scale_brightness(get("brightness").unwrap_or(255.0)),
                 kelvin: KELVIN_DEFAULT,
             };
-            Ok(set_color(target, &c, 0, sequence))
+            Ok(set_waveform_optional(
+                target,
+                &c,
+                Apply {
+                    hue: false,
+                    saturation: false,
+                    brightness: true,
+                    kelvin: false,
+                },
+                sequence,
+            ))
         }
         "set_color_temperature" => {
             let kelvin = get("kelvin")
@@ -1202,6 +1215,30 @@ mod tests {
         // The four set_* flags end the payload: hue, saturation, brightness,
         // kelvin. Brightness is the one left alone.
         assert_eq!(&warm[warm.len() - 4..], &[1, 1, 0, 1]);
+    }
+
+    /// A brightness-only control changes the brightness and nothing else. It
+    /// used to send a `SetColor` with an invented 3500K and saturation 0,
+    /// so a lamp at 2700K jumped to 3500K whenever brightness moved.
+    #[test]
+    fn a_brightness_alone_leaves_the_colour_and_white_point_alone() {
+        let dim = render_command(
+            "set_brightness",
+            &params(&[("brightness", 128.0)]),
+            TARGET,
+            6,
+        )
+        .unwrap();
+        assert_eq!(&dim[32..34], &[119, 0], "SetWaveformOptional, not SetColor");
+        assert_eq!(dim.len(), HEADER_LEN + 25);
+        assert_eq!(dim[HEADER_LEN + 1], 0, "not transient: the value sticks");
+        // HSBK at payload offset 2: brightness is its third field.
+        assert_eq!(
+            &dim[HEADER_LEN + 6..HEADER_LEN + 8],
+            &scale_brightness(128.0).to_le_bytes()
+        );
+        // hue, saturation, brightness, kelvin: only brightness applies.
+        assert_eq!(&dim[dim.len() - 4..], &[0, 0, 1, 0]);
     }
 
     /// A caller who DID pick a brightness has nothing to preserve, so the

@@ -19,9 +19,12 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_radio_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
+import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart'
+    show RadioWritePreflight;
 import 'package:liberated_bread_mobile/services/codeplug_backup_store.dart';
 import 'package:liberated_bread_mobile/services/radio_codec.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
+import 'package:liberated_bread_mobile/services/saved_radio_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_codeplug_backup_store.dart';
@@ -82,6 +85,23 @@ class _CutOffProgrammer extends FakeRadioProgrammer {
   }) => _cutOff();
 }
 
+/// A programmer that reads but refuses up front to write, as the Bluetooth
+/// one does for a UV-32 (no captured write frame).
+class _NoWriteProgrammer extends FakeRadioProgrammer
+    implements RadioWritePreflight {
+  static const reason =
+      'Writing a Baofeng UV-32 over Bluetooth is turned off. Nothing was '
+      'written.';
+
+  int preflights = 0;
+
+  @override
+  Future<void> checkCanWrite(RadioProfile profile) async {
+    preflights++;
+    throw const RadioUnsupportedException(reason);
+  }
+}
+
 /// A read that waits on [readHold]: a session a test can keep running.
 class _HeldReadProgrammer extends FakeRadioProgrammer {
   final Completer<void> readHold = Completer<void>();
@@ -115,6 +135,16 @@ class _SlowListStore extends FakeCodeplugBackupStore {
   }
 }
 
+/// A radio list whose disk write fails, as a full disk or a platform
+/// channel error would.
+class _FailingSavedRadioStore extends SavedRadioStore {
+  _FailingSavedRadioStore(super.prefs);
+
+  @override
+  Future<List<SavedRadio>> save(SavedRadio radio) async =>
+      throw StateError('disk full');
+}
+
 class _Harness {
   final FakeRadioProgrammer programmer;
   final FakeCodeplugBackupStore backups;
@@ -135,6 +165,7 @@ Future<_Harness> _pump(
   InMemorySettingsStore? settings,
   String? planId,
   bool behindLauncher = false,
+  SavedRadioStore Function(SharedPreferences prefs)? savedRadioStore,
 }) async {
   // Tall enough that every action tile is built: the list is lazy.
   tester.view.physicalSize = const Size(1200, 2400);
@@ -152,6 +183,8 @@ Future<_Harness> _pump(
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(_prefs),
+        if (savedRadioStore != null)
+          savedRadioStoreProvider.overrideWithValue(savedRadioStore(_prefs)),
         prefsSettingsStoreProvider.overrideWith(
           (ref) async => settings ?? InMemorySettingsStore(),
         ),
@@ -219,6 +252,27 @@ void main() {
       await _pump(tester, initialProfile: uv5rProfile);
       expect(find.text(uv5rMiniProfile.displayName), findsOneWidget);
       expect(find.text(uv5rProfile.displayName), findsNothing);
+    });
+
+    testWidgets('the model saved for this radio outranks a suggested one', (
+      tester,
+    ) async {
+      // Callers suggest a guess from the advert name, or a plan's model.
+      // Ranked above the user's own choice, a UV-32 reopened as a Mini
+      // and a completed session saved the guess over the choice.
+      await SavedRadioStore(_prefs).save(
+        SavedRadio(
+          transport: _ble.transport,
+          id: _ble.id,
+          name: _ble.name,
+          lastSeen: DateTime(2026, 9, 1),
+          radioProfileId: uv32Profile.id,
+        ),
+      );
+      await _pump(tester, initialProfile: uv5gMiniProfile);
+
+      expect(find.text(uv32Profile.displayName), findsOneWidget);
+      expect(find.text(uv5gMiniProfile.displayName), findsNothing);
     });
 
     testWidgets('an unconfirmed model says so', (tester) async {
@@ -456,6 +510,31 @@ void main() {
       expect(harness.programmer.restored, isEmpty);
     });
 
+    testWidgets('a radio this link cannot write is refused before the read', (
+      tester,
+    ) async {
+      // Old code asked no one: it confirmed, connected, read and backed the
+      // radio up, and only the write itself then failed.
+      final harness = await _pump(
+        tester,
+        programmer: _NoWriteProgrammer(),
+        backups: FakeCodeplugBackupStore(
+          existing: [backup(1, DateTime(2026, 9, 1, 9, 30))],
+        ),
+      );
+
+      await tester.tap(find.text('Restore a backup'));
+      await tester.pumpAndSettle();
+
+      expect((harness.programmer as _NoWriteProgrammer).preflights, 1);
+      expect(find.text('2026-09-01 09:30'), findsNothing);
+      expect(find.text('Restore to Base radio?'), findsNothing);
+      expect(find.textContaining('turned off'), findsWidgets);
+      expect(harness.programmer.readCalls, 0);
+      expect(harness.programmer.deviceIds, isEmpty);
+      expect(harness.programmer.restored, isEmpty);
+    });
+
     testWidgets('a second restore started while one runs is not sent', (
       tester,
     ) async {
@@ -606,6 +685,26 @@ void main() {
       expect(harness.backups.saved, isEmpty);
     });
 
+    testWidgets('a radio this link cannot write is refused before the read', (
+      tester,
+    ) async {
+      // Old code confirmed, connected, read and backed the radio up; only
+      // the write then failed, with Rust's error text.
+      await seedPlan();
+      final harness = await _pump(tester, programmer: _NoWriteProgrammer());
+      await tester.tap(find.text('Write a channel plan'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Local repeaters'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Write to Base radio?'), findsNothing);
+      expect(find.textContaining('turned off'), findsWidgets);
+      expect(harness.programmer.readCalls, 0);
+      expect(harness.programmer.deviceIds, isEmpty);
+      expect(harness.programmer.written, isEmpty);
+      expect(harness.backups.saved, isEmpty);
+    });
+
     testWidgets('reads and backs up before it writes, to this radio', (
       tester,
     ) async {
@@ -624,6 +723,75 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('is saved as'), findsOneWidget);
+    });
+
+    testWidgets('a radio list that cannot be saved does not undo the write', (
+      tester,
+    ) async {
+      // The list save ran inside the session's try: a failure there, after
+      // a verified write, showed "The radio did not finish." and dropped
+      // the line naming the backup.
+      await seedPlan();
+      final harness = await _pump(
+        tester,
+        savedRadioStore: _FailingSavedRadioStore.new,
+      );
+      await pickAndConfirm(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(harness.programmer.written.single, channels);
+      expect(find.textContaining('is saved as'), findsOneWidget);
+      expect(find.textContaining('did not finish'), findsNothing);
+    });
+
+    testWidgets('a channel this radio cannot tune is refused before a read', (
+      tester,
+    ) async {
+      // 46.940 is 146.940 with a digit dropped. It used to be written as a
+      // channel the radio cannot use; out of the encoder's range, it failed
+      // only after the read and backup, as "The radio did not finish."
+      final now = DateTime(2026, 9, 1);
+      SharedPreferences.setMockInitialValues({
+        'radio_channel_plans_v1': jsonEncode([
+          ChannelPlan(
+            id: 'typo',
+            name: 'Typo',
+            radioProfileId: uv5rMiniProfile.id,
+            channels: const [
+              RadioChannel(
+                name: 'OK',
+                rxFreqHz: 146520000,
+                txFreqHz: 146520000,
+              ),
+              RadioChannel(
+                name: 'W1AW',
+                rxFreqHz: 46940000,
+                txFreqHz: 46340000,
+              ),
+            ],
+            createdAt: now,
+            modifiedAt: now,
+          ).toJson(),
+        ]),
+      });
+      _prefs = await SharedPreferences.getInstance();
+      final harness = await _pump(tester, planId: 'typo');
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Write to Base radio?'), findsNothing);
+      expect(
+        find.textContaining('Channel 2 of "Typo" (W1AW): Receive 46.940 MHz'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Nothing was read or written'),
+        findsOneWidget,
+      );
+      expect(harness.programmer.readCalls, 0);
+      expect(harness.backups.saved, isEmpty);
     });
 
     testWidgets('a failed read writes nothing, and says so', (tester) async {

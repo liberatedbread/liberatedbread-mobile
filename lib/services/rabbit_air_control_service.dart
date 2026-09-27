@@ -231,27 +231,47 @@ Stream<Uint8List> _socketReplies(
         socket?.close();
         return;
       }
+      // A refused send (EHOSTUNREACH with iOS Local Network off, EACCES,
+      // ENETUNREACH) never throws from send(): dart:io returns 0, delivers
+      // the SocketException on this stream a microtask later and closes the
+      // socket. Without onError that error went to the zone as uncaught and
+      // the dead socket sat out the window — three attempts, six seconds,
+      // then "did not answer" instead of "could not reach".
+      Future<void> fail(Object e, StackTrace st) async {
+        if (!controller.isClosed) controller.addError(e, st);
+        await close();
+        if (!controller.isClosed) await controller.close();
+      }
+
       try {
-        subscription = socket!.listen((event) {
-          if (event != RawSocketEvent.read) return;
-          final received = socket!.receive();
-          if (received == null || received.address.address != host) return;
-          controller.add(Uint8List.fromList(received.data));
-        });
+        subscription = socket!.listen(
+          (event) {
+            if (event != RawSocketEvent.read) return;
+            final received = socket!.receive();
+            if (received == null || received.address.address != host) return;
+            controller.add(Uint8List.fromList(received.data));
+          },
+          onError: fail,
+          // The OS closed the socket under us: nothing more can arrive, so
+          // end the window now rather than waiting it out.
+          onDone: () async {
+            await close();
+            if (!controller.isClosed) await controller.close();
+          },
+        );
         socket!.send(datagram, InternetAddress(host), port);
         window = Timer(timeout, () async {
           await close();
           await controller.close();
         });
       } catch (e, st) {
-        // InternetAddress() on a hostname, send() on a downed interface:
-        // either used to escape this async callback as an unhandled zone
-        // error, with the window Timer never created — so the stream neither
-        // erred nor closed, and the `await for` upstairs waited forever on a
-        // reply that structurally could not arrive.
-        if (!controller.isClosed) controller.addError(e, st);
-        await close();
-        if (!controller.isClosed) await controller.close();
+        // InternetAddress() on a hostname throws synchronously: it used to
+        // escape this async callback as an unhandled zone error, with the
+        // window Timer never created — so the stream neither erred nor
+        // closed, and the `await for` upstairs waited forever on a reply
+        // that structurally could not arrive. (Send failures arrive through
+        // onError above, not here.)
+        await fail(e, st);
       }
     },
     onCancel: close,

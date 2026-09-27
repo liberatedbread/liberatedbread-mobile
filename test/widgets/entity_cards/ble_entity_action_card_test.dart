@@ -43,6 +43,7 @@ Widget _wrap(
   required FakeSpecCodec codec,
   required FakeBleService ble,
   String? stateServiceUuid,
+  bool isLock = false,
 }) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(ble),
@@ -55,6 +56,7 @@ Widget _wrap(
         stateServiceUuid: stateServiceUuid,
         entity: entity,
         specYaml: 'y',
+        isLock: isLock,
       ),
     ),
   ),
@@ -352,5 +354,131 @@ void main() {
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
     expect(codec.encodeCalls.single.commandName, 'feed_open');
+  });
+
+  testWidgets('a cover slider follows the finger and sends once on release', (
+    tester,
+  ) async {
+    // Old code: `onChanged: (_) {}` pinned the thumb at the reported
+    // position for the whole drag, so `held` stayed 40.
+    final entity = EntityDto(
+      options: const [],
+      name: 'Blind',
+      platform: 'cover',
+      stateCharacteristic: _stateChar,
+      canNotify: false,
+      hasFormat: true,
+      onWhenNonzero: false,
+      actions: [
+        _action(
+          'set_cover_position',
+          'set_position',
+          userParams: const ['position'],
+          min: 0,
+          max: 100,
+        ),
+      ],
+      variants: const [],
+    );
+    final codec = FakeSpecCodec(
+      encoded: Uint8List.fromList([0x28]),
+      decoded: const [
+        DecodedValueDto(
+          name: 'position',
+          valueType: 'uint',
+          display: '40',
+          uintValue: 40,
+          rawNumber: 40.0,
+          decodedNumber: 40.0,
+          decodedText: '40',
+          decimals: 0,
+        ),
+      ],
+    );
+    final ble = FakeBleService(
+      readValues: const {
+        _stateChar: [40],
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(entity, codec: codec, ble: ble, stateServiceUuid: 's'),
+    );
+    await tester.pumpAndSettle();
+    final slider = find.byType(Slider);
+    expect(tester.widget<Slider>(slider).value, 40);
+
+    final gesture = await tester.startGesture(tester.getCenter(slider));
+    await tester.pump();
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump();
+    final held = tester.widget<Slider>(slider).value;
+    expect(held, greaterThan(40), reason: 'the thumb tracks the drag');
+    expect(ble.writes, isEmpty);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.single.commandName, 'set_position');
+    expect(codec.encodeCalls.single.params, {'position': held.roundToDouble()});
+    expect(ble.writes, hasLength(1));
+    // Released: the thumb follows the live position again, not the target.
+    expect(tester.widget<Slider>(slider).value, 40);
+  });
+
+  group("a lock's momentary button asks before it opens", () {
+    // BioKey TouchLock declares `Unlock` as a button pressing `open_lock`.
+    // Old code drew 'Press' and sent on one tap.
+    EntityDto unlock() => EntityDto(
+      options: const [],
+      name: 'Unlock',
+      platform: 'button',
+      icon: 'mdi:lock-open-variant',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [_action('press', 'open_lock')],
+      variants: const [],
+    );
+
+    testWidgets('Cancel sends nothing', (tester) async {
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
+      final ble = FakeBleService();
+      await tester.pumpWidget(
+        _wrap(unlock(), codec: codec, ble: ble, isLock: true),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Press'), findsNothing);
+      await tester.tap(find.widgetWithText(FilledButton, 'Unlock'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unlock Unlock?'), findsOneWidget);
+      expect(
+        find.text('This opens the lock for anyone at the door.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(codec.encodeCalls, isEmpty);
+      expect(ble.writes, isEmpty);
+    });
+
+    testWidgets('Unlock sends once', (tester) async {
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
+      final ble = FakeBleService();
+      await tester.pumpWidget(
+        _wrap(unlock(), codec: codec, ble: ble, isLock: true),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Unlock'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Unlock'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(codec.encodeCalls.single.commandName, 'open_lock');
+      expect(ble.writes, hasLength(1));
+    });
   });
 }

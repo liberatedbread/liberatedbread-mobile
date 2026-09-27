@@ -106,6 +106,37 @@ const _decoded = <DecodedValueDto>[
   ),
 ];
 
+/// A codec whose decodes finish only when the test says so, one Completer
+/// per call in call order — to finish a later decode before an earlier one.
+class _GatedCodec extends FakeSpecCodec {
+  final List<Completer<List<DecodedValueDto>>> pending = [];
+
+  @override
+  Future<List<DecodedValueDto>> decodeValue({
+    String? specYaml,
+    String? serviceUuid,
+    required String charUuid,
+    required List<int> bytes,
+  }) {
+    final c = Completer<List<DecodedValueDto>>();
+    pending.add(c);
+    return c.future;
+  }
+}
+
+List<DecodedValueDto> _reading(String name, int raw) => [
+  DecodedValueDto(
+    name: name,
+    valueType: 'uint',
+    display: '$raw',
+    uintValue: raw,
+    rawNumber: raw.toDouble(),
+    decodedNumber: raw.toDouble(),
+    decodedText: '$raw',
+    decimals: 0,
+  ),
+];
+
 void main() {
   testWidgets('an entity with no format block reports unavailable, not error', (
     tester,
@@ -310,7 +341,27 @@ void main() {
         otherChar: [42],
       },
     );
-    final codec = FakeSpecCodec(decoded: _decoded);
+    // Per-characteristic answers: with one canned decode for everything, the
+    // card rendered the same text whichever binding it decoded, so only the
+    // read half of this regression was ever checked.
+    const humidity = DecodedValueDto(
+      name: 'humidity',
+      valueType: 'int',
+      display: '42',
+      intValue: 42,
+      rawNumber: 42.0,
+      decodedNumber: 42.0,
+      decodedText: '42',
+      decimals: 0,
+      scale: 1.0,
+      unit: '%',
+    );
+    final codec = FakeSpecCodec(
+      decodedFor: (char, bytes) =>
+          char == otherChar && bytes.length == 1 && bytes.first == 42
+          ? const [humidity]
+          : _decoded,
+    );
 
     Widget at(EntityDto entity) => ProviderScope(
       overrides: [
@@ -341,6 +392,15 @@ void main() {
       ble.reads.map((r) => r.charUuid),
       [_stateChar, otherChar],
       reason: 'the new binding is what the card is now showing',
+    );
+    final last = codec.decodeCalls.last;
+    expect(last.serviceUuid, _svc);
+    expect(last.charUuid, otherChar, reason: 'decoded against the new char');
+    expect(last.bytes, [42], reason: 'the bytes the new read returned');
+    expect(
+      find.text('humidity'),
+      findsOneWidget,
+      reason: 'the card shows the new binding\'s decode, not the old one\'s',
     );
   });
 
@@ -385,5 +445,55 @@ void main() {
       EntityValueStatus.unavailable,
       reason: 'the previous entity\'s reading is not this entity\'s reading',
     );
+  });
+
+  testWidgets('a seed read decoded after a newer notification does not '
+      'replace it', (tester) async {
+    // Old code applied whichever decode finished last, so the seed read's
+    // older reading overwrote the notification's and stayed on screen.
+    final notify = StreamController<List<int>>();
+    addTearDown(notify.close);
+    final ble = FakeBleService(
+      servicesToReturn: [_discovered(canRead: true, canNotify: true)],
+      readValues: {
+        _stateChar: const [10],
+      },
+      notifyStream: notify.stream,
+    );
+    final codec = _GatedCodec();
+    final seen = <EntityLiveValue>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble),
+          specCodecProvider.overrideWithValue(codec),
+        ],
+        child: MaterialApp(
+          home: EntityValueBuilder(
+            deviceId: 'd',
+            serviceUuid: _svc,
+            entity: _entity(canNotify: true),
+            specYaml: 'y',
+            builder: (context, value) {
+              seen.add(value);
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(codec.pending, hasLength(1), reason: 'the seed read is decoding');
+
+    notify.add(const [30]);
+    await tester.pump();
+    expect(codec.pending, hasLength(2));
+
+    codec.pending[1].complete(_reading('temperature', 30));
+    await tester.pump();
+    codec.pending[0].complete(_reading('temperature', 10));
+    await tester.pump();
+
+    expect(seen.last.decodedNumber, 30);
   });
 }

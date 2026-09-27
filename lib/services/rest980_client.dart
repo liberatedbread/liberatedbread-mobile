@@ -137,14 +137,15 @@ class Rest980Client {
     return _codec.roombaStateFields(payload: wrapped);
   }
 
-  /// Confirm a server is reachable and is actually rest980, for the settings
-  /// screen's "test" button. Returns the robot's reported name when it can.
-  Future<String?> probe(String baseUrl) async {
-    final response = await _get(baseUrl, '/api/local/info/state', 'the server');
-    _throwForStatus(response, 'the server');
-    final fields = await state(baseUrl);
-    return fields['state.reported.name'];
-  }
+  /// Confirm a server is reachable and is actually rest980 — for a settings
+  /// "test" action; nothing in the app calls it yet. Returns the robot's
+  /// reported name when it can.
+  ///
+  /// One GET: [state] already applies the reachability and status checks
+  /// with the same wording. A separate probe request first doubled the round
+  /// trips and polled the robot through rest980 twice per test.
+  Future<String?> probe(String baseUrl) async =>
+      (await state(baseUrl))['state.reported.name'];
 
   Future<http.Response> _get(String baseUrl, String path, String what) async {
     // Parsed in its own guarded step. It used to sit above the try that

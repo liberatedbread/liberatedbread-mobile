@@ -42,6 +42,13 @@ class _RadarScannerState extends State<RadarScanner>
   // teardown, which the ticker provider refuses.
   late final AnimationController _controller;
 
+  /// Whether [_controller] is on its endless repeat, as opposed to idle or
+  /// running the 240 ms settle. `isAnimating` cannot tell those apart: it
+  /// is true during the settle too, so scanning true -> false -> true inside
+  /// 240 ms used to skip repeat() and leave the arc frozen at the top once
+  /// the settle finished.
+  bool _repeating = false;
+
   @override
   void initState() {
     super.initState();
@@ -49,15 +56,45 @@ class _RadarScannerState extends State<RadarScanner>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     );
-    if (widget.scanning) _controller.repeat();
+    // Started by [_syncTicker] from didChangeDependencies: whether to run
+    // depends on MediaQuery, which initState cannot read.
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Covers the first build and a reduce-motion toggle.
+    _syncTicker();
   }
 
   @override
   void didUpdateWidget(RadarScanner old) {
     super.didUpdateWidget(old);
-    if (widget.scanning == old.scanning) return;
-    if (widget.scanning) {
-      _controller.repeat();
+    if (widget.scanning != old.scanning) _syncTicker();
+  }
+
+  /// Run the ticker only while the arc is actually drawn. It used to follow
+  /// [RadarScanner.scanning] alone, so with reduce-motion on — arc not built
+  /// — an active Ticker still scheduled a frame every vsync for as long as
+  /// the ambient scan ran (no timeout): the battery cost the class doc says
+  /// the still ring avoids.
+  void _syncTicker() {
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final sweep = widget.scanning && !reduceMotion;
+    if (sweep) {
+      if (!_repeating) {
+        _repeating = true;
+        _controller.repeat();
+      }
+      return;
+    }
+    _repeating = false;
+    if (!_controller.isAnimating) return;
+    if (reduceMotion) {
+      // No arc is built, so there is nothing to settle.
+      _controller
+        ..stop()
+        ..value = 1;
     } else {
       // Settle to the top of the sweep instead of freezing mid-rotation.
       _controller.animateTo(1, duration: const Duration(milliseconds: 240));

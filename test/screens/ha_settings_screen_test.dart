@@ -350,4 +350,12 @@ void main() {
       );
     });
   });
+
+  // Before the fix the raw DateTime was interpolated, microseconds included.
+  test('the last-update line is a plain local timestamp', () {
+    expect(
+      lastUpdateSentText(DateTime(2026, 9, 27, 14, 3, 11, 482, 913)),
+      'Last update sent: 2026-09-27 14:03:11',
+    );
+  });
 }

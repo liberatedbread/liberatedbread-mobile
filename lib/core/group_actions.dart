@@ -161,13 +161,29 @@ Set<GroupOp> supportedGroupOps(
 /// [supportedGroupOps] (eligibility) and [resolveGroupWrites] (execution) —
 /// two hand-kept copies of this filter would let a badge promise what a run
 /// then never writes, or vice versa.
+///
+/// When the narrowing is null or empty (a codec failure, or a unit whose
+/// name matches no variant — a renamed seeblue), only the FIRST variant-scoped
+/// entity of each name is kept: the device panel's first-wins name dedupe.
+/// Without it a group `turn_on` wrote seeblue's `direct_power_on` AND
+/// `ledglow_v2_power_on` to the one ffe9 characteristic back to back — the
+/// wrong dialect on the wire, with no human in the loop — where the device
+/// screen sends one. Unscoped entities are never deduped: two plain switches
+/// may legitimately share a characteristic and a role.
 Iterable<({EntityDto entity, EntityActionDto action})> _controlActions(
   DeviceSpecDto spec, {
   List<String>? matchedVariants,
 }) sync* {
+  final unnarrowed = matchedVariants == null || matchedVariants.isEmpty;
+  final scopedNames = <String>{};
   for (final entity in spec.entities) {
     if (entity.platform != 'light' && entity.platform != 'switch') continue;
     if (!entityIsForVariants(entity, matchedVariants)) continue;
+    if (unnarrowed &&
+        entity.variants.isNotEmpty &&
+        !scopedNames.add(entity.name)) {
+      continue;
+    }
     for (final action in entity.actions) {
       if (action.commandName == null) continue;
       yield (entity: entity, action: action);

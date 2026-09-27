@@ -9,6 +9,7 @@ import '../core/constants.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import 'spec_codec.dart';
+import 'ws_connect_deadline.dart';
 
 /// A spec-declared WebSocket control session.
 ///
@@ -100,7 +101,13 @@ class WsPairingException implements UserFacingException {
 /// neither gets the platform's ordinary validation: the fields crossed the
 /// FFI from day one and were then ignored here, which silently extended one
 /// television's posture to every future WebSocket device.
-WsConnect _connectorFor(WebSocketSurfaceDto surface) {
+WsConnect _connectorFor(WebSocketSurfaceDto surface) => wsConnectorFor(surface);
+
+/// The real connector for [surface], exposed so a test can drive it against
+/// a local server — the failure messages it builds are what reach the
+/// screen and the log.
+@visibleForTesting
+WsConnect wsConnectorFor(WebSocketSurfaceDto surface) {
   final permissive =
       surface.tlsSelfSigned == true || surface.tlsVerification == 'none';
   return (String url, Map<String, String> headers) async {
@@ -123,8 +130,14 @@ WsConnect _connectorFor(WebSocketSurfaceDto surface) {
       );
     } on WebSocketException catch (e) {
       client.close(force: true);
+      // Never e.message: dart:io builds it as "Connection to '<uri>' was not
+      // upgraded", quoting the full query string — which on a Samsung set
+      // carries the pairing token redactUrl just stripped, onto the screen
+      // and into the exportable log. The status code is all it adds.
+      final status = e.httpStatusCode;
       throw WsConnectionException(
-        '${redactUrl(url)} refused the WebSocket upgrade — ${e.message}',
+        '${redactUrl(url)} refused the WebSocket upgrade'
+        '${status != null ? ' (HTTP $status)' : ''}.',
       );
     } on HandshakeException catch (e) {
       client.close(force: true);
@@ -264,16 +277,11 @@ class WsSession {
         // so a set that answers on the eleventh second hands back a live
         // socket with nobody holding it: never listened to, never closed, and
         // with it the HttpClient underneath. Close whatever turns up late.
-        _socket = await pending.timeout(
+        _socket = await connectWithinDeadline<WsSocket>(
+          pending,
           connectTimeout,
-          onTimeout: () {
-            unawaited(
-              pending
-                  .then((late) => late.close())
-                  .catchError((Object _) => null),
-            );
-            throw TimeoutException('ws connect', connectTimeout);
-          },
+          discard: _discard,
+          what: 'ws connect',
         );
         break;
       } on TimeoutException catch (e) {
@@ -662,15 +670,27 @@ class WsSession {
 
     // Ask on the main socket, and read the address out of the reply.
     final address = Completer<String>();
-    final watching = _frames.stream.listen((frame) {
-      if (address.isCompleted) return;
-      try {
-        final value = _atPath(jsonDecode(frame), addressPath);
-        if (value != null && value.isNotEmpty) address.complete(value);
-      } on FormatException {
-        // Not the reply we are waiting for.
-      }
-    });
+    // Nobody awaits address.future until send() below returns; a hang-up
+    // that fails it before then must not surface as an unhandled error. The
+    // later await still sees the failure.
+    address.future.ignore();
+    final watching = _frames.stream.listen(
+      (frame) {
+        if (address.isCompleted) return;
+        try {
+          final value = _atPath(jsonDecode(frame), addressPath);
+          if (value != null && value.isNotEmpty) address.complete(value);
+        } on FormatException {
+          // Not the reply we are waiting for.
+        }
+      },
+      // The main socket's hang-up arrives here as an error. Unhandled, it was
+      // an uncaught zone error and the wait sat out its full 10 s, then
+      // blamed the device for not handing over its socket.
+      onError: (Object e) {
+        if (!address.isCompleted) address.completeError(e);
+      },
+    );
     try {
       await send(obtainedBy, const {});
       final url = await address.future.timeout(connectTimeout);
@@ -692,7 +712,12 @@ class WsSession {
           'WebSocket address on $_host, so it is refused.',
         );
       }
-      final socket = await _connect(url, const {}).timeout(connectTimeout);
+      final socket = await connectWithinDeadline(
+        _connect(url, const {}),
+        connectTimeout,
+        discard: _discard,
+        what: 'ws "$channelName" connect',
+      );
       if (_socket == null) {
         // close() ran while this connect was in flight. A socket cached now
         // would repopulate the maps on a spent session and hold its TCP
@@ -741,6 +766,13 @@ class WsSession {
     } finally {
       await watching.cancel();
     }
+  }
+
+  /// Release a socket that arrived after its deadline: drained first, since
+  /// a socket whose stream has no listener never delivers its done event.
+  static Future<void> _discard(WsSocket late) {
+    late.stream.listen((_) {}, onError: (Object _) {}, cancelOnError: false);
+    return late.close();
   }
 
   /// Close every socket this session opened. Idempotent.

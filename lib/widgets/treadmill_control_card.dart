@@ -301,8 +301,16 @@ _resolve(
       // capped by the parameter's max to 25 km/h; the spec's entity clamps
       // it at 12, which is what the belt can do. The card offered the 25 and
       // sent it — the encoder only checks the parameter's bound.
-      final entityMin = speedAction?.min;
-      final entityMax = speedAction?.max;
+      //
+      // The bounds are the entity's DECODED setpoint range, never the
+      // action's `min`/`max`: those are the parameter's RAW counts (2500 on
+      // FTMS), and comparing 2500 against 25 km/h let the full 25 through.
+      // Only when the slider drives the entity's own parameter — a fallback
+      // command's range is not what the entity describes.
+      final drivesEntity =
+          entitySpeedEntry != null && parameter.name == entitySpeedParam;
+      final entityMin = drivesEntity ? speedEntity?.setpointMin : null;
+      final entityMax = drivesEntity ? speedEntity?.setpointMax : null;
       if (entityMin != null && entityMin > minDisplay) minDisplay = entityMin;
       if (entityMax != null && entityMax < maxDisplay) maxDisplay = entityMax;
       if (minDisplay > maxDisplay) minDisplay = maxDisplay;
@@ -397,8 +405,12 @@ class TreadmillControlCard extends ConsumerStatefulWidget {
 
 class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   /// The target speed being dialled in, in display units. Null until the
-  /// first build seeds it from the resolved range — the card has no live
-  /// speed reading to open from, so it opens at the bottom of the range.
+  /// user commits one with the slider: the card has no live speed reading,
+  /// and it used to open at the bottom of the range and nudge from there —
+  /// so on a belt already running at 5 km/h (resumed, started from the
+  /// remote) 'Speed up' sent 0.5 km/h. While null the headline reads '—'
+  /// and the relative steppers are disabled; only the slider, which states
+  /// an absolute target, can send.
   double? _speedDisplay;
 
   /// Label of the send currently in flight; the speed and Start/Pause
@@ -620,7 +632,9 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   }
 
   void _nudgeSpeed(_ResolvedSpeed speed, double delta) {
-    final current = _speedDisplay ?? speed.minDisplay;
+    // Never nudge from an invented baseline; see [_speedDisplay].
+    final current = _speedDisplay;
+    if (current == null) return;
     final next = (current + delta)
         .clamp(speed.minDisplay, speed.maxDisplay)
         .toDouble();
@@ -649,7 +663,9 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final speed = resolved.speed;
-    if (speed != null) _speedDisplay ??= speed.minDisplay;
+    final shownSpeed = _speedDisplay;
+    // Steppers are relative, so they need a real baseline to step from.
+    final canNudge = _sending == null && shownSpeed != null;
 
     return Card(
       margin: const EdgeInsets.fromLTRB(8, 8, 8, 12),
@@ -672,7 +688,9 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                           ),
                         ),
                         Text(
-                          _fmtSpeed(speed, _speedDisplay!),
+                          shownSpeed == null
+                              ? '—'
+                              : _fmtSpeed(speed, shownSpeed),
                           style: text.headlineSmall?.copyWith(
                             fontWeight: FontWeight.w700,
                             fontFeatures: const [FontFeature.tabularFigures()],
@@ -683,7 +701,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                   ),
                   IconButton.outlined(
                     tooltip: 'Slow down',
-                    onPressed: _sending == null
+                    onPressed: canNudge
                         ? () => _nudgeSpeed(speed, -_speedStep)
                         : null,
                     icon: const Icon(Icons.remove),
@@ -695,7 +713,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                   const SizedBox(width: 8),
                   IconButton.outlined(
                     tooltip: 'Speed up',
-                    onPressed: _sending == null
+                    onPressed: canNudge
                         ? () => _nudgeSpeed(speed, _speedStep)
                         : null,
                     icon: const Icon(Icons.add),
@@ -707,11 +725,14 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                 ],
               ),
               Slider(
+                // The spec's unit and precision, as the visible label shows
+                // them — not a hardcoded one-decimal 'km/h' that announced an
+                // mph pad in the wrong unit.
                 semanticFormatterCallback: (v) =>
-                    'Speed ${v.toStringAsFixed(1)} km/h',
+                    'Speed ${_fmtSpeed(speed, v)}',
                 min: speed.minDisplay,
                 max: speed.maxDisplay,
-                // Discrete half-km/h stops where the range allows; null past
+                // Discrete [_speedStep] stops where the range allows; null past
                 // the division cap, with snapToStep keeping a continuous drag
                 // on the same stops.
                 divisions: divisionsForStep(
@@ -719,10 +740,12 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                   speed.maxDisplay,
                   _speedStep,
                 ),
-                value: _speedDisplay!
+                // With no target yet the thumb rests at the bottom; the
+                // headline's '—' says that is not a reading.
+                value: (shownSpeed ?? speed.minDisplay)
                     .clamp(speed.minDisplay, speed.maxDisplay)
                     .toDouble(),
-                label: _fmtSpeed(speed, _speedDisplay!),
+                label: _fmtSpeed(speed, shownSpeed ?? speed.minDisplay),
                 onChanged: _sending != null
                     ? null
                     : (v) => setState(
@@ -737,17 +760,17 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                 // write to a moving belt.
                 onChangeEnd: _sending != null
                     ? null
-                    : (v) => unawaited(
-                        _sendSpeed(
-                          speed,
-                          snapToStep(
-                            v,
-                            speed.minDisplay,
-                            speed.maxDisplay,
-                            _speedStep,
-                          ),
-                        ),
-                      ),
+                    : (v) {
+                        final target = snapToStep(
+                          v,
+                          speed.minDisplay,
+                          speed.maxDisplay,
+                          _speedStep,
+                        );
+                        // The committed target is the steppers' baseline.
+                        setState(() => _speedDisplay = target);
+                        unawaited(_sendSpeed(speed, target));
+                      },
               ),
               const SizedBox(height: 8),
             ],

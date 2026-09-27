@@ -207,6 +207,30 @@ void main() {
       },
     );
 
+    // Fails on the old code: `seen?.name ?? saved?.name` kept the '' of a
+    // nameless advertisement and answered no without matching.
+    test('a nameless sighting of a saved device falls back to its saved '
+        'name', () async {
+      final c = await container(
+        saved: [savedDevice(name: 'Laser Distance Meter')],
+        scanMatches: (d) =>
+            d.name == 'Laser Distance Meter' ? [_match(_meter)] : const [],
+      );
+
+      expect(
+        await ask(
+          c,
+          seen: (
+            name: '',
+            serviceUuids: sighting.serviceUuids,
+            companyIds: const <int>[],
+          ),
+        ),
+        isTrue,
+      );
+      expect(codec.scanMatchCalls.single.serviceUuids, sighting.serviceUuids);
+    });
+
     test('nothing known about it: no, and nothing is matched', () async {
       final c = await container(scanMatches: (_) => [_match(_meter)]);
 

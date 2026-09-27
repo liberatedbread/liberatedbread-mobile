@@ -14,6 +14,7 @@
 // which transport it got.
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show BluetoothDevice, FbpErrorCode, FlutterBluePlusException, Guid;
@@ -677,13 +678,19 @@ void main() {
         asked.add(id);
         return id == _meterId;
       };
-      final stopwatch = Stopwatch()..start();
 
       await service.connect(_meterId);
       final services = await service.discoverServices(_meterId);
 
       expect(services.map((s) => s.uuid), contains(_f150));
-      expect(stopwatch.elapsed, lessThan(_stall), reason: 'no stall');
+      // The stall lives only in BlueZ's discoverServices, so "never called"
+      // is the no-stall proof. A wall-clock bound of _stall (300 ms) on the
+      // whole direct walk failed correct runs on a loaded machine.
+      expect(
+        rig.ble.platformCalls,
+        isNot(contains('discoverServices:$_meterId')),
+        reason: 'no BlueZ discovery, so no stall',
+      );
       expect(asked, [_meterId]);
       expect(rig.ble.platformCalls, isNot(contains('connect:$_meterId')));
       expect(rig.registry.isDeclared(_meterId), isTrue);
@@ -733,6 +740,95 @@ void main() {
         await service.disconnect(_bulbId);
       });
     }
+
+    // Fails on the old code: a declared device was never asked again, so a
+    // corrected spec choice kept it off BlueZ until the app restarted.
+    test('a declared device the catalogue stops vouching for goes back to '
+        'BlueZ on its next connect', () async {
+      rig.ble.add(EmulatedPeripheral.bulb(id: _meterId));
+      attMeter();
+      var direct = true;
+      rig.router.routeHint = (_, _) async => direct;
+      await service.connect(_meterId);
+      expect(rig.ble.platformCalls, isNot(contains('connect:$_meterId')));
+      await service.disconnect(_meterId);
+      await settle();
+
+      direct = false;
+      await service.connect(_meterId);
+
+      expect(rig.ble.platformCalls, contains('connect:$_meterId'));
+      expect(rig.registry.contains(_meterId), isFalse);
+      await service.disconnect(_meterId);
+    });
+
+    test(
+      'a declared device whose hint then does not answer stays direct',
+      () async {
+        rig.ble.add(EmulatedPeripheral.bulb(id: _meterId));
+        attMeter();
+        var answer = true;
+        rig.router.routeHint = (_, _) => answer
+            ? Future.value(true)
+            : Future.delayed(const Duration(seconds: 2), () => false);
+        await service.connect(_meterId);
+        await service.disconnect(_meterId);
+        await settle();
+
+        answer = false;
+        await service.connect(_meterId);
+
+        expect(rig.ble.platformCalls, isNot(contains('connect:$_meterId')));
+        expect(rig.registry.isDeclared(_meterId), isTrue);
+        await service.disconnect(_meterId);
+      },
+    );
+
+    // Fails on the old code (no forget): nothing in the app could ever take
+    // a remembered device off the direct path again.
+    test('forgetting a remembered device puts it back on BlueZ', () async {
+      rig.ble.add(EmulatedPeripheral.bulb(id: _meterId));
+      await rig.registry.add(_meterId);
+      expect(rig.store.values, isNotEmpty);
+
+      await rig.router.forget(_meterId);
+      await service.connect(_meterId);
+
+      expect(rig.registry.contains(_meterId), isFalse);
+      expect(
+        jsonDecode(rig.store.values[DirectAttRegistry.key]!) as List,
+        isEmpty,
+      );
+      expect(rig.ble.platformCalls, contains('connect:$_meterId'));
+      await service.disconnect(_meterId);
+    });
+
+    // Fails on the old code: the nameless advertisement replaced the
+    // remembered name with '', leaving the hint nothing to match on.
+    test(
+      'a nameless advertisement keeps the name an earlier one gave',
+      () async {
+        final bulb = rig.ble.add(
+          EmulatedPeripheral.bulb(id: _meterId, name: 'Laser Distance Meter'),
+        );
+        attMeter();
+        BleSighting? told;
+        rig.router.routeHint = (id, seen) async {
+          told = seen;
+          return true;
+        };
+        await service.scan(timeout: const Duration(milliseconds: 300)).toList();
+        bulb
+          ..name = ''
+          ..advName = null;
+        await service.scan(timeout: const Duration(milliseconds: 300)).toList();
+
+        await service.connect(_meterId);
+
+        expect(told?.name, 'Laser Distance Meter');
+        await service.disconnect(_meterId);
+      },
+    );
 
     test('a device already routed direct is not asked about', () async {
       await rig.registry.add(_meterId);

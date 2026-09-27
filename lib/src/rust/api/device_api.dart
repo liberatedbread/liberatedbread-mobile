@@ -9,7 +9,7 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_company_ids`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_platform_company_id`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_company_ids`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `ble_provisioning_profiles_over`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_platform_company_id`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `match_network_over`, `match_scanned_over`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `select_entity`, `soft_ap_profiles_over`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConnectedMatch`, `MatchAxes`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
@@ -96,13 +96,19 @@ Future<BleHandshakeDto> specBleHandshake({required String specYaml}) =>
 /// Both `set_value` shapes are handled: a command carrying the value in its
 /// single un-defaulted parameter, and a direct write of the encoded value to
 /// a characteristic the entity explicitly nominates.
+///
+/// `entity_index` is [`EntityDto::entity_index`]: which of several entities
+/// sharing `entity_name` is meant. `None` addresses by name alone, and is
+/// refused when the name is ambiguous rather than guessing the first.
 Future<EntityWriteDto> encodeEntityValue({
   required String specYaml,
   required String entityName,
+  int? entityIndex,
   required double value,
 }) => RustLib.instance.api.crateApiDeviceApiEncodeEntityValue(
   specYaml: specYaml,
   entityName: entityName,
+  entityIndex: entityIndex,
   value: value,
 );
 
@@ -854,6 +860,10 @@ Future<List<MatchResult>> matchDeviceToSpec({
 /// The Wi-Fi counterpart of [`match_scanned_device`], sharing its confidence
 /// rule so a "Likely supported" badge means the same thing on both tabs.
 /// Returns `vec![]` when nothing matches.
+///
+/// The catalogue handle's [`super::spec_handle::CatalogueHandle::match_network`]
+/// runs the same body over the identities it already holds; this by-value
+/// door stays for tests and codec fakes.
 Future<List<ScanMatch>> matchNetworkDevice({
   required List<SpecIdentityDto> identities,
   required NetworkDeviceDto device,
@@ -873,6 +883,12 @@ Future<List<ScanMatch>> matchNetworkDevice({
 /// anything with a result — a [`MatchConfidence::Possible`] match is one shared
 /// OUI and says only that the device is worth a human's attention, not that the
 /// spec describes it.
+///
+/// The catalogue handle's [`super::spec_handle::CatalogueHandle::match_scanned`]
+/// is the door the app uses: it matches against the identities the handle
+/// already holds, so a scan no longer SSE-encodes ~200 identities on the UI
+/// isolate for every newly seen (or re-randomised) device. This by-value door
+/// stays for tests and codec fakes.
 Future<List<ScanMatch>> matchScannedDevice({
   required List<SpecIdentityDto> identities,
   required ScannedDeviceDto device,
@@ -952,6 +968,19 @@ Future<Uint8List> renderBrotherQlTestLabel({
 Future<CameraDto?> cameraForDevice({required String specYaml}) =>
     RustLib.instance.api.crateApiDeviceApiCameraForDevice(specYaml: specYaml);
 
+/// Encode the BLE writes that PERSIST a picture on the device so it plays
+/// standalone after disconnect, dispatched on the spec's `stored_upload`
+/// feature.
+///
+/// `rgb` is the canvas, row-major `width * height * 3`, already reduced to at
+/// most 16 distinct colours (the editor quantises before calling). `name` is
+/// the label stored on the device, `cid` the id it is stored under (novel ids
+/// are accepted), `time_secs` the run/scroll duration, `scroll` one of
+/// `none`/`left`/`right`/`up`/`down`, and `speed` the scroll-speed byte.
+///
+/// Returns the ordered Uploader-characteristic writes plus, when the spec
+/// declares a `play_command`, a fragment-framed write that plays the item
+/// immediately. Errors are typed and user-presentable.
 Future<StoredUploadPlanDto> encodeStoredImage({
   required String specYaml,
   int? maxWrite,
@@ -1228,6 +1257,10 @@ Future<List<ProfileInfoDto>> identifyStandardProfiles({
 /// Another catalogue sweep, so it stays off the spec cache for the reason
 /// [`load_device_spec`] gives: one pass over every spec would clear the cache
 /// out from under whatever the app is actually polling.
+///
+/// The app asks [`super::spec_handle::CatalogueHandle::soft_ap_profiles`]
+/// instead, which crosses indices rather than megabytes of YAML and re-parses
+/// nothing; this by-YAML door stays for tests and codec fakes.
 Future<List<SoftApProfileDto>> softApProfiles({
   required List<String> specYamls,
 }) =>
@@ -1239,6 +1272,9 @@ Future<List<SoftApProfileDto>> softApProfiles({
 ///
 /// Same whole-catalogue sweep caveat as [`soft_ap_profiles`]: specs that fail
 /// to parse are skipped, and the pass stays off the spec cache.
+///
+/// The app asks
+/// [`super::spec_handle::CatalogueHandle::ble_provisioning_profiles`] instead.
 Future<List<BleProvisioningProfileDto>> bleProvisioningProfiles({
   required List<String> specYamls,
 }) => RustLib.instance.api.crateApiDeviceApiBleProvisioningProfiles(
@@ -2279,6 +2315,17 @@ class EntityDto {
   /// half that knows which model is in front of us.
   final List<String> variants;
 
+  /// This entity's position in the spec's `entities:` list — its identity,
+  /// where the name is not one. Pass it back to [`encode_entity_value`] so a
+  /// setpoint is encoded against THIS entity: kingsmith-walkingpad declares
+  /// "Target Speed" twice (WiLink, max 6; FTMS, max 12), and a lookup by
+  /// name alone encoded the FTMS card's value against the WiLink command.
+  ///
+  /// Always set for an entity this crate builds. Optional only so a DTO
+  /// assembled by hand (the Dart test fakes) need not state it; the name
+  /// then addresses the entity, and an ambiguous name is refused.
+  final int? entityIndex;
+
   /// Machine-stable semantic token from the spec's documented vocabulary
   /// (`ok`, `volume_up`, `start`, `stop`, …), so a curated layout — a
   /// remote grid, a treadmill card — can place this entity without
@@ -2375,6 +2422,7 @@ class EntityDto {
   const EntityDto({
     required this.name,
     required this.variants,
+    this.entityIndex,
     this.key,
     this.platform,
     this.deviceClass,
@@ -2404,6 +2452,7 @@ class EntityDto {
   int get hashCode =>
       name.hashCode ^
       variants.hashCode ^
+      entityIndex.hashCode ^
       key.hashCode ^
       platform.hashCode ^
       deviceClass.hashCode ^
@@ -2435,6 +2484,7 @@ class EntityDto {
           runtimeType == other.runtimeType &&
           name == other.name &&
           variants == other.variants &&
+          entityIndex == other.entityIndex &&
           key == other.key &&
           platform == other.platform &&
           deviceClass == other.deviceClass &&
@@ -3109,7 +3159,11 @@ class MatchResult {
   final bool matchedByNamePrefix;
 
   /// The advertised service UUIDs (lowercased) that intersect with the
-  /// spec's identification. Empty when no UUIDs matched.
+  /// spec's identification and are VENDOR-allocated. A SIG-assigned match
+  /// (0x1802, 0x1826, 0x181A …) is left out: it admits the match at
+  /// `Possible` but says nothing about who built the device, and a caller
+  /// ranking on this list would otherwise let it outrank a name. Empty when
+  /// no vendor UUID matched.
   final List<String> matchedServiceUuids;
 
   /// How much this match is worth. See [`MatchConfidence`].
@@ -3152,7 +3206,10 @@ class MqttIncomingDto {
   final String payload;
 
   /// CONNACK's return code — 0 is accepted, 4 is a bad username or
-  /// password. SUBACK's packet id. Zero elsewhere.
+  /// password. SUBACK's packet id. For `other`, the MQTT control packet
+  /// type (the fixed header's high nibble: 4 is PUBACK, 14 DISCONNECT), so
+  /// a reader must not take a nonzero value there for a return code. Zero
+  /// for publish and pingresp.
   final int code;
 
   const MqttIncomingDto({

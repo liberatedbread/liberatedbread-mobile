@@ -543,6 +543,63 @@ void main() {
       expect(g.label, 'Possibly supported');
     });
 
+    // Before the fix a pack's corrected copy of a bundled spec tied with
+    // its own original: otherMatches 1, no product name, and the stale
+    // bundled copy's pictogram/advisory on the row.
+    test('a pack copy of a bundled spec is one candidate, and wins', () {
+      final g = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong, deviceName: 'Ember Mug'),
+        _match(
+          MatchConfidence.strong,
+          deviceName: 'Ember Mug',
+          specIndex: 7,
+          pictogram: 'mug',
+        ),
+      ]);
+      expect(g!.otherMatches, 0);
+      expect(g.namesAProduct, isTrue);
+      expect(g.label, 'Ember Mug');
+      expect(g.pictogram, 'mug');
+      expect(g.specIndex, 7);
+    });
+
+    test('a bundled match speaks for the pack copy that did not match', () {
+      // The pack tightened the matchers, so only the stale copy came back;
+      // it still stands for the spec that shadows it.
+      final bundled = specIdentityOf(_beaconSpec);
+      final pack = SpecIdentityDto(
+        deviceName: bundled.deviceName,
+        manufacturer: bundled.manufacturer,
+        category: bundled.category,
+        pictogram: 'padlock',
+        localNamePrefixes: const [],
+        localNames: const [],
+        serviceUuids: const [],
+        companyIds: Uint16List(0),
+        manufacturerDataPrefixes: const [],
+        macPrefixes: const [],
+        mdnsServiceTypes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        nameMatchers: const [],
+        txtMatchGroups: const [],
+        platformFallbackTypes: const [],
+      );
+      final g = ScanGuess.fromMatches(
+        [
+          _match(
+            MatchConfidence.likely,
+            deviceName: bundled.deviceName,
+            category: 'lock',
+          ),
+        ],
+        identities: [bundled, specIdentityOf(_spec), pack],
+      );
+      expect(g!.specIndex, 2);
+      expect(g.pictogram, 'padlock');
+      expect(g.confidence, MatchConfidence.likely);
+    });
+
     test('ignores weaker matches when judging agreement', () {
       // A Strong match is not made ambiguous by a trailing Possible one, and
       // that other spec's maker has no bearing on the verdict either.
@@ -963,8 +1020,19 @@ void main() {
       // A shared OUI can tie a plant sensor and a body scale. Drawing the
       // first one's icon would be the same confident guess as naming it.
       final guess = ScanGuess.fromMatches([
-        _match(MatchConfidence.possible, category: 'sensor'),
-        _match(MatchConfidence.possible, category: 'scale'),
+        // Distinct specs, so distinct identities: two entries sharing a
+        // name and maker are one spec shadowed by a pack, and collapse.
+        _match(
+          MatchConfidence.possible,
+          deviceName: 'Plant sensor',
+          category: 'sensor',
+        ),
+        _match(
+          MatchConfidence.possible,
+          deviceName: 'Body scale',
+          category: 'scale',
+          specIndex: 1,
+        ),
       ])!;
       expect(guess.category, isNull);
       expect(guess.iconOr(unknownDeviceIcon), unknownDeviceIcon);

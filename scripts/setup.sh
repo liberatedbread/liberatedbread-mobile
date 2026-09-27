@@ -453,9 +453,14 @@ setup_macos() {
     log "Xcode found at $(xcode-select -p)"
   fi
 
+  # No pod install here. This runs BEFORE setup_project's `flutter pub get`,
+  # and ios/Podfile raises without the Generated.xcconfig that pub get
+  # writes, so on every fresh clone it failed with a warning blaming the
+  # Xcode project (or, with a stale Generated.xcconfig, required podhelper
+  # from another machine's FLUTTER_ROOT). run-ios*.sh and `flutter build ios`
+  # run pod install themselves, after pub get.
   if command_exists pod; then
-    log "CocoaPods found. Running pod install..."
-    (cd "$PROJECT_DIR/ios" && pod install) || warn "pod install failed — may need Xcode project first."
+    log "CocoaPods found (run-ios*.sh / flutter build ios run pod install)."
   else
     warn "CocoaPods not found. Install with: gem install cocoapods"
   fi

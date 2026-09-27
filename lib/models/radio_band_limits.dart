@@ -146,7 +146,11 @@ class OriginalBandLimits {
   static OriginalBandLimits? fromJson(Object? json) {
     if (json is! Map<String, dynamic>) return null;
     final limits = RadioBandLimits.fromJson(json);
-    final readAt = DateTime.tryParse(json['readAt'] as String? ?? '');
+    // `as String?` would THROW on a non-string readAt (an epoch int from a
+    // hand-edited store), and one throwing entry fails the whole
+    // original-limits provider for every model. Unreadable reads as null.
+    final rawReadAt = json['readAt'];
+    final readAt = rawReadAt is String ? DateTime.tryParse(rawReadAt) : null;
     if (limits == null || readAt == null) return null;
     return OriginalBandLimits(limits: limits, readAt: readAt);
   }

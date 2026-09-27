@@ -8,6 +8,7 @@
 // peer's own requests, and the two things the whole path exists for — never
 // sending the probe the meter ignores, and surviving what bluetoothd does
 // not. Security on demand has its own file, att_security_test.dart.
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -512,16 +513,67 @@ void main() {
       expect(sentOf(AttOpcode.executeWriteRequest), isEmpty);
     });
 
-    test('a commit the peer rejects surfaces its error', () async {
+    test(
+      'exactly the 512-byte attribute maximum goes as a long write',
+      () async {
+        final value = List<int>.generate(
+          attMaxAttributeLength,
+          (i) => i & 0xff,
+        );
+        await client.write(0x0055, value);
+        expect(meter.attributes[0x0055]!.value, value);
+        expect(meter.violations, isEmpty);
+      },
+    );
+
+    // Fails on the old code: write() sent 513+ bytes as Prepare Writes and
+    // left refusing them to the peer — and past 0xFFFF bytes the 16-bit
+    // offset on the wire wrapped.
+    test('a value over the 512-byte attribute maximum is refused before '
+        'anything is sent', () async {
       await expectLater(
-        client.write(0x0055, List.filled(600, 5)), // over the 512 maximum
-        throwsA(
-          isA<AttErrorException>()
-              .having((e) => e.requestOpcode, 'op', 0x18)
-              .having((e) => e.errorCode, 'code', 0x0d),
-        ),
+        client.write(0x0055, List.filled(attMaxAttributeLength + 1, 5)),
+        throwsA(isA<ArgumentError>()),
       );
+      expect(channel.sent, isEmpty);
       expect(meter.writes, isEmpty);
+    });
+
+    // Fails on the old code: the piece size was taken once, so after the
+    // peer's own exchange lowered the MTU from 100 to 40 the remaining
+    // Prepare Writes still went out 100 bytes long.
+    test("pieces shrink when the peer's own exchange lowers the MTU "
+        'mid-write', () async {
+      await client.close();
+      meter.serverRxMtu = 100;
+      var lowered = false;
+      late final _SendHook ch;
+      ch = _SendHook(meter, (pdu) {
+        if (lowered || pdu[0] != AttOpcode.prepareWriteRequest) return;
+        lowered = true;
+        unawaited(meter.sendRequestToClient(AttEncode.exchangeMtu(40)));
+      });
+      final c = AttClient(ch);
+      expect(await c.exchangeMtu(), 100);
+      final value = List<int>.generate(200, (i) => i);
+
+      await c.write(0x0055, value);
+
+      final prepares = ch.sent
+          .where((p) => p[0] == AttOpcode.prepareWriteRequest)
+          .toList();
+      expect(c.mtu, 40);
+      expect(prepares.first.length, 100);
+      expect(prepares.skip(1).every((p) => p.length <= 40), isTrue);
+      expect(prepares.map((p) => p[3] | (p[4] << 8)).toList(), [
+        0,
+        95,
+        130,
+        165,
+      ]);
+      expect(meter.attributes[0x0055]!.value, value);
+      expect(meter.violations, isEmpty);
+      await c.close();
     });
   });
 
@@ -865,4 +917,17 @@ void main() {
       await failing;
     });
   });
+}
+
+/// A [FakeAttChannel] that tells [onSend] about every PDU the client sends,
+/// after the peer has taken it.
+class _SendHook extends FakeAttChannel {
+  final void Function(Uint8List pdu) onSend;
+  _SendHook(super.peripheral, this.onSend);
+
+  @override
+  void send(Uint8List pdu) {
+    super.send(pdu);
+    onSend(pdu);
+  }
 }

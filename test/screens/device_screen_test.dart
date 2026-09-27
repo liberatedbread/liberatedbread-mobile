@@ -86,6 +86,38 @@ class _GatedBleService extends FakeBleService {
   }
 }
 
+/// A [FakeBleService] that counts connection claims the way RealBleService
+/// does: one per successful connect(), one released per disconnect(), and
+/// every claim expired when the link drops ([dropLink]).
+class _ClaimCountingBleService extends FakeBleService {
+  _ClaimCountingBleService(this.states, {super.servicesToReturn})
+    : super(connectionStateStream: states.stream);
+
+  final StreamController<BleConnectionState> states;
+
+  int claims = 0;
+
+  /// The link went down under every owner: the platform says
+  /// `disconnected`, and RealBleService's link-drop watcher expires the
+  /// claims before anyone releases them.
+  void dropLink() {
+    claims = 0;
+    states.add(BleConnectionState.disconnected);
+  }
+
+  @override
+  Future<void> connect(String deviceId) async {
+    await super.connect(deviceId);
+    claims++;
+  }
+
+  @override
+  Future<void> disconnect(String deviceId) async {
+    await super.disconnect(deviceId);
+    if (claims > 0) claims--;
+  }
+}
+
 /// A [FakeBleService] whose [connect] stays pending until [cancelConnect]
 /// cancels it, the way flutter_blue_plus's `disconnect(queue: false)`
 /// cancels a platform connect: the pending call then throws, and no link is
@@ -726,12 +758,14 @@ void main() {
     await tester.tap(find.text('Reconnect'));
     await tester.pump();
     expect(find.text('Connecting...'), findsOneWidget);
-    expect(fake.events, ['connect:01', 'disconnect:01']);
+    // No disconnect: the drop already took the screen's claim, so a release
+    // here would be someone else's (see the second-owner tests below).
+    expect(fake.events, ['connect:01']);
     expect(fake.gates, hasLength(2));
 
     fake.gates[1].complete();
     await tester.pumpAndSettle();
-    expect(fake.events, ['connect:01', 'disconnect:01', 'connect:01']);
+    expect(fake.events, ['connect:01', 'connect:01']);
     expect(find.text('Battery Service'), findsOneWidget);
     expect(find.text('Device disconnected'), findsNothing);
 
@@ -746,8 +780,73 @@ void main() {
     fake.gates[2].complete();
     await tester.pumpAndSettle();
     expect(fake.connectedIds, ['01', '01', '01']);
-    expect(fake.disconnectedIds, ['01', '01']);
+    expect(fake.disconnectedIds, isEmpty);
     expect(find.text('Battery Service'), findsOneWidget);
+  });
+
+  group('a drop releases the claim, so a later owner keeps theirs', () {
+    // Old code kept `_connected` true after the link dropped, so the
+    // screen's next teardown (Reconnect's cleanup, or dispose on pop) sent a
+    // disconnect() that released the claim of whoever connected after the
+    // drop, and on their last claim tore their link down.
+    late _ClaimCountingBleService fake;
+
+    Future<void> connectThenDrop(WidgetTester tester) async {
+      final states = StreamController<BleConnectionState>.broadcast();
+      addTearDown(states.close);
+      fake = _ClaimCountingBleService(
+        states,
+        servicesToReturn: const [_batteryService],
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+      expect(fake.claims, 1);
+
+      fake.dropLink();
+      await tester.pumpAndSettle();
+      expect(find.text('Device disconnected'), findsOneWidget);
+      expect(fake.claims, 0);
+
+      // A second owner (a group run, a device client) connects.
+      await fake.connect('01');
+      expect(fake.claims, 1);
+    }
+
+    testWidgets('leaving the screen', (tester) async {
+      await connectThenDrop(tester);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      expect(fake.claims, 1, reason: "the second owner's claim is intact");
+      expect(fake.disconnectedIds, isEmpty);
+    });
+
+    testWidgets('Reconnect', (tester) async {
+      await connectThenDrop(tester);
+      await tester.tap(find.text('Reconnect'));
+      await tester.pumpAndSettle();
+      // The second owner's claim plus the screen's fresh one.
+      expect(fake.claims, 2);
+      expect(fake.disconnectedIds, isEmpty);
+    });
+
+    testWidgets('a link still disconnecting is still ours to release', (
+      tester,
+    ) async {
+      final states = StreamController<BleConnectionState>.broadcast();
+      addTearDown(states.close);
+      fake = _ClaimCountingBleService(
+        states,
+        servicesToReturn: const [_batteryService],
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+      states.add(BleConnectionState.disconnecting);
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      expect(fake.disconnectedIds, ['01']);
+      expect(fake.claims, 0);
+    });
   });
 
   testWidgets('a link dropped during discovery is "disconnected", not a '

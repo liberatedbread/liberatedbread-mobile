@@ -773,6 +773,14 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     _connSub?.cancel();
     _connSub = _bleService.connectionState(widget.device.id).listen((state) {
       if (!mounted) return;
+      // A link that is fully down took our claim with it: RealBleService's
+      // link-drop watcher expires every claim on `disconnected`. Still
+      // holding `_connected` here meant a later Reconnect or pop sent a
+      // disconnect() that released the claim of whoever connected after
+      // the drop (a group run, a device client) and dropped THEIR link.
+      // Only on `disconnected`: while `disconnecting` the claim still
+      // stands, and the link may yet be ours to release.
+      if (state == BleConnectionState.disconnected) _connected = false;
       final lostConnection =
           state == BleConnectionState.disconnected ||
           state == BleConnectionState.disconnecting;

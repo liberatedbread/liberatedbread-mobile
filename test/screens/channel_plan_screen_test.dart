@@ -439,6 +439,58 @@ void main() {
       expect(find.textContaining('should look like'), findsOneWidget);
     });
 
+    // Only "> 0" used to be checked: a dropped digit was saved and written
+    // as a channel the radio cannot tune, and an extra one failed every
+    // Write after a full read and backup.
+    testWidgets('refuses a receive frequency the radio cannot tune', (
+      tester,
+    ) async {
+      final harness = await _pump(tester, prefs: _seed(channels: 1));
+      await tester.tap(find.text('CH0'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextField, '146.940'),
+        '46.940',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Receive 46.940 MHz is outside what the'),
+        findsOneWidget,
+      );
+      final channel = harness.container
+          .read(channelPlansProvider)
+          .single
+          .channels
+          .single;
+      expect(channel.rxFreqHz, 146940000);
+    });
+
+    testWidgets('refuses a transmit frequency the radio cannot tune', (
+      tester,
+    ) async {
+      final harness = await _pump(tester, prefs: _seed(channels: 1));
+      await tester.tap(find.text('CH0'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextField, '146.340'),
+        '1462.550',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Transmit 1462.550 MHz'), findsOneWidget);
+      final channel = harness.container
+          .read(channelPlansProvider)
+          .single
+          .channels
+          .single;
+      expect(channel.txFreqHz, 146340000);
+    });
+
     testWidgets('a receive-only channel drops its transmit tone', (
       tester,
     ) async {

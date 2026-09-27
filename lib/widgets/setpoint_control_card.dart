@@ -168,6 +168,10 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
         .encodeEntityValue(
           specYaml: widget.specYaml,
           entityName: widget.entity.name,
+          // The entity's identity, not just its name: a walking pad's FTMS
+          // "Target Speed" card used to encode against the WiLink entity of
+          // the same name, refusing 8 km/h and writing the wrong dialect.
+          entityIndex: widget.entity.entityIndex,
           value: value,
         ),
   );

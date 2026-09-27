@@ -9,6 +9,7 @@ import '../core/error_text.dart';
 import '../providers/ha_provider.dart' show urlOpenerProvider;
 import '../providers/roomba_provider.dart';
 import '../services/ha_api_client.dart';
+import '../services/ha_roomba_client.dart';
 import '../services/rest980_client.dart';
 import '../services/roomba_credential_store.dart';
 
@@ -43,14 +44,7 @@ class RoombaTransportScreen extends ConsumerStatefulWidget {
   /// two need a password this app does not have.
   final RoombaCredentials? credentials;
 
-  /// Called with the chosen Home Assistant entity, once stored.
-  final void Function(HaEntityState entity)? onHaEntityChosen;
-
-  const RoombaTransportScreen({
-    super.key,
-    this.credentials,
-    this.onHaEntityChosen,
-  });
+  const RoombaTransportScreen({super.key, this.credentials});
 
   @override
   ConsumerState<RoombaTransportScreen> createState() =>
@@ -68,7 +62,19 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
   void initState() {
     super.initState();
     _rest980Controller.text = widget.credentials?.rest980BaseUrl ?? '';
-    unawaited(_loadVacuums());
+    // Listened, not read once: the HA config is an AsyncNotifier nothing
+    // warms at startup, so on a cold open the client is still null here.
+    // A one-shot read returned early and, when the config landed a frame
+    // later, the recommended card flipped to "connected" with no robots, no
+    // spinner and no way to load them. Reload on ANY client change too, so
+    // an edited HA address does not leave the old list up.
+    ref.listenManual<HaRoombaClient?>(haRoombaClientProvider, (prev, next) {
+      // A microtask, not a direct call: with fireImmediately this runs inside
+      // initState, where the load's setState is not allowed yet.
+      if (next != null && !identical(prev, next)) {
+        unawaited(Future.microtask(_loadVacuums));
+      }
+    }, fireImmediately: true);
   }
 
   @override
@@ -82,14 +88,25 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
   /// showing "not connected" until something else happened to rebuild it.
   bool get _haConnected => ref.watch(haRoombaClientProvider) != null;
 
+  /// Bumped per load, so a slow answer from a client that has since been
+  /// replaced cannot overwrite the newer one's list.
+  int _loadGeneration = 0;
+
   Future<void> _loadVacuums() async {
+    if (!mounted) return;
     final client = ref.read(haRoombaClientProvider);
     if (client == null) return;
-    setState(() => _busy = true);
+    final generation = ++_loadGeneration;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       final vacuums = await client.vacuums();
+      if (generation != _loadGeneration) return;
       if (mounted) setState(() => _vacuums = vacuums);
     } catch (e) {
+      if (generation != _loadGeneration) return;
       if (mounted) {
         setState(
           () => _error = friendlyErrorText(
@@ -100,23 +117,59 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
         );
       }
     } finally {
+      if (generation == _loadGeneration && mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  /// Store a routing choice and leave, in the same shape as [_saveRest980]:
+  /// busy while the keychain writes run, so a second tap in that window
+  /// cannot run the writes again and pop the route UNDERNEATH this one; and
+  /// a refused write lands in the error card instead of escaping the tap as
+  /// an unhandled error with the screen sitting there unchanged.
+  Future<void> _storeChoice(
+    Future<void> Function(RoombaCredentialStore store) write,
+    Object? popResult,
+  ) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await write(ref.read(roombaCredentialStoreProvider));
+      if (mounted) Navigator.of(context).pop(popResult);
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _error = friendlyErrorText(
+            e,
+            context: 'keychain',
+            fallback: 'Could not save this choice.',
+          ),
+        );
+      }
+    } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _chooseHa(HaEntityState entity) async {
     final credentials = widget.credentials;
-    if (credentials != null) {
-      final store = ref.read(roombaCredentialStoreProvider);
+    if (credentials == null) {
+      // Adding a robot: nothing to store, the wizard takes the entity.
+      Navigator.of(context).pop(entity);
+      return;
+    }
+    await _storeChoice((store) async {
       await store.setHaEntityId(credentials.blid, entity.entityId);
       // Clear the other transport, like its two siblings do. Leaving a stale
       // rest980 address behind means two are configured at once — harmless
       // only because the factory happens to prefer HA, which is a coincidence
       // this screen should not depend on.
       await store.setRest980BaseUrl(credentials.blid, null);
-    }
-    widget.onHaEntityChosen?.call(entity);
-    if (mounted) Navigator.of(context).pop(entity);
+    }, entity);
   }
 
   Future<void> _saveRest980() async {
@@ -154,10 +207,10 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
   Future<void> _chooseDirect() async {
     final credentials = widget.credentials;
     if (credentials == null) return;
-    final store = ref.read(roombaCredentialStoreProvider);
-    await store.setHaEntityId(credentials.blid, null);
-    await store.setRest980BaseUrl(credentials.blid, null);
-    if (mounted) Navigator.of(context).pop();
+    await _storeChoice((store) async {
+      await store.setHaEntityId(credentials.blid, null);
+      await store.setRest980BaseUrl(credentials.blid, null);
+    }, null);
   }
 
   @override
@@ -237,14 +290,21 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
               )
             else if (_busy && _vacuums == null)
               const LinearProgressIndicator()
-            else if (_vacuums != null && _vacuums!.isEmpty)
+            else if (_vacuums == null)
+              // The load failed (the error card says why) or has not run:
+              // never an empty card with nothing to press.
+              TextButton(
+                onPressed: _busy ? null : () => unawaited(_loadVacuums()),
+                child: const Text('Try again'),
+              )
+            else if (_vacuums!.isEmpty)
               Text(
                 'Home Assistant is connected, but reports no vacuums. Add the '
                 'Roomba integration there first.',
                 style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
               )
             else
-              for (final vacuum in _vacuums ?? const <HaEntityState>[])
+              for (final vacuum in _vacuums!)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(vacuum.friendlyName),

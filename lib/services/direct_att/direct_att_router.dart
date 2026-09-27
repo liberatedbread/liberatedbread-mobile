@@ -298,6 +298,19 @@ final class DirectAttRouter extends FlutterBluePlusPlatform {
       _handingOver.contains(_k(id)) ||
       direct.hasLink(id.str);
 
+  bool _onlyDeclared(DeviceIdentifier id) =>
+      registry.isOnlyDeclared(id.str) &&
+      !_handingOver.contains(_k(id)) &&
+      !direct.hasLink(id.str);
+
+  /// Stop routing [deviceId] direct: the forget-device path's half of the
+  /// router. A hand-over remembers a device for good (DirectAttRegistry),
+  /// and the heuristic behind it cannot tell a one-off slow drop from the
+  /// silent-probe stall, so forgetting a device has to clear it — or a
+  /// misrouted device stays off BlueZ, with no RSSI, even across a re-save.
+  /// A device in `LB_DIRECT_ATT=<mac>` stays forced.
+  Future<void> forget(String deviceId) => registry.remove(deviceId);
+
   void _pipe<T>(Stream<T> source, StreamController<T> into) =>
       _listen(source, into.add, into);
 
@@ -331,13 +344,21 @@ final class DirectAttRouter extends FlutterBluePlusPlatform {
   void _remember(BmScanResponse response) {
     for (final ad in response.advertisements) {
       final k = _k(ad.remoteId);
-      _lastSeen.remove(k);
+      final previous = _lastSeen.remove(k);
       if (_lastSeen.length >= _lastSeenCap) {
         _lastSeen.remove(_lastSeen.keys.first);
       }
       final advertised = ad.advName ?? '';
+      final platform = ad.platformName ?? '';
       _lastSeen[k] = (
-        name: advertised.isNotEmpty ? advertised : (ad.platformName ?? ''),
+        // A nameless ADV_IND after a scan response keeps the name that
+        // response gave: replacing it with '' left the route hint nothing to
+        // match the catalogue on.
+        name: advertised.isNotEmpty
+            ? advertised
+            : platform.isNotEmpty
+            ? platform
+            : (previous?.name ?? ''),
         serviceUuids: [
           for (final uuid in ad.serviceUuids) uuid.str128.toLowerCase(),
         ],
@@ -350,20 +371,33 @@ final class DirectAttRouter extends FlutterBluePlusPlatform {
   Future<void> _consultRouteHint(DeviceIdentifier id) async {
     final hint = routeHint;
     if (hint == null) return;
-    final bool declared;
+    final bool? declared;
     try {
-      // Through then<bool>: a hint whose future is narrower at runtime (an
+      // Through then<bool?>: a hint whose future is narrower at runtime (an
       // `async => throw` closure is a Future<Never>) would otherwise fail
       // timeout()'s own type check for the onTimeout value, and orphan its
-      // error.
+      // error. A timeout is no answer (null), not a no.
       declared = await hint(id.str, _lastSeen[_k(id)])
-          .then<bool>((answer) => answer)
-          .timeout(routeHintTimeout, onTimeout: () => false);
+          .then<bool?>((answer) => answer)
+          .timeout(routeHintTimeout, onTimeout: () => null);
     } catch (e) {
       Log.ble.debug('route hint for $id failed', error: e);
       return;
     }
-    if (!declared) return;
+    // No answer keeps whatever routing the device already has: a slow
+    // catalogue must not flip a declared device back onto BlueZ's stall.
+    if (declared == null) return;
+    if (!declared) {
+      if (registry.isDeclared(id.str)) {
+        registry.undeclare(id.str);
+        Log.ble.info(
+          'the spec catalogue no longer says BlueZ cannot drive $id; '
+          'connecting it through BlueZ again',
+        );
+      }
+      return;
+    }
+    if (registry.isDeclared(id.str)) return;
     registry.declare(id.str);
     Log.ble.info(
       'the spec catalogue says BlueZ cannot drive $id; connecting it over a '
@@ -558,7 +592,10 @@ final class DirectAttRouter extends FlutterBluePlusPlatform {
   @override
   Future<bool> connect(BmConnectRequest request) async {
     await registry.ready;
-    if (!routesDirect(request.remoteId)) {
+    // A device routed direct only on the catalogue's word is asked again:
+    // otherwise a spec choice the user corrected mid-run kept it off BlueZ
+    // (no RSSI, no Find Device) until the app restarted.
+    if (!routesDirect(request.remoteId) || _onlyDeclared(request.remoteId)) {
       await _consultRouteHint(request.remoteId);
     }
     if (routesDirect(request.remoteId)) {

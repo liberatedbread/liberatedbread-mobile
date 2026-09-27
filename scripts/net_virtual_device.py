@@ -655,6 +655,23 @@ def open_ssdp_socket() -> socket.socket:
     return sock
 
 
+
+def write_ready_file(path: str, payload: dict) -> None:
+    """Publish [payload] as JSON at [path], atomically.
+
+    JSON, so a caller that needs the hue port can read it. Written to a
+    sibling and renamed into place: `open(path, 'w')` creates the name EMPTY
+    and the JSON lands only when the handle closes, and
+    hub_control_live_test polls `existsSync()` and then `jsonDecode`s at once,
+    so a poll between the two read '' and failed setUp with a FormatException.
+    os.replace is atomic on one filesystem, so the name appears complete.
+    """
+    tmp = f'{path}.tmp'
+    with open(tmp, 'w') as handle:
+        handle.write(json.dumps(payload))
+    os.replace(tmp, path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scenario',
@@ -722,11 +739,8 @@ def main() -> int:
     selector.register(ssdp, selectors.EVENT_READ, 'ssdp')
 
     if args.ready_file:
-        with open(args.ready_file, 'w') as handle:
-            # JSON, so a caller that needs the hue port can read it; the
-            # existing consumers only test that the file exists.
-            handle.write(json.dumps(
-                {'address': network.address, 'hue_ports': hue_ports}))
+        write_ready_file(args.ready_file,
+                         {'address': network.address, 'hue_ports': hue_ports})
 
     names = ', '.join(d['name'] for d in network.devices)
     print(f'virtual network devices up on {network.address}: {names}',

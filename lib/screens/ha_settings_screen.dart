@@ -212,7 +212,7 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
             if (status.lastError != null) {
               text = 'Last error: ${status.lastError}';
             } else if (status.lastSuccess != null) {
-              text = 'Last update sent: ${status.lastSuccess}';
+              text = lastUpdateSentText(status.lastSuccess!);
             } else {
               text =
                   'No updates sent yet - connect to a device to start '
@@ -324,4 +324,15 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
     final open = ref.read(urlOpenerProvider);
     unawaited(open(Uri.parse(AppConstants.tailscaleHaKbUrl)));
   }
+}
+
+/// The forwarder's last-success line. Interpolating the DateTime printed its
+/// toString, microseconds and all ("14:03:11.482913"). Seconds are kept:
+/// updates arrive seconds apart, and HH:mm would look frozen between sends.
+@visibleForTesting
+String lastUpdateSentText(DateTime at) {
+  final t = at.toLocal();
+  String two(int v) => v.toString().padLeft(2, '0');
+  return 'Last update sent: ${t.year}-${two(t.month)}-${two(t.day)} '
+      '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
 }

@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:liberated_bread_mobile/models/channel_plan.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/models/suggested_channel.dart';
+import 'package:liberated_bread_mobile/providers/channel_plan_provider.dart';
 import 'package:liberated_bread_mobile/providers/location_provider.dart';
 import 'package:liberated_bread_mobile/providers/radio_bundled_data_provider.dart';
 import 'package:liberated_bread_mobile/providers/radio_source_settings_provider.dart';
@@ -76,6 +78,20 @@ RadioSourceCache _noCache() => RadioSourceCache(
   cacheDirResolver: () async => throw StateError('no cache in widget tests'),
 );
 
+/// A plan store whose saves wait for [gate], holding open the window a
+/// real disk write leaves between a tap and the plan list updating.
+class _GatedPlanStore extends ChannelPlanStore {
+  final Completer<void> gate = Completer<void>();
+
+  _GatedPlanStore(super.prefs);
+
+  @override
+  Future<List<ChannelPlan>> save(ChannelPlan plan) async {
+    await gate.future;
+    return super.save(plan);
+  }
+}
+
 void _useTallWindow(WidgetTester tester) {
   tester.view.physicalSize = const Size(1200, 4000);
   tester.view.devicePixelRatio = 1.0;
@@ -92,6 +108,7 @@ Future<SharedPreferences> _pump(
   RadioProfile profile = uv5rProfile,
   Map<String, Object> prefs = const {},
   InMemorySettingsStore? settings,
+  ChannelPlanStore Function(SharedPreferences prefs)? planStore,
 }) async {
   _useTallWindow(tester);
   SharedPreferences.setMockInitialValues(prefs);
@@ -101,6 +118,8 @@ Future<SharedPreferences> _pump(
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(sharedPrefs),
+        if (planStore != null)
+          channelPlanStoreProvider.overrideWithValue(planStore(sharedPrefs)),
         prefsSettingsStoreProvider.overrideWith(
           (ref) async => settings ?? InMemorySettingsStore(),
         ),
@@ -415,6 +434,40 @@ void main() {
       expect(find.text('W1AW'), findsOneWidget);
     });
 
+    testWidgets('a double tap on the add bar makes one plan, not two', (
+      tester,
+    ) async {
+      // With no plan yet nothing modal sits between the two taps, and the
+      // second used to run the whole path again: two "Near X" plans.
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [_repeater('W1AW', 146940000, 146340000)],
+        },
+      );
+      late _GatedPlanStore store;
+      final prefs = await _pump(
+        tester,
+        location: FakeLocationService(position: _hartford),
+        sources: [source],
+        planStore: (prefs) => store = _GatedPlanStore(prefs),
+      );
+      await search(tester);
+
+      await tester.tap(find.text('W1AW'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add 1 channel'));
+      await tester.pump();
+      await tester.tap(find.text('Add 1 channel'), warnIfMissed: false);
+      await tester.pump();
+      store.gate.complete();
+      await tester.pumpAndSettle();
+
+      final stored = ChannelPlanStore(prefs).load();
+      expect(stored, hasLength(1));
+      expect(stored.single.channels.single.name, 'W1AW');
+    });
+
     testWidgets('a plan made from a remembered position is named for it', (
       tester,
     ) async {
@@ -459,8 +512,9 @@ void main() {
 
       Future<SharedPreferences> pickW1AW(
         WidgetTester tester,
-        List<ChannelPlan> plans,
-      ) async {
+        List<ChannelPlan> plans, {
+        ChannelPlanStore Function(SharedPreferences prefs)? planStore,
+      }) async {
         final source = FakeRepeaterSource(
           id: 'test',
           byState: {
@@ -472,6 +526,7 @@ void main() {
           location: FakeLocationService(position: _hartford),
           sources: [source],
           prefs: _seedPlans(plans),
+          planStore: planStore,
         );
         await search(tester);
         await tester.tap(find.text('W1AW'));
@@ -500,6 +555,30 @@ void main() {
         };
         expect(stored['p-uv5r']!.channels.single.name, 'W1AW');
         expect(stored['p-gmrs']!.channels, isEmpty);
+      });
+
+      testWidgets('a double tap on New plan makes one plan and stays here', (
+        tester,
+      ) async {
+        // The tile used to await create and then pop: two taps made two
+        // plans and popped twice, the second pop closing this screen.
+        late _GatedPlanStore store;
+        final prefs = await pickW1AW(tester, [
+          mine,
+        ], planStore: (prefs) => store = _GatedPlanStore(prefs));
+        await tester.tap(find.text('New plan'));
+        await tester.pump();
+        await tester.tap(find.text('New plan'), warnIfMissed: false);
+        await tester.pump();
+        store.gate.complete();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(RadioSuggestionScreen), findsOneWidget);
+        expect(find.textContaining('Added 1'), findsOneWidget);
+        final stored = ChannelPlanStore(prefs).load();
+        expect(stored, hasLength(2));
+        final made = stored.singleWhere((p) => p.id != 'p-uv5r');
+        expect(made.channels.single.name, 'W1AW');
       });
 
       testWidgets('a plan for another radio alone gets a new one made', (

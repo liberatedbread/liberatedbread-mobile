@@ -4,6 +4,7 @@ import 'dart:async';
 
 import '../core/error_text.dart';
 import '../core/hex.dart';
+import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
 import 'ble_service.dart';
 import 'spec_codec.dart';
@@ -252,7 +253,14 @@ class RabbitAirBleClient implements RabbitAirBleLink {
   }
 
   void _enqueueChunk(List<int> chunk) {
-    _chunkChain = _chunkChain.then((_) => _processChunk(chunk));
+    // Self-healing: an error in one chunk's handling must not leave the
+    // chain errored, or every later `.then` skips its chunk and every
+    // exchange on this client waits out its timeout blaming the purifier.
+    _chunkChain = _chunkChain
+        .then((_) => _processChunk(chunk))
+        .catchError(
+          (Object e) => Log.ble.warning('rabbit air chunk dropped', error: e),
+        );
   }
 
   Future<void> _processChunk(List<int> chunk) async {
@@ -265,6 +273,11 @@ class RabbitAirBleClient implements RabbitAirBleLink {
       final expected = await _codec.rabbitAirBleExpectedPayloadLen(
         firstChunk: chunk,
       );
+      // Checked again after the codec round trip: a disconnect or a notify
+      // error may have failed this exchange meanwhile (completing it again
+      // threw), or a timeout ended it and a newer one began, whose state a
+      // stale chunk would corrupt.
+      if (!identical(_pending, pending) || pending.isCompleted) return;
       if (expected == null) return;
       _expected = expected;
       _buffer.addAll(chunk.length > 2 ? chunk.sublist(2) : const <int>[]);
