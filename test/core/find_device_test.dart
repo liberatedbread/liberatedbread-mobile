@@ -154,6 +154,33 @@ void main() {
     });
   });
 
+  group('signalBars', () {
+    test('bands the reading at -60, -70 and -80', () {
+      expect(signalBars(-30), 4);
+      expect(signalBars(-60), 4);
+      expect(signalBars(-61), 3);
+      expect(signalBars(-70), 3);
+      expect(signalBars(-71), 2);
+      expect(signalBars(-80), 2);
+      expect(signalBars(-81), 1);
+      expect(signalBars(-100), 1);
+    });
+
+    test('a fractional reading bands through the same thresholds', () {
+      // The scan list bands a smoothed reading — an average, so a fraction
+      // of a dB — and it has to land where the raw readings either side of
+      // it would. A second set of thresholds for the smoothed path is how
+      // the meter and the order would come to disagree at a boundary.
+      expect(signalBars(-59.9), 4);
+      expect(signalBars(-60.0), 4);
+      expect(signalBars(-60.1), 3);
+      expect(signalBars(-70.0), 3);
+      expect(signalBars(-70.5), 2);
+      expect(signalBars(-80.0), 2);
+      expect(signalBars(-80.5), 1);
+    });
+  });
+
   group('RssiTracker', () {
     test('tracks latest, extremes and count', () {
       final tracker = RssiTracker();

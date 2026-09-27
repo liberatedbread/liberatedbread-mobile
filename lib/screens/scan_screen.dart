@@ -11,7 +11,6 @@ import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
 import '../core/device_category.dart';
 import '../core/error_text.dart';
-import '../core/find_device.dart' show signalBars;
 import '../core/value_format.dart' show shortAge;
 import '../models/iot_device.dart';
 import '../models/radio_target.dart';
@@ -754,6 +753,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     // classification, and only the manager knows how much of the wall time
     // since the sighting a scan was actually listening through.
     final age = shortAge(_deviceManager.ageOf(device, now));
+    // The manager's band, likewise: the one the row was sorted into, held
+    // steady across the reading's jitter. The bars, the words and the order
+    // all come from it; only the dBm figure is the reading itself.
+    final band = _deviceManager.signalBandOf(device);
     final guess = entry.guess;
     // A device the catalogue flagged as a known security risk is not an
     // ordinary row: it opens a warning, not the controls; it is tappable even
@@ -767,11 +770,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       // says how long the device has been quiet instead.
       subtitle: stale
           ? 'Not seen for $age'
-          : (device.isConnectable
-                ? _signalLabel(device.rssi)
-                : 'Not connectable'),
+          : (device.isConnectable ? _signalLabel(band) : 'Not connectable'),
       detail: stale ? 'last ${device.rssi} dBm' : '${device.rssi} dBm',
       rssi: device.rssi,
+      signalBand: band,
       stale: stale,
       staleReason:
           'No advertisement for $age — the device may be out of '
@@ -815,17 +817,17 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// agrees with the name.
   Widget _radioCard(IoTDevice device, RadioSighting sighting, DateTime now) {
     final stale = _deviceManager.isStale(device, now);
-    // The manager's age, as in _deviceCard.
+    // The manager's age and band, as in _deviceCard.
     final age = shortAge(_deviceManager.ageOf(device, now));
+    final band = _deviceManager.signalBandOf(device);
     return DeviceListTile(
       title: device.name.isNotEmpty ? device.name : device.id,
       subtitle: stale
           ? 'Not seen for $age'
-          : (device.isConnectable
-                ? _signalLabel(device.rssi)
-                : 'Not connectable'),
+          : (device.isConnectable ? _signalLabel(band) : 'Not connectable'),
       detail: stale ? 'last ${device.rssi} dBm' : '${device.rssi} dBm',
       rssi: device.rssi,
+      signalBand: band,
       stale: stale,
       staleReason:
           'No advertisement for $age — the radio may be out of '
@@ -898,6 +900,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       ],
       (_) => null,
       isStale: (device) => _deviceManager.isStale(device, now),
+      bandFor: _deviceManager.signalBandOf,
     ).other;
     // Each device gets its own matching future, keyed on its identity rather
     // than its id — an rssi tick reuses the cached result instead of asking
@@ -917,6 +920,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           )
           .valueOrNull,
       isStale: (device) => _deviceManager.isStale(device, now),
+      // The held band, not the reading's: it is what the bars draw, and a
+      // row hovering at a boundary would otherwise change group on every
+      // advertisement.
+      bandFor: _deviceManager.signalBandOf,
     );
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
@@ -1048,12 +1055,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     );
   }
 
-  /// Prose rendering of [signalBars], so the words and the meter beside them
+  /// Prose rendering of a signal band, so the words and the meter beside them
   /// are the same judgement. They used to carry their own thresholds, and at
   /// -75 dBm the row said "Good signal" over two bars — and now that the list
   /// ORDERS by the band as well, a stray third opinion would let a row sort
-  /// below one it out-describes.
-  static String _signalLabel(int rssi) => switch (signalBars(rssi)) {
+  /// below one it out-describes. Takes the band rather than the reading for
+  /// the same reason: the band the manager holds is the one the bars draw.
+  static String _signalLabel(int band) => switch (band) {
     4 => 'Strong signal',
     3 => 'Good signal',
     2 => 'Fair signal',

@@ -32,6 +32,8 @@ Future<void> _pump(
   String subtitle = 'mDNS + SSDP',
   String detail = _address,
   String badge = 'Supported',
+  int rssi = -67,
+  int? signalBand,
 }) async {
   tester.view.physicalSize = Size(width, 400);
   tester.view.devicePixelRatio = 1.0;
@@ -50,7 +52,8 @@ Future<void> _pump(
                   title: title,
                   subtitle: subtitle,
                   detail: detail,
-                  rssi: -67,
+                  rssi: rssi,
+                  signalBand: signalBand,
                   badge: badge,
                   badgeIsClaim: true,
                   // The chevron a tappable row draws is part of the width
@@ -69,6 +72,25 @@ Future<void> _pump(
 
 RenderParagraph _paragraph(WidgetTester tester, String text) =>
     tester.renderObject<RenderParagraph>(find.text(text));
+
+/// How many of the four bars the tile's signal meter has lit.
+///
+/// The meter is private to the tile, so it is found by name, and what is
+/// read off it is the one thing it draws: which bars carry the full colour
+/// and which the faded one.
+int _litBars(WidgetTester tester) {
+  final meter = find.byWidgetPredicate(
+    (w) => w.runtimeType.toString() == '_SignalBars',
+  );
+  expect(meter, findsOneWidget);
+  final bars = tester.widgetList<Container>(
+    find.descendant(of: meter, matching: find.byType(Container)),
+  );
+  expect(bars, hasLength(4));
+  return bars
+      .where((bar) => (bar.decoration! as BoxDecoration).color!.a > 0.9)
+      .length;
+}
 
 void main() {
   testWidgets('a host:port detail never overflows the row, at any phone '
@@ -146,6 +168,30 @@ void main() {
       ).didExceedMaxLines,
       isTrue,
     );
+  });
+
+  group('the signal meter', () {
+    testWidgets('bands the reading when the caller gives no band', (
+      tester,
+    ) async {
+      await _pump(tester, width: 390, rssi: -71);
+      expect(_litBars(tester), 2);
+
+      await _pump(tester, width: 390, rssi: -69);
+      expect(_litBars(tester), 3);
+    });
+
+    testWidgets('draws the caller\'s band over the reading\'s', (tester) async {
+      // The scan list holds a smoothed band per device so a row hovering at
+      // a boundary does not flip bars on every advertisement — and sorts by
+      // that band. The meter has to draw the same one, or a row can sit
+      // above another while showing fewer bars.
+      await _pump(tester, width: 390, rssi: -71, signalBand: 3);
+      expect(_litBars(tester), 3);
+
+      await _pump(tester, width: 390, rssi: -69, signalBand: 2);
+      expect(_litBars(tester), 2);
+    });
   });
 
   group('the title row', () {

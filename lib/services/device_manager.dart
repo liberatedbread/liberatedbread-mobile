@@ -1,9 +1,10 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import '../core/find_device.dart' show signalBars;
 import '../models/iot_device.dart';
 
-/// The scan's working set: every device heard from this session, and how long
-/// ago each was last heard.
+/// The scan's working set: every device heard from this session, how long
+/// ago each was last heard, and which signal band each is held in.
 ///
 /// Freshness is measured in wall-clock time rather than in missed scan windows,
 /// because there are no windows any more — the scan screen scans continuously,
@@ -25,8 +26,17 @@ import '../models/iot_device.dart';
 /// the Stop press and had dropped them all by the end of a phone call. So the
 /// manager is told when listening starts and stops (see [listening]), and the
 /// clock the freshness checks read stands still in between.
+///
+/// The signal band is the manager's judgement, not the latest reading's, for
+/// the same reason the list sorts by band rather than by dBm: the rows have
+/// to stay still enough to tap. See [signalBandOf].
 class DeviceManager {
   final Map<String, IoTDevice> _devices = {};
+
+  /// Each tracked device's signal, by id. Kept beside [_devices] rather than
+  /// on the immutable [IoTDevice] because it is this manager's running
+  /// judgement, not a fact about the sighting.
+  final Map<String, _Signal> _signals = {};
 
   /// The instant listening stopped, or null while a scan is listening.
   ///
@@ -59,6 +69,33 @@ class DeviceManager {
   /// mints what looks like a brand new device.
   static const Duration forgetAfter = Duration(minutes: 5);
 
+  /// Weight of the newest reading in a device's smoothed rssi.
+  ///
+  /// The reading a continuous scan reports wanders several dB between
+  /// advertisements while nothing physically moves. 0.3 follows a genuine
+  /// move within a handful of advertisements and cuts a single outlier to a
+  /// fraction of itself.
+  static const double signalSmoothing = 0.3;
+
+  /// How far past a band boundary the smoothed reading must be before the
+  /// band changes, in dB.
+  ///
+  /// Smoothing narrows the wander; it does not move it off the boundaries.
+  /// A device whose average sits at -70 would still change band every few
+  /// advertisements, and each change is its row jumping a group. Four dB is
+  /// under half a band, so a genuine move of one band still shows, and it
+  /// is more than the jitter left after smoothing.
+  static const int signalBandHysteresisDb = 4;
+
+  /// Shortest time a device keeps a band once it has changed.
+  ///
+  /// The margin holds a device that hovers; this holds one that went through
+  /// a boundary and straight back — a phone lifted and set down — which
+  /// would otherwise re-sort the list twice in a few seconds. Counted on the
+  /// listening clock, like freshness: a pause is not time the reading had to
+  /// settle in.
+  static const Duration signalBandDwell = Duration(seconds: 10);
+
   List<IoTDevice> get devices {
     final list = _devices.values.toList();
     list.sort((a, b) => b.rssi.compareTo(a.rssi));
@@ -83,16 +120,22 @@ class DeviceManager {
             discoveredAt: known.discoveredAt,
             lastSeen: device.lastSeen,
           );
+    _track(device);
   }
 
   IoTDevice? getById(String id) => _devices[id];
 
   void remove(String id) {
     _devices.remove(id);
+    // With it goes its signal history: a device seen again after being
+    // dropped is a fresh sighting, and averaging it with readings from
+    // before it went quiet would start its row in a band it is no longer in.
+    _signals.remove(id);
   }
 
   void clear() {
     _devices.clear();
+    _signals.clear();
   }
 
   /// Whether a scan is listening for these devices — see [listening].
@@ -107,7 +150,9 @@ class DeviceManager {
   /// so its age carries on from where it stood when listening stopped instead
   /// of jumping by the whole pause. A caller holding an [IoTDevice] from
   /// before the pause reads it back from the manager afterwards: the shifted
-  /// copy is the one whose age is right.
+  /// copy is the one whose age is right. The stamp a band's dwell is counted
+  /// from moves the same way, so a band that changed just before a pause is
+  /// still held for its dwell after it.
   ///
   /// Both directions are idempotent, because the scan screen reaches them
   /// from several directions: a scan restarts without ever having stopped
@@ -132,10 +177,7 @@ class DeviceManager {
       // (its stop cancels delivery first) but nothing this API forbids
       // either, and it WAS heard then: only the rest of the pause is not
       // silence. Shifting it by the whole pause would date it past [now].
-      final silentFrom = device.lastSeen.isAfter(pausedAt)
-          ? device.lastSeen
-          : pausedAt;
-      final pause = now.difference(silentFrom);
+      final pause = _unheard(device.lastSeen, pausedAt, now);
       if (pause <= Duration.zero) return device;
       return _restamped(
         device,
@@ -143,7 +185,19 @@ class DeviceManager {
         lastSeen: device.lastSeen.add(pause),
       );
     });
+    for (final signal in _signals.values) {
+      final since = signal.bandSince;
+      if (since == null) continue;
+      final pause = _unheard(since, pausedAt, now);
+      if (pause > Duration.zero) signal.bandSince = since.add(pause);
+    }
   }
+
+  /// How much of the pause from [pausedAt] to [now] came after [stamp]: the
+  /// stretch a stamp has to move forward by so that only listening time
+  /// separates it from what follows.
+  static Duration _unheard(DateTime stamp, DateTime pausedAt, DateTime now) =>
+      now.difference(stamp.isAfter(pausedAt) ? stamp : pausedAt);
 
   /// The instant freshness is measured against: [now] while listening, the
   /// moment listening stopped while not.
@@ -181,7 +235,7 @@ class DeviceManager {
         if (isGone(device, now)) device.id,
     ];
     for (final id in gone) {
-      _devices.remove(id);
+      remove(id);
     }
     return gone.isNotEmpty;
   }
@@ -194,6 +248,70 @@ class DeviceManager {
     for (final device in _devices.values)
       if (isStale(device, now)) device.id,
   };
+
+  /// The signal band [device] is drawn in and sorted by: 1 (weakest) to 4.
+  ///
+  /// [signalBars] of the latest reading is the right band for a device drawn
+  /// once, and the wrong one for a row on a live list: a device whose
+  /// reading hovers around a boundary flips band on every advertisement, and
+  /// the list re-sorts each time, so the row under a finger changed between
+  /// deciding to tap and tapping (seen on an iPhone). The band is held here
+  /// instead, per device, and moves only when the smoothed reading is
+  /// [signalBandHysteresisDb] past a boundary and the band has stood for
+  /// [signalBandDwell]. A first sighting classifies outright, so a new row
+  /// appears where it belongs rather than at the bottom for ten seconds.
+  ///
+  /// The bars a row draws and the band it sorts into both come from here, so
+  /// they cannot disagree; the dBm the row prints beside them is still the
+  /// instantaneous reading. A device this manager is not tracking bands its
+  /// own reading.
+  int signalBandOf(IoTDevice device) =>
+      _signals[device.id]?.band ?? signalBars(device.rssi);
+
+  /// Fold [sighting] into its device's smoothed reading, and move the band
+  /// when the reading and the dwell both allow.
+  void _track(IoTDevice sighting) {
+    final signal = _signals[sighting.id];
+    if (signal == null) {
+      _signals[sighting.id] = _Signal(
+        smoothed: sighting.rssi.toDouble(),
+        band: signalBars(sighting.rssi),
+      );
+      return;
+    }
+    signal.smoothed =
+        signalSmoothing * sighting.rssi +
+        (1 - signalSmoothing) * signal.smoothed;
+    final band = _bandFor(signal.smoothed, held: signal.band);
+    if (band == signal.band) return;
+    // Measured by the sighting's own stamp rather than a clock read here: it
+    // is the instant the freshness checks already treat as "heard", and it
+    // lives in the timeline [listening] shifts past pauses — so a pause does
+    // not count towards the dwell, the same way it does not count as
+    // silence.
+    final since = signal.bandSince;
+    if (since != null &&
+        sighting.lastSeen.difference(since) < signalBandDwell) {
+      return;
+    }
+    signal.band = band;
+    signal.bandSince = sighting.lastSeen;
+  }
+
+  /// The band a device held in [held] belongs in on a smoothed reading of
+  /// [smoothed]: [held], unless the reading is at least
+  /// [signalBandHysteresisDb] past a boundary out of it.
+  static int _bandFor(double smoothed, {required int held}) {
+    // Handicap the reading against the move. Marked down by the margin and
+    // still banding above the held band, it has cleared the boundary by the
+    // margin — and likewise marked up and still banding below it. Within the
+    // margin of a boundary, both read as the held band.
+    final up = signalBars(smoothed - signalBandHysteresisDb);
+    if (up > held) return up;
+    final down = signalBars(smoothed + signalBandHysteresisDb);
+    if (down < held) return down;
+    return held;
+  }
 
   /// [device] with its stamps replaced.
   ///
@@ -215,4 +333,24 @@ class DeviceManager {
     companyIds: device.companyIds,
     manufacturerData: device.manufacturerData,
   );
+}
+
+/// One device's signal as the list judges it — see
+/// [DeviceManager.signalBandOf].
+class _Signal {
+  /// Exponential moving average of the readings, in dBm.
+  double smoothed;
+
+  /// The band the device is held in, 1 to 4.
+  int band;
+
+  /// When [band] last changed, in the timeline of [IoTDevice.lastSeen] (and
+  /// shifted past pauses like it), or null while the device is still in the
+  /// band its first sighting put it in. That classification is not a change,
+  /// so nothing holds a band before its first real move: a device whose
+  /// first packet happened to be a weak one corrects itself as soon as the
+  /// readings justify it.
+  DateTime? bandSince;
+
+  _Signal({required this.smoothed, required this.band});
 }

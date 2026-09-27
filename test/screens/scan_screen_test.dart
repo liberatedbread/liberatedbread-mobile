@@ -7,6 +7,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
@@ -81,6 +82,59 @@ IoTDevice _device(
     lastSeen: seen,
     serviceUuids: services,
   );
+}
+
+/// How many of the four bars the signal meter in [title]'s row has lit.
+///
+/// The meter is private to the tile, so it is found by name, and what is
+/// read off it is the one thing it draws: which bars carry the full colour
+/// and which the faded one.
+int _litBars(WidgetTester tester, String title) {
+  final row = find.ancestor(
+    of: find.text(title),
+    matching: find.byType(DeviceListTile),
+  );
+  final meter = find.descendant(
+    of: row,
+    matching: find.byWidgetPredicate(
+      (w) => w.runtimeType.toString() == '_SignalBars',
+    ),
+  );
+  expect(meter, findsOneWidget, reason: '$title has no signal meter');
+  final bars = tester.widgetList<Container>(
+    find.descendant(of: meter, matching: find.byType(Container)),
+  );
+  return bars
+      .where((bar) => (bar.decoration! as BoxDecoration).color!.a > 0.9)
+      .length;
+}
+
+/// A fake whose scan delivers what the test pushes, when it pushes it.
+///
+/// [FakeBleService.scanStepDelay] paces sightings on a timer of its own, and
+/// a test walking two devices through several readings each has to keep
+/// its pumps in phase with that timer and the screen's coalesced repaint —
+/// half a second of drift per pair let an extra sighting through. Pushing
+/// each sighting by hand leaves nothing to keep in phase.
+class _PushFakeBleService extends FakeBleService {
+  final _sightings = StreamController<IoTDevice>.broadcast();
+
+  @override
+  Stream<IoTDevice> scan({
+    Duration? timeout = const Duration(
+      seconds: AppConstants.defaultScanDuration,
+    ),
+    ScanIntensity intensity = ScanIntensity.active,
+  }) {
+    scanTimeouts.add(timeout);
+    scanIntensities.add(intensity);
+    return _sightings.stream;
+  }
+
+  /// Deliver one sighting to whoever is scanning.
+  void hear(IoTDevice device) => _sightings.add(device);
+
+  Future<void> close() => _sightings.close();
 }
 
 /// A fake that holds its scan teardown open until the test lets go — the
@@ -835,6 +889,63 @@ void main() {
 
       await tester.pump(DeviceManager.staleAfter + const Duration(seconds: 6));
       expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+    });
+  });
+
+  group('signal bands', () {
+    testWidgets('rows hovering at a band boundary keep their order and their '
+        'bars', (tester) async {
+      // Seen on an iPhone: rows traded places every few seconds. The list
+      // banded each device's latest reading, and a device whose reading
+      // hovers around -70 reads -69 and -71 on alternate advertisements — so
+      // it flipped between three bars and two, and its row jumped a group
+      // each time. The manager now holds a smoothed band per device, and
+      // the bars, the words and the order all read it.
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      // Two devices found together either side of the boundary, then each
+      // heard again on the other side of it, and back, three times over.
+      // Before the fix the second pair of sightings swapped the rows.
+      final fake = _PushFakeBleService();
+      addTearDown(fake.close);
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      /// Deliver a sighting of each device, then let the coalesced repaint
+      /// land: a known device's tick waits for it rather than getting a
+      /// frame of its own.
+      Future<void> hearBoth({required int above, required int below}) async {
+        fake.hear(_device('01', name: 'Above', rssi: above));
+        fake.hear(_device('02', name: 'Below', rssi: below));
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+
+      /// The rows as they must stay: Above over Below, three bars over two,
+      /// while the dBm beside each is the reading that just came in.
+      void expectHeld({required int above, required int below}) {
+        expect(
+          tester.getTopLeft(find.text('Above')).dy,
+          lessThan(tester.getTopLeft(find.text('Below')).dy),
+          reason: 'reading $above dBm over $below dBm',
+        );
+        expect(_litBars(tester, 'Above'), 3);
+        expect(_litBars(tester, 'Below'), 2);
+        expect(find.text('Good signal'), findsOneWidget);
+        expect(find.text('Fair signal'), findsOneWidget);
+        expect(find.text('  ·  $above dBm'), findsOneWidget);
+        expect(find.text('  ·  $below dBm'), findsOneWidget);
+      }
+
+      await hearBoth(above: -69, below: -71);
+      expectHeld(above: -69, below: -71);
+      for (var i = 0; i < 3; i++) {
+        await hearBoth(above: -71, below: -69);
+        expectHeld(above: -71, below: -69);
+        await hearBoth(above: -69, below: -71);
+        expectHeld(above: -69, below: -71);
+      }
     });
   });
 

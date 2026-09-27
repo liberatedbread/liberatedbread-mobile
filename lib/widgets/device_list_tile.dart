@@ -113,6 +113,17 @@ class DeviceListTile extends StatelessWidget {
   final String subtitle;
   final String detail;
   final int? rssi;
+
+  /// The band to draw the meter at, 1 to 4, when the caller holds a steadier
+  /// judgement of it than [rssi] alone gives. The scan list's manager
+  /// smooths each device's reading and keeps its band with hysteresis and a
+  /// dwell, because banding the instantaneous reading flipped a row hovering
+  /// at a boundary between 2 and 3 bars on every advertisement — and, since
+  /// the list sorts by the same band, moved the row each time. Wins over
+  /// [rssi] for the bars; the meter is still drawn only when [rssi] is set,
+  /// and a caller with one reading per device (the saved list) leaves this
+  /// null and bands that.
+  final int? signalBand;
   final IconData icon;
 
   /// Overrides the icon tint when set — used to draw a security-warning row's
@@ -169,6 +180,7 @@ class DeviceListTile extends StatelessWidget {
     required this.subtitle,
     required this.detail,
     this.rssi,
+    this.signalBand,
     this.icon = Icons.bluetooth,
     this.iconColor,
     this.iconWidget,
@@ -185,6 +197,10 @@ class DeviceListTile extends StatelessWidget {
   }) : assert(
          onConfigure == null || configureTooltip != null,
          'a configure action needs a tooltip: it is an icon with no label',
+       ),
+       assert(
+         signalBand == null || (signalBand >= 1 && signalBand <= 4),
+         'a signal band is one of the four the meter draws',
        );
 
   @override
@@ -271,7 +287,15 @@ class DeviceListTile extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                         ] else if (rssi != null) ...[
-                          _SignalBars(rssi: rssi!, color: scheme.secondary),
+                          // The caller's band when it has one, and only
+                          // otherwise the reading's: the bars a row draws and
+                          // the band it sorts into must be the same judgement,
+                          // or a row can sit above another while showing
+                          // fewer bars.
+                          _SignalBars(
+                            filled: signalBand ?? signalBars(rssi!),
+                            color: scheme.secondary,
+                          ),
                           const SizedBox(width: 8),
                         ],
                         Expanded(
@@ -366,15 +390,12 @@ class _SupportBadge extends StatelessWidget {
 /// Signal strength is conveyed by bar count as well as colour, so it still
 /// reads without colour perception.
 class _SignalBars extends StatelessWidget {
-  final int rssi;
+  /// How many of the four bars are lit — a band from [signalBars] or the
+  /// caller's own; this widget draws the judgement rather than making it.
+  final int filled;
   final Color color;
 
-  const _SignalBars({required this.rssi, required this.color});
-
-  // Shared with the scan list's ordering, deliberately: the bars a row draws
-  // and the band it sorts into must be the same judgement, or a row can sit
-  // above another while showing fewer bars.
-  int get _filled => signalBars(rssi);
+  const _SignalBars({required this.filled, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -382,7 +403,7 @@ class _SignalBars extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: List.generate(4, (i) {
-        final on = i < _filled;
+        final on = i < filled;
         return Container(
           width: 3,
           height: 5.0 + (i * 3),

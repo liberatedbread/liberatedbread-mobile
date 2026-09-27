@@ -486,23 +486,34 @@ typedef RankedDevice = Ranked<IoTDevice>;
 /// actually still hear. [isStale] defaults to "nothing is stale", for callers
 /// that do not track it.
 ///
-/// Then [signalBars], not the raw dBm, and first-seen order inside a band. A
-/// continuous scan reports a device several times a second and its rssi wanders
-/// a few dB while nothing physically moves, so sorting on the exact number
-/// makes neighbouring rows trade places continuously — which is not just ugly:
-/// it means the row under a finger can change between deciding to tap and
-/// tapping. Both remaining keys are things that do not move, so a row only
-/// changes position when the device genuinely does.
+/// Then the signal band, not the raw dBm, and first-seen order inside a band.
+/// A continuous scan reports a device several times a second and its rssi
+/// wanders a few dB while nothing physically moves, so sorting on the exact
+/// number makes neighbouring rows trade places continuously — which is not
+/// just ugly: it means the row under a finger can change between deciding to
+/// tap and tapping. Both remaining keys are things that do not move, so a row
+/// only changes position when the device genuinely does.
+///
+/// [bandFor] is the band a device is held in. The scan screen passes its
+/// manager's, which smooths the reading and keeps a band with hysteresis and
+/// a dwell, because [signalBars] of the raw reading is only still inside a
+/// band: a device whose reading hovers around -70 flipped between 2 and 3
+/// bars on every advertisement and jumped a group each time — the same
+/// finger-versus-row failure, one boundary over. It defaults to [signalBars]
+/// of the reading for callers that do not track one.
 ({List<RankedDevice> likelySupported, List<RankedDevice> other})
 rankScannedDevices(
   List<IoTDevice> devices,
   ScanGuess? Function(IoTDevice device) guessFor, {
   bool Function(IoTDevice device)? isStale,
+  int Function(IoTDevice device)? bandFor,
 }) => rankDevices(devices, guessFor, (a, b) {
   final aStale = isStale?.call(a.device) ?? false;
   final bStale = isStale?.call(b.device) ?? false;
   if (aStale != bStale) return aStale ? 1 : -1;
-  final band = signalBars(b.device.rssi).compareTo(signalBars(a.device.rssi));
+  int bandOf(IoTDevice device) =>
+      bandFor?.call(device) ?? signalBars(device.rssi);
+  final band = bandOf(b.device).compareTo(bandOf(a.device));
   if (band != 0) return band;
   final found = a.device.discoveredAt.compareTo(b.device.discoveredAt);
   // Same band, same instant (a single scan batch can deliver both):

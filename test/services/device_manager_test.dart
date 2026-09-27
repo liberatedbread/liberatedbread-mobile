@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/find_device.dart' show signalBars;
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/services/device_manager.dart';
 
@@ -340,6 +341,217 @@ void main() {
       manager.listening(true, stoppedAt.add(const Duration(minutes: 5)));
 
       expect(manager.getById(id)!.discoveredAt, device.discoveredAt);
+    });
+  });
+
+  group('signal band', () {
+    // The band a row is drawn in and sorted by is the manager's judgement of
+    // the device's signal, not the latest reading's. Banding the reading
+    // flipped a device hovering around a boundary between bands on every
+    // advertisement, and its row jumped a group each time — the row under a
+    // finger changing between deciding to tap and tapping (seen on an
+    // iPhone).
+    const id = 'AA:BB:CC:DD:EE:FF';
+    const second = Duration(seconds: 1);
+
+    /// A sighting of [deviceId] at [rssi], stamped [at].
+    IoTDevice heard(int rssi, DateTime at, {String deviceId = id}) => IoTDevice(
+      id: deviceId,
+      name: 'Test',
+      rssi: rssi,
+      isConnectable: true,
+      discoveredAt: at,
+      lastSeen: at,
+    );
+
+    /// The band [id] is currently held in.
+    int band() => manager.signalBandOf(manager.getById(id)!);
+
+    test('the first sighting classifies outright', () {
+      // A new row appears where it belongs, not at the bottom until the
+      // dwell has passed.
+      for (final (rssi, expected) in const [
+        (-50, 4),
+        (-60, 4),
+        (-61, 3),
+        (-70, 3),
+        (-71, 2),
+        (-80, 2),
+        (-81, 1),
+      ]) {
+        final fresh = DeviceManager();
+        fresh.addOrUpdate(heard(rssi, now));
+        expect(
+          fresh.signalBandOf(fresh.getById(id)!),
+          expected,
+          reason: '$rssi dBm is the reading\'s own band from the first packet',
+        );
+      }
+    });
+
+    test('an untracked device bands its own reading', () {
+      expect(manager.signalBandOf(heard(-75, now)), signalBars(-75));
+    });
+
+    test('a reading hovering around a boundary keeps one band', () {
+      // -71 and -69 on alternate advertisements: the same device, not
+      // moving, read either side of the -70 boundary. Two bars, then three,
+      // then two — and a row trading places with every band-2 neighbour.
+      for (var i = 0; i < 20; i++) {
+        final rssi = i.isEven ? -71 : -69;
+        manager.addOrUpdate(heard(rssi, now.add(second * i)));
+        expect(
+          band(),
+          2,
+          reason:
+              'sighting $i read $rssi dBm (band ${signalBars(rssi)}) and the '
+              'band must not follow it',
+        );
+      }
+    });
+
+    test('the band it keeps is the one the first sighting gave it', () {
+      // The same hover, first heard on the other side of the boundary: it
+      // is held at three bars, not two. Hysteresis has no opinion about
+      // which side is right, only that nothing moves without evidence.
+      for (var i = 0; i < 20; i++) {
+        manager.addOrUpdate(heard(i.isEven ? -69 : -71, now.add(second * i)));
+        expect(band(), 3);
+      }
+    });
+
+    test('a reading settled past the margin moves the band', () {
+      manager.addOrUpdate(heard(-71, now));
+      expect(band(), 2);
+
+      // One reading five dB up is a packet, not a move.
+      manager.addOrUpdate(heard(-65, now.add(second)));
+      expect(band(), 2, reason: 'one reading is not a move');
+
+      // Sustained, the average follows it past -66 — four dB over the -70
+      // boundary — and the band goes up. Well inside ten seconds: a first
+      // classification starts no dwell, so a device whose first packet was
+      // a weak one corrects itself as soon as the readings justify it.
+      final bands = <int>[];
+      for (var i = 2; i <= 8; i++) {
+        manager.addOrUpdate(heard(-65, now.add(second * i)));
+        bands.add(band());
+      }
+      expect(bands.last, 3);
+      expect(
+        bands,
+        isNot(contains(4)),
+        reason: 'a -65 reading is three bars, and the average never more',
+      );
+      expect(bands.skip(bands.indexOf(3)).every((b) => b == 3), isTrue);
+    });
+
+    test('a walk away descends a band at a time, each held for the dwell', () {
+      // Readings every second, four at each step of a walk out of the room.
+      // The average trails the reading, so the band changes lag the walk:
+      // what matters is that they come one at a time, downwards, and never
+      // closer together than the dwell.
+      final changes = <({Duration at, int band})>[];
+      var t = Duration.zero;
+      void walk(int rssi, int sightings) {
+        for (var i = 0; i < sightings; i++) {
+          manager.addOrUpdate(heard(rssi, now.add(t)));
+          if (changes.isEmpty || changes.last.band != band()) {
+            changes.add((at: t, band: band()));
+          }
+          t += second;
+        }
+      }
+
+      for (final level in const [-58, -62, -68, -75, -83]) {
+        walk(level, 4);
+      }
+      walk(-90, 12);
+
+      expect(changes.first, (at: Duration.zero, band: 4));
+      expect(changes.last.band, 1);
+      for (var i = 1; i < changes.length; i++) {
+        expect(
+          changes[i].band,
+          changes[i - 1].band - 1,
+          reason: 'a walk away is one band at a time',
+        );
+        // From the second change on: the entry before the first is the
+        // initial classification, which starts no dwell.
+        if (i < 2) continue;
+        expect(
+          changes[i].at - changes[i - 1].at,
+          greaterThanOrEqualTo(DeviceManager.signalBandDwell),
+          reason: 'a band that just changed is held for the dwell',
+        );
+      }
+      // The dwell did the holding: by the time each of the last two changes
+      // was allowed, the average had been calling for it for seconds.
+      expect(
+        changes[2].at - changes[1].at,
+        DeviceManager.signalBandDwell,
+        reason: 'the drop to two bars was waiting on the dwell',
+      );
+      expect(changes[3].at - changes[2].at, DeviceManager.signalBandDwell);
+    });
+
+    test('the dwell starts at the first change, not the first sighting', () {
+      manager.addOrUpdate(heard(-71, now));
+      // A strong second reading moves the band at once...
+      manager.addOrUpdate(heard(-50, now.add(second)));
+      expect(band(), 3, reason: 'nothing holds a first classification');
+      // ...and THAT change is held for the dwell, however loud the device
+      // now reads.
+      for (var i = 2; i <= 10; i++) {
+        manager.addOrUpdate(heard(-50, now.add(second * i)));
+        expect(band(), 3, reason: 'only ${i - 1}s since the band changed');
+      }
+      manager.addOrUpdate(heard(-50, now.add(second * 11)));
+      expect(band(), 4);
+    });
+
+    test('a pause does not count towards the dwell', () {
+      // The dwell is time the reading had to settle in, and a pause — the
+      // radio off — is not that. Counted on the wall clock, a band that
+      // changed just before a phone call would be free to change again the
+      // moment listening resumed, on whatever the first packet said.
+      manager.addOrUpdate(heard(-58, now));
+      manager.addOrUpdate(heard(-95, now.add(second)));
+      expect(band(), 3);
+      manager.listening(false, now.add(second * 2));
+      manager.listening(true, now.add(second * 61));
+
+      // 61s on the wall clock, 2s of listening.
+      manager.addOrUpdate(heard(-95, now.add(second * 62)));
+      expect(band(), 3, reason: '2s of listening since the change');
+      // 11s of listening.
+      manager.addOrUpdate(heard(-95, now.add(second * 71)));
+      expect(band(), 2);
+    });
+
+    test('a device dropped and heard again starts from its new reading', () {
+      // Its readings from before it went quiet are history: averaging them
+      // in would start its row in a band it is no longer in, and hold it
+      // there for the dwell.
+      manager.addOrUpdate(heard(-50, now));
+      expect(manager.forgetGone(now.add(DeviceManager.forgetAfter)), isTrue);
+      manager.addOrUpdate(heard(-85, now.add(DeviceManager.forgetAfter)));
+      expect(band(), 1);
+
+      manager.remove(id);
+      manager.addOrUpdate(heard(-50, now));
+      expect(band(), 4);
+
+      manager.clear();
+      manager.addOrUpdate(heard(-85, now));
+      expect(band(), 1);
+    });
+
+    test('each device is judged on its own readings', () {
+      manager.addOrUpdate(heard(-50, now));
+      manager.addOrUpdate(heard(-85, now, deviceId: 'other'));
+      expect(band(), 4);
+      expect(manager.signalBandOf(manager.getById('other')!), 1);
     });
   });
 }

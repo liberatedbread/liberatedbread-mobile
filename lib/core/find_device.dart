@@ -79,7 +79,12 @@ double signalFraction(double rssi) => ((rssi + 100) / 70).clamp(0.0, 1.0);
 ///
 /// The bands are wide for the same reason [proximityLabel]'s are: 10 dB is
 /// about the resolution this measurement honestly has indoors.
-int signalBars(int rssi) {
+///
+/// Takes a num so the scan list's smoothed reading — a fraction of a dB, as
+/// averages are — bands through the same three thresholds as a raw one. A
+/// second copy of these numbers for the smoothed path is exactly how the
+/// bars and the order would come to disagree.
+int signalBars(num rssi) {
   if (rssi >= -60) return 4;
   if (rssi >= -70) return 3;
   if (rssi >= -80) return 2;

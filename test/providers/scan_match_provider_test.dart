@@ -877,6 +877,56 @@ void main() {
       expect(ranked.other.map((r) => r.device.id), ['a', 'b']);
     });
 
+    test('the caller\'s band holds rows the readings alone would swap', () {
+      // The failure this prevents, one boundary over from the jitter test
+      // above: a device hovering around -70 reads -69 and -71 on alternate
+      // advertisements, so banding the reading flips it between three bars
+      // and two, and its row past every band-2 neighbour and back. The scan
+      // screen's manager holds a smoothed, hysteretic band per device, and
+      // the ranking has to sort by that — the bars a row draws and the band
+      // it sorts into are one judgement.
+      final hovering = _device(
+        id: 'hover',
+        rssi: -71,
+        discoveredAt: DateTime(2026, 8, 10, 12),
+      );
+      final steady = _device(
+        id: 'steady',
+        rssi: -69,
+        discoveredAt: DateTime(2026, 8, 10, 12, 1),
+      );
+      ({List<RankedDevice> likelySupported, List<RankedDevice> other}) rank({
+        int Function(IoTDevice device)? bandFor,
+      }) =>
+          rankScannedDevices([hovering, steady], (_) => null, bandFor: bandFor);
+
+      // The readings say two bars under three...
+      expect(rank().other.map((r) => r.device.id), ['steady', 'hover']);
+      // ...the held bands say the opposite, and they win.
+      final held = {'hover': 3, 'steady': 2};
+      expect(
+        rank(bandFor: (d) => held[d.id]!).other.map((r) => r.device.id),
+        ['hover', 'steady'],
+        reason: 'the band the row sorts into is the one it draws',
+      );
+    });
+
+    test('the caller\'s band still sits below staleness', () {
+      // A stale row's band is a memory of a signal it no longer has; the
+      // caller holding the band changes nothing about that.
+      final quietButLoud = _device(id: 'quiet', rssi: -30);
+      final liveButFaint = _device(id: 'live', rssi: -85);
+
+      final ranked = rankScannedDevices(
+        [quietButLoud, liveButFaint],
+        (_) => null,
+        isStale: (d) => d.id == 'quiet',
+        bandFor: (d) => d.id == 'quiet' ? 4 : 1,
+      );
+
+      expect(ranked.other.map((r) => r.device.id), ['live', 'quiet']);
+    });
+
     test('devices whose match has not resolved yet still list', () {
       // Matching is async; a row must appear immediately and gain its badge
       // later rather than the whole list waiting on the catalogue.
