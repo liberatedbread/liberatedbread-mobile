@@ -227,28 +227,33 @@ class DeviceListTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    // Not a Row of two Flexibles: when both the name and the
+                    // badge were too wide, the Row split the width between
+                    // them and ellipsised BOTH — and the badge, the one thing
+                    // on the row that is a claim about the device, lost its
+                    // last word ("Likely Nuki Smart L…" beside "Holden's
+                    // AirPods Pro #9"). A Wrap hands each child the full run
+                    // width, so the title ellipsises only against the whole
+                    // line, and the badge stays whole: beside the title when
+                    // it fits, otherwise on its own line underneath. Only a
+                    // badge wider than the tile by itself still ellipsises,
+                    // and that is its own maxLines: 1 doing it.
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            style: text.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: tint,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        Text(
+                          title,
+                          style: text.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: tint,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        if (badge != null) ...[
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: _SupportBadge(
-                              label: badge!,
-                              isClaim: badgeIsClaim,
-                            ),
-                          ),
-                        ],
+                        if (badge != null)
+                          _SupportBadge(label: badge!, isClaim: badgeIsClaim),
                       ],
                     ),
                     const SizedBox(height: 4),
