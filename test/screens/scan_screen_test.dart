@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -42,11 +43,26 @@ Widget _wrap(FakeBleService fake) => ProviderScope(
   child: const MaterialApp(home: ScanScreen()),
 );
 
+/// The screen as the shell mounts it: alive either way, told whether it is
+/// the tab being looked at. Not const, so pumping it again hands the screen a
+/// new widget and rebuilds it — which is what the shell does to a scan tab
+/// every time it rebuilds itself.
+Widget _wrapActive(FakeBleService fake, {required bool active}) =>
+    ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+      ],
+      child: MaterialApp(home: ScanScreen(active: active)),
+    );
+
 /// A scanned device, last heard [seenAgo] before now.
 ///
-/// The stamp is relative to the real clock rather than a fixed date because
-/// that is what the screen classifies rows against — a fixture pinned to
-/// January would render every row as months stale.
+/// Stamped off package:clock rather than a fixed date, because that is what
+/// the screen classifies rows against: under testWidgets it is the fake clock
+/// that pump() advances, so a test walks a row across the freshness
+/// thresholds by pumping, and a fixture pinned to January would render every
+/// row as months stale.
 IoTDevice _device(
   String id, {
   String? name,
@@ -55,7 +71,7 @@ IoTDevice _device(
   Duration seenAgo = Duration.zero,
   List<String> services = const [],
 }) {
-  final seen = DateTime.now().subtract(seenAgo);
+  final seen = clock.now().subtract(seenAgo);
   return IoTDevice(
     id: id,
     name: name ?? 'dev-$id',
@@ -556,22 +572,11 @@ void main() {
   });
 
   group('tab visibility', () {
-    /// The screen as the shell mounts it: alive either way, told whether it is
-    /// the tab being looked at.
-    Widget wrapActive(FakeBleService fake, {required bool active}) =>
-        ProviderScope(
-          overrides: [
-            bleServiceProvider.overrideWithValue(fake),
-            sharedPreferencesProvider.overrideWithValue(_prefs),
-          ],
-          child: MaterialApp(home: ScanScreen(active: active)),
-        );
-
     testWidgets('a tab nobody is looking at does not run the radio', (
       tester,
     ) async {
       final fake = FakeBleService(devicesToEmit: [_device('01')]);
-      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpWidget(_wrapActive(fake, active: false));
       await tester.pumpAndSettle();
 
       expect(fake.scanTimeouts, isEmpty);
@@ -586,17 +591,17 @@ void main() {
         devicesToEmit: [_device('01')],
         scanHold: Completer<void>(),
       );
-      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpWidget(_wrapActive(fake, active: true));
       await tester.pump(const Duration(milliseconds: 50));
       expect(fake.scanTimeouts, hasLength(1));
 
-      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpWidget(_wrapActive(fake, active: false));
       // The stop is deferred a couple of seconds so a glance away does not
       // cycle the radio; a real departure outlasts it.
       await tester.pump(const Duration(seconds: 3));
       expect(fake.stopScanCount, greaterThan(0));
 
-      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpWidget(_wrapActive(fake, active: true));
       // Bounded pumps, not pumpAndSettle: the resumed scan holds the radar
       // animation live, so there is no settled frame to wait for.
       await tester.pump(const Duration(milliseconds: 100));
@@ -613,12 +618,12 @@ void main() {
         devicesToEmit: [_device('01')],
         scanHold: Completer<void>(),
       );
-      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpWidget(_wrapActive(fake, active: true));
       await tester.pump(const Duration(milliseconds: 50));
 
-      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpWidget(_wrapActive(fake, active: false));
       await tester.pump(const Duration(milliseconds: 500));
-      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpWidget(_wrapActive(fake, active: true));
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(
@@ -641,13 +646,13 @@ void main() {
       final fake = FakeBleService(
         devicesToEmit: [_device('01', name: 'ACME_A')],
       );
-      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpWidget(_wrapActive(fake, active: true));
       await tester.pumpAndSettle();
       expect(find.text('ACME_A'), findsOneWidget);
 
-      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpWidget(_wrapActive(fake, active: false));
       await tester.pumpAndSettle();
-      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpWidget(_wrapActive(fake, active: true));
       await tester.pumpAndSettle();
 
       expect(find.text('ACME_A'), findsOneWidget);
@@ -660,14 +665,14 @@ void main() {
         devicesToEmit: [_device('01')],
         scanStepDelay: const Duration(milliseconds: 200),
       );
-      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpWidget(_wrapActive(fake, active: true));
       await tester.pump(const Duration(milliseconds: 50));
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
-      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpWidget(_wrapActive(fake, active: false));
       await tester.pumpAndSettle();
-      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpWidget(_wrapActive(fake, active: true));
       await tester.pumpAndSettle();
 
       expect(fake.scanTimeouts, hasLength(1));
@@ -738,9 +743,15 @@ void main() {
             seenAgo: DeviceManager.forgetAfter + const Duration(seconds: 1),
           ),
         ],
+        // Held open, the way the real continuous scan stays open: silence
+        // only counts while a scan is listening, and a fake scan that ended
+        // the moment it had emitted would settle this row at the stop
+        // instead of letting the tick evict it. Short pumps rather than
+        // pumpAndSettle, because the radar animates for as long as it runs.
+        scanHold: Completer<void>(),
       );
       await tester.pumpWidget(_wrap(fake));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 50));
       expect(find.text('ACME_Gone'), findsOneWidget);
 
       // The screen re-examines freshness on a clock tick, so a device that
@@ -748,7 +759,82 @@ void main() {
       await tester.pump(const Duration(seconds: 6));
 
       expect(find.text('ACME_Gone'), findsNothing);
-      expect(find.text('No devices found'), findsOneWidget);
+      expect(find.text('Searching for devices...'), findsOneWidget);
+    });
+
+    testWidgets('a stopped scan does not age its rows', (tester) async {
+      // Silence is evidence only while something is listening for the
+      // device. With the scan stopped, the rows used to go "Not seen for 45s"
+      // within a minute of the Stop press — every device at once, over a
+      // radio that was off (seen on an iPhone).
+      //
+      // Short pumps rather than pumpAndSettle: the scan is held open, the way
+      // the real one stays open, and the radar animates for as long as it is.
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'ACME_Here')],
+        scanHold: Completer<void>(),
+      );
+      await tester.pumpWidget(_wrapActive(fake, active: true));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('Strong signal'), findsOneWidget);
+
+      await tester.tap(find.byType(FloatingActionButton)); // stop
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(minutes: 2));
+      // The shell rebuilds this screen whenever it rebuilds itself — every
+      // tab switch does — so a stopped screen IS repainted mid-pause, and
+      // that repaint has to read the frozen clock rather than the wall one.
+      await tester.pumpWidget(_wrapActive(fake, active: true));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
+      expect(find.textContaining('Not seen'), findsNothing);
+      expect(find.text('Strong signal'), findsOneWidget);
+
+      // Scan again. The device has genuinely gone quiet — the new scan hears
+      // nothing from it — so its silence counts from here, not from two
+      // minutes ago.
+      fake.devicesToEmit.clear();
+      await tester.tap(find.widgetWithText(FloatingActionButton, 'Scan'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(DeviceManager.staleAfter - const Duration(seconds: 10));
+      expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
+      expect(find.textContaining('Not seen'), findsNothing);
+
+      // Across the threshold, plus a clock tick for the screen to notice.
+      await tester.pump(const Duration(seconds: 16));
+      expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+      expect(find.textContaining('Not seen for'), findsOneWidget);
+    });
+
+    testWidgets('time in the background does not age the rows either', (
+      tester,
+    ) async {
+      // The automatic stops count for the same reason the Stop press does:
+      // the radio was off, so the silence was nobody's. The lifecycle stop
+      // stands in for all of them — the tab switch and the device screen's
+      // stop take the same path.
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'ACME_Here')],
+        scanHold: Completer<void>(),
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(minutes: 2));
+      // Back, and the device is not advertising any more: the resumed scan
+      // hears nothing from it.
+      fake.devicesToEmit.clear();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
+      expect(find.text('Strong signal'), findsOneWidget);
+
+      await tester.pump(DeviceManager.staleAfter + const Duration(seconds: 6));
+      expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
     });
   });
 

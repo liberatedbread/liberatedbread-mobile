@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,7 +41,8 @@ class ScanScreen extends ConsumerStatefulWidget {
   /// continuously, would mean driving the BLE radio for a list nobody is
   /// looking at. The shell passes false while another tab is selected and the
   /// scan pauses; it resumes on return, with whatever it found still listed
-  /// (and aged accordingly).
+  /// (and no older for the time away — the radio was off, so that silence
+  /// was nobody's; see [DeviceManager.listening]).
   ///
   /// Defaults to true so mounting a ScanScreen on its own — a test, a deep
   /// link, anything that is not the shell — scans, rather than sitting inert
@@ -178,10 +180,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     // when a button is pressed shows a snapshot of the moment someone last
     // pressed it. The FAB stays, as a way to stop.
     //
-    // The ticker runs whether or not the scan does: devices keep ageing while
-    // the tab is away or the scan is stopped, and coming back to a list of
-    // rows still claiming a live signal would be a lie the clock had already
-    // disproved.
+    // The ticker runs whether or not the scan does, so none of the resume
+    // paths has to remember to re-arm it; while the scan is stopped it has
+    // nothing to do (see _ageDevices). Ages themselves only move while a scan
+    // is listening — [_setScanning] tells the manager — because silence on a
+    // radio that is off says nothing about the device: counting it flagged
+    // every row "Not seen for 45s" within a minute of the Stop press.
     _ageTicker = Timer.periodic(_ageTick, (_) => _ageDevices());
     // Radio coming back is a resume signal the lifecycle observer never
     // hears: on Android, Bluetooth is toggled from quick settings without the
@@ -247,11 +251,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     _burstDownshift?.cancel();
     _burstDownshift = null;
     setState(() {
-      _isScanning = false;
+      _setScanning(false);
       _hasScanned = true;
       _permissionDenied = true;
       _error = null;
     });
+  }
+
+  /// The one way [_isScanning] changes, so the device manager's notion of
+  /// listening can never drift from it. The two mean the same thing — the
+  /// radio is receiving for this list — and every path that flips the flag
+  /// (a start, the user's stop, the automatic stops, the stream ending on its
+  /// own) has to tell the manager, or the rows either age through a pause or
+  /// stop ageing during a scan. Always called inside setState.
+  void _setScanning(bool on) {
+    if (!on && _isScanning) {
+      // Settle the books as of the instant listening stops. A row that
+      // crossed a threshold since the last tick — up to five seconds ago —
+      // is classified now, because the ticks that follow have nothing to do
+      // (see _ageDevices) and would otherwise leave it until the next resume.
+      _refreshAges();
+    }
+    _isScanning = on;
+    _deviceManager.listening(on, clock.now());
   }
 
   /// The platform lets this app use Bluetooth again. The guidance goes, and
@@ -396,7 +418,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     _burstDownshift = null;
 
     setState(() {
-      _isScanning = true;
+      _setScanning(true);
       _pausedByUser = false;
       _error = null;
       _permissionDenied = false;
@@ -439,7 +461,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           onError: (Object e) {
             if (!mounted) return;
             setState(() {
-              _isScanning = false;
+              _setScanning(false);
               _hasScanned = true;
               if (e is BlePermissionDeniedException) {
                 _permissionDenied = true;
@@ -458,7 +480,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           onDone: () {
             if (!mounted) return;
             setState(() {
-              _isScanning = false;
+              _setScanning(false);
               _hasScanned = true;
             });
           },
@@ -475,7 +497,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     _burstDownshift = null;
     if (mounted) {
       setState(() {
-        _isScanning = false;
+        _setScanning(false);
         if (byUser) {
           _pausedByUser = true;
           _hasScanned = true;
@@ -504,7 +526,20 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// any row's stale/live classification changed.
   void _ageDevices() {
     if (!mounted) return;
-    final now = DateTime.now();
+    // Nothing to do while the scan is stopped: the manager's clock is frozen,
+    // so no row can cross a threshold, and a row already stale has a count
+    // that is not moving either. Without this the isNotEmpty clause in
+    // [ageTickNeedsRepaint] would redraw a frozen list every five seconds.
+    if (!_deviceManager.isListening) return;
+    if (_refreshAges()) setState(() {});
+  }
+
+  /// Drop what has been silent too long and note which rows are stale, as of
+  /// now. Returns whether anything on screen changed; the caller owns the
+  /// repaint, because one caller ([_setScanning]) is already inside one.
+  bool _refreshAges() {
+    // clock.now(), for the reason given in _buildBody.
+    final now = clock.now();
     final dropped = _deviceManager.forgetGone(now);
     final stale = _deviceManager.staleIds(now);
     if (!ageTickNeedsRepaint(
@@ -512,9 +547,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       stale: stale,
       previouslyStale: _staleIds,
     )) {
-      return;
+      return false;
     }
-    setState(() => _staleIds = stale);
+    _staleIds = stale;
+    return true;
   }
 
   /// Stop the active scan, then navigate to the device screen (which owns the
@@ -713,8 +749,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     DateTime now,
   ) {
     final device = entry.device;
-    final stale = DeviceManager.isStale(device, now);
-    final age = shortAge(device.ageAt(now));
+    final stale = _deviceManager.isStale(device, now);
+    // The manager's age, not device.ageAt: the caption has to agree with the
+    // classification, and only the manager knows how much of the wall time
+    // since the sighting a scan was actually listening through.
+    final age = shortAge(_deviceManager.ageOf(device, now));
     final guess = entry.guess;
     // A device the catalogue flagged as a known security risk is not an
     // ordinary row: it opens a warning, not the controls; it is tappable even
@@ -775,8 +814,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// catalogue guess; the badge is a claim only when the advertised service
   /// agrees with the name.
   Widget _radioCard(IoTDevice device, RadioSighting sighting, DateTime now) {
-    final stale = DeviceManager.isStale(device, now);
-    final age = shortAge(device.ageAt(now));
+    final stale = _deviceManager.isStale(device, now);
+    // The manager's age, as in _deviceCard.
+    final age = shortAge(_deviceManager.ageOf(device, now));
     return DeviceListTile(
       title: device.name.isNotEmpty ? device.name : device.id,
       subtitle: stale
@@ -829,7 +869,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     final found = _deviceManager.devices;
     // One instant for the whole pass, so every row is classified against the
     // same clock and the ordering below agrees with the badges above it.
-    final now = DateTime.now();
+    // clock.now() rather than DateTime.now(): identical in production, but
+    // under testWidgets it is the fake clock that pump() advances, which is
+    // what lets a test walk a row across the freshness thresholds instead of
+    // pre-ageing every fixture.
+    final now = clock.now();
     // Radios come out first, and out of the catalogue's ranking: they are
     // recognised by name, not matched against a spec, so a guess has nothing
     // to add. The ranking function orders them with no guesses at all, which
@@ -853,7 +897,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           if (sightings.containsKey(device.id)) device,
       ],
       (_) => null,
-      isStale: (device) => DeviceManager.isStale(device, now),
+      isStale: (device) => _deviceManager.isStale(device, now),
     ).other;
     // Each device gets its own matching future, keyed on its identity rather
     // than its id — an rssi tick reuses the cached result instead of asking
@@ -864,7 +908,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       others,
       (device) =>
           ref.watch(scanGuessProvider(ScanIdentity.of(device))).valueOrNull,
-      isStale: (device) => DeviceManager.isStale(device, now),
+      isStale: (device) => _deviceManager.isStale(device, now),
     );
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;

@@ -130,23 +130,23 @@ void main() {
   group('freshness', () {
     test('a device just heard from is neither stale nor gone', () {
       final device = makeDevice();
-      expect(DeviceManager.isStale(device, now), isFalse);
-      expect(DeviceManager.isGone(device, now), isFalse);
+      expect(manager.isStale(device, now), isFalse);
+      expect(manager.isGone(device, now), isFalse);
     });
 
     test('a device quiet for less than the threshold is still live', () {
       // BLE advertising is lossy and sleepy sensors are slow; a short silence
       // must not put a warning on a device that is plainly still there.
       final device = makeDevice(ago: DeviceManager.staleAfter * 0.5);
-      expect(DeviceManager.isStale(device, now), isFalse);
+      expect(manager.isStale(device, now), isFalse);
     });
 
     test('a device quiet past the threshold is stale but kept', () {
       final device = makeDevice(ago: DeviceManager.staleAfter);
       manager.addOrUpdate(device);
 
-      expect(DeviceManager.isStale(device, now), isTrue);
-      expect(DeviceManager.isGone(device, now), isFalse);
+      expect(manager.isStale(device, now), isTrue);
+      expect(manager.isGone(device, now), isFalse);
       expect(manager.forgetGone(now), isFalse);
       expect(
         manager.getById(device.id),
@@ -205,6 +205,141 @@ void main() {
       // The two exist to say different things; collapsing them would mean a
       // device vanishing the moment it was flagged, with nothing to notice.
       expect(DeviceManager.staleAfter, lessThan(DeviceManager.forgetAfter));
+    });
+  });
+
+  group('listening', () {
+    // Silence is evidence only while something could have heard it. These pin
+    // the pause/resume arithmetic the scan screen leans on when the user
+    // presses Stop, switches tabs or backgrounds the app: before it, every
+    // row went "Not seen for 45s" within a minute of the radio going off.
+    const id = 'AA:BB:CC:DD:EE:FF';
+    // How long the device had been silent when listening stopped.
+    const accrued = Duration(seconds: 10);
+    final stoppedAt = now.add(accrued);
+    // With [accrued] already on the clock, how much more listening it takes
+    // to reach each threshold. Exact: the thresholds are inclusive.
+    final moreUntilStale = DeviceManager.staleAfter - accrued;
+    final moreUntilGone = DeviceManager.forgetAfter - accrued;
+    const second = Duration(seconds: 1);
+
+    test('silence does not accrue while nothing is listening', () {
+      final device = makeDevice(id: id);
+      manager.addOrUpdate(device);
+      manager.listening(false, stoppedAt);
+
+      final fiveMinutesOn = stoppedAt.add(const Duration(minutes: 5));
+      expect(manager.isListening, isFalse);
+      expect(manager.isStale(device, fiveMinutesOn), isFalse);
+      expect(manager.isGone(device, fiveMinutesOn), isFalse);
+      expect(
+        manager.ageOf(device, fiveMinutesOn),
+        accrued,
+        reason: 'the clock stands where listening stopped',
+      );
+    });
+
+    test('ages carry on from where they stood when listening resumes', () {
+      manager.addOrUpdate(makeDevice(id: id));
+      manager.listening(false, stoppedAt);
+      final resumedAt = stoppedAt.add(const Duration(minutes: 5));
+      manager.listening(true, resumedAt);
+      expect(manager.isListening, isTrue);
+
+      // Read back: the resume restamps the device, and the shifted copy is
+      // the one whose age is right.
+      final device = manager.getById(id)!;
+      expect(manager.ageOf(device, resumedAt), accrued);
+      expect(
+        manager.isStale(device, resumedAt.add(moreUntilStale - second)),
+        isFalse,
+      );
+      expect(
+        manager.isStale(device, resumedAt.add(moreUntilStale)),
+        isTrue,
+        reason: '10s before the pause plus 80s after it is the 90s threshold',
+      );
+      expect(
+        manager.isGone(device, resumedAt.add(moreUntilGone - second)),
+        isFalse,
+      );
+      expect(manager.isGone(device, resumedAt.add(moreUntilGone)), isTrue);
+    });
+
+    test('staleIds and forgetGone read the frozen clock too', () {
+      // These are what the screen's clock tick calls, so a freeze the
+      // per-device checks honoured but these did not would still evict the
+      // whole list during a phone call.
+      manager.addOrUpdate(makeDevice(id: id));
+      manager.listening(false, stoppedAt);
+
+      final anHourOn = stoppedAt.add(const Duration(hours: 1));
+      expect(manager.staleIds(anHourOn), isEmpty);
+      expect(manager.forgetGone(anHourOn), isFalse);
+      expect(manager.count, 1);
+
+      manager.listening(true, anHourOn);
+      expect(manager.staleIds(anHourOn.add(moreUntilStale - second)), isEmpty);
+      expect(manager.staleIds(anHourOn.add(moreUntilStale)), {id});
+      expect(manager.forgetGone(anHourOn.add(moreUntilGone - second)), isFalse);
+      expect(manager.forgetGone(anHourOn.add(moreUntilGone)), isTrue);
+      expect(manager.count, 0);
+    });
+
+    test('repeating a stop or a start changes nothing', () {
+      // The screen reaches both from several directions: a burst downshift
+      // restarts a scan that never stopped, and a stop can be the user's, the
+      // lifecycle's and the stream's own onDone in quick succession.
+      manager.addOrUpdate(makeDevice(id: id));
+      manager.listening(false, stoppedAt);
+      // A later second stop must not move the freeze point forward...
+      manager.listening(false, stoppedAt.add(const Duration(minutes: 1)));
+      final resumedAt = stoppedAt.add(const Duration(minutes: 2));
+      manager.listening(true, resumedAt);
+      // ...and a second start must not shift the stamps a second time.
+      manager.listening(true, resumedAt.add(const Duration(minutes: 1)));
+
+      final device = manager.getById(id)!;
+      expect(
+        manager.isStale(device, resumedAt.add(moreUntilStale - second)),
+        isFalse,
+      );
+      expect(manager.isStale(device, resumedAt.add(moreUntilStale)), isTrue);
+    });
+
+    test('a device heard during a pause is fresh when listening resumes', () {
+      // Nothing the screen does — its stop cancels delivery first — but the
+      // API allows it, and shifting such a stamp by the whole pause would
+      // date it past the resume.
+      manager.addOrUpdate(makeDevice(id: id));
+      manager.listening(false, stoppedAt);
+      final heardAt = stoppedAt.add(const Duration(minutes: 1));
+      manager.addOrUpdate(
+        IoTDevice(
+          id: id,
+          name: 'Test',
+          rssi: -50,
+          isConnectable: true,
+          discoveredAt: heardAt,
+          lastSeen: heardAt,
+        ),
+      );
+      final resumedAt = stoppedAt.add(const Duration(minutes: 5));
+      manager.listening(true, resumedAt);
+
+      expect(manager.getById(id)!.lastSeen, resumedAt);
+      expect(manager.ageOf(manager.getById(id)!, resumedAt), Duration.zero);
+    });
+
+    test('a resume leaves discoveredAt alone', () {
+      // The first sighting is the list's ordering tie-break, and it is a fact
+      // about the session — only lastSeen is a claim about silence.
+      final device = makeDevice(id: id);
+      manager.addOrUpdate(device);
+      manager.listening(false, stoppedAt);
+      manager.listening(true, stoppedAt.add(const Duration(minutes: 5)));
+
+      expect(manager.getById(id)!.discoveredAt, device.discoveredAt);
     });
   });
 }
