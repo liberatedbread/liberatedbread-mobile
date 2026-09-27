@@ -162,6 +162,10 @@ void main() {
         expect(ranges, isNotEmpty);
         expect(profile.rxRanges, containsAll(ranges));
         expect(rangesContain(ranges, 101100000), isFalse);
+        // Exactly one range (the FM receiver) is left out: a usable band
+        // starting at or below the 108 MHz cut-off would otherwise vanish
+        // from the editor and the write gate without a failing test.
+        expect(ranges, hasLength(profile.rxRanges.length - 1));
       }
     });
   });

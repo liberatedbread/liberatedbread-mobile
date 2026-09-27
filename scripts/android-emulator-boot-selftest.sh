@@ -2,10 +2,10 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Drives boot_emulator (scripts/android-emulator-boot.sh, behind
-# run-android.sh's --emulator and auto fallback) against stub `adb` and
-# `emulator` binaries, so its choice of which emulator to wait for is
-# asserted without an SDK. It exists because re-running run-android.sh while
+# Drives boot_emulator and auto_fallback_emulator
+# (scripts/android-emulator-boot.sh, behind run-android.sh's --emulator and
+# its default auto mode) against stub `adb` and `emulator` binaries, so the
+# choice of which emulator to wait for is asserted without an SDK. It exists because re-running run-android.sh while
 # the AVD was still booting launched a second instance, which exits at once
 # for an AVD in use, and the script died with "The emulator process exited
 # before it booted." instead of waiting for the first.
@@ -100,12 +100,15 @@ reset_state() {
   echo "$1" > "$STUB_STATE/launch"
 }
 
-# Runs boot_emulator in a subshell (it exits on failure) and prints
-# "<exit status> <BOOTED_SERIAL>".
+# Runs $1 (default boot_emulator) in a subshell (it exits on failure) and
+# prints "<exit status> <BOOTED_SERIAL>".
 run_boot() {
-  ( boot_emulator 2>"$STUB_STATE/stderr"; echo "0 $BOOTED_SERIAL" ) \
+  ( "${1:-boot_emulator}" 2>"$STUB_STATE/stderr"; echo "0 $BOOTED_SERIAL" ) \
     || echo "$? -"
 }
+run_auto() { run_boot auto_fallback_emulator; }
+
+launched() { [[ -f "$STUB_STATE/launches" ]]; }
 
 check_eq() { # label expected actual
   if [[ "$2" == "$3" ]]; then pass "$1"; else fail "$1: expected '$2', got '$3'"; fi
@@ -124,10 +127,27 @@ else
   pass "does not launch a second instance of a starting AVD"
 fi
 
-# 2. The first instance registers only after the check, and our launch loses.
+# 2. The first instance registers only after the check and our launch loses:
+# the new-serial diff picks it up.
 reset_state in-use-late
-check_eq "adopts the instance our launch lost to" \
+check_eq "adopts an instance that registers after the launch" \
   "0 emulator-5554" "$(run_boot)"
+
+# 2b. This AVD is already up ("device", so the pending check skips it and it
+# is in the before-launch snapshot) and our launch loses to it. Only the
+# attached_avd_emulator fallback finds it; without that this failed with
+# "exited before it booted".
+reset_state in-use
+printf 'emulator-5554\tdevice\n' > "$STUB_STATE/devices"
+echo liberated_bread_test > "$STUB_STATE/avd.emulator-5554"
+echo emulator-5554 > "$STUB_STATE/booted"
+check_eq "adopts an already-attached instance our launch lost to" \
+  "0 emulator-5554" "$(run_boot)"
+if launched; then
+  pass "the already-attached case really launched and lost"
+else
+  fail "the already-attached case never launched, so it pins nothing"
+fi
 
 # 3. A stale offline entry with no console is not adopted: launch a new one.
 reset_state boot
@@ -149,6 +169,39 @@ reset_state in-use
 printf 'emulator-5554\toffline\n' > "$STUB_STATE/devices"
 echo liberated_bread_test > "$STUB_STATE/avd.emulator-5554"
 check_eq "an emulator that never boots fails at the timeout" "1 -" "$(run_boot)"
+
+# 6. Auto mode (run-android.sh's default) re-run while this AVD is booting:
+# the offline emulator is not "a phone that needs attention", so it waits
+# rather than exit 1 telling the user to unplug an emulator.
+reset_state in-use
+printf 'emulator-5554\toffline\n' > "$STUB_STATE/devices"
+echo liberated_bread_test > "$STUB_STATE/avd.emulator-5554"
+echo emulator-5554 > "$STUB_STATE/booted"
+check_eq "auto mode waits for this AVD's emulator that is still booting" \
+  "0 emulator-5554" "$(run_auto)"
+if launched || grep -q "OFFLINE" "$STUB_STATE/stderr"; then
+  fail "auto mode launched again or called the booting emulator OFFLINE"
+else
+  pass "auto mode neither relaunches nor reports the booting emulator"
+fi
+
+# 7. Auto mode past a stale offline emulator entry: boot a new one.
+reset_state boot
+printf 'emulator-5554\toffline\n' > "$STUB_STATE/devices"
+check_eq "auto mode launches past a stale offline emulator" \
+  "0 emulator-5556" "$(run_auto)"
+
+# 8. Auto mode with an offline PHONE: that is what the user meant, so say how
+# to fix it and do not boot the emulator behind their back.
+reset_state boot
+printf 'R58M123\toffline\n' > "$STUB_STATE/devices"
+check_eq "auto mode stops on an offline phone" "1 -" "$(run_auto)"
+if ! launched && grep -q "R58M123 is attached but OFFLINE" "$STUB_STATE/stderr"
+then
+  pass "auto mode reports the offline phone without launching"
+else
+  fail "auto mode did not report the offline phone, or launched anyway"
+fi
 
 if [[ "$status" -eq 0 ]]; then echo "android-emulator-boot selftest: all passed"; fi
 exit "$status"

@@ -111,13 +111,20 @@ class WsPairingException implements UserFacingException {
 /// television's posture to every future WebSocket device.
 WsConnect _connectorFor(WebSocketSurfaceDto surface) => wsConnectorFor(surface);
 
+/// Whether the connector for [surface] accepts ANY certificate. One
+/// predicate for [wsConnectorFor] and the spec-pack security floor: the
+/// floor once ranked the surface by the HTTP rule, under which
+/// `self_signed: true` with `verification: standard` still validated, so a
+/// pack could switch a validating socket to accept-anything unnoticed.
+bool wsAcceptsAnyCertificate(WebSocketSurfaceDto surface) =>
+    surface.tlsSelfSigned || surface.tlsVerification == 'none';
+
 /// The real connector for [surface], exposed so a test can drive it against
 /// a local server — the failure messages it builds are what reach the
 /// screen and the log.
 @visibleForTesting
 WsConnect wsConnectorFor(WebSocketSurfaceDto surface) {
-  final permissive =
-      surface.tlsSelfSigned == true || surface.tlsVerification == 'none';
+  final permissive = wsAcceptsAnyCertificate(surface);
   return (String url, Map<String, String> headers) async {
     final client = HttpClient();
     if (permissive) {

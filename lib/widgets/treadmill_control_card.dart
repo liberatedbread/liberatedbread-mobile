@@ -403,6 +403,20 @@ class TreadmillControlCard extends ConsumerStatefulWidget {
       _TreadmillControlCardState();
 }
 
+/// How far a [_TreadmillControlCardState._send] got. Split from a bool
+/// because a failed BLE write and a write never attempted leave the belt in
+/// different states: only the first may have changed its speed.
+enum _SendOutcome {
+  /// The write completed.
+  sent,
+
+  /// Nothing reached the pad: a declined prompt or an encode failure.
+  notSent,
+
+  /// The write was handed to the BLE stack and failed; it may have landed.
+  uncertain,
+}
+
 class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   /// The speed the slider thumb and headline show, in display units: the
   /// drag preview while dragging, the pending target while a send is in
@@ -448,9 +462,9 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   /// gate, so each command asks once.
   final Set<String> _advancedAcked = {};
 
-  /// Returns whether the write went out; failures are reported on the status
+  /// Returns how far the write got; failures are reported on the status
   /// line and in a snackbar, never thrown.
-  Future<bool> _send({
+  Future<_SendOutcome> _send({
     required String serviceUuid,
     required String charUuid,
     required String commandName,
@@ -468,6 +482,9 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
       _status = null;
       _failed = false;
     });
+    // Set once the bytes are handed to the BLE stack: from then on a failure
+    // (a write-with-response timeout) may still have reached the pad.
+    var attempted = false;
     try {
       final codec = ref.read(specCodecProvider);
       final ble = ref.read(bleServiceProvider);
@@ -478,6 +495,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
         commandName: commandName,
         params: params,
       );
+      attempted = true;
       await ble.writeCharacteristic(
         widget.deviceId,
         serviceUuid,
@@ -492,7 +510,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
         });
         _showSnack('Sent $label');
       }
-      return true;
+      return _SendOutcome.sent;
     } catch (e) {
       // Encoding failures land here too — e.g. a speed command with a second
       // caller-owned parameter this card cannot know (a slope byte) fails with
@@ -511,7 +529,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
         });
         _showSnack(text);
       }
-      return false;
+      return attempted ? _SendOutcome.uncertain : _SendOutcome.notSent;
     }
   }
 
@@ -521,7 +539,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     )?.showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<bool> _sendVerb(_ResolvedVerb verb) => _send(
+  Future<_SendOutcome> _sendVerb(_ResolvedVerb verb) => _send(
     serviceUuid: verb.serviceUuid,
     charUuid: verb.charUuid,
     commandName: verb.command.name,
@@ -641,10 +659,13 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     _ => verb.command.name,
   };
 
-  /// Whether the speed write went out: false when the advanced prompt was
-  /// declined or the write failed.
-  Future<bool> _sendSpeed(_ResolvedSpeed speed, double display) async {
-    if (!await _ackAdvanced(speed.command) || !mounted) return false;
+  /// How far the speed write got: [_SendOutcome.notSent] when the advanced
+  /// prompt was declined or encoding failed, [_SendOutcome.uncertain] when
+  /// the BLE write itself failed.
+  Future<_SendOutcome> _sendSpeed(_ResolvedSpeed speed, double display) async {
+    if (!await _ackAdvanced(speed.command) || !mounted) {
+      return _SendOutcome.notSent;
+    }
     // Back across the presentation transform: the card displays km/h, the
     // encoder validates and coerces the RAW value (raw min/max, integer
     // counts). Only the speed parameter is supplied; encoder-filled (auto)
@@ -666,19 +687,27 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   }
 
   /// Send [target] and, only if the write went out, make it the steppers'
-  /// baseline. A declined advanced prompt or a failed write snaps the
-  /// headline and thumb back to the last target actually sent, so neither
-  /// shows — nor a stepper steps from — a speed the belt never got.
+  /// baseline. When nothing reached the pad (a declined advanced prompt, an
+  /// encode failure) the headline and thumb snap back to the last target
+  /// actually sent, so neither shows — nor a stepper steps from — a speed
+  /// the belt never got. When the BLE write itself failed it may still have
+  /// landed (see [_dropSpeedBaseline]), so the baseline is dropped: snapping
+  /// back would show 3.0 over a belt running at 5.0, and 'Speed up' would
+  /// then send 3.5 and slow it down.
   Future<void> _commitSpeed(_ResolvedSpeed speed, double target) async {
     final epoch = _speedEpoch;
     setState(() => _speedDisplay = target);
-    final sent = await _sendSpeed(speed, target);
+    final outcome = await _sendSpeed(speed, target);
     // A Stop/Pause/Start since then owns the baseline; see [_speedEpoch].
     if (!mounted || epoch != _speedEpoch) return;
-    setState(() {
-      if (sent) _speedTarget = target;
-      _speedDisplay = _speedTarget;
-    });
+    switch (outcome) {
+      case _SendOutcome.sent:
+        setState(() => _speedTarget = _speedDisplay = target);
+      case _SendOutcome.notSent:
+        setState(() => _speedDisplay = _speedTarget);
+      case _SendOutcome.uncertain:
+        _dropSpeedBaseline();
+    }
   }
 
   void _nudgeSpeed(_ResolvedSpeed speed, double delta) {

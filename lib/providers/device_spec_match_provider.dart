@@ -281,14 +281,18 @@ const Set<String> _infrastructureServices = {'1800', '1801', '180a', '180f'};
 /// optional service a unit omits must not demote its own spec below one
 /// that happens to declare fewer.
 ///
-/// A spec that names its products (declares `local_name_prefixes`) earns
-/// the fingerprint only when [deviceName] fits one of them. Without that
+/// A spec that names its products (declares any name axis:
+/// `local_name_prefixes`, `local_names` or `name_matchers`, the three Rust
+/// ORs into `matchedByNamePrefix`) earns the fingerprint only when
+/// [deviceName] fits one of them. Without that
 /// gate an IDM-1234 iDotMatrix panel whose table [00fa, ae00, fa02] also
 /// covers the iPixel spec's two services went to iPixel alone (its
 /// fingerprint 2 against idotmatrix's 0, the latter declaring the dead
 /// fee9) and iPixel's commands were sent to it. An empty or unknown
 /// [deviceName] contradicts nothing, so the gate is skipped then; a spec
-/// declaring no prefix keeps the credit (the iTag case).
+/// declaring no name keeps the credit (the iTag case). Testing prefixes
+/// alone let a spec named only by `local_names` or a matcher keep full
+/// credit on a device whose name contradicted it.
 int gattFingerprintOf(
   SpecMatch match, {
   required List<String> discoveredUuids,
@@ -297,7 +301,7 @@ int gattFingerprintOf(
   if (deviceName != null &&
       deviceName.isNotEmpty &&
       !match.matchedByNamePrefix &&
-      match.entry.identity.localNamePrefixes.isNotEmpty) {
+      _declaresName(match.entry.identity)) {
     return 0;
   }
   final declared = {
@@ -307,6 +311,13 @@ int gattFingerprintOf(
   final discovered = {for (final uuid in discoveredUuids) normalizeUuid(uuid)};
   return discovered.containsAll(declared) ? declared.length : 0;
 }
+
+/// Whether [identity] names its products on any axis Rust's
+/// `matchedByNamePrefix` covers — the gate in [gattFingerprintOf].
+bool _declaresName(SpecIdentityDto identity) =>
+    identity.localNamePrefixes.isNotEmpty ||
+    identity.localNames.isNotEmpty ||
+    identity.nameMatchers.isNotEmpty;
 
 /// Filter and rank raw matcher output: contradicted name-only matches are
 /// dropped, then candidates sort by [gattFingerprintOf] (a wholly-present

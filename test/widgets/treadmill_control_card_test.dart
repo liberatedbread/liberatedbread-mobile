@@ -939,9 +939,12 @@ void main() {
       expect(stepper(tester, Icons.add).onPressed, isNull);
     });
 
-    testWidgets('a failed write snaps back to the last speed sent', (
+    testWidgets('a failed BLE write drops it: the write may have landed', (
       tester,
     ) async {
+      // A write-with-response timeout can still reach the pad. Old code
+      // snapped the headline back to '3.0 km/h' over a belt that may be at
+      // 5.0, and 'Speed up' then sent 35 — slowing the belt down.
       final ble = _FlakyWriteBle();
       final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
       await tester.pumpWidget(_wrap(ble: ble, codec: codec));
@@ -951,7 +954,35 @@ void main() {
       await commit(tester, 5.0);
       ble.failWrites = false;
 
-      // Old code: headline '5.0 km/h' and the tap below sent 55.
+      expect(find.text('3.0 km/h'), findsNothing);
+      expect(find.text('5.0 km/h'), findsNothing);
+      expect(find.text('—'), findsOneWidget);
+      expect(stepper(tester, Icons.add).onPressed, isNull);
+      expect(stepper(tester, Icons.remove).onPressed, isNull);
+
+      // Only the slider's absolute value re-establishes a baseline.
+      await commit(tester, 4.0);
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      expect(codec.encodeCalls.last.params, {'speed': 45.0});
+    });
+
+    testWidgets('an encode failure snaps back: nothing reached the pad', (
+      tester,
+    ) async {
+      final ble = FakeBleService();
+      final codec = _FlakyEncodeCodec(
+        encoded: Uint8List.fromList([0xF7, 0xFD]),
+      );
+      await tester.pumpWidget(_wrap(ble: ble, codec: codec));
+
+      await commit(tester, 3.0);
+      codec.failEncodes = true;
+      await commit(tester, 5.0);
+      codec.failEncodes = false;
+
+      // Headline '5.0 km/h' here would claim a speed never sent.
+      expect(ble.writes, hasLength(1));
       expect(find.text('3.0 km/h'), findsOneWidget);
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
@@ -1197,5 +1228,33 @@ class _FlakyWriteBle extends FakeBleService {
   ) async {
     if (failWrites) throw StateError('GATT write failed');
     return super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
+  }
+}
+
+/// A codec whose encodes fail while [failEncodes] is set, for the path where
+/// a speed write fails before any byte reaches the BLE stack.
+class _FlakyEncodeCodec extends FakeSpecCodec {
+  _FlakyEncodeCodec({required super.encoded});
+
+  bool failEncodes = false;
+
+  @override
+  Future<Uint8List> encodeCommand({
+    String? specYaml,
+    String? serviceUuid,
+    required String charUuid,
+    required String commandName,
+    required Map<String, double> params,
+  }) {
+    if (failEncodes) {
+      return Future.error(StateError('ParameterMissing: slope'));
+    }
+    return super.encodeCommand(
+      specYaml: specYaml,
+      serviceUuid: serviceUuid,
+      charUuid: charUuid,
+      commandName: commandName,
+      params: params,
+    );
   }
 }

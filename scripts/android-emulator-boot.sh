@@ -11,9 +11,17 @@
 #
 #   adb_devices_states  "serial state" for EVERY attached device, whatever
 #                       its state.
+#   report_unusable_devices
+#                       explains each attached phone adb cannot use yet;
+#                       returns 0 if it reported one.
+#   emulator_available  the emulator binary exists and AVD_NAME is created.
 #   boot_emulator       sets BOOTED_SERIAL to a booted emulator of AVD_NAME,
 #                       or exits 1 saying why. LB_EMULATOR_BOOT_TIMEOUT and
 #                       LB_EMULATOR_POLL_SECS (whole seconds) tune the wait.
+#   auto_fallback_emulator
+#                       run-android.sh's auto mode with nothing online: the
+#                       same contract as boot_emulator, or exits 1 when a
+#                       phone needs attention or no emulator is set up.
 
 # BOOTED_SERIAL is this file's output, read only by the sourcing script.
 # shellcheck disable=SC2034
@@ -22,6 +30,40 @@
 # unauthorized or offline phone is visible, not silently treated as absent.
 adb_devices_states() {
   "$ADB" devices 2>/dev/null | awk 'NR>1 && NF>=2 {print $1, $2}'
+}
+
+# Explain every attached-but-unusable phone — the near-universal cause of "no
+# device online" when a phone IS plugged in. Returns 0 if it reported one.
+# An offline emulator-* serial is not a phone: it is one still booting or a
+# stale entry, both of which boot_emulator handles. Counting it here made
+# auto mode exit 1 ("unplug and replug it") on a re-run while the AVD was
+# still booting, before it reached boot_emulator's wait.
+report_unusable_devices() {
+  local found=1 serial state
+  while read -r serial state; do
+    [[ -z "$serial" ]] && continue
+    case "$state" in
+      unauthorized)
+        found=0
+        err "Device $serial is attached but UNAUTHORIZED."
+        err "  Unlock the phone and tap Allow on the 'Allow USB debugging?'"
+        err "  prompt (tick \"Always allow from this computer\"), then re-run." ;;
+      offline)
+        [[ "$serial" == emulator-* ]] && continue
+        found=0
+        err "Device $serial is attached but OFFLINE."
+        err "  Unplug and replug it, or run: $ADB reconnect offline" ;;
+    esac
+  done < <(adb_devices_states)
+  return $found
+}
+
+# Whether the project emulator can actually be launched: the binary exists
+# and the AVD has been created. Lets auto mode avoid promising a fallback it
+# cannot deliver.
+emulator_available() {
+  local e; e="$(find_emulator || true)"
+  [[ -n "$e" ]] && "$e" -list-avds 2>/dev/null | grep -qx "$AVD_NAME"
 }
 
 # The AVD an emulator serial is running, from its console, or nothing. A
@@ -116,4 +158,30 @@ boot_emulator() {
   # none at all), so the failure surfaced later as an unrelated install error.
   err "Emulator did not finish booting within ${timeout}s."
   exit 1
+}
+
+# run-android.sh's auto mode when nothing is online: sets BOOTED_SERIAL like
+# boot_emulator, or exits 1 saying why.
+auto_fallback_emulator() {
+  # If a phone is attached but unauthorized/offline, that is almost certainly
+  # what the user meant — say how to fix it rather than boot the emulator
+  # behind their back (and then fail on a missing AVD).
+  if report_unusable_devices; then
+    err "A device is attached but not usable yet (above). Authorize it, or"
+    err "pass --emulator to use the emulator instead."
+    exit 1
+  fi
+  # Nothing connected. Boot the emulator only if it is actually set up;
+  # otherwise say so plainly instead of "falling back" to a failure.
+  if ! emulator_available; then
+    err "Nothing to run on: no phone connected, and the '$AVD_NAME' emulator"
+    err "is not set up here."
+    err "  Phone:    enable USB debugging, plug it in, accept the prompt, re-run"
+    err "            (then '$0 --list' should show it as 'ready')."
+    err "  Emulator: install the SDK cmdline-tools + emulator, then"
+    err "            ./scripts/setup.sh creates the AVD."
+    exit 1
+  fi
+  log "No Android device online; falling back to the $AVD_NAME emulator."
+  boot_emulator
 }

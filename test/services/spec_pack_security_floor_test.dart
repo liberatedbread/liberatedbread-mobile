@@ -23,6 +23,9 @@ const _roombaPath =
     'vendor/protocol-specs/device-specs/devices/irobot-roomba.yaml';
 const _samsungPath =
     'vendor/protocol-specs/device-specs/devices/samsung-tizen-tv.yaml';
+const _rokuPath = 'vendor/protocol-specs/device-specs/devices/roku-ecp.yaml';
+const _hisensePath =
+    'vendor/protocol-specs/device-specs/devices/hisense-vidaa.yaml';
 const _manifestUrl = 'https://specs.example.com/packs/pack.json';
 
 /// Samsung's shape: the token rides only the wss:8002 connect.
@@ -30,16 +33,19 @@ WebSocketSurfaceDto _socket({
   String fallbackPath = '/remote?name={client_name}',
   String fallbackScheme = 'ws',
   String? pairingMode = 'token_query',
+  String scheme = 'wss',
+  bool selfSigned = true,
+  String? verification = 'none',
 }) => WebSocketSurfaceDto(
   port: 8002,
-  scheme: 'wss',
+  scheme: scheme,
   path: '/remote?name={client_name}&token={samsung_token}',
   fallbackPort: 8001,
   fallbackScheme: fallbackScheme,
   fallbackPath: fallbackPath,
   headers: const [],
-  tlsSelfSigned: true,
-  tlsVerification: 'none',
+  tlsSelfSigned: selfSigned,
+  tlsVerification: verification,
   pairingMode: pairingMode,
   credentialName: 'samsung_token',
   channels: const [],
@@ -51,7 +57,9 @@ NetworkCapabilitiesDto _caps({
   bool selfSigned = false,
   String? mqtt,
   int? port,
+  String? handler,
 }) => NetworkCapabilitiesDto(
+  protocolHandler: handler,
   defaultPort: port,
   defaultScheme: scheme,
   tlsVerification: verification,
@@ -117,25 +125,40 @@ void main() {
       // Roomba (8883) and Hisense (36669) declare no transport_security, so
       // the old floor, reading only the declaration, passed a copy that
       // said plaintext or moved to 1883 and the broker login went in clear.
+      // The broker shows in its commands (Hisense) or its handler (Roomba).
+      String? verdict(
+        NetworkCapabilitiesDto bundled,
+        NetworkCapabilitiesDto pack, {
+        bool commands = true,
+      }) => SpecPackService.securityDowngrade(
+        bundled: bundled,
+        pack: pack,
+        bundledSpeaksMqtt: commands,
+        packSpeaksMqtt: commands,
+      );
       for (final port in [8883, 36669]) {
         final bundled = _caps(port: port);
         for (final pack in [
           _caps(port: port, mqtt: 'plaintext'),
           _caps(port: 1883),
+          // A copy that also hides its broker commands (behind a variant)
+          // is held to the bundled broker's TLS all the same.
+          _caps(),
         ]) {
-          expect(
-            SpecPackService.securityDowngrade(bundled: bundled, pack: pack),
-            isNotNull,
-            reason: '$port',
-          );
+          expect(verdict(bundled, pack), isNotNull, reason: '$port');
         }
         for (final pack in [bundled, _caps(port: port, mqtt: 'tls')]) {
-          expect(
-            SpecPackService.securityDowngrade(bundled: bundled, pack: pack),
-            isNull,
-          );
+          expect(verdict(bundled, pack), isNull);
         }
       }
+      expect(
+        verdict(
+          _caps(port: 8883, handler: 'roomba_mqtt'),
+          _caps(port: 1883, handler: 'roomba_mqtt'),
+          commands: false,
+        ),
+        isNotNull,
+      );
       // A plaintext broker (Dyson on 1883) sets no floor.
       expect(
         SpecPackService.securityDowngrade(
@@ -149,6 +172,128 @@ void main() {
         SpecPackService.securityDowngrade(
           bundled: _caps(),
           pack: _caps(mqtt: 'plaintext'),
+        ),
+        isNotNull,
+      );
+    });
+
+    test('a spec with no broker sets no MQTT floor from its port', () {
+      // Roku ECP on 8060: an HTTP spec. Fails on the old floor, which read
+      // every declared port by the broker convention (not 1883, so TLS) and
+      // refused a copy that dropped the port, or moved it to 1883, as "MQTT
+      // without TLS".
+      final roku = _caps(port: 8060);
+      for (final pack in [_caps(), _caps(port: 1883), roku]) {
+        expect(
+          SpecPackService.securityDowngrade(bundled: roku, pack: pack),
+          isNull,
+          reason: '${pack.defaultPort}',
+        );
+      }
+      // Portless and brokerless, moved to 1883: still no broker.
+      expect(
+        SpecPackService.securityDowngrade(
+          bundled: _caps(),
+          pack: _caps(port: 1883),
+        ),
+        isNull,
+      );
+    });
+
+    test('a WebSocket may not start accepting any certificate', () {
+      // Fails on the old floor, which ranked the socket by the HTTP rule:
+      // `self_signed: true` beside `verification: standard` still read as
+      // validating, while the connector accepts any certificate for it.
+      String? verdict(WebSocketSurfaceDto was, WebSocketSurfaceDto pack) =>
+          SpecPackService.securityDowngrade(
+            bundled: _caps(),
+            pack: _caps(),
+            bundledSocket: was,
+            packSocket: pack,
+          );
+      for (final was in [
+        _socket(selfSigned: false, verification: 'standard'),
+        // No TLS fields at all: the connector validates the chain.
+        _socket(selfSigned: false, verification: null),
+      ]) {
+        expect(
+          verdict(was, _socket(verification: 'standard')),
+          isNotNull,
+          reason: was.tlsVerification,
+        );
+        expect(verdict(was, _socket()), isNotNull);
+        expect(verdict(was, was), isNull);
+      }
+      // Samsung's own posture already accepts any: no floor to fall below.
+      expect(verdict(_socket(), _socket(verification: 'standard')), isNull);
+      // A socket that dials only plain ws has no certificate to judge.
+      final plain = _socket(
+        scheme: 'ws',
+        fallbackPath: '/remote?name={client_name}',
+        selfSigned: false,
+        verification: null,
+      );
+      expect(
+        verdict(
+          plain,
+          _socket(
+            scheme: 'ws',
+            fallbackPath: '/remote?name={client_name}',
+            verification: 'none',
+          ),
+        ),
+        isNull,
+      );
+      // A bundled socket that only ever dials ws (Bose SoundTouch, Logitech
+      // Harmony: no TLS fields) verified no certificate, so a pack adding a
+      // wss fallback that accepts any is no downgrade. Fails on the floor
+      // that only asked whether the pack dials wss: the bundled surface
+      // ranked as validating.
+      WebSocketSurfaceDto bose({
+        int? fallbackPort,
+        String? fallbackScheme,
+        String? verification,
+        bool selfSigned = false,
+      }) => WebSocketSurfaceDto(
+        port: 8080,
+        scheme: 'ws',
+        path: '/',
+        fallbackPort: fallbackPort,
+        fallbackScheme: fallbackScheme,
+        headers: const [],
+        tlsSelfSigned: selfSigned,
+        tlsVerification: verification,
+        channels: const [],
+      );
+      expect(
+        verdict(
+          bose(),
+          bose(fallbackPort: 8443, fallbackScheme: 'wss', verification: 'none'),
+        ),
+        isNull,
+      );
+      expect(
+        verdict(
+          bose(),
+          bose(fallbackPort: 8443, fallbackScheme: 'wss', selfSigned: true),
+        ),
+        isNull,
+      );
+      // A bundled socket whose only wss connect is its fallback still sets
+      // the floor.
+      expect(
+        verdict(
+          bose(fallbackPort: 8443, fallbackScheme: 'wss'),
+          bose(fallbackPort: 8443, fallbackScheme: 'wss', verification: 'none'),
+        ),
+        isNotNull,
+      );
+      // Samsung-shaped wss:8002 that validates: a pack switching it to
+      // accept any certificate is still refused.
+      expect(
+        verdict(
+          _socket(selfSigned: false, verification: 'standard'),
+          _socket(selfSigned: false, verification: 'none'),
         ),
         isNotNull,
       );
@@ -326,6 +471,76 @@ void main() {
         isA<InstallOk>(),
       );
     });
+
+    test('the MQTT surface is read from the commands', () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      // Hisense declares no `mqtt:` block: only its commands say broker.
+      final codec = RealSpecCodec();
+      for (final (path, expected) in [
+        (_hisensePath, true),
+        (_roombaPath, true),
+        (_rokuPath, false),
+        (_envoyPath, false),
+      ]) {
+        expect(
+          await SpecPackService.hasMqttCommands(
+            codec,
+            File(path).readAsStringSync(),
+          ),
+          expected,
+          reason: path,
+        );
+      }
+    });
+
+    test('install takes a Roku copy that drops its port', () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      final roku = File(_rokuPath).readAsStringSync();
+      final portless = roku.replaceFirst('    default_port: 8060\n', '');
+      expect(portless, isNot(roku));
+      // Fails on the old code: the HTTP spec's 8060 read as a TLS broker
+      // port, and the copy was refused as "MQTT without TLS".
+      final result = await service(
+        portless,
+        bundledPath: _rokuPath,
+      ).install(_manifestUrl);
+      expect(result, isA<InstallOk>());
+    });
+
+    test(
+      'install refuses a Hisense copy moved to the plaintext port',
+      () async {
+        if (!rustReady) {
+          markTestSkipped('Rust lib not loaded');
+          return;
+        }
+        final hisense = File(_hisensePath).readAsStringSync();
+        final moved = hisense.replaceFirst(
+          'default_port: 36669',
+          'default_port: 1883',
+        );
+        expect(moved, isNot(hisense));
+        // No `mqtt:` block, no handler: the floor finds the broker only
+        // through the `transport: mqtt` commands.
+        expect(
+          await service(moved, bundledPath: _hisensePath).install(_manifestUrl),
+          isA<InstallFailed>(),
+        );
+        expect(
+          await service(
+            hisense,
+            bundledPath: _hisensePath,
+          ).install(_manifestUrl),
+          isA<InstallOk>(),
+        );
+      },
+    );
 
     test('install refuses a Samsung copy sending the token over ws', () async {
       if (!rustReady) {

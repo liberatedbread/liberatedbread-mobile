@@ -10,8 +10,11 @@ import 'package:http/http.dart' as http;
 import '../core/ha_url.dart' show isPrivateIpv4;
 import '../core/log.dart';
 import 'mqtt_session.dart' show effectiveMqttTransportSecurity;
+import 'network_command_sender.dart' show NetworkCommandSender;
+import 'roomba_control_service.dart' show roombaProtocolHandler;
 import 'spec_codec.dart';
-import 'ws_control_service.dart' show wsCredentialAliasPlaceholder;
+import 'ws_control_service.dart'
+    show wsAcceptsAnyCertificate, wsCredentialAliasPlaceholder;
 
 /// Downloads and caches a "pack" of device-spec YAML files described by a remote
 /// JSON manifest, so new device support can ship without an app-store update.
@@ -273,11 +276,16 @@ class SpecPackService {
   ///
   /// [bundledSocket] and [packSocket] are the two specs' WebSocket surfaces
   /// (null when a spec declares none); see [_websocketDowngrade].
+  /// [bundledSpeaksMqtt] and [packSpeaksMqtt] say a spec drives a broker
+  /// that its capabilities alone do not show (Hisense: `transport: mqtt`
+  /// commands, no `mqtt:` block); see [speaksMqtt].
   static String? securityDowngrade({
     required NetworkCapabilitiesDto bundled,
     required NetworkCapabilitiesDto pack,
     WebSocketSurfaceDto? bundledSocket,
     WebSocketSurfaceDto? packSocket,
+    bool bundledSpeaksMqtt = false,
+    bool packSpeaksMqtt = false,
   }) {
     if (bundled.defaultScheme == 'https' && pack.defaultScheme != 'https') {
       return 'plain http where the built-in spec requires https';
@@ -288,21 +296,31 @@ class SpecPackService {
     // (36669) spec say `plaintext`, or move to 1883, and have the stored
     // broker login sent in clear. An unknown bundled port (discovery
     // decides) is no floor unless the pack pins plaintext.
-    final bundledMqtt = effectiveMqttTransportSecurity(
-      declared: bundled.mqttTransportSecurity,
-      port: bundled.defaultPort,
-    );
+    //
+    // The port convention applies only to a spec that has a broker: every
+    // HTTP spec declaring a port (Roku 8060, Kasa 9999) read as a TLS
+    // broker, and a pack copy that dropped the port or moved it to 1883 was
+    // refused as "MQTT without TLS". The pack side is not gated on the
+    // bundled one's terms — a copy that hides its broker commands behind a
+    // variant must still keep the bundled broker's TLS.
+    final bundledMqtt = speaksMqtt(bundled, commands: bundledSpeaksMqtt)
+        ? effectiveMqttTransportSecurity(
+            declared: bundled.mqttTransportSecurity,
+            port: bundled.defaultPort,
+          )
+        : null;
     final packMqtt = effectiveMqttTransportSecurity(
       declared: pack.mqttTransportSecurity,
       port: pack.defaultPort,
     );
     if ((bundledMqtt == 'tls' && packMqtt != 'tls') ||
-        (bundledMqtt == null && packMqtt == 'plaintext')) {
+        (bundledMqtt == null &&
+            speaksMqtt(pack, commands: packSpeaksMqtt) &&
+            packMqtt == 'plaintext')) {
       return 'MQTT without TLS where the built-in spec requires it';
     }
 
-    if (_tlsRank(pack.tlsVerification, pack.tlsSelfSigned) <
-        _tlsRank(bundled.tlsVerification, bundled.tlsSelfSigned)) {
+    if (_tlsRank(pack.tlsVerification) < _tlsRank(bundled.tlsVerification)) {
       return 'TLS verification '
           '"${pack.tlsVerification ?? 'unstated'}" where the built-in spec '
           'requires "${bundled.tlsVerification}"';
@@ -320,14 +338,28 @@ class SpecPackService {
     );
   }
 
-  /// How strictly a TLS policy checks the certificate: 0 accepts any, 1
-  /// pins it, 2 validates the chain. Ranked by what the client can
-  /// actually enforce: unstated verification is the blanket-trust fallback,
-  /// the same as `none`; `vendor_ca` is served as trust-on-first-use.
-  static int _tlsRank(String? verification, bool selfSigned) {
-    // A self-signed claim is how the WebSocket path decides to accept
-    // any certificate, whatever `verification` says.
-    if (selfSigned && verification == null) return 0;
+  /// Whether a spec with [caps] drives an MQTT broker: it has an `mqtt:`
+  /// block (a declared transport security or client-id rule), it is the
+  /// Roomba's bespoke MQTT session, or [commands] — its resolved actions
+  /// include a `transport: mqtt` one, which is how the undeclared Hisense
+  /// set shows its broker.
+  @visibleForTesting
+  static bool speaksMqtt(
+    NetworkCapabilitiesDto caps, {
+    required bool commands,
+  }) =>
+      commands ||
+      caps.mqttTransportSecurity != null ||
+      caps.mqttClientIdGenerated ||
+      caps.protocolHandler == roombaProtocolHandler;
+
+  /// How strictly an `identification.tls` policy checks the certificate: 0
+  /// accepts any, 1 pins it, 2 validates the chain. Ranked by what the HTTP
+  /// client can actually enforce: unstated verification is the
+  /// blanket-trust fallback, the same as `none`; `vendor_ca` is served as
+  /// trust-on-first-use. The WebSocket connector enforces a different rule
+  /// — see [_wsTlsRank].
+  static int _tlsRank(String? verification) {
     return switch (verification) {
       null || 'none' => 0,
       'standard' => 2,
@@ -336,6 +368,24 @@ class SpecPackService {
       _ => 1,
     };
   }
+
+  /// What the WebSocket connector trusts on [surface]: 0 when it accepts
+  /// any certificate ([wsAcceptsAnyCertificate]), 2 when it runs the
+  /// platform's chain validation — it has no pinning mode. Ranked by the
+  /// connector's own predicate: the HTTP rank called `self_signed: true`
+  /// with `verification: standard` a validating policy, so a pack adding
+  /// `self_signed` to a validating surface passed while the socket then
+  /// accepted any certificate.
+  static int _wsTlsRank(WebSocketSurfaceDto surface) =>
+      wsAcceptsAnyCertificate(surface) ? 0 : 2;
+
+  /// Whether any of [surface]'s connects is TLS — a certificate posture on
+  /// a socket that only dials plain ws guards nothing, so changing it is
+  /// no downgrade, and a bundled socket that only dials ws sets no floor.
+  static bool _dialsWss(WebSocketSurfaceDto surface) =>
+      surface.scheme.toLowerCase() == 'wss' ||
+      (surface.fallbackPort != null &&
+          (surface.fallbackScheme ?? surface.scheme).toLowerCase() == 'wss');
 
   /// The schemes of [surface]'s connects that carry the stored credential
   /// (named [credentialName] or the surface's own): every connect for
@@ -384,12 +434,17 @@ class SpecPackService {
     final names = {?bundled?.credentialName, ?pack.credentialName};
     final packSchemes = _credentialSchemes(pack, names);
     if (!packSchemes.contains('ws')) {
-      if (bundled == null) return null;
-      if (_tlsRank(pack.tlsVerification, pack.tlsSelfSigned) <
-          _tlsRank(bundled.tlsVerification, bundled.tlsSelfSigned)) {
-        return 'WebSocket TLS verification '
-            '"${pack.tlsVerification ?? 'unstated'}" where the built-in '
-            'spec requires "${bundled.tlsVerification}"';
+      // Only a bundled socket that dials wss has a certificate policy to
+      // fall below: [_wsTlsRank] reads a ws-only surface with no TLS fields
+      // (Bose SoundTouch, Logitech Harmony) as validating, so a pack adding
+      // a wss fallback that accepts any certificate was refused as a
+      // downgrade of a check the bundle never made.
+      if (bundled == null || !_dialsWss(pack) || !_dialsWss(bundled)) {
+        return null;
+      }
+      if (_wsTlsRank(pack) < _wsTlsRank(bundled)) {
+        return 'a WebSocket that accepts any certificate where the built-in '
+            'spec validates it';
       }
       return null;
     }
@@ -437,8 +492,27 @@ class SpecPackService {
         pack: await codec.networkCapabilities(specYaml: yaml),
         bundledSocket: await codec.websocketSurface(original),
         packSocket: await codec.websocketSurface(yaml),
+        bundledSpeaksMqtt: await hasMqttCommands(codec, original),
+        packSpeaksMqtt: await hasMqttCommands(codec, yaml),
       );
     };
+  }
+
+  /// Whether [specYaml]'s control surface has a `transport: mqtt` action —
+  /// the same resolution [NetworkCommandSender] routes on. No SSDP target
+  /// is known here, so variant-scoped entities drop out; the bundled
+  /// Hisense set's commands are unscoped.
+  @visibleForTesting
+  static Future<bool> hasMqttCommands(SpecCodec codec, String specYaml) async {
+    final surface = await codec.networkEntitiesForDevice(
+      specYaml: specYaml,
+      ssdpTargets: const [],
+    );
+    return surface.entities.any(
+      (e) => e.actions.any(
+        (a) => a.transport == NetworkCommandSender.mqttTransport,
+      ),
+    );
   }
 
   /// [_securityFloor]'s verdict on [yaml], failing closed: a check that

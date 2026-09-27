@@ -50,6 +50,9 @@ export PATH="${FLUTTER_HOME}/bin:$HOME/.cargo/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Read only by android-emulator-boot.sh (sourced below); without the
+# disable, shellcheck flags it as unused and the lint gate fails.
+# shellcheck disable=SC2034
 AVD_NAME="liberated_bread_test"
 PACKAGE_ID="ca.pigscanfly.liberatedbread"
 
@@ -141,7 +144,8 @@ source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
 # One serial per online ("device" state) device.
 list_online_devices() { "$ADB" devices 2>/dev/null | awk 'NR>1 && $2=="device" {print $1}'; }
 # adb_devices_states ("serial state" for every attached device, whatever its
-# state) and boot_emulator live here, so a selftest can drive them.
+# state), report_unusable_devices, emulator_available, boot_emulator and
+# auto_fallback_emulator live here, so a selftest can drive them.
 # shellcheck source=android-emulator-boot.sh
 source "$SCRIPT_DIR/android-emulator-boot.sh"
 # `emulator-NNNN` is an emulator; anything else is a real phone or a network
@@ -149,27 +153,6 @@ source "$SCRIPT_DIR/android-emulator-boot.sh"
 is_emulator() { [[ "$1" == emulator-* ]]; }
 first_physical() { list_online_devices | while read -r s; do is_emulator "$s" || echo "$s"; done | head -n1; }
 first_emulator() { list_online_devices | while read -r s; do is_emulator "$s" && echo "$s"; done | head -n1; }
-
-# Explain every attached-but-unusable device — the near-universal cause of "no
-# device online" when a phone IS plugged in. Returns 0 if it reported one.
-report_unusable_devices() {
-  local found=1 serial state
-  while read -r serial state; do
-    [[ -z "$serial" ]] && continue
-    case "$state" in
-      unauthorized)
-        found=0
-        err "Device $serial is attached but UNAUTHORIZED."
-        err "  Unlock the phone and tap Allow on the 'Allow USB debugging?'"
-        err "  prompt (tick \"Always allow from this computer\"), then re-run." ;;
-      offline)
-        found=0
-        err "Device $serial is attached but OFFLINE."
-        err "  Unplug and replug it, or run: $ADB reconnect offline" ;;
-    esac
-  done < <(adb_devices_states)
-  return $found
-}
 
 if [[ "$LIST_ONLY" == "true" ]]; then
   log "Attached Android devices:"
@@ -190,16 +173,8 @@ if [[ "$LIST_ONLY" == "true" ]]; then
 fi
 
 # boot_emulator (android-emulator-boot.sh) is only reached when the target
-# wants the emulator: explicitly, or as the auto fallback with nothing else
-# online.
-#
-# Whether the project emulator can actually be launched: the binary exists and
-# the AVD has been created. Lets auto mode avoid promising a fallback it cannot
-# deliver.
-emulator_available() {
-  local e; e="$(find_emulator || true)"
-  [[ -n "$e" ]] && "$e" -list-avds 2>/dev/null | grep -qx "$AVD_NAME"
-}
+# wants the emulator: explicitly, or as the auto fallback
+# (auto_fallback_emulator) with nothing else online.
 
 # Resolve DEVICE_ID from the chosen target, booting the emulator if that is what
 # the target calls for.
@@ -235,29 +210,8 @@ resolve_device() {
       DEVICE_ID="$(first_physical)"
       [[ -n "$DEVICE_ID" ]] || DEVICE_ID="$(list_online_devices | head -n1)"
       if [[ -z "$DEVICE_ID" ]]; then
-        # If a phone is attached but unauthorized/offline, that is almost
-        # certainly what the user meant — say how to fix it rather than boot the
-        # emulator behind their back (and then fail on a missing AVD).
-        if report_unusable_devices; then
-          err "A device is attached but not usable yet (above). Authorize it, or"
-          err "pass --emulator to use the emulator instead."
-          exit 1
-        fi
-        # Nothing connected. Boot the emulator only if it is actually set up;
-        # otherwise say so plainly instead of "falling back" to a failure.
-        if emulator_available; then
-          log "No Android device connected; falling back to the $AVD_NAME emulator."
-          boot_emulator
-          DEVICE_ID="$BOOTED_SERIAL"
-        else
-          err "Nothing to run on: no phone connected, and the '$AVD_NAME' emulator"
-          err "is not set up here."
-          err "  Phone:    enable USB debugging, plug it in, accept the prompt, re-run"
-          err "            (then '$0 --list' should show it as 'ready')."
-          err "  Emulator: install the SDK cmdline-tools + emulator, then"
-          err "            ./scripts/setup.sh creates the AVD."
-          exit 1
-        fi
+        auto_fallback_emulator
+        DEVICE_ID="$BOOTED_SERIAL"
       fi
       [[ -n "$DEVICE_ID" ]] || { err "No device serial visible to adb."; exit 1; }
       ;;

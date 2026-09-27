@@ -5,31 +5,39 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/src/rust/api/device_api.dart'
+    show NameMatchDto;
 
 /// A catalogue entry with only what ranking reads: its GATT services.
-CatalogueSpec _entry(String name, int index, List<String> gatt) =>
-    CatalogueSpec(
-      index: index,
-      key: '$name.yaml',
-      yaml: '',
-      identity: SpecIdentityDto(
-        deviceName: name,
-        manufacturer: 'Test',
-        localNamePrefixes: const [],
-        localNames: const [],
-        serviceUuids: const [],
-        companyIds: Uint16List(0),
-        macPrefixes: const [],
-        mdnsServiceTypes: const [],
-        ssdpSearchTargets: const [],
-        lanProtocols: const [],
-        nameMatchers: const [],
-        txtMatchGroups: const [],
-        platformFallbackTypes: const [],
-      ),
-      protocolHandler: null,
-      gattServiceUuids: gatt,
-    );
+CatalogueSpec _entry(
+  String name,
+  int index,
+  List<String> gatt, {
+  List<String> localNamePrefixes = const [],
+  List<String> localNames = const [],
+  List<NameMatchDto> nameMatchers = const [],
+}) => CatalogueSpec(
+  index: index,
+  key: '$name.yaml',
+  yaml: '',
+  identity: SpecIdentityDto(
+    deviceName: name,
+    manufacturer: 'Test',
+    localNamePrefixes: localNamePrefixes,
+    localNames: localNames,
+    serviceUuids: const [],
+    companyIds: Uint16List(0),
+    macPrefixes: const [],
+    mdnsServiceTypes: const [],
+    ssdpSearchTargets: const [],
+    lanProtocols: const [],
+    nameMatchers: nameMatchers,
+    txtMatchGroups: const [],
+    platformFallbackTypes: const [],
+  ),
+  protocolHandler: null,
+  gattServiceUuids: gatt,
+);
 
 void main() {
   // What Rust reports after connecting to a device named for its own spec
@@ -131,6 +139,60 @@ void main() {
         discoveredUuids: const ['ffe0'],
       );
       expect(ranked.first, same(own));
+    });
+
+    test('a contradicting name voids the fingerprint on every name axis', () {
+      // A spec named only by `local_names` or a `name_matchers` entry, whose
+      // two services a differently-named device happens to carry. Fails on
+      // the old gate, which read only `local_name_prefixes` and gave both
+      // the full fingerprint 2 — the iPixel misroute on another axis.
+      const table = ['1800', 'fa02', 'ae00'];
+      for (final entry in [
+        _entry('Exact', 0, const ['fa02', 'ae00'], localNames: const ['PX-1']),
+        _entry(
+          'Matcher',
+          0,
+          const ['fa02', 'ae00'],
+          nameMatchers: const [NameMatchDto(kind: 'regex', value: '^PX')],
+        ),
+        _entry(
+          'Prefix',
+          0,
+          const ['fa02', 'ae00'],
+          localNamePrefixes: const ['PX'],
+        ),
+      ]) {
+        SpecMatch match({required bool named}) => SpecMatch(
+          entry: entry,
+          matchedByNamePrefix: named,
+          confidence: MatchConfidence.strong,
+          matchedServiceUuids: const ['fa02'],
+        );
+        expect(
+          gattFingerprintOf(
+            match(named: false),
+            discoveredUuids: table,
+            deviceName: 'IDM-1234',
+          ),
+          0,
+          reason: entry.key,
+        );
+        // Its own name, or no name at all, keeps the credit.
+        expect(
+          gattFingerprintOf(
+            match(named: true),
+            discoveredUuids: table,
+            deviceName: 'PX-1',
+          ),
+          2,
+          reason: entry.key,
+        );
+        expect(
+          gattFingerprintOf(match(named: false), discoveredUuids: table),
+          2,
+          reason: entry.key,
+        );
+      }
     });
 
     test('infrastructure services are no fingerprint', () {
