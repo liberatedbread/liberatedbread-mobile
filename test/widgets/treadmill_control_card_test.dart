@@ -1214,8 +1214,10 @@ DeviceSpecDto _spedSpec(List<CommandDto> commands) => DeviceSpecDto(
   ],
 );
 
-/// A BLE fake whose writes fail while [failWrites] is set, for the path
-/// where a speed write never reaches the pad.
+/// A BLE fake whose writes throw while [failWrites] is set, for the path
+/// where the GATT write itself fails but may still have landed on the pad
+/// (the card drops its baseline rather than snapping back). Contrast
+/// [_FlakyEncodeCodec], where nothing is sent.
 class _FlakyWriteBle extends FakeBleService {
   bool failWrites = false;
 

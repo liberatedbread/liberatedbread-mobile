@@ -101,21 +101,26 @@ pub type OriginalSlot = Option<(ChannelRecord, u8)>;
 ///
 /// In order:
 ///
-/// 1. A channel whose level is still the one the slot's bits read as keeps
-///    those bits exactly, whatever else changed. Deciding on the whole
-///    record let a rename or a tone edit re-encode a UV-82HP's Low (2,
+/// 1. A channel still exactly the record it was -- in this slot, or failing
+///    that in another original slot, the one it moved from -- keeps that
+///    record's bits. A delete or a reorder shifts every later channel down a
+///    slot, so the bits travel with the channel. Checked before the level
+///    alone (rule 2): two-level Low reads from both 1 and 2, which a UV-82HP
+///    transmits as Med and Low, so a Low channel landing on another Low
+///    channel's record took that record's index -- a 2 moved onto a 1 went
+///    out Med, raised with no user action.
+/// 2. Otherwise a channel whose level is still the one the slot's bits read
+///    as keeps those bits: the channel was edited in place. Deciding on the
+///    whole record let a rename or a tone edit re-encode a UV-82HP's Low (2,
 ///    behind the two-level UV-5R profile) as 1, which that radio transmits
 ///    as Med.
-/// 2. Otherwise the channel may have moved -- a delete or a reorder shifts
-///    every later channel down a slot -- so the bits travel with it: an
-///    original slot holding exactly this channel lends its bits.
 /// 3. Failing that, an original slot at the same level whose bits are an
 ///    index `levels` does not list lends them. Only an unlisted index,
 ///    because a listed one is what [`encode_power`] would write anyway; an
 ///    unlisted one is the radio saying its table differs from the profile's
 ///    (the HP's Low is 2, not 1), so for that level the image is better
 ///    evidence than the profile. This covers a channel that moved AND was
-///    edited, which rule 2 cannot recognise.
+///    edited, which rule 1 cannot recognise.
 /// 4. Anything else is encoded afresh with [`encode_power`]: the slot's own
 ///    bits followed the slot, so a channel landing on a neighbour's record
 ///    would otherwise have taken on its power.
@@ -128,16 +133,19 @@ pub fn power_bits(
     originals: &[OriginalSlot],
     levels: &[Power],
 ) -> u8 {
-    if old.is_some_and(|old| old.power == channel.power) {
+    if old == Some(channel) {
         return old_raw & 0x03;
     }
     let slots = || originals.iter().flatten();
+    if let Some((_, raw)) = slots().find(|(record, _)| record == channel) {
+        return raw & 0x03;
+    }
+    if old.is_some_and(|old| old.power == channel.power) {
+        return old_raw & 0x03;
+    }
     slots()
-        .find(|(record, _)| record == channel)
-        .or_else(|| {
-            slots().find(|(record, raw)| {
-                record.power == channel.power && usize::from(raw & 0x03) >= levels.len()
-            })
+        .find(|(record, raw)| {
+            record.power == channel.power && usize::from(raw & 0x03) >= levels.len()
         })
         .map(|(_, raw)| raw & 0x03)
         .unwrap_or_else(|| encode_power(channel.power, levels))
@@ -892,6 +900,54 @@ mod tests {
             encode_power(Power::High, UV5R_MINI.power_levels),
             "B, set High"
         );
+    }
+
+    #[test]
+    fn a_uv82hp_low_channel_keeps_its_index_moving_onto_another_low() {
+        // Two-level Low reads from both 1 and 2, which a UV-82HP transmits
+        // as Med and Low. Slots A (Low, 1), B (Low, 2): delete A and B lands
+        // on A's record. Its level matched the slot's, so B took A's 1 --
+        // Med, raised with no user action. Fails on the level-first rule.
+        let (image, read) = two_hp_lows();
+        let written = encode_channels(&image, &read[1..], &UV5R_MINI).unwrap();
+        assert_eq!(written[14] & 0x03, 2, "B, deleted A above it");
+
+        // Swapped, each keeps its own index: 1 onto the 2 record stays 1,
+        // 2 onto the 1 record stays 2.
+        let swapped = [read[1].clone(), read[0].clone()];
+        let written = encode_channels(&image, &swapped, &UV5R_MINI).unwrap();
+        assert_eq!(
+            [written[14] & 0x03, written[32 + 14] & 0x03],
+            [2, 1],
+            "B then A"
+        );
+
+        // Renamed in place, each still keeps its slot's index.
+        let mut renamed = read.clone();
+        renamed[0].name = "A2".into();
+        renamed[1].name = "B2".into();
+        let written = encode_channels(&image, &renamed, &UV5R_MINI).unwrap();
+        assert_eq!([written[14] & 0x03, written[32 + 14] & 0x03], [1, 2]);
+    }
+
+    /// A UV-82HP-shaped Mini image: A (Low, raw 1 -- Med on the HP) and
+    /// B (Low, raw 2), with the channels as they read back.
+    fn two_hp_lows() -> (Vec<u8>, Vec<ChannelRecord>) {
+        let mut low_a = channel("A");
+        low_a.power = Power::Low;
+        let mut low_b = channel("B");
+        low_b.power = Power::Low;
+        let mut image =
+            encode_channels(&blank_image(&UV5R_MINI), &[low_a, low_b], &UV5R_MINI).unwrap();
+        image[14] = (image[14] & !0x03) | 1;
+        image[32 + 14] = (image[32 + 14] & !0x03) | 2;
+        let read: Vec<ChannelRecord> = decode_channels(&image, &UV5R_MINI)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!([read[0].power, read[1].power], [Power::Low, Power::Low]);
+        (image, read)
     }
 
     #[test]

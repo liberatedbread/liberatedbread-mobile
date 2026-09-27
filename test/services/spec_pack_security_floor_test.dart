@@ -32,6 +32,7 @@ const _manifestUrl = 'https://specs.example.com/packs/pack.json';
 WebSocketSurfaceDto _socket({
   String fallbackPath = '/remote?name={client_name}',
   String fallbackScheme = 'ws',
+  String path = '/remote?name={client_name}&token={samsung_token}',
   String? pairingMode = 'token_query',
   String scheme = 'wss',
   bool selfSigned = true,
@@ -39,7 +40,7 @@ WebSocketSurfaceDto _socket({
 }) => WebSocketSurfaceDto(
   port: 8002,
   scheme: scheme,
-  path: '/remote?name={client_name}&token={samsung_token}',
+  path: path,
   fallbackPort: 8001,
   fallbackScheme: fallbackScheme,
   fallbackPath: fallbackPath,
@@ -226,24 +227,18 @@ void main() {
       }
       // Samsung's own posture already accepts any: no floor to fall below.
       expect(verdict(_socket(), _socket(verification: 'standard')), isNull);
-      // A socket that dials only plain ws has no certificate to judge.
-      final plain = _socket(
+      // A socket that dials only plain ws has no certificate to judge. No
+      // connect carries the token, so this reaches the wss gate rather than
+      // the credential rule: without the gate, the pack's `none` ranks
+      // below the bundle's validating default and is refused.
+      WebSocketSurfaceDto plain({String? verification}) => _socket(
         scheme: 'ws',
-        fallbackPath: '/remote?name={client_name}',
+        path: '/remote?name={client_name}',
+        pairingMode: null,
         selfSigned: false,
-        verification: null,
+        verification: verification,
       );
-      expect(
-        verdict(
-          plain,
-          _socket(
-            scheme: 'ws',
-            fallbackPath: '/remote?name={client_name}',
-            verification: 'none',
-          ),
-        ),
-        isNull,
-      );
+      expect(verdict(plain(), plain(verification: 'none')), isNull);
       // A bundled socket that only ever dials ws (Bose SoundTouch, Logitech
       // Harmony: no TLS fields) verified no certificate, so a pack adding a
       // wss fallback that accepts any is no downgrade. Fails on the floor

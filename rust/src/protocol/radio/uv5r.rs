@@ -650,10 +650,12 @@ fn encode_channel(
     // The channel's own level. Keeping a mid already in the slot followed
     // the slot, not the channel: a Low channel moved onto a mid record went
     // out mid, and a mid one moved onto a high record went out low. A
-    // channel whose level still matches the slot's keeps its bits, and one
-    // that moved brings the bits of the slot it came from, so a UV-82HP's
-    // Low (2) behind this two-level profile is not rewritten as High (0),
-    // nor as Med (1) after a rename or a delete above it.
+    // channel unchanged brings the bits of its own original record, even
+    // onto another Low record (1 and 2 both read Low here, but a UV-82HP
+    // sends 1 as Med); one edited in place keeps its slot's bits while the
+    // level holds. So a UV-82HP's Low (2) behind this two-level profile is
+    // not rewritten as High (0), nor as Med (1) after a rename or a delete
+    // above it.
     let old = decode_channel(&previous, &image[name_range(slot)], model.power_levels);
     record[14] = power_bits(
         channel,
@@ -1232,6 +1234,48 @@ mod tests {
             encode_power(Power::High, UV5R.power_levels),
             "B, set High"
         );
+    }
+
+    #[test]
+    fn a_uv82hp_low_channel_keeps_its_index_moving_onto_another_low() {
+        // Two-level Low reads from both 1 and 2, which a UV-82HP transmits
+        // as Med and Low. Slots A (Low, 1), B (Low, 2): delete A and B lands
+        // on A's record. Its level matched the slot's, so B took A's 1 --
+        // Med, raised with no user action. Fails on the level-first rule.
+        let mut low_a = channel("A", 146_520_000, 146_520_000);
+        low_a.power = Power::Low;
+        let mut low_b = channel("B", 146_540_000, 146_540_000);
+        low_b.power = Power::Low;
+        let mut image = encode_channels(&blank(), &[low_a, low_b], &UV5R).unwrap();
+        let at = |slot| record_range(slot).start + 14;
+        image[at(0)] = (image[at(0)] & !0x03) | 1;
+        image[at(1)] = (image[at(1)] & !0x03) | 2;
+        let read: Vec<ChannelRecord> = decode_channels(&image, &UV5R)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!([read[0].power, read[1].power], [Power::Low, Power::Low]);
+
+        let written = encode_channels(&image, &read[1..], &UV5R).unwrap();
+        assert_eq!(written[at(0)] & 0x03, 2, "B, deleted A above it");
+
+        // Swapped, each keeps its own index: 1 onto the 2 record stays 1,
+        // 2 onto the 1 record stays 2.
+        let swapped = [read[1].clone(), read[0].clone()];
+        let written = encode_channels(&image, &swapped, &UV5R).unwrap();
+        assert_eq!(
+            [written[at(0)] & 0x03, written[at(1)] & 0x03],
+            [2, 1],
+            "B then A"
+        );
+
+        // Renamed in place, each still keeps its slot's index.
+        let mut renamed = read;
+        renamed[0].name = "A2".into();
+        renamed[1].name = "B2".into();
+        let written = encode_channels(&image, &renamed, &UV5R).unwrap();
+        assert_eq!([written[at(0)] & 0x03, written[at(1)] & 0x03], [1, 2]);
     }
 
     #[test]
