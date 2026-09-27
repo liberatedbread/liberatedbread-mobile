@@ -32,8 +32,12 @@ void main() {
       deviceName: name,
       serviceUuids: uuids,
     );
-    final ranked = rankSpecMatches(matches, discoveredUuids: uuids);
-    return topTiedSpecMatches(ranked, discoveredUuids: uuids);
+    final ranked = rankSpecMatches(
+      matches,
+      discoveredUuids: uuids,
+      deviceName: name,
+    );
+    return topTiedSpecMatches(ranked, discoveredUuids: uuids, deviceName: name);
   }
 
   test(
@@ -92,6 +96,36 @@ void main() {
       }
       expect(tried, greaterThan(50));
       expect(lost, isEmpty);
+    },
+  );
+
+  test(
+    'an IDM- panel carrying the iPixel services still picks idotmatrix',
+    () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      // iPixel matches uuid-only on 00fa and every GATT service it declares
+      // (00fa, ae00) is present, so it took fingerprint 2 and won alone over
+      // the name-corroborated idotmatrix spec (fingerprint 0: it declares
+      // the dead fee9), sending iPixel commands to an iDotMatrix panel. The
+      // name "IDM-" contradicts iPixel's declared LED_BLE prefix.
+      //
+      // Still open: the table [00fa, ae00] (no fa02 service) resolves to
+      // iPixel on confidence alone, because idotmatrix.yaml's identification
+      // lists fee9/fa02 but not 00fa. That is spec data, fixed upstream.
+      final top = await topFor('IDM-1234', const [
+        '1800',
+        '1801',
+        '00fa',
+        'ae00',
+        'fa02',
+      ]);
+      expect(
+        [for (final m in top) m.entry.key],
+        ['vendor/protocol-specs/device-specs/devices/idotmatrix.yaml'],
+      );
     },
   );
 }

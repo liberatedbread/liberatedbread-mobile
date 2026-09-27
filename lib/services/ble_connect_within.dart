@@ -19,7 +19,8 @@ import 'ble_service.dart';
 /// that orphan claim. So on timeout this:
 ///
 /// * releases the claim if the connect lands anyway — exactly the one it
-///   took, so another owner's link is only torn down when it was the last;
+///   took, so another owner's link is only torn down when it was the last
+///   claim and no other connect to the device is pending;
 /// * asks a [BleConnectCanceller] to cancel it, which it does only when
 ///   this is the device's sole pending connect, never someone else's.
 ///

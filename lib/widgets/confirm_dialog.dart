@@ -47,3 +47,22 @@ Future<bool> confirmUnlock(BuildContext context, String entityName) =>
       message: 'This opens the lock for anyone at the door.',
       confirmLabel: 'Unlock',
     );
+
+/// Ask before a lock's momentary action that is not known to open it — a
+/// button press or a role nobody draws — answering true only for the
+/// action's own label.
+///
+/// Every such action on a lock still asks (see `BleEntityActionCard.isLock`:
+/// what a button does is not guessed from its name). But [confirmUnlock]'s
+/// 'Unlock X? This opens the lock…' told the user a 'Lock' or 'Beep' button
+/// would open the door, and titled BioKey's own 'Unlock' button 'Unlock
+/// Unlock?'. This names what will be sent and keeps the warning conditional.
+Future<bool> confirmLockAction(BuildContext context, String actionLabel) =>
+    confirmAction(
+      context,
+      title: 'Send "$actionLabel" to this lock?',
+      message:
+          'The spec does not say whether this opens the lock. If it does, '
+          'it opens it for anyone at the door.',
+      confirmLabel: actionLabel,
+    );

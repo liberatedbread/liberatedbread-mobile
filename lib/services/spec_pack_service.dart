@@ -9,7 +9,9 @@ import 'package:http/http.dart' as http;
 
 import '../core/ha_url.dart' show isPrivateIpv4;
 import '../core/log.dart';
+import 'mqtt_session.dart' show effectiveMqttTransportSecurity;
 import 'spec_codec.dart';
+import 'ws_control_service.dart' show wsCredentialAliasPlaceholder;
 
 /// Downloads and caches a "pack" of device-spec YAML files described by a remote
 /// JSON manifest, so new device support can ship without an app-store update.
@@ -268,33 +270,39 @@ class SpecPackService {
   /// any certificate, or in clear. Ranked by what the client can actually
   /// enforce: unstated verification is the blanket-trust fallback, the same
   /// as `none`; `vendor_ca` is served as trust-on-first-use (TlsPolicy).
+  ///
+  /// [bundledSocket] and [packSocket] are the two specs' WebSocket surfaces
+  /// (null when a spec declares none); see [_websocketDowngrade].
   static String? securityDowngrade({
     required NetworkCapabilitiesDto bundled,
     required NetworkCapabilitiesDto pack,
+    WebSocketSurfaceDto? bundledSocket,
+    WebSocketSurfaceDto? packSocket,
   }) {
     if (bundled.defaultScheme == 'https' && pack.defaultScheme != 'https') {
       return 'plain http where the built-in spec requires https';
     }
-    // Unstated falls back to the port convention (1883 is plaintext), so
-    // only an explicit `tls` keeps a TLS broker's login off the wire.
-    if (bundled.mqttTransportSecurity == 'tls' &&
-        pack.mqttTransportSecurity != 'tls') {
+    // What the broker socket will actually speak, the declaration or else
+    // the port convention — the connector's own rule. Reading only the
+    // declaration let a copy of the undeclared Roomba (8883) or Hisense
+    // (36669) spec say `plaintext`, or move to 1883, and have the stored
+    // broker login sent in clear. An unknown bundled port (discovery
+    // decides) is no floor unless the pack pins plaintext.
+    final bundledMqtt = effectiveMqttTransportSecurity(
+      declared: bundled.mqttTransportSecurity,
+      port: bundled.defaultPort,
+    );
+    final packMqtt = effectiveMqttTransportSecurity(
+      declared: pack.mqttTransportSecurity,
+      port: pack.defaultPort,
+    );
+    if ((bundledMqtt == 'tls' && packMqtt != 'tls') ||
+        (bundledMqtt == null && packMqtt == 'plaintext')) {
       return 'MQTT without TLS where the built-in spec requires it';
     }
-    int rank(NetworkCapabilitiesDto c) {
-      // A self-signed claim is how the WebSocket path decides to accept
-      // any certificate, whatever `verification` says.
-      if (c.tlsSelfSigned && c.tlsVerification == null) return 0;
-      return switch (c.tlsVerification) {
-        null || 'none' => 0,
-        'standard' => 2,
-        // trust_on_first_use, vendor_ca, and anything newer (TlsPolicy
-        // resolves an unknown value to trust-on-first-use).
-        _ => 1,
-      };
-    }
 
-    if (rank(pack) < rank(bundled)) {
+    if (_tlsRank(pack.tlsVerification, pack.tlsSelfSigned) <
+        _tlsRank(bundled.tlsVerification, bundled.tlsSelfSigned)) {
       return 'TLS verification '
           '"${pack.tlsVerification ?? 'unstated'}" where the built-in spec '
           'requires "${bundled.tlsVerification}"';
@@ -304,6 +312,93 @@ class SpecPackService {
         bundled.tlsVerification != null) {
       return 'a self-signed certificate where the built-in spec does not '
           'allow one';
+    }
+    return _websocketDowngrade(
+      bundled: bundledSocket,
+      pack: packSocket,
+      bundledHttps: bundled.defaultScheme == 'https',
+    );
+  }
+
+  /// How strictly a TLS policy checks the certificate: 0 accepts any, 1
+  /// pins it, 2 validates the chain. Ranked by what the client can
+  /// actually enforce: unstated verification is the blanket-trust fallback,
+  /// the same as `none`; `vendor_ca` is served as trust-on-first-use.
+  static int _tlsRank(String? verification, bool selfSigned) {
+    // A self-signed claim is how the WebSocket path decides to accept
+    // any certificate, whatever `verification` says.
+    if (selfSigned && verification == null) return 0;
+    return switch (verification) {
+      null || 'none' => 0,
+      'standard' => 2,
+      // trust_on_first_use, vendor_ca, and anything newer (TlsPolicy
+      // resolves an unknown value to trust-on-first-use).
+      _ => 1,
+    };
+  }
+
+  /// The schemes of [surface]'s connects that carry the stored credential
+  /// (named [credentialName] or the surface's own): every connect for
+  /// `register_frame` pairing, whose frame sends the key on whatever socket
+  /// opened; for a query token, the connects whose path names it.
+  static Set<String> _credentialSchemes(
+    WebSocketSurfaceDto surface,
+    Set<String> credentialNames,
+  ) {
+    // Every placeholder the sender fills with the credential, not only the
+    // spec's own name — see [wsCredentialAliasPlaceholder].
+    final names = {
+      ...credentialNames,
+      ?surface.credentialName,
+      wsCredentialAliasPlaceholder,
+    };
+    bool carries(String path) =>
+        surface.pairingMode == 'register_frame' ||
+        names.any((n) => path.contains('{$n}'));
+    // The fallback exists when it has a port, and inherits the primary's
+    // scheme and path when it states none — as WsControlService dials it.
+    return {
+      if (carries(surface.path)) surface.scheme.toLowerCase(),
+      if (surface.fallbackPort != null &&
+          carries(surface.fallbackPath ?? surface.path))
+        (surface.fallbackScheme ?? surface.scheme).toLowerCase(),
+    };
+  }
+
+  /// Why [pack]'s WebSocket surface sends the device credential under a
+  /// weaker policy than [bundled]'s, or null.
+  ///
+  /// Samsung's token rides only the wss:8002 connect; a pack moving
+  /// `&token={samsung_token}` onto the ws:8001 fallback passed a floor that
+  /// read only the HTTP scheme, and the token went out in clear. The floor
+  /// is relative: a bundled spec that already sends its key over ws (LG's
+  /// register frame on 3000) sets none. With no bundled surface, an https
+  /// spec is the floor — a pack must not add a clear socket carrying a
+  /// credential the bundle only sent under TLS.
+  static String? _websocketDowngrade({
+    required WebSocketSurfaceDto? bundled,
+    required WebSocketSurfaceDto? pack,
+    required bool bundledHttps,
+  }) {
+    if (pack == null) return null;
+    final names = {?bundled?.credentialName, ?pack.credentialName};
+    final packSchemes = _credentialSchemes(pack, names);
+    if (!packSchemes.contains('ws')) {
+      if (bundled == null) return null;
+      if (_tlsRank(pack.tlsVerification, pack.tlsSelfSigned) <
+          _tlsRank(bundled.tlsVerification, bundled.tlsSelfSigned)) {
+        return 'WebSocket TLS verification '
+            '"${pack.tlsVerification ?? 'unstated'}" where the built-in '
+            'spec requires "${bundled.tlsVerification}"';
+      }
+      return null;
+    }
+    final bundledSchemes = bundled == null
+        ? (bundledHttps ? const {'wss'} : const <String>{})
+        : _credentialSchemes(bundled, names);
+    if (bundledSchemes.isNotEmpty && !bundledSchemes.contains('ws')) {
+      return 'a WebSocket credential over plain ws where the built-in spec '
+          'sends it only over wss';
     }
     return null;
   }
@@ -340,6 +435,8 @@ class SpecPackService {
       return securityDowngrade(
         bundled: await codec.networkCapabilities(specYaml: original),
         pack: await codec.networkCapabilities(specYaml: yaml),
+        bundledSocket: await codec.websocketSurface(original),
+        packSocket: await codec.websocketSurface(yaml),
       );
     };
   }

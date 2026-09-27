@@ -120,9 +120,20 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
   }
 
   /// [_send] for a momentary action, asking first on a lock; see [isLock].
+  /// Only a cover's `open_cover` is known to open, so only it gets the
+  /// 'Unlock X?' wording; a press or an unclaimed role is named as what it
+  /// is, so a 'Lock' button is not confirmed as an unlock.
   Future<void> _sendConfirmedOnLock(EntityActionDto action) async {
     if (widget.isLock) {
-      final confirmed = await confirmUnlock(context, widget.entity.name);
+      final role = action.role;
+      final confirmed = role == 'open_cover'
+          ? await confirmUnlock(context, widget.entity.name)
+          : await confirmLockAction(
+              context,
+              role == 'press'
+                  ? widget.entity.name
+                  : UnclaimedActions.labelFor(role),
+            );
       if (!confirmed || !mounted) return;
     }
     await _send(action);

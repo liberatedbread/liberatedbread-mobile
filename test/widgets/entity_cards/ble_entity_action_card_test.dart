@@ -450,9 +450,11 @@ void main() {
       expect(find.text('Press'), findsNothing);
       await tester.tap(find.widgetWithText(FilledButton, 'Unlock'));
       await tester.pumpAndSettle();
-      expect(find.text('Unlock Unlock?'), findsOneWidget);
+      // Named as what is sent, not 'Unlock Unlock?' (the entity's name in
+      // the lock's place).
+      expect(find.text('Send "Unlock" to this lock?'), findsOneWidget);
       expect(
-        find.text('This opens the lock for anyone at the door.'),
+        find.textContaining('it opens it for anyone at the door'),
         findsOneWidget,
       );
       await tester.tap(find.text('Cancel'));
@@ -479,6 +481,81 @@ void main() {
       await tester.pumpAndSettle();
       expect(codec.encodeCalls.single.commandName, 'open_lock');
       expect(ble.writes, hasLength(1));
+    });
+  });
+  group("a lock's other actions still ask, in their own words", () {
+    // Old code confirmed every momentary action on a lock with 'Unlock X?
+    // This opens the lock for anyone at the door.' — so a 'Lock' button
+    // asked the user to confirm unlocking in order to lock.
+    EntityDto entity(String name, String platform, EntityActionDto action) =>
+        EntityDto(
+          options: const [],
+          name: name,
+          platform: platform,
+          canNotify: false,
+          hasFormat: false,
+          onWhenNonzero: false,
+          actions: [action],
+          variants: const [],
+        );
+
+    testWidgets('a Lock button is not confirmed as an unlock', (tester) async {
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x02]));
+      final ble = FakeBleService();
+      await tester.pumpWidget(
+        _wrap(
+          entity('Lock', 'button', _action('press', 'close_lock')),
+          codec: codec,
+          ble: ble,
+          isLock: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Lock'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unlock Lock?'), findsNothing);
+      expect(
+        find.text('This opens the lock for anyone at the door.'),
+        findsNothing,
+      );
+      expect(find.text('Send "Lock" to this lock?'), findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Lock'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(codec.encodeCalls.single.commandName, 'close_lock');
+      expect(ble.writes, hasLength(1));
+    });
+
+    testWidgets("a cover's Open on a lock keeps the unlock wording", (
+      tester,
+    ) async {
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x01]));
+      final ble = FakeBleService();
+      await tester.pumpWidget(
+        _wrap(
+          entity('Gate', 'cover', _action('open_cover', 'open_gate')),
+          codec: codec,
+          ble: ble,
+          isLock: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unlock Gate?'), findsOneWidget);
+      expect(
+        find.text('This opens the lock for anyone at the door.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(ble.writes, isEmpty);
     });
   });
 }

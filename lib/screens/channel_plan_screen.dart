@@ -642,26 +642,44 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
   }
 }
 
+/// Top of the broadcast FM band. Every catalogue radio lists 65-108 MHz in
+/// its receive ranges, but on these radios that is a separate FM-broadcast
+/// receiver, not a band a memory channel can sit on (CHIRP's uv5r and
+/// UV17Pro drivers leave it out of `valid_bands`).
+const int _broadcastFmTopHz = 108000000;
+
+/// The spans of [profile]'s receive coverage a memory channel can hold: its
+/// receive ranges less the broadcast-FM receiver. Without this a channel typed
+/// as 101.1 MHz passes the range gate and is written into a slot the radio
+/// cannot use.
+List<FreqRange> memoryChannelRanges(RadioProfile profile) => [
+  for (final range in profile.rxRanges)
+    if (range.lowHz > _broadcastFmTopHz) range,
+];
+
 /// Why [profile] cannot hold a channel on these frequencies, or null if it
 /// can.
 ///
-/// Receive must be in the radio's receive ranges. Transmit, unless the
-/// channel is receive-only, is held to the same ranges rather than to the
-/// transmit ones: whether transmit is unlocked is the radio's setting, not
-/// the plan's, and a suggested channel the radio may not transmit on is
-/// still a channel it listens to. What this catches is a typo: a frequency
-/// the radio cannot tune at all, or one the codeplug cannot encode.
+/// Receive must be in the radio's memory-channel ranges
+/// ([memoryChannelRanges]: receive coverage less broadcast FM). Transmit,
+/// unless the channel is receive-only, is held to the same ranges rather
+/// than to the transmit ones: whether transmit is unlocked is the radio's
+/// setting, not the plan's, and a suggested channel the radio may not
+/// transmit on is still a channel it listens to. What this catches is a
+/// typo: a frequency no memory channel on the radio can hold, or one the
+/// codeplug cannot encode.
 String? channelRangeProblem(
   RadioProfile profile, {
   required int rxFreqHz,
   required int txFreqHz,
   required bool rxOnly,
 }) {
+  final ranges = memoryChannelRanges(profile);
   String outside(String what, int hz) =>
-      '$what ${formatHzAsMegahertz(hz)} MHz is outside what the '
-      '${profile.displayName} can tune: ${profile.rxRanges.join(', ')}.';
-  if (!profile.canReceive(rxFreqHz)) return outside('Receive', rxFreqHz);
-  if (!rxOnly && !profile.canReceive(txFreqHz)) {
+      '$what ${formatHzAsMegahertz(hz)} MHz is outside what a '
+      '${profile.displayName} memory channel can hold: ${ranges.join(', ')}.';
+  if (!rangesContain(ranges, rxFreqHz)) return outside('Receive', rxFreqHz);
+  if (!rxOnly && !rangesContain(ranges, txFreqHz)) {
     return outside('Transmit', txFreqHz);
   }
   return null;

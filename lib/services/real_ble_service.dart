@@ -1381,7 +1381,8 @@ class RealBleService
     // Last claim out tears the link down; earlier releases just let go. A
     // release with no claim at all (cleanup after a failed connect) falls
     // through to the platform disconnect, which is the desired best-effort
-    // for a half-open link — unless a connect is pending (below).
+    // for a half-open link. Either way, not while a connect is pending
+    // (below).
     final claims = _connectionClaims[deviceId] ?? 0;
     if (claims > 1) {
       _connectionClaims[deviceId] = claims - 1;
@@ -1390,16 +1391,23 @@ class RealBleService
       );
       return;
     }
-    // No claim to give back, but someone's connect is still pending: the
+    // The last claim (or none), but someone's connect is still pending: the
     // platform disconnect below jumps fbp's queue and would cancel THAT
-    // connect. A release from an owner whose claim the link-drop watcher
-    // already expired, or from a caller that timed out its own connect,
-    // failed another owner's connect this way. Backing out of a pending
+    // connect, or tear the link down just after it saw it up. A release
+    // from an owner whose claim the link-drop watcher already expired, a
+    // connectWithin's release of a connect that landed after it timed out
+    // while another owner's connect was queued behind it, or a screen
+    // leaving while a group run's connect was queued, all failed another
+    // owner's connect this way. So only the claim goes: the link, its
+    // watchers, the notify shares and the services cache stay for the
+    // pending connect, which takes its own claim on the live link, and its
+    // owner's release is the one that drops it. Backing out of a pending
     // connect is [cancelConnect]'s job, which checks it is the only one.
-    if (claims == 0 && (_pendingConnects[deviceId] ?? 0) > 0) {
+    final pending = _pendingConnects[deviceId] ?? 0;
+    if (pending > 0) {
+      _connectionClaims.remove(deviceId);
       Log.ble.debug(
-        'disconnect($deviceId) with no claim left alone: '
-        '${_pendingConnects[deviceId]} connect(s) pending',
+        'disconnect($deviceId) kept the link: $pending connect(s) pending',
       );
       return;
     }

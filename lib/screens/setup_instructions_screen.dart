@@ -442,11 +442,15 @@ class _FactoryResetSection extends StatelessWidget {
   /// effect and no procedures used to render a bare "Factory reset" heading;
   /// the catalogue's `effect: "n/a"` (not applicable) with none reads the
   /// same way to a user.
-  static bool hasContent(FactoryResetDto reset) {
-    final effect = (reset.effect ?? '').trim();
-    return reset.procedures.isNotEmpty ||
-        (effect.isNotEmpty && effect.toLowerCase() != 'n/a');
-  }
+  static bool hasContent(FactoryResetDto reset) =>
+      reset.procedures.isNotEmpty || _hasEffect(reset.effect);
+
+  /// Whether [effect] says something: [_hasText], less the catalogue's
+  /// "n/a". The ONE test [hasContent] and [build] share — build used plain
+  /// [_hasText], so an "n/a" effect beside a procedure drew a literal "n/a"
+  /// paragraph above it.
+  static bool _hasEffect(String? effect) =>
+      _hasText(effect) && effect!.trim().toLowerCase() != 'n/a';
 
   @override
   Widget build(BuildContext context) {
@@ -457,7 +461,7 @@ class _FactoryResetSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_hasText(reset.effect)) ...[
+          if (_hasEffect(reset.effect)) ...[
             Text(
               reset.effect!.trim(),
               style: text.bodyMedium?.copyWith(height: 1.4),

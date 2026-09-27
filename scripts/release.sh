@@ -18,7 +18,7 @@
 # untagged HEAD and a dirty tree. A throwaway build can override either:
 #   LB_RELEASE_UNTAGGED=1   no tag on HEAD: the stamp is a bare commit SHA
 #   LB_RELEASE_DIRTY=1      uncommitted changes: tracked edits stamp `-dirty`
-# Stray files in the bundled asset directories have no override, because the
+# Stray files in the bundled spec directories have no override, because the
 # stamp cannot see them at all (see below).
 #
 # Usage:
@@ -73,43 +73,41 @@ cd "$PROJECT_DIR"
 
 # ── files the stamp cannot see ───────────────────────────────────────────────
 #
-# pubspec.yaml bundles device-specs/devices/, device-specs/examples/ and
-# assets/radio/ as DIRECTORIES, so whatever sits in them ships, tracked or
-# not, while `git describe --dirty` only reports tracked changes.
-# examples/index-temp.json is this repo's own generated output
-# (scripts/regen-spec-index.sh writes it on every run-*.sh launch, and the
-# app prefers it over index.json): drop it so
+# pubspec.yaml bundles device-specs/devices/ and device-specs/examples/ as
+# DIRECTORIES, so whatever sits in them ships, tracked or not, while `git
+# describe --dirty` only reports tracked changes. (assets/radio/ is listed
+# file by file, so nothing stray there can ship.) examples/index-temp.json is
+# this repo's own generated output (scripts/regen-spec-index.sh writes it on
+# every run-*.sh launch, and the app prefers it over index.json): drop it so
 # the release reads upstream's committed index.json, which CI's
 # `update-specs.sh --check` proves names every vendored spec. The next launch
 # rebuilds it. Finder's .DS_Store goes the same way: it is ignored too, so
 # the guard below would refuse it, and browsing the spec folder on the Mac
 # (the only host that builds for iOS) writes one there. It is the one file a
 # Mac leaves behind that says nothing about the catalogue, and Finder
-# recreates it. The three paths are enough: none of them nests, and a
+# recreates it. The two paths are enough: neither directory nests, and a
 # Flutter directory asset is not recursive. A new directory asset in
 # pubspec.yaml must be added here, or a stray file in it ships unseen.
-# Anything else left there is data no commit describes, so there is no
-# override: remove it, or commit it (upstream, for the spec directories).
+# Anything else left there is a catalogue no commit describes, so there is no
+# override: remove it or land it upstream.
 #
 # Only the directory assets are checked, not all of vendor/protocol-specs:
 # update-specs.sh runs upstream's generate_index.py in place, and the ignored
 # __pycache__/ that leaves under its scripts/ ships nothing.
 rm -f vendor/protocol-specs/device-specs/examples/index-temp.json \
   vendor/protocol-specs/device-specs/devices/.DS_Store \
-  vendor/protocol-specs/device-specs/examples/.DS_Store \
-  assets/radio/.DS_Store
+  vendor/protocol-specs/device-specs/examples/.DS_Store
 # git's exit is checked on its own line: inside the pipeline below, `|| true`
 # would turn a failing git status into an empty (clean-looking) answer.
 STRAY_STATUS="$(git status --porcelain --ignored=matching --untracked-files=all \
   -- vendor/protocol-specs/device-specs/devices \
-     vendor/protocol-specs/device-specs/examples \
-     assets/radio)"
+     vendor/protocol-specs/device-specs/examples)"
 STRAY="$(printf '%s\n' "$STRAY_STATUS" | grep '^[?!]' || true)"
 if [[ -n "$STRAY" ]]; then
-  err "Untracked or ignored files in a bundled asset directory would ship in"
+  err "Untracked or ignored files in a bundled spec directory would ship in"
   err "the store build, and the build stamp cannot record them:"
   printf '%s\n' "$STRAY" | sed 's/^/  /' >&2
-  err "Remove or commit them (spec files upstream) before building a release."
+  err "Remove them (or land them upstream) before building a release."
   exit 1
 fi
 

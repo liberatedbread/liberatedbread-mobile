@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/channel_plan.dart';
+import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/providers/channel_plan_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
@@ -105,6 +106,66 @@ Future<_Harness> _pump(
 }
 
 void main() {
+  group('channelRangeProblem', () {
+    // Broadcast FM is in every profile's rxRanges but is a separate
+    // receiver on these radios: a memory channel there is one the radio
+    // cannot use, receive-only or not.
+    for (final profile in radioProfiles) {
+      test('${profile.displayName} refuses a broadcast-FM channel', () {
+        expect(
+          channelRangeProblem(
+            profile,
+            rxFreqHz: 101100000,
+            txFreqHz: 101100000,
+            rxOnly: false,
+          ),
+          contains('Receive 101.100 MHz'),
+        );
+        expect(
+          channelRangeProblem(
+            profile,
+            rxFreqHz: 101100000,
+            txFreqHz: 101100000,
+            rxOnly: true,
+          ),
+          isNotNull,
+        );
+        expect(
+          channelRangeProblem(
+            profile,
+            rxFreqHz: 146520000,
+            txFreqHz: 101100000,
+            rxOnly: false,
+          ),
+          contains('Transmit 101.100 MHz'),
+        );
+      });
+
+      test('${profile.displayName} still takes 2 m and 70 cm channels', () {
+        for (final hz in [146520000, 446000000]) {
+          expect(
+            channelRangeProblem(
+              profile,
+              rxFreqHz: hz,
+              txFreqHz: hz,
+              rxOnly: false,
+            ),
+            isNull,
+          );
+        }
+      });
+    }
+
+    test('memory ranges are receive ranges with broadcast FM left out', () {
+      for (final profile in radioProfiles) {
+        final ranges = memoryChannelRanges(profile);
+        expect(ranges, isNotEmpty);
+        expect(profile.rxRanges, containsAll(ranges));
+        expect(rangesContain(ranges, 101100000), isFalse);
+      }
+    });
+  });
+
   testWidgets('lists channels with slot numbers and a capacity readout', (
     tester,
   ) async {
@@ -457,7 +518,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.textContaining('Receive 46.940 MHz is outside what the'),
+        find.textContaining('Receive 46.940 MHz is outside what a'),
         findsOneWidget,
       );
       final channel = harness.container

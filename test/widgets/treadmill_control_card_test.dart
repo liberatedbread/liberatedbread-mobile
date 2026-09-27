@@ -21,8 +21,11 @@ const _char = '0000fe02-0000-1000-8000-00805f9b34fb';
 // A KingSmith WiLink-shaped spec: a fixed start command, a speed command with
 // presentation metadata (raw counts at 0.1 km/h) beside an encoder-filled
 // checksum byte, and the shared stop-or-pause opcode whose action byte splits
-// Stop (1) from Pause (2).
-final _treadmillSpec = DeviceSpecDto(
+// Stop (1) from Pause (2). [advancedSpeed] flags set_speed advanced, so the
+// card's once-per-command warning stands in front of it.
+final _treadmillSpec = _treadmillSpecWith();
+
+DeviceSpecDto _treadmillSpecWith({bool advancedSpeed = false}) => DeviceSpecDto(
   nameMatchers: const [],
   platformFallbackTypes: const [],
   txtMatchGroups: const [],
@@ -42,7 +45,7 @@ final _treadmillSpec = DeviceSpecDto(
   lanProtocols: const [],
   defaultPort: null,
   entities: const <EntityDto>[],
-  services: const [
+  services: [
     ServiceDto(
       uuid: _svc,
       name: 'WiLink treadmill service',
@@ -54,7 +57,7 @@ final _treadmillSpec = DeviceSpecDto(
           canWrite: true,
           canNotify: false,
           commands: [
-            CommandDto(
+            const CommandDto(
               name: 'start_belt',
               description: 'Start the belt',
               parameters: [],
@@ -69,8 +72,9 @@ final _treadmillSpec = DeviceSpecDto(
               isFixed: false,
               isEncodable: true,
               unsupportedEncoding: null,
-              advanced: false,
-              parameters: [
+              advanced: advancedSpeed,
+              advancedReason: 'Test: speed is advanced.',
+              parameters: const [
                 ParameterDto(
                   name: 'speed',
                   valueType: 'uint8',
@@ -88,7 +92,7 @@ final _treadmillSpec = DeviceSpecDto(
                 ),
               ],
             ),
-            CommandDto(
+            const CommandDto(
               name: 'stop_or_pause',
               description: 'Stop or pause',
               isFixed: false,
@@ -106,7 +110,7 @@ final _treadmillSpec = DeviceSpecDto(
               ],
             ),
           ],
-          formatFields: [],
+          formatFields: const [],
         ),
       ],
     ),
@@ -855,6 +859,107 @@ void main() {
     expect(codec.encodeCalls.last.params, {'speed': 45.0});
   });
 
+  group('the stepper baseline is only a speed the belt was sent', () {
+    // Old code set the baseline before sending and never cleared it, so
+    // after Stop/Start, a declined prompt or a failed write the headline
+    // showed a speed the belt was not at and 'Speed up' sent old + 0.5 —
+    // to a belt that a fresh Start may have at its minimum.
+    IconButton stepper(WidgetTester tester, IconData icon) =>
+        tester.widget<IconButton>(
+          find.ancestor(
+            of: find.byIcon(icon),
+            matching: find.byType(IconButton),
+          ),
+        );
+
+    Future<void> commit(WidgetTester tester, double v) async {
+      tester.widget<Slider>(find.byType(Slider)).onChangeEnd!(v);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Stop drops it', (tester) async {
+      final ble = FakeBleService();
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
+      await tester.pumpWidget(_wrap(ble: ble, codec: codec));
+
+      await commit(tester, 4.0);
+      expect(find.text('4.0 km/h'), findsOneWidget);
+      await tester.tap(find.text('Stop'));
+      await tester.pumpAndSettle();
+
+      // Old code: still '4.0 km/h' with both steppers live.
+      expect(find.text('4.0 km/h'), findsNothing);
+      expect(find.text('—'), findsOneWidget);
+      expect(stepper(tester, Icons.add).onPressed, isNull);
+      expect(stepper(tester, Icons.remove).onPressed, isNull);
+    });
+
+    testWidgets('a confirmed Start drops it', (tester) async {
+      final ble = FakeBleService();
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
+      await tester.pumpWidget(_wrap(ble: ble, codec: codec));
+
+      await commit(tester, 4.0);
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Start'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Old code: 'Speed up' was live and sent {'speed': 45.0}.
+      expect(stepper(tester, Icons.add).onPressed, isNull);
+      expect(find.text('—'), findsOneWidget);
+    });
+
+    testWidgets('a declined advanced prompt does not set it', (tester) async {
+      final ble = FakeBleService();
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
+      await tester.pumpWidget(
+        _wrap(
+          ble: ble,
+          codec: codec,
+          spec: _treadmillSpecWith(advancedSpeed: true),
+        ),
+      );
+
+      await commit(tester, 3.0);
+      expect(find.text('Continue'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      // Nothing was sent, so nothing is a baseline. Old code: headline
+      // '3.0 km/h' and live steppers.
+      expect(ble.writes, isEmpty);
+      expect(find.text('3.0 km/h'), findsNothing);
+      expect(find.text('—'), findsOneWidget);
+      expect(stepper(tester, Icons.add).onPressed, isNull);
+    });
+
+    testWidgets('a failed write snaps back to the last speed sent', (
+      tester,
+    ) async {
+      final ble = _FlakyWriteBle();
+      final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
+      await tester.pumpWidget(_wrap(ble: ble, codec: codec));
+
+      await commit(tester, 3.0);
+      ble.failWrites = true;
+      await commit(tester, 5.0);
+      ble.failWrites = false;
+
+      // Old code: headline '5.0 km/h' and the tap below sent 55.
+      expect(find.text('3.0 km/h'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      expect(codec.encodeCalls.last.params, {'speed': 35.0});
+      expect(find.text('3.5 km/h'), findsOneWidget);
+    });
+  });
+
   testWidgets("the slider's screen-reader text uses the spec's unit and "
       'precision', (tester) async {
     // Old code announced 'Speed 3.0 km/h' whatever the spec declared.
@@ -1077,3 +1182,20 @@ DeviceSpecDto _spedSpec(List<CommandDto> commands) => DeviceSpecDto(
     ),
   ],
 );
+
+/// A BLE fake whose writes fail while [failWrites] is set, for the path
+/// where a speed write never reaches the pad.
+class _FlakyWriteBle extends FakeBleService {
+  bool failWrites = false;
+
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) async {
+    if (failWrites) throw StateError('GATT write failed');
+    return super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
+  }
+}

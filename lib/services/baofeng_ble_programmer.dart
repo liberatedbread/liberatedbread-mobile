@@ -49,12 +49,6 @@ class BleTiming {
   });
 }
 
-/// Reads and writes a Baofeng over the FFE0/FFE1 tunnel.
-///
-/// Structured like [GroupRunner]: an `async*` stream with per-step timeouts
-/// and the disconnect in a `finally`, which also runs when a listener cancels
-/// mid-session. Leaving a radio connected and half-written is the one outcome
-/// worth designing against.
 /// A programmer that can say, without touching the radio, that it will
 /// refuse to write a model it otherwise reads.
 ///
@@ -67,6 +61,12 @@ abstract interface class RadioWritePreflight {
   Future<void> checkCanWrite(RadioProfile profile);
 }
 
+/// Reads and writes a Baofeng over the FFE0/FFE1 tunnel.
+///
+/// Structured like [GroupRunner]: an `async*` stream with per-step timeouts
+/// and the disconnect in a `finally`, which also runs when a listener cancels
+/// mid-session. Leaving a radio connected and half-written is the one outcome
+/// worth designing against.
 class BaofengBleProgrammer implements RadioProgrammer, RadioWritePreflight {
   final BleService _ble;
   final BleTiming timing;

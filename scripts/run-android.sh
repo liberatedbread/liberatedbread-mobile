@@ -140,9 +140,10 @@ source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
 
 # One serial per online ("device" state) device.
 list_online_devices() { "$ADB" devices 2>/dev/null | awk 'NR>1 && $2=="device" {print $1}'; }
-# "serial state" for EVERY attached device, whatever its state — so an
-# unauthorized or offline phone is visible, not silently treated as absent.
-adb_devices_states() { "$ADB" devices 2>/dev/null | awk 'NR>1 && NF>=2 {print $1, $2}'; }
+# adb_devices_states ("serial state" for every attached device, whatever its
+# state) and boot_emulator live here, so a selftest can drive them.
+# shellcheck source=android-emulator-boot.sh
+source "$SCRIPT_DIR/android-emulator-boot.sh"
 # `emulator-NNNN` is an emulator; anything else is a real phone or a network
 # (`ip:port`) connection.
 is_emulator() { [[ "$1" == emulator-* ]]; }
@@ -188,68 +189,16 @@ if [[ "$LIST_ONLY" == "true" ]]; then
   exit 0
 fi
 
-# Boot the project AVD and wait for it. Only reached when the target wants the
-# emulator (explicitly, or as the auto fallback with nothing else online).
+# boot_emulator (android-emulator-boot.sh) is only reached when the target
+# wants the emulator: explicitly, or as the auto fallback with nothing else
+# online.
+#
 # Whether the project emulator can actually be launched: the binary exists and
 # the AVD has been created. Lets auto mode avoid promising a fallback it cannot
 # deliver.
 emulator_available() {
   local e; e="$(find_emulator || true)"
   [[ -n "$e" ]] && "$e" -list-avds 2>/dev/null | grep -qx "$AVD_NAME"
-}
-
-# Sets BOOTED_SERIAL to the emulator it booted. Every adb call after launch
-# names that serial: with a phone also online (`--emulator` promises to work
-# then), a bare `adb wait-for-device` returned at once and a bare
-# `adb shell getprop` either read the PHONE's sys.boot_completed (so "booted"
-# was logged before the emulator existed) or failed with "more than one
-# device" until the 180 s ran out and the script went on anyway.
-BOOTED_SERIAL=""
-boot_emulator() {
-  local emulator
-  emulator="$(find_emulator || true)"
-  if [[ -z "${emulator:-}" ]]; then
-    err "Android emulator binary not found. Install the Android SDK or run ./scripts/setup.sh."
-    exit 1
-  fi
-  if ! "$emulator" -list-avds 2>/dev/null | grep -qx "$AVD_NAME"; then
-    err "AVD '$AVD_NAME' not found. Run ./scripts/setup.sh to create it."
-    exit 1
-  fi
-  # Emulators already attached in ANY state, so the new one can be told apart
-  # from a half-registered leftover.
-  local before
-  before="$(adb_devices_states | awk '$1 ~ /^emulator-/ {printf "%s ", $1}')"
-  log "Launching emulator $AVD_NAME..."
-  "$emulator" -avd "$AVD_NAME" -no-snapshot-load >/dev/null 2>&1 &
-  local pid=$!
-  log "Waiting for the emulator to boot..."
-  local timeout=180 elapsed=0 serial="" booted
-  while (( elapsed < timeout )); do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      err "The emulator process exited before it booted."
-      exit 1
-    fi
-    if [[ -z "$serial" ]]; then
-      serial="$(adb_devices_states | awk -v before="$before" '
-        BEGIN { n = split(before, b, " "); for (i = 1; i <= n; i++) old[b[i]] = 1 }
-        $1 ~ /^emulator-/ && !($1 in old) { print $1; exit }')"
-    fi
-    if [[ -n "$serial" ]]; then
-      booted="$("$ADB" -s "$serial" shell getprop sys.boot_completed 2>/dev/null \
-        | tr -d '\r' || true)"
-      if [[ "$booted" == "1" ]]; then
-        log "Emulator $serial booted."
-        BOOTED_SERIAL="$serial"
-        return
-      fi
-    fi
-    sleep 2; elapsed=$((elapsed + 2))
-  done
-  # Carrying on here handed flutter/adb an emulator that was still booting (or
-  # none at all), so the failure surfaced later as an unrelated install error.
-  err "Emulator did not finish booting within ${timeout}s."
-  exit 1
 }
 
 # Resolve DEVICE_ID from the chosen target, booting the emulator if that is what

@@ -280,10 +280,26 @@ const Set<String> _infrastructureServices = {'1800', '1801', '180a', '180f'};
 /// the tiers already weigh), and a partly-present one is not either — an
 /// optional service a unit omits must not demote its own spec below one
 /// that happens to declare fewer.
+///
+/// A spec that names its products (declares `local_name_prefixes`) earns
+/// the fingerprint only when [deviceName] fits one of them. Without that
+/// gate an IDM-1234 iDotMatrix panel whose table [00fa, ae00, fa02] also
+/// covers the iPixel spec's two services went to iPixel alone (its
+/// fingerprint 2 against idotmatrix's 0, the latter declaring the dead
+/// fee9) and iPixel's commands were sent to it. An empty or unknown
+/// [deviceName] contradicts nothing, so the gate is skipped then; a spec
+/// declaring no prefix keeps the credit (the iTag case).
 int gattFingerprintOf(
   SpecMatch match, {
   required List<String> discoveredUuids,
+  String? deviceName,
 }) {
+  if (deviceName != null &&
+      deviceName.isNotEmpty &&
+      !match.matchedByNamePrefix &&
+      match.entry.identity.localNamePrefixes.isNotEmpty) {
+    return 0;
+  }
   final declared = {
     for (final uuid in match.entry.gattServiceUuids) normalizeUuid(uuid),
   }..removeAll(_infrastructureServices);
@@ -308,11 +324,19 @@ int gattFingerprintOf(
 List<SpecMatch> rankSpecMatches(
   List<SpecMatch> matches, {
   required List<String> discoveredUuids,
+  String? deviceName,
 }) {
   final fingerprints = Map<SpecMatch, int>.identity()
     ..addEntries([
       for (final m in matches)
-        MapEntry(m, gattFingerprintOf(m, discoveredUuids: discoveredUuids)),
+        MapEntry(
+          m,
+          gattFingerprintOf(
+            m,
+            discoveredUuids: discoveredUuids,
+            deviceName: deviceName,
+          ),
+        ),
     ]);
   final kept =
       matches
@@ -345,15 +369,19 @@ List<SpecMatch> rankSpecMatches(
 /// one element means ranking cannot separate them and the user should
 /// choose. Pure for tests; assumes [ranked] came from [rankSpecMatches] over
 /// the same [discoveredUuids] (without them no fingerprint is seen, which is
-/// how ranking treats an empty discovery too).
+/// how ranking treats an empty discovery too) and the same [deviceName].
 List<SpecMatch> topTiedSpecMatches(
   List<SpecMatch> ranked, {
   List<String> discoveredUuids = const [],
+  String? deviceName,
 }) {
   if (ranked.isEmpty) return const [];
   final top = ranked.first;
-  int fingerprint(SpecMatch m) =>
-      gattFingerprintOf(m, discoveredUuids: discoveredUuids);
+  int fingerprint(SpecMatch m) => gattFingerprintOf(
+    m,
+    discoveredUuids: discoveredUuids,
+    deviceName: deviceName,
+  );
   final topFingerprint = fingerprint(top);
   return ranked
       .where(
@@ -471,6 +499,7 @@ final matchedDeviceSpecProvider = FutureProvider.autoDispose
       final ranked = rankSpecMatches(
         matches,
         discoveredUuids: req.serviceUuids,
+        deviceName: req.deviceName,
       );
       if (ranked.isEmpty) {
         // Name the inputs, not just their counts: "which UUIDs did matching
@@ -563,6 +592,7 @@ final matchedDeviceSpecProvider = FutureProvider.autoDispose
       for (final m in topTiedSpecMatches(
         ranked,
         discoveredUuids: req.serviceUuids,
+        deviceName: req.deviceName,
       )) {
         // First occurrence wins, keeping candidates in rank order; duplicate
         // identities (a bundled spec shadowed by a remote refresh) collapse to

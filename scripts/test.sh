@@ -212,6 +212,11 @@ log "ci-install-shellcheck selftest"
 # paired iPhone".
 log "device-select selftest"
 ./scripts/device-select-selftest.sh
+
+# run-android.sh's emulator boot, against stub adb/emulator binaries: a
+# re-run while the AVD was still booting died instead of waiting for it.
+log "android-emulator-boot selftest"
+./scripts/android-emulator-boot-selftest.sh
 }
 
 leg_dart() {

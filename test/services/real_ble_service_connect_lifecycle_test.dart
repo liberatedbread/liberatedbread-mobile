@@ -10,6 +10,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/services/ble_connect_within.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/real_ble_service.dart';
 
@@ -53,6 +54,36 @@ void main() {
     // The connect lands with its claim, and its owner's release is the
     // one that drops the link.
     await connecting;
+    ble.latency = Duration.zero;
+    await service.disconnect(_bulbId);
+    expect(ble.platformCalls, contains('disconnect:$_bulbId'));
+  });
+
+  test('a late connect released while another owner\'s connect is queued '
+      'keeps the link', () async {
+    // A group run's connectWithin times out on device A while A's screen
+    // has a connect queued behind it. cancelConnect leaves both alone (two
+    // pending), the run's connect lands with claim 1, and connectWithin
+    // releases it. That last-claim release reached fbp's queue-jumping
+    // platform disconnect while the screen's connect was already running,
+    // failing it or dropping the link it had just seen up. Fails on the
+    // old code: 'disconnect:A' was issued and the bulb went down.
+    final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+    ble.latency = const Duration(milliseconds: 300);
+    final timedOut = connectWithin(
+      service,
+      _bulbId,
+      const Duration(milliseconds: 100),
+    ).then<Object?>((_) => null, onError: (Object e) => e);
+    final screen = service.connect(_bulbId);
+
+    expect(await timedOut, isA<TimeoutException>());
+    await screen;
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    expect(ble.platformCalls, isNot(contains('disconnect:$_bulbId')));
+    expect(bulb.isConnected, isTrue);
+
+    // The screen holds the only claim, so its release drops the link.
     ble.latency = Duration.zero;
     await service.disconnect(_bulbId);
     expect(ble.platformCalls, contains('disconnect:$_bulbId'));

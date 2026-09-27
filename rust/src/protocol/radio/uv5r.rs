@@ -34,7 +34,7 @@
 //! radio.
 
 use super::codeplug::{
-    decode_bcd, decode_power, decode_tone, encode_bcd, encode_power, encode_tone, ChannelRecord,
+    decode_bcd, decode_power, decode_tone, encode_bcd, encode_tone, power_bits, ChannelRecord,
     Power, TWO_POWER_LEVELS,
 };
 pub use super::Block;
@@ -638,8 +638,11 @@ fn encode_channel(
     }
     // The channel's own level. Keeping a mid already in the slot followed
     // the slot, not the channel: a Low channel moved onto a mid record went
-    // out mid, and a mid one moved onto a high record went out low.
-    record[14] = encode_power(channel.power, model.power_levels);
+    // out mid, and a mid one moved onto a high record went out low. Only the
+    // channel that was already there keeps the slot's bits, so a UV-82HP's
+    // Low (2) behind this two-level profile is not rewritten as High (0).
+    let old = decode_channel(&previous, &image[name_range(slot)], model.power_levels);
+    record[14] = power_bits(channel, old.as_ref(), previous[14], model.power_levels);
     if !channel.narrow {
         record[15] |= 0x40;
     }
@@ -1128,6 +1131,33 @@ mod tests {
             2,
             "low, now slot 2"
         );
+    }
+
+    #[test]
+    fn a_uv82hp_low_channel_is_not_rewritten_high() {
+        // A UV-82HP answers the UV-82 ident this two-level profile lists, and
+        // its Low is index 2 (CHIRP UV5R_POWER_LEVELS3). That read as High
+        // and went back out as 0 -- full power on a channel nobody touched.
+        // Fails on that encoder.
+        let range = record_range(0);
+        let mut image =
+            encode_channels(&blank(), &[channel("L", 146_520_000, 146_520_000)], &UV5R).unwrap();
+        image[range.start + 14] = (image[range.start + 14] & !0x03) | 2;
+
+        let read: Vec<ChannelRecord> = decode_channels(&image, &UV5R)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(read[0].power, Power::Low);
+        let written = encode_channels(&image, &read, &UV5R).unwrap();
+        assert_eq!(written[range.start + 14] & 0x03, 2, "kept as it was");
+
+        // Once edited it is written as what it now says: two-level Low, 1.
+        let mut edited = read;
+        edited[0].name = "EDITED".into();
+        let written = encode_channels(&image, &edited, &UV5R).unwrap();
+        assert_eq!(written[range.start + 14] & 0x03, 1);
     }
 
     #[test]

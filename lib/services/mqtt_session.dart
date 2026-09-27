@@ -303,10 +303,25 @@ MqttConnect mqttConnectorFor(int port) =>
 /// ([mqttConnectorFor]) when the spec says nothing. The declaration wins
 /// because it is the device's own statement; the port is only a convention.
 MqttConnect selectMqttConnector({String? declared, required int port}) =>
+    effectiveMqttTransportSecurity(declared: declared, port: port) ==
+        'plaintext'
+    ? plainConnect
+    : tlsConnect;
+
+/// What [selectMqttConnector] will speak to a broker: `plaintext` or `tls`
+/// — the declaration when the spec makes one, else the port convention.
+/// Null only when neither is known (no declaration, no port).
+///
+/// One rule for the connector and the spec-pack security floor, so a floor
+/// that read only the declaration cannot pass a pack that moves an
+/// undeclared TLS broker (Roomba, 8883) to 1883 and gets its password sent
+/// in clear. An unknown declared value is treated as TLS, as the connector
+/// has always done for any port but 1883.
+String? effectiveMqttTransportSecurity({String? declared, int? port}) =>
     switch (declared) {
-      'plaintext' => plainConnect,
-      'tls' => tlsConnect,
-      _ => mqttConnectorFor(port),
+      'plaintext' || 'tls' => declared,
+      _ when port == null => null,
+      _ => port == 1883 ? 'plaintext' : 'tls',
     };
 
 /// Adapts a `dart:io` socket to the narrow [MqttSocket] surface.

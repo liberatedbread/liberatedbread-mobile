@@ -404,14 +404,26 @@ class TreadmillControlCard extends ConsumerStatefulWidget {
 }
 
 class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
-  /// The target speed being dialled in, in display units. Null until the
-  /// user commits one with the slider: the card has no live speed reading,
-  /// and it used to open at the bottom of the range and nudge from there —
-  /// so on a belt already running at 5 km/h (resumed, started from the
-  /// remote) 'Speed up' sent 0.5 km/h. While null the headline reads '—'
-  /// and the relative steppers are disabled; only the slider, which states
-  /// an absolute target, can send.
+  /// The speed the slider thumb and headline show, in display units: the
+  /// drag preview while dragging, the pending target while a send is in
+  /// flight, and otherwise [_speedTarget]. Null (headline '—') when there is
+  /// no target to show.
   double? _speedDisplay;
+
+  /// The last speed a write actually carried: the steppers' baseline. The
+  /// card has no live speed reading, and it used to open at the bottom of
+  /// the range and nudge from there — so on a belt already running at 5 km/h
+  /// (resumed, started from the remote) 'Speed up' sent 0.5 km/h. Null until
+  /// the slider sends an absolute target, and again after Stop, Pause or
+  /// Start (the pad may resume at its previous speed or at the minimum), so
+  /// a stepper never adds 0.5 to a speed the belt is not running at. While
+  /// null the relative steppers are disabled; only the slider can send.
+  double? _speedTarget;
+
+  /// Bumped whenever the baseline is invalidated (Stop, Pause, Start), so a
+  /// speed write that completes afterwards — Stop overlaps in-flight writes —
+  /// does not reinstate the stale target it carried.
+  int _speedEpoch = 0;
 
   /// Label of the send currently in flight; the speed and Start/Pause
   /// controls disable while one is, so a double-tap cannot interleave two
@@ -436,7 +448,9 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   /// gate, so each command asks once.
   final Set<String> _advancedAcked = {};
 
-  Future<void> _send({
+  /// Returns whether the write went out; failures are reported on the status
+  /// line and in a snackbar, never thrown.
+  Future<bool> _send({
     required String serviceUuid,
     required String charUuid,
     required String commandName,
@@ -478,6 +492,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
         });
         _showSnack('Sent $label');
       }
+      return true;
     } catch (e) {
       // Encoding failures land here too — e.g. a speed command with a second
       // caller-owned parameter this card cannot know (a slope byte) fails with
@@ -496,6 +511,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
         });
         _showSnack(text);
       }
+      return false;
     }
   }
 
@@ -505,7 +521,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     )?.showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _sendVerb(_ResolvedVerb verb) => _send(
+  Future<bool> _sendVerb(_ResolvedVerb verb) => _send(
     serviceUuid: verb.serviceUuid,
     charUuid: verb.charUuid,
     commandName: verb.command.name,
@@ -582,16 +598,32 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    _dropSpeedBaseline();
     await _sendVerb(verb);
   }
 
   Future<void> _pauseBelt(_ResolvedVerb verb) async {
     if (!await _ackAdvanced(verb.command) || !mounted) return;
+    _dropSpeedBaseline();
     await _sendVerb(verb);
+  }
+
+  /// Forget the speed target once a transport verb is on its way: after
+  /// Stop, Pause or Start the belt's speed is not the one last sent, and a
+  /// stepper tap would otherwise jump a freshly started belt to old + 0.5.
+  /// Dropped before the write, not after it succeeds: a write that times
+  /// out may still have reached the pad.
+  void _dropSpeedBaseline() {
+    setState(() {
+      _speedEpoch++;
+      _speedTarget = null;
+      _speedDisplay = null;
+    });
   }
 
   /// See [_stopInFlight] for why this ignores [_sending].
   Future<void> _stopBelt(_ResolvedVerb verb) async {
+    _dropSpeedBaseline();
     setState(() => _stopInFlight = true);
     try {
       await _sendVerb(verb);
@@ -609,8 +641,10 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     _ => verb.command.name,
   };
 
-  Future<void> _sendSpeed(_ResolvedSpeed speed, double display) async {
-    if (!await _ackAdvanced(speed.command) || !mounted) return;
+  /// Whether the speed write went out: false when the advanced prompt was
+  /// declined or the write failed.
+  Future<bool> _sendSpeed(_ResolvedSpeed speed, double display) async {
+    if (!await _ackAdvanced(speed.command) || !mounted) return false;
     // Back across the presentation transform: the card displays km/h, the
     // encoder validates and coerces the RAW value (raw min/max, integer
     // counts). Only the speed parameter is supplied; encoder-filled (auto)
@@ -631,16 +665,31 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     );
   }
 
+  /// Send [target] and, only if the write went out, make it the steppers'
+  /// baseline. A declined advanced prompt or a failed write snaps the
+  /// headline and thumb back to the last target actually sent, so neither
+  /// shows — nor a stepper steps from — a speed the belt never got.
+  Future<void> _commitSpeed(_ResolvedSpeed speed, double target) async {
+    final epoch = _speedEpoch;
+    setState(() => _speedDisplay = target);
+    final sent = await _sendSpeed(speed, target);
+    // A Stop/Pause/Start since then owns the baseline; see [_speedEpoch].
+    if (!mounted || epoch != _speedEpoch) return;
+    setState(() {
+      if (sent) _speedTarget = target;
+      _speedDisplay = _speedTarget;
+    });
+  }
+
   void _nudgeSpeed(_ResolvedSpeed speed, double delta) {
-    // Never nudge from an invented baseline; see [_speedDisplay].
-    final current = _speedDisplay;
+    // Never nudge from an invented baseline; see [_speedTarget].
+    final current = _speedTarget;
     if (current == null) return;
     final next = (current + delta)
         .clamp(speed.minDisplay, speed.maxDisplay)
         .toDouble();
-    setState(() => _speedDisplay = next);
     // A stepper tap is a deliberate choice, not a drag tick: it commits.
-    unawaited(_sendSpeed(speed, next));
+    unawaited(_commitSpeed(speed, next));
   }
 
   int _speedDecimals(_ResolvedSpeed speed) {
@@ -665,7 +714,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     final speed = resolved.speed;
     final shownSpeed = _speedDisplay;
     // Steppers are relative, so they need a real baseline to step from.
-    final canNudge = _sending == null && shownSpeed != null;
+    final canNudge = _sending == null && _speedTarget != null;
 
     return Card(
       margin: const EdgeInsets.fromLTRB(8, 8, 8, 12),
@@ -767,9 +816,8 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                           speed.maxDisplay,
                           _speedStep,
                         );
-                        // The committed target is the steppers' baseline.
-                        setState(() => _speedDisplay = target);
-                        unawaited(_sendSpeed(speed, target));
+                        // Becomes the steppers' baseline once it is sent.
+                        unawaited(_commitSpeed(speed, target));
                       },
               ),
               const SizedBox(height: 8),

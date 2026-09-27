@@ -351,6 +351,11 @@ jobs:
         run: ./scripts/verify-apk-selftest.sh
       - name: device-select selftest
         run: ./scripts/device-select-selftest.sh
+      # run-android.sh's emulator boot against stub adb/emulator: re-running
+      # it while the AVD was still booting launched a second instance, which
+      # exits at once, and the script died instead of waiting for the first.
+      - name: android-emulator-boot selftest
+        run: ./scripts/android-emulator-boot-selftest.sh
       # The emulator job's retry loop, driven against stub binaries on a runner
       # with no emulator. The case it pins is the one that made the retry a
       # no-op in the first place: an attempt that ignores SIGTERM. Seconds

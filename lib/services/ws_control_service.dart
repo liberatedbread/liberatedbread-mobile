@@ -65,6 +65,14 @@ String redactUrl(String url) {
   return '$bare?…';
 }
 
+/// The well-known placeholder a WebSocket path may use for the stored
+/// device credential, whatever the spec names it: [WsControlService] fills
+/// `{token}` with the same value as `{<credential_name>}`. Shared with the
+/// spec-pack security floor, which must treat a path carrying it as carrying
+/// the credential — the floor once knew only the spec's own name, so a pack
+/// could move `&token={token}` onto a plain-ws fallback unnoticed.
+const String wsCredentialAliasPlaceholder = 'token';
+
 class WsConnectionException implements UserFacingException {
   @override
   final String message;
@@ -380,7 +388,7 @@ class WsSession {
     final credential = Uri.encodeQueryComponent(_credential ?? '');
     final values = <String, String>{
       ?_surface.credentialName: credential,
-      'token': credential,
+      wsCredentialAliasPlaceholder: credential,
       'client_name': Uri.encodeQueryComponent(_clientName),
     };
     final filled = StringBuffer();

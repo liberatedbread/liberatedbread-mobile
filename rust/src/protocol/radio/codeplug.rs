@@ -65,10 +65,17 @@ pub const TWO_POWER_LEVELS: &[Power] = &[Power::High, Power::Low];
 /// A record's power index as a level, from `levels` -- the model's list,
 /// indexed as the radio indexes it.
 ///
-/// An index past the list reads as the first level, High, as CHIRP reads it
-/// (`levels[0]` on IndexError in both drivers).
+/// An index past the list reads as Low (or the list's last level, on a
+/// model without Low). CHIRP reads it as `levels[0]`, High, but this app
+/// rewrites every channel on each write, so High here turned a UV-82HP's
+/// Low channel (index 2, behind the two-level UV-5R profile's ident) into a
+/// full-power one nobody chose. Low never transmits harder than the radio
+/// was set to; [`power_bits`] keeps the exact index when nothing changed.
 pub fn decode_power(raw: u8, levels: &[Power]) -> Power {
-    levels.get(usize::from(raw)).copied().unwrap_or(Power::High)
+    levels.get(usize::from(raw)).copied().unwrap_or_else(|| {
+        let low = levels.iter().copied().find(|&l| l == Power::Low);
+        low.or_else(|| levels.last().copied()).unwrap_or(Power::Low)
+    })
 }
 
 /// The index `power` has in `levels`.
@@ -81,6 +88,27 @@ pub fn encode_power(power: Power, levels: &[Power]) -> u8 {
     let index = find(power).or_else(|| find(Power::Low)).unwrap_or(0);
     // A power list has at most four entries: the field is two bits wide.
     index as u8
+}
+
+/// The two power bits to write for `channel` over a slot whose record held
+/// `old_raw` and read back as `old`.
+///
+/// A channel the user left alone keeps its slot's bits exactly, so an index
+/// this model does not list -- an HP radio's third level behind a two-level
+/// profile -- survives a rewrite instead of being re-encoded from a guess.
+/// Anything else gets its own level: the slot's bits followed the slot, so
+/// a channel moved by a delete or a reorder took on its neighbour's power.
+pub fn power_bits(
+    channel: &ChannelRecord,
+    old: Option<&ChannelRecord>,
+    old_raw: u8,
+    levels: &[Power],
+) -> u8 {
+    if old == Some(channel) {
+        old_raw & 0x03
+    } else {
+        encode_power(channel.power, levels)
+    }
 }
 
 /// One memory channel, in the terms the app speaks.
@@ -311,6 +339,11 @@ pub fn encode_channel(
         });
     }
 
+    // Read before anything is overwritten: an untouched channel keeps these
+    // power bits (see `power_bits`).
+    let old = decode_channel(record, name_len, power_levels);
+    let old_power = record[14] & 0x03;
+
     // A slot that was empty has no settings worth keeping, and its 0xFF fill
     // would otherwise survive into the flag bytes. The second half stays
     // 0xFF: that is CHIRP's fresh record (`UV17Pro.set_memory`,
@@ -337,10 +370,10 @@ pub fn encode_channel(
     record[8..10].copy_from_slice(&rx_tone.to_le_bytes());
     record[10..12].copy_from_slice(&tx_tone.to_le_bytes());
 
-    // The level the channel carries, never the one the slot's old record
-    // held: that followed the slot, so a channel moved by a delete or a
-    // reorder took on its neighbour's power.
-    record[14] = (record[14] & !0x03) | encode_power(channel.power, power_levels);
+    // The level the channel carries, or the slot's own bits when this is
+    // the channel that was already there (see `power_bits`).
+    let power = power_bits(channel, old.as_ref(), old_power, power_levels);
+    record[14] = (record[14] & !0x03) | power;
     let mut flags = record[15] & !(0x40 | 0x04);
     if channel.narrow {
         flags |= 0x40;
@@ -650,9 +683,13 @@ mod tests {
             assert_eq!(encode_power(power, UV32.power_levels), raw);
         }
         // Two-level radios: no Medium, and an index past the list reads as
-        // High, as CHIRP reads it.
-        assert_eq!(decode_power(2, UV5R_MINI.power_levels), Power::High);
-        assert_eq!(decode_power(3, UV32.power_levels), Power::High);
+        // Low -- not CHIRP's High, which a rewrite would then transmit.
+        assert_eq!(decode_power(2, UV5R_MINI.power_levels), Power::Low);
+        assert_eq!(decode_power(3, UV32.power_levels), Power::Low);
+        assert_eq!(
+            decode_power(3, &[Power::High, Power::Medium]),
+            Power::Medium
+        );
         // Medium on a radio without it is the nearer level that does not
         // transmit harder than asked.
         assert_eq!(encode_power(Power::Medium, UV5R_MINI.power_levels), 1);
@@ -709,6 +746,33 @@ mod tests {
         let read = decode_channels(&moved, &UV32).unwrap();
         assert_eq!(read[0].as_ref().unwrap().power, Power::Medium);
         assert_eq!(read[1].as_ref().unwrap().power, Power::Low);
+    }
+
+    #[test]
+    fn an_unlisted_power_index_survives_a_rewrite_untouched() {
+        // Index 2 or 3 in a two-level Mini's record (an HP radio's Low, or
+        // other software's value). It read as High and went back out as 0:
+        // full power on a channel nobody edited. Fails on that encoder.
+        for raw in [2u8, 3] {
+            let mut image = vec![0xFFu8; UV5R_MINI.image_len as usize];
+            encode_channel(&mut image[..32], &channel("HP"), 12, TWO_POWER_LEVELS).unwrap();
+            image[14] = (image[14] & !0x03) | raw;
+
+            let read: Vec<ChannelRecord> = decode_channels(&image, &UV5R_MINI)
+                .unwrap()
+                .into_iter()
+                .flatten()
+                .collect();
+            assert_eq!(read[0].power, Power::Low);
+            let written = encode_channels(&image, &read, &UV5R_MINI).unwrap();
+            assert_eq!(written[14] & 0x03, raw);
+
+            // Edited, it gets the level it was edited to.
+            let mut edited = read.clone();
+            edited[0].name = "EDITED".into();
+            let written = encode_channels(&image, &edited, &UV5R_MINI).unwrap();
+            assert_eq!(written[14] & 0x03, 1);
+        }
     }
 
     #[test]

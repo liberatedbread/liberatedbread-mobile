@@ -176,6 +176,33 @@ void main() {
     expect(find.text('Factory reset'), findsNothing);
   });
 
+  testWidgets('an "n/a" effect beside a procedure is not drawn as text', (
+    tester,
+  ) async {
+    // The section filter dropped "n/a" but the widget did not, so this
+    // drew a literal "n/a" paragraph above the procedure (old code: found).
+    await _pump(
+      tester,
+      const SetupInstructionsDto(
+        notes: 'Some overview.',
+        methods: [],
+        factoryReset: FactoryResetDto(
+          effect: 'n/a',
+          procedures: [
+            FactoryResetProcedureDto(
+              name: 'Pinhole reset',
+              steps: [SetupStepDto(action: 'Hold the pinhole.', actor: 'user')],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.text('Factory reset'), findsOneWidget);
+    expect(find.text('Pinhole reset'), findsOneWidget);
+    expect(find.text('n/a'), findsNothing);
+  });
+
   testWidgets('a staged route renders every phase with its own steps', (
     tester,
   ) async {
