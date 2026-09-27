@@ -1,0 +1,24 @@
+[
+  {
+    "address": "18:7A:93:12:DE:94",
+    "name": "Laser Distance Meter",
+    "rssi": -58,
+    "persisted": true,
+    "address_type": "public",
+    "services": []
+  },
+  {
+    "address": "D4:CA:6E:00:00:01",
+    "name": "Random-Address Tag",
+    "rssi": -71,
+    "persisted": true,
+    "address_type": "random",
+    "services": []
+  },
+  {
+    "address": "AA:BB:CC:DD:EE:01",
+    "name": "ACME_Living_Room",
+    "rssi": -45,
+    "services": []
+  }
+]
