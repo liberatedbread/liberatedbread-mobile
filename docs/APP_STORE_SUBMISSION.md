@@ -168,6 +168,9 @@ git clone -b main git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb &
 # says is fixed. Until the branch carrying the fix is on main, clone that one.
 grep -q NSPrivacyAccessedAPICategoryFileTimestamp ios/Runner/PrivacyInfo.xcprivacy || { echo "privacy manifest lacks the FileTimestamp declaration — wrong branch"; exit 1; }
 flutter pub get
+# release.sh refuses an untagged or dirty checkout (docs/RELEASE.md): check out
+# the release tag first, or set LB_RELEASE_UNTAGGED=1 for a TestFlight-only
+# throwaway that is stamped with its commit instead of a version.
 ./scripts/release.sh ios   # flutter build ipa, timestamp build number, this
                            # ExportOptions plist, plus the build stamp
 ```

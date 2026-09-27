@@ -22,12 +22,18 @@ Store Connect, export compliance, listing copy) is in
 | `v0.1.0` | built from the tag |
 | `v0.1.0-3-g1a2b3c4` | three commits after `v0.1.0`, at commit `1a2b3c4` |
 | `…-dirty` | built with uncommitted changes, so no commit fully describes it |
+| `1a2b3c4` | a bare commit: no tag reachable. Cut `v0.1.0` before the first store upload |
 | `dev build` | not built by `release.sh`, e.g. a `flutter run` or a CI smoke build |
 
 The stamp appears at the top of Diagnostics, on line one of **Copy for a bug
 report**, and as the app version on the user's Home Assistant device page.
 Neither store shows users a commit, so the stamp is how a report gets back to
 source.
+
+Ad-hoc IPAs from `.github/workflows/ios-adhoc.yml` carry the same
+`git describe` stamp, so a tester's report names the commit instead of
+`dev build`. That checkout is shallow: a tagged ref stamps as its tag, any
+other ref as its bare SHA.
 
 ## Cutting a release
 
@@ -44,8 +50,26 @@ source.
    ./scripts/release.sh android   # -> build/app/outputs/bundle/release/app-release.aab
    ./scripts/release.sh ios       # -> build/ios/ipa/*.ipa (on the Mac; runbook Step 5)
    ```
-   The script refuses to build if HEAD is tagged with a version that disagrees
-   with `pubspec.yaml`.
+   The script refuses to build when the result could not be traced back to
+   one commit:
+
+   - **HEAD carries no tag.** The stamp would name a commit (`vX.Y.Z-N-g<sha>`,
+     or a bare SHA before the first tag), not a release.
+     `LB_RELEASE_UNTAGGED=1` overrides for a throwaway build.
+   - **Uncommitted changes.** `-dirty` names no commit, and an untracked
+     source file leaves no trace at all. `LB_RELEASE_DIRTY=1` overrides.
+   - **The tag disagrees with `pubspec.yaml`.** One version in the listing,
+     another in every bug report. No override: fix the tag.
+   - **Untracked or ignored files under `device-specs/devices/` or
+     `device-specs/examples/`.** pubspec bundles those directories, so they
+     ship, and the stamp cannot see them. No override: remove them, or land
+     them upstream.
+
+   Before it looks, the script deletes `device-specs/examples/index-temp.json`,
+   the gitignored local index that `run-*.sh` rebuilds on every launch and the
+   app prefers over `index.json`, so a release always reads the committed
+   index. The two overrides are for a throwaway build on a branch; a store
+   upload should need neither.
 5. Before uploading, install each build on a real phone. Check that Diagnostics
    shows the tag, and on the iPhone run a Wi-Fi scan.
    `./scripts/verify_ios_app.sh build/ios/ipa/*.ipa` checks the signed
@@ -138,6 +162,7 @@ is in the runbook.
 
 Line one of the report is the stamp. `git checkout` the tag, or the SHA after
 `-g`, and reproduce there. The vendored specs are a subtree, so that checkout
-has the device catalogue that shipped. `-dirty` means no commit matches the
-build exactly. `dev build` means it did not come from a release, so ask where
-it came from.
+has the device catalogue that shipped. A bare SHA is an untagged commit, from
+an ad-hoc IPA or an `LB_RELEASE_UNTAGGED=1` build: check it out directly.
+`-dirty` means no commit matches the build exactly. `dev build` means it did
+not come from a release, so ask where it came from.

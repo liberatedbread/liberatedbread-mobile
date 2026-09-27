@@ -88,6 +88,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.ref }}
+          # Tags too, so the build stamp below can name one. The fetch stays
+          # shallow, so an untagged ref stamps as its bare SHA rather than
+          # release.sh's `vX.Y.Z-N-g<sha>` form; both name the commit.
+          fetch-tags: true
+
+      # The stamp scripts/release.sh puts in a store build (see
+      # docs/RELEASE.md), read here BEFORE anything edits the workspace: the
+      # ExportOptions injection below rewrites a tracked plist, so a describe
+      # run at build time would mark every signed IPA `-dirty` for an edit no
+      # tester made. Without the stamp a tester's bug report says `dev build`
+      # and loses the commit it came from.
+      - name: Compute build stamp
+        id: stamp
+        run: echo "stamp=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
 
       # No FLUTTER_VERSION pin in this file, deliberately. It carried its own
       # copy and silently rotted to 3.24.5 while ci.yml moved to 3.44.8 — this
@@ -254,12 +268,17 @@ jobs:
       # first, and the same freeze on the App Store path gets the second upload
       # rejected outright for a duplicate build number. github.run_number is
       # monotonic per workflow, which is all App Store Connect requires.
+      # LIBERATED_BREAD_BUILD is the same define release.sh passes, so
+      # Diagnostics and every copied bug report name the commit this IPA was
+      # built from.
       - name: Build signed IPA (profile mode)
         if: steps.signing.outputs.available == 'true'
         env:
           MOCK_FLAG: ${{ inputs.mock && '--dart-define=LIBERATED_BREAD_MOCK=true' || '' }}
+          BUILD_STAMP: ${{ steps.stamp.outputs.stamp }}
         run: flutter build ipa --profile $MOCK_FLAG
           --build-number=${{ github.run_number }}
+          --dart-define=LIBERATED_BREAD_BUILD="$BUILD_STAMP"
           --export-options-plist=ios/ExportOptions-adhoc.plist
 
       - name: Build unsigned simulator bundle (no secrets fallback)

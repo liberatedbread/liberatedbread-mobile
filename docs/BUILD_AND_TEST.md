@@ -369,7 +369,8 @@ flutter build ios --debug    # Debug
 To build something you will upload to a store, use
 `./scripts/release.sh android` or `./scripts/release.sh ios` instead. It stamps
 the build with its git commit and gives it a build number that rises with every
-upload. See [RELEASE.md](RELEASE.md).
+upload, and it refuses an untagged or dirty checkout so the stamp always names
+a commit. See [RELEASE.md](RELEASE.md) for the throwaway-build overrides.
 
 ### Build for Linux Desktop
 
@@ -1211,7 +1212,7 @@ Exits non-zero on the first failure.
 
 ### Codecov
 
-Coverage uploads use `codecov/codecov-action@v5`. Set a `CODECOV_TOKEN` repo
+Coverage uploads use `codecov/codecov-action@v7`. Set a `CODECOV_TOKEN` repo
 secret if your fork is private; public repos don't need one.
 
 `codecov.yml` makes the policy explicit, where before it was whatever Codecov's
