@@ -136,10 +136,12 @@ void main() {
   );
 
   test('a raw-ATT host claim reaches the identity by either door', () async {
-    // No vendored spec declares `host_compatibility` yet, so the catalogue
-    // comparison above cannot see a `bluezRawAtt` that one path dropped —
-    // and the Linux router reads it off this identity before connecting.
-    // One synthetic spec that declares it, loaded both ways.
+    // Only one vendored spec (the jlx laser meter) declares
+    // `host_compatibility`, so the catalogue comparison above hangs its
+    // `bluezRawAtt` coverage on that spec staying put — and the Linux router
+    // reads it off this identity before connecting. One synthetic spec that
+    // declares it, loaded both ways, keeps the check independent of the
+    // catalogue.
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
       return;
