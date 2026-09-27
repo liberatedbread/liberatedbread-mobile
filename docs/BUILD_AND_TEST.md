@@ -366,6 +366,11 @@ flutter build ios            # Release
 flutter build ios --debug    # Debug
 ```
 
+To build something you will upload to a store, use
+`./scripts/release.sh android` or `./scripts/release.sh ios` instead. It stamps
+the build with its git commit and gives it a build number that rises with every
+upload. See [RELEASE.md](RELEASE.md).
+
 ### Build for Linux Desktop
 
 ```bash

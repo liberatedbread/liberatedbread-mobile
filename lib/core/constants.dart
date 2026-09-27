@@ -4,7 +4,16 @@ class AppConstants {
   AppConstants._();
   static const String appName = 'Liberated Bread';
   static const String appTagline = 'Own your devices, don\'t let them own you.';
-  static const String appVersion = '0.1.0';
+
+  /// Which build this is: `git describe --tags --always --dirty`, stamped in by
+  /// scripts/release.sh — `v0.1.0` on a tag, `v0.1.0-3-g1a2b3c4` three commits
+  /// later. Neither store shows users a commit, so this is how a bug report
+  /// gets back to source. Anything built another way (`flutter run`, a CI smoke
+  /// build, a test) says `dev build` rather than pass for a release.
+  static const String appVersion = String.fromEnvironment(
+    'LIBERATED_BREAD_BUILD',
+    defaultValue: 'dev build',
+  );
   // 30s, not 10: some controllers (e.g. the SmartDawn/Daniao curtain) advertise
   // slowly, and a short window ended before they appeared.
   static const int defaultScanDuration = 30;
