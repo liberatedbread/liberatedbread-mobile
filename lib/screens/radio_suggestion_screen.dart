@@ -416,8 +416,18 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
   }
 
   /// Choose an existing plan or make one. Returns null if dismissed.
+  ///
+  /// Only plans built for this radio are offered. Every suggestion's
+  /// listen-only decision was made against [RadioSuggestionScreen.profile],
+  /// and appendChannels takes that profile on trust — so a 2 m repeater
+  /// judged transmittable for a UV-5R would land transmit-enabled in a GMRS
+  /// radio's plan, and the write path only labels the mismatch. A user whose
+  /// plans are all for other radios gets a fresh one, as if they had none.
   Future<ChannelPlan?> _pickPlan() async {
-    final plans = ref.read(channelPlansProvider);
+    final plans = [
+      for (final plan in ref.read(channelPlansProvider))
+        if (plan.radioProfileId == widget.profile.id) plan,
+    ];
     final notifier = ref.read(channelPlansProvider.notifier);
 
     if (plans.isEmpty) {

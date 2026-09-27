@@ -87,6 +87,20 @@ void main() {
       expect(dcsCodes.first, 23);
       expect(dcsCodes, contains(754));
     });
+
+    test('the DCS table is the standard 104 plus the family\'s 645', () {
+      // Mirrors the Rust codec's own pin (codeplug.rs, DCS_CODES). A code
+      // the codec decodes but this list omits reads as no tone, and the
+      // next write then drops it from the radio.
+      expect(dcsCodes.length, 105);
+      expect(
+        dcsCodes,
+        contains(645),
+        reason:
+            'the radio family indexes 645; omitting it loses the tone '
+            'on a read-edit-write cycle',
+      );
+    });
   });
 
   group('RadioChannel', () {
@@ -130,6 +144,12 @@ void main() {
           mode: ChannelMode.nfm,
           power: PowerLevel.low,
         ),
+        RadioChannel(
+          name: 'Skipped',
+          rxFreqHz: 146520000,
+          txFreqHz: 146520000,
+          skip: true,
+        ),
       ];
       for (final channel in channels) {
         final json = jsonDecode(jsonEncode(channel.toJson()));
@@ -139,6 +159,25 @@ void main() {
           reason: '$channel',
         );
       }
+    });
+
+    test('writes the skip flag only when it is set', () {
+      // A plan saved before the flag existed has no key; it must read as
+      // not skipped, and a plan that never skips must not grow a key.
+      expect(repeater.toJson(), isNot(contains('skip')));
+      expect(repeater.copyWith(skip: true).toJson()['skip'], isTrue);
+      expect(
+        RadioChannel.fromJson(const {'name': 'S', 'rx': 146520000})!.skip,
+        isFalse,
+      );
+      expect(
+        RadioChannel.fromJson(const {
+          'name': 'S',
+          'rx': 146520000,
+          'skip': true,
+        })!.skip,
+        isTrue,
+      );
     });
 
     test('keeps frequencies exact through the round trip', () {
@@ -194,6 +233,11 @@ void main() {
       expect(renamed.name, 'W1AW/R');
       expect(renamed.rxFreqHz, repeater.rxFreqHz);
       expect(renamed.txTone, repeater.txTone);
+      expect(renamed.skip, isFalse);
+      final skipped = repeater.copyWith(skip: true);
+      expect(skipped.skip, isTrue);
+      expect(skipped.name, repeater.name);
+      expect(skipped.copyWith(name: 'x').skip, isTrue);
     });
 
     test('has value equality over every field', () {
@@ -202,6 +246,8 @@ void main() {
       expect(repeater.copyWith(name: 'other'), isNot(repeater));
       expect(repeater.copyWith(txTone: ToneSetting.none), isNot(repeater));
       expect(repeater.copyWith(power: PowerLevel.low), isNot(repeater));
+      expect(repeater.copyWith(skip: true), isNot(repeater));
+      expect(repeater.copyWith(skip: true).hashCode, isNot(repeater.hashCode));
     });
   });
 

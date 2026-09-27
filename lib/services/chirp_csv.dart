@@ -99,9 +99,11 @@ List<String> chirpRow(RadioChannel channel, {required int location}) {
     tone.crossMode,
     channel.mode.chirpName,
     _defaultTuningStep,
-    // Skip: this app has no concept of a scan-skipped channel, and an empty
-    // cell is CHIRP's "do not skip".
-    '',
+    // CHIRP's Skip column: an empty cell scans, 'S' skips, 'P' is a priority
+    // scan this app has no notion of. The flag only ever comes off a radio,
+    // so a plan read from one exports the owner's skips rather than losing
+    // them in the file.
+    channel.skip ? 'S' : '',
     channel.comment,
     '', '', '', '',
   ];

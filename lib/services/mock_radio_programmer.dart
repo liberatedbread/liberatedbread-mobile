@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import '../models/radio_band_limits.dart';
 import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
+import 'radio_codec.dart';
 import 'radio_programmer.dart';
 
 /// The programmer demo mode uses.
@@ -16,16 +17,31 @@ import 'radio_programmer.dart';
 /// Holds an image in memory and walks the same stages the real driver does,
 /// so the screens can be built and tested without hardware -- and so demo
 /// mode shows a working flow rather than an error.
+///
+/// Every write goes through the real codec, so a read after "Write
+/// complete" decodes to what was written and not to what was there before.
+/// Demo mode is a shipped feature, and a write that reported success and
+/// changed nothing would misreport the one thing it is there to show.
 class MockRadioProgrammer implements BandLimitProgrammer {
   /// How long each simulated stage takes. Zero in tests.
   final Duration stepDelay;
 
-  /// The image the mock radio is holding.
-  Uint8List image;
+  /// Puts channels into an image, and makes the blank one a first read
+  /// hands back. The native codec unless a test says otherwise.
+  final CodeplugEncoder encoder;
+
+  /// What each mock radio holds, by profile id.
+  ///
+  /// One image per model rather than one for the mock, because the codecs
+  /// check an image's length against the model's -- a UV-5R Mini's 0x8240
+  /// bytes are refused as a UV-5R's 0x1948 -- and demo mode reaches this
+  /// same mock for every radio in the catalogue. Seeded blank on the first
+  /// read of each model, since that is when its length is first needed.
+  final Map<String, Uint8List> images = {};
 
   /// The transmit limits the mock radio holds: a UV-5R's, as commonly
-  /// shipped. Kept beside [image] rather than in it, since the image is
-  /// not laid out like any one radio's.
+  /// shipped. Kept beside [images] rather than in them, since the app never
+  /// reads them out of the image here.
   RadioBandLimits bandLimits = const RadioBandLimits(
     vhf: BandLimit(txEnabled: true, lowerMhz: 136, upperMhz: 174),
     uhf: BandLimit(txEnabled: true, lowerMhz: 400, upperMhz: 520),
@@ -33,12 +49,8 @@ class MockRadioProgrammer implements BandLimitProgrammer {
 
   MockRadioProgrammer({
     this.stepDelay = const Duration(milliseconds: 40),
-    Uint8List? image,
-  }) : image = image ?? Uint8List(_defaultImageLen);
-
-  /// The size a UV-5R Mini reads back. Only a default -- a caller with a real
-  /// image passes it in.
-  static const int _defaultImageLen = 0x8240;
+    this.encoder = const CodeplugEncoder(),
+  });
 
   @override
   bool supports(RadioProfile profile) => profile.isProgrammable;
@@ -61,11 +73,16 @@ class MockRadioProgrammer implements BandLimitProgrammer {
     required RadioProfile profile,
     required void Function(RadioCodeplug) onResult,
   }) async* {
+    // Sized before any progress is reported, as writeChannels encodes
+    // first: a model the codec cannot size fails here, not at 100%.
+    final held = images[profile.id] ??= await encoder.blankImage(profile);
     yield* _stages(RadioProgressStage.reading, 'Reading the radio…');
     onResult(
       RadioCodeplug(
         modelId: profile.id,
-        image: Uint8List.fromList(image),
+        // A copy: what a caller does to its read must not reach the radio
+        // without a write, here as anywhere.
+        image: Uint8List.fromList(held),
         readAt: DateTime.now(),
       ),
     );
@@ -83,11 +100,14 @@ class MockRadioProgrammer implements BandLimitProgrammer {
     required RadioCodeplug base,
     required List<RadioChannel> channels,
   }) async* {
+    // Encoded before anything is "sent", as the real drivers do it: a plan
+    // the codec refuses fails here, with the radio untouched.
+    final image = await encoder.encode(base, profile, channels);
     yield* _stages(
       RadioProgressStage.writing,
       'Writing to the radio — do not turn it off…',
     );
-    image = Uint8List.fromList(base.image);
+    images[profile.id] = image;
     yield const RadioProgressEvent(
       stage: RadioProgressStage.done,
       message: 'Write complete.',
@@ -102,7 +122,7 @@ class MockRadioProgrammer implements BandLimitProgrammer {
     required RadioCodeplug codeplug,
   }) async* {
     yield* _stages(RadioProgressStage.writing, 'Restoring the backup…');
-    image = Uint8List.fromList(codeplug.image);
+    images[profile.id] = Uint8List.fromList(codeplug.image);
     yield const RadioProgressEvent(
       stage: RadioProgressStage.done,
       message: 'Restore complete.',

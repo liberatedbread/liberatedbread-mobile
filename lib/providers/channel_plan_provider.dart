@@ -96,6 +96,11 @@ class ChannelPlansNotifier extends StateNotifier<List<ChannelPlan>> {
   /// the radio would truncate is cosmetic; one that overruns the next
   /// channel's record is not, and the clamp happens here rather than at write
   /// time so what the user sees in the editor is what lands on the radio.
+  ///
+  /// The caller vouches that [profile] is the plan's radio; this cannot check,
+  /// because a plan can outlive the build that knew its `radioProfileId`, and
+  /// the screens then stand in whatever profile is selected. Offering only
+  /// matching plans is the caller's job (see the suggestion screen's picker).
   Future<AppendOutcome> appendChannels(
     String id,
     List<RadioChannel> channels, {

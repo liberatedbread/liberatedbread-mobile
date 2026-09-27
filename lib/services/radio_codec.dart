@@ -8,6 +8,8 @@
 // layout, and a conversion kept inside one driver would be copied into the
 // other and then drift.
 
+import 'dart:typed_data';
+
 import '../models/radio_band_limits.dart';
 import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
@@ -37,14 +39,14 @@ rust.RadioChannelDto channelToDto(RadioChannel channel, {required int slot}) {
     rxTone: tone(channel.rxTone),
     narrow: channel.mode == ChannelMode.nfm,
     lowPower: channel.power == PowerLevel.low,
-    skip: false,
+    skip: channel.skip,
   );
 }
 
 /// The app's channel for one decoded record.
 ///
 /// A tone the app cannot represent — a CTCSS frequency off the standard
-/// table, a DCS code outside the standard set — reads as no tone rather than
+/// table, a DCS code outside [dcsCodes] — reads as no tone rather than
 /// failing the channel. The frequency is what the channel is for; losing
 /// it over its tone would be the wrong trade, and a read-edit-write round
 /// trip then makes that tone visible as missing in the editor instead of
@@ -69,6 +71,7 @@ RadioChannel channelFromDto(rust.RadioChannelDto dto) {
     rxTone: tone(dto.rxTone),
     mode: dto.narrow ? ChannelMode.nfm : ChannelMode.fm,
     power: dto.lowPower ? PowerLevel.low : PowerLevel.high,
+    skip: dto.skip,
   );
 }
 
@@ -157,5 +160,64 @@ class CodeplugDecoder {
           ),
         );
     }
+  }
+}
+
+/// Turns channels into an image, dispatching on the radio's family.
+///
+/// The same calls the two real drivers make, in one place, so a third
+/// caller -- the demo programmer -- encodes exactly what a radio would be
+/// sent rather than a copy that drifts. A class for the reason
+/// [CodeplugDecoder] is one: the codecs are native, and a test that must not
+/// cross into them swaps in a subclass.
+class CodeplugEncoder {
+  const CodeplugEncoder();
+
+  /// A copy of [base]'s image with [channels] in slots 1 up and every later
+  /// slot cleared, for a [profile] radio. Everything the app does not model
+  /// survives from [base], which is why a write always reads first.
+  Future<Uint8List> encode(
+    RadioCodeplug base,
+    RadioProfile profile,
+    List<RadioChannel> channels,
+  ) async {
+    final dtos = [
+      for (var i = 0; i < channels.length; i++)
+        channelToDto(channels[i], slot: i + 1),
+    ];
+    switch (profile.programmingFamily) {
+      case ProgrammingFamily.bleUv17Pro:
+      case ProgrammingFamily.serialUv17Pro:
+        return rust.radioEncodeChannels(
+          image: base.image,
+          channels: dtos,
+          modelId: profile.id,
+        );
+      case ProgrammingFamily.serialUv5r:
+        return rust.uv5REncodeChannels(
+          image: base.image,
+          channels: dtos,
+          modelId: profile.id,
+        );
+    }
+  }
+
+  /// An image as an unwritten [profile] radio holds one: the model's own
+  /// length, every byte 0xFF.
+  ///
+  /// The length has to be the model's because the codecs check it -- the
+  /// older family refuses any other size outright -- and 0xFF because that
+  /// is what both codecs read as an empty slot.
+  Future<Uint8List> blankImage(RadioProfile profile) async {
+    final int length;
+    switch (profile.programmingFamily) {
+      case ProgrammingFamily.bleUv17Pro:
+      case ProgrammingFamily.serialUv17Pro:
+        final models = await rust.radioModels();
+        length = models.firstWhere((m) => m.id == profile.id).imageLen;
+      case ProgrammingFamily.serialUv5r:
+        length = await rust.uv5RImageLen();
+    }
+    return Uint8List(length)..fillRange(0, length, 0xFF);
   }
 }

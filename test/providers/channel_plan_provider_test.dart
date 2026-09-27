@@ -170,6 +170,28 @@ void main() {
       expect(notifier.byId(plan.id)!.builtWithTxUnlock, isTrue);
     });
 
+    test('takes the caller\'s word for which radio the plan is for', () async {
+      // A plan can outlive the build that knew its profile id; the screens
+      // then stand in the selected radio. So the provider must not compare
+      // ids — the screens that offer plans do the matching.
+      final c = await container();
+      final notifier = c.read(channelPlansProvider.notifier);
+      final plan = await notifier.create(
+        name: 'Old',
+        radioProfileId: 'retired-radio',
+      );
+
+      final outcome = await notifier.appendChannels(
+        plan.id,
+        _channels(1),
+        profile: _small,
+      );
+
+      expect(outcome.added, 1);
+      expect(notifier.byId(plan.id)!.channels, hasLength(1));
+      expect(notifier.byId(plan.id)!.radioProfileId, 'retired-radio');
+    });
+
     test('appending to a plan that is gone is a no-op', () async {
       final c = await container();
       final notifier = c.read(channelPlansProvider.notifier);

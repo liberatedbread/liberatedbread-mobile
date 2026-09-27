@@ -325,6 +325,18 @@ void main() {
       expect(_column(csv, 0, 'Name'), 'W1AW');
     });
 
+    test('mark a scan-skipped channel with S, as CHIRP spells it', () {
+      // A channel read off a radio carries the owner's skip; the file has
+      // to say so, or a CHIRP import puts it back in the scan list.
+      final csv = encodeChirpCsv([repeater.copyWith(skip: true), repeater]);
+      expect(_column(csv, 0, 'Skip'), 'S');
+      expect(_column(csv, 1, 'Skip'), '');
+      for (final line in csv.split('\r\n')) {
+        if (line.isEmpty) continue;
+        expect(_cells(line), hasLength(chirpCsvHeader.length), reason: line);
+      }
+    });
+
     test('spell narrow FM the way CHIRP does', () {
       final csv = encodeChirpCsv(const [
         RadioChannel(

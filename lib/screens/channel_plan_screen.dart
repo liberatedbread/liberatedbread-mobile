@@ -1,7 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 //
-// A plan, slot by slot: reorder, edit, delete, export.
+// A plan, slot by slot: add, reorder, edit, delete, export.
 
 import 'dart:io';
 
@@ -93,6 +93,13 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
               onPressed: _selected.isEmpty ? null : () => _deleteSelected(plan),
             )
           else ...[
+            // Never disabled: on an empty plan it is the only way in, and a
+            // full one is refused by the provider and said so below.
+            IconButton(
+              tooltip: 'Add channel',
+              icon: const Icon(Icons.add),
+              onPressed: () => _add(plan, profile),
+            ),
             IconButton(
               tooltip: 'Select channels',
               icon: const Icon(Icons.checklist),
@@ -126,8 +133,8 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
                     child: Padding(
                       padding: EdgeInsets.all(24),
                       child: Text(
-                        'No channels yet. Use "Suggest channels near me" on '
-                        'the Radio tab to fill this in.',
+                        'No channels yet. Tap + to add one by hand, or use '
+                        '"Suggest channels near me" on the Radio tab.',
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -219,6 +226,49 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
     await ref
         .read(channelPlansProvider.notifier)
         .updateChannel(plan.id, index, edited, profile: profile);
+  }
+
+  /// A channel with nothing filled in. Zero Hz is what the rest of the app
+  /// already treats as "not a frequency" ([RadioChannel.fromJson] refuses it,
+  /// the sheet's save does too), so a blank the user never touched cannot be
+  /// saved into a plan — and pre-filling a band edge would invite exactly
+  /// that.
+  static const _blankChannel = RadioChannel(name: '', rxFreqHz: 0, txFreqHz: 0);
+
+  /// Type a channel in by hand and append it — the way into an empty plan.
+  Future<void> _add(ChannelPlan plan, RadioProfile profile) async {
+    final messenger = ScaffoldMessenger.of(context);
+    // Refused before the sheet opens when the plan is already full, so
+    // nobody types a channel in only to lose it; the check after the append
+    // stays for a plan that fills while the sheet is up.
+    if (plan.channels.length >= profile.channelCapacity) {
+      _didNotFit(messenger, profile, profile.channelCapacity);
+      return;
+    }
+    final channel = await showModalBottomSheet<RadioChannel>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) =>
+          _ChannelEditSheet(channel: _blankChannel, profile: profile),
+    );
+    if (channel == null || !mounted) return;
+    final outcome = await ref
+        .read(channelPlansProvider.notifier)
+        .appendChannels(plan.id, [channel], profile: profile);
+    if (!mounted || !outcome.hitCapacity) return;
+    _didNotFit(messenger, profile, outcome.capacity ?? profile.channelCapacity);
+  }
+
+  void _didNotFit(
+    ScaffoldMessengerState messenger,
+    RadioProfile profile,
+    int capacity,
+  ) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Did not fit — ${profile.displayName} holds $capacity.'),
+      ),
+    );
   }
 
   /// Pick the radio that takes [plan], and open it ready to write.
@@ -392,16 +442,16 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.channel.name);
-    _rx = TextEditingController(
-      text: formatHzAsMegahertz(widget.channel.rxFreqHz),
-    );
-    _tx = TextEditingController(
-      text: formatHzAsMegahertz(widget.channel.txFreqHz),
-    );
+    // A blank channel shows empty fields rather than "0.000", which would
+    // look like a value the user is meant to keep.
+    _rx = TextEditingController(text: _fieldText(widget.channel.rxFreqHz));
+    _tx = TextEditingController(text: _fieldText(widget.channel.txFreqHz));
     _mode = widget.channel.mode;
     _power = widget.channel.power;
     _rxOnly = widget.channel.rxOnly;
   }
+
+  static String _fieldText(int hz) => hz > 0 ? formatHzAsMegahertz(hz) : '';
 
   @override
   void dispose() {

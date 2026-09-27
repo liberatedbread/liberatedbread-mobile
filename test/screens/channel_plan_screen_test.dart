@@ -198,6 +198,115 @@ void main() {
     });
   });
 
+  group('adding a channel', () {
+    /// Open the sheet and type a simplex channel in; the caller saves.
+    Future<void> typeIn(WidgetTester tester, String name, String mhz) async {
+      await tester.tap(find.byTooltip('Add channel'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, 'Name'), name);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Receive (MHz)'),
+        mhz,
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Transmit (MHz)'),
+        mhz,
+      );
+    }
+
+    testWidgets('is offered for an empty plan', (tester) async {
+      // The one action that must work with nothing in the plan: it is the
+      // only way to fill one by hand.
+      await _pump(tester, prefs: _seed(channels: 0));
+      expect(
+        tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.add))
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.textContaining('Tap + to add one'), findsOneWidget);
+    });
+
+    testWidgets('opens a blank sheet, not one pre-filled with a frequency', (
+      tester,
+    ) async {
+      await _pump(tester, prefs: _seed(channels: 0));
+      await tester.tap(find.byTooltip('Add channel'));
+      await tester.pumpAndSettle();
+
+      for (final field in tester.widgetList<TextField>(
+        find.byType(TextField),
+      )) {
+        expect(field.controller?.text, isEmpty);
+      }
+      expect(find.text('0.000'), findsNothing);
+    });
+
+    testWidgets('appends a typed-in channel to an empty plan', (tester) async {
+      final harness = await _pump(tester, prefs: _seed(channels: 0));
+      await typeIn(tester, 'Calling', '146.520');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final channel = harness.container
+          .read(channelPlansProvider)
+          .single
+          .channels
+          .single;
+      expect(channel.name, 'Calling');
+      expect(channel.rxFreqHz, 146520000);
+      expect(channel.txFreqHz, 146520000);
+      expect(find.text('Calling'), findsOneWidget);
+      expect(find.textContaining('No channels yet'), findsNothing);
+    });
+
+    testWidgets('refuses to save without a frequency', (tester) async {
+      final harness = await _pump(tester, prefs: _seed(channels: 0));
+      await tester.tap(find.byTooltip('Add channel'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('should look like'), findsOneWidget);
+      expect(
+        harness.container.read(channelPlansProvider).single.channels,
+        isEmpty,
+      );
+    });
+
+    testWidgets('cancelling adds nothing', (tester) async {
+      final harness = await _pump(tester, prefs: _seed(channels: 0));
+      await typeIn(tester, 'Calling', '146.520');
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(
+        harness.container.read(channelPlansProvider).single.channels,
+        isEmpty,
+      );
+      expect(find.textContaining('No channels yet'), findsOneWidget);
+    });
+
+    testWidgets('says so when the plan is full', (tester) async {
+      // A UV-5R holds 128; the screen says so the moment + is tapped, before
+      // anyone types a channel in that the provider would refuse.
+      final harness = await _pump(
+        tester,
+        prefs: _seed(channels: 128, profileId: 'uv5r'),
+      );
+      await tester.tap(find.byTooltip('Add channel'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(FilledButton, 'Save'), findsNothing);
+      expect(find.textContaining('Did not fit'), findsOneWidget);
+      expect(find.textContaining('holds 128'), findsOneWidget);
+      expect(
+        harness.container.read(channelPlansProvider).single.channels,
+        hasLength(128),
+      );
+    });
+  });
+
   group('editing a channel', () {
     testWidgets('opens a sheet seeded from the channel', (tester) async {
       await _pump(tester, prefs: _seed(channels: 1));

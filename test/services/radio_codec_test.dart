@@ -32,6 +32,7 @@ rust.RadioChannelDto _dto(
   rust.ToneDto? rx,
   bool narrow = false,
   bool lowPower = false,
+  bool skip = false,
 }) => rust.RadioChannelDto(
   slot: slot,
   name: '$name$slot',
@@ -42,10 +43,44 @@ rust.RadioChannelDto _dto(
   rxTone: rx ?? _tone('none'),
   narrow: narrow,
   lowPower: lowPower,
-  skip: false,
+  skip: skip,
 );
 
+/// [profile]'s image as an unwritten radio holds it, sized the way the
+/// codec checks: from the model table for the newer family, from the one
+/// fixed length for the older.
+Future<RadioCodeplug> _blank(RadioProfile profile) async {
+  final image = await const CodeplugEncoder().blankImage(profile);
+  return RadioCodeplug(
+    modelId: profile.id,
+    image: image,
+    readAt: DateTime(2026, 9, 1),
+  );
+}
+
+/// The channels a native encode of [channels] then decode hands back.
+Future<DecodedChannels> _nativeRoundTrip(
+  RadioProfile profile,
+  List<RadioChannel> channels,
+) async {
+  const encoder = CodeplugEncoder();
+  final image = await encoder.encode(await _blank(profile), profile, channels);
+  return const CodeplugDecoder().decode(
+    RadioCodeplug(modelId: profile.id, image: image, readAt: DateTime(2026)),
+    profile,
+  );
+}
+
 void main() {
+  // One init for the whole file: RustLib.init refuses to run twice in an
+  // isolate, so a second group with its own setUpAll would read the
+  // library as unavailable and skip every native test it holds.
+  late bool rustReady;
+
+  setUpAll(() async {
+    rustReady = await initHostRustLib();
+  });
+
   group('channel conversion', () {
     const channel = RadioChannel(
       name: 'W1AW',
@@ -55,6 +90,7 @@ void main() {
       rxTone: ToneSetting.dcs(23, inverted: true),
       mode: ChannelMode.nfm,
       power: PowerLevel.low,
+      skip: true,
     );
 
     test('round-trips every field the codec carries', () {
@@ -66,6 +102,36 @@ void main() {
       expect(back.rxTone, channel.rxTone);
       expect(back.mode, ChannelMode.nfm);
       expect(back.power, PowerLevel.low);
+      expect(back.skip, isTrue);
+      expect(back, channel);
+    });
+
+    test('a scan-skipped memory stays skipped in both directions', () {
+      // The codecs write the record's skip bit from the DTO on every write,
+      // so a flag lost on either crossing puts the memory back in the scan
+      // list the next time its plan is written.
+      expect(channelToDto(channel, slot: 1).skip, isTrue);
+      expect(
+        channelToDto(channel.copyWith(skip: false), slot: 1).skip,
+        isFalse,
+      );
+      expect(channelFromDto(_dto(1, skip: true)).skip, isTrue);
+      expect(channelFromDto(_dto(1)).skip, isFalse);
+    });
+
+    test('the family\'s 645 code is representable', () {
+      // 645 is not one of the standard 104, but the codec indexes it and a
+      // radio can hold it; reading it as "no tone" would drop it on the
+      // next write.
+      final read = channelFromDto(
+        _dto(
+          1,
+          tx: _tone('dcs', dcs: 645),
+          rx: _tone('dcs', dcs: 645, inv: true),
+        ),
+      );
+      expect(read.txTone, const ToneSetting.dcs(645));
+      expect(read.rxTone, const ToneSetting.dcs(645, inverted: true));
     });
 
     test('places the channel in the slot it is given', () {
@@ -143,12 +209,6 @@ void main() {
   });
 
   group('CodeplugDecoder', () {
-    late bool rustReady;
-
-    setUpAll(() async {
-      rustReady = await initHostRustLib();
-    });
-
     test(
       'decodes what the codec encoded, through the native library',
       () async {
@@ -217,5 +277,134 @@ void main() {
       expect(decoded.channels.single.txFreqHz, 146340000);
       expect(decoded.channels.single.txTone, const ToneSetting.ctcss(1000));
     });
+
+    // The pure-Dart round trip above cannot catch either of these: the DTO
+    // conversion validates nothing on the way out, so only an encode and
+    // decode through the real codec shows what a radio would hand back.
+    for (final profile in [uv5rMiniProfile, uv5rProfile]) {
+      test('${profile.id}: a skip and a DCS 645 survive the codec', () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        const channels = [
+          RadioChannel(name: 'SCAN', rxFreqHz: 146520000, txFreqHz: 146520000),
+          RadioChannel(
+            name: 'SKIP',
+            rxFreqHz: 146940000,
+            txFreqHz: 146340000,
+            txTone: ToneSetting.dcs(645),
+            rxTone: ToneSetting.dcs(645, inverted: true),
+            skip: true,
+          ),
+        ];
+        final decoded = await _nativeRoundTrip(profile, channels);
+        expect([for (final c in decoded.channels) c.name], ['SCAN', 'SKIP']);
+        expect(decoded.channels[0].skip, isFalse);
+        expect(decoded.channels[1].skip, isTrue);
+        expect(decoded.channels[1].txTone, const ToneSetting.dcs(645));
+        expect(
+          decoded.channels[1].rxTone,
+          const ToneSetting.dcs(645, inverted: true),
+        );
+      });
+    }
+  });
+
+  group('CodeplugEncoder', () {
+    const channels = [
+      RadioChannel(name: 'ONE', rxFreqHz: 146520000, txFreqHz: 146520000),
+      RadioChannel(
+        name: 'TWO',
+        rxFreqHz: 446000000,
+        txFreqHz: 446000000,
+        txTone: ToneSetting.ctcss(885),
+        mode: ChannelMode.nfm,
+        power: PowerLevel.low,
+      ),
+    ];
+
+    test('encodes for a Bluetooth radio what its driver sends', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final base = await _blank(uv5rMiniProfile);
+      final encoded = await const CodeplugEncoder().encode(
+        base,
+        uv5rMiniProfile,
+        channels,
+      );
+      // Byte for byte the call BaofengBleProgrammer.writeChannels makes.
+      final driver = await rust.radioEncodeChannels(
+        image: base.image,
+        channels: [
+          for (var i = 0; i < channels.length; i++)
+            channelToDto(channels[i], slot: i + 1),
+        ],
+        modelId: uv5rMiniProfile.id,
+      );
+      expect(encoded, driver);
+      expect(encoded, isNot(base.image), reason: 'something was written');
+    });
+
+    test('encodes for a cable radio what its driver sends', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final base = RadioCodeplug(
+        modelId: uv5rProfile.id,
+        image: await blankUv5rImage(),
+        readAt: DateTime(2026, 9, 1),
+      );
+      final encoded = await const CodeplugEncoder().encode(
+        base,
+        uv5rProfile,
+        channels,
+      );
+      // Byte for byte the call SerialRadioProgrammer.writeChannels makes.
+      final driver = await rust.uv5REncodeChannels(
+        image: base.image,
+        channels: [
+          for (var i = 0; i < channels.length; i++)
+            channelToDto(channels[i], slot: i + 1),
+        ],
+        modelId: uv5rProfile.id,
+      );
+      expect(encoded, driver);
+      expect(
+        await rust.uv5RFirmware(image: encoded),
+        await rust.uv5RFirmware(image: base.image),
+        reason: 'what the app does not model survives from the base',
+      );
+    });
+
+    test('refuses more channels than the radio has slots', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final tooMany = [
+        for (var i = 0; i <= uv5rProfile.channelCapacity; i++)
+          RadioChannel(name: 'C$i', rxFreqHz: 146520000, txFreqHz: 146520000),
+      ];
+      await expectLater(
+        const CodeplugEncoder().encode(
+          await _blank(uv5rProfile),
+          uv5rProfile,
+          tooMany,
+        ),
+        throwsA(predicate((e) => '$e'.contains('do not fit'))),
+      );
+    });
+
+    for (final profile in [uv5rMiniProfile, uv32Profile, uv5rProfile]) {
+      test('${profile.id}: a blank image is the model\'s length, all 0xFF, '
+          'and decodes to nothing', () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        final blank = await _blank(profile);
+        final expectedLen = switch (profile.programmingFamily) {
+          ProgrammingFamily.serialUv5r => await rust.uv5RImageLen(),
+          _ =>
+            (await rust.radioModels())
+                .firstWhere((m) => m.id == profile.id)
+                .imageLen,
+        };
+        expect(blank.length, expectedLen);
+        expect(blank.image.every((b) => b == 0xFF), isTrue);
+        final decoded = await const CodeplugDecoder().decode(blank, profile);
+        expect(decoded.channels, isEmpty);
+        expect(decoded.hadGaps, isFalse);
+      });
+    }
   });
 }

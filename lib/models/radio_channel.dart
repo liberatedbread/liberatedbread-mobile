@@ -71,8 +71,14 @@ const List<int> ctcssTonesTenthHz = [
   2035, 2065, 2107, 2181, 2257, 2291, 2336, 2418, 2503, 2541,
 ];
 
-/// The 104 standard DCS codes, written the way they are spoken and printed —
-/// as octal-looking three-digit numbers.
+/// The 104 standard DCS codes plus 645, which this radio family carries as
+/// its 105th — written the way they are spoken and printed, as octal-looking
+/// three-digit numbers.
+///
+/// Kept identical to `DCS_CODES` in the Rust codec
+/// (rust/src/protocol/radio/codeplug.rs), which indexes into its table. The
+/// two lists must agree: a code the codec decodes but this list omits reads
+/// as no tone, and the next write then drops it from the radio.
 const List<int> dcsCodes = [
   23, 25, 26, 31, 32, 36, 43, 47, 51, 53, 54, 65, 71, 72, 73, 74, //
   114, 115, 116, 122, 125, 131, 132, 134, 143, 145, 152, 155, 156,
@@ -80,8 +86,8 @@ const List<int> dcsCodes = [
   251, 252, 255, 261, 263, 265, 266, 271, 274, 306, 311, 315, 325,
   331, 332, 343, 346, 351, 356, 364, 365, 371, 411, 412, 413, 423,
   431, 432, 445, 446, 452, 454, 455, 462, 464, 465, 466, 503, 506,
-  516, 523, 526, 532, 546, 565, 606, 612, 624, 627, 631, 632, 654,
-  662, 664, 703, 712, 723, 731, 732, 734, 743, 754,
+  516, 523, 526, 532, 546, 565, 606, 612, 624, 627, 631, 632, 645,
+  654, 662, 664, 703, 712, 723, 731, 732, 734, 743, 754,
 ];
 
 /// The squelch setting for one direction of one channel.
@@ -196,6 +202,12 @@ class RadioChannel {
   final PowerLevel power;
   final String comment;
 
+  /// Skipped when the radio scans. Read off the radio and written back as
+  /// is: nothing in the app sets it, but a radio's owner may have, and a
+  /// write that silently put every skipped memory back into the scan list
+  /// would undo that without saying so.
+  final bool skip;
+
   const RadioChannel({
     required this.name,
     required this.rxFreqHz,
@@ -206,6 +218,7 @@ class RadioChannel {
     this.mode = ChannelMode.fm,
     this.power = PowerLevel.high,
     this.comment = '',
+    this.skip = false,
   });
 
   /// A receive-only channel: transmit frequency mirrors receive so that a
@@ -219,6 +232,7 @@ class RadioChannel {
     this.mode = ChannelMode.fm,
     this.power = PowerLevel.low,
     this.comment = '',
+    this.skip = false,
   }) : rxFreqHz = freqHz,
        txFreqHz = freqHz,
        rxOnly = true,
@@ -240,6 +254,7 @@ class RadioChannel {
     ChannelMode? mode,
     PowerLevel? power,
     String? comment,
+    bool? skip,
   }) => RadioChannel(
     name: name ?? this.name,
     rxFreqHz: rxFreqHz ?? this.rxFreqHz,
@@ -250,6 +265,7 @@ class RadioChannel {
     mode: mode ?? this.mode,
     power: power ?? this.power,
     comment: comment ?? this.comment,
+    skip: skip ?? this.skip,
   );
 
   Map<String, dynamic> toJson() => {
@@ -262,6 +278,7 @@ class RadioChannel {
     'mode': mode.wireName,
     'power': power.wireName,
     if (comment.isNotEmpty) 'comment': comment,
+    if (skip) 'skip': true,
   };
 
   /// Returns null for a record that cannot be read, so one corrupt channel
@@ -283,6 +300,7 @@ class RadioChannel {
       mode: ChannelMode.fromWire(json['mode']) ?? ChannelMode.fm,
       power: PowerLevel.fromWire(json['power']) ?? PowerLevel.high,
       comment: json['comment'] is String ? json['comment'] as String : '',
+      skip: json['skip'] == true,
     );
   }
 
@@ -298,7 +316,8 @@ class RadioChannel {
           rxTone == other.rxTone &&
           mode == other.mode &&
           power == other.power &&
-          comment == other.comment;
+          comment == other.comment &&
+          skip == other.skip;
 
   @override
   int get hashCode => Object.hash(
@@ -311,6 +330,7 @@ class RadioChannel {
     mode,
     power,
     comment,
+    skip,
   );
 
   @override

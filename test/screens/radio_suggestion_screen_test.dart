@@ -1,9 +1,12 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/geo.dart';
+import 'package:liberated_bread_mobile/models/channel_plan.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/models/suggested_channel.dart';
@@ -15,6 +18,7 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_suggestion_screen.dart';
+import 'package:liberated_bread_mobile/services/channel_plan_store.dart';
 import 'package:liberated_bread_mobile/services/channel_suggestion_service.dart';
 import 'package:liberated_bread_mobile/services/radio_bundled_data.dart';
 import 'package:liberated_bread_mobile/services/radio_source_cache.dart';
@@ -33,6 +37,20 @@ RepeaterListing _repeater(String name, int rxHz, int txHz) => RepeaterListing(
   location: _hartford,
   callsign: name,
 );
+
+/// An empty plan for [profile], there before the screen opens.
+ChannelPlan _plan(String id, String name, RadioProfile profile) => ChannelPlan(
+  id: id,
+  name: name,
+  radioProfileId: profile.id,
+  channels: const [],
+  createdAt: DateTime(2026, 9, 1),
+  modifiedAt: DateTime(2026, 9, 1),
+);
+
+Map<String, Object> _seedPlans(List<ChannelPlan> plans) => {
+  'radio_channel_plans_v1': jsonEncode([for (final p in plans) p.toJson()]),
+};
 
 /// Bundled state extents without touching the asset bundle.
 ///
@@ -72,15 +90,16 @@ Future<SharedPreferences> _pump(
   required FakeLocationService location,
   List<RepeaterSource> sources = const [],
   RadioProfile profile = uv5rProfile,
+  Map<String, Object> prefs = const {},
 }) async {
   _useTallWindow(tester);
-  SharedPreferences.setMockInitialValues({});
-  final prefs = await SharedPreferences.getInstance();
+  SharedPreferences.setMockInitialValues(prefs);
+  final sharedPrefs = await SharedPreferences.getInstance();
 
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
+        sharedPreferencesProvider.overrideWithValue(sharedPrefs),
         prefsSettingsStoreProvider.overrideWith(
           (ref) async => InMemorySettingsStore(),
         ),
@@ -102,7 +121,7 @@ Future<SharedPreferences> _pump(
     ),
   );
   await tester.pumpAndSettle();
-  return prefs;
+  return sharedPrefs;
 }
 
 void main() {
@@ -351,6 +370,77 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Added 1'), findsOneWidget);
+    });
+
+    group('with plans for more than one radio', () {
+      // Every suggestion's listen-only decision was made against the screen's
+      // radio, so a plan for another radio must never be on offer: a 2 m
+      // repeater judged transmittable for a UV-5R would land transmit-enabled
+      // in the GMRS radio's plan.
+      final mine = _plan('p-uv5r', 'Mine', uv5rProfile);
+      final gmrs = _plan('p-gmrs', 'GMRS truck', uv5gProfile);
+
+      Future<SharedPreferences> pickW1AW(
+        WidgetTester tester,
+        List<ChannelPlan> plans,
+      ) async {
+        final source = FakeRepeaterSource(
+          id: 'test',
+          byState: {
+            'CT': [_repeater('W1AW', 146940000, 146340000)],
+          },
+        );
+        final prefs = await _pump(
+          tester,
+          location: FakeLocationService(position: _hartford),
+          sources: [source],
+          prefs: _seedPlans(plans),
+        );
+        await search(tester);
+        await tester.tap(find.text('W1AW'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Add 1 channel'));
+        await tester.pumpAndSettle();
+        return prefs;
+      }
+
+      testWidgets('offers only the plans made for this radio', (tester) async {
+        await pickW1AW(tester, [mine, gmrs]);
+
+        expect(find.text('Add to which plan?'), findsOneWidget);
+        expect(find.text('Mine'), findsOneWidget);
+        expect(find.text('GMRS truck'), findsNothing);
+      });
+
+      testWidgets('and the channels land in the one picked', (tester) async {
+        final prefs = await pickW1AW(tester, [mine, gmrs]);
+        await tester.tap(find.text('Mine'));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('Added 1 to "Mine"'), findsOneWidget);
+        final stored = {
+          for (final plan in ChannelPlanStore(prefs).load()) plan.id: plan,
+        };
+        expect(stored['p-uv5r']!.channels.single.name, 'W1AW');
+        expect(stored['p-gmrs']!.channels, isEmpty);
+      });
+
+      testWidgets('a plan for another radio alone gets a new one made', (
+        tester,
+      ) async {
+        // The same as having no plans at all: no sheet, a fresh plan for
+        // this radio, and the other radio's plan untouched.
+        final prefs = await pickW1AW(tester, [gmrs]);
+
+        expect(find.text('Add to which plan?'), findsNothing);
+        expect(find.textContaining('Added 1'), findsOneWidget);
+        final stored = ChannelPlanStore(prefs).load();
+        expect(stored, hasLength(2));
+        final made = stored.singleWhere((p) => p.id != 'p-gmrs');
+        expect(made.radioProfileId, uv5rProfile.id);
+        expect(made.channels.single.name, 'W1AW');
+        expect(stored.singleWhere((p) => p.id == 'p-gmrs').channels, isEmpty);
+      });
     });
 
     testWidgets('a listen-only suggestion is badged before it is picked', (
