@@ -106,7 +106,7 @@ void main() {
         'id': _meterId,
         'name': name,
         'lastSeen': '2026-09-26T00:00:00.000',
-        if (specKey != null) 'specKey': specKey,
+        'specKey': ?specKey,
       };
 
   Future<bool> ask(
@@ -149,29 +149,30 @@ void main() {
       expect(await ask(c), isTrue);
     });
 
-    test('a saved key the catalogue no longer has falls through to matching',
-        () async {
-      final c = await container(
-        saved: [savedDevice(specKey: 'Gone|Nobody')],
-        scanMatches: (_) => [_match(_meter)],
-      );
+    test(
+      'a saved key the catalogue no longer has falls through to matching',
+      () async {
+        final c = await container(
+          saved: [savedDevice(specKey: 'Gone|Nobody')],
+          scanMatches: (_) => [_match(_meter)],
+        );
 
-      expect(await ask(c, seen: sighting), isTrue);
-    });
+        expect(await ask(c, seen: sighting), isTrue);
+      },
+    );
   });
 
   group('otherwise, what it looks like', () {
-    test('an advertisement strongly matching a spec that says so: yes',
-        () async {
-      final c = await container(scanMatches: (_) => [_match(_meter)]);
+    test(
+      'an advertisement strongly matching a spec that says so: yes',
+      () async {
+        final c = await container(scanMatches: (_) => [_match(_meter)]);
 
-      expect(await ask(c, seen: sighting), isTrue);
-      expect(codec.scanMatchCalls.single.name, 'Laser Distance Meter');
-      expect(
-        codec.scanMatchCalls.single.serviceUuids,
-        sighting.serviceUuids,
-      );
-    });
+        expect(await ask(c, seen: sighting), isTrue);
+        expect(codec.scanMatchCalls.single.name, 'Laser Distance Meter');
+        expect(codec.scanMatchCalls.single.serviceUuids, sighting.serviceUuids);
+      },
+    );
 
     test('a merely possible match (one shared OUI): no', () async {
       final c = await container(
@@ -198,9 +199,8 @@ void main() {
         // discovery found nothing to match.
         final c = await container(
           saved: [savedDevice(name: 'Laser Distance Meter')],
-          scanMatches: (d) => d.name == 'Laser Distance Meter'
-              ? [_match(_meter)]
-              : const [],
+          scanMatches: (d) =>
+              d.name == 'Laser Distance Meter' ? [_match(_meter)] : const [],
         );
 
         expect(await ask(c), isTrue);
