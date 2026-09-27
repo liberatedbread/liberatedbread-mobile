@@ -830,4 +830,44 @@ void main() {
     );
     expect(tester.widget<Text>(status).style?.color, scheme.error);
   });
+
+  group('choicesFor', () {
+    test('a small unlabelled range is a choice, not a slider', () {
+      // The catalogue writes a contiguous set as min/max now; a 0..3
+      // orientation is four things to pick, as it was when it was a list.
+      const orientation = ParameterDto(
+        name: 'orientation',
+        valueType: 'uint8',
+        min: 0,
+        max: 3,
+        userSettable: true,
+      );
+      expect(choicesFor(orientation), [
+        BigInt.zero,
+        BigInt.one,
+        BigInt.two,
+        BigInt.from(3),
+      ]);
+    });
+
+    test('a wide range, or a quantity, stays a slider', () {
+      const brightness = ParameterDto(
+        name: 'brightness',
+        valueType: 'uint8',
+        min: 0,
+        max: 255,
+        userSettable: true,
+      );
+      const speed = ParameterDto(
+        name: 'speed',
+        valueType: 'uint8',
+        min: 0,
+        max: 3,
+        unit: 'km/h',
+        userSettable: true,
+      );
+      expect(choicesFor(brightness), isNull);
+      expect(choicesFor(speed), isNull);
+    });
+  });
 }

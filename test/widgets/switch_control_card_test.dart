@@ -30,6 +30,7 @@ Widget _wrap(
   required FakeSpecCodec codec,
   required FakeBleService ble,
   String? stateServiceUuid,
+  bool isLock = false,
 }) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(ble),
@@ -42,6 +43,7 @@ Widget _wrap(
         stateServiceUuid: stateServiceUuid,
         entity: entity,
         specYaml: 'y',
+        isLock: isLock,
       ),
     ),
   ),
@@ -86,6 +88,62 @@ void main() {
       expect(ble.writes.single.value, [0x33, 0x01]);
     },
   );
+
+  testWidgets('a lock says Lock and Unlock, and unlocking asks first', (
+    tester,
+  ) async {
+    // SESAME and August/Yale declare the bolt as a switch, on = locked. As a
+    // generic switch the button that opens the door read "Off".
+    final entity = EntityDto(
+      options: const [],
+      name: 'Lock',
+      platform: 'switch',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _fixedAction('turn_on', 'lock'),
+        _fixedAction('turn_off', 'unlock'),
+      ],
+      variants: const [],
+    );
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x0A]));
+    final ble = FakeBleService();
+
+    await tester.pumpWidget(
+      _wrap(entity, codec: codec, ble: ble, isLock: true),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('On'), findsNothing);
+    expect(find.text('Off'), findsNothing);
+    expect(
+      find.text("The lock doesn't report whether it is locked"),
+      findsOneWidget,
+    );
+
+    // Unlock is confirmed; backing out sends nothing.
+    await tester.tap(find.text('Unlock'));
+    await tester.pumpAndSettle();
+    expect(find.text('Unlock Lock?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(ble.writes, isEmpty);
+
+    await tester.tap(find.text('Unlock'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Unlock'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.single.commandName, 'unlock');
+    expect(ble.writes, hasLength(1));
+
+    // Locking needs no confirmation.
+    await tester.tap(find.text('Lock').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(codec.encodeCalls.last.commandName, 'lock');
+    expect(ble.writes, hasLength(2));
+  });
 
   testWidgets('a switch with readable state renders a toggle that sends', (
     tester,

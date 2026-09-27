@@ -24,6 +24,17 @@ const Map<String, IconData> remoteGlyphs = {
   'mdi:rewind': Icons.fast_rewind,
   'mdi:play-pause': Icons.play_arrow,
   'mdi:fast-forward': Icons.fast_forward,
+  // The discrete transport keys most sets carry beside (or instead of) a
+  // combined play/pause. Without these they were wide labelled buttons in the
+  // transport row, which is built for icons.
+  'mdi:play': Icons.play_arrow,
+  'mdi:pause': Icons.pause,
+  'mdi:stop': Icons.stop,
+  'mdi:skip-next': Icons.skip_next,
+  'mdi:skip-previous': Icons.skip_previous,
+  'mdi:record': Icons.fiber_manual_record,
+  'mdi:record-rec': Icons.fiber_manual_record,
+  'mdi:power-standby': Icons.power_settings_new,
   'mdi:volume-plus': Icons.volume_up,
   'mdi:volume-minus': Icons.volume_down,
   'mdi:volume-mute': Icons.volume_off,

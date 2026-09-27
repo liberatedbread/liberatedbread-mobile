@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/entity_icon.dart';
+import '../core/device_category.dart';
 import '../core/entity_keys.dart';
 import '../core/sensor_reading_level.dart';
 import '../core/error_text.dart';
@@ -455,18 +456,27 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   final GlobalKey<RabbitAirControlsPanelState> _rabbitAirPanelKey =
       GlobalKey<RabbitAirControlsPanelState>();
 
-  /// The transport a state command rides, taken from any entity bound to it.
+  /// The transport a state command rides, taken from an entity bound to it.
   /// The codec sets an entity's transport from the command's own declaration
   /// (`http` for the Envoy's production poll, `tcp-json` for a Kasa read); a
   /// SOAP command declares none, so null here means the SOAP path.
+  ///
+  /// A pure reading is asked first. An entity with actions reports the
+  /// transport its ACTIONS ride, which need not be its reading's: a Bravia's
+  /// Power switch sends over IRCC SOAP and reads `get_power_status` over
+  /// JSON-RPC HTTP. Taking the switch's answer rendered that HTTP command as
+  /// SOAP, the render threw, and the whole screen opened on an error banner
+  /// with no state at all. The Power Status sensor bound to the same command
+  /// has no actions, so its transport IS the reading's.
   String? _stateTransport(String command) {
+    String? fromActions;
     for (final entity in _entities) {
       final transport = entity.transport;
-      if (entity.stateCommand == command && transport != null) {
-        return transport;
-      }
+      if (entity.stateCommand != command || transport == null) continue;
+      if (entity.actions.isEmpty) return transport;
+      fromActions ??= transport;
     }
-    return null;
+    return fromActions;
   }
 
   /// Whether this device's readings arrive over MQTT — a Roomba, a Hisense
@@ -821,41 +831,73 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final codec = ref.read(specCodecProvider);
     final client = ref.read(soapControlClientProvider);
 
+    // One reading that cannot be taken must not cost the others: each poll
+    // fails on its own, and only a device where EVERY poll failed reports
+    // the failure (as the first one) — that is a device not answering, not
+    // one command the app cannot read.
+    Object? firstFailure;
+    StackTrace? firstTrace;
+    var anySucceeded = false;
     for (final command in _stateCommands) {
-      if (_stateTransport(command) == 'http') {
-        await _refreshStateHttp(command);
-        continue;
-      }
-      // Everything left resolves its address out of the description, so
-      // without one there is no poll to make. Skipped rather than asserted
-      // on: `_description` is legitimately null now that fetching one is
-      // asked positively — a Tuya gas sensor's tcp-json `dp_query` reaches
-      // here on a device that serves no UPnP document, and `!` would turn a
-      // reading it simply cannot take into a crash.
-      final description = _description;
-      if (description == null) {
+      try {
+        if (await _pollStateCommand(command, codec, client)) {
+          anySucceeded = true;
+        }
+      } catch (e, st) {
         Log.net.debug(
-          'no state poll for "$command" on ${widget.device.host}: '
-          'transport ${_stateTransport(command) ?? '<unknown>'} needs a '
-          'device description and this device serves none',
+          'state poll "$command" failed on ${widget.device.host}: $e',
         );
-        continue;
+        firstFailure ??= e;
+        firstTrace ??= st;
       }
-      final request = await codec.renderNetworkStateRequest(
-        specYaml: widget.controls.specYaml,
-        stateCommand: command,
-      );
-      final path = description.controlPathFor(request);
-      if (path == null) continue;
-      _stateByCommand[command] = await client.send(
-        description.host,
-        description.port,
-        path,
-        request,
-        urlBase: description.urlBase,
-      );
+    }
+    if (firstFailure != null && !anySucceeded) {
+      Error.throwWithStackTrace(firstFailure, firstTrace!);
     }
     await _decodeEntities();
+  }
+
+  /// One state command's poll. True when a reading was taken, false when this
+  /// command has nothing to poll on this device (no description to address a
+  /// SOAP read through).
+  Future<bool> _pollStateCommand(
+    String command,
+    SpecCodec codec,
+    SoapControlClient client,
+  ) async {
+    if (_stateTransport(command) == 'http') {
+      await _refreshStateHttp(command);
+      return true;
+    }
+    // Everything left resolves its address out of the description, so
+    // without one there is no poll to make. Skipped rather than asserted
+    // on: `_description` is legitimately null now that fetching one is
+    // asked positively — a Tuya gas sensor's tcp-json `dp_query` reaches
+    // here on a device that serves no UPnP document, and `!` would turn a
+    // reading it simply cannot take into a crash.
+    final description = _description;
+    if (description == null) {
+      Log.net.debug(
+        'no state poll for "$command" on ${widget.device.host}: '
+        'transport ${_stateTransport(command) ?? '<unknown>'} needs a '
+        'device description and this device serves none',
+      );
+      return false;
+    }
+    final request = await codec.renderNetworkStateRequest(
+      specYaml: widget.controls.specYaml,
+      stateCommand: command,
+    );
+    final path = description.controlPathFor(request);
+    if (path == null) return false;
+    _stateByCommand[command] = await client.send(
+      description.host,
+      description.port,
+      path,
+      request,
+      urlBase: description.urlBase,
+    );
+    return true;
   }
 
   /// The plain-HTTP state poll (the Envoy's production summary): render the
@@ -1682,7 +1724,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     // switches, a bulb's light, a plug's relay) is the spec's
                     // variant scoping, settled by _refineSurface — not a rule
                     // here.
-                    !entity.isInstanced,
+                    !entity.isInstanced &&
+                    !_duplicatedByRemote(entity),
               )) ...[_entityCard(entity), const SizedBox(height: 12)],
               // A power strip's outlets: one switch per child, named by its
               // alias, under a header that names it a strip. Empty (so nothing
@@ -1762,6 +1805,33 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   List<NetworkEntityDto> get _buttons =>
       _drawableEntities.where((entity) => entity.platform == 'button').toList();
+
+  /// Whether [entity] is a stateless switch whose every command the remote
+  /// card below already offers as a key.
+  ///
+  /// A TV spec declares Power twice on purpose — a `switch` for a consumer
+  /// that wants a direction, and the raw keys for the remote — and on a set
+  /// that reports no power state (Roku over ECP; LG and Samsung, whose switch
+  /// can only turn off) the switch has nothing to add: no state to show, and
+  /// only sends the Power On/Off/Key buttons already make. Drawn anyway it was
+  /// a card above the remote reading "State unknown" beside a toggle stuck at
+  /// Off. Judged on the commands, not the names, so a switch that CAN do
+  /// something the remote cannot — a discrete on where the remote has only a
+  /// toggle — keeps its card, and a switch with state always does.
+  bool _duplicatedByRemote(NetworkEntityDto entity) {
+    if (entity.platform != 'switch' || entity.stateCommand.isNotEmpty) {
+      return false;
+    }
+    if (entity.actions.isEmpty) return false;
+    final remoteSends = {
+      for (final button in _buttons)
+        for (final action in button.actions)
+          if (action.role == 'press') action.commandName,
+    };
+    return entity.actions.every(
+      (action) => remoteSends.contains(action.commandName),
+    );
+  }
 
   /// The `text` entities (a Roku's on-screen keyboard). Placed by
   /// [_keyboardFocused] rather than in the ordinary entity list — above the
@@ -2077,6 +2147,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final channel = index.takeAll(EntityKeyIndex.channelSlots);
     final misc = index.takeAll(EntityKeyIndex.miscSlots);
     final inputs = index.takeAll(EntityKeyIndex.inputSlots);
+    // The pad is taken slot by slot, not with takeAll: a gap has to stay a
+    // gap, or a set without a "0" key would shift every digit one cell.
+    final digits = [
+      for (final key in EntityKeyIndex.digitSlots) index.take(key),
+    ];
+    final colors = index.takeAll(EntityKeyIndex.colorSlots);
     final leftover = index.leftovers;
 
     final text = Theme.of(context).textTheme;
@@ -2108,12 +2184,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       child: entity == null ? null : Center(child: _remoteKey(entity)),
     );
 
+    // "Remote" is what a TV's or a speaker's buttons are. A 3D printer's
+    // Pause/Resume/Stop and a robot's Clean/Dock land in this same card, and
+    // calling those a remote describes the layout, not the device. A caller
+    // that knows no category keeps the card's historical title.
+    final title = switch (DeviceCategory.parse(widget.category)) {
+      null || DeviceCategory.tv || DeviceCategory.speaker => 'Remote',
+      _ => 'Controls',
+    };
+
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Remote',
+            title,
             style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
@@ -2144,19 +2229,18 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             ),
           if (underPad.isNotEmpty) labeledRow(underPad),
           // Transport keys are icons on every physical remote; labels here
-          // are what overflowed the old wrap on narrow screens.
+          // are what overflowed the old wrap on narrow screens. A Wrap rather
+          // than a Row, because a set with discrete Previous/Play/Pause/Stop/
+          // Next/Record keys fills nine cells — wider than a phone — and a
+          // key without a drawable icon renders as a labelled button.
           if (transport.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (final entity in transport)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: _remoteKey(entity),
-                    ),
-                ],
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
+                children: [for (final entity in transport) _remoteKey(entity)],
               ),
             ),
           if (volume.isNotEmpty || channel.isNotEmpty)
@@ -2186,6 +2270,42 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                       ],
                     ),
                 ],
+              ),
+            ),
+          // The number pad: 1-9 in three rows, 0 centred beneath, the way
+          // every remote and phone prints it — not ten full-width buttons in
+          // the leftover wrap.
+          if (digits.any((entity) => entity != null))
+            Center(
+              child: Column(
+                children: [
+                  for (var row = 0; row < 3; row++)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var col = 0; col < 3; col++)
+                          keyCell(digits[row * 3 + col]),
+                      ],
+                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      keyCell(null),
+                      keyCell(digits[9]),
+                      keyCell(null),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          if (colors.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [for (final entity in colors) _colorKey(entity)],
               ),
             ),
           if (misc.isNotEmpty) labeledRow(misc),
@@ -2235,6 +2355,35 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : Icon(icon),
+    );
+  }
+
+  /// A colour key, drawn in its own colour so "the red button" the TV's menu
+  /// asks for is findable at a glance. The name stays on it: colour alone is
+  /// not an accessible label.
+  Widget _colorKey(NetworkEntityDto entity) {
+    final action = _actionFor(entity, 'press');
+    final busy = _sending.contains(entity.name);
+    final color = switch (entity.key ?? entity.name.toLowerCase()) {
+      'red' => Colors.red.shade600,
+      'green' => Colors.green.shade600,
+      'yellow' => Colors.amber.shade600,
+      'blue' => Colors.blue.shade600,
+      _ => null,
+    };
+    if (color == null) return _remoteButton(entity);
+    return FilledButton(
+      style: FilledButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor:
+            ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+            ? Colors.white
+            : Colors.black,
+      ),
+      onPressed: (busy || action == null)
+          ? null
+          : () => unawaited(_send(entity, action)),
+      child: Text(entity.name),
     );
   }
 
@@ -2329,6 +2478,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // A Switch needs both directions to be honest: one that can only turn off
     // is a control whose on side is broken, which is worse than no Switch.
     final drawsSwitch = turnOn != null && turnOff != null;
+    // A switch the spec binds no state to will never learn where it stands
+    // (a Roku reports no power state). A Switch there is always drawn Off, so
+    // a set that is on shows a toggle saying otherwise, and flipping it
+    // "on" is a guess about which way it will go. Two plain buttons say what
+    // they send and claim nothing.
+    final assumedState = entity.stateCommand.isEmpty;
 
     return _card(
       child: Column(
@@ -2346,7 +2501,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (isOn == null)
+                    if (assumedState)
+                      Text(
+                        "Doesn't report its state",
+                        style: Theme.of(context).textTheme.bodySmall,
+                      )
+                    else if (isOn == null)
                       Text(
                         'State unknown',
                         style: Theme.of(context).textTheme.bodySmall,
@@ -2360,7 +2520,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              else if (drawsSwitch)
+              else if (drawsSwitch && assumedState) ...[
+                OutlinedButton(
+                  onPressed: _lockedFor(turnOff)
+                      ? null
+                      : () => unawaited(_send(entity, turnOff)),
+                  child: const Text('Off'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.tonal(
+                  onPressed: _lockedFor(turnOn)
+                      ? null
+                      : () => unawaited(_send(entity, turnOn)),
+                  child: const Text('On'),
+                ),
+              ] else if (drawsSwitch)
                 Switch(
                   value: isOn ?? false,
                   onChanged: (_lockedFor(turnOn) || _lockedFor(turnOff))

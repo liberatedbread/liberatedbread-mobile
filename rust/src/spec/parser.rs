@@ -301,7 +301,10 @@ fn validate_auto_role(name: &str, param: &Parameter) -> Result<(), SpecError> {
     // counter rather than a computed value, so it has no ceiling of its own —
     // being numeric at all is the whole requirement.
     let emits = match role {
-        AutoRole::Checksum | AutoRole::XorChecksum => u8::MAX as i64,
+        AutoRole::Checksum
+        | AutoRole::XorChecksum
+        | AutoRole::SubtractChecksum
+        | AutoRole::Crc8 => u8::MAX as i64,
         AutoRole::Crc16Modbus => u16::MAX as i64,
         AutoRole::Sequence | AutoRole::PacketLength => return Ok(()),
     };
@@ -1012,6 +1015,44 @@ services:
             Some(vec![(0, None), (1, None), (2, None)]),
             "an unpairable label list names nothing, and says so"
         );
+    }
+
+    #[test]
+    fn labels_name_a_min_max_range_one_per_value() {
+        // A contiguous set is written as a range; `allowed` is for gaps. So
+        // `min: 1, max: 4` with four labels is a four-way choice, min first,
+        // and a count that does not match the range names nothing.
+        let parse = |labels: &str| {
+            let yaml = make_minimal_spec(&format!(
+                r#"        properties: ["write"]
+        commands:
+          request:
+            description: x
+            template: [0x82, "{{param}}"]
+            parameters:
+              param:
+                type: uint8
+                min: 1
+                max: 4
+                labels: {labels}"#
+            ));
+            let spec = parse_device_spec(&yaml).expect("a labelled range parses");
+            let command = &spec.services[0].characteristics[0]
+                .commands
+                .as_ref()
+                .expect("commands")["request"];
+            command.parameters.as_ref().expect("parameters").params["param"].allowed_with_labels()
+        };
+        assert_eq!(
+            parse(r#"["temperature", "humidity", "pressure", "co2"]"#),
+            Some(vec![
+                (1, Some("temperature".to_string())),
+                (2, Some("humidity".to_string())),
+                (3, Some("pressure".to_string())),
+                (4, Some("co2".to_string())),
+            ])
+        );
+        assert_eq!(parse(r#"["temperature", "humidity"]"#), None);
     }
 
     #[test]

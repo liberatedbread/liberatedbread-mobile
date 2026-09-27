@@ -39,12 +39,20 @@ class SwitchControlCard extends ConsumerStatefulWidget {
   final EntityDto entity;
   final String specYaml;
 
+  /// Whether this switch is a lock's bolt — on locks, off unlocks (the
+  /// SESAME and August/Yale specs say so in exactly those words). A lock drawn
+  /// as a generic switch read "On"/"Off" beside "State unknown — commands
+  /// send blind", so the button that opens the front door was labelled Off.
+  /// As a lock it says Lock/Unlock, and unlocking asks first.
+  final bool isLock;
+
   const SwitchControlCard({
     super.key,
     required this.deviceId,
     required this.stateServiceUuid,
     required this.entity,
     required this.specYaml,
+    this.isLock = false,
   });
 
   @override
@@ -84,6 +92,35 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
     // send may have just turned off.
     setState(() => _assumed = null);
     await _send(action);
+  }
+
+  /// [_send] for the on/off pair, with a lock's unlock confirmed first. A
+  /// mis-tap that opens a door is not the same as one that turns off a lamp.
+  Future<void> _sendDirection(
+    EntityActionDto action, {
+    required bool on,
+  }) async {
+    if (widget.isLock && !on) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Unlock ${widget.entity.name}?'),
+          content: const Text('This opens the lock for anyone at the door.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Unlock'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    await _send(action, assume: on);
   }
 
   Future<void> _send(EntityActionDto action, {bool? assume}) async {
@@ -201,7 +238,15 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                   borderRadius: BorderRadius.circular(13),
                 ),
                 child: Icon(
-                  shownOn == true ? Icons.toggle_on : Icons.toggle_off_outlined,
+                  widget.isLock
+                      ? switch (shownOn) {
+                          true => Icons.lock,
+                          false => Icons.lock_open,
+                          null => Icons.lock_outline,
+                        }
+                      : shownOn == true
+                      ? Icons.toggle_on
+                      : Icons.toggle_off_outlined,
                   color: shownOn == true
                       ? scheme.primary
                       : scheme.onSecondaryContainer,
@@ -235,7 +280,7 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                           // `value` is promoted non-null here: hasToggle
                           // implies canReadState implies a live builder.
                           _assumedBaseline = value.decoded;
-                          _send(on ? turnOn : turnOff, assume: on);
+                          _sendDirection(on ? turnOn : turnOff, on: on);
                         },
                 ),
             ],
@@ -253,9 +298,9 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                           ? null
                           : () {
                               _assumedBaseline = value?.decoded;
-                              _send(turnOn, assume: true);
+                              _sendDirection(turnOn, on: true);
                             },
-                      child: const Text('On'),
+                      child: Text(widget.isLock ? 'Lock' : 'On'),
                     ),
                   if (!hasToggle && turnOff != null)
                     OutlinedButton(
@@ -263,9 +308,9 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                           ? null
                           : () {
                               _assumedBaseline = value?.decoded;
-                              _send(turnOff, assume: false);
+                              _sendDirection(turnOff, on: false);
                             },
-                      child: const Text('Off'),
+                      child: Text(widget.isLock ? 'Unlock' : 'Off'),
                     ),
                   if (press != null)
                     OutlinedButton.icon(
@@ -313,7 +358,16 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
     if (value == null) {
       // Command-only entity: no state characteristic to consult, so say so
       // instead of implying the buttons reflect anything.
-      return Text('State unknown — commands send blind', style: style);
+      return Text(
+        widget.isLock
+            ? switch (_assumed) {
+                true => 'Lock sent — the lock does not report back',
+                false => 'Unlock sent — the lock does not report back',
+                null => "The lock doesn't report whether it is locked",
+              }
+            : 'State unknown — commands send blind',
+        style: style,
+      );
     }
     return switch (value.status) {
       EntityValueStatus.unavailable => Text(
@@ -326,6 +380,10 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
         style: style,
       ),
       EntityValueStatus.live => Text(switch (shownOn) {
+        true when widget.isLock =>
+          _assumed != null ? 'Locked (sent)' : 'Locked',
+        false when widget.isLock =>
+          _assumed != null ? 'Unlocked (sent)' : 'Unlocked',
         true => _assumed != null ? 'On (sent)' : 'On',
         false => _assumed != null ? 'Off (sent)' : 'Off',
         null => 'State unreadable',

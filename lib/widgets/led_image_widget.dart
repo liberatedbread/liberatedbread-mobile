@@ -236,6 +236,12 @@ class LedImageWidget extends ConsumerStatefulWidget {
   /// the user can adjust.
   final Map<int, List<int>> manufacturerData;
 
+  /// Whether the pixel surface is paper rather than LEDs — a cat printer, a
+  /// label printer. The editor is the same (draw or import, then send), but a
+  /// printer's card said "LED image" and "Send to device", which describes
+  /// the wrong kind of device; as a printer it says what the button does.
+  final bool isPrinter;
+
   const LedImageWidget({
     super.key,
     required this.deviceId,
@@ -243,6 +249,7 @@ class LedImageWidget extends ConsumerStatefulWidget {
     this.storedUpload,
     required this.specYaml,
     this.manufacturerData = const {},
+    this.isPrinter = false,
   });
 
   @override
@@ -2127,11 +2134,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'This device accepts images'
-                  '${_spec.animation ? ' and animations' : ''}, but its '
-                  'upload protocol '
-                  '(${_spec.handler ?? 'undeclared'}) is not supported by '
-                  'the app yet.',
+                  widget.isPrinter
+                      ? 'This printer prints images, but its print protocol '
+                            '(${_spec.handler ?? 'undeclared'}) is not '
+                            'supported by the app yet, so it cannot print '
+                            'from here.'
+                      : 'This device accepts images'
+                            '${_spec.animation ? ' and animations' : ''}, but '
+                            'its upload protocol '
+                            '(${_spec.handler ?? 'undeclared'}) is not '
+                            'supported by the app yet.',
                   style: text.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
@@ -2152,11 +2164,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           children: [
             Row(
               children: [
-                Icon(Icons.grid_on, color: scheme.secondary),
+                Icon(
+                  widget.isPrinter ? Icons.print_outlined : Icons.grid_on,
+                  color: scheme.secondary,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'LED image',
+                    widget.isPrinter ? 'Print an image' : 'LED image',
                     style: text.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -2308,8 +2323,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   _streaming,
                 )) {
                   (false, _) => (
-                    Icons.upload,
-                    'Send to device',
+                    widget.isPrinter ? Icons.print : Icons.upload,
+                    widget.isPrinter ? 'Print' : 'Send to device',
                     _sendCurrentFrame,
                   ),
                   (true, false) => (

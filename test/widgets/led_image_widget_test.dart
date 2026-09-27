@@ -1425,6 +1425,63 @@ void main() {
     expect(find.text('Send to device'), findsOneWidget);
   });
 
+  testWidgets('a printer\'s editor says print, not LED', (tester) async {
+    // A cat printer or a Fichero label printer draws on the same editor as
+    // an LED panel, but its card read "LED image" and "Send to device".
+    const paper = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: false,
+      animation: false,
+      maxWidth: 8,
+      maxHeight: 8,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: paper,
+          specYaml: 'yaml',
+          isPrinter: true,
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(),
+      ),
+    );
+
+    expect(find.text('Print an image'), findsOneWidget);
+    expect(find.text('LED image'), findsNothing);
+    expect(find.text('Print'), findsOneWidget);
+    expect(find.text('Send to device'), findsNothing);
+  });
+
+  testWidgets('a printer the app cannot drive yet says it cannot print', (
+    tester,
+  ) async {
+    const unsupported = ImageUploadDto(
+      encodable: false,
+      resolutionDeviceReported: false,
+      animation: false,
+      handler: 'niimbot',
+      maxWidth: 8,
+      maxHeight: 8,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: unsupported,
+          specYaml: 'yaml',
+          isPrinter: true,
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(),
+      ),
+    );
+
+    expect(find.textContaining('cannot print from here'), findsOneWidget);
+    expect(find.textContaining('(niimbot)'), findsOneWidget);
+  });
+
   testWidgets('device-reported resolution offers canvas size pickers', (
     tester,
   ) async {

@@ -120,6 +120,7 @@ _encodableCommands(DeviceSpecDto spec, List<BleDiscoveredService> services) {
   _ResolvedVerb? pause,
   _ResolvedVerb? stop,
   _ResolvedSpeed? speed,
+  Set<String> claimed,
 })?
 _resolve(
   DeviceSpecDto spec,
@@ -153,11 +154,17 @@ _resolve(
     return null;
   }
 
+  // The entities this card ends up drawing, so the panel's generic list can
+  // leave them out: only one resolved through the entity layer, since a verb
+  // found by command name draws no entity.
+  final claimed = <String>{};
+
   _ResolvedVerb? verbFromEntity(String key) {
     final entity = entityIndex.take(key);
     final press = entity?.actions.where((a) => a.role == 'press').firstOrNull;
     final c = discovered(press);
     if (c == null) return null;
+    claimed.add(entity!.name);
     return _ResolvedVerb(c.serviceUuid, c.charUuid, c.command, const {});
   }
 
@@ -307,14 +314,34 @@ _resolve(
         minDisplay,
         maxDisplay,
       );
+      if (entitySpeedEntry != null) claimed.add(speedEntity!.name);
     }
   }
 
   if (start == null && pause == null && stop == null && speed == null) {
     return null;
   }
-  return (start: start, pause: pause, stop: stop, speed: speed);
+  return (
+    start: start,
+    pause: pause,
+    stop: stop,
+    speed: speed,
+    claimed: claimed,
+  );
 }
+
+/// The names of the entities [TreadmillControlCard] draws for this device.
+///
+/// The panel lists every control entity under "Controls", and on a walking
+/// pad that meant Start, Stop and Target Speed twice — once as the card's
+/// big buttons and slider, once again as generic cards right beneath them.
+/// The panel leaves these out of its list; an entity the card did NOT resolve
+/// (its command absent on this unit) is not in the set and still renders.
+Set<String> treadmillCardEntityNames(
+  DeviceSpecDto spec,
+  List<BleDiscoveredService> services,
+  List<EntityDto> entities,
+) => _resolve(spec, services, entities)?.claimed ?? const {};
 
 /// The prominent control surface for a treadmill: target speed with steppers
 /// and a slider on top, and the transport verbs (Start / Pause / Stop) as

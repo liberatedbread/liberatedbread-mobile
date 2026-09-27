@@ -318,14 +318,80 @@ void main() {
     });
 
     test('drops the product name when several specs matched equally well', () {
+      // Makers and kinds disagreeing too: nothing left to say but that it
+      // matched.
       expect(
-        guess(MatchConfidence.strong, otherMatches: 2).label,
+        guess(
+          MatchConfidence.strong,
+          otherMatches: 2,
+          manufacturerAgreed: false,
+        ).label,
         'Supported device',
       );
       expect(
-        guess(MatchConfidence.likely, otherMatches: 2).label,
+        guess(
+          MatchConfidence.likely,
+          otherMatches: 2,
+          manufacturerAgreed: false,
+        ).label,
         'Likely supported',
       );
+    });
+
+    test('a tie keeps the maker the tied specs agree on', () {
+      // Three of one vendor's specs sharing a service UUID cannot say which
+      // product, but they can say whose — the old badge threw that away.
+      expect(
+        guess(MatchConfidence.strong, otherMatches: 2).label,
+        'Ember Technologies device',
+      );
+      expect(
+        guess(MatchConfidence.likely, otherMatches: 2).label,
+        'Likely Ember Technologies',
+      );
+    });
+
+    test('a tie keeps the kind the tied specs agree on', () {
+      // The TCL Roku case: three TV makers' specs tied on a TV-only signal
+      // badged the set "Supported device", when every one of them said TV.
+      ScanGuess tv(MatchConfidence c, {bool sameMaker = false}) => ScanGuess(
+        deviceName: 'Roku External Control Protocol',
+        manufacturer: 'Roku / TCL',
+        category: DeviceCategory.tv,
+        confidence: c,
+        otherMatches: 2,
+        manufacturerAgreed: sameMaker,
+      );
+      expect(tv(MatchConfidence.strong).label, 'Supported TV');
+      expect(tv(MatchConfidence.likely).label, 'Likely supported TV');
+      expect(
+        tv(MatchConfidence.strong, sameMaker: true).label,
+        'Roku / TCL TV',
+      );
+      // A category label that is a word, not an initialism, reads lower-case
+      // mid-sentence.
+      const lights = ScanGuess(
+        deviceName: 'Govee H6001',
+        manufacturer: 'Govee',
+        category: DeviceCategory.light,
+        confidence: MatchConfidence.strong,
+        otherMatches: 1,
+        manufacturerAgreed: true,
+      );
+      expect(lights.label, 'Govee light');
+    });
+
+    test('a contested identify-only match falls back to its kind', () {
+      const g = ScanGuess(
+        deviceName: 'Network Printer (IPP / AirPrint / IPP Everywhere)',
+        manufacturer: 'Various',
+        category: DeviceCategory.printer,
+        confidence: MatchConfidence.likely,
+        otherMatches: 1,
+        manufacturerAgreed: false,
+        isIdentifyOnly: true,
+      );
+      expect(g.label, 'Recognized printer');
     });
 
     test('keeps the maker when the tied specs are all that maker', () {

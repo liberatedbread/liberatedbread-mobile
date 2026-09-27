@@ -759,6 +759,127 @@ void main() {
     expect(ble.writes.single.value, [0xF7, 0xFD]);
   });
 
+  testWidgets('a verb the treadmill card draws is not listed again under '
+      'Controls', (tester) async {
+    // KingSmith and UREVO declare Start/Stop/Target Speed as entities, and
+    // the panel listed them as generic control cards right under the card
+    // that already draws them as its big buttons.
+    const svcUuid = '0000fe00-0000-1000-8000-00805f9b34fb';
+    const charUuid = '0000fe02-0000-1000-8000-00805f9b34fb';
+    final spec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallbackTypes: const [],
+      txtMatchGroups: const [],
+      hiddenEntityNames: const [],
+      deviceName: 'Test Walking Pad',
+      manufacturer: 'Acme Fitness',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'treadmill',
+      localNamePrefixes: const ['ACME_'],
+      localNames: const [],
+      serviceUuids: const [svcUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceTypes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[
+        EntityDto(
+          options: [],
+          name: 'Start',
+          key: 'start',
+          platform: 'button',
+          canNotify: false,
+          hasFormat: false,
+          onWhenNonzero: false,
+          actions: [
+            EntityActionDto(
+              role: 'press',
+              serviceUuid: svcUuid,
+              characteristicUuid: charUuid,
+              commandName: 'start_belt',
+              userParams: [],
+            ),
+          ],
+          variants: [],
+        ),
+      ],
+      services: const [
+        ServiceDto(
+          uuid: svcUuid,
+          name: 'WiLink service',
+          characteristics: [
+            CharacteristicDto(
+              uuid: charUuid,
+              name: 'Command write',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              commands: [
+                CommandDto(
+                  name: 'start_belt',
+                  description: 'Start the belt',
+                  parameters: [],
+                  isFixed: true,
+                  isEncodable: true,
+                  unsupportedEncoding: null,
+                  advanced: false,
+                ),
+              ],
+              formatFields: [],
+            ),
+          ],
+        ),
+      ],
+    );
+    const services = [
+      BleDiscoveredService(
+        uuid: svcUuid,
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: charUuid,
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+          ),
+        ],
+      ),
+    ];
+    final ble = FakeBleService();
+
+    await tester.pumpWidget(
+      await _wrap(
+        const DeviceControlPanel(
+          deviceId: '01',
+          deviceName: 'ACME_Pad',
+          services: services,
+        ),
+        ble: ble,
+        codec: FakeSpecCodec(
+          spec: spec,
+          matches: [
+            MatchResult(
+              spec: spec,
+              matchedByNamePrefix: true,
+              matchedServiceUuids: const [svcUuid],
+              confidence: MatchConfidence.strong,
+            ),
+          ],
+          encoded: Uint8List.fromList([0xF7, 0xFD]),
+        ),
+        specs: const {'pad.yaml': 'yaml'},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // One Start: the card's. The entity it resolved from is not drawn a
+    // second time as a generic control under it.
+    expect(find.text('Start'), findsOneWidget);
+    expect(find.text('Controls'), findsNothing);
+  });
+
   group('sensor-device readings', () {
     const svcUuid = '0000aab0-0000-1000-8000-00805f9b34fb';
     const radonChar = '0000aab1-0000-1000-8000-00805f9b34fb';

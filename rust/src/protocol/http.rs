@@ -565,16 +565,23 @@ pub fn endpoint_request(spec: &DeviceSpec, name: &str) -> Option<(String, String
 /// `/{api_version}/powerstate` means that same version. So the answer is read
 /// from the spec's own parameter declarations, by name.
 ///
-/// This is only sound because a name means one thing per spec: no spec in the
-/// catalogue declares one parameter name with two different defaults, which
-/// `a_parameter_name_means_one_thing_within_a_spec` pins. If that stops being
-/// true the resolution has to become a per-command question again, and the
-/// guard is what says so rather than a silently wrong path.
+/// This is only sound while the name means one thing across the spec, so it
+/// answers only then: when two commands declare the same name with different
+/// defaults, there is no "what the spec says the name means" to read, and the
+/// placeholder is reported missing instead of filled with whichever command
+/// happened to come first. A byte-stream spec legitimately reuses a name —
+/// the Brother QL's `flags` is a different bit field in each ESC command — and
+/// that is harmless right up until one of those names lands in a path, which
+/// `a_path_placeholder_means_one_thing_within_a_spec` pins against the
+/// catalogue.
 pub fn spec_wide_default(spec: &DeviceSpec, param: &str) -> Option<String> {
-    spec.commands
+    let mut declared = spec
+        .commands
         .values()
         .filter_map(|command| command.parameters.get(param))
-        .find_map(|p| p.default.as_ref().and_then(scalar_to_string))
+        .filter_map(|p| p.default.as_ref().and_then(scalar_to_string));
+    let first = declared.next()?;
+    declared.all(|other| other == first).then_some(first)
 }
 
 /// The credential a placeholder is sourced from, read across the spec by name.
@@ -1788,6 +1795,66 @@ entities:
             &spec(),
             "/{api_version}/powerstate"
         ));
+    }
+
+    #[test]
+    fn a_name_the_spec_declares_two_ways_is_not_guessed_into_a_path() {
+        // Two commands, one name, two defaults: the spec has not said what
+        // the name means, so a bare path naming it must report the
+        // placeholder missing rather than take whichever command sorts first.
+        let spec = parse_device_spec(
+            r#"
+device:
+  name: "Two Meanings"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "tv"
+commands:
+  one:
+    transport: "http"
+    method: "POST"
+    path: "/a/{mode}"
+    parameters:
+      mode:
+        type: "string"
+        default: "1"
+  two:
+    transport: "http"
+    method: "POST"
+    path: "/b/{mode}"
+    parameters:
+      mode:
+        type: "string"
+        default: "2"
+  agreed_one:
+    transport: "http"
+    method: "POST"
+    path: "/c/{version}"
+    parameters:
+      version:
+        type: "string"
+        default: "6"
+  agreed_two:
+    transport: "http"
+    method: "POST"
+    path: "/d/{version}"
+    parameters:
+      version:
+        type: "string"
+        default: "6"
+"#,
+        )
+        .expect("fixture parses");
+        assert_eq!(spec_wide_default(&spec, "mode"), None);
+        assert!(!path_renderable_from_spec(&spec, "/{mode}/state"));
+        // Agreement is still an answer, however many commands repeat it.
+        assert_eq!(spec_wide_default(&spec, "version").as_deref(), Some("6"));
+        // And each command keeps its own default for its own path.
+        assert_eq!(
+            render_request(&spec, "two", &values(&[])).unwrap().path,
+            "/b/2"
+        );
     }
 
     #[test]

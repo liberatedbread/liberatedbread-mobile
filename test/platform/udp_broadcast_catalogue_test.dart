@@ -72,6 +72,12 @@ const Map<String, String> _performed = {
   '9999/json_xor': 'TP-Link Kasa (_runKasa)',
   '6666/json': 'Tuya plaintext beacon (_runTuya)',
   '6667/json_aes': 'Tuya AES beacon (_runTuya)',
+  '1982/http':
+      'Yeelight `wifi_bulb` M-SEARCH to the :1982 multicast group '
+      '(_runYeelight)',
+  '4001/json':
+      'Govee LAN `scan` to the :4001 multicast group, answered on :4002 '
+      '(_runGovee)',
 };
 
 /// Probes with no `udp_broadcast` block behind them, keyed by port, each for a
@@ -83,14 +89,10 @@ const Map<int, String> _undeclared = {
       'not mDNS-discoverable in practice; the working route is the UDP '
       'getSystemConfig broadcast this app sends. The spec is incomplete, not '
       'this transport.',
-  1982:
-      'yeelight-wifi.yaml declares this as `ssdp` with multicast_port 1982, '
-      'which is what it is — an M-SEARCH on a non-standard port, not a bare '
-      'datagram exchange. Declared, just under the other block.',
-  4001:
-      'No Govee LAN spec exists. All six Govee specs in the catalogue are '
-      'BLE; the LAN API (4001/4002/4003) is undescribed.',
-  4002: 'As 4001.',
+  4002:
+      'The Govee reply port. govee-rgbic-light.yaml declares it — as the '
+      '`listen_port` of its :4001 probe — but nothing is sent TO it, so it '
+      'is not a probe port of its own.',
   3671: 'No KNX spec exists in the catalogue at all.',
   56700:
       'lifx-z.yaml describes the binary LAN protocol, but its discovery is '
@@ -188,6 +190,14 @@ const Map<String, String> _notPerformed = {
       'decodes 6666 as plaintext and 6667 as AES, per the generic spec and '
       'every published client. One of the two specs is wrong; until that is '
       'settled upstream, a gas sensor beaconing AES on 6666 is dropped.',
+  '9090/binary':
+      'led-space.yaml. Reachable only on the panel\'s own setup network (its '
+      '"YS…" access point, gateway 192.168.4.1), so this is an adoption-time '
+      'exchange rather than a LAN scan. The probe is a TLV '
+      '`{"cmd":{"get":"dev_info"}}` frame whose sequence number and checksum '
+      'change per send, which the spec gives as a builder in '
+      '`protocol_details` rather than fixed `probe_hex` — a transport needs '
+      'that builder, and the adopt flow needs to know the panel.',
   '10008/unspecified':
       'aqara-hub.yaml. A multicast "whois"/"iam" exchange: send plaintext JSON '
       'to the group 230.0.0.1:10008 carrying this host\'s IP and a listen '

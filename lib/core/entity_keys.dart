@@ -72,7 +72,17 @@ class EntityKeyIndex<E> {
   /// The remote card's rows, in the order it fills them. `_remoteCard` builds
   /// each row from the list beside it, so these ARE the layout rather than a
   /// second copy of it — which is what lets [knowsKey] answer honestly.
-  static const List<String> powerSlots = ['power', 'power_on', 'power_off'];
+  ///
+  /// `power_toggle` is the raw power key a spec lists beside its stateful
+  /// Power switch (Sony, Vizio, Samsung and Hisense call it "Power Key",
+  /// Philips "Standby"): a keypress that toggles, which belongs on the remote
+  /// with its siblings rather than in the leftover pile below it.
+  static const List<String> powerSlots = [
+    'power',
+    'power_toggle',
+    'power_on',
+    'power_off',
+  ];
 
   /// Back and Home are the pair every remote has; Exit sits with them because
   /// it is the same gesture one level further out.
@@ -102,11 +112,39 @@ class EntityKeyIndex<E> {
     'menu',
     'info',
   ];
+
+  /// The transport row, in the order a physical remote lays it out. Most
+  /// sets have a combined play/pause AND discrete keys, so both are slots;
+  /// `pause` and `stop` are the treadmill card's tokens too — the same verb on
+  /// a different surface, and each card only ever indexes its own entities.
   static const List<String> transportSlots = [
+    'previous',
     'rewind',
+    'play',
     'play_pause',
+    'pause',
+    'stop',
     'fast_forward',
+    'next',
+    'record',
   ];
+
+  /// The number pad, laid out 1-9 then 0 by the card.
+  static const List<String> digitSlots = [
+    'num_1',
+    'num_2',
+    'num_3',
+    'num_4',
+    'num_5',
+    'num_6',
+    'num_7',
+    'num_8',
+    'num_9',
+    'num_0',
+  ];
+
+  /// The four colour keys, in the order every remote prints them.
+  static const List<String> colorSlots = ['red', 'green', 'yellow', 'blue'];
   static const List<String> volumeSlots = ['volume_up', 'mute', 'volume_down'];
   static const List<String> channelSlots = ['channel_up', 'channel_down'];
   static const List<String> miscSlots = ['search', 'find_remote'];
@@ -130,6 +168,8 @@ class EntityKeyIndex<E> {
     ...channelSlots,
     ...miscSlots,
     ...inputSlots,
+    ...digitSlots,
+    ...colorSlots,
   ];
 
   /// The treadmill card's slots. Named individually for the same reason as the
@@ -150,6 +190,7 @@ class EntityKeyIndex<E> {
   /// verbatim, plus the treadmill card's. Additive-only.
   static const Map<String, Set<String>> _fallbackNames = {
     'power': {'Power'},
+    'power_toggle': {'Power Key', 'Standby'},
     'power_on': {'Power On'},
     'power_off': {'Power Off'},
     'back': {'Back'},
@@ -165,8 +206,26 @@ class EntityKeyIndex<E> {
     'replay': {'Replay'},
     'options': {'Options'},
     'rewind': {'Rewind'},
+    'play': {'Play'},
     'play_pause': {'Play/Pause'},
     'fast_forward': {'Fast Forward'},
+    'previous': {'Previous', 'Skip Previous'},
+    'next': {'Next', 'Skip Next'},
+    'record': {'Record'},
+    'num_0': {'0'},
+    'num_1': {'1'},
+    'num_2': {'2'},
+    'num_3': {'3'},
+    'num_4': {'4'},
+    'num_5': {'5'},
+    'num_6': {'6'},
+    'num_7': {'7'},
+    'num_8': {'8'},
+    'num_9': {'9'},
+    'red': {'Red'},
+    'green': {'Green'},
+    'yellow': {'Yellow'},
+    'blue': {'Blue'},
     'volume_up': {'Volume Up'},
     'volume_down': {'Volume Down'},
     'mute': {'Mute'},

@@ -617,7 +617,11 @@ pub fn encode_command_with_bytes(
                 let val = match def.and_then(|d| d.auto) {
                     Some(AutoRole::Sequence) => params.get(name.as_str()).copied().unwrap_or(0.0),
                     Some(
-                        role @ (AutoRole::Checksum | AutoRole::XorChecksum | AutoRole::Crc16Modbus),
+                        role @ (AutoRole::Checksum
+                        | AutoRole::XorChecksum
+                        | AutoRole::SubtractChecksum
+                        | AutoRole::Crc16Modbus
+                        | AutoRole::Crc8),
                     ) => match params.get(name.as_str()) {
                         // A supplied value is still honoured, so a stateless
                         // caller that already knows the checksum is not made
@@ -779,12 +783,17 @@ fn pad_to_fixed_length(mut bytes: Vec<u8>, command: &Command) -> Result<Vec<u8>,
 ///   (default 0).
 /// - [`AutoRole::XorChecksum`] folds them with XOR instead, which is how the
 ///   Govee 20-byte frames end.
+/// - [`AutoRole::SubtractChecksum`] subtracts their sum from `checksum_xor`
+///   (the seed), mod 256 — the BIO-key TouchLock idiom.
 /// - [`AutoRole::Crc16Modbus`] runs CRC-16/MODBUS over them (reflected poly
 ///   0xA001, init 0xFFFF, no final xor), which is MODBUS-RTU framing.
+/// - [`AutoRole::Crc8`] runs CRC-8/SMBUS over them (poly 0x07, init 0x00, no
+///   reflection, no final xor), which is how the cat printers end a frame.
 ///
-/// `checksum_xor` is a salt on the additive result and is deliberately not
-/// applied to the other two — no spec pairs them, and doing it silently would
-/// make one spelling mean two things.
+/// `checksum_xor` is a salt on the additive result, and the seed of the
+/// subtractive one; it is deliberately not applied to the XOR or CRC roles —
+/// no spec pairs them, and doing it silently would make one spelling mean two
+/// things.
 ///
 /// Returns `u16` because the MODBUS CRC is two bytes; the one-byte roles widen.
 /// The caller emits the value through the ordinary numeric path, so the
@@ -823,6 +832,12 @@ fn compute_checksum(
     match role {
         AutoRole::XorChecksum => Ok(u16::from(span.iter().fold(0u8, |acc, b| acc ^ b))),
         AutoRole::Crc16Modbus => Ok(crc16_modbus(span)),
+        AutoRole::Crc8 => Ok(u16::from(crc8_smbus(span))),
+        AutoRole::SubtractChecksum => {
+            let sum = span.iter().fold(0u8, |acc, b| acc.wrapping_add(*b));
+            let seed = (def.checksum_xor.unwrap_or(0) & 0xFF) as u8;
+            Ok(u16::from(seed.wrapping_sub(sum)))
+        }
         _ => {
             let sum: u32 = span.iter().map(|b| u32::from(*b)).sum();
             // `checksum_xor` is i64 like every spec number; only its low byte
@@ -849,6 +864,25 @@ fn crc16_modbus(data: &[u8]) -> u16 {
             if lsb {
                 crc ^= 0xA001;
             }
+        }
+    }
+    crc
+}
+
+/// CRC-8/SMBUS: polynomial 0x07, init 0x00, no reflection, no final xor.
+///
+/// Bitwise for the same reason [`crc16_modbus`] is. The cat-printer clients
+/// all ship this as a 256-entry table; the table is this loop, precomputed.
+fn crc8_smbus(data: &[u8]) -> u8 {
+    let mut crc: u8 = 0;
+    for byte in data {
+        crc ^= byte;
+        for _ in 0..8 {
+            crc = if crc & 0x80 != 0 {
+                (crc << 1) ^ 0x07
+            } else {
+                crc << 1
+            };
         }
     }
     crc
@@ -2260,6 +2294,121 @@ mod tests {
         let additive = span.iter().fold(0u32, |a, b| a + u32::from(*b)) as u8;
         assert_ne!(crc & 0xFF, u16::from(xor) & 0xFF);
         assert_ne!(crc & 0xFF, u16::from(additive) & 0xFF);
+    }
+
+    // ── auto: crc8 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn crc8_smbus_matches_the_standard_check_vector() {
+        // The catalogue check value for CRC-8/SMBUS: "123456789" -> 0xF4.
+        assert_eq!(crc8_smbus(b"123456789"), 0xF4);
+    }
+
+    /// A cat printer's `set_speed`: `51 78 BD 00 01 00 <speed> <crc> FF`, the
+    /// CRC over the one payload byte (`checksum_start: 6`), then the trailer.
+    fn cat_printer_set_speed() -> Command {
+        Command {
+            description: "feed speed".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x51),
+                TemplateElement::Byte(0x78),
+                TemplateElement::Byte(0xBD),
+                TemplateElement::Byte(0x00),
+                TemplateElement::Byte(0x01),
+                TemplateElement::Byte(0x00),
+                TemplateElement::Param("speed".into()),
+                TemplateElement::Param("crc".into()),
+                TemplateElement::Byte(0xFF),
+            ]),
+            parameters: Some(pset([
+                ("speed", param(ValueType::Uint8, Some(0), Some(255))),
+                (
+                    "crc",
+                    Parameter {
+                        value_type: ValueType::Uint8,
+                        auto: Some(AutoRole::Crc8),
+                        checksum_start: Some(6),
+                        ..Default::default()
+                    },
+                ),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: None,
+        }
+    }
+
+    #[test]
+    fn crc8_covers_the_payload_and_leaves_the_trailer_alone() {
+        // 0x32 -> 0x9E is the pair every cat-printer client sends as its fixed
+        // "200 dpi" frame, so the encoder must reproduce it byte for byte.
+        let out = encode_command(
+            &cat_printer_set_speed(),
+            &HashMap::from([("speed".into(), 0x32 as f64)]),
+        )
+        .unwrap();
+        assert_eq!(out, [0x51, 0x78, 0xBD, 0x00, 0x01, 0x00, 0x32, 0x9E, 0xFF]);
+    }
+
+    #[test]
+    fn crc8_is_not_a_user_control() {
+        let cmd = cat_printer_set_speed();
+        let crc = &cmd.parameters.as_ref().unwrap().params["crc"];
+        assert_eq!(crc.auto, Some(AutoRole::Crc8));
+        assert!(
+            encode_command(&cmd, &HashMap::from([("speed".into(), 8.0)])).is_ok(),
+            "speed alone must be enough to send"
+        );
+    }
+
+    // ── auto: subtract_checksum ─────────────────────────────────────────────
+
+    #[test]
+    fn subtract_checksum_is_the_seed_minus_the_span_sum() {
+        // BIO-key TouchLock framing: the whole frame is summed
+        // (`checksum_start: 0`) and subtracted from the 0x5A seed. The sum
+        // here overflows a byte, so the wrap is exercised too.
+        let cmd = Command {
+            description: "subtractive frame".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0xAA),
+                TemplateElement::Byte(0x55),
+                TemplateElement::Param("arg".into()),
+                TemplateElement::Param("sum".into()),
+            ]),
+            parameters: Some(pset([
+                ("arg", param(ValueType::Uint8, Some(0), Some(255))),
+                (
+                    "sum",
+                    Parameter {
+                        value_type: ValueType::Uint8,
+                        auto: Some(AutoRole::SubtractChecksum),
+                        checksum_start: Some(0),
+                        checksum_xor: Some(0x5A),
+                        ..Default::default()
+                    },
+                ),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+            fixed_length: None,
+        };
+        let out = encode_command(&cmd, &HashMap::from([("arg".into(), 0x10 as f64)])).unwrap();
+        let sum = (0xAAu32 + 0x55 + 0x10) as u8;
+        assert_eq!(out[3], 0x5Au8.wrapping_sub(sum));
+        // And it is not the additive answer with the seed as a salt, which
+        // is the mistake a reader that ignored the role would make.
+        assert_ne!(out[3], sum ^ 0x5A);
     }
 
     /// 12 continuation bytes (all high-bit set) must not overflow the shift —

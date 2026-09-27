@@ -228,9 +228,25 @@ class DeviceControlPanel extends ConsumerWidget {
     // plumbing. When the matched spec says this is a sensor and its readings
     // are on screen, the raw service cards start folded so the first screen
     // is radon and CO₂, not the OAD firmware service — still one tap away.
+    final category = DeviceCategory.parse(match?.spec.category);
     final foldRawServices =
-        readings.isNotEmpty &&
-        DeviceCategory.parse(match?.spec.category) == DeviceCategory.sensor;
+        readings.isNotEmpty && category == DeviceCategory.sensor;
+
+    // A treadmill's Start/Stop/Target Speed are the card's big buttons and
+    // slider above everything; listing them again as generic cards under it
+    // drew every verb twice.
+    final drawnByTreadmillCard =
+        match != null && category == DeviceCategory.treadmill
+        ? treadmillCardEntityNames(
+            match.spec,
+            services,
+            match.spec.entities.where(forThisDevice).toList(),
+          )
+        : const <String>{};
+    final listedControls = [
+      for (final control in controls)
+        if (!drawnByTreadmillCard.contains(control.entity.name)) control,
+    ];
 
     // Leading slots above the raw service list: the spec chooser when several
     // specs tie (raw controls stay usable below it), a banner when the active
@@ -275,14 +291,14 @@ class DeviceControlPanel extends ConsumerWidget {
           storedUpload: match.spec.storedUpload,
           specYaml: match.yaml,
           manufacturerData: manufacturerData,
+          isPrinter: category == DeviceCategory.printer,
         ),
       // A treadmill gets its transport-and-speed card above everything else:
       // the per-characteristic command widgets below expose the same commands,
       // but start/stop on a moving belt should not require finding the right
       // characteristic first. The card decides for itself whether the matched
       // spec resolves any verbs and renders nothing when it does not.
-      if (match != null &&
-          DeviceCategory.parse(match.spec.category) == DeviceCategory.treadmill)
+      if (match != null && category == DeviceCategory.treadmill)
         TreadmillControlCard(
           key: const ValueKey('treadmill-control-card'),
           deviceId: deviceId,
@@ -295,12 +311,13 @@ class DeviceControlPanel extends ConsumerWidget {
           // entity made it drive whichever generation the spec listed first.
           entities: match.spec.entities.where(forThisDevice).toList(),
         ),
-      if (controls.isNotEmpty)
+      if (listedControls.isNotEmpty)
         _ControlsSection(
           key: const ValueKey('controls-section'),
           deviceId: deviceId,
-          controls: controls,
+          controls: listedControls,
           specYaml: match!.yaml,
+          category: category,
         ),
       if (readings.isNotEmpty)
         _ReadingsSection(
@@ -798,11 +815,16 @@ class _ControlsSection extends StatelessWidget {
   final List<({EntityDto entity, String? stateServiceUuid})> controls;
   final String specYaml;
 
+  /// The matched spec's device class, for the controls whose meaning depends
+  /// on it — a lock's switch is its bolt.
+  final DeviceCategory? category;
+
   const _ControlsSection({
     super.key,
     required this.deviceId,
     required this.controls,
     required this.specYaml,
+    this.category,
   });
 
   @override
@@ -843,6 +865,13 @@ class _ControlsSection extends StatelessWidget {
                 stateServiceUuid: control.stateServiceUuid,
                 entity: control.entity,
                 specYaml: specYaml,
+                // A lock's switch is its bolt; any other switch on a lock (an
+                // auto-lock setting, say) is an ordinary on/off.
+                isLock:
+                    category == DeviceCategory.lock &&
+                    (control.entity.key == 'lock' ||
+                        control.entity.deviceClass == 'lock' ||
+                        control.entity.name == 'Lock'),
               ),
             },
             const SizedBox(height: 10),
