@@ -32,6 +32,23 @@ heading.
   `LB_DIRECT_ATT=off` leaves the stock BlueZ backend in place (without the
   two Linux fixes below either). Linux only, and built to be deleted
   when BlueZ changes — see docs/LINUX_DIRECT_ATT.md.
+- **Baofeng handhelds are devices the app programs.** A Radio tab plans
+  channels with or without a radio in the room: pick a model, and *Suggest
+  channels near me* gathers the nationwide presets (FRS, GMRS, MURS, the
+  calling frequencies, the NOAA weather channels) and repeaters from
+  RepeaterBook and myGMRS, filtered to what that radio can use where you are;
+  a plan exports as a CSV that CHIRP opens. A radio in Bluetooth range shows
+  up in Nearby under its advertised name and opens its own screen — identify,
+  read and back up, write a plan, restore a backup — and every write reads the
+  radio first and puts that copy on disk before a byte is sent. One transport
+  per family: the UV-17Pro family (UV-5R Mini, UV-5G Mini, UV-32) over the
+  radio's own Bluetooth; the UV-5R family (UV-5R, UV-82, GT-5R, BF-F8HP,
+  AR-152) over a USB programming cable from a new USB tab — Android through
+  its USB host stack, Linux and macOS through the `serialport` crate, the one
+  transport that lives in the Rust core. iOS has no route to a cable, and the
+  tab says so. The UV-5R family's transmit limits can be widened and put back,
+  shown as unverified. The app now asks for location while in use (for the
+  repeater lookup) and declares the optional USB-host feature on Android.
 
 ### Security
 
