@@ -35,6 +35,17 @@ See [docs/CLEANROOM_RULES.md](../docs/CLEANROOM_RULES.md) for the full rules.
 2) Acquire APK:
    - Use ./scripts/fetch_apks_apkeep.sh
    - If not available, install on an Android phone and use ./scripts/pull_apks_adb.sh
+   - If every scriptable backend fails (apk-pure / huawei / aptoide), do NOT
+     declare the app dead or skip the target silently. Mark it MANUAL-LOOK and
+     say so prominently in the target notes — a human with a browser or a
+     phone can often still get it: Play Store via browser/Aurora session,
+     `adb pull` from a device that has it installed, apkmirror (not
+     scriptable), vendor help-center APK links, or Wayback snapshots of the
+     vendor download page. Several "impossible" apps were later recovered this
+     way; a human look is always worth asking for.
+   - After any acquisition, sanity-check the package identity of the file
+     (`aapt dump badging`) before decompiling — mirror mixups and fuzzy-search
+     name collisions are a real failure mode.
 3) Static analysis (one target at a time by default):
    - Run ./scripts/run_static_target.sh <target_id>
    - If doing batch triage, run ./scripts/run_static_all.sh

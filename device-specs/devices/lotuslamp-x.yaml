@@ -324,7 +324,7 @@ services:
             parameters:
               hours: { type: "uint8", min: 0, max: 23 }
               minutes: { type: "uint8", min: 0, max: 59 }
-              timer_type: { type: "uint8", allowed: [0, 1], labels: ["switch-on timer", "switch-off timer"] }
+              timer_type: { type: "uint8", min: 0, max: 1, labels: ["switch-on timer", "switch-off timer"] }
               days: { type: "uint8" }
 
       - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"

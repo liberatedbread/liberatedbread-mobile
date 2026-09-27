@@ -447,7 +447,8 @@ services:
                 notes: "Raw value; Kelvin mapping MEDIUM confidence."
               ww_mode:
                 type: "uint8"
-                allowed: [0, 1, 2]
+                min: 0
+                max: 2
                 labels: ["static", "gradient", "strobe"]
               speed:
                 type: "uint8"
@@ -471,7 +472,8 @@ services:
                 max: 4294967295
               "on":
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["cancel", "start"]
               sum:
                 type: "uint8"
@@ -492,7 +494,8 @@ services:
                 max: 4294967295
               tz_sign:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["negative (west of UTC)", "positive (east of UTC)"]
               tz_offset_minutes:
                 type: "uint16"

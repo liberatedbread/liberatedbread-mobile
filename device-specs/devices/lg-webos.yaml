@@ -892,16 +892,19 @@ entities:
       press: "media_rewind"
   - platform: "button"
     name: "Play"
+    key: "play"
     icon: "mdi:play"
     commands:
       press: "media_play"
   - platform: "button"
     name: "Pause"
+    key: "pause"
     icon: "mdi:pause"
     commands:
       press: "media_pause"
   - platform: "button"
     name: "Stop"
+    key: "stop"
     icon: "mdi:stop"
     commands:
       press: "media_stop"

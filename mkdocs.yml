@@ -232,6 +232,7 @@ nav:
   - Reverse Engineering Workspace:
       - Executive Summary: EXEC_SUMMARY.md
       - Candidate Devices & Hardware Sourcing: research/device-candidates.md
+      - Missing Devices (2026-09 survey): research/missing-devices.md
       - Clean-room Rules: CLEANROOM_RULES.md
       - Auto-detection Workflow: AUTODETECTION.md
       - APK Decompile Playbook: APK_DECOMPILE_PLAYBOOK.md

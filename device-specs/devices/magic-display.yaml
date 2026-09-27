@@ -418,7 +418,8 @@ services:
                 description: "Low byte of the big-endian 16-bit data length."
               link_flag:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["single display", "linked pair (daisy-chained N-size display)"]
                 default: 0
                 description: >

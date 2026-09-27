@@ -322,12 +322,14 @@ services:
             parameters:
               page:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["start", "next"]
                 description: "0x00 = START (begin log dump), 0x01 = NEXT (continue paging)"
               checksum:
                 type: "uint8"
-                allowed: [0x19, 0x1A]
+                min: 25
+                max: 26
                 description: "(page - 0x67) & 0x7F — 0x19 for START, 0x1A for NEXT"
 
       - uuid: "0000ff02-0000-1000-8000-00805f9b34fb"

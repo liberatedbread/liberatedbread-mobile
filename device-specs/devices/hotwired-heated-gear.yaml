@@ -181,7 +181,8 @@ services:
             parameters:
               status:
                 type: "uint8"
-                allowed: [0x00, 0x01]
+                min: 0
+                max: 1
                 labels: ["Off", "On"]
                 default: 1
                 description: >

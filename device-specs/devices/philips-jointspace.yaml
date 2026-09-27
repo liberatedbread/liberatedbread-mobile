@@ -1333,6 +1333,7 @@ entities:
       otherwise.
   - platform: "button"
     name: "Standby"
+    key: "power_toggle"
     icon: "mdi:power-standby"
     commands:
       press: "press_standby"
@@ -1417,11 +1418,13 @@ entities:
       press: "press_rewind"
   - platform: "button"
     name: "Play"
+    key: "play"
     icon: "mdi:play"
     commands:
       press: "press_play"
   - platform: "button"
     name: "Pause"
+    key: "pause"
     icon: "mdi:pause"
     commands:
       press: "press_pause"
@@ -1434,6 +1437,7 @@ entities:
     notes: "Same as Play on Android models."
   - platform: "button"
     name: "Stop"
+    key: "stop"
     icon: "mdi:stop"
     commands:
       press: "press_stop"
@@ -1445,16 +1449,19 @@ entities:
       press: "press_fast_forward"
   - platform: "button"
     name: "Record"
+    key: "record"
     icon: "mdi:record-rec"
     commands:
       press: "press_record"
   - platform: "button"
     name: "Previous"
+    key: "previous"
     icon: "mdi:skip-previous"
     commands:
       press: "press_previous"
   - platform: "button"
     name: "Next"
+    key: "next"
     icon: "mdi:skip-next"
     commands:
       press: "press_next"
@@ -1490,38 +1497,47 @@ entities:
       press: "press_channel_down"
   - platform: "button"
     name: "1"
+    key: "num_1"
     commands:
       press: "press_digit_1"
   - platform: "button"
     name: "2"
+    key: "num_2"
     commands:
       press: "press_digit_2"
   - platform: "button"
     name: "3"
+    key: "num_3"
     commands:
       press: "press_digit_3"
   - platform: "button"
     name: "4"
+    key: "num_4"
     commands:
       press: "press_digit_4"
   - platform: "button"
     name: "5"
+    key: "num_5"
     commands:
       press: "press_digit_5"
   - platform: "button"
     name: "6"
+    key: "num_6"
     commands:
       press: "press_digit_6"
   - platform: "button"
     name: "7"
+    key: "num_7"
     commands:
       press: "press_digit_7"
   - platform: "button"
     name: "8"
+    key: "num_8"
     commands:
       press: "press_digit_8"
   - platform: "button"
     name: "9"
+    key: "num_9"
     commands:
       press: "press_digit_9"
   - platform: "button"
@@ -1530,22 +1546,27 @@ entities:
       press: "press_dot"
   - platform: "button"
     name: "0"
+    key: "num_0"
     commands:
       press: "press_digit_0"
   - platform: "button"
     name: "Red"
+    key: "red"
     commands:
       press: "press_red"
   - platform: "button"
     name: "Green"
+    key: "green"
     commands:
       press: "press_green"
   - platform: "button"
     name: "Yellow"
+    key: "yellow"
     commands:
       press: "press_yellow"
   - platform: "button"
     name: "Blue"
+    key: "blue"
     commands:
       press: "press_blue"
   - platform: "button"

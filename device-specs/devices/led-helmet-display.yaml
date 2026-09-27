@@ -317,7 +317,8 @@ services:
             parameters:
               direction:
                 type: "uint8"
-                allowed: [0, 1, 2, 3, 4, 5]
+                min: 0
+                max: 5
                 notes: >
                   UI index 0-5. The index-to-meaning map (off / left /
                   right / hazard / brake / ?) is NOT verified — the six
@@ -329,7 +330,8 @@ services:
             parameters:
               state:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           # Discrete pair for the on/off roles. `set_power` carries a
           # parameter, and a role binding is a name with no room for an
@@ -354,7 +356,8 @@ services:
             parameters:
               state:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           set_mic:
             description: "Microphone / music-rhythm mode command (6-byte frame; 2 payload bytes, meanings not traced)"
@@ -374,7 +377,8 @@ services:
             parameters:
               state:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           voice_on:
             description: "Voice activation ON (set_voice_switch with state=1)."

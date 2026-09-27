@@ -256,7 +256,8 @@ services:
             parameters:
               density:
                 type: "uint8"
-                allowed: [0, 1, 2]
+                min: 0
+                max: 2
                 labels: ["light", "medium", "thick"]
                 default: 1
                 description: "Darkness code."
@@ -267,7 +268,8 @@ services:
             parameters:
               paper_type:
                 type: "uint8"
-                allowed: [0, 1, 2]
+                min: 0
+                max: 2
                 labels: ["gap label", "black mark", "continuous"]
                 default: 0
                 description: "Stock code."
@@ -286,7 +288,8 @@ services:
             parameters:
               mode:
                 type: "uint8"
-                allowed: [0, 1, 2, 3]
+                min: 0
+                max: 3
                 labels: ["normal", "double width", "double height", "double width and height"]
                 default: 0
                 description: "GS v 0 scaling mode; the app sends 0."

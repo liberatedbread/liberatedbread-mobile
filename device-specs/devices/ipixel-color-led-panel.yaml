@@ -243,7 +243,8 @@ services:
             parameters:
               state:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           # Discrete pair for the on/off roles — see led-helmet-display.yaml
           # for the same shape: a role binding is a name with no room for an
@@ -269,7 +270,8 @@ services:
             parameters:
               state:
                 type: "uint8"
-                allowed: [0, 1]
+                min: 0
+                max: 1
                 labels: ["OFF", "ON"]
           fun_mode_on:
             description: "Enable DIY ('fun') mode (set_fun_mode with state=1, opcode 0x0104)."
@@ -292,15 +294,16 @@ services:
             parameters:
               orientation:
                 type: "uint8"
-                allowed: [0, 1, 2, 3]
+                min: 0
+                max: 3
                 notes: "0/90/180/270-degree index; the index-to-angle map is community-assumed, verify on hardware."
           set_clock_mode:
             description: "Show a clock face (opcode 0x0106). Style 0-8, plus 12/24 h, show-date toggle and the current date."
             template: [0x0B, 0x00, 0x06, 0x01, "{style}", "{format_24}", "{show_date}", "{year}", "{month}", "{day}", "{day_of_week}"]
             parameters:
               style: {type: "uint8", min: 0, max: 8}
-              format_24: {type: "uint8", allowed: [0, 1]}
-              show_date: {type: "uint8", allowed: [0, 1]}
+              format_24: {type: "uint8", min: 0, max: 1}
+              show_date: {type: "uint8", min: 0, max: 1}
               year: {type: "uint8", min: 0, max: 99, notes: "Two-digit year"}
               month: {type: "uint8", min: 1, max: 12}
               day: {type: "uint8", min: 1, max: 31}
@@ -344,7 +347,7 @@ services:
             template: [0x06, 0x00, 0x00, 0x02, "{speed}", "{style}"]
             parameters:
               speed: {type: "uint8", min: 0, max: 7, notes: "Animation speed 0-7 (the byte the app labels a timing value)"}
-              style: {type: "uint8", allowed: [0, 1]}
+              style: {type: "uint8", min: 0, max: 1}
           show_slot:
             description: >
               Display a stored content slot (1-9; empty slots are

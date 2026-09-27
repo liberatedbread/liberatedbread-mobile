@@ -226,7 +226,8 @@ services:
                 description: "Byte 7: bit N set = slot N shows the animated border."
               mode:
                 type: "uint8"
-                allowed: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+                min: 0
+                max: 8
                 labels: ["scroll left", "scroll right", "scroll up", "scroll down", "fixed", "animation", "snowflake / drop-down", "picture / curtain", "laser"]
                 default: 4
                 description: "Byte 8, slot 1's animation (low nibble); the speed nibble is 0 in this template. Table from BadgeBLE.md and ls32's --mode help; Elektor's sniff: speed 8 + scroll right = 0x71."

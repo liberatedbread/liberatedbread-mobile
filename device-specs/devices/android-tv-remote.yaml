@@ -756,16 +756,19 @@ entities:
       press: "press_fast_forward"
   - platform: "button"
     name: "Previous"
+    key: "previous"
     icon: "mdi:skip-previous"
     commands:
       press: "press_previous"
   - platform: "button"
     name: "Next"
+    key: "next"
     icon: "mdi:skip-next"
     commands:
       press: "press_next"
   - platform: "button"
     name: "Stop"
+    key: "stop"
     icon: "mdi:stop"
     commands:
       press: "press_stop"

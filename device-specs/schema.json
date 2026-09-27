@@ -3230,6 +3230,201 @@
             }
           ]
         },
+        "host_compatibility": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Whether a host platform's own Bluetooth stack -- the GATT client every ordinary app on that platform talks through -- can drive this device, one verdict per stack (or per stack and variant). The question underneath `pairing`: a device can need no bond at all and still be unusable from a Linux desktop, because bluetoothd opens every connection with a request its firmware never answers. Absent means nobody has said, never 'compatible'. An `incompatible` verdict names the `symptom` a user sees and the `workaround` a client can take instead; the device-side fact underneath it, where known, is `cause`.",
+          "$comment": "A consumer binds to this, which is why it is a declared key and not prose or `protocol_details`: the mobile app routes a device whose spec says `stack: bluez`, `status: incompatible`, `workaround: raw_att` (with no `variants`) over its own ATT channel from the FIRST connection, instead of handing the link to bluetoothd, waiting out a 32 s stall and only then learning to go direct. Until this block existed the only record of such a device was a BLUEZ QUIRK paragraph in `device.notes`, which nothing reads. It sits beside `pairing`, not under `setup.methods[].ble`, for the reason `pairing` does: most BLE specs have no provisioning method to hang it off. Absent is 'nobody has said' rather than 'compatible' because silence is the norm here -- nearly every spec was written on one platform -- and reading it as a clean bill of health would turn every untested stack into a claim. The vocabularies hold what the catalogue uses, plus the four stacks and an honest `unknown`, and grow when a spec needs a value; consumers compare strings, so an addition fails only the comparison looking for it. `symptom` shares its name with `troubleshooting[].symptom` on purpose: the same question, closed here so a consumer can branch on it.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "stack",
+              "status",
+              "verification"
+            ],
+            "properties": {
+              "stack": {
+                "type": "string",
+                "enum": [
+                  "bluez",
+                  "android",
+                  "corebluetooth",
+                  "windows"
+                ],
+                "description": "The host stack the verdict is about. 'bluez' -- Linux's bluetoothd, and so everything layered on its GATT client (bleak, bluetoothctl, flutter_blue_plus's Linux backend). 'android' -- the Android Bluetooth stack. 'corebluetooth' -- iOS, iPadOS and macOS. 'windows' -- the Windows Bluetooth LE stack. A stack, not a library: every client on one stack inherits its GATT client's behaviour, which is what makes one verdict hold for all of them."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "compatible",
+                  "degraded",
+                  "incompatible",
+                  "unknown"
+                ],
+                "description": "'compatible' -- the stack's own GATT client drives the device with no special handling. 'degraded' -- it works once something outside the protocol is fixed on the host, or only part of the surface does. 'incompatible' -- the stack's own client cannot drive the device, and `symptom` and `workaround` are then required. 'unknown' -- someone looked and could not tell; say what was tried in `notes`. When nobody has looked, leave the stack out."
+              },
+              "symptom": {
+                "type": "string",
+                "enum": [
+                  "stall_then_empty",
+                  "partial_services",
+                  "disconnect",
+                  "pairing_failure",
+                  "other"
+                ],
+                "description": "How the failure shows to a client on that stack, so a consumer can recognise it and a person can match it to what they see. 'stall_then_empty' -- discovery hangs for the stack's ATT timeout, then resolves with no services. 'partial_services' -- discovery ends quickly but exports only some services, usually just Generic Access and Generic Attribute. 'disconnect' -- the link drops during or right after discovery. 'pairing_failure' -- the stack starts pairing on its own (on an Insufficient Authentication error, say) and the attempt fails or ends the link. 'other' -- none of those; describe it in `notes`."
+              },
+              "cause": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "att_opcode",
+                  "response"
+                ],
+                "description": "The device-side fact under the verdict, where it is known: which ATT request the stack sends and what the device does with it. It stays true whatever the stack does next, so it is what a reader reasons from about a stack not listed here.",
+                "properties": {
+                  "att_opcode": {
+                    "type": "string",
+                    "enum": [
+                      "exchange_mtu",
+                      "read_by_type"
+                    ],
+                    "description": "The request, named as the Core Specification's ATT PDU in snake_case (Vol 3, Part F, 3.4). Only the ones the catalogue has needed so far; spell the next one the same way (`read_by_group_type`, `find_information`)."
+                  },
+                  "uuid": {
+                    "$ref": "#/$defs/uuid",
+                    "description": "The attribute type the request asks about, when it names one -- a by-type read of Server Supported Features is 00002b3a-0000-1000-8000-00805f9b34fb."
+                  },
+                  "response": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "duplicate"
+                    ],
+                    "description": "'none' -- never answered, neither a response nor an error, so the client waits out the 30 s ATT transaction timeout and must then treat the bearer as closed. 'duplicate' -- a second response arrives while the client waits on a later request, and a stack that pairs by arrival hands it to the wrong one."
+                  }
+                }
+              },
+              "workaround": {
+                "type": "string",
+                "enum": [
+                  "raw_att",
+                  "host_config",
+                  "none_known"
+                ],
+                "description": "What a client on that stack can do instead. 'raw_att' -- own the ATT fixed channel (L2CAP CID 4) itself instead of going through the stack's GATT client, and never send the request the device mishandles: on Linux, gatttool, or an app that opens CID 4 before the link comes up so bluetoothd's GATT client never attaches. 'host_config' -- a setting or service on the host fixes it (a registered pairing agent); say which in `notes`. 'none_known' -- nobody has found one."
+              },
+              "variants": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Which of `device.variants` the verdict applies to, by `model`, as for `features[].variants`. Omit when it holds for the whole family. One stack must not be covered twice for a model. A consumer that cannot tell the variants apart before connecting must not read a scoped verdict as the family's -- SwitchBot's Curtain and Curtain 3 share one name prefix."
+              },
+              "observed_versions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Stack versions the verdict was observed on, as the stack numbers them (BlueZ '5.85'). What was seen, not a range: a reader can then tell a verdict from last month's release from one nobody has rechecked since."
+              },
+              "verification": {
+                "$ref": "#/$defs/verification",
+                "description": "How the verdict is known. 'confirmed' -- a client on that stack was run against the hardware, or our own capture shows the stack at work; 'reported' -- someone else says so; 'hypothesis' -- inferred. The two unconfirmed values require a `basis`."
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Where an unconfirmed verdict comes from -- an issue URL, a forum thread, one user's report -- and anything that weakens it. Required when `verification` is 'reported' or 'hypothesis', as it is for a candidate reset procedure."
+              },
+              "notes": {
+                "type": "string",
+                "description": "The long form: mechanism, evidence, what was tried."
+              }
+            },
+            "allOf": [
+              {
+                "$comment": "An incompatible verdict with no symptom tells a user nothing they can recognise, and with no workaround tells a client nothing it can do. 'none_known' is an answer; silence is not.",
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "incompatible"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "symptom",
+                    "workaround"
+                  ]
+                }
+              },
+              {
+                "$comment": "An unconfirmed verdict must cite its basis, for the reason a candidate reset procedure must: 'one user on an issue tracker' and 'we ran it on the bench' warrant different trust, and a routing consumer is the one that pays.",
+                "if": {
+                  "properties": {
+                    "verification": {
+                      "enum": [
+                        "reported",
+                        "hypothesis"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "verification"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "basis"
+                  ]
+                }
+              },
+              {
+                "$comment": "A stack that drives the device has no failure to describe: a symptom, cause or workaround on a compatible verdict reads as a reason to avoid a stack that works.",
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "compatible"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "symptom"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "cause"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "workaround"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
         "variants": {
           "type": "array",
           "description": "Distinct device models covered by this one spec because they speak the same protocol, but which differ in command set or in what hardware they actually have -- BLE families sharing service UUIDs, and LAN families sharing a control protocol (the metering and non-metering Kasa plugs answer the same port-9999 JSON). Consumers match a connected device to a variant via its identification block, and an `entities[].variants` list says which models actually expose a given entity: without that pairing a spec draws a permanently unavailable control on the half of the family whose hardware does not have the sensor.",
@@ -4347,6 +4542,29 @@
                               }
                             },
                             {
+                              "$comment": "`labels` names the values a parameter takes, in order: the `allowed` list when there is one, otherwise the `min`..`max` range. On their own, with neither, there is nothing to name. min/max is the natural way to say a contiguous set (a two-position switch is `min: 0, max: 1`); `allowed` is for a set with gaps, where 1, 2, 5 and 7 are valid and 3 is not.",
+                              "if": {
+                                "required": [
+                                  "labels"
+                                ]
+                              },
+                              "then": {
+                                "anyOf": [
+                                  {
+                                    "required": [
+                                      "allowed"
+                                    ]
+                                  },
+                                  {
+                                    "required": [
+                                      "min",
+                                      "max"
+                                    ]
+                                  }
+                                ]
+                              }
+                            },
+                            {
                               "$comment": "`values` arrives here through $defs/number_semantics, where it is the DECODE-side code table for a reading. A write parameter states its enumeration as `allowed` (the raw values the device accepts) plus `labels` (their names, paired by index) -- the same fact, in the direction a consumer building a control needs it. Nine parameters across three specs wrote `values: {0: off, 1: on}` here and a consumer implementing what this block declares saw no constraint at all and drew a 0..255 slider over a two-position switch. Rejected rather than aliased so the catalogue says each thing once.",
                               "not": {
                                 "required": [
@@ -4371,7 +4589,7 @@
                                 "type": "integer"
                               },
                               "minItems": 1,
-                              "description": "The complete set of RAW values the device accepts, when it is a set rather than a range. A consumer offers a choice among these instead of a min..max control -- the difference between picking 'Channel 2' and hunting for 0x02 on a 0-255 slider. Use `min`/`max` when every value in between is meaningful."
+                              "description": "The complete set of RAW values the device accepts, when that set has gaps (1, 2, 5 and 7 but not 3). A contiguous set is written as `min`/`max` instead -- `min: 0, max: 1` for a two-position switch -- with `labels` naming its values either way; the test suite rejects an `allowed` list that is only a range restated. A consumer offers a choice among these values rather than a slider."
                             },
                             "labels": {
                               "type": "array",
@@ -4379,7 +4597,7 @@
                                 "type": "string"
                               },
                               "minItems": 1,
-                              "description": "Human-readable names for `allowed`, paired by index. Only meaningful alongside `allowed`, and the two lengths must match exactly: a consumer that finds them mismatched should keep the values and drop the labels rather than pair them off by position and mislabel a control."
+                              "description": "Human-readable names for the values this parameter takes, paired by position: with `allowed`, one per entry; without it, one per value of the contiguous `min`..`max` range, `min` first (`min: 0, max: 1, labels: [off, on]`). The count must match exactly: a consumer that finds it mismatched should keep the values and drop the labels rather than pair them off by position and mislabel a control."
                             },
                             "notes": {
                               "type": "string",
@@ -6635,7 +6853,7 @@
           "key": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
-            "description": "Optional machine-stable semantic token for this entity, snake_case, drawn from the documented vocabulary (pytest-enforced, see test_device_specs.py): remote keys -- power, power_on, power_off, back, home, up, down, left, right, ok, replay, options, rewind, play_pause, fast_forward, volume_up, volume_down, mute, channel_up, channel_down, search, find_remote, input_hdmi1..input_hdmi4, input_av, input_tuner, exit, menu, info, keyboard; treadmill keys -- start, pause, stop, speed. A consumer uses `key` to lay out a remote-shaped surface (D-pad, transport row, volume cluster) or a treadmill card without matching display names; `name` stays the human label and the uniqueness handle. Two entities in one spec may share a key only when variant-disjoint. A consumer that ignores this key sees the entity exactly as before.",
+            "description": "Optional machine-stable semantic token for this entity, snake_case, drawn from the documented vocabulary (pytest-enforced, see test_device_specs.py): remote keys -- power, power_on, power_off, power_toggle (the raw power key beside a stateful Power switch), back, home, up, down, left, right, ok, replay, options, rewind, play_pause, play, pause, stop, previous, next, record, fast_forward, volume_up, volume_down, mute, channel_up, channel_down, search, find_remote, input_hdmi1..input_hdmi4, input_av, input_tuner, exit, menu, info, keyboard, num_0..num_9, red, green, yellow, blue; treadmill keys -- start, pause, stop, speed. A consumer uses `key` to lay out a remote-shaped surface (D-pad, transport row, volume cluster) or a treadmill card without matching display names; `name` stays the human label and the uniqueness handle. Two entities in one spec may share a key only when variant-disjoint. A consumer that ignores this key sees the entity exactly as before.",
             "$comment": "A pattern plus a repo-owned vocabulary rather than a schema enum, on the `category` precedent: an enum would make every vocabulary addition a schema change that hard-fails strict parsers (the mobile Rust crate rejects a whole spec on an unknown enum value), while the pytest list keeps growth additive and typo-checked."
           },
           "device_class": {
