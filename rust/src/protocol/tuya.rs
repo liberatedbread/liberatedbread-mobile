@@ -101,10 +101,8 @@ fn ecb_decrypt(ciphertext: &[u8]) -> Option<Vec<u8>> {
     }
     let cipher = Aes128::new(&udp_key().into());
     let mut out = Vec::with_capacity(ciphertext.len());
-    for chunk in ciphertext.chunks_exact(16) {
-        let mut block: [u8; 16] = chunk
-            .try_into()
-            .expect("chunks_exact(16) yields only 16-byte chunks");
+    for chunk in ciphertext.as_chunks::<16>().0 {
+        let mut block = *chunk;
         cipher.decrypt_block((&mut block).into());
         out.extend_from_slice(&block);
     }
@@ -190,10 +188,8 @@ mod tests {
         plain.extend(std::iter::repeat_n(pad as u8, pad));
         let cipher = Aes128::new(&udp_key().into());
         let mut ct = Vec::new();
-        for chunk in plain.chunks_exact(16) {
-            let mut block: [u8; 16] = chunk
-                .try_into()
-                .expect("chunks_exact(16) yields only 16-byte chunks");
+        for chunk in plain.as_chunks::<16>().0 {
+            let mut block = *chunk;
             cipher.encrypt_block((&mut block).into());
             ct.extend_from_slice(&block);
         }

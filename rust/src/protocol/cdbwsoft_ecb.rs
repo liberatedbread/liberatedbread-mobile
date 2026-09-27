@@ -232,7 +232,9 @@ pub fn encode_bitmap_transfer(
 /// ON". Deliberately not the shared luma mask — the two disagree on
 /// saturated blue, and this is the rule the vendor app rasterizes by.
 fn channel_mask(rgb: &[u8]) -> Vec<bool> {
-    rgb.chunks_exact(3)
+    rgb.as_chunks::<3>()
+        .0
+        .iter()
         .map(|px| px.iter().any(|&c| c >= 128))
         .collect()
 }

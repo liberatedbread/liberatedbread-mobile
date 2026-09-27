@@ -160,8 +160,8 @@ fn encode_tutu_restore(
     // Palette: first ≤16 distinct colors in row-major scan order.
     let mut palette: Vec<[u8; 3]> = Vec::new();
     let mut index_of = HashMap::new();
-    for px in rgb.chunks_exact(3) {
-        let color = [px[0], px[1], px[2]];
+    for px in rgb.as_chunks::<3>().0 {
+        let color = *px;
         if let std::collections::hash_map::Entry::Vacant(slot) = index_of.entry(color) {
             if palette.len() >= MAX_PALETTE {
                 return Err(ProtocolError::ImageDimensionsInvalid {
@@ -697,8 +697,8 @@ mod tests {
     fn a_long_run_followed_by_another_survives_the_round_trip() {
         let width = 127;
         let mut rgb = vec![0u8; width * 2 * 3];
-        for px in rgb.chunks_exact_mut(3) {
-            px.copy_from_slice(&[10, 20, 30]);
+        for px in rgb.as_chunks_mut::<3>().0 {
+            *px = [10, 20, 30];
         }
         let last = rgb.len() - 3;
         rgb[last..].copy_from_slice(&[200, 100, 50]);

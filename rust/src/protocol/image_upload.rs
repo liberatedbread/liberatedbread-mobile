@@ -385,7 +385,9 @@ pub(crate) fn printhead_row_bytes(spec: &DeviceSpec) -> Result<usize, ProtocolEr
 /// LED on the badge, unmarked paper in the printer) is each handler's
 /// polarity to choose.
 pub(crate) fn brightness_mask(rgb: &[u8]) -> Vec<bool> {
-    rgb.chunks_exact(3)
+    rgb.as_chunks::<3>()
+        .0
+        .iter()
         .map(|px| {
             let luma = 299 * u32::from(px[0]) + 587 * u32::from(px[1]) + 114 * u32::from(px[2]);
             // 50% of the 0..=255_000 luma scale.

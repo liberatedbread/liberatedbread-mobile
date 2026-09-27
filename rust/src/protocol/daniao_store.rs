@@ -670,8 +670,8 @@ fn package_text(t: &TextContent<'_>) -> Vec<u8> {
 fn package_image(img: &ImageLayer<'_>) -> Result<Vec<u8>, ProtocolError> {
     let mut palette: Vec<[u8; 3]> = Vec::with_capacity(MAX_PALETTE);
     let mut indices: Vec<u8> = Vec::with_capacity((img.width * img.height) as usize);
-    for px in img.rgb.chunks_exact(3) {
-        let color = [px[0], px[1], px[2]];
+    for px in img.rgb.as_chunks::<3>().0 {
+        let color = *px;
         let idx = match palette.iter().position(|c| *c == color) {
             Some(i) => i,
             None => {
