@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 
 use aes::Aes128;
 use cbc::cipher::block_padding::Pkcs7;
-use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 
 use crate::error::ProtocolError;
 use crate::spec::types::{DeviceSpec, SpecCommand};
@@ -199,9 +199,9 @@ pub fn parse_user_key(hex: &str) -> Result<[u8; USER_KEY_LEN], ProtocolError> {
 /// datagram (ciphertext || IV) — the spec's framing, one message per datagram.
 pub fn encrypt(key: &[u8; USER_KEY_LEN], plaintext: &[u8]) -> Vec<u8> {
     let mut iv = [0u8; IV_LEN];
-    getrandom::getrandom(&mut iv).expect("the OS has a CSPRNG");
+    getrandom::fill(&mut iv).expect("the OS has a CSPRNG");
     let ciphertext =
-        Aes128CbcEncryptor::new(key.into(), &iv.into()).encrypt_padded_vec_mut::<Pkcs7>(plaintext);
+        Aes128CbcEncryptor::new(key.into(), &iv.into()).encrypt_padded_vec::<Pkcs7>(plaintext);
     let mut out = Vec::with_capacity(ciphertext.len() + IV_LEN);
     out.extend_from_slice(&ciphertext);
     out.extend_from_slice(&iv);
@@ -224,8 +224,14 @@ pub fn decrypt(key: &[u8; USER_KEY_LEN], datagram: &[u8]) -> Result<Vec<u8>, Pro
                 datagram.len()
             ))
         })?;
+    // `split_at_checked` peeled exactly IV_LEN bytes off the end (the filter
+    // above already rejected anything shorter), so this cannot fail;
+    // hybrid-array just has no infallible `&[u8]` -> `&Array` spelling.
+    let iv: &[u8; IV_LEN] = iv
+        .try_into()
+        .expect("split_at_checked left exactly IV_LEN trailing bytes");
     Aes128CbcDecryptor::new(key.into(), iv.into())
-        .decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
+        .decrypt_padded_vec::<Pkcs7>(ciphertext)
         .map_err(|_| {
             ProtocolError::MalformedReply(
                 "datagram does not decrypt under this user key (bad padding)".to_string(),

@@ -75,7 +75,7 @@ use super::{EncodedFrame, EncodedWrite};
 use crate::codec::types::encode_command;
 use crate::error::ProtocolError;
 use crate::spec::types::{Characteristic, DeviceSpec};
-use aes::cipher::{BlockEncrypt, KeyInit};
+use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use std::collections::HashMap;
 
 /// `protocol_handler` name this module implements (see the device spec's
@@ -353,7 +353,7 @@ fn resolve_bulk_channel<'a>(
 mod tests {
     use super::*;
     use crate::spec::parser::parse_device_spec;
-    use aes::cipher::BlockDecrypt;
+    use aes::cipher::BlockCipherDecrypt;
 
     /// A minimal spec shaped like the vendored `magic-display.yaml`: the FEE9
     /// service with WRITE1 (its two framing commands and the static key),

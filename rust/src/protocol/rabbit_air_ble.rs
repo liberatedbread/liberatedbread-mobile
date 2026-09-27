@@ -137,7 +137,7 @@ pub fn render_setup_envelope(
 pub fn generate_user_key() -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut bytes = [0u8; crate::protocol::rabbit_air::USER_KEY_LEN];
-    getrandom::getrandom(&mut bytes).expect("the OS has a CSPRNG");
+    getrandom::fill(&mut bytes).expect("the OS has a CSPRNG");
     let mut key = String::with_capacity(crate::protocol::rabbit_air::USER_KEY_LEN * 2);
     for byte in bytes {
         key.push(HEX[(byte >> 4) as usize] as char);

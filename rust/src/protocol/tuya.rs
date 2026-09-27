@@ -34,7 +34,7 @@
 //! blocks), and read the JSON out — trying plaintext first, then the fixed-key
 //! decrypt.
 
-use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
+use aes::cipher::{BlockCipherDecrypt, KeyInit};
 use aes::Aes128;
 use md5::{Digest, Md5};
 use serde::Deserialize;
@@ -96,14 +96,16 @@ fn udp_key() -> [u8; 16] {
 /// 16-byte blocks or the padding is invalid — either means this was not the
 /// ciphertext (e.g. a plaintext 6666 datagram), so the caller falls back.
 fn ecb_decrypt(ciphertext: &[u8]) -> Option<Vec<u8>> {
-    if ciphertext.is_empty() || ciphertext.len() % 16 != 0 {
+    if ciphertext.is_empty() || !ciphertext.len().is_multiple_of(16) {
         return None;
     }
-    let cipher = Aes128::new(GenericArray::from_slice(&udp_key()));
+    let cipher = Aes128::new(&udp_key().into());
     let mut out = Vec::with_capacity(ciphertext.len());
     for chunk in ciphertext.chunks_exact(16) {
-        let mut block = GenericArray::clone_from_slice(chunk);
-        cipher.decrypt_block(&mut block);
+        let mut block: [u8; 16] = chunk
+            .try_into()
+            .expect("chunks_exact(16) yields only 16-byte chunks");
+        cipher.decrypt_block((&mut block).into());
         out.extend_from_slice(&block);
     }
     // Strip PKCS#7: the last byte is the pad length, 1..=16, and every padding
@@ -176,7 +178,7 @@ fn build(json: BroadcastJson, encrypted: bool) -> TuyaBroadcast {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aes::cipher::{BlockEncrypt, KeyInit};
+    use aes::cipher::{BlockCipherEncrypt, KeyInit};
 
     /// Wrap a JSON body in a Tuya 6667 frame: header + return code + AES-ECB
     /// ciphertext + CRC placeholder + suffix. Mirrors what a device sends, so
@@ -186,11 +188,13 @@ mod tests {
         let mut plain = json.as_bytes().to_vec();
         let pad = 16 - (plain.len() % 16);
         plain.extend(std::iter::repeat_n(pad as u8, pad));
-        let cipher = Aes128::new(GenericArray::from_slice(&udp_key()));
+        let cipher = Aes128::new(&udp_key().into());
         let mut ct = Vec::new();
         for chunk in plain.chunks_exact(16) {
-            let mut block = GenericArray::clone_from_slice(chunk);
-            cipher.encrypt_block(&mut block);
+            let mut block: [u8; 16] = chunk
+                .try_into()
+                .expect("chunks_exact(16) yields only 16-byte chunks");
+            cipher.encrypt_block((&mut block).into());
             ct.extend_from_slice(&block);
         }
         let mut payload = vec![0u8, 0, 0, 0]; // return code 0

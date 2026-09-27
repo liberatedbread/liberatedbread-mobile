@@ -13,7 +13,7 @@
 //! caller; this module is pure functions so the spec's own test vectors can
 //! pin every byte without a device in the room.
 
-use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+use aes::cipher::{block_padding::Pkcs7, BlockModeEncrypt, KeyIvInit};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use md5::{Digest, Md5};
@@ -171,7 +171,7 @@ pub fn encrypt_password(
 
     // Steps 5-6: PKCS#7 pad, AES-128-CBC.
     let ciphertext = Aes128CbcEnc::new(&aes_key.into(), &iv.into())
-        .encrypt_padded_vec_mut::<Pkcs7>(passphrase.as_bytes());
+        .encrypt_padded_vec::<Pkcs7>(passphrase.as_bytes());
 
     // Step 7: standard base64, '=' padding kept.
     let encoded = BASE64.encode(&ciphertext);

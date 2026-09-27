@@ -99,7 +99,7 @@ addresses and points you there.
 | Tool | Version | Notes |
 |------|---------|-------|
 | Flutter | 3.44+ | Stable channel |
-| Rust | stable (1.85+) | Via rustup; the workspace's `rust-version` floor |
+| Rust | stable (1.89+) | Via rustup; the workspace's `rust-version` floor |
 | Android SDK | API 36 | The pinned Flutter's `flutter.compileSdkVersion`; NDK matches its `flutter.ndkVersion` |
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |

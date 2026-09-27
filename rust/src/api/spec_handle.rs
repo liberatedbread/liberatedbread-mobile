@@ -805,9 +805,7 @@ impl CatalogueHandle {
 #[frb(ignore)]
 fn decode_hex(hex: &str) -> Option<Vec<u8>> {
     let trimmed = hex.trim();
-    // `% 2` rather than `is_multiple_of`, which is newer than this crate's
-    // minimum Rust (1.85).
-    if trimmed.is_empty() || trimmed.len() % 2 != 0 {
+    if trimmed.is_empty() || !trimmed.len().is_multiple_of(2) {
         return None;
     }
     // Over BYTES, not `&str[i..i + 2]`. Slicing a str by byte index panics

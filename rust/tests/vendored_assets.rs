@@ -1453,7 +1453,7 @@ fn vendored_fichero_d11_spec_is_encodable_with_its_declared_bounds() {
 /// ways — plaintext on the wire, or the wrong key.
 #[test]
 fn vendored_magic_display_spec_is_encodable_with_its_declared_bounds() {
-    use aes::cipher::{BlockDecrypt, KeyInit};
+    use aes::cipher::{BlockCipherDecrypt, KeyInit};
     use liberated_bread_core::api::device_api::{encode_image_frame, load_device_spec};
 
     let yaml = fs::read_to_string(spec_path("magic-display.yaml"))

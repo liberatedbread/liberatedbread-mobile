@@ -6,12 +6,16 @@
 name = "liberated_bread_core"
 version = "0.1.0"
 edition = "2021"
-# setup.sh installs 1.85 as the supported floor (RUST_MIN_VERSION); declaring
+# setup.sh installs 1.89 as the supported floor (RUST_MIN_VERSION); declaring
 # it here makes cargo enforce that claim instead of leaving it as prose. The
-# comment said 1.82 for as long as the field said 1.85 — a stale floor in a
-# comment is how someone talks themselves into shipping a 1.82-compatible
-# workaround that nothing needed.
-rust-version = "1.85"
+# floor is the deepest dependency MSRV, not a choice of ours: aes 0.9
+# declares 1.89 (the rest of the RustCrypto stack it came in with — cipher,
+# cbc, sha2, md-5, getrandom — sits at 1.85), so 1.89 is the oldest compiler
+# this crate can honestly promise. Keep the four statements of the floor
+# (here, scripts/setup.sh, README.md, docs/BUILD_AND_TEST.md) in step: a
+# stale floor in a comment is how someone talks themselves into shipping a
+# workaround for a compiler that nothing needed.
+rust-version = "1.89"
 description = "Shared Rust core for the Liberated Bread BLE companion app"
 license = "Apache-2.0"
 repository = "https://github.com/liberatedbread/liberatedbread-mobile"
