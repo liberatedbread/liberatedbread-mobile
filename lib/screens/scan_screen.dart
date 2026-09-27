@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
 import '../core/device_category.dart';
 import '../core/error_text.dart';
+import '../core/find_device.dart' show signalLabel;
 import '../core/value_format.dart' show shortAge;
 import '../models/iot_device.dart';
 import '../models/radio_target.dart';
@@ -1061,12 +1062,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// ORDERS by the band as well, a stray third opinion would let a row sort
   /// below one it out-describes. Takes the band rather than the reading for
   /// the same reason: the band the manager holds is the one the bars draw.
-  static String _signalLabel(int band) => switch (band) {
-    4 => 'Strong signal',
-    3 => 'Good signal',
-    2 => 'Fair signal',
-    _ => 'Weak signal',
-  };
+  static String _signalLabel(int band) => signalLabel(band);
 }
 
 class _MockBadge extends StatelessWidget {

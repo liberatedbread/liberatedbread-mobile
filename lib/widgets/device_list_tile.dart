@@ -8,7 +8,7 @@
 
 import 'package:flutter/material.dart';
 
-import '../core/find_device.dart' show signalBars;
+import '../core/find_device.dart' show maxSignalBars, signalBands, signalBars;
 
 /// The subtitle with the trailing detail (signal, last-seen, host:port).
 ///
@@ -197,14 +197,17 @@ class DeviceListTile extends StatelessWidget {
   }) : assert(
          onConfigure == null || configureTooltip != null,
          'a configure action needs a tooltip: it is an icon with no label',
-       ),
-       assert(
-         signalBand == null || (signalBand >= 1 && signalBand <= 4),
-         'a signal band is one of the four the meter draws',
        );
 
   @override
   Widget build(BuildContext context) {
+    // Checked here rather than in the constructor: a const constructor
+    // cannot consult the band table, and the table is the only authority on
+    // which bands exist.
+    assert(
+      signalBand == null || signalBands.any((b) => b.bars == signalBand),
+      'a signal band is one of the bands the meter draws',
+    );
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     // Unconnectable devices stay visible but recede, so the list still reflects
@@ -402,7 +405,7 @@ class _SignalBars extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
-      children: List.generate(4, (i) {
+      children: List.generate(maxSignalBars, (i) {
         final on = i < filled;
         return Container(
           width: 3,

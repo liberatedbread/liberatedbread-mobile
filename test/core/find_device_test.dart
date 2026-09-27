@@ -154,6 +154,47 @@ void main() {
     });
   });
 
+  group('the band tables', () {
+    test('signal bands run strongest first, one bar apart, to an open end', () {
+      for (var i = 1; i < signalBands.length; i++) {
+        expect(signalBands[i].bars, signalBands[i - 1].bars - 1);
+        expect(signalBands[i].minRssi, lessThan(signalBands[i - 1].minRssi));
+      }
+      expect(signalBands.last.bars, 1);
+      expect(signalBands.last.minRssi, double.negativeInfinity);
+      expect(maxSignalBars, signalBands.length);
+    });
+
+    test('every band has its own words, and a stray value reads weakest', () {
+      expect(signalBands.map((b) => b.label).toSet(), hasLength(4));
+      expect(signalLabel(4), 'Strong signal');
+      expect(signalLabel(3), 'Good signal');
+      expect(signalLabel(2), 'Fair signal');
+      expect(signalLabel(1), 'Weak signal');
+      expect(signalLabel(0), 'Weak signal');
+      expect(signalLabel(9), 'Weak signal');
+    });
+
+    test('the words and the bars are one judgement at every boundary', () {
+      for (final rssi in [-30, -60, -61, -70, -71, -80, -81, -110]) {
+        expect(signalBandFor(rssi).label, signalLabel(signalBars(rssi)));
+      }
+    });
+
+    test('proximity buckets run nearest first to an open end', () {
+      for (var i = 1; i < proximityBuckets.length; i++) {
+        expect(
+          proximityBuckets[i].underMeters,
+          greaterThan(proximityBuckets[i - 1].underMeters),
+        );
+      }
+      expect(proximityBuckets.last.underMeters, double.infinity);
+      expect(proximityLabel(0.69), 'Right here');
+      expect(proximityLabel(0.7), 'Very close');
+      expect(proximityLabel(1e9), 'Far away');
+    });
+  });
+
   group('signalBars', () {
     test('bands the reading at -60, -70 and -80', () {
       expect(signalBars(-30), 4);

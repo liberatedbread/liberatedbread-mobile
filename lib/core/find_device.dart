@@ -55,13 +55,21 @@ String formatApproxDistance(double meters) {
 /// Qualitative bucket for a distance guess. Buckets are what the guess is
 /// actually good for — "same room or not" survives the model's error bars
 /// where "3.2 m" does not.
-String proximityLabel(double meters) {
-  if (meters < 0.7) return 'Right here';
-  if (meters < 2.5) return 'Very close';
-  if (meters < 6) return 'Same room';
-  if (meters < 15) return 'Nearby';
-  return 'Far away';
-}
+String proximityLabel(double meters) =>
+    proximityBuckets.firstWhere((bucket) => meters < bucket.underMeters).label;
+
+/// One step of [proximityLabel]: distances under [underMeters] read [label].
+typedef ProximityBucket = ({double underMeters, String label});
+
+/// [proximityLabel]'s buckets, nearest first. The last is open-ended, so
+/// every distance lands in exactly one; the order is the lookup.
+const List<ProximityBucket> proximityBuckets = [
+  (underMeters: 0.7, label: 'Right here'),
+  (underMeters: 2.5, label: 'Very close'),
+  (underMeters: 6, label: 'Same room'),
+  (underMeters: 15, label: 'Nearby'),
+  (underMeters: double.infinity, label: 'Far away'),
+];
 
 /// Map an RSSI to 0..1 for gauges: -100 dBm (about the BLE sensitivity
 /// floor) is 0, -30 dBm (touching the antenna) is 1.
@@ -81,15 +89,36 @@ double signalFraction(double rssi) => ((rssi + 100) / 70).clamp(0.0, 1.0);
 /// about the resolution this measurement honestly has indoors.
 ///
 /// Takes a num so the scan list's smoothed reading — a fraction of a dB, as
-/// averages are — bands through the same three thresholds as a raw one. A
-/// second copy of these numbers for the smoothed path is exactly how the
-/// bars and the order would come to disagree.
-int signalBars(num rssi) {
-  if (rssi >= -60) return 4;
-  if (rssi >= -70) return 3;
-  if (rssi >= -80) return 2;
-  return 1;
-}
+/// averages are — bands through the same thresholds as a raw one. Every
+/// threshold lives in [signalBands]: a second copy of these numbers anywhere
+/// is exactly how the bars, the words and the order would come to disagree.
+int signalBars(num rssi) => signalBandFor(rssi).bars;
+
+/// The [SignalBand] a reading of [rssi] dBm falls in.
+SignalBand signalBandFor(num rssi) =>
+    signalBands.firstWhere((band) => rssi >= band.minRssi);
+
+/// The words for a band of [bars], so the text beside a meter is the same
+/// judgement as the meter. Out-of-range values read as the weakest band.
+String signalLabel(int bars) => signalBands
+    .firstWhere((band) => band.bars == bars, orElse: () => signalBands.last)
+    .label;
+
+/// The meter's height: how many bars a full-strength reading lights.
+int get maxSignalBars => signalBands.first.bars;
+
+/// One step of the signal meter: readings at or above [minRssi] dBm light
+/// [bars] bars and read [label].
+typedef SignalBand = ({int bars, double minRssi, String label});
+
+/// The signal meter's bands, strongest first; the order is the lookup, and
+/// the last is open-ended so every reading lands in exactly one.
+const List<SignalBand> signalBands = [
+  (bars: 4, minRssi: -60, label: 'Strong signal'),
+  (bars: 3, minRssi: -70, label: 'Good signal'),
+  (bars: 2, minRssi: -80, label: 'Fair signal'),
+  (bars: 1, minRssi: double.negativeInfinity, label: 'Weak signal'),
+];
 
 /// Direction the signal is moving, for hot/cold guidance. [unknown] means
 /// too few samples to say — distinct from [steady], which is a real verdict
