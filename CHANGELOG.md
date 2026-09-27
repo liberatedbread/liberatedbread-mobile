@@ -421,6 +421,23 @@ heading.
 
 ### Fixed
 
+- **Every Apple device in the room was "Likely Nuki Smart Lock".** The Nuki
+  spec declares Apple's company id, and a matched company id alone earned
+  "Likely" — so every iPhone, iPad and pair of AirPods was a likely lock.
+  Apple's, Microsoft's, Google's and Samsung's ids now count for nothing on
+  their own (they name a platform, not a product); what counts is the
+  payload prefix a spec declares, which a paired Nuki's iBeacon carries on
+  Android and Linux. iOS withholds iBeacon payloads from apps, so a paired
+  lock there lists as unrecognised rather than falsely likely.
+- **The badge beside a long device name no longer loses its last word.** The
+  name and the badge shared one line and were both cut when they did not fit
+  ("Likely Nuki Smart L…"); the badge now drops whole to its own line under
+  the name instead.
+- **Rows no longer go "Not seen" while nothing is listening.** Stopping a
+  scan, switching tabs or backgrounding the app froze nothing: the age tick
+  kept counting wall time, and every row turned stale and sank in the list.
+  Silence now only accrues while a scan is actually listening, and resuming
+  continues each row's age from where it stood.
 - **Linux: joining an existing BLE link no longer tears it down.** A second
   owner connecting to an already-connected device (a group run joining an
   open device screen) got "changed" from flutter_blue_plus_linux with no
