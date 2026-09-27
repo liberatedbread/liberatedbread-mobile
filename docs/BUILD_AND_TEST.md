@@ -90,6 +90,11 @@ sudo apt-get update && sudo apt-get install -y --no-install-recommends \
 | `libjsoncpp-dev` | Pulled in by the CMake/plugin toolchain |
 | `xvfb` | Virtual X server, for running without a display |
 
+The first Linux build also needs network access: the `printing` plugin's CMake
+downloads a prebuilt PDFium (the PDF rasteriser behind printing a PDF page on a
+label printer) from GitHub and bundles it as `lib/libpdfium.so`. `libgtk-3-dev`
+already provides the GTK print dialog it uses (`gtk+-unix-print-3.0`).
+
 Check it worked with `pkg-config --exists gtk+-3.0 && echo ok`, or just run
 `./scripts/run-linux.sh` — it verifies each of these up front and names the
 missing package rather than failing deep inside CMake.

@@ -14,7 +14,8 @@ abstract class PhotoSource {
   /// The chosen photo's encoded bytes, or null when the user backed out.
   Future<Uint8List?> pick({required bool camera});
 
-  /// An image file from a file dialog, or null when none was chosen.
+  /// An image or PDF file from a file dialog, or null when none was chosen.
+  /// A PDF comes back as its own bytes; the caller rasterises it.
   Future<Uint8List?> pickFile();
 }
 
@@ -41,10 +42,10 @@ class PlatformPhotoSource implements PhotoSource {
     final file = await openFile(
       acceptedTypeGroups: const [
         XTypeGroup(
-          label: 'Images',
-          extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
-          mimeTypes: ['image/*'],
-          uniformTypeIdentifiers: ['public.image'],
+          label: 'Images and PDFs',
+          extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'pdf'],
+          mimeTypes: ['image/*', 'application/pdf'],
+          uniformTypeIdentifiers: ['public.image', 'com.adobe.pdf'],
         ),
       ],
     );
