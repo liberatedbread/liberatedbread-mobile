@@ -77,7 +77,13 @@ pub fn list() -> anyhow::Result<Vec<PortInfo>> {
 /// Open `path` at `baud_rate`, 8N1, no flow control, DTR and RTS raised.
 /// Answers the handle every other call takes.
 pub fn open(path: &str, baud_rate: u32) -> anyhow::Result<u32> {
-    let port = imp::open(path, baud_rate)?;
+    register(imp::open(path, baud_rate)?)
+}
+
+/// Give an open port the handle every other call takes. Apart from [open],
+/// only the macOS tests call this: they hold a pseudo-terminal the crate
+/// cannot open by path there (see the test module's `pair`).
+fn register(port: imp::Port) -> anyhow::Result<u32> {
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
     registry()
         .lock()
@@ -164,6 +170,14 @@ mod imp {
         Ok(Port(port))
     }
 
+    /// A port the tests opened themselves, wrapped as [open] would have.
+    /// Only the macOS tests need it (see the test module's `pair`); on
+    /// Linux it would be dead code, which clippy refuses.
+    #[cfg(all(test, target_os = "macos"))]
+    pub fn from_tty(port: serialport::TTYPort) -> Port {
+        Port(Box::new(port))
+    }
+
     pub fn write(port: &mut Port, data: &[u8]) -> anyhow::Result<()> {
         port.0.write_all(data)?;
         port.0.flush()?;
@@ -242,15 +256,28 @@ mod tests {
     use std::time::{Duration, Instant};
 
     /// A pseudo-terminal pair: the far end plays the radio, and the near end
-    /// is opened by path through [open], exactly as a cable would be.
+    /// is the port under test.
     fn pair() -> (TTYPort, u32) {
         let (mut radio, near) = TTYPort::pair().expect("a pseudo-terminal pair");
         radio.set_timeout(Duration::from_millis(500)).unwrap();
-        let path = near.name().expect("the near end has a path");
-        let handle = open(&path, 9600).expect("open by path");
-        // The pair's own near end stays open until the path is reopened, so
-        // the terminal exists throughout; after that ours is the one in use.
-        drop(near);
+        // Linux: the near end is reopened by path through [open], exactly as
+        // a cable would be. The pair's own near end stays open until the
+        // path is reopened, so the terminal exists throughout; after that
+        // ours is the one in use.
+        #[cfg(target_os = "linux")]
+        let handle = {
+            let path = near.name().expect("the near end has a path");
+            let handle = open(&path, 9600).expect("open by path");
+            drop(near);
+            handle
+        };
+        // macOS: the crate sets a baud rate with the IOSSIOSPEED ioctl, which
+        // a pseudo-terminal answers with ENOTTY ("Not a typewriter"), so
+        // [open] cannot reach one by path here — a real cable's tty takes the
+        // ioctl. The pair's near end goes into the registry as it is;
+        // everything after opening runs the same code on both platforms.
+        #[cfg(target_os = "macos")]
+        let handle = register(imp::from_tty(near)).expect("register the near end");
         (radio, handle)
     }
 
@@ -278,10 +305,16 @@ mod tests {
     #[test]
     fn what_is_written_reaches_the_radio() {
         let (mut radio, port) = pair();
+        // The radio reads while we write, not after: [write] drains the
+        // port, and on macOS tcdrain on a pseudo-terminal waits until the
+        // far end has taken the bytes (a cable's driver drains on its own).
+        let radio = std::thread::spawn(move || {
+            let mut got = [0u8; 4];
+            radio.read_exact(&mut got).unwrap();
+            got
+        });
         write(port, &[0x53, 0x00, 0x40, 0x40]).unwrap();
-        let mut got = [0u8; 4];
-        radio.read_exact(&mut got).unwrap();
-        assert_eq!(got, [0x53, 0x00, 0x40, 0x40]);
+        assert_eq!(radio.join().unwrap(), [0x53, 0x00, 0x40, 0x40]);
         close(port).unwrap();
     }
 

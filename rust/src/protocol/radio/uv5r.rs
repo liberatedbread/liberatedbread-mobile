@@ -519,7 +519,7 @@ fn decode_text(raw: &[u8]) -> String {
 /// A frequency in the same four-byte field the newer family uses, refused
 /// rather than rounded when it is finer than the ten hertz the field holds.
 fn encode_frequency(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
-    if hz % 10 != 0 {
+    if !hz.is_multiple_of(10) {
         return Err(ProtocolError::MalformedReply(format!(
             "{hz} Hz is finer than the 10 Hz this radio stores"
         )));
