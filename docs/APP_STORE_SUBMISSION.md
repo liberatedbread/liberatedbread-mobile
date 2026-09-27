@@ -159,7 +159,10 @@ Xcode manage it) so it's in the login keychain on the build Mac.
 The Mac is already staged: Flutter 3.44.8 is at `~/flutter-3.44.8`. Build from a
 clean checkout of this branch:
 ```sh
-export PATH="$HOME/.cargo/bin:$HOME/flutter-3.44.8/bin:/opt/homebrew/bin:$PATH"
+# release.sh puts the repo-managed SDK (~/.flutter-sdk, or FLUTTER_HOME) first
+# on PATH and upgrades it to CI's pinned Flutter, so the SDK on PATH here is
+# not the one that builds; ./scripts/setup.sh installs that SDK.
+export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 git clone -b main git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb && cd ~/lb
 # Preflight: the privacy manifest MUST declare the Rust core's file-timestamp
 # APIs or App Store Connect rejects the upload (ITMS-91053). `unfuck`, which

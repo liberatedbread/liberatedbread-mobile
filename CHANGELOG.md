@@ -49,6 +49,17 @@ heading.
   tab says so. The UV-5R family's transmit limits can be widened and put back,
   shown as unverified. The app now asks for location while in use (for the
   repeater lookup) and declares the optional USB-host feature on Android.
+- **Every build says which commit it is.** `scripts/release.sh android|ios`
+  builds the store artefact with a clock-derived build number and stamps it
+  with `git describe` (`v0.1.0`, `v0.1.0-3-g1a2b3c4`, `-dirty`); the ad-hoc
+  TestFlight workflow carries the same stamp. Diagnostics shows it at the top
+  and every copied bug report leads with it, and the version the app reports
+  to Home Assistant and in its User-Agent is now that stamp — `dev build` for
+  anything not built through the script, where it used to say `0.1.0`. The
+  script refuses an untagged HEAD, a dirty tree (`LB_RELEASE_UNTAGGED=1` /
+  `LB_RELEASE_DIRTY=1` override those for throwaway builds) and any untracked
+  or ignored file under the bundled spec directories, which would ship
+  unrecorded. docs/RELEASE.md is the runbook.
 
 ### Security
 

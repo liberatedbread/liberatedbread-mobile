@@ -1043,17 +1043,19 @@ void main() {
           '$writeFailures failed write(s)',
         );
         // A meter whose display has slept still sends Ztest02 every ~5.5 s,
-        // so a session with neither an answered keep-alive nor a reading is
-        // one where the subscription or the writes are not reaching it. A
-        // Zbleoff AFTER either is the meter's normal way of ending a session
-        // it decided was over, and is reported above rather than failed.
+        // so a session with no answered keep-alive is one where the
+        // subscription or the writes are not reaching it. A reading alone
+        // would not do: the meter pushes one whenever its button is pressed,
+        // whether or not a single write ever got through. A Zbleoff AFTER a
+        // keep-alive is the meter's normal way of ending a session it decided
+        // was over, and is reported above rather than failed.
         expect(
-          keepAlivesAnswered > 0 || readings.isNotEmpty,
-          isTrue,
+          keepAlivesAnswered,
+          greaterThan(0),
           reason:
-              'in the window the meter neither had a keep-alive answered nor '
-              'sent a reading ($why; $keepAlives Ztest02 heard, '
-              '$writeFailures failed write(s))',
+              'in the window no keep-alive was answered ($why; $keepAlives '
+              'Ztest02 heard, ${readings.length} reading(s), $writeFailures '
+              'failed write(s))',
         );
       } finally {
         for (final timer in timers) {

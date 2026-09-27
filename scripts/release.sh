@@ -87,10 +87,12 @@ cd "$PROJECT_DIR"
 # update-specs.sh runs upstream's generate_index.py in place, and the ignored
 # __pycache__/ that leaves under its scripts/ ships nothing.
 rm -f vendor/protocol-specs/device-specs/examples/index-temp.json
-STRAY="$(git status --porcelain --ignored=matching --untracked-files=all \
+# git's exit is checked on its own line: inside the pipeline below, `|| true`
+# would turn a failing git status into an empty (clean-looking) answer.
+STRAY_STATUS="$(git status --porcelain --ignored=matching --untracked-files=all \
   -- vendor/protocol-specs/device-specs/devices \
-     vendor/protocol-specs/device-specs/examples \
-  | grep '^[?!]' || true)"
+     vendor/protocol-specs/device-specs/examples)"
+STRAY="$(printf '%s\n' "$STRAY_STATUS" | grep '^[?!]' || true)"
 if [[ -n "$STRAY" ]]; then
   err "Untracked or ignored files in a bundled spec directory would ship in"
   err "the store build, and the build stamp cannot record them:"
