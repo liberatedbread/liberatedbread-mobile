@@ -509,8 +509,26 @@ check_specs_validate() {
   return 1
 }
 
+# The local index used to be written to device-specs/index-temp.json, before
+# it moved under examples/ — the directory pubspec bundles, where it is
+# gitignored (see regen-spec-index.sh). A tree that ran the old generator
+# still has one at the old path: untracked, read by nothing, and, being an
+# uncommitted file inside the subtree, enough on its own to fail the pristine
+# check and stop a refresh. It is this repo's generated output, never
+# upstream's content, so it is removed rather than reported. Only when
+# untracked: an index-temp.json upstream ever commits is theirs, and the
+# checks judge it like any other vendored file.
+LEGACY_INDEX_TEMP="$PREFIX/device-specs/index-temp.json"
+sweep_legacy_index_temp() {
+  [ -e "$LEGACY_INDEX_TEMP" ] || return 0
+  git ls-files --error-unmatch -- "$LEGACY_INDEX_TEMP" >/dev/null 2>&1 && return 0
+  rm -f -- "$LEGACY_INDEX_TEMP" || return 1
+  log "removed the stale $LEGACY_INDEX_TEMP (the local index now lives under examples/)"
+}
+
 run_checks() {
   local rc=0
+  sweep_legacy_index_temp || rc=1
   check_bundled_assets || rc=1
   check_index_covers_specs || rc=1
   check_subtree_pristine || rc=1
@@ -594,6 +612,7 @@ if [ -n "$dirty_tracked" ]; then
   exit 1
 fi
 
+sweep_legacy_index_temp || exit 1
 untracked_in_prefix="$(git ls-files --others --exclude-standard -- "$PREFIX")"
 if [ -n "$untracked_in_prefix" ]; then
   echo "::error::untracked files under $PREFIX; the subtree is vendored unmodified," >&2

@@ -38,6 +38,12 @@ THE MODEL
   * A device may require pairing. Until Pair() succeeds its characteristics
     answer org.bluez.Error.NotPermitted / "Not paired", which is BlueZ's
     rendering of ATT 0x05.
+  * A device may be `persisted`: one bluetoothd already keeps (it was
+    connected or paired before). Such a device is in the object tree from the
+    start, is never pruned, and a scan announces it the way bluetoothd does —
+    as an RSSI property change on the existing Device1, never as
+    InterfacesAdded. flutter_blue_plus_linux reports scan results from
+    InterfacesAdded alone, which is the gap the app's Linux router fills.
 """
 
 from __future__ import annotations
@@ -177,6 +183,13 @@ class Adapter1(ServiceInterface):
         # pruned at stop would be gone by the time the user taps it.
         self._stack.retire_devices()
         self._stack.publish_devices()
+        # A kept device is heard, not found: bluetoothd updates the Device1 it
+        # already has, and the first update of a scan is its RSSI.
+        for device in self._stack.devices.values():
+            if device.persisted and not device.connected:
+                device.emit_properties_changed(
+                    {'RSSI': int(device.config.get('rssi', -60))}
+                )
 
     @method()
     def StopDiscovery(self):
@@ -328,6 +341,7 @@ class Device1(ServiceInterface):
         self.address = config['address']
         self.path = device_path(self.address)
         self.requires_pairing = bool(config.get('requires_pairing', False))
+        self.persisted = bool(config.get('persisted', False))
         self.paired = False
         self._connected = False
         self._services_resolved = False
@@ -396,6 +410,10 @@ class Device1(ServiceInterface):
         return int(self.config.get('rssi', -60))
 
     @dbus_property(access=PropertyAccess.READ)
+    def AddressType(self) -> 's':  # noqa: F821
+        return self.config.get('address_type', 'public')
+
+    @dbus_property(access=PropertyAccess.READ)
     def Connected(self) -> 'b':  # noqa: F821
         return self._connected
 
@@ -436,6 +454,14 @@ class VirtualStack:
     def export_adapter(self):
         self.bus.export(ADAPTER_PATH, self.adapter)
 
+    def publish_persisted(self):
+        """Export the devices bluetoothd already keeps, before any scan."""
+        for config in self.scenario:
+            if config.get('persisted') and config['address'] not in self.devices:
+                device = Device1(self, config)
+                self.devices[config['address']] = device
+                self.bus.export(device.path, device)
+
     def publish_devices(self):
         """Make the scenario's devices visible, as a scan result would.
 
@@ -458,7 +484,7 @@ class VirtualStack:
         has.
         """
         for address, device in list(self.devices.items()):
-            if device.connected:
+            if device.connected or device.persisted:
                 continue
             for path in device.exported_paths:
                 self.bus.unexport(path)
@@ -520,6 +546,7 @@ async def main() -> int:
     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     stack = VirtualStack(bus, scenario)
     stack.export_adapter()
+    stack.publish_persisted()
     await bus.request_name('org.bluez')
 
     if args.ready_file:

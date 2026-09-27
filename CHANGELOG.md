@@ -11,6 +11,28 @@ No tagged release has been cut yet. Everything below is work toward the first
 `0.1.0` release; once it ships, these entries move under a dated `## [0.1.0]`
 heading.
 
+### Added
+
+- **Linux: peripherals that bluetoothd cannot enumerate now work.** BlueZ
+  opens every GATT connection with a Server Supported Features (0x2B3A)
+  probe some firmware — the Johnson LDM330 laser meter, for one — answers
+  with silence, then drops the link after its 30 s timeout with no services
+  found. On Linux, flutter_blue_plus now runs over a routing backend
+  (`lib/services/direct_att/`) that recognises that stall mid-discovery,
+  takes the device over on its own ATT channel (an L2CAP socket on CID 4
+  that never sends the probe), answers the waiting discovery with the real
+  table, and remembers the device so later connections skip the wait. The
+  cut-over is below flutter_blue_plus, so RealBleService and every screen
+  run the same code as on iOS and Android; the direct backend is a generic
+  GATT client (long reads/writes, notifications and indications, encryption
+  on demand, Service Changed), not a driver for one device.
+  A device whose spec marks it BlueZ-incompatible (the catalogue's new
+  `device.host_compatibility`) goes direct from its first connection, with no
+  stall at all. `LB_DIRECT_ATT=<mac>` routes a device direct from the start;
+  `LB_DIRECT_ATT=off` leaves the stock BlueZ backend in place (without the
+  two Linux fixes below either). Linux only, and built to be deleted
+  when BlueZ changes — see docs/LINUX_DIRECT_ATT.md.
+
 ### Security
 
 - **Home Assistant token no longer leaks into logs.** A corrupt stored config
@@ -371,6 +393,24 @@ heading.
 
 ### Fixed
 
+- **Linux: joining an existing BLE link no longer tears it down.** A second
+  owner connecting to an already-connected device (a group run joining an
+  open device screen) got "changed" from flutter_blue_plus_linux with no
+  event, waited out the timeout, and then disconnected the link under the
+  first owner. The Linux backend now answers "no change", as iOS and
+  Android do; disconnecting a link that already dropped no longer waits
+  35 s either.
+- **Linux: a link lost during service discovery no longer wedges Bluetooth.**
+  flutter_blue_plus_linux polls BlueZ for resolution with no bound while
+  flutter_blue_plus holds a process-wide lock, so a device that dropped
+  before BlueZ resolved it froze every later Bluetooth call until restart.
+  Discovery now ends when the link drops, or after 45 s.
+- **Linux: devices used before show up in scans again.** flutter_blue_plus_linux
+  only reports a device when BlueZ first creates it, and bluetoothd keeps
+  every device that was ever connected or paired, so from its second use on a
+  device never appeared in a scan — in that run or any later one. The Linux
+  backend now reports what bluetoothd hears from the devices it keeps while
+  a scan runs.
 - **Wemo adoption read the device metadata too late, and gave up on it too
   easily.** `GetMetaInfo` — the read whose two fields key the passphrase
   encryption — happened at provision time, after the AP list, after the user

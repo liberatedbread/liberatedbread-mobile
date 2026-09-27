@@ -190,6 +190,31 @@ if [ "${#bluez_targets[@]}" -gt 0 ]; then
   done
 fi
 
+# ── phase three: host suites under test/ that need the virtual stack ──────
+#
+# Plain `flutter test` files (no desktop build) that drive package:bluez and
+# flutter_blue_plus_linux over D-Bus. The unit-test job runs them too, where
+# they skip themselves for want of the wrapper (LB_VIRTUAL_BLE unset); this is
+# where they actually run. Each names the scenario the virtual stack must
+# serve, which is why they are listed rather than globbed.
+host_bluez=(
+  "test/services/direct_att/bluez_view_virtual_test.dart|test/fixtures/virtual_ble/known_devices.json"
+)
+for entry in "${host_bluez[@]}"; do
+  t="${entry%%|*}"
+  scenario="${entry#*|}"
+  echo "::group::$t (host, virtual BlueZ)"
+  if LB_VIRTUAL_BLE_SCENARIO="$scenario" ./scripts/linux-virtual-ble.sh \
+       flutter test "$t" --tags=bluez --timeout "$TEST_TIMEOUT"; then
+    echo "PASS  $t"
+  else
+    echo "::error file=$t::Host test failed against the virtual BlueZ stack."
+    status=1
+  fi
+  ran=$((ran + 1))
+  echo "::endgroup::"
+done
+
 # A loop that skipped everything is a green step that tested nothing, which is
 # how a renamed directory or an over-eager skip rule would hide. Refuse it.
 if [ "$ran" -eq 0 ]; then

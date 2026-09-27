@@ -1217,3 +1217,43 @@ Ubiquiti platform prefixes that map to glyph tokens in
 known at discovery, from the wire — explains when the value arrives, not why
 the MAP lives in the app. A `platform_pictograms:` table on the UniFi spec
 would close it.
+
+### S-23 — jlx-laser-distance-meter blames the wrong BlueZ request, and suggests a config change that cannot help
+
+The spec's BLUEZ QUIRK note (`device-specs/devices/jlx-laser-distance-meter.yaml`)
+says the meter "never answers an ATT Read By Type for the Database Hash
+(0x2b2a) — the request bluetoothd … sends during GATT client init", and that
+`[GATT] Cache = no` in `/etc/bluetooth/main.conf` is worth one experiment
+before writing Linux off. Both are off by one request, read against BlueZ's
+source (`src/shared/gatt-client.c`, byte-identical from 5.66 through 5.87 and
+master as of 2026-09-23):
+
+- On a connection to a device bluetoothd has no cached database for,
+  `exchange_mtu_cb` calls `read_server_feat`, which sends Read By Type
+  **0x2B3A (Server Supported Features)** over 0x0001–0xFFFF, and primary
+  discovery queues behind it. The 0x2B2A read (`read_db_hash`) is sent before
+  discovery only when a *cached* database already contains a Database Hash
+  characteristic — never on a first contact, which is the case the note
+  describes. bluez/bluez#2486's btmon trace shows the same order: MTU →
+  0x2B3A → Read By Group Type.
+- `Cache = no` suppresses the pre-discovery hash read and nothing else; no
+  main.conf key skips `read_server_feat` (5.72's `[GATT]` keys are Cache,
+  KeySize, ExchangeMTU, Channels; master adds Client, ExportClaimedServices,
+  Security, none of which gate it). `[GATT] Client=false` and
+  `ReverseServiceDiscovery=false` only affect connections bluetoothd did not
+  initiate. So the suggested experiment cannot make the meter work through
+  bluetoothd.
+- The vendor-app capture's "never contains a read of 0x2b2a" is true and
+  consistent with this: Android sends neither 0x2B2A nor 0x2B3A to this meter,
+  because its robust-caching and EATT heuristics skip peers reporting an LMP
+  version below 5.x, and the meter reports LL version 0x01 with no LE features
+  (no encryption).
+
+Ask: name 0x2B3A as the request the meter ignores, drop the `Cache = no`
+suggestion, and say what does work on Linux — a client that owns the ATT
+fixed channel itself and never sends 0x2B3A (this app's direct-ATT path,
+docs/LINUX_DIRECT_ATT.md, and gatttool). The `testing.notes` sentence "the
+broken path is bluetoothd's Database Hash (0x2b2a) read specifically" needs
+the same correction. The rest of the note — silence rather than an error, the
+30 s ATT timeout, an empty resolve at ~32.5 s, plain reads by handle working —
+matches bluetoothd exactly.

@@ -11,7 +11,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConnectedMatch`, `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -1958,6 +1958,16 @@ class DeviceSpecDto {
   /// the spec declares one — the app warns AND keeps the controls. See
   /// [`SafetyAdvisoryDto`].
   final SafetyAdvisoryDto? safetyAdvisory;
+
+  /// `Some(true)` when the spec says BlueZ's GATT client cannot drive this
+  /// device but a raw ATT channel can (`device.host_compatibility`: `stack:
+  /// bluez`, `status: incompatible`, `workaround: raw_att`, no `variants`);
+  /// `None` otherwise — never `Some(false)`, so the generated Dart
+  /// parameter stays optional. A Linux consumer owns the device's ATT
+  /// fixed channel from its FIRST connect rather than handing it to
+  /// bluetoothd, which would stall on it for 32 s and then publish no
+  /// services. Every other platform ignores it.
+  final bool? bluezRawAtt;
   final String? notes;
 
   /// Every BLE local name prefix this device family advertises under, in
@@ -2056,6 +2066,7 @@ class DeviceSpecDto {
     this.integration,
     this.securityAdvisory,
     this.safetyAdvisory,
+    this.bluezRawAtt,
     this.notes,
     required this.localNamePrefixes,
     required this.localNames,
@@ -2089,6 +2100,7 @@ class DeviceSpecDto {
       integration.hashCode ^
       securityAdvisory.hashCode ^
       safetyAdvisory.hashCode ^
+      bluezRawAtt.hashCode ^
       notes.hashCode ^
       localNamePrefixes.hashCode ^
       localNames.hashCode ^
@@ -2124,6 +2136,7 @@ class DeviceSpecDto {
           integration == other.integration &&
           securityAdvisory == other.securityAdvisory &&
           safetyAdvisory == other.safetyAdvisory &&
+          bluezRawAtt == other.bluezRawAtt &&
           notes == other.notes &&
           localNamePrefixes == other.localNamePrefixes &&
           localNames == other.localNames &&
@@ -4345,6 +4358,13 @@ class ScanMatch {
   /// can warn or alert the moment it is recognised. `None` for a device with
   /// no known problem.
   final SecurityAdvisoryDto? securityAdvisory;
+
+  /// The matched spec's [`SpecIdentityDto::bluez_raw_att`], copied through
+  /// so the connect path can route the device straight to a raw ATT
+  /// channel on Linux. Weigh it with `confidence` like any copied field: a
+  /// [`MatchConfidence::Possible`] match is not grounds to take a device
+  /// off BlueZ. `None` when the spec does not declare it.
+  final bool? bluezRawAtt;
   final MatchConfidence confidence;
   final bool matchedByNamePrefix;
 
@@ -4370,6 +4390,7 @@ class ScanMatch {
     this.adminUrl,
     this.integration,
     this.securityAdvisory,
+    this.bluezRawAtt,
     required this.confidence,
     required this.matchedByNamePrefix,
     required this.matchedServiceUuids,
@@ -4388,6 +4409,7 @@ class ScanMatch {
       adminUrl.hashCode ^
       integration.hashCode ^
       securityAdvisory.hashCode ^
+      bluezRawAtt.hashCode ^
       confidence.hashCode ^
       matchedByNamePrefix.hashCode ^
       matchedServiceUuids.hashCode ^
@@ -4408,6 +4430,7 @@ class ScanMatch {
           adminUrl == other.adminUrl &&
           integration == other.integration &&
           securityAdvisory == other.securityAdvisory &&
+          bluezRawAtt == other.bluezRawAtt &&
           confidence == other.confidence &&
           matchedByNamePrefix == other.matchedByNamePrefix &&
           matchedServiceUuids == other.matchedServiceUuids &&
@@ -4824,6 +4847,12 @@ class SpecIdentityDto {
   /// The matched spec's security advisory, carried so the scan list can badge
   /// (and alert on) a known-bad device without fetching the whole spec back.
   final SecurityAdvisoryDto? securityAdvisory;
+
+  /// [`DeviceSpecDto::bluez_raw_att`], carried because the decision it
+  /// drives is taken before connecting, from what the scan saw: the
+  /// router has to own the ATT channel before the link comes up, so it
+  /// cannot wait for the post-connect match. `None` when not declared.
+  final bool? bluezRawAtt;
   final List<String> localNamePrefixes;
 
   /// EXACT advertised names this spec matches whole-string (not a prefix) —
@@ -4884,6 +4913,7 @@ class SpecIdentityDto {
     this.adminUrl,
     this.integration,
     this.securityAdvisory,
+    this.bluezRawAtt,
     required this.localNamePrefixes,
     required this.localNames,
     required this.serviceUuids,
@@ -4907,6 +4937,7 @@ class SpecIdentityDto {
       adminUrl.hashCode ^
       integration.hashCode ^
       securityAdvisory.hashCode ^
+      bluezRawAtt.hashCode ^
       localNamePrefixes.hashCode ^
       localNames.hashCode ^
       serviceUuids.hashCode ^
@@ -4932,6 +4963,7 @@ class SpecIdentityDto {
           adminUrl == other.adminUrl &&
           integration == other.integration &&
           securityAdvisory == other.securityAdvisory &&
+          bluezRawAtt == other.bluezRawAtt &&
           localNamePrefixes == other.localNamePrefixes &&
           localNames == other.localNames &&
           serviceUuids == other.serviceUuids &&

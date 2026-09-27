@@ -1612,6 +1612,61 @@ services: []
         );
     }
 
+    /// `device.host_compatibility` is read entry by entry: nothing in it can
+    /// cost the device, and nothing malformed in it can WIDEN a routing
+    /// claim. The three dropped bluez/raw_att entries would each route the
+    /// whole family if read leniently — a misspelt `variants`, a `variants`
+    /// that is not a list, a key this build does not know.
+    #[test]
+    fn a_malformed_host_compatibility_entry_is_dropped_not_fatal() {
+        let yaml = r#"
+device:
+  name: "x"
+  manufacturer: "x"
+  manufacturer_status: "active"
+  protocol: "ble"
+  host_compatibility:
+    - "bluez"
+    - {status: incompatible, workaround: raw_att}
+    - {stack: [bluez], status: incompatible, workaround: raw_att}
+    - {stack: bluez, status: incompatible, workaround: raw_att, variants: "Curtain 3"}
+    - {stack: bluez, status: incompatible, workaround: raw_att, variant: ["Curtain 3"]}
+    - {stack: bluez, status: incompatible, workaround: raw_att, firmware: ["2.3"]}
+    - {stack: bluez, status: incompatible, workaround: raw_att, observed_versions: 5.85}
+    - {stack: android, status: compatible, cause: {response: none, extra: 1}}
+services: []
+"#;
+        let spec = parse_device_spec(yaml).expect("host_compatibility must not fail the parse");
+        let kept: Vec<&str> = spec
+            .device
+            .host_compatibility
+            .iter()
+            .map(|e| e.stack.as_str())
+            .collect();
+        // Only the android entry survives: an unknown key inside `cause`,
+        // which nothing routes on, keeps the house tolerance.
+        assert_eq!(kept, vec!["android"]);
+        assert!(!spec.device.bluez_raw_att());
+    }
+
+    #[test]
+    fn a_host_compatibility_block_that_is_not_a_list_reads_as_empty() {
+        for block in [
+            "host_compatibility: {stack: bluez, status: incompatible, workaround: raw_att}",
+            "host_compatibility: \"bluez: incompatible\"",
+            "host_compatibility: 7",
+            "host_compatibility: ~",
+        ] {
+            let yaml = format!(
+                "device:\n  name: x\n  manufacturer: x\n  manufacturer_status: active\n  \
+                 protocol: ble\n  {block}\nservices: []\n"
+            );
+            let spec = parse_device_spec(&yaml).unwrap_or_else(|e| panic!("{block}: {e}"));
+            assert!(spec.device.host_compatibility.is_empty(), "{block}");
+            assert!(!spec.device.bluez_raw_att(), "{block}");
+        }
+    }
+
     #[test]
     fn a_stale_color_order_key_does_not_cost_the_whole_spec() {
         // `color_order` was a reserved sibling of the parameter definitions

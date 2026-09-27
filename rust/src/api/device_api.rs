@@ -111,6 +111,15 @@ pub struct DeviceSpecDto {
     /// the spec declares one — the app warns AND keeps the controls. See
     /// [`SafetyAdvisoryDto`].
     pub safety_advisory: Option<SafetyAdvisoryDto>,
+    /// `Some(true)` when the spec says BlueZ's GATT client cannot drive this
+    /// device but a raw ATT channel can (`device.host_compatibility`: `stack:
+    /// bluez`, `status: incompatible`, `workaround: raw_att`, no `variants`);
+    /// `None` otherwise — never `Some(false)`, so the generated Dart
+    /// parameter stays optional. A Linux consumer owns the device's ATT
+    /// fixed channel from its FIRST connect rather than handing it to
+    /// bluetoothd, which would stall on it for 32 s and then publish no
+    /// services. Every other platform ignores it.
+    pub bluez_raw_att: Option<bool>,
     pub notes: Option<String>,
     /// Every BLE local name prefix this device family advertises under, in
     /// spec order. Plural because a family sold as several rebadged models has
@@ -806,6 +815,11 @@ pub struct SpecIdentityDto {
     /// The matched spec's security advisory, carried so the scan list can badge
     /// (and alert on) a known-bad device without fetching the whole spec back.
     pub security_advisory: Option<SecurityAdvisoryDto>,
+    /// [`DeviceSpecDto::bluez_raw_att`], carried because the decision it
+    /// drives is taken before connecting, from what the scan saw: the
+    /// router has to own the ATT channel before the link comes up, so it
+    /// cannot wait for the post-connect match. `None` when not declared.
+    pub bluez_raw_att: Option<bool>,
     pub local_name_prefixes: Vec<String>,
     /// EXACT advertised names this spec matches whole-string (not a prefix) —
     /// a bare factory-default name only. Empty when the spec declares none.
@@ -873,6 +887,12 @@ pub struct ScanMatch {
     /// can warn or alert the moment it is recognised. `None` for a device with
     /// no known problem.
     pub security_advisory: Option<SecurityAdvisoryDto>,
+    /// The matched spec's [`SpecIdentityDto::bluez_raw_att`], copied through
+    /// so the connect path can route the device straight to a raw ATT
+    /// channel on Linux. Weigh it with `confidence` like any copied field: a
+    /// [`MatchConfidence::Possible`] match is not grounds to take a device
+    /// off BlueZ. `None` when the spec does not declare it.
+    pub bluez_raw_att: Option<bool>,
     pub confidence: MatchConfidence,
     pub matched_by_name_prefix: bool,
     /// Matched advertised service UUIDs, lowercased.
@@ -1036,6 +1056,7 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             admin_url: spec.admin_url.clone(),
             integration: spec.integration.clone(),
             security_advisory: spec.security_advisory.clone(),
+            bluez_raw_att: spec.bluez_raw_att,
             local_name_prefixes: spec.local_name_prefixes.clone(),
             local_names: spec.local_names.clone(),
             service_uuids: spec.service_uuids.clone(),
@@ -1122,6 +1143,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .safety_advisory
                 .as_ref()
                 .map(SafetyAdvisoryDto::from),
+            bluez_raw_att: spec.device.bluez_raw_att().then_some(true),
             notes: spec.device.notes.clone(),
             local_name_prefixes: ident
                 .map(Identification::local_name_prefixes)
@@ -4839,6 +4861,7 @@ fn rank_matches(
                 admin_url: identity.admin_url.clone(),
                 integration: identity.integration.clone(),
                 security_advisory: identity.security_advisory.clone(),
+                bluez_raw_att: identity.bluez_raw_att,
                 confidence: axes.confidence(),
                 matched_by_name_prefix: axes.by_name_prefix,
                 matched_service_uuids,
@@ -7245,6 +7268,138 @@ device:
             .unwrap()
             .safety_advisory
             .is_none());
+    }
+
+    /// A BLE spec whose `device:` block ends in `host_compatibility:` with
+    /// `entries` (already indented as list items under it).
+    fn host_compat_yaml(entries: &str) -> String {
+        format!(
+            r#"
+device:
+  name: "Laser Distance Meter"
+  manufacturer: "Johnson Level"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "sensor"
+  identification:
+    local_name_prefix: "Laser Distance Meter"
+  host_compatibility:
+{entries}
+"#
+        )
+    }
+
+    /// Load `entries` and follow the flag through all three hops the
+    /// pre-connect route reads it from: spec DTO, scan identity, scan match.
+    fn raw_att_hops(entries: &str) -> (Option<bool>, Option<bool>, Option<bool>) {
+        let dto = load_device_spec(host_compat_yaml(entries)).unwrap();
+        let identity = SpecIdentityDto::from(&dto);
+        let mut device = anonymous_device();
+        device.name = "Laser Distance Meter 60m".into();
+        let matches = match_scanned_device(vec![identity.clone()], device);
+        assert_eq!(matches.len(), 1, "the name prefix must still match");
+        (
+            dto.bluez_raw_att,
+            identity.bluez_raw_att,
+            matches[0].bluez_raw_att,
+        )
+    }
+
+    #[test]
+    fn a_bluez_raw_att_claim_reaches_the_dto_the_identity_and_the_scan_match() {
+        // The LDM330's shape: every key the schema allows on an entry, so
+        // this also pins that the closed entry accepts all of them — an
+        // entry with a key this build does not know is dropped, and a name
+        // drifting here would silently cost the device its pre-route.
+        let entries = r#"    - stack: bluez
+      status: incompatible
+      symptom: stall_then_empty
+      cause:
+        att_opcode: read_by_type
+        uuid: "00002b3a-0000-1000-8000-00805f9b34fb"
+        response: none
+      workaround: raw_att
+      observed_versions: ["5.85"]
+      verification: confirmed
+      notes: "Never answers Server Supported Features."
+    - stack: android
+      status: compatible
+      verification: confirmed
+    - stack: bluez
+      status: incompatible
+      symptom: partial_services
+      workaround: none_known
+      variants: ["Some Other Model"]
+      verification: reported
+      basis: "https://example.test/issue""#;
+        assert_eq!(raw_att_hops(entries), (Some(true), Some(true), Some(true)));
+        // The whole entry survived, not just the fields the flag reads.
+        let spec = parse_device_spec(&host_compat_yaml(entries)).unwrap();
+        let ldm = &spec.device.host_compatibility[0];
+        assert_eq!(spec.device.host_compatibility.len(), 3);
+        assert_eq!(ldm.observed_versions, vec!["5.85".to_string()]);
+        assert_eq!(
+            ldm.cause.as_ref().and_then(|c| c.uuid.as_deref()),
+            Some("00002b3a-0000-1000-8000-00805f9b34fb")
+        );
+    }
+
+    #[test]
+    fn a_spec_with_no_host_compatibility_carries_none() {
+        // Absent means nobody has said — never "compatible", and never a
+        // `Some(false)` a consumer might read as a verdict.
+        let dto = load_device_spec(SCAN_YAML.into()).unwrap();
+        assert!(dto.bluez_raw_att.is_none());
+        assert!(scan_identity().bluez_raw_att.is_none());
+        let mut device = anonymous_device();
+        device.name = "TEST_thing".into();
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert!(matches[0].bluez_raw_att.is_none());
+    }
+
+    #[test]
+    fn a_variant_scoped_raw_att_claim_does_not_route_the_family() {
+        // Which variant a device is cannot be known before connecting, so a
+        // claim scoped to one must not take its siblings off BlueZ.
+        let entries = r#"    - stack: bluez
+      status: incompatible
+      workaround: raw_att
+      variants: ["Curtain 3"]
+      verification: reported
+      basis: "https://example.test/issue""#;
+        assert_eq!(raw_att_hops(entries), (None, None, None));
+    }
+
+    #[test]
+    fn only_an_incompatible_bluez_verdict_with_raw_att_routes() {
+        for (why, entries) in [
+            (
+                "compatible",
+                "    - {stack: bluez, status: compatible, workaround: raw_att}",
+            ),
+            (
+                "degraded",
+                "    - {stack: bluez, status: degraded, workaround: raw_att}",
+            ),
+            (
+                "another workaround",
+                "    - {stack: bluez, status: incompatible, workaround: none_known}",
+            ),
+            (
+                "no workaround",
+                "    - {stack: bluez, status: incompatible}",
+            ),
+            (
+                "another stack",
+                "    - {stack: corebluetooth, status: incompatible, workaround: raw_att}",
+            ),
+            (
+                "case differs",
+                "    - {stack: BlueZ, status: incompatible, workaround: raw_att}",
+            ),
+        ] {
+            assert_eq!(raw_att_hops(entries), (None, None, None), "{why}");
+        }
     }
 
     #[test]

@@ -91,6 +91,9 @@ trap 'cleanup; trap - TERM; kill -TERM $$' TERM
 # The name is the whole trick: a BlueZ client asks for the SYSTEM bus, and this
 # is what tells it where that bus lives.
 export DBUS_SYSTEM_BUS_ADDRESS="$BUS_ADDRESS"
+# Tells a test that the org.bluez it will meet is this one, not the machine's:
+# suites under test/ that need the virtual stack skip themselves without it.
+export LB_VIRTUAL_BLE=1
 
 READY_FILE="$WORK_DIR/ready"
 scenario_args=()

@@ -21,6 +21,24 @@ dependencies:
   # boundary, not caution. Exact, because the federated interface below has
   # to match it exactly.
   flutter_blue_plus: 1.36.8
+  # flutter_blue_plus's own federated interface and its Linux backend, pinned
+  # exactly because they move with flutter_blue_plus above (a mismatch is a
+  # compile error, not a warning); both resolve to these versions anyway, so
+  # this adds no code. lib/ needs them for the Linux direct-ATT router
+  # (lib/services/direct_att/), which IS a FlutterBluePlusPlatform wrapping
+  # the BlueZ one. test/fakes/emulated_ble.dart implements the same
+  # interface to stand a virtual controller up in-process, and the live
+  # hardware tests register the Linux backend by hand. The interface is NOT
+  # re-exported by package:flutter_blue_plus (it exports only
+  # DeviceIdentifier, Guid, LogLevel and PhySupport).
+  flutter_blue_plus_platform_interface: 7.0.0
+  flutter_blue_plus_linux: 7.0.3
+  # Also for the direct-ATT path: package:ffi for the L2CAP socket calls,
+  # package:bluez to ask bluetoothd what it knows about a device. Both were
+  # already in the tree transitively via flutter_blue_plus_linux; listed
+  # because lib/ imports them directly.
+  ffi: ^2.1.0
+  bluez: '>=0.7.8 <0.9.0'
   flutter_rust_bridge: 2.9.0
   flutter_riverpod: ^2.4.0
   flutter_secure_storage: ^9.2.0
@@ -57,22 +75,6 @@ dev_dependencies:
   # transitive via flutter_test; declared because depending on a transitive
   # is how an upstream change breaks a suite for no visible reason.
   fake_async: ^1.3.1
-  # Test-only: the live-hardware smoke (test/live/) registers the Linux BlueZ
-  # backend by hand, because a test VM has no app startup to do it. Pinned to
-  # the exact version flutter_blue_plus 1.36.8 resolves anyway, so this adds
-  # no new code — it only makes the transitive dependency importable.
-  flutter_blue_plus_linux: 7.0.3
-  # Test-only, and pinned exactly like flutter_blue_plus above because it is
-  # that package's own federated interface — the two move together and a
-  # mismatch is a compile error, not a warning.
-  #
-  # test/fakes/emulated_ble.dart implements FlutterBluePlusPlatform to stand a
-  # virtual BLE controller up in-process, which is what lets RealBleService be
-  # tested against the real flutter_blue_plus code with no radio. That interface
-  # is NOT re-exported by package:flutter_blue_plus (it exports only
-  # DeviceIdentifier, Guid, LogLevel and PhySupport), so it has to be depended
-  # on directly rather than reached through the transitive dependency.
-  flutter_blue_plus_platform_interface: 7.0.0
 
 flutter:
   # Plugins link through CocoaPods on Apple platforms, not Swift Package

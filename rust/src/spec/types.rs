@@ -1140,6 +1140,19 @@ pub struct DeviceInfo {
     /// them (an IPL handset can permanently burn skin). See [`SafetyAdvisory`].
     #[serde(default)]
     pub safety_advisory: Option<SafetyAdvisory>,
+    /// Whether a host Bluetooth stack's own GATT client can drive this
+    /// device, one verdict per stack (`device.host_compatibility`). Promoted
+    /// out of `extensions` because the Linux BLE path routes on it: a device
+    /// bluetoothd cannot enumerate but a raw ATT channel can is taken direct
+    /// from its FIRST connect, rather than after bluetoothd has stalled on it
+    /// for 32 s once. See [`DeviceInfo::bluez_raw_att`].
+    ///
+    /// Read one entry at a time, like `initialization`: an entry that does
+    /// not parse is dropped, and the rest — and the device — stay. A lost
+    /// entry costs only the pre-route (the runtime stall detector still
+    /// catches the device); a failed parse would cost the device.
+    #[serde(default, deserialize_with = "tolerant_host_compatibility")]
+    pub host_compatibility: Vec<HostCompatibility>,
     pub notes: Option<String>,
     pub identification: Option<Identification>,
     /// Device variants sharing service UUIDs but differing in command sets.
@@ -1286,6 +1299,28 @@ impl NameMatch {
 }
 
 impl DeviceInfo {
+    /// Whether this spec says BlueZ's GATT client cannot drive the device but
+    /// a raw ATT channel can — so a Linux consumer should own the ATT fixed
+    /// channel from the first connect instead of handing the link to
+    /// bluetoothd and waiting out its stall.
+    ///
+    /// True only for an entry that says all of it: `stack: bluez`, `status:
+    /// incompatible`, `workaround: raw_att`, and no `variants`. A
+    /// variant-scoped claim is left out on purpose: which variant a device is
+    /// cannot be known before connecting (SwitchBot's Curtain and Curtain 3
+    /// share one name prefix), and reading it as the whole family's would
+    /// take every sibling BlueZ drives fine off BlueZ. Exact, case-sensitive
+    /// comparisons for the same reason: a claim read wider than it was
+    /// written costs working devices, one read narrower costs one stall.
+    pub fn bluez_raw_att(&self) -> bool {
+        self.host_compatibility.iter().any(|entry| {
+            entry.stack == "bluez"
+                && entry.status == "incompatible"
+                && entry.workaround.as_deref() == Some("raw_att")
+                && entry.variants.is_none()
+        })
+    }
+
     /// The `discovery.methods` entries, as raw YAML — the block this core
     /// otherwise preserves unexecuted.
     fn discovery_methods(&self) -> impl Iterator<Item = &serde_yaml::Value> {
@@ -1571,6 +1606,96 @@ impl std::fmt::Display for SafetySeverity {
             SafetySeverity::Danger => write!(f, "danger"),
         }
     }
+}
+
+/// One `device.host_compatibility` entry: what happens when `stack`'s own
+/// GATT client drives this device, and what gets a consumer past it.
+///
+/// Every vocabulary is a raw `String`, not a Rust enum — `stack` (`bluez`,
+/// `android`, `corebluetooth`, `windows`), `status` (`compatible`,
+/// `degraded`, `incompatible`, `unknown`), `workaround`, `symptom`,
+/// `verification`. The schema owns them and grows them first; a value this
+/// build has not heard of then fails only the comparison looking for it,
+/// never the entry, and never the spec.
+///
+/// Unknown KEYS are the other way round: an entry carrying one is dropped
+/// (see `tolerant_host_compatibility`), not read without it. This entry is
+/// a routing claim, and a key this build does not know may be one that
+/// narrows it — a scope it cannot honour, or a misspelt `variants` — so
+/// reading on without it could route a whole family that only one variant
+/// of needs. Dropping costs the pre-route, which the runtime stall detector
+/// backs up. The schema closes the entry too, so a vendored spec never
+/// trips this; a pack installed from a URL might.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HostCompatibility {
+    pub stack: String,
+    pub status: String,
+    /// What a consumer on this stack does instead: `raw_att` (own the ATT
+    /// fixed channel, L2CAP CID 4, before the link comes up, so the stack's
+    /// GATT client never attaches), `host_config`, `none_known`.
+    #[serde(default)]
+    pub workaround: Option<String>,
+    /// The `device.variants` models this verdict is scoped to. Absent means
+    /// the whole family — the only reading [`DeviceInfo::bluez_raw_att`]
+    /// routes on.
+    #[serde(default)]
+    pub variants: Option<Vec<String>>,
+    /// How the failure shows (`stall_then_empty`, `partial_services`,
+    /// `disconnect`, `pairing_failure`).
+    #[serde(default)]
+    pub symptom: Option<String>,
+    /// The ATT exchange the stack trips on, when known.
+    #[serde(default)]
+    pub cause: Option<HostCompatibilityCause>,
+    /// Stack versions the verdict was observed on (`"5.85"`).
+    #[serde(default)]
+    pub observed_versions: Vec<String>,
+    /// `confirmed` | `reported` | `hypothesis`.
+    #[serde(default)]
+    pub verification: Option<String>,
+    /// Where an unconfirmed verdict comes from (an issue, a single report).
+    #[serde(default)]
+    pub basis: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+/// The device-side fact under a [`HostCompatibility`] verdict: which ATT
+/// request, and what the device did with it. Descriptive only — nothing
+/// routes on it, so it keeps the house tolerance for keys it does not know.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct HostCompatibilityCause {
+    /// The request, snake_case (`read_by_type`, `exchange_mtu`).
+    #[serde(default)]
+    pub att_opcode: Option<String>,
+    /// The attribute type it asked about, when it names one (the LDM330
+    /// never answers Server Supported Features, 0x2B3A).
+    #[serde(default)]
+    pub uuid: Option<String>,
+    /// `none` | `late` | `duplicate` | `wrong_error` | `disconnect`.
+    #[serde(default)]
+    pub response: Option<String>,
+}
+
+/// `device.host_compatibility` read one entry at a time, as
+/// [`tolerant_initialization`] reads `initialization`: an entry that does
+/// not parse — a wrong type, a missing `stack`/`status`, a key this build
+/// does not know — is dropped, and a block that is not a list at all reads
+/// as empty. Either way the spec loads; the worst case is a device that
+/// takes the runtime stall hand-over instead of the pre-route.
+fn tolerant_host_compatibility<'de, D>(deserializer: D) -> Result<Vec<HostCompatibility>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_yaml::Value::deserialize(deserializer)?;
+    Ok(match raw {
+        serde_yaml::Value::Sequence(entries) => entries
+            .into_iter()
+            .filter_map(|v| serde_yaml::from_value(v).ok())
+            .collect(),
+        _ => Vec::new(),
+    })
 }
 
 /// Why this device needs open-source rescue.

@@ -5727,8 +5727,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 29)
-      throw Exception('unexpected arr length: expect 29 but see ${arr.length}');
+    if (arr.length != 30)
+      throw Exception('unexpected arr length: expect 30 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -5742,25 +5742,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         arr[8],
       ),
       safetyAdvisory: dco_decode_opt_box_autoadd_safety_advisory_dto(arr[9]),
-      notes: dco_decode_opt_String(arr[10]),
-      localNamePrefixes: dco_decode_list_String(arr[11]),
-      localNames: dco_decode_list_String(arr[12]),
-      serviceUuids: dco_decode_list_String(arr[13]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[14]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[15]),
-      mdnsServiceTypes: dco_decode_list_String(arr[16]),
-      ssdpSearchTargets: dco_decode_list_String(arr[17]),
-      lanProtocols: dco_decode_list_String(arr[18]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[19]),
-      nameMatchers: dco_decode_list_name_match_dto(arr[20]),
-      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[21]),
-      platformFallbackTypes: dco_decode_list_String(arr[22]),
-      services: dco_decode_list_service_dto(arr[23]),
-      protocolHandler: dco_decode_opt_String(arr[24]),
-      entities: dco_decode_list_entity_dto(arr[25]),
-      hiddenEntityNames: dco_decode_list_String(arr[26]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[27]),
-      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[28]),
+      bluezRawAtt: dco_decode_opt_box_autoadd_bool(arr[10]),
+      notes: dco_decode_opt_String(arr[11]),
+      localNamePrefixes: dco_decode_list_String(arr[12]),
+      localNames: dco_decode_list_String(arr[13]),
+      serviceUuids: dco_decode_list_String(arr[14]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[15]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[16]),
+      mdnsServiceTypes: dco_decode_list_String(arr[17]),
+      ssdpSearchTargets: dco_decode_list_String(arr[18]),
+      lanProtocols: dco_decode_list_String(arr[19]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[20]),
+      nameMatchers: dco_decode_list_name_match_dto(arr[21]),
+      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[22]),
+      platformFallbackTypes: dco_decode_list_String(arr[23]),
+      services: dco_decode_list_service_dto(arr[24]),
+      protocolHandler: dco_decode_opt_String(arr[25]),
+      entities: dco_decode_list_entity_dto(arr[26]),
+      hiddenEntityNames: dco_decode_list_String(arr[27]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[28]),
+      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[29]),
     );
   }
 
@@ -7228,8 +7229,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ScanMatch dco_decode_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 14)
-      throw Exception('unexpected arr length: expect 14 but see ${arr.length}');
+    if (arr.length != 15)
+      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
     return ScanMatch(
       specIndex: dco_decode_u_32(arr[0]),
       deviceName: dco_decode_String(arr[1]),
@@ -7241,12 +7242,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       securityAdvisory: dco_decode_opt_box_autoadd_security_advisory_dto(
         arr[7],
       ),
-      confidence: dco_decode_match_confidence(arr[8]),
-      matchedByNamePrefix: dco_decode_bool(arr[9]),
-      matchedServiceUuids: dco_decode_list_String(arr[10]),
-      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[11]),
-      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[12]),
-      matchedServiceTypes: dco_decode_list_String(arr[13]),
+      bluezRawAtt: dco_decode_opt_box_autoadd_bool(arr[8]),
+      confidence: dco_decode_match_confidence(arr[9]),
+      matchedByNamePrefix: dco_decode_bool(arr[10]),
+      matchedServiceUuids: dco_decode_list_String(arr[11]),
+      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[12]),
+      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[13]),
+      matchedServiceTypes: dco_decode_list_String(arr[14]),
     );
   }
 
@@ -7389,8 +7391,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 19)
-      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
+    if (arr.length != 20)
+      throw Exception('unexpected arr length: expect 20 but see ${arr.length}');
     return SpecIdentityDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -7401,18 +7403,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       securityAdvisory: dco_decode_opt_box_autoadd_security_advisory_dto(
         arr[6],
       ),
-      localNamePrefixes: dco_decode_list_String(arr[7]),
-      localNames: dco_decode_list_String(arr[8]),
-      serviceUuids: dco_decode_list_String(arr[9]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[10]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[11]),
-      mdnsServiceTypes: dco_decode_list_String(arr[12]),
-      ssdpSearchTargets: dco_decode_list_String(arr[13]),
-      lanProtocols: dco_decode_list_String(arr[14]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[15]),
-      nameMatchers: dco_decode_list_name_match_dto(arr[16]),
-      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[17]),
-      platformFallbackTypes: dco_decode_list_String(arr[18]),
+      bluezRawAtt: dco_decode_opt_box_autoadd_bool(arr[7]),
+      localNamePrefixes: dco_decode_list_String(arr[8]),
+      localNames: dco_decode_list_String(arr[9]),
+      serviceUuids: dco_decode_list_String(arr[10]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[11]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[12]),
+      mdnsServiceTypes: dco_decode_list_String(arr[13]),
+      ssdpSearchTargets: dco_decode_list_String(arr[14]),
+      lanProtocols: dco_decode_list_String(arr[15]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[16]),
+      nameMatchers: dco_decode_list_name_match_dto(arr[17]),
+      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[18]),
+      platformFallbackTypes: dco_decode_list_String(arr[19]),
     );
   }
 
@@ -8360,6 +8363,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_safetyAdvisory = sse_decode_opt_box_autoadd_safety_advisory_dto(
       deserializer,
     );
+    var var_bluezRawAtt = sse_decode_opt_box_autoadd_bool(deserializer);
     var var_notes = sse_decode_opt_String(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
     var var_localNames = sse_decode_list_String(deserializer);
@@ -8394,6 +8398,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       integration: var_integration,
       securityAdvisory: var_securityAdvisory,
       safetyAdvisory: var_safetyAdvisory,
+      bluezRawAtt: var_bluezRawAtt,
       notes: var_notes,
       localNamePrefixes: var_localNamePrefixes,
       localNames: var_localNames,
@@ -10533,6 +10538,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_securityAdvisory = sse_decode_opt_box_autoadd_security_advisory_dto(
       deserializer,
     );
+    var var_bluezRawAtt = sse_decode_opt_box_autoadd_bool(deserializer);
     var var_confidence = sse_decode_match_confidence(deserializer);
     var var_matchedByNamePrefix = sse_decode_bool(deserializer);
     var var_matchedServiceUuids = sse_decode_list_String(deserializer);
@@ -10550,6 +10556,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       adminUrl: var_adminUrl,
       integration: var_integration,
       securityAdvisory: var_securityAdvisory,
+      bluezRawAtt: var_bluezRawAtt,
       confidence: var_confidence,
       matchedByNamePrefix: var_matchedByNamePrefix,
       matchedServiceUuids: var_matchedServiceUuids,
@@ -10732,6 +10739,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_securityAdvisory = sse_decode_opt_box_autoadd_security_advisory_dto(
       deserializer,
     );
+    var var_bluezRawAtt = sse_decode_opt_box_autoadd_bool(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
     var var_localNames = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
@@ -10752,6 +10760,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       adminUrl: var_adminUrl,
       integration: var_integration,
       securityAdvisory: var_securityAdvisory,
+      bluezRawAtt: var_bluezRawAtt,
       localNamePrefixes: var_localNamePrefixes,
       localNames: var_localNames,
       serviceUuids: var_serviceUuids,
@@ -11704,6 +11713,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       self.safetyAdvisory,
       serializer,
     );
+    sse_encode_opt_box_autoadd_bool(self.bluezRawAtt, serializer);
     sse_encode_opt_String(self.notes, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
     sse_encode_list_String(self.localNames, serializer);
@@ -13544,6 +13554,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       self.securityAdvisory,
       serializer,
     );
+    sse_encode_opt_box_autoadd_bool(self.bluezRawAtt, serializer);
     sse_encode_match_confidence(self.confidence, serializer);
     sse_encode_bool(self.matchedByNamePrefix, serializer);
     sse_encode_list_String(self.matchedServiceUuids, serializer);
@@ -13682,6 +13693,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       self.securityAdvisory,
       serializer,
     );
+    sse_encode_opt_box_autoadd_bool(self.bluezRawAtt, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
     sse_encode_list_String(self.localNames, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);

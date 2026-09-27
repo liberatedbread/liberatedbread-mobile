@@ -55,6 +55,7 @@ String identityDigest(SpecIdentityDto i) => [
   i.integration,
   i.securityAdvisory?.severity,
   i.securityAdvisory?.summary,
+  i.bluezRawAtt,
   i.localNamePrefixes.join(','),
   i.localNames.join(','),
   i.serviceUuids.join(','),
@@ -133,6 +134,40 @@ void main() {
       }
     },
   );
+
+  test('a raw-ATT host claim reaches the identity by either door', () async {
+    // No vendored spec declares `host_compatibility` yet, so the catalogue
+    // comparison above cannot see a `bluezRawAtt` that one path dropped —
+    // and the Linux router reads it off this identity before connecting.
+    // One synthetic spec that declares it, loaded both ways.
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    const yaml = '''
+device:
+  name: "Raw ATT Meter"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  identification:
+    local_name_prefix: "RAWATT_"
+  host_compatibility:
+    - stack: bluez
+      status: incompatible
+      workaround: raw_att
+      verification: confirmed
+services: []
+''';
+    final one = {'test/raw-att-meter.yaml': yaml};
+    final handled = await codec.loadCatalogue(one);
+    final byValue = await FallbackSpecCatalogue.load(codec, one);
+    expect(handled.specs.single.identity.bluezRawAtt, isTrue);
+    expect(
+      entryDigest(byValue.specs.single),
+      entryDigest(handled.specs.single),
+    );
+  });
 
   test('both catalogues match every spec\'s own device the same way', () async {
     if (!rustReady) {

@@ -5446,6 +5446,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
         let mut var_safetyAdvisory =
             <Option<crate::api::device_api::SafetyAdvisoryDto>>::sse_decode(deserializer);
+        let mut var_bluezRawAtt = <Option<bool>>::sse_decode(deserializer);
         let mut var_notes = <Option<String>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
         let mut var_localNames = <Vec<String>>::sse_decode(deserializer);
@@ -5481,6 +5482,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             integration: var_integration,
             security_advisory: var_securityAdvisory,
             safety_advisory: var_safetyAdvisory,
+            bluez_raw_att: var_bluezRawAtt,
             notes: var_notes,
             local_name_prefixes: var_localNamePrefixes,
             local_names: var_localNames,
@@ -7692,6 +7694,7 @@ impl SseDecode for crate::api::device_api::ScanMatch {
         let mut var_integration = <Option<String>>::sse_decode(deserializer);
         let mut var_securityAdvisory =
             <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
+        let mut var_bluezRawAtt = <Option<bool>>::sse_decode(deserializer);
         let mut var_confidence =
             <crate::api::device_api::MatchConfidence>::sse_decode(deserializer);
         let mut var_matchedByNamePrefix = <bool>::sse_decode(deserializer);
@@ -7709,6 +7712,7 @@ impl SseDecode for crate::api::device_api::ScanMatch {
             admin_url: var_adminUrl,
             integration: var_integration,
             security_advisory: var_securityAdvisory,
+            bluez_raw_att: var_bluezRawAtt,
             confidence: var_confidence,
             matched_by_name_prefix: var_matchedByNamePrefix,
             matched_service_uuids: var_matchedServiceUuids,
@@ -7897,6 +7901,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
         let mut var_integration = <Option<String>>::sse_decode(deserializer);
         let mut var_securityAdvisory =
             <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
+        let mut var_bluezRawAtt = <Option<bool>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
         let mut var_localNames = <Vec<String>>::sse_decode(deserializer);
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
@@ -7920,6 +7925,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
             admin_url: var_adminUrl,
             integration: var_integration,
             security_advisory: var_securityAdvisory,
+            bluez_raw_att: var_bluezRawAtt,
             local_name_prefixes: var_localNamePrefixes,
             local_names: var_localNames,
             service_uuids: var_serviceUuids,
@@ -9350,6 +9356,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.integration.into_into_dart().into_dart(),
             self.security_advisory.into_into_dart().into_dart(),
             self.safety_advisory.into_into_dart().into_dart(),
+            self.bluez_raw_att.into_into_dart().into_dart(),
             self.notes.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
             self.local_names.into_into_dart().into_dart(),
@@ -10610,6 +10617,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScanMatch {
             self.admin_url.into_into_dart().into_dart(),
             self.integration.into_into_dart().into_dart(),
             self.security_advisory.into_into_dart().into_dart(),
+            self.bluez_raw_att.into_into_dart().into_dart(),
             self.confidence.into_into_dart().into_dart(),
             self.matched_by_name_prefix.into_into_dart().into_dart(),
             self.matched_service_uuids.into_into_dart().into_dart(),
@@ -10858,6 +10866,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
             self.admin_url.into_into_dart().into_dart(),
             self.integration.into_into_dart().into_dart(),
             self.security_advisory.into_into_dart().into_dart(),
+            self.bluez_raw_att.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
             self.local_names.into_into_dart().into_dart(),
             self.service_uuids.into_into_dart().into_dart(),
@@ -11620,6 +11629,7 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
             self.safety_advisory,
             serializer,
         );
+        <Option<bool>>::sse_encode(self.bluez_raw_att, serializer);
         <Option<String>>::sse_encode(self.notes, serializer);
         <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
         <Vec<String>>::sse_encode(self.local_names, serializer);
@@ -13221,6 +13231,7 @@ impl SseEncode for crate::api::device_api::ScanMatch {
             self.security_advisory,
             serializer,
         );
+        <Option<bool>>::sse_encode(self.bluez_raw_att, serializer);
         <crate::api::device_api::MatchConfidence>::sse_encode(self.confidence, serializer);
         <bool>::sse_encode(self.matched_by_name_prefix, serializer);
         <Vec<String>>::sse_encode(self.matched_service_uuids, serializer);
@@ -13357,6 +13368,7 @@ impl SseEncode for crate::api::device_api::SpecIdentityDto {
             self.security_advisory,
             serializer,
         );
+        <Option<bool>>::sse_encode(self.bluez_raw_att, serializer);
         <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
         <Vec<String>>::sse_encode(self.local_names, serializer);
         <Vec<String>>::sse_encode(self.service_uuids, serializer);

@@ -105,3 +105,5 @@ optional here — they're a feature.
   vendored spec catalogue; never patched here
 - [docs/GROUP_CONTROL_AND_VOICE.md](docs/GROUP_CONTROL_AND_VOICE.md) — design
   note: group ops across both transports, and a Siri/Shortcuts surface
+- [docs/LINUX_DIRECT_ATT.md](docs/LINUX_DIRECT_ATT.md) — the Linux raw-ATT
+  path for peripherals bluetoothd cannot enumerate, and how to delete it

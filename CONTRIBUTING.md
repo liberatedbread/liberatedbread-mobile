@@ -49,7 +49,7 @@ Before opening a PR, run the local CI mirror (covers both Flutter and Rust):
 ## Testing BLE without hardware
 
 Almost nobody has the cloud-dead device you are fixing support for, and CI has
-no Bluetooth radio at all. There are four ways to stand a device up, at four
+no Bluetooth radio at all. There are five ways to stand a device up, at
 different depths — pick the shallowest one that still runs the code you changed.
 
 | What you get | Where | Runs the real `RealBleService`? | Runs the platform plugin? |
@@ -57,6 +57,7 @@ different depths — pick the shallowest one that still runs the code you change
 | `FakeBleService` | `test/fakes/fake_ble_service.dart` | no | no |
 | Mock mode | `--dart-define=LIBERATED_BREAD_MOCK=true` | no (it IS the other implementation) | no |
 | Emulated peripherals | `test/fakes/emulated_ble.dart` | **yes** | flutter_blue_plus's Dart core, yes |
+| The Linux stack, routed | `test/fakes/routed_ble.dart` + `fake_att_channel.dart` | **yes** | flutter_blue_plus's core and the Linux direct-ATT router, yes |
 | Virtual BlueZ | `scripts/linux-virtual-ble.sh` | **yes** | **yes**, `flutter_blue_plus_linux` |
 
 **`FakeBleService`** replaces the app's own `BleService` interface. Right for
@@ -83,6 +84,26 @@ See `test/services/real_ble_service_emulated_test.dart` for the service-level
 use and `test/app_real_ble_path_test.dart` for the whole app over that path.
 Both run under a plain `flutter test`.
 
+**The Linux stack, routed** is the emulated adapter with the Linux
+direct-ATT router (docs/LINUX_DIRECT_ATT.md) in front of it, exactly where
+the desktop app puts it, plus scripted ATT peripherals for the devices it
+drives itself. A device can be given both views — what bluetoothd reports
+about it (`discoveryBlocksFor`, `discoveryNeverResolves`, `reportLinkDown`:
+the ways bluetoothd misbehaves) and what its own ATT server answers
+(`FakeAttPeripheral`, with `.ldm330()` as a preset):
+
+```dart
+final rig = RoutedBle.install();                   // once, in setUpAll
+rig.ble.add(EmulatedPeripheral.bulb(id: meter))
+  ..emptyDiscoveries = 1 << 20
+  ..discoveryBlocksFor = const Duration(milliseconds: 300);  // the stall
+rig.channels.peripherals[meter] = FakeAttPeripheral.ldm330();
+```
+
+See `test/services/direct_att/direct_att_router_test.dart`; and
+`test/services/real_ble_service_routed_test.dart`, which re-runs the whole
+emulated RealBleService suite through the router.
+
 **Virtual BlueZ** is for the Linux desktop target, where the real BLE path goes
 through `flutter_blue_plus_linux` to BlueZ over D-Bus. `scripts/
 ble_virtual_peripheral.py` serves `org.bluez` on a private bus — no radio, no
@@ -97,7 +118,12 @@ kernel module, no root — so that backend runs for real:
 It needs `dbus` and `python3-dbus-next` (both in `LINUX_DESKTOP_PACKAGES`, so
 `./scripts/setup.sh` installs them). Suites that need it are tagged
 `@Tags(['bluez'])`, which keeps them out of the device jobs and tells
-`scripts/ci-linux-tests.sh` to run them wrapped.
+`scripts/ci-linux-tests.sh` to run them wrapped. A scenario device can be
+`persisted` — one bluetoothd already keeps, which a scan announces only as a
+property change — and a host suite under `test/` can use the stack too
+(`LB_VIRTUAL_BLE_SCENARIO=<json> ./scripts/linux-virtual-ble.sh flutter test
+<file>`; it skips itself unless the wrapper set `LB_VIRTUAL_BLE=1`). See
+`test/services/direct_att/bluez_view_virtual_test.dart`.
 
 ## Testing local-network discovery without a network
 

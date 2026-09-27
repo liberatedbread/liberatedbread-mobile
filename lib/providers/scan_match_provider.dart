@@ -70,6 +70,13 @@ class ScanGuess {
   /// instead of claiming a "Supported device" it cannot drive.
   final bool isIdentifyOnly;
 
+  /// True when the matched spec says BlueZ's GATT client cannot drive this
+  /// device but a direct ATT channel can (its `device.host_compatibility`),
+  /// and every equally good match says the same. Only the Linux direct-ATT
+  /// router acts on it (direct_att_hint_provider.dart), routing such a
+  /// device off BlueZ from its first connection; nothing is drawn for it.
+  final bool bluezRawAtt;
+
   const ScanGuess({
     required this.deviceName,
     required this.manufacturer,
@@ -81,6 +88,7 @@ class ScanGuess {
     this.pictogram,
     this.adminUrl,
     this.isIdentifyOnly = false,
+    this.bluezRawAtt = false,
   });
 
   /// This row is a security warning rather than a controllable device.
@@ -123,6 +131,11 @@ class ScanGuess {
       pictogram: best.pictogram,
       adminUrl: best.adminUrl,
       isIdentifyOnly: best.integration == 'identify_only',
+      // Agreement, like category: a device that merely might be the one
+      // BlueZ cannot drive must not be taken off BlueZ for it.
+      bluezRawAtt:
+          (best.bluezRawAtt ?? false) &&
+          tied.every((m) => m.bluezRawAtt ?? false),
     );
   }
 

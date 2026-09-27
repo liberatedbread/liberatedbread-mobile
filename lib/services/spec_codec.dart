@@ -1360,6 +1360,7 @@ SpecIdentityDto specIdentityOf(DeviceSpecDto spec) => SpecIdentityDto(
   adminUrl: spec.adminUrl,
   integration: spec.integration,
   securityAdvisory: spec.securityAdvisory,
+  bluezRawAtt: spec.bluezRawAtt,
   localNamePrefixes: spec.localNamePrefixes,
   localNames: spec.localNames,
   serviceUuids: spec.serviceUuids,

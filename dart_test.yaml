@@ -33,3 +33,10 @@ tags:
   # itself unless the build carries --dart-define=LB_HARDWARE=true, so nothing
   # runs on a Simulator by accident. scripts/run-ios-device-tests.sh runs it.
   hardware: {}
+  # Suites that talk D-Bus to a VIRTUAL BlueZ (scripts/ble_virtual_peripheral.py
+  # on a private bus) and must be launched through scripts/linux-virtual-ble.sh.
+  # The integration suites are kept out of the Linux job's per-file loop by
+  # it and run wrapped instead; the host ones under test/ also skip themselves
+  # unless the wrapper set LB_VIRTUAL_BLE=1, so a bare `flutter test` never
+  # reaches the machine's real bluetoothd.
+  bluez: {}
