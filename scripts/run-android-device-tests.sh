@@ -16,6 +16,7 @@
 #   ./scripts/run-android-device-tests.sh --expect-lan-devices     # a silent Wi-Fi scan is a FAILURE
 #   ./scripts/run-android-device-tests.sh --live-ble-name "SD-1234"  # also connect to that peripheral
 #   ./scripts/run-android-device-tests.sh --live-ble-any           # connect to the nearest connectable one
+#   ./scripts/run-android-device-tests.sh --live-ble-sequence "GVH5075,Airthings"  # connect to each, in order, twice over (name prefixes)
 #   ./scripts/run-android-device-tests.sh -- --verbose   # pass extras to `flutter test`
 #
 # No entitlement dance here: Android needs no multicast entitlement, the app
@@ -46,7 +47,7 @@ source "$SCRIPT_DIR/regen-spec-index.sh"
 # shellcheck source=ensure-gradle-jdk.sh
 source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
 
-usage() { sed -n '5,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '5,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 DEVICE_ID=""
 LIST_ONLY=false
@@ -55,6 +56,7 @@ IF_PRESENT=false
 EXPECT_LAN=false
 LIVE_BLE_NAME=""
 LIVE_BLE_ANY=false
+LIVE_BLE_SEQUENCE=""
 TEST_TIMEOUT="${LB_TEST_TIMEOUT:-900s}"
 PASSTHROUGH=()
 
@@ -71,6 +73,9 @@ while (( $# > 0 )); do
       [[ $# -lt 2 ]] && { err "--live-ble-name requires the advertised name."; exit 2; }
       LIVE_BLE_NAME="$2"; shift 2 ;;
     --live-ble-any)       LIVE_BLE_ANY=true; shift ;;
+    --live-ble-sequence)
+      [[ $# -lt 2 ]] && { err "--live-ble-sequence requires a comma-separated list of advertised-name prefixes."; exit 2; }
+      LIVE_BLE_SEQUENCE="$2"; shift 2 ;;
     --timeout)
       [[ $# -lt 2 ]] && { err "--timeout requires a value such as 900s."; exit 2; }
       TEST_TIMEOUT="$2"; shift 2 ;;
@@ -129,6 +134,7 @@ DEFINES=(
 [[ "$EXPECT_LAN" == "true" ]] && DEFINES+=(--dart-define=LB_EXPECT_LAN_DEVICES=true)
 [[ -n "$LIVE_BLE_NAME" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_NAME="$LIVE_BLE_NAME")
 [[ "$LIVE_BLE_ANY" == "true" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_ANY=true)
+[[ -n "$LIVE_BLE_SEQUENCE" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_SEQUENCE="$LIVE_BLE_SEQUENCE")
 
 status=0
 

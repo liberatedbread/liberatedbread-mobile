@@ -45,6 +45,16 @@
 //   LB_LIVE_BLE_ANY=true         the same, against the strongest CONNECTABLE
 //                                advertiser in range. Read-only: connect,
 //                                discover, disconnect — nothing is written
+//   LB_LIVE_BLE_SEQUENCE=<prefix>[,<prefix>…]
+//                                the connection-sequence experiment. Each
+//                                entry is a PREFIX of an advertised name
+//                                (case-sensitive; an exact name is a prefix
+//                                too). One scan maps each prefix to the
+//                                strongest matching advertiser, then the
+//                                list is walked twice in order — connect,
+//                                discover, read, hold 20 s, disconnect —
+//                                and a table says what each device did in
+//                                each pass. Read-only, like LB_LIVE_BLE_ANY
 //
 // Every test prints what it measured under a `[hardware]` prefix, because a
 // green run is only half the point — the numbers (catalogue parse time on a
@@ -58,7 +68,8 @@
 @Tags(['hardware'])
 library;
 
-import 'dart:async' show Completer, StreamSubscription, Timer, unawaited;
+import 'dart:async'
+    show Completer, StreamSubscription, TimeoutException, Timer, unawaited;
 import 'dart:convert' show jsonDecode;
 import 'dart:io' show Platform;
 import 'dart:typed_data' show Uint16List;
@@ -91,6 +102,8 @@ import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart'
     show specCodecProvider;
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/screens/terms_screen.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart'
+    show BleConnectionState;
 import 'package:liberated_bread_mobile/services/mock_ble_service.dart'
     show MockBleService;
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
@@ -111,6 +124,7 @@ const bool _multicastEntitled = bool.fromEnvironment(
 const bool _expectLanDevices = bool.fromEnvironment('LB_EXPECT_LAN_DEVICES');
 const String _liveBleName = String.fromEnvironment('LB_LIVE_BLE_NAME');
 const bool _liveBleAny = bool.fromEnvironment('LB_LIVE_BLE_ANY');
+const String _liveBleSequence = String.fromEnvironment('LB_LIVE_BLE_SEQUENCE');
 
 /// The Battery Service, the same probe native_core_test.dart uses: a standard
 /// profile the Rust side recognises without any spec loaded.
@@ -225,6 +239,324 @@ bool _skipUnlessHardware() {
 }
 
 void _say(String line) => debugPrint('[hardware] $line');
+
+/// The bounds of the connection-sequence experiment. Every await in it is
+/// bounded, because integration tests run in real time and an await that
+/// never returns is a hang nobody sees until the suite's allowance kills it.
+/// Connect carries the service's own 15 s (twice on Apple platforms, around a
+/// 6 s rediscovery scan); everything else gets [_sequenceOpBound] through
+/// [_bounded]. Future.timeout frees only the caller — the platform call runs
+/// on — which is why the disconnect in every finally is bounded too.
+const Duration _sequenceOpBound = Duration(seconds: 45);
+
+/// How long a link is held idle, listening for the peripheral to hang up.
+const Duration _sequenceHold = Duration(seconds: 20);
+
+/// The most the read phase may take on one device: a characteristic that
+/// never answers costs the plugin's 15 s each, and a lock-like device with a
+/// dozen of them would otherwise eat the whole allowance in one pass.
+const Duration _sequenceReadBudget = Duration(seconds: 45);
+
+/// [future] under [_sequenceOpBound], with a message that names the step.
+Future<T> _bounded<T>(Future<T> future, String what) => future.timeout(
+  _sequenceOpBound,
+  onTimeout: () => throw TimeoutException(
+    '$what did not complete in ${_sequenceOpBound.inSeconds} s',
+    _sequenceOpBound,
+  ),
+);
+
+/// Whether a failure is a bug rather than an outcome.
+///
+/// The generic live test holds READS to this app's own exception types,
+/// because the service classifies every read failure before it escapes.
+/// Connect and discovery are different: the service passes the plugin's typed
+/// errors through on purpose (a timeout, a peripheral that refused) and the
+/// screens word them through friendlyErrorText — so a FlutterBluePlusException
+/// from connect is an answer about the device, not a crash. What is a crash
+/// is an [Error]: a TypeError, a StateError, a NoSuchMethodError, a failed
+/// assertion — the service or the plugin tripping over itself instead of
+/// reporting what the device did.
+bool _isCrashClass(Object error) => error is Error;
+
+/// One device in one pass of the sequence experiment: what each step cost
+/// and how it ended. A null timing is a step never reached.
+class _SequenceRow {
+  _SequenceRow({required this.pass, required this.label});
+
+  final int pass;
+  final String label;
+  int connectAttempts = 0;
+  int? connectMs;
+  int? discoverMs;
+  int? services;
+  int readsAttempted = 0;
+  int readsAnswered = 0;
+  int readsRefused = 0;
+  int readsSkipped = 0;
+
+  /// Seconds after connect at which the peripheral hung up on its own, and
+  /// the step it was in; null when the link held until this test let go.
+  double? droppedAtS;
+  String? droppedDuring;
+  int? disconnectMs;
+
+  /// The last error the row saw, verbatim: connect's when it never
+  /// connected, a later step's when one failed afterwards.
+  Object? error;
+
+  bool get connected => connectMs != null;
+}
+
+/// The table the experiment ends with, one row per device per pass. Every
+/// column but the last is padded to line up; the error is left ragged
+/// because it is printed verbatim, which is the point of the column.
+void _saySequenceTable(List<_SequenceRow> rows) {
+  String ms(int? v) => v == null ? '-' : '$v ms';
+  String link(_SequenceRow r) {
+    if (!r.connected) return '-';
+    final at = r.droppedAtS;
+    if (at == null) return 'held';
+    return 'dropped ${at.toStringAsFixed(1)} s (${r.droppedDuring})';
+  }
+
+  final table = <List<String>>[
+    [
+      'pass',
+      'device',
+      'connect',
+      'discover',
+      'services',
+      'reads ok/refused/tried',
+      'link',
+      'disconnect',
+      'error',
+    ],
+    for (final r in rows)
+      [
+        '${r.pass}',
+        r.label,
+        r.connected
+            ? '${ms(r.connectMs)} (try ${r.connectAttempts})'
+            : 'FAILED x${r.connectAttempts}',
+        ms(r.discoverMs),
+        r.services?.toString() ?? '-',
+        r.connected
+            ? '${r.readsAnswered}/${r.readsRefused}/${r.readsAttempted}'
+                  '${r.readsSkipped > 0 ? ' (+${r.readsSkipped} skipped)' : ''}'
+            : '-',
+        link(r),
+        ms(r.disconnectMs),
+        r.error == null ? '-' : '${r.error.runtimeType}: ${r.error}',
+      ],
+  ];
+  final columns = table.first.length - 1;
+  final widths = List<int>.filled(columns, 0);
+  for (final line in table) {
+    for (var c = 0; c < columns; c++) {
+      if (line[c].length > widths[c]) widths[c] = line[c].length;
+    }
+  }
+  for (final line in table) {
+    final cells = [
+      for (var c = 0; c < columns; c++) line[c].padRight(widths[c]),
+      line[columns],
+    ];
+    _say('  ${cells.join('  ')}');
+  }
+}
+
+/// Disconnects, timed and bounded. Never throws: it runs after a failed
+/// connect attempt and in every finally, where a throw would replace the
+/// outcome the row is already carrying. The error comes back for the row.
+Future<({int ms, Object? error})> _sequenceDisconnect(
+  RealBleService ble,
+  String id,
+  String tag,
+) async {
+  final clock = Stopwatch()..start();
+  Object? error;
+  try {
+    await _bounded(ble.disconnect(id), '$tag disconnect');
+  } catch (e) {
+    error = e;
+    _say('$tag: disconnect failed as ${e.runtimeType}: $e');
+  }
+  return (ms: clock.elapsedMilliseconds, error: error);
+}
+
+/// One device, one pass: connect (three attempts, 2 s apart), discover, MTU
+/// and RSSI, read every readable characteristic, hold the link idle for
+/// [_sequenceHold] listening for the peripheral to hang up, disconnect.
+/// Never throws — every outcome lands in the row, and a crash-class error
+/// ([_isCrashClass]) is appended to [crashes] for the verdict at the end —
+/// so one bad step cannot end the experiment before the table is printed.
+Future<_SequenceRow> _sequenceOne(
+  RealBleService ble, {
+  required int pass,
+  required String prefix,
+  required IoTDevice device,
+  required List<String> crashes,
+}) async {
+  final id = device.id;
+  final label = prefix == device.name ? prefix : '$prefix -> ${device.name}';
+  final tag = 'pass $pass "${device.name}"';
+  final row = _SequenceRow(pass: pass, label: label);
+
+  // CONNECT: each attempt timed, each error printed with its type. A failed
+  // attempt is followed by a best-effort disconnect, as the JLX test does,
+  // so the next attempt does not start on a half-open link.
+  for (var attempt = 1; attempt <= 3; attempt++) {
+    row.connectAttempts = attempt;
+    final clock = Stopwatch()..start();
+    try {
+      await ble.connect(id);
+      row.connectMs = clock.elapsedMilliseconds;
+      row.error = null;
+      break;
+    } catch (e) {
+      row.error = e;
+      _say(
+        '$tag: connect attempt $attempt of 3 failed after '
+        '${clock.elapsedMilliseconds} ms as ${e.runtimeType}: $e',
+      );
+      if (_isCrashClass(e)) crashes.add('$tag connect: ${e.runtimeType}: $e');
+      if (attempt == 3) break;
+      await _sequenceDisconnect(ble, id, tag);
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+  }
+  if (!row.connected) {
+    _say(
+      '$tag: never connected; last error ${row.error.runtimeType}: '
+      '${row.error}',
+    );
+    return row;
+  }
+  _say(
+    '$tag: connected in ${row.connectMs} ms on attempt ${row.connectAttempts}',
+  );
+
+  // The link watch starts the moment the link is up, so a peripheral that
+  // hangs up during discovery or the reads is timed as exactly as one that
+  // waits for the hold. The stream opens with the current state — connected,
+  // as of a moment ago — so only a disconnected event means anything.
+  final linkClock = Stopwatch()..start();
+  var step = 'discovery';
+  final dropped = Completer<void>();
+  final link = ble.connectionState(id).listen((state) {
+    if (state != BleConnectionState.disconnected) return;
+    if (dropped.isCompleted) return;
+    row.droppedAtS = linkClock.elapsedMilliseconds / 1000;
+    row.droppedDuring = step;
+    dropped.complete();
+  }, onError: (Object e) => _say('$tag: connectionState failed: $e'));
+  try {
+    // DISCOVER, timed.
+    final clock = Stopwatch()..start();
+    final services = await _bounded(
+      ble.discoverServices(id),
+      '$tag discoverServices',
+    );
+    row.discoverMs = clock.elapsedMilliseconds;
+    row.services = services.length;
+    _say('$tag: ${services.length} service(s) in ${row.discoverMs} ms:');
+    for (final s in services) {
+      _say('  ${s.uuid}  ${s.characteristics.length} characteristic(s)');
+    }
+
+    // MTU and RSSI: reported, never judged. readRssi throws on the
+    // controller's "unavailable" sentinel by design, and that is an answer.
+    step = 'mtu/rssi';
+    try {
+      final mtu = await _bounded(ble.mtu(id), '$tag mtu');
+      final rssi = await _bounded(ble.readRssi(id), '$tag readRssi');
+      _say('$tag: mtu $mtu, rssi $rssi dBm while connected');
+    } catch (e) {
+      _say('$tag: mtu/rssi failed as ${e.runtimeType}: $e');
+    }
+
+    // READ every readable characteristic, as the generic live test does and
+    // under its rule: a refusal must arrive as one of this app's own
+    // exception types. Stops early once the peripheral has hung up (every
+    // read after that fails the same way) or the phase is over budget.
+    step = 'reads';
+    final reading = Stopwatch()..start();
+    for (final service in services) {
+      for (final c in service.characteristics) {
+        if (!c.canRead) continue;
+        if (dropped.isCompleted || reading.elapsed > _sequenceReadBudget) {
+          row.readsSkipped++;
+          continue;
+        }
+        row.readsAttempted++;
+        try {
+          final value = await _bounded(
+            ble.readCharacteristic(id, service.uuid, c.uuid),
+            '$tag read ${c.uuid}',
+          );
+          row.readsAnswered++;
+          _say(
+            '  read ${c.uuid}: ${value.length} byte(s)'
+            '${value.length <= 24 ? ' $value' : ''}',
+          );
+        } on UserFacingException catch (e) {
+          row.readsRefused++;
+          _say('  read ${c.uuid} refused: ${e.message}');
+        } on TimeoutException catch (e) {
+          // This test's own bound, past the plugin's 15 s: a hang, reported.
+          row.readsRefused++;
+          _say('  read ${c.uuid}: ${e.message}');
+        } catch (e) {
+          row.readsRefused++;
+          _say('  read ${c.uuid} failed as ${e.runtimeType}: $e');
+          crashes.add('$tag read ${c.uuid}: ${e.runtimeType}: $e');
+        }
+      }
+    }
+    _say(
+      '$tag: reads ${row.readsAttempted} attempted, ${row.readsAnswered} '
+      'answered, ${row.readsRefused} refused, ${row.readsSkipped} skipped, '
+      'in ${reading.elapsedMilliseconds} ms',
+    );
+
+    // HOLD: idle, until the window ends or the peripheral hangs up.
+    if (dropped.isCompleted) {
+      _say(
+        '$tag: the peripheral hung up ${row.droppedAtS!.toStringAsFixed(1)} s '
+        'after connect, during ${row.droppedDuring}; nothing left to hold',
+      );
+    } else {
+      step = 'hold';
+      final holdStart = linkClock.elapsed;
+      _say('$tag: holding the link ${_sequenceHold.inSeconds} s, idle');
+      await dropped.future.timeout(_sequenceHold, onTimeout: () {});
+      if (dropped.isCompleted) {
+        final intoHold = (linkClock.elapsed - holdStart).inMilliseconds / 1000;
+        _say(
+          '$tag: the peripheral hung up '
+          '${row.droppedAtS!.toStringAsFixed(1)} s after connect, '
+          '${intoHold.toStringAsFixed(1)} s into the hold',
+        );
+      } else {
+        _say('$tag: the link held for the whole ${_sequenceHold.inSeconds} s');
+      }
+    }
+  } catch (e) {
+    row.error = e;
+    _say('$tag: $step failed as ${e.runtimeType}: $e');
+    if (_isCrashClass(e)) crashes.add('$tag $step: ${e.runtimeType}: $e');
+  } finally {
+    // The watch goes before the disconnect, so this test's own hang-up is
+    // not recorded as the peripheral's.
+    await link.cancel();
+    final done = await _sequenceDisconnect(ble, id, tag);
+    row.disconnectMs = done.ms;
+    row.error ??= done.error;
+    _say('$tag: disconnected in ${done.ms} ms');
+  }
+  return row;
+}
 
 /// The adapter state the Bluetooth test observed, so the entrypoint test at
 /// the end can hold the scan screen to the same standard.
@@ -1066,6 +1398,192 @@ void main() {
         await sub?.cancel();
         await ble.disconnect(id);
       }
+    },
+  );
+
+  testWidgets(
+    'live BLE: connect to each LB_LIVE_BLE_SEQUENCE device in turn, twice',
+    (tester) async {
+      if (_skipUnlessHardware()) return;
+      final prefixes = [
+        for (final p in _liveBleSequence.split(','))
+          if (p.trim().isNotEmpty) p.trim(),
+      ];
+      if (prefixes.isEmpty) {
+        markTestSkipped(
+          'pass --dart-define=LB_LIVE_BLE_SEQUENCE=<name prefix>[,<prefix>...] '
+          '(run-ios-device-tests.sh --live-ble-sequence) with those '
+          'peripherals in range',
+        );
+        return;
+      }
+
+      // The hypothesis under test: "after connecting to one device,
+      // subsequent connections are weird". ONE RealBleService for the whole
+      // run, exactly as the app has one: FlutterBluePlus is a static radio,
+      // and whatever a first connection leaves behind in it — a claim, a
+      // cached GATT table, a peripheral CoreBluetooth still holds — is what
+      // the next connection walks into. Pass 1 is the baseline; pass 2 is the
+      // same list after every device on it has been connected to once.
+      //
+      // What the two devices this was written for should do, per their
+      // specs. The Govee H5075 (govee-h5075-thermo.yaml) takes ~8.4 s to
+      // connect, keeps advertising while connected, and hangs up on its own
+      // after ~11.9 s idle — so its hold is EXPECTED to end with the
+      // peripheral dropping the link, and the number to look at is when. The
+      // Airthings Wave (airthings-wave-family.yaml) connects unpaired and
+      // never bonds, but advertises no local name at all: its 31-byte ADV_IND
+      // is full (flags, one 128-bit service UUID, manufacturer data under
+      // company id 820) and its scan response is empty. The name iOS shows
+      // for one is whatever CoreBluetooth cached from a GAP Device Name read
+      // on an earlier connection; a Wave this phone has never connected to is
+      // listed below unnamed, under company 0x0334, and no prefix can pick it
+      // until it has a name.
+      final ble = RealBleService();
+
+      // SCAN once, up to 30 s or until every prefix has a match, listing
+      // every advertiser heard so the operator learns the real names in the
+      // room. The strongest sighting per id decides between two matches.
+      final seen = <String, IoTDevice>{};
+      final strongest = <String, int>{};
+      final announced = <String>{};
+      final named = <String>{};
+      bool everyPrefixSeen() =>
+          prefixes.every((p) => seen.values.any((d) => d.name.startsWith(p)));
+      _say(
+        'sequence: ${prefixes.map((p) => '"$p"').join(', ')}; scanning up '
+        'to 30 s for advertised names starting with them',
+      );
+      final scanning = Stopwatch()..start();
+      try {
+        await for (final device in ble.scan(
+          timeout: const Duration(seconds: 30),
+        )) {
+          seen[device.id] = device;
+          if (device.rssi > (strongest[device.id] ?? -200)) {
+            strongest[device.id] = device.rssi;
+          }
+          // Once per advertiser, and once more when it gains a name: on iOS
+          // the name can arrive a sighting after the first.
+          final first = announced.add(device.id);
+          final gotName = device.name.isNotEmpty && named.add(device.id);
+          if (first || gotName) {
+            final companies = device.companyIds
+                .map((c) => '0x${c.toRadixString(16).padLeft(4, '0')}')
+                .join(',');
+            _say(
+              '  ${scanning.elapsed.inSeconds.toString().padLeft(2)} s  '
+              '${device.rssi} dBm  '
+              '"${device.name.isEmpty ? '(no name)' : device.name}"  '
+              '${device.id}'
+              '${companies.isEmpty ? '' : '  company $companies'}'
+              '${device.isConnectable ? '' : '  not connectable'}',
+            );
+          }
+          if (everyPrefixSeen()) break; // cancels the subscription and scan
+        }
+      } catch (e) {
+        fail('the scan failed as ${e.runtimeType}: $e');
+      }
+      scanning.stop();
+      _say('scan: ${seen.length} advertiser(s) in ${scanning.elapsed}');
+
+      final targets = <({String prefix, IoTDevice device})>[];
+      for (final prefix in prefixes) {
+        final matches =
+            seen.values.where((d) => d.name.startsWith(prefix)).toList()
+              ..sort((x, y) => strongest[y.id]!.compareTo(strongest[x.id]!));
+        if (matches.isEmpty) {
+          _say('prefix "$prefix": no advertised name starts with it; skipped');
+          continue;
+        }
+        final pick = matches.first;
+        final others = matches
+            .skip(1)
+            .map((d) => '"${d.name}" ${strongest[d.id]} dBm')
+            .join(', ');
+        _say(
+          'prefix "$prefix" -> "${pick.name}" ${pick.id} '
+          '(best ${strongest[pick.id]} dBm'
+          '${others.isEmpty ? '' : '; also matched $others'})',
+        );
+        targets.add((prefix: prefix, device: pick));
+      }
+      if (targets.isEmpty) {
+        markTestSkipped(
+          'none of ${prefixes.map((p) => '"$p"').join(', ')} was advertised '
+          'in 30 s; the listing above is what was on air',
+        );
+        return;
+      }
+
+      // TWO PASSES over the list in order, 2 s between devices.
+      final rows = <_SequenceRow>[];
+      final crashes = <String>[];
+      for (var pass = 1; pass <= 2; pass++) {
+        _say(
+          'pass $pass of 2: '
+          '${targets.map((t) => '"${t.device.name}"').join(' then ')}',
+        );
+        for (final t in targets) {
+          rows.add(
+            await _sequenceOne(
+              ble,
+              pass: pass,
+              prefix: t.prefix,
+              device: t.device,
+              crashes: crashes,
+            ),
+          );
+          await Future<void>.delayed(const Duration(seconds: 2));
+        }
+      }
+
+      _say('connection sequence: ${targets.length} device(s), 2 passes');
+      _saySequenceTable(rows);
+
+      // VERDICT. A device that connected in pass 1 and not in pass 2 is the
+      // hypothesis reproduced, and fails. One that never connected is a note
+      // with its last error verbatim: an H5075 mid-hang-up or a Wave between
+      // advertisements can legitimately refuse three tries. A crash-class
+      // error anywhere fails regardless — see _isCrashClass.
+      final regressions = <String>[];
+      for (var i = 0; i < targets.length; i++) {
+        final first = rows[i];
+        final second = rows[targets.length + i];
+        if (first.connected && !second.connected) {
+          regressions.add(
+            '${first.label}: connected in pass 1 in ${first.connectMs} ms, '
+            'refused ${second.connectAttempts} attempts in pass 2; last '
+            'error ${second.error.runtimeType}: ${second.error}',
+          );
+        } else if (!first.connected && !second.connected) {
+          _say(
+            'NOTE: ${first.label} never connected in either pass; last error '
+            '${second.error.runtimeType}: ${second.error}',
+          );
+        } else if (!first.connected) {
+          _say(
+            'NOTE: ${first.label} connected in pass 2 (${second.connectMs} '
+            'ms) but not in pass 1, the reverse of the hypothesis; pass 1\'s '
+            'last error ${first.error.runtimeType}: ${first.error}',
+          );
+        }
+      }
+      expect(
+        crashes,
+        isEmpty,
+        reason:
+            'an operation failed as a crash class rather than as an '
+            'outcome:\n${crashes.join('\n')}',
+      );
+      expect(
+        regressions,
+        isEmpty,
+        reason:
+            '"after connecting to one device, subsequent connections are '
+            'weird" — reproduced:\n${regressions.join('\n')}',
+      );
     },
   );
 

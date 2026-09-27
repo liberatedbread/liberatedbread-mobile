@@ -22,6 +22,7 @@
 #   ./scripts/run-ios-device-tests.sh --expect-lan-devices   # a silent Wi-Fi scan is a FAILURE
 #   ./scripts/run-ios-device-tests.sh --live-ble-name "SD-1234"  # also connect to that peripheral
 #   ./scripts/run-ios-device-tests.sh --live-ble-any             # ...or to the nearest connectable one
+#   ./scripts/run-ios-device-tests.sh --live-ble-sequence "GVH5075,Airthings"  # connect to each, in order, twice over (name prefixes)
 #   ./scripts/run-ios-device-tests.sh --launcher flutter   # `flutter test -d`, see below
 #   ./scripts/run-ios-device-tests.sh --launcher flutter -- --verbose  # extras for `flutter test`
 #
@@ -83,7 +84,7 @@ source "$SCRIPT_DIR/regen-bindings.sh"
 source "$SCRIPT_DIR/regen-spec-index.sh"
 
 usage() {
-  sed -n '5,65p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '5,67p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # ── parse args ───────────────────────────────────────────────────────────────
@@ -96,6 +97,7 @@ IF_PRESENT=false
 EXPECT_LAN=false
 LIVE_BLE_NAME=""
 LIVE_BLE_ANY=false
+LIVE_BLE_SEQUENCE=""
 MULTICAST_MODE="auto"   # auto | strip | keep
 LAUNCHER="${LB_IOS_LAUNCHER:-xcodebuild}"   # xcodebuild | flutter
 TEST_TIMEOUT="${LB_TEST_TIMEOUT:-900s}"
@@ -115,6 +117,9 @@ while (( $# > 0 )); do
       [[ $# -lt 2 ]] && { err "--live-ble-name requires the advertised name."; exit 2; }
       LIVE_BLE_NAME="$2"; shift 2 ;;
     --live-ble-any)      LIVE_BLE_ANY=true; shift ;;
+    --live-ble-sequence)
+      [[ $# -lt 2 ]] && { err "--live-ble-sequence requires a comma-separated list of advertised-name prefixes."; exit 2; }
+      LIVE_BLE_SEQUENCE="$2"; shift 2 ;;
     --strip-multicast)   MULTICAST_MODE="strip"; shift ;;
     --keep-multicast)    MULTICAST_MODE="keep"; shift ;;
     --timeout)
@@ -281,6 +286,7 @@ DEFINES=(
 [[ "$EXPECT_LAN" == "true" ]] && DEFINES+=(--dart-define=LB_EXPECT_LAN_DEVICES=true)
 [[ -n "$LIVE_BLE_NAME" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_NAME="$LIVE_BLE_NAME")
 [[ "$LIVE_BLE_ANY" == "true" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_ANY=true)
+[[ -n "$LIVE_BLE_SEQUENCE" ]] && DEFINES+=(--dart-define=LB_LIVE_BLE_SEQUENCE="$LIVE_BLE_SEQUENCE")
 
 LOG_DIR="build/ios-device-tests"
 mkdir -p "$LOG_DIR"
