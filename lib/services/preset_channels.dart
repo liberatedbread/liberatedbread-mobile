@@ -82,9 +82,10 @@ List<RadioChannel> frsGmrsChannels() => [
       // 8-14 are the low-power channels; the rest are marked high and the
       // radio's own settings decide from there.
       power: (i >= 7 && i <= 13) ? PowerLevel.low : PowerLevel.high,
-      // The whole FRS/GMRS plan is narrowband except the 462 MHz main
-      // channels, which GMRS licensees may use wide. Narrow is the safe
-      // default: a narrow radio hears a wide station, just quieter.
+      // Narrow for all 22: FRS users are narrowband everywhere, and a narrow
+      // radio still hears a wide station, just quieter. GMRS licensees may
+      // run the main channels wide (47 CFR 95.1773(a)); the repeater pairs
+      // below do.
       mode: ChannelMode.nfm,
       comment: 'FRS/GMRS channel ${i + 1}',
     ),
@@ -97,7 +98,11 @@ List<RadioChannel> gmrsRepeaterChannels() => [
       name: 'RPT ${i + 1}',
       rxFreqHz: _frsChannelHz[i],
       txFreqHz: _frsChannelHz[i] + _gmrsRepeaterOffsetHz,
-      mode: ChannelMode.nfm,
+      // Wide, like the myGMRS listings for the same repeaters: both halves
+      // of a repeater pair are main channels, 47 CFR 95.1773(a) allows
+      // 20 kHz on every main channel, and repeaters run wide in practice.
+      // Two sources for one repeater must not disagree on the bandwidth bit.
+      mode: ChannelMode.fm,
       comment: 'GMRS repeater ${i + 1} — set the tone your repeater wants',
     ),
 ];

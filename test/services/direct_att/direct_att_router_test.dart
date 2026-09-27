@@ -360,13 +360,9 @@ void main() {
 
         await expectLater(
           service.discoverServices(_meterId),
-          throwsA(
-            isA<FlutterBluePlusException>().having(
-              (e) => e.code,
-              'code',
-              FbpErrorCode.deviceIsDisconnected.index,
-            ),
-          ),
+          // Typed as a drop by RealBleService.discoverServices, so the
+          // device screen shows "disconnected", not "could not connect".
+          throwsA(isA<BleLinkDroppedException>()),
         );
 
         // Three tries at a peer that is not there, then promptly out —
@@ -809,13 +805,9 @@ void main() {
 
         await expectLater(
           service.discoverServices(_bulbId),
-          throwsA(
-            isA<FlutterBluePlusException>().having(
-              (e) => e.code,
-              'code',
-              FbpErrorCode.deviceIsDisconnected.index,
-            ),
-          ),
+          // Typed as a drop by RealBleService.discoverServices, so the
+          // device screen shows "disconnected", not "could not connect".
+          throwsA(isA<BleLinkDroppedException>()),
         );
         // At once, as a disconnect — not after 15 s holding
         // flutter_blue_plus's lock.

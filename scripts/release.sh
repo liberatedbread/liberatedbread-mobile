@@ -80,13 +80,21 @@ cd "$PROJECT_DIR"
 # every run-*.sh launch, and the app prefers it over index.json): drop it so
 # the release reads upstream's committed index.json, which CI's
 # `update-specs.sh --check` proves names every vendored spec. The next launch
-# rebuilds it. Anything else left there is a catalogue no commit describes, so
-# there is no override: remove it or land it upstream.
+# rebuilds it. Finder's .DS_Store goes the same way: it is ignored too, so
+# the guard below would refuse it, and browsing the spec folder on the Mac
+# (the only host that builds for iOS) writes one there. It is the one file a
+# Mac leaves behind that says nothing about the catalogue, and Finder
+# recreates it. The two paths are enough: neither directory nests, and a
+# Flutter directory asset is not recursive. Anything else left there is a
+# catalogue no commit describes, so there is no override: remove it or land
+# it upstream.
 #
 # Only the two directory assets are checked, not all of vendor/protocol-specs:
 # update-specs.sh runs upstream's generate_index.py in place, and the ignored
 # __pycache__/ that leaves under its scripts/ ships nothing.
-rm -f vendor/protocol-specs/device-specs/examples/index-temp.json
+rm -f vendor/protocol-specs/device-specs/examples/index-temp.json \
+  vendor/protocol-specs/device-specs/devices/.DS_Store \
+  vendor/protocol-specs/device-specs/examples/.DS_Store
 # git's exit is checked on its own line: inside the pipeline below, `|| true`
 # would turn a failing git status into an empty (clean-looking) answer.
 STRAY_STATUS="$(git status --porcelain --ignored=matching --untracked-files=all \

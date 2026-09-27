@@ -130,7 +130,9 @@ class RepeaterBookClient implements RepeaterSource {
       return TokenCheck.unreachable;
     } on http.ClientException {
       return TokenCheck.unreachable;
-    } on SocketException {
+    } on IOException {
+      // Includes a failed TLS handshake, which IOClient does not wrap and
+      // which is not a SocketException. See getJson in repeater_source.dart.
       return TokenCheck.unreachable;
     }
 

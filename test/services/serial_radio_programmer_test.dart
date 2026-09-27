@@ -16,6 +16,7 @@ import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/radio_codec.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
+import 'package:liberated_bread_mobile/services/serial_port_service.dart';
 import 'package:liberated_bread_mobile/services/serial_radio_programmer.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart' as rust;
 
@@ -278,6 +279,44 @@ void main() {
             contains('restore'),
           ),
         ),
+      );
+      expect(r.ports.openLinks, 0);
+    });
+
+    test('a radio that goes quiet mid-write says it may be partly written, '
+        'and closes the port', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final r = rig();
+      final base = await read(r.programmer);
+      final deaf = _DeafToWrites(r.ports);
+      final programmer = SerialRadioProgrammer(deaf, timing: _fast);
+
+      Object? error;
+      try {
+        await programmer
+            .writeChannels(
+              deviceId: EmulatedSerialPortService.cable.id,
+              profile: uv5rProfile,
+              base: base,
+              channels: plan,
+            )
+            .drain<void>();
+      } catch (e) {
+        error = e;
+      }
+      expect(
+        error,
+        isA<RadioTimeoutException>()
+            .having((e) => e.partlyWritten, 'partlyWritten', isTrue)
+            .having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('while writing 0x${deaf.swallowed.single}'),
+                contains('partly written'),
+                contains('restore your backup'),
+              ),
+            ),
       );
       expect(r.ports.openLinks, 0);
     });
@@ -572,4 +611,53 @@ void main() {
       throwsA(isA<RadioUnsupportedException>()),
     );
   });
+}
+
+/// A cable whose radio stops hearing write frames: each `X` block the
+/// driver sends is lost, so no acknowledgement ever comes back. The
+/// emulated radio's own silence knob covers reads only.
+class _DeafToWrites implements SerialPortService {
+  final EmulatedSerialPortService inner;
+
+  /// The address of each write frame dropped, as four hex digits.
+  final List<String> swallowed = [];
+
+  _DeafToWrites(this.inner);
+
+  @override
+  SerialAvailability get availability => inner.availability;
+
+  @override
+  Future<List<SerialPortInfo>> listPorts() => inner.listPorts();
+
+  @override
+  Future<SerialLink> open(SerialPortInfo port, {required int baudRate}) async =>
+      _DeafLink(await inner.open(port, baudRate: baudRate), swallowed);
+}
+
+class _DeafLink implements SerialLink {
+  final SerialLink inner;
+  final List<String> swallowed;
+
+  _DeafLink(this.inner, this.swallowed);
+
+  @override
+  Future<void> write(List<int> bytes) async {
+    if (bytes.length > 4 && bytes[0] == 0x58) {
+      final addr = (bytes[1] << 8) | bytes[2];
+      swallowed.add(addr.toRadixString(16).padLeft(4, '0'));
+      return;
+    }
+    await inner.write(bytes);
+  }
+
+  @override
+  Future<Uint8List> read(int length, {required Duration timeout}) =>
+      inner.read(length, timeout: timeout);
+
+  @override
+  Future<void> discardInput() => inner.discardInput();
+
+  @override
+  Future<void> close() => inner.close();
 }

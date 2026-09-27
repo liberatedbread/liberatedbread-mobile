@@ -67,7 +67,7 @@ class _CountingBleService extends FakeBleService {
 /// so a test can overlap two of the screen's connect attempts and choose
 /// which resolves first — and which of them fails.
 class _GatedBleService extends FakeBleService {
-  _GatedBleService({super.servicesToReturn});
+  _GatedBleService({super.servicesToReturn, super.connectionStateStream});
 
   /// One gate per connect() call, in call order. The test completes them.
   final List<Completer<void>> gates = [];
@@ -85,6 +85,89 @@ class _GatedBleService extends FakeBleService {
     return super.connect(deviceId);
   }
 }
+
+/// A [FakeBleService] whose [connect] stays pending until [cancelConnect]
+/// cancels it, the way flutter_blue_plus's `disconnect(queue: false)`
+/// cancels a platform connect: the pending call then throws, and no link is
+/// ever made.
+class _CancellableConnectBleService extends FakeBleService {
+  Completer<void>? _pending;
+
+  @override
+  Future<void> connect(String deviceId) async {
+    final pending = _pending = Completer<void>();
+    await pending.future;
+    return super.connect(deviceId);
+  }
+
+  @override
+  Future<void> cancelConnect(String deviceId) async {
+    final pending = _pending;
+    _pending = null;
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(StateError('connection canceled'));
+    }
+    return super.cancelConnect(deviceId);
+  }
+}
+
+/// A [FakeBleService] that keeps RealBleService's claim books: one claim per
+/// resolved connect, disconnect() releases one and drops the link with the
+/// last, and cancelConnect() releases nothing. Starts with [otherOwners]
+/// claims already held — a group run or device client connected to the
+/// same peripheral before the screen opened. Connects wait on [gate].
+class _SharedLinkBleService extends FakeBleService {
+  _SharedLinkBleService({required int otherOwners, required this.gate})
+    : claims = otherOwners;
+
+  final Completer<void> gate;
+  int claims;
+  bool linkUp = true;
+
+  @override
+  Future<void> connect(String deviceId) async {
+    await gate.future;
+    claims++;
+    linkUp = true;
+    return super.connect(deviceId);
+  }
+
+  @override
+  Future<void> disconnect(String deviceId) async {
+    if (claims > 1) {
+      claims--;
+    } else {
+      claims = 0;
+      linkUp = false;
+    }
+    return super.disconnect(deviceId);
+  }
+}
+
+/// A [FakeBleService] whose first [timeouts] connects wait out a platform
+/// attempt and then throw the [TimeoutException] RealBleService raises for a
+/// device that never answered.
+class _SlowToAnswerBleService extends FakeBleService {
+  _SlowToAnswerBleService({required this.timeouts, super.servicesToReturn});
+
+  final int timeouts;
+  int attempts = 0;
+
+  @override
+  Future<void> connect(String deviceId) async {
+    attempts++;
+    if (attempts <= timeouts) {
+      await Future<void>.delayed(const Duration(seconds: 15));
+      throw TimeoutException('no answer', const Duration(seconds: 15));
+    }
+    return super.connect(deviceId);
+  }
+}
+
+const _batteryService = BleDiscoveredService(
+  uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+  characteristics: [],
+);
 
 final _device = IoTDevice(
   id: '01',
@@ -267,23 +350,68 @@ void main() {
     expect(fake.events, isEmpty);
 
     // Deterministically unmount the DeviceScreen (dispose() runs synchronously
-    // during this pump) while connect() is still in flight. The peripheral
-    // isn't connected yet, so nothing should be disconnected at this point.
+    // during this pump) while connect() is still in flight. Leaving cancels
+    // the pending connect straight away: waiting for it to resolve held
+    // flutter_blue_plus's global mutex for up to 15 s, stalling the next
+    // device's connect behind an attempt nobody was watching.
     await tester.pumpWidget(
       const MaterialApp(home: Scaffold(body: SizedBox())),
     );
-    expect(fake.events, isEmpty);
+    expect(fake.events, ['cancel:01']);
 
-    // Now let connect() resolve. The (unmounted) _connect() must tear down the
-    // now-live connection instead of leaking it.
+    // This fake's connect ignores the cancel and resolves anyway (the race
+    // where the link came up just as the screen left). The (unmounted)
+    // _connect() must still tear down the now-live connection instead of
+    // leaking it — the disconnect landing AFTER the connect.
     connectGate.complete();
     await tester.pump();
     await tester.pump();
 
-    // The disconnect must land AFTER the connect — the pre-fix code disconnected
-    // BEFORE connect resolved (a no-op against a not-yet-connected peripheral)
-    // and then returned without disconnecting the now-live link, leaking it.
-    expect(fake.events, ['connect:01', 'disconnect:01']);
+    expect(fake.events, ['cancel:01', 'connect:01', 'disconnect:01']);
+  });
+
+  testWidgets('backing out during Connecting cancels the platform connect '
+      'before it resolves', (tester) async {
+    final fake = _CancellableConnectBleService();
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump();
+    expect(find.text('Connecting...'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+
+    // The cancel went out while the connect was pending, and the connect
+    // then failed rather than establishing a link nobody owns.
+    expect(fake.events, ['cancel:01']);
+    expect(fake.connectedIds, isEmpty);
+  });
+
+  testWidgets('backing out during Connecting leaves a link another owner '
+      'holds', (tester) async {
+    // The screen's connect was still pending, so it held no claim. Leaving
+    // used to call disconnect(), which with one claim on the books — the
+    // OTHER owner's — removed it and dropped the link under them.
+    final gate = Completer<void>();
+    final fake = _SharedLinkBleService(otherOwners: 1, gate: gate);
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump();
+    expect(find.text('Connecting...'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+
+    expect(fake.claims, 1, reason: "the other owner's claim is untouched");
+    expect(fake.linkUp, isTrue);
+    expect(fake.events, ['cancel:01']);
+
+    // The connect lands anyway (the real service leaves an owned link
+    // alone). The unmounted screen releases exactly the claim it got.
+    gate.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(fake.events, ['cancel:01', 'connect:01', 'disconnect:01']);
+    expect(fake.claims, 1);
+    expect(fake.linkUp, isTrue);
   });
 
   testWidgets('a stale connect attempt cannot tear down the newer link', (
@@ -340,6 +468,110 @@ void main() {
       isEmpty,
       reason: 'the live link belongs to the newer attempt',
     );
+  });
+
+  testWidgets('a stale attempt that connected releases its own claim', (
+    tester,
+  ) async {
+    // RealBleService takes one claim per successful connect(), and the
+    // screen's single disconnect() on leaving released only one of them:
+    // when a superseded attempt's connect succeeded and it simply returned,
+    // the peripheral stayed connected (and invisible to every other phone)
+    // until the app died.
+    final fake = _GatedBleService(servicesToReturn: const [_batteryService]);
+    fake.failAt.add(0);
+
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump();
+    fake.gates[0].complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await tester.tap(find.text('Retry'), warnIfMissed: false);
+    await tester.pump();
+    expect(fake.gates, hasLength(3));
+
+    fake.gates[2].complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Battery Service'), findsOneWidget);
+
+    // The stale attempt connects too. It releases what it took, and the
+    // screen stays on the newer attempt's working panel.
+    fake.gates[1].complete();
+    await tester.pumpAndSettle();
+    expect(fake.events, ['connect:01', 'connect:01', 'disconnect:01']);
+    expect(find.text('Battery Service'), findsOneWidget);
+    expect(find.textContaining('Could not connect'), findsNothing);
+
+    // Leaving releases the newer attempt's claim: every connect is matched.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(fake.connectedIds, hasLength(2));
+    expect(fake.disconnectedIds, hasLength(2));
+  });
+
+  testWidgets('a connect the device did not answer is retried on screen', (
+    tester,
+  ) async {
+    // The Airthings Wave took about a minute to answer. Each 15 s platform
+    // attempt that timed out used to land on "Could not connect — move
+    // closer" with a manual Retry; the screen now keeps trying while it is
+    // showing the attempt.
+    final fake = _SlowToAnswerBleService(
+      timeouts: 2,
+      servicesToReturn: const [_batteryService],
+    );
+    await tester.pumpWidget(_wrap(fake));
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        find.text('Connection failed'),
+        findsNothing,
+        reason: 'no error card between attempts (${i + 1} s)',
+      );
+    }
+    await tester.pumpAndSettle();
+
+    expect(fake.attempts, 3);
+    expect(find.text('Battery Service'), findsOneWidget);
+  });
+
+  testWidgets('a device that never answers gets "no answer within N s" once '
+      'the minute is up', (tester) async {
+    final fake = _SlowToAnswerBleService(timeouts: 1000);
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump(const Duration(seconds: 30));
+    expect(find.text('Connecting...'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 40));
+    await tester.pumpAndSettle();
+
+    // 0-15, 16-31, 32-47, 48-63: the fourth starts inside the budget.
+    expect(fake.attempts, 4);
+    expect(find.textContaining('No answer from this device within'), findsOne);
+    expect(find.textContaining('Move closer'), findsNothing);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('a slow connect says it can take up to a minute, with the time', (
+    tester,
+  ) async {
+    final fake = FakeBleService(connectGate: Completer<void>());
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump(const Duration(seconds: 2));
+    expect(
+      find.text('Some devices take up to a minute to answer.'),
+      findsNothing,
+      reason: 'a quick connect must not flash the hint',
+    );
+
+    await tester.pump(slowConnectHintAfter);
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.text('Some devices take up to a minute to answer.'),
+      findsOneWidget,
+    );
+    expect(find.text('8 s'), findsOneWidget);
   });
 
   testWidgets('Find device opens the find screen for the connected device', (
@@ -465,6 +697,97 @@ void main() {
     expect(find.text('Device disconnected'), findsOneWidget);
     expect(find.text('Reconnect'), findsOneWidget);
     expect(find.text('Battery Service'), findsNothing);
+    // The screen cannot know why the link went, and the commonest reason
+    // is the device's own idle hang-up: no range/power verdict.
+    expect(find.textContaining('Move closer'), findsNothing);
+    expect(find.textContaining('hang up on their own'), findsOneWidget);
+  });
+
+  testWidgets('Reconnect after a device hang-up tears the old link down once, '
+      'and the next hang-up flips the screen again', (tester) async {
+    // The GVH5075 closes its link ~12 s after connecting, every time, so on
+    // that device Reconnect is the main path, not an edge case.
+    final conn = StreamController<BleConnectionState>.broadcast();
+    addTearDown(conn.close);
+    final fake = _GatedBleService(
+      servicesToReturn: const [_batteryService],
+      connectionStateStream: conn.stream,
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump();
+    fake.gates[0].complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Battery Service'), findsOneWidget);
+
+    conn.add(BleConnectionState.disconnected);
+    await tester.pumpAndSettle();
+    expect(find.text('Device disconnected'), findsOneWidget);
+
+    await tester.tap(find.text('Reconnect'));
+    await tester.pump();
+    expect(find.text('Connecting...'), findsOneWidget);
+    expect(fake.events, ['connect:01', 'disconnect:01']);
+    expect(fake.gates, hasLength(2));
+
+    fake.gates[1].complete();
+    await tester.pumpAndSettle();
+    expect(fake.events, ['connect:01', 'disconnect:01', 'connect:01']);
+    expect(find.text('Battery Service'), findsOneWidget);
+    expect(find.text('Device disconnected'), findsNothing);
+
+    // The second hang-up reaches the re-subscribed watcher.
+    conn.add(BleConnectionState.disconnected);
+    await tester.pumpAndSettle();
+    expect(find.text('Device disconnected'), findsOneWidget);
+    expect(find.text('Battery Service'), findsNothing);
+
+    await tester.tap(find.text('Reconnect'));
+    await tester.pump();
+    fake.gates[2].complete();
+    await tester.pumpAndSettle();
+    expect(fake.connectedIds, ['01', '01', '01']);
+    expect(fake.disconnectedIds, ['01', '01']);
+    expect(find.text('Battery Service'), findsOneWidget);
+  });
+
+  testWidgets('a link dropped during discovery is "disconnected", not a '
+      'failed connect', (tester) async {
+    final fake = FakeBleService(discoverError: const BleLinkDroppedException());
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Device disconnected'), findsOneWidget);
+    expect(find.text('Reconnect'), findsOneWidget);
+    expect(find.textContaining('Could not connect'), findsNothing);
+    expect(fake.disconnectedIds, ['01']);
+  });
+
+  testWidgets('a drop the watcher saw first survives discovery failing', (
+    tester,
+  ) async {
+    // The other order: the state event lands first, then discovery fails
+    // with whatever the platform said. The catch used to paint "Could not
+    // connect" over the watcher's "Device disconnected".
+    final conn = StreamController<BleConnectionState>.broadcast();
+    addTearDown(conn.close);
+    final gate = Completer<void>();
+    final fake = FakeBleService(
+      connectionStateStream: conn.stream,
+      discoverGate: gate,
+      discoverError: StateError('Device is disconnected'),
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Discovering services...'), findsOneWidget);
+
+    conn.add(BleConnectionState.disconnected);
+    await tester.pump();
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Device disconnected'), findsOneWidget);
+    expect(find.textContaining('Could not connect'), findsNothing);
   });
 
   testWidgets('Disconnect tears down the link and returns to the listing', (

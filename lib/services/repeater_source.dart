@@ -205,10 +205,24 @@ extension RepeaterSourceFetch on RepeaterSource {
         SourceFailureKind.network,
         'Could not reach $displayName: ${error.message}',
       );
-    } on SocketException catch (error) {
+    } on IOException catch (error) {
+      // IOException, not SocketException: `package:http`'s IOClient wraps
+      // only SocketException and HttpException into a ClientException, and a
+      // handshake that fails -- a captive portal answering for the
+      // directory's host, a device clock years out, an expired certificate
+      // -- is a HandshakeException, which is a TlsException, which is
+      // neither. Caught as SocketException alone it escaped raw, and one
+      // source's bad TLS took the whole suggestion search down with it:
+      // presets, the other source and the stale cache all gone behind one
+      // red error line.
+      final detail = switch (error) {
+        SocketException(:final message) => message,
+        TlsException(:final message) => 'secure connection failed: $message',
+        _ => '$error',
+      };
       throw failure(
         SourceFailureKind.network,
-        'Could not reach $displayName: ${error.message}',
+        'Could not reach $displayName: $detail',
       );
     }
 

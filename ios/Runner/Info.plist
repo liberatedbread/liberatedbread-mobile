@@ -45,7 +45,7 @@
 	     iOS asked for a position. test/platform/ios_info_plist_test.dart pins
 	     both halves: the key is present, and it does not claim Bluetooth. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Liberated Bread uses your location only when you ask it to suggest radio channels near you, to find amateur and GMRS repeaters in range. Your position stays on this device: a repeater search sends only the state you are in to the directories you have turned on.</string>
+	<string>Liberated Bread uses your location only when you ask it to suggest radio channels near you, to find amateur and GMRS repeaters in range. Your position stays on this device: a repeater search sends only the US state(s) within your search radius to the directories you have turned on.</string>
 	<!-- iOS 14+ will not deliver mDNS answers for a service type that is not
 	     declared here, and fails silently when one is missing. The generic
 	     DNS-SD meta-query is what lets the scan enumerate service types it has

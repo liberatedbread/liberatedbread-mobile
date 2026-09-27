@@ -22,11 +22,39 @@
       account credentials to the vendor to read the robot's LOCAL password,
       which is what makes local control possible afterwards. Disclosed on the
       form that asks for them.
+    * a repeater search the user starts from the Radio tab ("Suggest channels
+      near me"): the US state(s) in range, worked out ON the device from one
+      position (lib/services/us_state_resolver.dart), go to each directory
+      the user has turned on. Coordinates never leave the device.
+      - myGMRS, api.mygmrs.com (lib/services/mygmrs_client.dart) — the state
+        code, anonymously;
+      - RepeaterBook, www.repeaterbook.com
+        (lib/services/repeaterbook_client.dart) — only once the user pastes
+        their own free access token, and then the state code WITH that
+        token, which identifies their account to RepeaterBook. Saving the
+        token checks it there once.
+      Stated in the location purpose string (Info.plist
+      NSLocationWhenInUseUsageDescription).
 
   None of these is a collection of data BY this app, which is why
   NSPrivacyCollectedDataTypes stays empty; they are listed because a privacy
   manifest that quietly understates a network surface is worse than one that
   does not mention it.
+
+  The repeater search is the one a reviewer may question, so the decision is
+  written down: NO location entry. Apple counts data as collected when it is
+  sent off the device where the developer or a third-party PARTNER (an SDK or
+  vendor acting for the app) can keep it beyond servicing the request.
+  Precise location never leaves the device at all. The state code is the
+  user's own search parameter sent to a directory the user chose, with no
+  code of that directory in the app and nothing coming back to the
+  developer; the token is the user's own credential for their own account
+  there. That is the same reasoning as the iRobot sign-in above. The last
+  position is remembered on the device only, rounded to about 1 km, until
+  the user forgets it. Declaring Coarse Location here would force the App
+  Privacy answer off "Data Not Collected" for data the developer never sees.
+  If either directory ever ships code in the app, or a request ever goes
+  through a server of ours, this changes and so do the App Privacy answers.
 
   Required-reason APIs (NSPrivacyAccessedAPITypes). Most are declared in the
   bundled plugins' OWN privacy manifests, which travel in their frameworks (the

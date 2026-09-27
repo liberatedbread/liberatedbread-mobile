@@ -241,6 +241,12 @@ void main() {
     expect(uv5rMiniProfile, isNot(uv32Profile));
   });
 
+  test('the UV-32 has the UV-17Pro memory table, not the Mini\'s', () {
+    // CHIRP's UV32 takes UV17Pro's 1000 slots; 999 is the Mini's figure,
+    // and with it slot 1000 was never read, written or cleared.
+    expect(uv32Profile.channelCapacity, 1000);
+  });
+
   group('programsOver', () {
     test('the Bluetooth radios program over Bluetooth and only Bluetooth', () {
       for (final profile in [uv5rMiniProfile, uv5gMiniProfile, uv32Profile]) {

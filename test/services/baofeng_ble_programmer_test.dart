@@ -24,6 +24,14 @@ import '../helpers/host_rust_lib.dart';
 
 const _deviceId = 'AA:BB:CC:DD:EE:99';
 
+/// The emulator answers at once, so a step that has not answered in 300 ms
+/// never will: the tests of a silent radio stop sleeping out the shipping
+/// 8 s timeout each.
+const _fast = BleTiming(
+  step: Duration(milliseconds: 300),
+  settle: Duration.zero,
+);
+
 void main() {
   late EmulatedBleAdapter ble;
   late RealBleService service;
@@ -39,11 +47,20 @@ void main() {
   setUp(() async {
     await ble.reset();
     service = RealBleService();
-    programmer = BaofengBleProgrammer(service);
+    programmer = BaofengBleProgrammer(service, timing: _fast);
   });
 
-  Future<EmulatedRadio> radio({Uint8List? image}) async {
-    final emulated = await EmulatedRadio.create(id: _deviceId, image: image);
+  Future<EmulatedRadio> radio({
+    Uint8List? image,
+    String modelId = 'uv-5r-mini',
+    int answersIdent = 0,
+  }) async {
+    final emulated = await EmulatedRadio.create(
+      id: _deviceId,
+      image: image,
+      modelId: modelId,
+      answersIdent: answersIdent,
+    );
     ble.add(emulated.peripheral);
     return emulated;
   }
@@ -147,7 +164,7 @@ void main() {
     for (final chunk in [20, 7, 1, 200]) {
       await ble.reset();
       service = RealBleService();
-      programmer = BaofengBleProgrammer(service);
+      programmer = BaofengBleProgrammer(service, timing: _fast);
       final emulated = await radio();
       emulated.notificationChunk = chunk;
 
@@ -195,12 +212,32 @@ void main() {
     );
   });
 
+  test('disconnects when a read fails part way through', () async {
+    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+    final emulated = await radio();
+    emulated.goSilentAt = 0x1000;
+
+    await expectLater(
+      programmer
+          .readCodeplug(
+            deviceId: _deviceId,
+            profile: uv5rMiniProfile,
+            onResult: (_) {},
+          )
+          .drain<void>(),
+      throwsA(isA<RadioTimeoutException>()),
+    );
+    expect(emulated.peripheral.isConnected, isFalse);
+  });
+
   test(
-    'disconnects when a read fails part way through',
+    'a slipped read reply is a protocol error, not a raw Rust one',
     () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // The parse failure was awaited bare inside the body stream, so an
+      // AnyhowException reached the screen as the generic "did not finish".
       final emulated = await radio();
-      emulated.goSilentAt = 0x1000;
+      emulated.misaddressReadAt = 0x0040;
 
       await expectLater(
         programmer
@@ -210,15 +247,14 @@ void main() {
               onResult: (_) {},
             )
             .drain<void>(),
-        throwsA(isA<RadioTimeoutException>()),
+        throwsA(isA<RadioProtocolException>()),
       );
       expect(emulated.peripheral.isConnected, isFalse);
     },
-    timeout: const Timeout(Duration(seconds: 60)),
   );
 
   test(
-    'a radio that refuses the ident is reported clearly',
+    'a radio that ignores the ident is reported as not in programming mode',
     () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
       // A peripheral with the right service that answers nothing: the shape of
@@ -251,11 +287,59 @@ void main() {
               onResult: (_) {},
             )
             .drain<void>(),
-        throwsA(isA<RadioTimeoutException>()),
+        // Silence at the ident is a radio not in programming mode (or not
+        // this model), not one out of range: the link is up. The spec asks
+        // for the two to be told apart because the recoveries differ.
+        throwsA(
+          isA<RadioProtocolException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('not in programming mode'),
+              contains('wireless programming'),
+            ),
+          ),
+        ),
       );
     },
-    timeout: const Timeout(Duration(seconds: 60)),
   );
+
+  group('the ident', () {
+    test('a UV-5G Mini on v0.01 firmware answers the second magic', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // v0.05 answers only PROGRAMGMRS5RMIU and v0.01 only PROGRAMCOLORPROU.
+      // With one magic per model, one of the two could never be programmed.
+      final emulated = await radio(modelId: 'uv-5g-mini', answersIdent: 1);
+
+      await programmer.identify(deviceId: _deviceId, profile: uv5gMiniProfile);
+
+      expect(String.fromCharCodes(emulated.commands[0]), 'PROGRAMGMRS5RMIU');
+      expect(String.fromCharCodes(emulated.commands[1]), 'PROGRAMCOLORPROU');
+      expect(emulated.commands[2], [0x46]);
+    });
+
+    test('a UV-5G Mini on v0.05 firmware acks the first magic', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final emulated = await radio(modelId: 'uv-5g-mini');
+
+      await programmer.identify(deviceId: _deviceId, profile: uv5gMiniProfile);
+
+      expect(String.fromCharCodes(emulated.commands[0]), 'PROGRAMGMRS5RMIU');
+      expect(emulated.commands[1], [0x46], reason: 'no second magic sent');
+    });
+
+    test('a UV-32 gets through the handshake on its 7-byte M reply', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // Waiting for 15 bytes after M from a radio that sends 7 timed out
+      // every session before a single block was read.
+      final emulated = await radio(modelId: 'uv-32');
+
+      final codeplug = await read(uv32Profile);
+
+      expect(codeplug.length, 0x8380);
+      expect(codeplug.image, emulated.image);
+    });
+  });
 
   group('writing', () {
     test(
@@ -323,12 +407,27 @@ void main() {
             )
             .drain<void>();
 
-        final writeCommands = emulated.commands.where(
-          (c) => c.isNotEmpty && c[0] == 0x57,
-        );
+        final writeCommands = emulated.commands
+            .where((c) => c.isNotEmpty && c[0] == 0x57)
+            .toList();
         expect(writeCommands, isNotEmpty);
-        // 0x80 over Bluetooth, not the 0x40 a cable uses.
-        expect(writeCommands.first[3], 0x80);
+        // 0x80 over Bluetooth, not the 0x40 a cable uses -- on EVERY frame.
+        // The Mini's regions end in 0x40-byte blocks at 0x8000, 0x9000 and
+        // 0xA180, which went out saying 0x40; the radio never acks those
+        // over Bluetooth (CHIRP issue 12251), so every write and restore
+        // stopped at 0x8000 after the channels were already written.
+        for (final frame in writeCommands) {
+          final addr = (frame[1] << 8) | frame[2];
+          expect(frame[3], 0x80, reason: 'length byte at 0x$addr');
+          expect(frame, hasLength(0x84), reason: 'frame at 0x$addr');
+        }
+        expect(emulated.malformedWrites, isEmpty);
+        // The short blocks are padded with 0xFF, as CHIRP pads them. 0xFF is
+        // exempt from the substitution, so it is 0xFF on the wire too.
+        for (final addr in [0x8000, 0x9000, 0xA180]) {
+          final frame = emulated.written[addr]!;
+          expect(frame.sublist(0x40), everyElement(0xFF), reason: '0x$addr');
+        }
       },
       timeout: const Timeout(Duration(seconds: 120)),
     );
@@ -362,6 +461,137 @@ void main() {
       },
       timeout: const Timeout(Duration(seconds: 120)),
     );
+
+    test(
+      'a radio that stops answering mid-write says to restore the backup',
+      () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        final emulated = await radio();
+        final base = await read(uv5rMiniProfile);
+        emulated.goSilentAt = 0x1000;
+
+        await expectLater(
+          programmer
+              .writeChannels(
+                deviceId: _deviceId,
+                profile: uv5rMiniProfile,
+                base: base,
+                channels: const [],
+              )
+              .drain<void>(),
+          throwsA(
+            isA<RadioTimeoutException>()
+                .having((e) => e.partlyWritten, 'partlyWritten', isTrue)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  allOf(
+                    contains('while writing 0x1000'),
+                    contains('restore your backup'),
+                  ),
+                ),
+          ),
+        );
+        expect(emulated.peripheral.isConnected, isFalse);
+      },
+      timeout: const Timeout(Duration(seconds: 120)),
+    );
+
+    group('a GATT write that never completes', () {
+      // _send's own timeout: the write call itself stalls, rather than the
+      // radio going quiet after it. Left untranslated it reached the screen
+      // as a bare TimeoutException, read as the generic "did not finish".
+      late EmulatedRadio emulated;
+      late BaofengBleProgrammer stalling;
+
+      setUp(() async {
+        if (!rustReady) return;
+        emulated = await radio();
+        stalling = BaofengBleProgrammer(
+          EmulatedRadioBleService(emulated),
+          timing: _fast,
+        );
+      });
+
+      test('during a read is a plain timeout', () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        emulated.hangSendsFrom = 0x1000;
+
+        Object? error;
+        try {
+          await stalling
+              .readCodeplug(
+                deviceId: _deviceId,
+                profile: uv5rMiniProfile,
+                onResult: (_) {},
+              )
+              .drain<void>();
+        } catch (e) {
+          error = e;
+        }
+        expect(emulated.hungAt, 0x1000);
+        expect(
+          error,
+          isA<RadioTimeoutException>()
+              .having((e) => e.partlyWritten, 'partlyWritten', isFalse)
+              .having(
+                (e) => e.message,
+                'message',
+                const RadioTimeoutException().message,
+              ),
+        );
+        expect(emulated.peripheral.isConnected, isFalse);
+      });
+
+      test(
+        'during a write says the radio may be partly written',
+        () async {
+          if (!rustReady) {
+            return markTestSkipped('host Rust library unavailable');
+          }
+          final base = await stalling.readWhole(
+            deviceId: _deviceId,
+            profile: uv5rMiniProfile,
+          );
+          emulated.hangSendsFrom = 0x1000;
+
+          Object? error;
+          try {
+            await stalling
+                .writeChannels(
+                  deviceId: _deviceId,
+                  profile: uv5rMiniProfile,
+                  base: base,
+                  channels: const [],
+                )
+                .drain<void>();
+          } catch (e) {
+            error = e;
+          }
+          final at = emulated.hungAt!.toRadixString(16).padLeft(4, '0');
+          expect(
+            error,
+            isA<RadioTimeoutException>()
+                .having((e) => e.partlyWritten, 'partlyWritten', isTrue)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  allOf(
+                    contains('while writing 0x$at'),
+                    contains('restore your backup'),
+                  ),
+                ),
+          );
+          expect(
+            emulated.written.keys.where((a) => a >= 0x1000),
+            isEmpty,
+            reason: 'the hung write never reached the radio',
+          );
+          expect(emulated.peripheral.isConnected, isFalse);
+        },
+        timeout: const Timeout(Duration(seconds: 120)),
+      );
+    });
 
     test(
       'an image of the wrong size is refused before anything is sent',

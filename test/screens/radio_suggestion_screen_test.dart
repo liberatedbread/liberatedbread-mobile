@@ -91,6 +91,7 @@ Future<SharedPreferences> _pump(
   List<RepeaterSource> sources = const [],
   RadioProfile profile = uv5rProfile,
   Map<String, Object> prefs = const {},
+  InMemorySettingsStore? settings,
 }) async {
   _useTallWindow(tester);
   SharedPreferences.setMockInitialValues(prefs);
@@ -101,7 +102,7 @@ Future<SharedPreferences> _pump(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(sharedPrefs),
         prefsSettingsStoreProvider.overrideWith(
-          (ref) async => InMemorySettingsStore(),
+          (ref) async => settings ?? InMemorySettingsStore(),
         ),
         settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
         locationServiceProvider.overrideWithValue(location),
@@ -370,6 +371,82 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Added 1'), findsOneWidget);
+    });
+
+    testWidgets('keeps only the rounded position, and forgetting it clears '
+        'the screen', (tester) async {
+      // Regression: the screen kept its own copy of the exact fix, shown to
+      // four places and preferred over the remembered one, so 'Forget
+      // location' on the Repeater sources screen left the old precise point
+      // shown and searched from on the way back.
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [_repeater('W1AW', 146940000, 146340000)],
+        },
+      );
+      final gps = FakeLocationService(position: _hartford);
+      await _pump(tester, location: gps, sources: [source]);
+      await search(tester);
+      await tester.tap(find.text('W1AW'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('41.77, -72.67'), findsOneWidget);
+      expect(find.textContaining('41.7658'), findsNothing);
+      expect(find.text('Add 1 channel'), findsOneWidget);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(RadioSuggestionScreen)),
+      );
+      await container.read(lastLocationProvider.notifier).forget();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Where are you?'), findsOneWidget);
+      expect(find.text('Connecticut'), findsNothing);
+      expect(find.textContaining('41.77'), findsNothing);
+      expect(find.text('Find channels'), findsNothing);
+      expect(find.text('W1AW'), findsNothing, reason: 'results went too');
+      expect(find.text('Add 1 channel'), findsNothing);
+
+      // The next search asks for a position again.
+      expect(gps.positionCalls, 1);
+      await search(tester);
+      expect(gps.positionCalls, 2);
+      expect(find.text('W1AW'), findsOneWidget);
+    });
+
+    testWidgets('a plan made from a remembered position is named for it', (
+      tester,
+    ) async {
+      // Regression: a return visit searches from the remembered position
+      // without "Use my location", and the plan it made was "Near me"
+      // while the location tile said Connecticut.
+      final source = FakeRepeaterSource(
+        id: 'test',
+        byState: {
+          'CT': [_repeater('W1AW', 146940000, 146340000)],
+        },
+      );
+      final prefs = await _pump(
+        tester,
+        location: FakeLocationService(),
+        sources: [source],
+        settings: InMemorySettingsStore({
+          LastLocationNotifier.key: jsonEncode({
+            'lat': _hartford.lat,
+            'lon': _hartford.lon,
+            'label': 'Connecticut',
+          }),
+        }),
+      );
+      await tester.tap(find.text('Find channels'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('W1AW'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add 1 channel'));
+      await tester.pumpAndSettle();
+
+      expect(ChannelPlanStore(prefs).load().single.name, 'Near Connecticut');
     });
 
     group('with plans for more than one radio', () {

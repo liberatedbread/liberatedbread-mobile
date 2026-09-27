@@ -243,6 +243,14 @@ class SavedDevicesScreen extends ConsumerWidget {
     WidgetRef ref,
     SavedRadio radio,
   ) async {
+    // The radio row is the same DeviceListTile as the others, trailing close
+    // icon and all, but it was the one forget that went on the first tap.
+    final confirmed = await _confirmForget(
+      context,
+      radio.target.displayName,
+      forgetRadioConsequence,
+    );
+    if (!confirmed || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     await ref.read(savedRadiosProvider.notifier).remove(radio.target);
     messenger.showSnackBar(

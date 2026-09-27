@@ -227,10 +227,34 @@ self-classification report — a once-a-year email (template at the bottom) to
     credentials go to the vendor to read the robot's local password, which is
     what makes local control possible afterwards; the password is used once
     and not stored. Disclosed on the form that asks for them.
+  - a repeater search the user starts on the Radio tab ("Suggest channels near
+    me"): the US state(s) in range, worked out on the phone from one position,
+    go to each directory the user has turned on — myGMRS (`api.mygmrs.com`,
+    `lib/services/mygmrs_client.dart`) anonymously, and RepeaterBook
+    (`www.repeaterbook.com`, `lib/services/repeaterbook_client.dart`) only
+    once the user pastes their own access token, with that token. Saving the
+    token checks it with RepeaterBook once. Coordinates never leave the
+    phone; the last position is remembered on the phone only, rounded to
+    about 1 km, until the user taps *Forget location*. Stated in the location
+    purpose string.
 
   If App Review asks how "Data Not Collected" squares with a sign-in form, the
-  answer is the last bullet: the credentials are sent to the vendor, not to
+  answer is the iRobot bullet: the credentials are sent to the vendor, not to
   us, and no identifier leaves the device for this app's benefit.
+
+  If App Review asks how it squares with a location permission, the answer is
+  the repeater bullet, and it is a decision, not an oversight (recorded in the
+  manifest comment too): **no Location entry**. Apple counts data as collected
+  when the developer or a third-party partner acting for the app can keep it
+  beyond servicing the request. Precise location never leaves the phone. The
+  state goes to a directory the user chose, with none of its code in the app
+  and nothing sent to us; the token is the user's own credential for an
+  account they already hold there. If either directory ever ships code in the
+  app, or a request ever passes through a server of ours, answer Coarse
+  Location (App Functionality, not linked, not tracking) instead, and change
+  `NSPrivacyCollectedDataTypes` and its test in the same commit. Google Play's
+  Data safety form is answered differently, on purpose — see
+  `docs/RELEASE.md`.
 
 ## Step 8 — Listing metadata + screenshots (ASC)
 
@@ -292,7 +316,9 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > you install one, your own Home Assistant server if you configure it, and — if
 > you pick the account route for a robot vacuum instead of entering its details
 > by hand — a one-time sign-in to the vendor's cloud to read your robot's local
-> password.
+> password. When you ask for radio channels near you, only the US state(s)
+> within your search radius go to the repeater directories you have turned on (myGMRS, and
+> RepeaterBook with your own access token); your position stays on your phone.
 >
 > This is independent, community-maintained software provided as-is. Please read the in-app terms and
 > the disclaimer at https://liberatedbread.com/disclaimer/ before use — some

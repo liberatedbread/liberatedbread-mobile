@@ -124,17 +124,29 @@ String _duplex(RadioChannel channel) {
 ///
 /// The mapping, and why:
 ///
-/// | transmit | receive | Tone     | CrossMode  |
-/// |----------|---------|----------|------------|
-/// | none     | none    | ``       | default    |
-/// | CTCSS    | none    | `Tone`   | default    |
-/// | CTCSS    | CTCSS   | `TSQL`   | default    |
-/// | DCS      | none    | `Cross`  | `DTCS->`   |
-/// | DCS      | DCS     | `DTCS`   | default    |
-/// | none     | CTCSS   | `Cross`  | `->Tone`   |
-/// | none     | DCS     | `Cross`  | `->DTCS`   |
-/// | CTCSS    | DCS     | `Cross`  | `Tone->DTCS` |
-/// | DCS      | CTCSS   | `Cross`  | `DTCS->Tone` |
+/// | transmit | receive        | Tone     | CrossMode    |
+/// |----------|----------------|----------|--------------|
+/// | none     | none           | ``       | default      |
+/// | CTCSS    | none           | `Tone`   | default      |
+/// | CTCSS    | same CTCSS     | `TSQL`   | default      |
+/// | CTCSS    | other CTCSS    | `Cross`  | `Tone->Tone` |
+/// | DCS      | none           | `Cross`  | `DTCS->`     |
+/// | DCS      | same DCS code  | `DTCS`   | default      |
+/// | DCS      | other DCS code | `Cross`  | `DTCS->DTCS` |
+/// | none     | CTCSS          | `Cross`  | `->Tone`     |
+/// | none     | DCS            | `Cross`  | `->DTCS`     |
+/// | CTCSS    | DCS            | `Cross`  | `Tone->DTCS` |
+/// | DCS      | CTCSS          | `Cross`  | `DTCS->Tone` |
+///
+/// `TSQL` and `DTCS` are single-value modes: CHIRP transmits and squelches on
+/// `cToneFreq` alone in TSQL, and on `DtcsCode` alone in DTCS, ignoring the
+/// other column. So a channel that sends 100.0 and listens for 107.2 must not
+/// be written as TSQL -- CHIRP would import it as 107.2 both ways and the
+/// repeater would never open. Two different values in one direction each is
+/// what CHIRP's `Cross` mode is for, and `Tone->Tone` / `DTCS->DTCS` are
+/// both modes it lists. Polarity does not come into it: DTCS reads
+/// `DtcsPolarity` per direction, so 023 inverted out and 023 normal in is
+/// still plain `DTCS`.
 ///
 /// The row that looks surprising is DCS-out with nothing on receive. CHIRP's
 /// plain `DTCS` mode squelches the receiver on the same code, and this app
@@ -179,8 +191,14 @@ _toneCells(RadioChannel channel) {
   final (String mode, String crossMode) = switch ((tx.mode, rx.mode)) {
     (ToneMode.none, ToneMode.none) => ('', _defaultCrossMode),
     (ToneMode.ctcss, ToneMode.none) => ('Tone', _defaultCrossMode),
-    (ToneMode.ctcss, ToneMode.ctcss) => ('TSQL', _defaultCrossMode),
-    (ToneMode.dcs, ToneMode.dcs) => ('DTCS', _defaultCrossMode),
+    (ToneMode.ctcss, ToneMode.ctcss) when tx.ctcssTenthHz == rx.ctcssTenthHz =>
+      ('TSQL', _defaultCrossMode),
+    (ToneMode.ctcss, ToneMode.ctcss) => ('Cross', 'Tone->Tone'),
+    (ToneMode.dcs, ToneMode.dcs) when tx.dcsCode == rx.dcsCode => (
+      'DTCS',
+      _defaultCrossMode,
+    ),
+    (ToneMode.dcs, ToneMode.dcs) => ('Cross', 'DTCS->DTCS'),
     (ToneMode.dcs, ToneMode.none) => ('Cross', 'DTCS->'),
     (ToneMode.none, ToneMode.ctcss) => ('Cross', '->Tone'),
     (ToneMode.none, ToneMode.dcs) => ('Cross', '->DTCS'),

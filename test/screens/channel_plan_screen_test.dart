@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -169,6 +170,91 @@ void main() {
       expect(plan.channels.first.name, 'CH1');
       // ...and the mode closes itself once the work is done.
       expect(find.text('Local repeaters'), findsOneWidget);
+    });
+
+    testWidgets(
+      'a long-press drag cannot move a row out from under its tick',
+      (tester) async {
+        // Regression: the SDK's default drag handles made a long-press
+        // anywhere on a row start a reorder, select mode or not. Ticks are
+        // slot indices, so dragging CH2 above the ticked CH1 left the tick
+        // on slot 1 — now CH2 — and "Delete selected" removed CH2.
+        final harness = await _pump(tester, prefs: _seed());
+        await tester.tap(find.byIcon(Icons.checklist));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('CH1'));
+        await tester.pumpAndSettle();
+        expect(find.text('1 selected'), findsOneWidget);
+
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.text('CH2')),
+        );
+        await tester.pump(kLongPressTimeout + kPressTimeout);
+        await gesture.moveTo(tester.getCenter(find.text('CH0')));
+        await tester.pump();
+        await gesture.up();
+        await tester.pumpAndSettle();
+
+        List<String> names() => [
+          for (final channel
+              in harness.container.read(channelPlansProvider).single.channels)
+            channel.name,
+        ];
+        expect(names(), ['CH0', 'CH1', 'CH2']);
+
+        await tester.tap(find.byIcon(Icons.delete_outline));
+        await tester.pumpAndSettle();
+        expect(names(), ['CH0', 'CH2']);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+
+    testWidgets(
+      'a desktop row has one drag handle, not the SDK\'s second',
+      (tester) async {
+        await _pump(tester, prefs: _seed());
+        expect(find.byIcon(Icons.drag_handle), findsNWidgets(3));
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+    );
+
+    testWidgets('outside it, the trailing handle still reorders', (
+      tester,
+    ) async {
+      final harness = await _pump(tester, prefs: _seed());
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byIcon(Icons.drag_handle).at(2)),
+      );
+      await tester.pump();
+      final to = tester.getCenter(find.text('CH1'));
+      final from = tester.getCenter(find.byIcon(Icons.drag_handle).at(2));
+      // In steps, so the drag clears the touch slop before it travels.
+      for (var i = 1; i <= 10; i++) {
+        await gesture.moveTo(
+          Offset(from.dx, from.dy + (to.dy - from.dy) * i / 10),
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        [
+          for (final channel
+              in harness.container.read(channelPlansProvider).single.channels)
+            channel.name,
+        ],
+        ['CH0', 'CH2', 'CH1'],
+      );
+    });
+
+    testWidgets('its close button is named for a screen reader', (
+      tester,
+    ) async {
+      await _pump(tester, prefs: _seed());
+      await tester.tap(find.byIcon(Icons.checklist));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Cancel selection'), findsOneWidget);
     });
 
     testWidgets('can be left without deleting anything', (tester) async {

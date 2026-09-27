@@ -19,6 +19,7 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_radio_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
+import 'package:liberated_bread_mobile/services/codeplug_backup_store.dart';
 import 'package:liberated_bread_mobile/services/radio_codec.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,6 +48,71 @@ class _FakeDecoder implements CodeplugDecoder {
     RadioCodeplug codeplug,
     RadioProfile profile,
   ) async => result;
+}
+
+/// Sends the first blocks of a write, then loses the radio — the link drop
+/// that leaves it holding part new, part old.
+class _CutOffProgrammer extends FakeRadioProgrammer {
+  final Object cutOffWith;
+
+  _CutOffProgrammer(this.cutOffWith);
+
+  Stream<RadioProgressEvent> _cutOff() async* {
+    yield const RadioProgressEvent(
+      stage: RadioProgressStage.writing,
+      message: 'Writing…',
+      progress: 0.3,
+    );
+    throw cutOffWith;
+  }
+
+  @override
+  Stream<RadioProgressEvent> writeChannels({
+    required String deviceId,
+    required RadioProfile profile,
+    required RadioCodeplug base,
+    required List<RadioChannel> channels,
+  }) => _cutOff();
+
+  @override
+  Stream<RadioProgressEvent> restoreCodeplug({
+    required String deviceId,
+    required RadioProfile profile,
+    required RadioCodeplug codeplug,
+  }) => _cutOff();
+}
+
+/// A read that waits on [readHold]: a session a test can keep running.
+class _HeldReadProgrammer extends FakeRadioProgrammer {
+  final Completer<void> readHold = Completer<void>();
+
+  @override
+  Stream<RadioProgressEvent> readCodeplug({
+    required String deviceId,
+    required RadioProfile profile,
+    required void Function(RadioCodeplug) onResult,
+  }) async* {
+    await readHold.future;
+    yield* super.readCodeplug(
+      deviceId: deviceId,
+      profile: profile,
+      onResult: onResult,
+    );
+  }
+}
+
+/// A backup list that answers only when [listHold] completes, as a slow
+/// disk would.
+class _SlowListStore extends FakeCodeplugBackupStore {
+  final Completer<void> listHold = Completer<void>();
+
+  _SlowListStore({super.existing});
+
+  @override
+  Future<List<CodeplugBackup>> list() async {
+    await listHold.future;
+    return super.list();
+  }
 }
 
 class _Harness {
@@ -390,6 +456,81 @@ void main() {
       expect(harness.programmer.restored, isEmpty);
     });
 
+    testWidgets('a second restore started while one runs is not sent', (
+      tester,
+    ) async {
+      // Regression: _session had no re-entry guard, and _restore awaits the
+      // backup list before its sheet opens, with every tile still enabled.
+      // Two taps in that window stacked two sheets; answering both started
+      // two sessions on one link, the first's teardown cutting the second
+      // off mid-write.
+      final programmer = _HeldReadProgrammer();
+      final store = _SlowListStore(
+        existing: [backup(1, DateTime(2026, 9, 1, 9, 30))],
+      );
+      final harness = await _pump(
+        tester,
+        programmer: programmer,
+        backups: store,
+      );
+
+      await tester.tap(find.text('Restore a backup'));
+      await tester.pump();
+      await tester.tap(find.text('Restore a backup'));
+      await tester.pump();
+      store.listHold.complete();
+      await tester.pumpAndSettle();
+
+      // Two sheets, one over the other. Answer the top one...
+      await tester.tap(find.text('2026-09-01 09:30').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
+      await tester.pump();
+      expect(harness.programmer.readCalls, 0, reason: 'read is held open');
+      // ...then, with that session running, the one beneath. (Its progress
+      // bar never settles, so the routes are pumped a fixed time.)
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('2026-09-01 09:30').last);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      programmer.readHold.complete();
+      await tester.pumpAndSettle();
+
+      expect(harness.programmer.readCalls, 1);
+      expect(harness.programmer.restored, hasLength(1));
+      expect(harness.backups.saved, hasLength(1));
+    });
+
+    testWidgets('one cut off part way says the radio may be half written, '
+        'and names the copy taken before it', (tester) async {
+      final harness = await _pump(
+        tester,
+        programmer: _CutOffProgrammer(const RadioTimeoutException()),
+        backups: FakeCodeplugBackupStore(
+          existing: [backup(1, DateTime(2026, 9, 1, 9, 30))],
+        ),
+      );
+
+      await tester.tap(find.text('Restore a backup'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('2026-09-01 09:30'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
+      await tester.pumpAndSettle();
+
+      expect(harness.backups.saved, hasLength(1));
+      // The fake store names its second backup (index 1) this way.
+      expect(
+        find.textContaining(
+          'may now hold part of the write and part of what was there '
+          'before. Try again, or put back uv-5r-mini_1.bin',
+        ),
+        findsWidgets,
+      );
+    });
+
     testWidgets('only offers backups of this model', (tester) async {
       await _pump(
         tester,
@@ -502,6 +643,217 @@ void main() {
       expect(find.textContaining('stopped answering'), findsWidgets);
     });
 
+    testWidgets('cut off part way, says so and names the backup', (
+      tester,
+    ) async {
+      // Regression: a link lost mid-write showed only "The radio stopped
+      // responding… try again", with nothing about the mixed old and new
+      // memory it may have left, or the copy saved seconds before.
+      await seedPlan();
+      final harness = await _pump(
+        tester,
+        programmer: _CutOffProgrammer(const RadioTimeoutException()),
+      );
+      await pickAndConfirm(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(harness.backups.saved, hasLength(1));
+      final error = tester
+          .widgetList<Text>(find.textContaining('stopped responding'))
+          .first
+          .data!;
+      expect(error, contains('may now hold part of the write'));
+      expect(error, contains('uv-5r-mini_0.bin'));
+      expect(error, contains('"Restore a backup"'));
+    });
+
+    testWidgets('a refused block names the backup without repeating the '
+        'warning its own text gives', (tester) async {
+      await seedPlan();
+      await _pump(
+        tester,
+        programmer: _CutOffProgrammer(
+          const RadioProtocolException('Partly written; restore your backup.'),
+        ),
+      );
+      await pickAndConfirm(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining(
+          'The copy taken just before the write is uv-5r-mini_0.bin',
+        ),
+        findsWidgets,
+      );
+      expect(find.textContaining('may now hold part'), findsNothing);
+    });
+
+    // Regression: the Bluetooth programmer's mid-write timeout already said
+    // the radio may be partly written and to restore the backup, and the
+    // screen appended its own copy of that warning — the user read it twice.
+    // Each transport's programmer now throws RadioTimeoutException.midWrite
+    // (tested with each programmer); the screen adds only the backup's name.
+    for (final (target, profile, backupName) in [
+      (_ble, uv5rMiniProfile, '${uv5rMiniProfile.id}_0.bin'),
+      (
+        const RadioTarget(
+          transport: RadioTransport.usb,
+          id: '/dev/ttyUSB0',
+          name: 'Cable radio',
+        ),
+        uv5rProfile,
+        '${uv5rProfile.id}_0.bin',
+      ),
+    ]) {
+      testWidgets('a ${target.transport.name} radio lost mid-write gives the '
+          'warning once, and names the backup', (tester) async {
+        final now = DateTime(2026, 9, 1);
+        SharedPreferences.setMockInitialValues({
+          'radio_channel_plans_v1': jsonEncode([
+            ChannelPlan(
+              id: 'plan-1',
+              name: 'Local repeaters',
+              radioProfileId: profile.id,
+              channels: channels,
+              createdAt: now,
+              modifiedAt: now,
+            ).toJson(),
+          ]),
+        });
+        _prefs = await SharedPreferences.getInstance();
+        final harness = await _pump(
+          tester,
+          target: target,
+          initialProfile: profile,
+          planId: 'plan-1',
+          programmer: _CutOffProgrammer(RadioTimeoutException.midWrite(0x1000)),
+        );
+        await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Write').last);
+        await tester.pumpAndSettle();
+
+        expect(harness.backups.saved, hasLength(1));
+        final error = tester
+            .widgetList<Text>(find.textContaining('stopped responding'))
+            .first
+            .data!;
+        expect(error, contains('while writing 0x1000'));
+        expect('may now hold'.allMatches(error), hasLength(1), reason: error);
+        expect('partly written'.allMatches(error), hasLength(1));
+        expect(find.textContaining('part of the write'), findsNothing);
+        expect(find.textContaining('Try again'), findsNothing);
+        expect(
+          error,
+          contains('The copy taken just before the write is $backupName'),
+        );
+        expect(error, contains('"Restore a backup"'));
+      });
+    }
+
+    testWidgets('a failed read adds nothing about a partial write', (
+      tester,
+    ) async {
+      await seedPlan();
+      await _pump(
+        tester,
+        programmer: FakeRadioProgrammer(error: const RadioTimeoutException()),
+      );
+      await pickAndConfirm(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('stopped responding'), findsWidgets);
+      expect(find.textContaining('part of the write'), findsNothing);
+    });
+
+    group('a plan too big for the radio', () {
+      // A UV-5R Mini plan (999 slots) on a cable UV-5R (128). It used to be
+      // read and backed up, and only then refused by the encoder as "The
+      // radio did not finish."
+      const cable = RadioTarget(
+        transport: RadioTransport.usb,
+        id: '/dev/ttyUSB0',
+        name: 'UV-5R',
+      );
+
+      Future<void> seedBigPlan() async {
+        final now = DateTime(2026, 9, 1);
+        SharedPreferences.setMockInitialValues({
+          'radio_channel_plans_v1': jsonEncode([
+            ChannelPlan(
+              id: 'big',
+              name: 'Everything',
+              radioProfileId: uv5rMiniProfile.id,
+              channels: [
+                for (var i = 0; i < 129; i++)
+                  RadioChannel(
+                    name: 'CH$i',
+                    rxFreqHz: 146000000 + i * 12500,
+                    txFreqHz: 146000000 + i * 12500,
+                  ),
+              ],
+              createdAt: now,
+              modifiedAt: now,
+            ).toJson(),
+          ]),
+        });
+        _prefs = await SharedPreferences.getInstance();
+      }
+
+      testWidgets('is refused before anything is read, naming both counts', (
+        tester,
+      ) async {
+        await seedBigPlan();
+        final harness = await _pump(
+          tester,
+          target: cable,
+          initialProfile: uv5rProfile,
+          planId: 'big',
+        );
+        expect(find.text(uv5rProfile.displayName), findsOneWidget);
+
+        await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Write to UV-5R?'), findsNothing);
+        expect(
+          find.textContaining(
+            '"Everything" has 129 channels; a ${uv5rProfile.displayName} '
+            'holds 128',
+          ),
+          findsOneWidget,
+        );
+        expect(harness.programmer.readCalls, 0);
+        expect(harness.backups.saved, isEmpty);
+        expect(harness.programmer.written, isEmpty);
+      });
+
+      testWidgets('is shown but cannot be picked from the list', (
+        tester,
+      ) async {
+        await seedBigPlan();
+        final harness = await _pump(
+          tester,
+          target: cable,
+          initialProfile: uv5rProfile,
+        );
+        await tester.tap(find.text('Write a channel plan'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('129 channels · this radio holds 128'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Everything'));
+        await tester.pumpAndSettle();
+        expect(find.text('Write to UV-5R?'), findsNothing);
+        expect(harness.programmer.readCalls, 0);
+      });
+    });
+
     testWidgets('opened to take a plan, offers it first', (tester) async {
       await seedPlan();
       final harness = await _pump(tester, planId: 'plan-1');
@@ -531,10 +883,33 @@ void main() {
 
     await tester.tap(find.byTooltip('Forget this radio'));
     await tester.pumpAndSettle();
+    // Asked first, as every other forget in the app is.
+    expect(find.text('Forget Base radio?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Forget'));
+    await tester.pumpAndSettle();
 
     expect(harness.container.read(savedRadiosProvider), isEmpty);
     expect(find.byType(RadioDeviceScreen), findsNothing);
     expect(find.textContaining('Removed Base radio'), findsOneWidget);
+  });
+
+  testWidgets('a cancelled forget keeps the radio and the screen', (
+    tester,
+  ) async {
+    final harness = await _pump(tester, behindLauncher: true);
+    await harness.container
+        .read(savedRadiosProvider.notifier)
+        .touch(target: _ble, seenAt: DateTime(2026, 9, 1));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Forget this radio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(harness.container.read(savedRadiosProvider), hasLength(1));
+    expect(find.byType(RadioDeviceScreen), findsOneWidget);
+    expect(find.textContaining('Removed'), findsNothing);
   });
 
   testWidgets('will not be left while a session is running', (tester) async {

@@ -399,7 +399,8 @@ const RadioProfile uv32Profile = RadioProfile(
     FreqRange(144000000, 148000000),
     FreqRange(420000000, 450000000),
   ],
-  channelCapacity: 999,
+  // CHIRP's UV32 keeps the UV-17Pro's 1000-slot table; 999 is the Mini's.
+  channelCapacity: 1000,
   nameLength: 12,
   programmingFamily: ProgrammingFamily.bleUv17Pro,
   programmerSupport: ProgrammerSupport.unverified,

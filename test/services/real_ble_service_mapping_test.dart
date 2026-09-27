@@ -4,6 +4,9 @@ import 'dart:async';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/iot_device.dart';
+import 'package:liberated_bread_mobile/providers/scan_match_provider.dart'
+    show ScanIdentity;
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/real_ble_service.dart';
 
@@ -480,6 +483,211 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  group(
+    'ScanResultCoalescer merges a poorer sighting (identity stability)',
+    () {
+      // CoreBluetooth hands each advertising packet over on its own, so an
+      // ADV_IND can follow the merged ADV+SCAN_RSP sighting without the name
+      // or the 128-bit service list. Replacing the device with it re-keyed the
+      // row's ScanIdentity and dropped it out of "Likely supported" for a
+      // frame.
+      const uuid = '0000fff0-0000-1000-8000-00805f9b34fb';
+      final start = DateTime(2026, 9, 27, 12);
+
+      IoTDevice rich(ScanResultCoalescer c) => c.next(
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+        serviceUuids: const [uuid],
+        companyIds: const [961],
+        manufacturerData: const {
+          961: [1, 2, 3],
+        },
+        seenAt: start,
+      )!;
+
+      test('a sighting with no name, uuids or payload keeps all three and is '
+          'suppressed inside the heartbeat', () {
+        final coalescer = ScanResultCoalescer();
+        final first = rich(coalescer);
+        expect(
+          coalescer.next(
+            id: 'AA',
+            name: '',
+            rssi: -50,
+            isConnectable: true,
+            seenAt: start.add(const Duration(seconds: 1)),
+          ),
+          isNull,
+          reason: 'merged, it is the same advertisement as before',
+        );
+
+        final beat = coalescer.next(
+          id: 'AA',
+          name: '',
+          rssi: -50,
+          isConnectable: true,
+          seenAt: start.add(scanHeartbeat),
+        )!;
+        expect(beat.name, 'Bulb');
+        expect(beat.serviceUuids, const [uuid]);
+        expect(beat.companyIds, const [961]);
+        expect(beat.manufacturerData, {
+          961: [1, 2, 3],
+        });
+        expect(ScanIdentity.of(beat), ScanIdentity.of(first));
+      });
+
+      test(
+        'an rssi change on a poorer sighting still carries the identity',
+        () {
+          final coalescer = ScanResultCoalescer();
+          rich(coalescer);
+          final moved = coalescer.next(
+            id: 'AA',
+            name: '',
+            rssi: -70,
+            isConnectable: true,
+            seenAt: start.add(const Duration(seconds: 1)),
+          )!;
+          expect(moved.rssi, -70);
+          expect(moved.name, 'Bulb');
+          expect(moved.serviceUuids, const [uuid]);
+        },
+      );
+
+      test('new entries are appended in first-seen order, and a reordered '
+          'repeat is suppressed', () {
+        const other = '0000180f-0000-1000-8000-00805f9b34fb';
+        final coalescer = ScanResultCoalescer();
+        rich(coalescer);
+        final grown = coalescer.next(
+          id: 'AA',
+          name: 'Bulb',
+          rssi: -50,
+          isConnectable: true,
+          serviceUuids: const [other],
+          companyIds: const [76],
+          manufacturerData: const {
+            76: [9],
+          },
+          seenAt: start.add(const Duration(seconds: 1)),
+        )!;
+        expect(grown.serviceUuids, const [uuid, other]);
+        expect(grown.companyIds, const [961, 76]);
+        expect(grown.manufacturerData.keys, [961, 76]);
+
+        expect(
+          coalescer.next(
+            id: 'AA',
+            name: 'Bulb',
+            rssi: -50,
+            isConnectable: true,
+            serviceUuids: const [other, uuid],
+            companyIds: const [76, 961],
+            manufacturerData: const {
+              76: [9],
+              961: [1, 2, 3],
+            },
+            seenAt: start.add(const Duration(seconds: 2)),
+          ),
+          isNull,
+        );
+      });
+
+      test('a changed payload for a company id still wins and re-emits', () {
+        // The pixel-panel case: a device re-advertising its dimensions must
+        // reach the matcher with the new bytes.
+        final coalescer = ScanResultCoalescer();
+        rich(coalescer);
+        final changed = coalescer.next(
+          id: 'AA',
+          name: 'Bulb',
+          rssi: -50,
+          isConnectable: true,
+          serviceUuids: const [uuid],
+          companyIds: const [961],
+          manufacturerData: const {
+            961: [7, 7],
+          },
+          seenAt: start.add(const Duration(seconds: 1)),
+        );
+        expect(changed, isNotNull);
+        expect(changed!.manufacturerData, {
+          961: [7, 7],
+        });
+      });
+
+      test(
+        'a device first seen without a name takes the name when it comes',
+        () {
+          final coalescer = ScanResultCoalescer();
+          coalescer.next(id: 'AA', name: '', rssi: -50, isConnectable: true);
+          expect(
+            coalescer
+                .next(id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true)!
+                .name,
+            'Bulb',
+          );
+        },
+      );
+    },
+  );
+
+  group('isConnectTimeoutError', () {
+    test('fbp giving up on connect is a timeout', () {
+      expect(
+        isConnectTimeoutError(
+          FlutterBluePlusException(
+            ErrorPlatform.fbp,
+            'connect',
+            FbpErrorCode.timeout.index,
+            'Timed out after 15s',
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('a refusal, another operation, or a native code 1 is not', () {
+      expect(
+        isConnectTimeoutError(
+          FlutterBluePlusException(
+            ErrorPlatform.apple,
+            'connect',
+            FbpErrorCode.timeout.index,
+            'native code 1 means something else',
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        isConnectTimeoutError(
+          FlutterBluePlusException(
+            ErrorPlatform.fbp,
+            'readCharacteristic',
+            FbpErrorCode.timeout.index,
+            'Timed out after 15s',
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        isConnectTimeoutError(
+          FlutterBluePlusException(
+            ErrorPlatform.fbp,
+            'connect',
+            FbpErrorCode.connectionCanceled.index,
+            'connection canceled',
+          ),
+        ),
+        isFalse,
+      );
+      expect(isConnectTimeoutError(StateError('connect')), isFalse);
     });
   });
 

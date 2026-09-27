@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
+import 'package:liberated_bread_mobile/providers/saved_radio_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
@@ -391,10 +392,35 @@ void main() {
 
       await tester.tap(find.byTooltip('Forget Base radio'));
       await tester.pumpAndSettle();
+      // Regression: the radio row was the one forget that acted on the
+      // first tap of its close icon.
+      expect(find.text('Forget Base radio?'), findsOneWidget);
+      expect(find.text('Removed Base radio'), findsNothing);
+      await tester.tap(find.widgetWithText(FilledButton, 'Forget'));
+      await tester.pumpAndSettle();
 
       expect(find.text('Base radio'), findsNothing);
       expect(find.text('Removed Base radio'), findsOneWidget);
       expect(find.text('No saved devices yet'), findsOneWidget);
+    });
+
+    testWidgets('a cancelled forget leaves it saved', (tester) async {
+      await seedRadios(oneRadio);
+      await tester.pumpWidget(_wrap());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Forget Base radio'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Base radio'), findsOneWidget);
+      expect(find.text('Removed Base radio'), findsNothing);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(SavedDevicesScreen)),
+        listen: false,
+      );
+      expect(container.read(savedRadiosProvider), hasLength(1));
     });
   });
 }

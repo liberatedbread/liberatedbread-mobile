@@ -23,11 +23,16 @@ final channelSuggestionServiceProvider = Provider<ChannelSuggestionService>((
 /// one screen; `family` keyed by [SuggestionRequest], which has real value
 /// equality precisely so that a rebuild handing over an equal-but-new request
 /// reuses this rather than re-running every fetch.
+///
+/// No `keepAlive` here, and deliberately: a rebuild never drops the screen's
+/// watch (an equal key reclaims the same subscription), so there is nothing
+/// for a hold to bridge, and the only time the watch really goes is when the
+/// request changes -- at which point the old result is not wanted. A
+/// `keepAlive` link closed from `onCancel` was tried and is a no-op: the last
+/// listener leaving is exactly when a plain autoDispose element is disposed,
+/// and both land on the same scheduler tick. The disk cache is what makes a
+/// repeat search cheap.
 final radioSuggestionProvider = FutureProvider.autoDispose
     .family<SuggestionResult, SuggestionRequest>((ref, request) {
-      // Hold the result across a brief rebuild -- a keyboard opening, a rotation
-      // -- so the fetches are not thrown away and redone.
-      final link = ref.keepAlive();
-      ref.onCancel(link.close);
       return ref.watch(channelSuggestionServiceProvider).suggest(request);
     });

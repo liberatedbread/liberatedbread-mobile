@@ -112,13 +112,19 @@ class RadioSourceSettingsNotifier extends AsyncNotifier<RadioSourceSettings> {
     state = AsyncData(settings);
   }
 
+  // Both setters await [future] rather than reading [state]: a caller that
+  // never watched this provider can arrive while the first build is still
+  // reading the store, [state] has no value yet, and a fallback to defaults
+  // would be written back over the stored blob -- every source the user had
+  // switched off back on, the chosen radius lost. Same guard as
+  // TxUnlockNotifier.setEnabled, for the same reason.
   Future<void> setSourceEnabled(String sourceId, bool enabled) async {
-    final current = state.value ?? const RadioSourceSettings();
+    final current = await future;
     await _save(current.withSource(sourceId, enabled: enabled));
   }
 
   Future<void> setRadiusKm(double km) async {
-    final current = state.value ?? const RadioSourceSettings();
+    final current = await future;
     await _save(current.withRadius(km));
   }
 }

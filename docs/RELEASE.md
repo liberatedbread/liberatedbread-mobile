@@ -68,8 +68,10 @@ other ref as its bare SHA.
    Before it looks, the script deletes `device-specs/examples/index-temp.json`,
    the gitignored local index that `run-*.sh` rebuilds on every launch and the
    app prefers over `index.json`, so a release always reads the committed
-   index. The two overrides are for a throwaway build on a branch; a store
-   upload should need neither.
+   index. It deletes a Finder `.DS_Store` in either directory for the same
+   reason: ignored, so the guard would refuse it, and written by merely
+   opening the folder on the Mac that builds for iOS. The two overrides are
+   for a throwaway build on a branch; a store upload should need neither.
 5. Before uploading, install each build on a real phone. Check that Diagnostics
    shows the tag, and on the iPhone run a Wi-Fi scan.
    `./scripts/verify_ios_app.sh build/ios/ipa/*.ipa` checks the signed
@@ -102,16 +104,40 @@ lost upload key. Back the upload key up off every build machine anyway.
 
 ## Google Play, the first time
 
-- **Data safety**: declare no data collected or shared. The banner check is
-  anonymous.
+- **Data safety**: declare **Approximate location**, collected and shared
+  with third parties (RepeaterBook, myGMRS), optional, processed ephemerally,
+  purpose *App functionality*; nothing else. Since the Radio tab's "Suggest
+  channels near me" (PR #67), a repeater search the user starts reads one
+  position on the phone, works out the US state(s) in range on the phone
+  (`lib/services/us_state_resolver.dart`), and sends those state codes to
+  each directory the user has turned on: RepeaterBook with the user's own
+  access token, myGMRS anonymously. Coordinates never leave the phone; the
+  app remembers the last position on the phone only, rounded to about 1 km,
+  until the user taps *Forget location* on the Repeater sources screen.
+  Declaring is the choice that cannot be wrong: the user-initiated and
+  ephemeral-processing exemptions might cover it, but the RepeaterBook request
+  is not anonymous (it carries the user's token), so the app cannot vouch for
+  what that directory keeps. The RepeaterBook token and the iRobot sign-in are
+  the user's own credentials sent to the service that issued them, disclosed
+  where they are entered, the same way the App Store runbook treats them. The
+  banner check is anonymous.
 - **Ads**: answer *yes*. The banner is an affiliate promotion, and declaring
   "no ads" while shipping it is a policy violation.
-- **Location permission declaration**: required, because the app requests
-  `ACCESS_FINE_LOCATION`. File it early, since review can take days to weeks.
-  The justification: Android 11 and earlier need location permission for any
-  BLE scan, and the app never reads a location. If it is refused, the
-  alternative is `neverForLocation` on `BLUETOOTH_SCAN` with the location
-  permissions capped at API 30.
+- **Location permission declaration**: the app requests
+  `ACCESS_FINE_LOCATION` (foreground only, never background). Check first
+  whether Play still asks for the declaration: its location form is about
+  background access, which this app does not request. If it does ask, file
+  early, since review can take days to weeks, and name both uses:
+  - Android 11 and earlier need location permission for any BLE scan;
+  - on the Radio tab, "Suggest channels near me" reads one position when the
+    user taps it, in the foreground, to find repeaters in range. Only the US
+    state(s) derived from it are sent, to the directories the user turned on.
+
+  There is no fallback that keeps the radio feature. `neverForLocation` on
+  `BLUETOOTH_SCAN` with the location permissions capped at API 30 fixes the
+  BLE half, but geolocator then finds no location permission in the manifest
+  on Android 12+ and the repeater search fails there; the cap means dropping
+  location-based suggestions on Android.
 - **Listing**: content rating, target audience (not children), a 512×512 icon,
   a 1024×500 feature graphic, and at least two phone screenshots. For the
   screenshots, run `./scripts/run-android.sh --mock` and capture with
@@ -135,12 +161,26 @@ The privacy page should say what the code does:
 
 - no accounts, analytics or tracking;
 - device control stays on the local network;
-- the only connections beyond the user's own devices are the anonymous banner
-  check, spec-pack downloads the user starts, and their own Home Assistant
-  server;
+- the only connections beyond the user's own devices are:
+  - the anonymous banner check;
+  - spec-pack downloads the user starts;
+  - their own Home Assistant server;
+  - a one-time sign-in to iRobot's cloud, only if the user picks that route
+    for a robot vacuum, to read the robot's local password;
+  - a repeater search the user starts on the Radio tab: the US state(s) in
+    range, never coordinates, to myGMRS (`api.mygmrs.com`, anonymous) and,
+    once the user pastes their own access token, to RepeaterBook
+    (`www.repeaterbook.com`, with that token; saving the token also checks it
+    there once). Each directory can be turned off;
+- the last position used for a repeater search stays on the phone, rounded to
+  about 1 km, until the user forgets it;
 - the banner is an affiliate link.
 
-`ios/Runner/PrivacyInfo.xcprivacy` makes the same claims; keep the two in step.
+`ios/Runner/PrivacyInfo.xcprivacy` and Step 7 of
+`docs/APP_STORE_SUBMISSION.md` make the same claims; keep all three in step.
+A new outbound client means a new bullet in each (and
+`test/platform/ios_privacy_manifest_test.dart` fails until the manifest has
+one).
 
 ## Review
 

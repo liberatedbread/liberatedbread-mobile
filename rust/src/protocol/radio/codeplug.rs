@@ -188,7 +188,10 @@ pub fn decode_channel(record: &[u8], name_len: usize) -> Option<ChannelRecord> {
     };
 
     // Byte 14 packs its fields most-significant first; transmit power is the
-    // bottom two bits, where 0 is high.
+    // bottom two bits, an index into the model's power levels where 0 is
+    // high. Most models have two (1 is low); the UV-32 has three, and 2 is
+    // its Medium. Any non-zero level reads as low here, and the encoder keeps
+    // a non-zero level as it was, so a Medium channel stays Medium.
     let low_power = (record[14] & 0x03) != 0;
     // Byte 15, same packing. The bit named "wide" in the layout is set for
     // NARROW -- worth stating, because the obvious reading is backwards.
@@ -250,7 +253,19 @@ pub fn encode_channel(
     record[8..10].copy_from_slice(&rx_tone.to_le_bytes());
     record[10..12].copy_from_slice(&tx_tone.to_le_bytes());
 
-    record[14] = (record[14] & !0x03) | if channel.low_power { 1 } else { 0 };
+    // Forcing 1 for "low" turned a UV-32's Medium (2) into Low (1) on every
+    // read-edit-write, including channels nobody touched. A record already
+    // at a non-zero level keeps it; only a high one (or a fresh slot, zeroed
+    // above) gets 1. Not uv5r.rs's "fresh low is 2": here 2 is Medium.
+    // Like the other preserved bits, this follows slot i, so a channel that
+    // moves slot takes on the record it lands on.
+    let prior = record[14] & 0x03;
+    let power = match (channel.low_power, prior) {
+        (false, _) => 0,
+        (true, 0) => 1,
+        (true, kept) => kept,
+    };
+    record[14] = (record[14] & !0x03) | power;
     let mut flags = record[15] & !(0x40 | 0x04);
     if channel.narrow {
         flags |= 0x40;
@@ -549,6 +564,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_uv32_medium_channel_stays_medium_through_a_rewrite() {
+        // On the UV-32 the power field is 0 High, 1 Low, 2 Medium. Writing 1
+        // for every "low" silently turned 5 W channels into 2 W ones.
+        let mut record = [0xFFu8; 32];
+        encode_channel(&mut record, &channel("MED"), 12).unwrap();
+        record[14] = (record[14] & !0x03) | 0x02;
+
+        let decoded = decode_channel(&record, 12).unwrap();
+        assert!(decoded.low_power);
+        encode_channel(&mut record, &decoded, 12).unwrap();
+        assert_eq!(record[14] & 0x03, 0x02);
+
+        // Switched to high it is high, whatever it was before.
+        let mut high = decoded.clone();
+        high.low_power = false;
+        encode_channel(&mut record, &high, 12).unwrap();
+        assert_eq!(record[14] & 0x03, 0x00);
+    }
+
+    #[test]
+    fn a_fresh_low_power_channel_is_written_as_low() {
+        let mut record = [0xFFu8; 32];
+        let mut original = channel("LOW");
+        original.low_power = true;
+        encode_channel(&mut record, &original, 12).unwrap();
+        assert_eq!(record[14] & 0x03, 0x01);
     }
 
     #[test]

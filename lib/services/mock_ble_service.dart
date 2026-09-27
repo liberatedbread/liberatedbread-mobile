@@ -95,7 +95,7 @@ const _batteryService = BleDiscoveredService(
 /// fallback table is used instead so mock mode still works.
 ///
 /// Enabled at runtime via `--dart-define=LIBERATED_BREAD_MOCK=true`.
-class MockBleService implements BleService {
+class MockBleService implements BleService, BleConnectCanceller {
   /// Loads a spec YAML by asset path. Overridable for tests, which run without
   /// an asset bundle; defaults to `rootBundle`.
   final Future<String> Function(String asset) _loadAsset;
@@ -314,6 +314,12 @@ class MockBleService implements BleService {
     _connected[deviceId] = (_connected[deviceId] ?? 0) + 1;
     _connectionStream(deviceId).add(BleConnectionState.connected);
   }
+
+  // Nothing to cancel: the pretend connect is a fixed delay with no platform
+  // attempt or mutex behind it. It still lands, and its caller releases the
+  // claim it takes, as with the real service.
+  @override
+  Future<void> cancelConnect(String deviceId) async {}
 
   @override
   Future<void> disconnect(String deviceId) async {

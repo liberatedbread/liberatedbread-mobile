@@ -329,3 +329,27 @@ abstract interface class BleAuthorizationWatcher implements BleService {
   /// guidance exists to stop.
   Future<bool> isAuthorized();
 }
+
+/// An optional [BleService] capability: abandon a connect that has not
+/// resolved yet without releasing a link somebody else holds.
+///
+/// [BleService.disconnect] means "I am done with my claim": on the last
+/// claim it tears the platform link down, and with no claim at all it tears
+/// down whatever is there as a best-effort cleanup. A caller that backs out
+/// of a connect it is still waiting on holds no claim yet, so calling
+/// disconnect there released SOMEONE ELSE's — a group run or a device
+/// client already connected to the same peripheral lost its link because a
+/// screen was left during "Connecting...".
+///
+/// A separate interface rather than a member of [BleService], for the same
+/// reason as [BleAuthorizationWatcher]: only a stack with a cancellable
+/// platform connect has anything to do here, and a consumer without it
+/// simply lets the connect resolve and releases the claim it gets.
+abstract interface class BleConnectCanceller implements BleService {
+  /// Cancel the caller's pending [BleService.connect] to [deviceId], if doing
+  /// so cannot touch a link anyone owns: a no-op when the device already has
+  /// a connection claim or another connect is queued for it. Never releases
+  /// a claim. If the connect wins the race anyway, it resolves normally and
+  /// its caller owns (and must release) the claim it took.
+  Future<void> cancelConnect(String deviceId);
+}

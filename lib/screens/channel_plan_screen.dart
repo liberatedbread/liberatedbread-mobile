@@ -78,6 +78,9 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
         title: Text(_selecting ? '${_selected.length} selected' : plan.name),
         leading: _selecting
             ? IconButton(
+                // The one icon-only action here without a name: a screen
+                // reader announced it as a bare "button".
+                tooltip: 'Cancel selection',
                 icon: const Icon(Icons.close),
                 onPressed: () => setState(() {
                   _selecting = false;
@@ -140,6 +143,14 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
                     ),
                   )
                 : ReorderableListView.builder(
+                    // The default handles let a long-press anywhere on a row
+                    // (desktop: a second, SDK-drawn handle) drag it even in
+                    // select mode, where ticks are slot indices — so a drag
+                    // moved the tick onto another channel and "Delete
+                    // selected" removed one nobody chose. The trailing handle
+                    // below is the only way to reorder, and select mode
+                    // drops it.
+                    buildDefaultDragHandles: false,
                     itemCount: plan.channels.length,
                     onReorderItem: (from, to) => ref
                         .read(channelPlansProvider.notifier)

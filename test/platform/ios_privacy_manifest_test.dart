@@ -26,6 +26,8 @@
 // Runner target's Copy Bundle Resources phase. A manifest that is committed
 // but not bundled is not a build error; it is a file Xcode ignores, and the
 // upload fails exactly as if it were absent.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'platform_config_reader.dart';
@@ -78,6 +80,45 @@ void main() {
             'move together — and docs/APP_STORE_SUBMISSION.md has to stop '
             'saying no data leaves the device.',
       );
+    });
+
+    // The manifest's comment claims to list every connection beyond the
+    // user's own devices, and docs/APP_STORE_SUBMISSION.md Step 7 answers
+    // "Data Not Collected" on the strength of that list. It drifted once:
+    // the RepeaterBook and myGMRS clients shipped with a location-derived
+    // request and the list still stopped at iRobot. Every known outbound
+    // client, and every service that pins a third-party `host`, must be
+    // named in it by source file.
+    test('names every outbound client in its connection list', () {
+      final text = readRepoFile(_manifestPath, consequence: _consequence);
+      final named = <String>{
+        'lib/core/constants.dart',
+        'lib/services/spec_pack_service.dart',
+        'lib/services/irobot_cloud_service.dart',
+        'lib/services/mygmrs_client.dart',
+        'lib/services/repeaterbook_client.dart',
+      };
+      final hostPin = RegExp(r"static const String host = '");
+      final services = Directory('${repoRoot.path}/lib/services');
+      for (final entity in services.listSync()) {
+        if (entity is File &&
+            entity.path.endsWith('.dart') &&
+            hostPin.hasMatch(entity.readAsStringSync())) {
+          named.add('lib/services/${entity.uri.pathSegments.last}');
+        }
+      }
+      for (final path in named) {
+        expect(
+          text,
+          contains(path),
+          reason:
+              '$_manifestPath must name $path in its list of connections '
+              "beyond the user's own devices. Add a bullet there, to Step 7 "
+              'of docs/APP_STORE_SUBMISSION.md and its store description, '
+              'and to the privacy-page list in docs/RELEASE.md, together; '
+              'then decide whether NSPrivacyCollectedDataTypes changes.',
+        );
+      }
     });
 
     test('declares the file-timestamp APIs the Rust core imports', () {

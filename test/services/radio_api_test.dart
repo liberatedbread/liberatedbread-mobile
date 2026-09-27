@@ -58,6 +58,9 @@ void main() {
     final models = await radioModels();
     expect([for (final m in models) m.id], containsAll(['uv-5r-mini', 'uv5r']));
     expect(models.firstWhere((m) => m.id == 'uv-5r-mini').imageLen, 0x8240);
+    // CHIRP's UV-32 has the UV-17Pro's 1000 slots; it carried the Mini's 999
+    // on both sides, so the agreement check below could not see it.
+    expect(models.firstWhere((m) => m.id == 'uv-32').channelCount, 1000);
     for (final model in models) {
       final profile = radioProfileById(model.id);
       expect(profile, isNotNull, reason: 'no Dart profile for ${model.id}');
@@ -113,7 +116,9 @@ void main() {
     // scrambled bytes back out of the frame.
     final payload = List<int>.generate(0x40, (i) => (i * 7 + 3) & 0xFF);
     final writeFrame = await radioWriteCommand(addr: 0x1234, data: payload);
-    final scrambled = writeFrame.sublist(4);
+    // The Bluetooth write frame is padded to 0x80; the block is its first
+    // 0x40 bytes.
+    final scrambled = writeFrame.sublist(4, 4 + 0x40);
 
     final reply = <int>[0x52, 0x12, 0x34, 0x40, ...scrambled];
     final parsed = await radioParseReadReply(
@@ -122,6 +127,24 @@ void main() {
       len: 0x40,
     );
     expect(parsed, payload);
+  });
+
+  test('a Bluetooth write frame is always 0x80, padded with 0xFF', () async {
+    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+
+    // The Mini's regions end in 0x40-byte blocks, and a write frame saying
+    // 0x40 is never acked over the radio's Bluetooth (CHIRP issue 12251).
+    final frame = await radioWriteCommand(
+      addr: 0x9000,
+      data: List<int>.filled(0x40, 0x11),
+    );
+    expect(frame.sublist(0, 4), [0x57, 0x90, 0x00, 0x80]);
+    expect(frame, hasLength(0x84));
+    expect(frame.sublist(0x44), everyElement(0xFF));
+    expect(
+      () => radioWriteCommand(addr: 0, data: List<int>.filled(0x81, 0)),
+      throwsA(anything),
+    );
   });
 
   test('a reply for the wrong address is refused', () async {
@@ -146,15 +169,41 @@ void main() {
     expect(await radioIsAck(reply: []), isFalse);
   });
 
-  test('the handshake is three steps with known reply lengths', () async {
-    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+  test(
+    'the handshake is three steps with the model\'s reply lengths',
+    () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
 
-    final steps = await radioHandshakeSteps();
-    expect(steps, hasLength(3));
-    expect(steps[0].expectedReplyLen, 16);
-    expect(steps[1].expectedReplyLen, 15);
-    expect(steps[2].expectedReplyLen, 1);
-    expect(steps[2].request.length, 25);
+      // CHIRP: M answers 15 bytes on the UV17Pro branch and 7 on the
+      // UV17ProGPS branch the UV-32 inherits. One table for all of them left
+      // a UV-32 waiting out the step timeout for bytes that never came.
+      for (final (id, mLen) in [
+        ('uv-5r-mini', 15),
+        ('uv-5g-mini', 15),
+        ('uv-17r-plus', 15),
+        ('uv-32', 7),
+      ]) {
+        final steps = await radioHandshakeSteps(modelId: id);
+        expect(steps, hasLength(3), reason: id);
+        expect(steps[0].expectedReplyLen, 16, reason: id);
+        expect(steps[1].expectedReplyLen, mLen, reason: id);
+        expect(steps[2].expectedReplyLen, 1, reason: id);
+        expect(steps[2].request.length, 25, reason: id);
+      }
+      expect(
+        () => radioHandshakeSteps(modelId: 'nokia-3310'),
+        throwsA(anything),
+      );
+    },
+  );
+
+  test('the UV-5G Mini tries the v0.05 magic before the v0.01 one', () async {
+    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+    final magics = await radioIdentMagics(modelId: 'uv-5g-mini');
+    expect(
+      [for (final m in magics) String.fromCharCodes(m)],
+      ['PROGRAMGMRS5RMIU', 'PROGRAMCOLORPROU'],
+    );
   });
 
   test(

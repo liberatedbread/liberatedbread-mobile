@@ -204,6 +204,20 @@ bool isCharacteristicSilentError(Object error) =>
     error.platform == ErrorPlatform.fbp &&
     error.code == FbpErrorCode.timeout.index;
 
+/// Whether [error] is flutter_blue_plus giving up on a `connect` that the
+/// peripheral never answered.
+///
+/// Told apart from every other connect failure because it is the one worth
+/// trying again: fbp cancels the platform connect when its timer runs out,
+/// so a slow advertiser (the Airthings Wave took about a minute) whose next
+/// connectable advertisement lands after the cut-off got "Could not connect
+/// — move closer" and a manual Retry, while a refusal from the radio is a
+/// different answer that a retry does not change.
+bool isConnectTimeoutError(Object error) =>
+    error is FlutterBluePlusException &&
+    error.function == 'connect' &&
+    isCharacteristicSilentError(error);
+
 /// Whether [error] is a peripheral refusing an operation for lack of pairing.
 ///
 /// The platform check is the load-bearing part. `FlutterBluePlusException.code`
@@ -278,6 +292,22 @@ bool useWriteWithoutResponse({
 /// never drifts into the warning state on the strength of a quiet advertisement.
 const Duration scanHeartbeat = Duration(seconds: 5);
 
+/// How long one platform connect attempt waits for the peripheral.
+///
+/// See [RealBleService]'s connect for why this is short and the device screen
+/// retries rather than one attempt waiting longer.
+const Duration connectTimeoutAttempt = Duration(seconds: 15);
+
+/// [prev] followed by whatever [next] adds, in first-seen order.
+///
+/// Deterministic for a given run of sightings, and a re-delivery that lists
+/// the same entries in another order merges to the same list — so it is
+/// suppressed rather than re-keying the row.
+List<T> _unionInOrder<T>(List<T> prev, List<T> next) {
+  if (next.every(prev.contains)) return prev;
+  return [...prev, ...next.where((e) => !prev.contains(e))];
+}
+
 /// Per-scan coalescing of flutter_blue_plus scan results.
 ///
 /// The scan asks for every advertisement (continuous updates, one by one), so
@@ -318,6 +348,23 @@ class ScanResultCoalescer {
   }) {
     final at = seenAt ?? DateTime.now();
     final prev = _emitted[id];
+    // Merged with the previous sighting, never replaced by it. CoreBluetooth
+    // hands over each advertising packet on its own (an ADV_IND without its
+    // SCAN_RSP carries no local name and no 128-bit service list), so the
+    // poorer packet used to overwrite the richer one: the row's ScanIdentity
+    // changed, its spec guess went back to loading, and it dropped out of
+    // "Likely supported" for a frame before climbing back. A field an
+    // advertisement leaves out is filled in from the last one that had it;
+    // a payload that CHANGED still wins, per company id, so a panel
+    // re-advertising its dimensions is still re-emitted.
+    if (prev != null) {
+      if (name.isEmpty) name = prev.name;
+      serviceUuids = _unionInOrder(prev.serviceUuids, serviceUuids);
+      companyIds = _unionInOrder(prev.companyIds, companyIds);
+      if (!prev.manufacturerData.keys.every(manufacturerData.containsKey)) {
+        manufacturerData = {...prev.manufacturerData, ...manufacturerData};
+      }
+    }
     // Reject before constructing: this runs for every device in every
     // advertisement batch, and the common case is "nothing changed". The field
     // list mirrors IoTDevice.hasSameIdentity plus the two mutable fields.
@@ -454,7 +501,8 @@ const Duration continuousScanRetry = Duration(seconds: 30);
 Duration appleRediscoveryWindow = const Duration(seconds: 6);
 
 /// Real BLE implementation using flutter_blue_plus.
-class RealBleService implements BleService, BleAuthorizationWatcher {
+class RealBleService
+    implements BleService, BleAuthorizationWatcher, BleConnectCanceller {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   final Map<String, List<BluetoothService>> _servicesCache = {};
 
@@ -998,7 +1046,23 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     // correctly leaves its shares alone. fbp serializes the underlying
     // platform calls anyway, so this adds ordering, not latency.
     final previous = _connectChain[deviceId] ?? Future<void>.value();
-    final attempt = previous.then((_) => _connectNow(deviceId));
+    // Counted from the call, not from when the chain reaches it: a connect
+    // queued behind another is still somebody's pending connect, and
+    // [cancelConnect] must not cancel it. Released inside the attempt, so the
+    // count is down before the caller's await resumes.
+    _pendingConnects[deviceId] = (_pendingConnects[deviceId] ?? 0) + 1;
+    final attempt = previous.then((_) async {
+      try {
+        await _connectNow(deviceId);
+      } finally {
+        final left = (_pendingConnects[deviceId] ?? 1) - 1;
+        if (left > 0) {
+          _pendingConnects[deviceId] = left;
+        } else {
+          _pendingConnects.remove(deviceId);
+        }
+      }
+    });
     // The stored tail swallows the failure so one dead attempt cannot poison
     // the callers queued behind it; each caller still gets the real error
     // through its own `attempt`.
@@ -1036,9 +1100,15 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     BluetoothDevice device,
     String deviceId,
   ) async {
-    const timeout = Duration(seconds: 15);
+    // 15 s per attempt, and NOT raised: fbp holds its process-wide "global"
+    // mutex for the whole wait, so a longer attempt is a longer stall for
+    // every other BLE operation, and GroupRunner's own 20 s belt around
+    // connect() would start abandoning (not cancelling) attempts it
+    // outlasts. A caller that can afford to wait longer, the device screen,
+    // retries instead — see [connectTimeoutAttempt].
+    const timeout = connectTimeoutAttempt;
     try {
-      await device.connect(timeout: timeout);
+      await _connectOnce(device, deviceId, timeout);
       return;
     } catch (error) {
       if (!_isAppleUnknownPeripheral(error)) rethrow;
@@ -1080,12 +1150,36 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     }
 
     try {
-      await device.connect(timeout: timeout);
+      await _connectOnce(device, deviceId, timeout);
     } catch (error) {
       if (!_isAppleUnknownPeripheral(error)) rethrow;
       // Still unheard. Say the one true thing rather than "move closer":
       // the device has not advertised since the system forgot it.
       throw const BleDeviceUnheardException();
+    }
+  }
+
+  /// One platform connect, with fbp's own timeout surfaced as a
+  /// [TimeoutException].
+  ///
+  /// fbp's timeout arrived as a FlutterBluePlusException the screen could
+  /// only render as the generic "Could not connect — move closer", which
+  /// is the wrong advice for a device that simply had not answered yet. A
+  /// dart:async type lets a caller recognise "no answer in time" without
+  /// importing the plugin.
+  Future<void> _connectOnce(
+    BluetoothDevice device,
+    String deviceId,
+    Duration timeout,
+  ) async {
+    try {
+      await device.connect(timeout: timeout);
+    } catch (error) {
+      if (!isConnectTimeoutError(error)) rethrow;
+      Log.ble.info(
+        '$deviceId did not answer a connect within ${timeout.inSeconds}s',
+      );
+      throw TimeoutException('$deviceId did not answer the connect', timeout);
     }
   }
 
@@ -1171,6 +1265,36 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
   }
 
   @override
+  Future<void> cancelConnect(String deviceId) async {
+    // Only the platform call disconnect() makes for a pending connect, and
+    // only when it cannot reach a link anyone holds. disconnect() itself
+    // was wrong here: the caller has no claim to give back, so with one
+    // other owner it removed THAT owner's claim and dropped their link.
+    final claims = _connectionClaims[deviceId] ?? 0;
+    final pending = _pendingConnects[deviceId] ?? 0;
+    if (claims > 0 || pending != 1) {
+      // With a claim the link is up (fbp's connect is a no-op on it and
+      // resolves on its own); with other connects queued, cancelling the
+      // platform attempt would fail theirs too; with none, there is
+      // nothing to cancel. A connect that still lands hands its caller a
+      // claim that caller releases.
+      Log.ble.debug(
+        'cancelConnect($deviceId) left alone: $claims claim(s), '
+        '$pending pending connect(s)',
+      );
+      return;
+    }
+    Log.ble.info('cancelling the pending connect to $deviceId');
+    try {
+      // queue: false jumps fbp's global mutex the pending connect holds —
+      // the whole point (see disconnect()).
+      await BluetoothDevice.fromId(deviceId).disconnect(queue: false);
+    } catch (e) {
+      Log.ble.debug('cancelConnect($deviceId) threw', error: e);
+    }
+  }
+
+  @override
   Future<void> disconnect(String deviceId) async {
     // Last claim out tears the link down; earlier releases just let go. A
     // release with no claim at all (cleanup after a failed connect) falls
@@ -1198,7 +1322,16 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
     unawaited(_linkDropSubs.remove(deviceId)?.cancel());
     final device = BluetoothDevice.fromId(deviceId);
     try {
-      await device.disconnect();
+      // queue: false, always. With fbp's default the disconnect waited for
+      // its process-wide "global" mutex, which a pending connect() or
+      // discoverServices() holds for up to 15 s — so backing out of a
+      // screen that was still Connecting cancelled nothing, and the NEXT
+      // device's connect sat behind the abandoned one ("after one device,
+      // connecting to the next is weird"). Jumping the queue is fbp's
+      // documented way to cancel an in-progress connect, and every caller
+      // of this method means "drop the link now": an operation still in
+      // flight on it failing with "device disconnected" is the point.
+      await device.disconnect(queue: false);
     } catch (e) {
       // disconnect() throws if the device is already disconnected; that's the
       // desired end-state, so treat it as a successful no-op.
@@ -1217,7 +1350,20 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
 
   @override
   Future<List<BleDiscoveredService>> discoverServices(String deviceId) async {
-    final services = await _loadServices(deviceId);
+    final List<BluetoothService> services;
+    try {
+      services = await _loadServices(deviceId);
+    } catch (error) {
+      // The same translation reads and writes get from [_pairingAware], and
+      // only that half of it: a GATT auth error during discovery must not
+      // fire an Android bond request. Without it a device that hung up
+      // mid-discovery — the GVH5075 closes an idle link after ~12 s —
+      // reached the screen as fbp's raw "Device is disconnected", which the
+      // screen could only word as "Could not connect to this device".
+      if (!isLinkDroppedError(error)) rethrow;
+      Log.ble.warning('$deviceId dropped the link during discovery ($error)');
+      throw const BleLinkDroppedException();
+    }
     // `str128`, never `toString()`. Guid.toString() is Guid.str, which
     // abbreviates a Bluetooth-base UUID to its 16-bit short form — the example
     // bulb's control service comes back as `fff0`. Specs always write UUIDs
@@ -1344,6 +1490,11 @@ class RealBleService implements BleService, BleAuthorizationWatcher {
   /// run) connecting to the same peripheral share a link — and a late
   /// disconnect from one used to kill it under the other.
   final Map<String, int> _connectionClaims = {};
+
+  /// connect() calls per device that have not resolved yet, queued ones
+  /// included. [cancelConnect] cancels only when the caller's is the sole
+  /// one.
+  final Map<String, int> _pendingConnects = {};
 
   /// The tail of each device's in-flight connect queue — error-swallowed, so
   /// the next caller chains onto "the previous attempt finished" rather than

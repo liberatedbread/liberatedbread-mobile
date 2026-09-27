@@ -507,7 +507,14 @@ class _Uv5rSession {
     await _pause(timing.blockGap);
     await link.discardInput();
     await link.write(await rust.uv5RWriteCommand(addr: addr, data: data));
-    final ack = await _take(1);
+    final List<int> ack;
+    try {
+      ack = await _take(1);
+    } on RadioTimeoutException {
+      // A write that stopped part way leaves the radio half-programmed,
+      // which "check it is in range" alone does not tell anyone.
+      throw RadioTimeoutException.midWrite(addr);
+    }
     if (ack.single != _ack) {
       throw RadioProtocolException(
         'The radio refused a write at '

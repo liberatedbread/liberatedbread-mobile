@@ -28,6 +28,28 @@ import 'setup_instructions_screen.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
+/// How long the screen keeps retrying a connect the device did not answer.
+///
+/// One platform attempt is 15 s (see `connectTimeoutAttempt` in
+/// real_ble_service.dart, kept short because flutter_blue_plus holds its
+/// global mutex for the whole wait), and a single attempt was all the screen
+/// made: the Airthings Wave, which took about a minute on the user's phone,
+/// needed three or four manual Retry taps, each answered with "Could not
+/// connect — move closer". A minute is the shape the Airthings spec's own
+/// reference client budgets (`scan_timeout_s: 60`); the spec's `timing`
+/// block is not parsed anywhere in the app, so the ceiling lives here.
+const deviceConnectBudget = Duration(seconds: 60);
+
+/// The breather between one timed-out connect attempt and the next.
+const deviceConnectRetryPause = Duration(seconds: 1);
+
+/// When the connecting screen starts saying that this can take a while.
+///
+/// Late enough that a quick connect (the GVH5075 answers in 2-3 s) never
+/// flashes it, early enough that a slow one is explained before it looks
+/// hung.
+const slowConnectHintAfter = Duration(seconds: 5);
+
 /// Thrown by [runBleHandshake] when [abort] completed before the handshake
 /// did. Not a failure of the device or the spec: the link is gone (or the
 /// screen is), and the steps that had not run yet were not run.
@@ -222,6 +244,27 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   // exactly one disconnect() runs per established connection.
   bool _connected = false;
 
+  /// The generation whose `connect()` call is still waiting on the platform,
+  /// or null.
+  ///
+  /// dispose() used to disconnect only once [_connected] was set, which is
+  /// after connect() returns: backing out of "Connecting..." cancelled
+  /// nothing, the abandoned attempt kept flutter_blue_plus's global mutex
+  /// for up to 15 s, and the next device the user tapped sat on
+  /// "Connecting..." behind it doing nothing.
+  int? _connectInFlight;
+
+  /// Whole seconds since the current [_connect] started, ticked by
+  /// [_elapsedTicker] while connecting or discovering. Drives both the
+  /// progress screen's "this can take a while" line and the retry budget.
+  int _elapsedSeconds = 0;
+  Timer? _elapsedTicker;
+
+  /// The pause between timed-out attempts, owned so dispose() can end it: a
+  /// bare Future.delayed would outlive the screen as a pending timer.
+  Timer? _retryPauseTimer;
+  Completer<void>? _retryPause;
+
   /// Bumped by every [_connect]. Retry, Try-to-find and the reconnect the
   /// connection watcher fires all call it, and nothing stopped a second call
   /// from overlapping the first: the older attempt was left suspended inside
@@ -229,9 +272,14 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   /// carried on as though it owned the screen — worst of all in its catch,
   /// where `_cleanupConnection()` tore down the link the NEWER attempt had
   /// just established and then painted the error state over a working
-  /// screen. An attempt that is no longer the current one now does nothing
-  /// at all: it does not disconnect (the peripheral is the same one the
-  /// live attempt is holding), it does not setState, it just stops.
+  /// screen. An attempt that is no longer the current one does not setState
+  /// and does not touch the newer attempt's state. If its own connect()
+  /// SUCCEEDED it releases the one claim that call took, and nothing more:
+  /// RealBleService counts one claim per successful connect(), so a stale
+  /// success that just returned left two claims behind one `_connected`, and
+  /// the screen's single disconnect() on leaving only decremented — the
+  /// peripheral stayed connected (and stopped advertising) until the app
+  /// died.
   int _connectGeneration = 0;
 
   /// Whether a newer [_connect] has taken over from the attempt that started
@@ -259,14 +307,21 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       _state = _ScreenState.connecting;
       _error = null;
     });
+    _startElapsedTicker();
 
     try {
-      await _bleService.connect(widget.device.id);
-      // A newer attempt is driving now. It targets the same peripheral, so
-      // the link this call established is the one it is about to use (or
-      // already using): hand it over untouched rather than disconnecting it,
-      // and let the newer attempt's own `_connected` own the teardown.
-      if (_superseded(generation)) return;
+      if (!await _connectRetryingTimeouts(generation)) return;
+      // A newer attempt is driving now. Release the claim THIS call took
+      // (see [_connectGeneration]); the newer attempt holds its own. With
+      // RealBleService the newer connect is queued behind this one, so this
+      // usually tears the link down and the newer attempt connects afresh
+      // — one extra reconnect in a rare race, instead of a leaked link.
+      if (_superseded(generation)) {
+        await _bleService
+            .disconnect(widget.device.id)
+            .catchError((Object _) {});
+        return;
+      }
       // We now own a live connection — record it BEFORE the mounted check so an
       // unmount-during-connect still tears it down instead of leaking it.
       _connected = true;
@@ -362,19 +417,111 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // starts from a clean slate (no-op if we never connected).
       await _cleanupConnection();
       _openFindWhenReady = false;
-      if (mounted) {
+      if (!mounted) return;
+      // A link that dropped during discovery is a device that hung up, not a
+      // connect that failed: the watcher had already painted "Device
+      // disconnected" and this catch used to overwrite it with "Could not
+      // connect to this device" — for the GVH5075, which closes an idle
+      // link ~12 s after connecting, on a connect that had worked. Checked
+      // both ways because either can arrive first: the service's typed drop,
+      // or the watcher's state event.
+      if (e is BleLinkDroppedException || _state == _ScreenState.disconnected) {
         setState(() {
-          _error = friendlyErrorText(
-            e,
-            context: 'connect/discover ${widget.device.id}',
-            fallback:
-                'Could not connect to this device. Move closer, check '
-                'it is powered on, then try again.',
-          );
-          _state = _ScreenState.error;
+          _error = null;
+          _state = _ScreenState.disconnected;
         });
+        return;
       }
+      final String message;
+      if (e is TimeoutException) {
+        Log.ble.warning(
+          'connect ${widget.device.id}: no answer in ${_elapsedSeconds}s',
+          error: e,
+        );
+        // Said as what happened. "Move closer" was the only advice a plain
+        // timeout got, and for a device that is asleep between
+        // advertisements or held by another phone it is the wrong one.
+        message =
+            'No answer from this device within $_elapsedSeconds s. It may '
+            'be asleep, out of range, or connected to another phone. '
+            'Try again.';
+      } else {
+        message = friendlyErrorText(
+          e,
+          context: 'connect/discover ${widget.device.id}',
+          fallback:
+              'Could not connect to this device. Move closer, check '
+              'it is powered on, then try again.',
+        );
+      }
+      setState(() {
+        _error = message;
+        _state = _ScreenState.error;
+      });
     }
+  }
+
+  /// Connect, trying again while the device has not answered and the screen
+  /// is still showing the attempt, up to [deviceConnectBudget].
+  ///
+  /// Only a timeout is retried. A refusal, Bluetooth being off or an
+  /// identifier CoreBluetooth has forgotten are answers, and asking again
+  /// for a minute would only hide them. Returns false when the attempt
+  /// stopped between tries with no link — a newer attempt took over or the
+  /// screen left — and throws the last error when it gave up.
+  Future<bool> _connectRetryingTimeouts(int generation) async {
+    while (true) {
+      _connectInFlight = generation;
+      try {
+        await _bleService.connect(widget.device.id);
+        return true;
+      } on TimeoutException {
+        if (_superseded(generation) || !mounted) rethrow;
+        if (_elapsedSeconds >= deviceConnectBudget.inSeconds) rethrow;
+        Log.ble.info(
+          'no answer from ${widget.device.id} after ${_elapsedSeconds}s; '
+          'trying again',
+        );
+      } finally {
+        if (_connectInFlight == generation) _connectInFlight = null;
+      }
+      await _pauseBeforeRetry();
+      if (_superseded(generation) || !mounted) return false;
+    }
+  }
+
+  Future<void> _pauseBeforeRetry() {
+    // Ends an older attempt's pause first (it then sees it was superseded):
+    // left running, its timer would cut THIS pause short.
+    _endRetryPause();
+    final pause = _retryPause = Completer<void>();
+    _retryPauseTimer = Timer(deviceConnectRetryPause, _endRetryPause);
+    return pause.future;
+  }
+
+  void _endRetryPause() {
+    _retryPauseTimer?.cancel();
+    _retryPauseTimer = null;
+    final pause = _retryPause;
+    _retryPause = null;
+    if (pause != null && !pause.isCompleted) pause.complete();
+  }
+
+  /// Count the seconds of this attempt, from zero, for as long as the screen
+  /// is connecting or discovering. Stops itself on any other state.
+  void _startElapsedTicker() {
+    _elapsedTicker?.cancel();
+    _elapsedSeconds = 0;
+    _elapsedTicker = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted ||
+          (_state != _ScreenState.connecting &&
+              _state != _ScreenState.discovering)) {
+        timer.cancel();
+        if (identical(_elapsedTicker, timer)) _elapsedTicker = null;
+        return;
+      }
+      setState(() => _elapsedSeconds++);
+    });
   }
 
   /// Push the hot/cold locator for the (connected) device. One method for
@@ -642,10 +789,18 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
   @override
   void dispose() {
-    // Fire-and-forget teardown (dispose() can't await). Only disconnect a link
-    // we actually own: if connect() is still in flight, _connected is false and
-    // _connect()'s own !mounted branch will disconnect once it resolves, so we
-    // neither leak the pending connection nor double-disconnect here.
+    // Fire-and-forget teardown (dispose() can't await). Release a link we
+    // own, and cancel a connect still in flight: RealBleService's
+    // cancelConnect jumps flutter_blue_plus's queue, which cancels the
+    // pending platform connect and frees the global mutex the next device's
+    // connect needs. Cancel, not disconnect — a pending connect holds no
+    // claim, and disconnect() would release the claim of whoever else holds
+    // this device (a group run, a device client) and drop their link. If
+    // the connect won the race anyway, _connect()'s own !mounted branch
+    // releases the link it got, so nothing leaks either way.
+    _elapsedTicker?.cancel();
+    _elapsedTicker = null;
+    _endRetryPause();
     unawaited(_connSub?.cancel());
     _connSub = null;
     _matchSub?.close();
@@ -655,14 +810,19 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       unawaited(sub.cancel());
     }
     _handshakeSubs.clear();
+    // unawaited() does not swallow errors, so each gets a catchError to keep
+    // a throw during teardown from surfacing as an unhandled async error.
     if (_connected) {
       _connected = false;
-      // unawaited() does not swallow errors, so attach a catchError to keep a
-      // throw during teardown from surfacing as an unhandled async error.
       unawaited(
         _bleService.disconnect(widget.device.id).catchError((Object _) {}),
       );
     }
+    final ble = _bleService;
+    if (_connectInFlight != null && ble is BleConnectCanceller) {
+      unawaited(ble.cancelConnect(widget.device.id).catchError((Object _) {}));
+    }
+    _connectInFlight = null;
     super.dispose();
   }
 
@@ -734,17 +894,19 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // hardware, so it gets a step list rather than an unlabelled spinner:
       // when it stalls, the user can see *which* step stalled.
       case _ScreenState.connecting:
-        return const _PairingProgress(
+        return _PairingProgress(
           label: 'Connecting...',
           step: 0,
           deviceName: null,
+          elapsedSeconds: _elapsedSeconds,
         );
 
       case _ScreenState.discovering:
-        return const _PairingProgress(
+        return _PairingProgress(
           label: 'Discovering services...',
           step: 1,
           deviceName: null,
+          elapsedSeconds: _elapsedSeconds,
         );
 
       // Both dead-end states carry the find affordance too: a failed or lost
@@ -795,9 +957,15 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           icon: Icons.bluetooth_disabled,
           severity: _Severity.warning,
           title: 'Device disconnected',
+          // Not "move closer": the screen cannot know why the link went, and
+          // the commonest reason on real hardware is the device's own idle
+          // hang-up (the GVH5075 closes a link ~12 s after connecting, by
+          // design). Telling that user to check range and power was advice
+          // for a fault that was not there.
           message:
-              'The connection was lost. Move closer or check the device '
-              'is powered on, then reconnect.',
+              'The connection ended. Some devices hang up on their own a '
+              'few seconds after connecting; others drop when they go out '
+              'of range. Reconnect when you need it again.',
           actionLabel: 'Reconnect',
           onAction: _connect,
           secondaryActionLabel: 'Try to find device',
@@ -1097,10 +1265,17 @@ class _PairingProgress extends StatelessWidget {
   final int step;
   final String? deviceName;
 
+  /// Seconds since the attempt started. Once past [slowConnectHintAfter] the
+  /// screen says that a connect can take up to a minute and shows the count:
+  /// a spinner with no timing looked the same at 50 s as at 5 s, and users
+  /// backed out of connects that were about to succeed.
+  final int elapsedSeconds;
+
   const _PairingProgress({
     required this.label,
     required this.step,
     required this.deviceName,
+    this.elapsedSeconds = 0,
   });
 
   @override
@@ -1131,6 +1306,23 @@ class _PairingProgress extends StatelessWidget {
               textAlign: TextAlign.center,
               style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
+            if (elapsedSeconds >= slowConnectHintAfter.inSeconds) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Some devices take up to a minute to answer.',
+                textAlign: TextAlign.center,
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$elapsedSeconds s',
+                style: text.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
             const SizedBox(height: 28),
             for (var i = 0; i < steps.length; i++)
               Padding(

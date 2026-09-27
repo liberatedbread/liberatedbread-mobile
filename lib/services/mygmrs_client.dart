@@ -119,7 +119,17 @@ class MyGmrsClient implements RepeaterSource {
         name: name,
         rxFreqHz: rxHz,
         txFreqHz: rxHz + repeaterOffsetHz,
-        mode: ChannelMode.nfm,
+        // Wide, and it reaches the radio as the codeplug's bandwidth bit, so
+        // it is worth being right about. The feed carries no bandwidth
+        // field, so this is a default, and the rules settle which: both
+        // halves of every GMRS repeater pair -- the 462 MHz output and the
+        // 467 MHz input 5 MHz above it -- are main channels, and 47 CFR
+        // 95.1773(a) authorises 20 kHz on every main channel. Only the 467
+        // MHz interstitials (FRS 8-14) are narrow-only, and no repeater sits
+        // on those. Repeaters run wide in practice, so a radio programmed
+        // narrow from this feed put quiet audio into them and heard them
+        // loud and clipped.
+        mode: ChannelMode.fm,
         comment: town ?? '',
       ),
       category: SuggestionCategory.gmrs,

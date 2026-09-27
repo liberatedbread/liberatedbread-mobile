@@ -22,6 +22,8 @@ ProviderContainer _container(InMemorySettingsStore store) {
 void main() {
   const key = LastLocationNotifier.key;
   const seattle = GeoPoint(47.6062, -122.3321);
+  // What LastLocationNotifier keeps of [seattle]: two decimals, about 1 km.
+  const seattleCoarse = GeoPoint(47.61, -122.33);
 
   group('SavedLocation', () {
     test('round-trips through JSON', () {
@@ -64,13 +66,13 @@ void main() {
     test('reads back what was stored', () async {
       final store = InMemorySettingsStore({
         key: jsonEncode(
-          const SavedLocation(point: seattle, label: 'Seattle').toJson(),
+          const SavedLocation(point: seattleCoarse, label: 'Seattle').toJson(),
         ),
       });
       final location = await _container(
         store,
       ).read(lastLocationProvider.future);
-      expect(location!.point, seattle);
+      expect(location!.point, seattleCoarse);
       expect(location.label, 'Seattle');
     });
 
@@ -92,7 +94,7 @@ void main() {
       final container = _container(store);
       await container.read(lastLocationProvider.future);
 
-      const location = SavedLocation(point: seattle, label: 'Seattle');
+      const location = SavedLocation(point: seattleCoarse, label: 'Seattle');
       await container.read(lastLocationProvider.notifier).remember(location);
 
       expect(container.read(lastLocationProvider).value, location);
@@ -102,6 +104,74 @@ void main() {
         await _container(store).read(lastLocationProvider.future),
         location,
       );
+    });
+
+    test('remember keeps about a kilometre, not the exact fix', () async {
+      // The record outlives the search, sits in plain preferences and rides
+      // device backups. It used to hold the GPS fix to full precision, which
+      // for most users is their front door.
+      final store = InMemorySettingsStore();
+      final container = _container(store);
+      await container.read(lastLocationProvider.future);
+
+      await container
+          .read(lastLocationProvider.notifier)
+          .remember(
+            const SavedLocation(
+              point: GeoPoint(47.620422, -122.349358),
+              label: 'Washington',
+            ),
+          );
+
+      final stored = jsonDecode(store.values[key]!) as Map<String, dynamic>;
+      expect(stored['lat'], 47.62);
+      expect(stored['lon'], -122.35);
+      expect(stored['label'], 'Washington');
+      // Memory and disk agree, so the screen never shows a finer point than
+      // the one that would come back after a restart.
+      expect(
+        container.read(lastLocationProvider).value!.point,
+        const GeoPoint(47.62, -122.35),
+      );
+    });
+
+    test(
+      'a precise fix stored by an older build is rewritten rounded',
+      () async {
+        final store = InMemorySettingsStore({
+          key: jsonEncode(
+            const SavedLocation(
+              point: GeoPoint(47.620422, -122.349358),
+              label: 'Washington',
+            ).toJson(),
+          ),
+        });
+
+        final location = await _container(
+          store,
+        ).read(lastLocationProvider.future);
+
+        expect(location!.point, const GeoPoint(47.62, -122.35));
+        final stored = jsonDecode(store.values[key]!) as Map<String, dynamic>;
+        expect(stored['lat'], 47.62);
+        expect(stored['lon'], -122.35);
+      },
+    );
+
+    test('forget removes it from disk and from memory', () async {
+      final store = InMemorySettingsStore();
+      final container = _container(store);
+      await container.read(lastLocationProvider.future);
+      final notifier = container.read(lastLocationProvider.notifier);
+      await notifier.remember(
+        const SavedLocation(point: seattleCoarse, label: 'Seattle'),
+      );
+
+      await notifier.forget();
+
+      expect(store.values.containsKey(key), isFalse);
+      expect(container.read(lastLocationProvider).value, isNull);
+      expect(await _container(store).read(lastLocationProvider.future), isNull);
     });
   });
 

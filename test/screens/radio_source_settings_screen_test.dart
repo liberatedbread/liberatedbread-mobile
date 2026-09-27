@@ -1,13 +1,17 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:liberated_bread_mobile/core/geo.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart'
     show urlOpenerProvider;
+import 'package:liberated_bread_mobile/providers/location_provider.dart';
 import 'package:liberated_bread_mobile/providers/radio_source_settings_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
@@ -23,6 +27,14 @@ const _authInvalid =
 const _authUnknown =
     '{"ok":false,"error_code":"auth_unknown",'
     '"message":"Unknown token."}';
+
+/// A keychain that refuses writes: a locked keystore, a device under MDM, a
+/// simulator with no entitlement. Reads work, and find nothing.
+class _RefusingSettingsStore extends InMemorySettingsStore {
+  @override
+  Future<void> write(String key, String value) async =>
+      throw PlatformException(code: 'keychain', message: 'write refused');
+}
 
 class _Harness {
   final InMemorySettingsStore prefs;
@@ -63,13 +75,15 @@ void _stubClipboard(WidgetTester tester) {
 Future<_Harness> _pump(
   WidgetTester tester, {
   Map<String, String> secure = const {},
+  Map<String, String> prefs = const {},
+  InMemorySettingsStore? secureStore,
   MockClient? client,
   bool openSucceeds = true,
 }) async {
   _useTallWindow(tester);
   _stubClipboard(tester);
-  final prefsStore = InMemorySettingsStore();
-  final secureStore = InMemorySettingsStore({...secure});
+  final prefsStore = InMemorySettingsStore({...prefs});
+  secureStore ??= InMemorySettingsStore({...secure});
   final opened = <Uri>[];
 
   await tester.pumpWidget(
@@ -281,6 +295,45 @@ void main() {
       expect(find.textContaining('has been saved'), findsOneWidget);
     });
 
+    testWidgets('a keychain that refuses the save says so, not "saved"', (
+      tester,
+    ) async {
+      // The save and the check shared one catch, so a throwing keychain
+      // write was reported as an unreachable RepeaterBook with "The token has
+      // been saved" -- about a token that was never stored.
+      var requests = 0;
+      await _pump(
+        tester,
+        secureStore: _RefusingSettingsStore(),
+        client: MockClient((_) async {
+          requests++;
+          return http.Response('{"results": []}', 200);
+        }),
+      );
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Access token'),
+        'rbuapp_x',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Save and check'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('has been saved'), findsNothing);
+      expect(find.textContaining('Could not reach'), findsNothing);
+      expect(find.text('Saved'), findsNothing);
+      expect(find.textContaining('Could not save the token'), findsOneWidget);
+      expect(requests, 0, reason: 'nothing is checked after a failed save');
+      // ...and the button works again for a retry.
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Save and check'),
+            )
+            .onPressed,
+        isNotNull,
+      );
+    });
+
     testWidgets('a token can be removed', (tester) async {
       final harness = await _pump(
         tester,
@@ -310,5 +363,46 @@ void main() {
     await _pump(tester);
     expect(find.text('Clear cached listings'), findsOneWidget);
     expect(find.textContaining('works offline'), findsOneWidget);
+  });
+
+  group('the remembered search position', () {
+    testWidgets('can be forgotten, from disk and from memory', (tester) async {
+      // Nothing removed it before: "Clear cached listings" cleared the
+      // listings only, and the position stayed on the phone indefinitely.
+      final harness = await _pump(
+        tester,
+        prefs: {
+          LastLocationNotifier.key: jsonEncode(
+            const SavedLocation(
+              point: GeoPoint(47.61, -122.33),
+              label: 'Washington',
+            ).toJson(),
+          ),
+        },
+      );
+      expect(find.text('Forget location'), findsOneWidget);
+      expect(find.textContaining('near Washington'), findsOneWidget);
+
+      await tester.tap(find.text('Forget location'));
+      await tester.pumpAndSettle();
+
+      expect(
+        harness.prefs.values.containsKey(LastLocationNotifier.key),
+        isFalse,
+      );
+      expect(find.textContaining('near Washington'), findsNothing);
+      expect(find.textContaining('No search position'), findsOneWidget);
+      expect(find.text('Search position forgotten.'), findsOneWidget);
+    });
+
+    testWidgets('is offered but idle when nothing is remembered', (
+      tester,
+    ) async {
+      await _pump(tester);
+      final tile = tester.widget<ListTile>(
+        find.widgetWithText(ListTile, 'Forget location'),
+      );
+      expect(tile.enabled, isFalse);
+    });
   });
 }

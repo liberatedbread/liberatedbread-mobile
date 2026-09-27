@@ -194,17 +194,49 @@ void main() {
       expect(tone(repeater, 'rToneFreq'), '100.0');
     });
 
-    test('CTCSS both ways is TSQL', () {
+    test('the same CTCSS tone both ways is TSQL', () {
       const both = RadioChannel(
+        name: 'X',
+        rxFreqHz: 146940000,
+        txFreqHz: 146340000,
+        txTone: ToneSetting.ctcss(1000),
+        rxTone: ToneSetting.ctcss(1000),
+      );
+      expect(tone(both, 'Tone'), 'TSQL');
+      expect(tone(both, 'rToneFreq'), '100.0');
+      expect(tone(both, 'cToneFreq'), '100.0');
+    });
+
+    test('a different CTCSS tone each way is Cross Tone->Tone', () {
+      // CHIRP's TSQL sends and squelches on cToneFreq alone. Written as
+      // TSQL, this channel imported as 107.2 both ways and the repeater,
+      // which wants 100.0, never opened.
+      const split = RadioChannel(
         name: 'X',
         rxFreqHz: 146940000,
         txFreqHz: 146340000,
         txTone: ToneSetting.ctcss(1000),
         rxTone: ToneSetting.ctcss(1072),
       );
-      expect(tone(both, 'Tone'), 'TSQL');
-      expect(tone(both, 'rToneFreq'), '100.0');
-      expect(tone(both, 'cToneFreq'), '107.2');
+      expect(tone(split, 'Tone'), 'Cross');
+      expect(tone(split, 'CrossMode'), 'Tone->Tone');
+      expect(tone(split, 'rToneFreq'), '100.0');
+      expect(tone(split, 'cToneFreq'), '107.2');
+    });
+
+    test('a different DCS code each way is Cross DTCS->DTCS', () {
+      // CHIRP's DTCS uses DtcsCode both ways and ignores RxDtcsCode.
+      const split = RadioChannel(
+        name: 'X',
+        rxFreqHz: 146940000,
+        txFreqHz: 146340000,
+        txTone: ToneSetting.dcs(645),
+        rxTone: ToneSetting.dcs(754),
+      );
+      expect(tone(split, 'Tone'), 'Cross');
+      expect(tone(split, 'CrossMode'), 'DTCS->DTCS');
+      expect(tone(split, 'DtcsCode'), '645');
+      expect(tone(split, 'RxDtcsCode'), '754');
     });
 
     test('DCS both ways is DTCS', () {
@@ -244,6 +276,9 @@ void main() {
         rxTone: ToneSetting.dcs(23),
       );
       expect(tone(inverted, 'DtcsPolarity'), 'RN');
+      // Same code, different polarity: still plain DTCS, since CHIRP reads
+      // DtcsPolarity per direction even in DTCS mode.
+      expect(tone(inverted, 'Tone'), 'DTCS');
 
       const bothInverted = RadioChannel(
         name: 'X',

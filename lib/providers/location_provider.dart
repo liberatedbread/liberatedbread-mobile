@@ -1,12 +1,15 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:math' as math;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/geo.dart';
 import '../services/geolocator_location_service.dart';
 import '../services/location_service.dart';
 import 'json_setting.dart';
+import 'spec_pack_provider.dart';
 
 /// Provides the location backend. Tests override this with a fake; the Linux
 /// desktop gets the real one and it reports itself unavailable.
@@ -66,15 +69,61 @@ final lastLocationProvider =
 class LastLocationNotifier extends AsyncNotifier<SavedLocation?> {
   static const key = 'radio_last_location_v1';
 
+  /// Decimal places a remembered position keeps: about 1 km of latitude.
+  ///
+  /// This record outlives the search it came from, sits in plain
+  /// preferences and rides device backups. It used to hold the fix to full
+  /// double precision, so every "Use my location" left the user's exact
+  /// whereabouts (their home, usually) on disk indefinitely, although the
+  /// fix is only asked for at ~100 m accuracy and the only reader is a
+  /// repeater search whose radius is tens of kilometres. A kilometre is
+  /// still "near here" for that search and is no longer an address.
+  static const coarseDecimals = 2;
+
+  /// [location] with its point rounded to [coarseDecimals].
+  static SavedLocation coarsen(SavedLocation location) {
+    final scale = math.pow(10, coarseDecimals).toDouble();
+    double round(double v) => (v * scale).roundToDouble() / scale;
+
+    final point = location.point;
+    final coarse = GeoPoint(round(point.lat), round(point.lon));
+    return coarse == point
+        ? location
+        : SavedLocation(point: coarse, label: location.label);
+  }
+
   @override
   Future<SavedLocation?> build() async {
     final stored = await readJsonSetting(ref, key);
-    return stored == null ? null : SavedLocation.fromJson(stored);
+    final location = stored == null ? null : SavedLocation.fromJson(stored);
+    if (location == null) return null;
+    final coarse = coarsen(location);
+    if (coarse != location) {
+      // Written by a build that stored the exact fix: rewrite it rounded
+      // rather than keep the precise copy on disk until the next search.
+      await writeJsonSetting(ref, key, coarse.toJson());
+    }
+    return coarse;
   }
 
-  /// Record where a search ran from.
+  /// Record where a search ran from, rounded to [coarseDecimals].
+  ///
+  /// The label is kept as given: the caller names the place from the exact
+  /// point (a state, or a six-character grid square, both coarser than the
+  /// rounding), so it reads the same either way.
   Future<void> remember(SavedLocation location) async {
-    await writeJsonSetting(ref, key, location.toJson());
-    state = AsyncData(location);
+    final coarse = coarsen(location);
+    await writeJsonSetting(ref, key, coarse.toJson());
+    state = AsyncData(coarse);
+  }
+
+  /// Drop the remembered position, from disk and from memory.
+  ///
+  /// Without this, nothing ever removed it: "Clear cached listings" clears
+  /// the directory listings and left the position in place.
+  Future<void> forget() async {
+    final store = await ref.read(prefsSettingsStoreProvider.future);
+    await store.delete(key);
+    state = const AsyncData(null);
   }
 }

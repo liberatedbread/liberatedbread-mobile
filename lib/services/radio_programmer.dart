@@ -54,11 +54,30 @@ class RadioProtocolException implements UserFacingException {
 class RadioTimeoutException implements UserFacingException {
   @override
   final String message;
+
+  /// Whether this cut a write off after blocks had gone out, so the radio
+  /// may hold part of the new codeplug and part of the old.
+  ///
+  /// When set, [message] already says so and says to restore the backup;
+  /// a caller adds only which backup, never the warning again.
+  final bool partlyWritten;
+
   const RadioTimeoutException([
     this.message =
         'The radio stopped responding. Check it is still on '
         'and in range, then try again.',
-  ]);
+  ]) : partlyWritten = false;
+
+  /// The radio stopped answering during the write of the block at [addr].
+  ///
+  /// Shared by every transport, so the warning reads the same whichever
+  /// link dropped.
+  RadioTimeoutException.midWrite(int addr)
+    : partlyWritten = true,
+      message =
+          'The radio stopped responding while writing '
+          '0x${addr.toRadixString(16).padLeft(4, '0')}. It may now hold a '
+          'partly written codeplug — restore your backup before using it.';
 
   @override
   String toString() => message;

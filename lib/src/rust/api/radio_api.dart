@@ -19,13 +19,19 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 Future<List<RadioModelDto>> radioModels() =>
     RustLib.instance.api.crateApiRadioApiRadioModels();
 
-/// The string that puts this radio into programming mode.
-Future<Uint8List> radioIdentMagic({required String modelId}) =>
-    RustLib.instance.api.crateApiRadioApiRadioIdentMagic(modelId: modelId);
+/// The strings that put this radio into programming mode, in the order to
+/// try them. More than one where firmware versions differ (the UV-5G Mini);
+/// a radio ignores a string it does not answer to, so the caller tries the
+/// next one after silence.
+Future<List<Uint8List>> radioIdentMagics({required String modelId}) =>
+    RustLib.instance.api.crateApiRadioApiRadioIdentMagics(modelId: modelId);
 
-/// The handshake to run once the ident magic has been acknowledged.
-Future<List<HandshakeStepDto>> radioHandshakeSteps() =>
-    RustLib.instance.api.crateApiRadioApiRadioHandshakeSteps();
+/// The handshake to run once this model's ident has been acknowledged.
+///
+/// Per model: the UV-32 answers `M` with 7 bytes where the Minis send 15,
+/// and reading the wrong count either stalls or slips the conversation.
+Future<List<HandshakeStepDto>> radioHandshakeSteps({required String modelId}) =>
+    RustLib.instance.api.crateApiRadioApiRadioHandshakeSteps(modelId: modelId);
 
 /// Every block of a full read, in order.
 Future<List<CodeplugBlockDto>> radioReadPlan({required String modelId}) =>
@@ -60,7 +66,12 @@ Future<Uint8List> radioParseReadReply({
   len: len,
 );
 
-/// The request that writes `data` to `addr`.
+/// The request that writes `data` to `addr` over the radio's own Bluetooth.
+///
+/// Always a 0x80-byte frame: a block of the write plan shorter than that (the
+/// end of a region) is padded with 0xFF and still says 0x80, because a short
+/// write frame over the tunnel is never acked. `data` longer than 0x80 is an
+/// error.
 Future<Uint8List> radioWriteCommand({
   required int addr,
   required List<int> data,

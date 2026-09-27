@@ -186,20 +186,31 @@ pub fn radio_models() -> Vec<RadioModelDto> {
     newer.chain(older).collect()
 }
 
-/// The string that puts this radio into programming mode.
-pub fn radio_ident_magic(model_id: String) -> anyhow::Result<Vec<u8>> {
-    Ok(model_or_error(&model_id)?.ident_magic.to_vec())
+/// The strings that put this radio into programming mode, in the order to
+/// try them. More than one where firmware versions differ (the UV-5G Mini);
+/// a radio ignores a string it does not answer to, so the caller tries the
+/// next one after silence.
+pub fn radio_ident_magics(model_id: String) -> anyhow::Result<Vec<Vec<u8>>> {
+    Ok(model_or_error(&model_id)?
+        .idents
+        .iter()
+        .map(|ident| ident.to_vec())
+        .collect())
 }
 
-/// The handshake to run once the ident magic has been acknowledged.
-pub fn radio_handshake_steps() -> Vec<HandshakeStepDto> {
-    uv17pro::handshake_steps()
+/// The handshake to run once this model's ident has been acknowledged.
+///
+/// Per model: the UV-32 answers `M` with 7 bytes where the Minis send 15,
+/// and reading the wrong count either stalls or slips the conversation.
+pub fn radio_handshake_steps(model_id: String) -> anyhow::Result<Vec<HandshakeStepDto>> {
+    Ok(model_or_error(&model_id)?
+        .handshake
         .iter()
         .map(|step| HandshakeStepDto {
             request: step.request.to_vec(),
             expected_reply_len: step.expected_reply_len as u32,
         })
-        .collect()
+        .collect())
 }
 
 /// Every block of a full read, in order.
@@ -241,9 +252,18 @@ pub fn radio_parse_read_reply(reply: Vec<u8>, addr: u16, len: u8) -> anyhow::Res
     Ok(uv17pro::parse_read_reply(&reply, addr, len)?)
 }
 
-/// The request that writes `data` to `addr`.
+/// The request that writes `data` to `addr` over the radio's own Bluetooth.
+///
+/// Always a 0x80-byte frame: a block of the write plan shorter than that (the
+/// end of a region) is padded with 0xFF and still says 0x80, because a short
+/// write frame over the tunnel is never acked. `data` longer than 0x80 is an
+/// error.
 pub fn radio_write_command(addr: u16, data: Vec<u8>) -> anyhow::Result<Vec<u8>> {
-    Ok(uv17pro::write_command(addr, &data)?)
+    Ok(uv17pro::write_command(
+        addr,
+        &data,
+        uv17pro::BLE_WRITE_BLOCK_SIZE,
+    )?)
 }
 
 /// Whether a reply is the radio's acknowledgement.
@@ -583,6 +603,35 @@ mod tests {
         );
         assert!(uv5r_ident_magics("uv-5g".into()).is_err());
         assert_eq!(uv5r_ident_magics("uv5r".into()).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn the_handshake_and_idents_are_the_models_own() {
+        let m_len = |id: &str| radio_handshake_steps(id.into()).unwrap()[1].expected_reply_len;
+        assert_eq!(m_len("uv-32"), 7);
+        for id in ["uv-5r-mini", "uv-5g-mini", "uv-17r-plus"] {
+            assert_eq!(m_len(id), 15, "{id}");
+        }
+        assert!(radio_handshake_steps("nokia-3310".into()).is_err());
+
+        let magics = radio_ident_magics("uv-5g-mini".into()).unwrap();
+        assert_eq!(
+            magics,
+            vec![b"PROGRAMGMRS5RMIU".to_vec(), b"PROGRAMCOLORPROU".to_vec()]
+        );
+        assert_eq!(radio_ident_magics("uv-5r-mini".into()).unwrap().len(), 1);
+        assert!(radio_ident_magics("nokia-3310".into()).is_err());
+    }
+
+    #[test]
+    fn a_bluetooth_write_frame_is_always_0x80() {
+        // The trailing 0x40 blocks of the Mini's regions went out with a 0x40
+        // length byte, which the radio never acks over Bluetooth.
+        let frame = radio_write_command(0xA180, vec![0x42; 0x40]).unwrap();
+        assert_eq!(&frame[..4], &[0x57, 0xA1, 0x80, 0x80]);
+        assert_eq!(frame.len(), 0x84);
+        assert!(frame[0x44..].iter().all(|&b| b == 0xFF));
+        assert!(radio_write_command(0, vec![0; 0x81]).is_err());
     }
 
     #[test]

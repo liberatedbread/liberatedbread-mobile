@@ -71,7 +71,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => -274912199;
+  int get rustContentHash => 1880261231;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -548,9 +548,13 @@ abstract class RustLibApi extends BaseApi {
     required String modelId,
   });
 
-  Future<List<HandshakeStepDto>> crateApiRadioApiRadioHandshakeSteps();
+  Future<List<HandshakeStepDto>> crateApiRadioApiRadioHandshakeSteps({
+    required String modelId,
+  });
 
-  Future<Uint8List> crateApiRadioApiRadioIdentMagic({required String modelId});
+  Future<List<Uint8List>> crateApiRadioApiRadioIdentMagics({
+    required String modelId,
+  });
 
   Future<bool> crateApiRadioApiRadioImageIsComplete({
     required int imageLen,
@@ -4290,11 +4294,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<List<HandshakeStepDto>> crateApiRadioApiRadioHandshakeSteps() {
+  Future<List<HandshakeStepDto>> crateApiRadioApiRadioHandshakeSteps({
+    required String modelId,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(modelId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -4304,20 +4311,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_handshake_step_dto,
-          decodeErrorData: null,
+          decodeErrorData: sse_decode_AnyhowException,
         ),
         constMeta: kCrateApiRadioApiRadioHandshakeStepsConstMeta,
-        argValues: [],
+        argValues: [modelId],
         apiImpl: this,
       ),
     );
   }
 
   TaskConstMeta get kCrateApiRadioApiRadioHandshakeStepsConstMeta =>
-      const TaskConstMeta(debugName: 'radio_handshake_steps', argNames: []);
+      const TaskConstMeta(
+        debugName: 'radio_handshake_steps',
+        argNames: ['modelId'],
+      );
 
   @override
-  Future<Uint8List> crateApiRadioApiRadioIdentMagic({required String modelId}) {
+  Future<List<Uint8List>> crateApiRadioApiRadioIdentMagics({
+    required String modelId,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -4331,19 +4343,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeSuccessData: sse_decode_list_list_prim_u_8_strict,
           decodeErrorData: sse_decode_AnyhowException,
         ),
-        constMeta: kCrateApiRadioApiRadioIdentMagicConstMeta,
+        constMeta: kCrateApiRadioApiRadioIdentMagicsConstMeta,
         argValues: [modelId],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiRadioApiRadioIdentMagicConstMeta =>
+  TaskConstMeta get kCrateApiRadioApiRadioIdentMagicsConstMeta =>
       const TaskConstMeta(
-        debugName: 'radio_ident_magic',
+        debugName: 'radio_ident_magics',
         argNames: ['modelId'],
       );
 

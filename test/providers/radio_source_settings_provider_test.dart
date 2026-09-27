@@ -146,6 +146,44 @@ void main() {
         160,
       );
     });
+    test(
+      'a setter called before the first load keeps the stored rest',
+      () async {
+        // Nothing awaits the provider first here, as a caller that never
+        // watched it would not. The setters used to read `state.value ??
+        // defaults` and write the defaults-derived blob over the stored one:
+        // the switched-off source came back on, or the radius reset.
+        String stored() => jsonEncode({
+          'radiusKm': 80,
+          'disabled': ['mygmrs'],
+        });
+
+        final radiusPrefs = InMemorySettingsStore({
+          RadioSourceSettingsNotifier.key: stored(),
+        });
+        await _container(
+          prefs: radiusPrefs,
+        ).read(radioSourceSettingsProvider.notifier).setRadiusKm(160);
+        final afterRadius = await _container(
+          prefs: radiusPrefs,
+        ).read(radioSourceSettingsProvider.future);
+        expect(afterRadius.radiusKm, 160);
+        expect(afterRadius.isEnabled('mygmrs'), isFalse);
+
+        final sourcePrefs = InMemorySettingsStore({
+          RadioSourceSettingsNotifier.key: stored(),
+        });
+        await _container(prefs: sourcePrefs)
+            .read(radioSourceSettingsProvider.notifier)
+            .setSourceEnabled('repeaterbook', false);
+        final afterSource = await _container(
+          prefs: sourcePrefs,
+        ).read(radioSourceSettingsProvider.future);
+        expect(afterSource.radiusKm, 80);
+        expect(afterSource.isEnabled('mygmrs'), isFalse);
+        expect(afterSource.isEnabled('repeaterbook'), isFalse);
+      },
+    );
   });
 
   group('repeaterBookTokenProvider', () {

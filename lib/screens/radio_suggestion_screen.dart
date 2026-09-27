@@ -34,7 +34,12 @@ class RadioSuggestionScreen extends ConsumerStatefulWidget {
       _RadioSuggestionScreenState();
 }
 
+const _shownDecimals = LastLocationNotifier.coarseDecimals;
+
 class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
+  /// Where the results on screen come from, rounded as the remembered copy
+  /// is ([LastLocationNotifier.coarsen]), so this screen never holds a more
+  /// precise position than the one 'Forget location' is there to drop.
   SavedLocation? _location;
   bool _locating = false;
   String? _locationError;
@@ -49,6 +54,20 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
   Widget build(BuildContext context) {
     final settings = ref.watch(radioSourceSettingsProvider).value;
     final remembered = ref.watch(lastLocationProvider).value;
+    // 'Forget location' (on the Repeater sources screen) clears the
+    // remembered position; this screen's own copy, and the results and
+    // picks made from it, go with it. Kept, the forgotten point was still
+    // shown and searched from on the way back.
+    ref.listen(lastLocationProvider, (previous, next) {
+      if (previous?.value == null || !next.hasValue || next.value != null) {
+        return;
+      }
+      setState(() {
+        _location = null;
+        _request = null;
+        _selected.clear();
+      });
+    });
     final location = _location ?? remembered;
 
     return Scaffold(
@@ -90,8 +109,10 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
         subtitle: Text(
           location == null
               ? 'Use your position, or enter it by hand.'
-              : '${location.point.lat.toStringAsFixed(4)}, '
-                    '${location.point.lon.toStringAsFixed(4)}',
+              // No more places than are kept: more would be zeros that
+              // read as a precise fix.
+              : '${location.point.lat.toStringAsFixed(_shownDecimals)}, '
+                    '${location.point.lon.toStringAsFixed(_shownDecimals)}',
         ),
       ),
       if (_locationError case final String error)
@@ -161,7 +182,9 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
     final state = await stateContaining(bundled, point);
     final grid = pointToMaidenhead(point);
     final label = state?.name ?? grid ?? 'Manual position';
-    final saved = SavedLocation(point: point, label: label);
+    final saved = LastLocationNotifier.coarsen(
+      SavedLocation(point: point, label: label),
+    );
 
     await notifier.remember(saved);
     if (!mounted) return;
@@ -230,6 +253,11 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
     final sources = ref.read(repeaterSourcesProvider);
     setState(() {
       _selected.clear();
+      // The position these results come from, pinned with them. On a return
+      // visit the search runs from the remembered position while _location
+      // was still null, so the plan it made was named "Near me" rather than
+      // after the place the location tile was showing.
+      _location = location;
       _request = SuggestionRequest(
         where: location.point,
         radiusKm: settings.radiusKm,
@@ -429,12 +457,10 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
         if (plan.radioProfileId == widget.profile.id) plan,
     ];
     final notifier = ref.read(channelPlansProvider.notifier);
+    final name = 'Near ${_location?.label ?? 'me'}';
 
     if (plans.isEmpty) {
-      return notifier.create(
-        name: 'Near ${_location?.label ?? 'me'}',
-        radioProfileId: widget.profile.id,
-      );
+      return notifier.create(name: name, radioProfileId: widget.profile.id);
     }
 
     return showModalBottomSheet<ChannelPlan>(
@@ -457,7 +483,7 @@ class _RadioSuggestionScreenState extends ConsumerState<RadioSuggestionScreen> {
               onTap: () async {
                 final navigator = Navigator.of(context);
                 final plan = await notifier.create(
-                  name: 'Near ${_location?.label ?? 'me'}',
+                  name: name,
                   radioProfileId: widget.profile.id,
                 );
                 navigator.pop(plan);

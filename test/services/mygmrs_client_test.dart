@@ -127,10 +127,14 @@ void main() {
       ], isNot(contains('No Frequency')));
     });
 
-    test('is narrowband, as the GMRS rules require', () async {
+    test('is wideband: both halves of a pair are 20 kHz main channels '
+        '(47 CFR 95.1773(a))', () async {
+      // The mode reaches the radio as the codeplug's bandwidth bit; a
+      // narrow default put quiet audio into every wide GMRS repeater.
       final listings = await _answering(fixture).fetchByState('RI');
+      expect(listings, isNotEmpty);
       for (final listing in listings) {
-        expect(listing.channel.mode, ChannelMode.nfm);
+        expect(listing.channel.mode, ChannelMode.fm);
       }
     });
 
@@ -177,6 +181,23 @@ void main() {
       );
       final failure = await failureFrom(() => client.fetchByState('RI'));
       expect(failure.kind, SourceFailureKind.network);
+    });
+
+    test('a failed TLS handshake is a network failure, not a raw '
+        'exception', () async {
+      // IOClient wraps only SocketException and HttpException; a captive
+      // portal answering for the host with the wrong certificate arrives as
+      // a HandshakeException, which used to escape getJson and fail the
+      // whole suggestion search.
+      final client = _client(
+        MockClient(
+          (_) async =>
+              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+        ),
+      );
+      final failure = await failureFrom(() => client.fetchByState('RI'));
+      expect(failure.kind, SourceFailureKind.network);
+      expect(failure.message, contains('secure connection failed'));
     });
 
     test('a timeout is a network failure that mentions the cache', () async {

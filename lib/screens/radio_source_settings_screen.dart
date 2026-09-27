@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
 import '../providers/ha_provider.dart' show urlOpenerProvider;
+import '../providers/location_provider.dart';
 import '../providers/radio_source_settings_provider.dart';
 import '../services/repeaterbook_client.dart';
 
@@ -83,6 +84,7 @@ class _RadioSourceSettingsScreenState
           ..._repeaterBookWalkthrough(storedToken.value),
           const Divider(height: 32),
           _cacheSection(),
+          _locationSection(),
         ],
       ),
     );
@@ -277,6 +279,30 @@ class _RadioSourceSettingsScreenState
     onTap: _clearCache,
   );
 
+  /// The one place the remembered search position can be dropped.
+  ///
+  /// The suggestion screen keeps the last position it searched from, on this
+  /// device, so the next visit can start there. Nothing removed it before:
+  /// "Clear cached listings" above clears the directory listings only, so a
+  /// user who wanted their whereabouts off the phone had no way to do it
+  /// short of clearing the app's data.
+  Widget _locationSection() {
+    final remembered = ref.watch(lastLocationProvider).value;
+    return ListTile(
+      leading: const Icon(Icons.location_off_outlined),
+      title: const Text('Forget location'),
+      subtitle: Text(
+        remembered == null
+            ? 'No search position is remembered on this device.'
+            : 'The last search position, near ${remembered.label}, is '
+                  'remembered on this device (to about 1 km) so the next '
+                  'search can start there.',
+      ),
+      enabled: remembered != null,
+      onTap: _forgetLocation,
+    );
+  }
+
   /// Said in the user's terms rather than the API's: each of these is a
   /// different thing to be stuck on, and "invalid token" for all of them
   /// would send someone to re-request a token they already have.
@@ -338,7 +364,33 @@ class _RadioSourceSettingsScreenState
 
     setState(() => _verifying = true);
     try {
-      await notifier.setToken(token);
+      // The save gets its own catch. Sharing the check's catch, a keychain
+      // write that threw (a locked keystore, a device under MDM) was reported
+      // as TokenCheck.unreachable -- "Could not reach RepeaterBook ... The
+      // token has been saved" -- about a token that was never stored and a
+      // request that was never sent, and the user found out only when
+      // searches went out with no token. Nothing is checked after a failed
+      // save: every check message says something about the saved token.
+      try {
+        await notifier.setToken(token);
+      } catch (error) {
+        if (!mounted) return;
+        setState(() => _lastCheck = null);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              friendlyErrorText(
+                error,
+                fallback:
+                    "Could not save the token to this device's keychain, "
+                    'so it was not checked. Try again.',
+                context: 'repeaterbook token save',
+              ),
+            ),
+          ),
+        );
+        return;
+      }
       final check = await client.verifyToken(token);
       if (!mounted) return;
       setState(() => _lastCheck = check);
@@ -368,6 +420,15 @@ class _RadioSourceSettingsScreenState
       _token.clear();
       _lastCheck = null;
     });
+  }
+
+  Future<void> _forgetLocation() async {
+    final messenger = ScaffoldMessenger.of(context);
+    await ref.read(lastLocationProvider.notifier).forget();
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Search position forgotten.')),
+    );
   }
 
   Future<void> _clearCache() async {

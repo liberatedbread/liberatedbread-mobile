@@ -32,21 +32,35 @@ pub const BLE_WRITE_BLOCK_SIZE: u16 = 0x80;
 /// Three exchanges: `F`, then `M`, then a fixed 25-byte sequence beginning
 /// `SEND!`. Each expects a reply of a known length, which is what makes the
 /// step machine drivable from Dart without guessing when to stop reading.
+///
+/// The lengths are not the same across the family: CHIRP's `UV17ProGPS`
+/// branch (the UV-32 among the models here) answers `M` with 7 bytes, not
+/// 15. The handshake is therefore a property of the model -- see
+/// [`RadioModel::handshake`](super::models::RadioModel::handshake) -- rather
+/// than of the protocol, because a Dart reader waiting for 15 bytes from a
+/// radio that sends 7 sits out the step timeout on every session.
+#[derive(Debug, PartialEq, Eq)]
 pub struct HandshakeExchange {
     pub request: &'static [u8],
     pub expected_reply_len: usize,
 }
 
-/// `F` -- expects 16 bytes.
+/// `F` -- expects 16 bytes, on every model in this family.
 pub const HANDSHAKE_F: HandshakeExchange = HandshakeExchange {
     request: &[0x46],
     expected_reply_len: 16,
 };
 
-/// `M` -- expects 15 bytes.
+/// `M` on CHIRP's `UV17Pro` branch (both Minis, the UV-17R Plus) -- 15 bytes.
 pub const HANDSHAKE_M: HandshakeExchange = HandshakeExchange {
     request: &[0x4D],
     expected_reply_len: 15,
+};
+
+/// `M` on CHIRP's `UV17ProGPS` branch (the UV-32) -- 7 bytes.
+pub const HANDSHAKE_M_GPS: HandshakeExchange = HandshakeExchange {
+    request: &[0x4D],
+    expected_reply_len: 7,
 };
 
 /// The fixed `SEND!` sequence -- expects a single byte.
@@ -58,10 +72,14 @@ pub const HANDSHAKE_SEND: HandshakeExchange = HandshakeExchange {
     expected_reply_len: 1,
 };
 
-/// The handshake in order.
-pub fn handshake_steps() -> [&'static HandshakeExchange; 3] {
-    [&HANDSHAKE_F, &HANDSHAKE_M, &HANDSHAKE_SEND]
-}
+/// The handshake of CHIRP's `UV17Pro` class and everything that keeps its
+/// `_magics`: `F`/16, `M`/15, `SEND!`/1.
+pub const HANDSHAKE_UV17PRO: &[HandshakeExchange] = &[HANDSHAKE_F, HANDSHAKE_M, HANDSHAKE_SEND];
+
+/// The handshake of CHIRP's `UV17ProGPS` class, which the UV-32 inherits:
+/// `F`/16, `M`/7, `SEND!`/1.
+pub const HANDSHAKE_UV17PRO_GPS: &[HandshakeExchange] =
+    &[HANDSHAKE_F, HANDSHAKE_M_GPS, HANDSHAKE_SEND];
 
 /// The key of the byte substitution the family calls its "encryption".
 ///
@@ -111,15 +129,32 @@ pub fn read_command(addr: u16, len: u8) -> Vec<u8> {
     make_frame(CMD_READ, addr, len, &[])
 }
 
-/// The request that writes `data` to `addr`, substitution applied.
-pub fn write_command(addr: u16, data: &[u8]) -> Result<Vec<u8>, ProtocolError> {
-    let len = u8::try_from(data.len()).map_err(|_| ProtocolError::InvalidFraming {
-        reason: format!(
-            "block of {} bytes does not fit a one-byte length",
-            data.len()
-        ),
+/// The request that writes `data` to `addr` in a frame of `frame_len`
+/// bytes, substitution applied.
+///
+/// A block shorter than the frame is padded with 0xFF, and the length byte
+/// always says `frame_len`. Over the radio's Bluetooth that is not optional:
+/// the UV-5R Mini's regions are not multiples of 0x80, and a write frame
+/// with a 0x40 length byte gets no ack -- the radio drops the link instead
+/// (CHIRP issue 12251, fixed by padding exactly like this). 0xFF is exempt
+/// from the substitution, so padding before or after it is the same bytes;
+/// it is done before, as CHIRP does. Data longer than the frame is refused
+/// rather than cut, since cutting would drop part of the codeplug.
+pub fn write_command(addr: u16, data: &[u8], frame_len: u16) -> Result<Vec<u8>, ProtocolError> {
+    let len = u8::try_from(frame_len).map_err(|_| ProtocolError::InvalidFraming {
+        reason: format!("a frame of {frame_len} bytes does not fit a one-byte length"),
     })?;
-    Ok(make_frame(CMD_WRITE, addr, len, &crypt(data)))
+    if data.len() > usize::from(frame_len) {
+        return Err(ProtocolError::InvalidFraming {
+            reason: format!(
+                "block of {} bytes does not fit a 0x{frame_len:02X}-byte frame",
+                data.len()
+            ),
+        });
+    }
+    let mut padded = data.to_vec();
+    padded.resize(usize::from(frame_len), 0xFF);
+    Ok(make_frame(CMD_WRITE, addr, len, &crypt(&padded)))
 }
 
 /// Take the payload out of a read reply, substitution undone.
@@ -189,15 +224,44 @@ mod tests {
     #[test]
     fn a_write_frame_carries_the_scrambled_payload() {
         let plain = [0x11u8, 0x22, 0x33, 0x44];
-        let frame = write_command(0x9000, &plain).unwrap();
+        let frame = write_command(0x9000, &plain, 4).unwrap();
         assert_eq!(&frame[..4], &[0x57, 0x90, 0x00, 0x04]);
         assert_eq!(&frame[4..], &crypt(&plain)[..]);
     }
 
     #[test]
-    fn a_block_too_long_for_the_length_byte_is_refused() {
+    fn a_short_ble_block_is_padded_to_the_frame_with_0xff() {
+        // The UV-5R Mini's trailing blocks at 0x8000, 0x9000 and 0xA180 are
+        // 0x40 bytes. Sent with a 0x40 length byte over Bluetooth the radio
+        // never acks and drops the link (CHIRP issue 12251); CHIRP's working
+        // upload pads to 0x80 with 0xFF and says 0x80.
+        let plain = [0x11u8; 0x40];
+        let frame = write_command(0x8000, &plain, BLE_WRITE_BLOCK_SIZE).unwrap();
+        assert_eq!(&frame[..4], &[0x57, 0x80, 0x00, 0x80]);
+        assert_eq!(frame.len(), 0x84);
+        assert_eq!(&frame[4..0x44], &crypt(&plain)[..]);
+        assert!(frame[0x44..].iter().all(|&b| b == 0xFF));
+    }
+
+    #[test]
+    fn a_full_ble_block_is_sent_as_it_is() {
+        let plain: Vec<u8> = (0..0x80u8).collect();
+        let frame = write_command(0x0100, &plain, BLE_WRITE_BLOCK_SIZE).unwrap();
+        assert_eq!(&frame[..4], &[0x57, 0x01, 0x00, 0x80]);
+        assert_eq!(&frame[4..], &crypt(&plain)[..]);
+    }
+
+    #[test]
+    fn a_block_longer_than_its_frame_is_refused_rather_than_cut() {
+        // Cutting would silently drop the tail of the codeplug.
+        let long = vec![0u8; 0x81];
+        assert!(write_command(0, &long, BLE_WRITE_BLOCK_SIZE).is_err());
+    }
+
+    #[test]
+    fn a_frame_too_long_for_the_length_byte_is_refused() {
         let huge = vec![0u8; 256];
-        assert!(write_command(0, &huge).is_err());
+        assert!(write_command(0, &huge, 256).is_err());
     }
 
     #[test]
@@ -280,15 +344,18 @@ mod tests {
 
     #[test]
     fn the_handshake_is_three_steps_with_known_reply_lengths() {
-        let steps = handshake_steps();
-        assert_eq!(steps.len(), 3);
-        assert_eq!(steps[0].request, &[0x46]);
-        assert_eq!(steps[0].expected_reply_len, 16);
-        assert_eq!(steps[1].request, &[0x4D]);
-        assert_eq!(steps[1].expected_reply_len, 15);
-        assert_eq!(steps[2].request.len(), 25);
-        assert_eq!(&steps[2].request[..5], b"SEND!");
-        assert_eq!(steps[2].expected_reply_len, 1);
+        for steps in [HANDSHAKE_UV17PRO, HANDSHAKE_UV17PRO_GPS] {
+            assert_eq!(steps.len(), 3);
+            assert_eq!(steps[0].request, &[0x46]);
+            assert_eq!(steps[0].expected_reply_len, 16);
+            assert_eq!(steps[1].request, &[0x4D]);
+            assert_eq!(steps[2].request.len(), 25);
+            assert_eq!(&steps[2].request[..5], b"SEND!");
+            assert_eq!(steps[2].expected_reply_len, 1);
+        }
+        // CHIRP: UV17Pro answers M with 15 bytes, UV17ProGPS with 7.
+        assert_eq!(HANDSHAKE_UV17PRO[1].expected_reply_len, 15);
+        assert_eq!(HANDSHAKE_UV17PRO_GPS[1].expected_reply_len, 7);
     }
 
     #[test]

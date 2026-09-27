@@ -22,6 +22,29 @@ import 'radio_programmer.dart';
 const String baofengUartService = '0000ffe0-0000-1000-8000-00805f9b34fb';
 const String baofengUartCharacteristic = '0000ffe1-0000-1000-8000-00805f9b34fb';
 
+/// How patient the Bluetooth conversation is.
+///
+/// A class rather than constants so the emulated radio in the tests can
+/// fail a step in milliseconds: with the shipping 8 s fixed, every test of a
+/// silent radio slept out the real timeout.
+class BleTiming {
+  /// How long any one command may take before the session is abandoned.
+  final Duration step;
+
+  /// How long the connection may take.
+  final Duration connect;
+
+  /// The radio needs a moment after the ident magic before it will answer,
+  /// and after a magic it ignored before it will hear the next.
+  final Duration settle;
+
+  const BleTiming({
+    this.step = const Duration(seconds: 8),
+    this.connect = const Duration(seconds: 20),
+    this.settle = const Duration(milliseconds: 200),
+  });
+}
+
 /// Reads and writes a Baofeng over the FFE0/FFE1 tunnel.
 ///
 /// Structured like [GroupRunner]: an `async*` stream with per-step timeouts
@@ -30,15 +53,9 @@ const String baofengUartCharacteristic = '0000ffe1-0000-1000-8000-00805f9b34fb';
 /// worth designing against.
 class BaofengBleProgrammer implements RadioProgrammer {
   final BleService _ble;
+  final BleTiming timing;
 
-  /// How long any one command may take before the session is abandoned.
-  static const Duration stepTimeout = Duration(seconds: 8);
-  static const Duration connectTimeout = Duration(seconds: 20);
-
-  /// The radio needs a moment after the ident magic before it will answer.
-  static const Duration settleDelay = Duration(milliseconds: 200);
-
-  BaofengBleProgrammer(this._ble);
+  BaofengBleProgrammer(this._ble, {this.timing = const BleTiming()});
 
   @override
   bool supports(RadioProfile profile) =>
@@ -208,9 +225,9 @@ class BaofengBleProgrammer implements RadioProgrammer {
     var connected = false;
     StreamSubscription<List<int>>? notifications;
     try {
-      await _ble.connect(deviceId).timeout(connectTimeout);
+      await _ble.connect(deviceId).timeout(timing.connect);
       connected = true;
-      await _ble.discoverServices(deviceId).timeout(stepTimeout);
+      await _ble.discoverServices(deviceId).timeout(timing.step);
 
       // A 0x44-byte reply arrives as three notifications at the minimum
       // MTU; the inbox reassembles them.
@@ -227,6 +244,7 @@ class BaofengBleProgrammer implements RadioProgrammer {
         ble: _ble,
         deviceId: deviceId,
         inbox: inbox,
+        timing: timing,
       );
 
       yield const RadioProgressEvent(
@@ -258,52 +276,93 @@ class _RadioSession {
   final BleService ble;
   final String deviceId;
   final ByteInbox inbox;
+  final BleTiming timing;
 
   _RadioSession({
     required this.ble,
     required this.deviceId,
     required this.inbox,
+    required this.timing,
   });
 
+  // Both timeouts are translated here, not by the session's catch: a
+  // timeout in a block read or write happens inside the session's body
+  // stream, and an `async*` function forwards an inner stream's errors as
+  // events rather than throwing them where it could catch them. Left raw, a
+  // stalled send reached the screen as a bare TimeoutException and read as
+  // the generic "did not finish".
+
   /// A reply of exactly [count] bytes.
-  ///
-  /// The timeout is translated here, not by the session's catch: a timeout
-  /// in a block read happens inside the session's body stream, and an
-  /// `async*` function forwards an inner stream's errors as events rather
-  /// than throwing them where it could catch them.
   Future<List<int>> _take(int count) async {
     try {
-      return await inbox.take(count, BaofengBleProgrammer.stepTimeout);
+      return await inbox.take(count, timing.step);
     } on TimeoutException {
       throw const RadioTimeoutException();
     }
   }
 
-  Future<void> _send(List<int> bytes) => ble
-      .writeCharacteristic(
-        deviceId,
-        baofengUartService,
-        baofengUartCharacteristic,
-        bytes,
-      )
-      .timeout(BaofengBleProgrammer.stepTimeout);
+  Future<void> _send(List<int> bytes) async {
+    try {
+      await ble
+          .writeCharacteristic(
+            deviceId,
+            baofengUartService,
+            baofengUartCharacteristic,
+            bytes,
+          )
+          .timeout(timing.step);
+    } on TimeoutException {
+      throw const RadioTimeoutException();
+    }
+  }
 
-  /// The ident magic, then the three-step handshake.
+  Future<void> _pause(Duration duration) async {
+    if (duration > Duration.zero) await Future<void>.delayed(duration);
+  }
+
+  /// The ident magic, then the model's three-step handshake.
+  ///
+  /// A model can have more than one magic (a UV-5G Mini answers a
+  /// different one on each firmware), and a radio ignores one it does not
+  /// answer to, so each is tried in turn, with the inbox cleared first so a
+  /// late byte from the last attempt is not read as this one's ack.
   Future<void> identify(String modelId) async {
-    inbox.clear();
-    final magic = await rust.radioIdentMagic(modelId: modelId);
-    await _send(magic);
-
-    final ack = await _take(1);
-    if (!await rust.radioIsAck(reply: ack)) {
+    final magics = await rust.radioIdentMagics(modelId: modelId);
+    var accepted = false;
+    var sawData = false;
+    for (var i = 0; i < magics.length && !accepted; i++) {
+      if (i > 0) await _pause(timing.settle);
+      inbox.clear();
+      await _send(magics[i]);
+      final List<int> ack;
+      try {
+        ack = await inbox.take(1, timing.step);
+      } on TimeoutException {
+        continue;
+      }
+      sawData = true;
+      accepted = await rust.radioIsAck(reply: ack);
+    }
+    if (!accepted) {
+      if (sawData) {
+        throw const RadioProtocolException(
+          'The radio did not accept the programming request. Make sure it '
+          'is the model selected, and that nothing else is connected to it.',
+        );
+      }
+      // Silence here is not "out of range": the link is up, so the radio
+      // is on and near. It is almost always a radio not in programming
+      // mode, or a different model that ignores this one's magic. Saying
+      // "stopped responding" sent people walking towards the radio.
       throw const RadioProtocolException(
-        'The radio did not accept the programming request. Make sure it is '
-        'the model selected, and that nothing else is connected to it.',
+        'The radio did not answer the programming request, so it is not in '
+        'programming mode. Turn on wireless programming in the radio\'s '
+        'menu, and check the model selected is the one printed on it.',
       );
     }
-    await Future<void>.delayed(BaofengBleProgrammer.settleDelay);
+    await _pause(timing.settle);
 
-    for (final step in await rust.radioHandshakeSteps()) {
+    for (final step in await rust.radioHandshakeSteps(modelId: modelId)) {
       await _send(step.request);
       // The reply is read and discarded: what matters is that the radio
       // answered with the right number of bytes, which is how the two ends
@@ -316,12 +375,30 @@ class _RadioSession {
     await _send(await rust.radioReadCommand(addr: addr, len: len));
     final expected = await rust.radioReadReplyLen(len: len);
     final reply = await _take(expected);
-    return rust.radioParseReadReply(reply: reply, addr: addr, len: len);
+    try {
+      return await rust.radioParseReadReply(reply: reply, addr: addr, len: len);
+    } catch (error) {
+      // A reply for the wrong address means the conversation slipped; the
+      // Rust error is for the log, the screen gets something it can say.
+      Log.radio.warning('bad read reply at $addr', error: error);
+      throw const RadioProtocolException();
+    }
   }
 
+  /// One block of a write. [data] may be shorter than the frame at the end
+  /// of a region; Rust pads it.
   Future<void> writeBlock(int addr, List<int> data) async {
-    await _send(await rust.radioWriteCommand(addr: addr, data: data));
-    final ack = await _take(1);
+    final List<int> ack;
+    try {
+      await _send(await rust.radioWriteCommand(addr: addr, data: data));
+      ack = await _take(1);
+    } on RadioTimeoutException {
+      // A write that stopped part way leaves the radio half-programmed,
+      // which "check it is in range" alone does not tell anyone.
+      throw RadioTimeoutException.midWrite(addr);
+    } on BleLinkDroppedException {
+      throw RadioTimeoutException.midWrite(addr);
+    }
     if (!await rust.radioIsAck(reply: ack)) {
       throw RadioProtocolException(
         'The radio refused a write at 0x${addr.toRadixString(16)}. It may '

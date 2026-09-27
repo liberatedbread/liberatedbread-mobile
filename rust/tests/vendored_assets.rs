@@ -3853,3 +3853,145 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
         "a DiskStation is heard, not asked — it shares port 9999 with Kasa"
     );
 }
+
+/// The Govee thermometer on the user's desk, advertising the way its spec
+/// says an H5075 does, through the whole catalogue.
+///
+/// Pinned as the catalogue actually ranks it today, not as it should: the
+/// thermometer comes first at Strong (its name, its 0xEC88 ADV service UUID
+/// and its company id), but govee-rgbic-light.yaml is ALSO Strong, because
+/// its identification block carries the bare "GVH" name prefix (which that
+/// spec's own comment calls "deliberately loose") and 0xEC88 is a Govee
+/// company id. So the matcher change in 0b34e873 -- a vendor company id
+/// alone is Likely -- leaves the H5075 row with a Strong rival. The fix is
+/// upstream (narrow that prefix to the sku classes its discovery regex
+/// already uses) and a spec refresh; when it lands, the RGBIC entry drops
+/// out of `strong` and this test says so. The plug and the other lights
+/// ride on the company id alone and must stay Likely. The iBeacon in the
+/// scan response is Apple's company id with Govee's proximity UUID, and must
+/// not turn the thermometer into a Nuki.
+#[test]
+fn a_gvh5075_advertisement_is_ranked_as_the_catalogue_stands() {
+    use liberated_bread_core::api::device_api::{
+        load_device_spec, match_scanned_device, ManufacturerRecordDto, MatchConfidence, ScanMatch,
+        ScannedDeviceDto, SpecIdentityDto,
+    };
+
+    // Every spec, and loudly: a Govee spec that stopped parsing would
+    // otherwise vanish from the ranking and make this pass for nothing.
+    let identities: Vec<SpecIdentityDto> = vendored_yaml_paths()
+        .into_iter()
+        .map(|path| {
+            let yaml =
+                fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let spec = load_device_spec(yaml).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            SpecIdentityDto::from(&spec)
+        })
+        .collect();
+
+    const THERMO: &str = "Govee H5075 Thermometer/Hygrometer";
+    const RGBIC: &str = "Govee RGBIC / DreamColor Lights (segmented)";
+    const PLUG: &str = "Govee H5080 Smart Plug";
+    const EC88_UUID: &str = "0000ec88-0000-1000-8000-00805f9b34fb";
+
+    // The spec's worked example: 24.3 C, 49.0 %, battery 100.
+    let sensor = ManufacturerRecordDto {
+        company_id: 0xEC88,
+        data: vec![0x00, 0x03, 0xB7, 0x22, 0x64, 0x00],
+    };
+    // The scan response: an iBeacon under 0x004C, proximity UUID
+    // "INTELLI_ROCKS_HW", major 0x5075, minor 0xF2FF, as the spec records it.
+    let ibeacon = ManufacturerRecordDto {
+        company_id: 0x004C,
+        data: vec![
+            0x02, 0x15, 0x49, 0x4E, 0x54, 0x45, 0x4C, 0x4C, 0x49, 0x5F, 0x52, 0x4F, 0x43, 0x4B,
+            0x53, 0x5F, 0x48, 0x57, 0x50, 0x75, 0xF2, 0xFF, 0x00,
+        ],
+    };
+    let scan = |name: &str, uuids: &[&str], records: Vec<ManufacturerRecordDto>| {
+        let device = ScannedDeviceDto {
+            name: name.to_string(),
+            service_uuids: uuids.iter().map(|u| u.to_string()).collect(),
+            company_ids: records.iter().map(|r| r.company_id).collect(),
+            manufacturer_data: records,
+            mac_address: None,
+        };
+        match_scanned_device(identities.clone(), device)
+    };
+    let strong = |matches: &[ScanMatch]| {
+        let mut names: Vec<String> = matches
+            .iter()
+            .filter(|m| m.confidence == MatchConfidence::Strong)
+            .map(|m| m.device_name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    let confidence_of = |matches: &[ScanMatch], name: &str| {
+        matches
+            .iter()
+            .find(|m| m.device_name == name)
+            .map(|m| m.confidence)
+    };
+
+    // The ADV_IND as captured: name, 16-bit 0xEC88 service, sensor payload.
+    let adv = scan("GVH5075_2894", &[EC88_UUID], vec![sensor.clone()]);
+    assert_eq!(adv[0].device_name, THERMO, "{adv:#?}");
+    assert_eq!(adv[0].confidence, MatchConfidence::Strong);
+    assert!(adv[0].matched_by_name_prefix);
+    assert_eq!(adv[0].matched_service_uuids, vec![EC88_UUID.to_string()]);
+    assert_eq!(adv[0].matched_company_ids, vec![0xEC88]);
+    assert_eq!(strong(&adv), vec![THERMO.to_string(), RGBIC.to_string()]);
+    assert_eq!(
+        confidence_of(&adv, PLUG),
+        Some(MatchConfidence::Likely),
+        "the plug shares only the company id"
+    );
+
+    // ADV merged with the scan response, as Android and BlueZ report it.
+    let merged = scan("GVH5075_2894", &[EC88_UUID], vec![sensor.clone(), ibeacon]);
+    assert_eq!(merged[0].device_name, THERMO);
+    assert_eq!(strong(&merged), vec![THERMO.to_string(), RGBIC.to_string()]);
+    assert!(
+        !merged.iter().any(|m| m.device_name.contains("Nuki")),
+        "Govee's iBeacon claimed as a Nuki: {merged:#?}"
+    );
+
+    // Without the service UUID (a scanner that drops it) the thermometer
+    // is still Strong on name + id; its lead over the RGBIC entry is then
+    // only catalogue order, so only the set is pinned.
+    let bare = scan("GVH5075_2894", &[], vec![sensor]);
+    assert_eq!(strong(&bare), vec![THERMO.to_string(), RGBIC.to_string()]);
+    assert_eq!(confidence_of(&bare, PLUG), Some(MatchConfidence::Likely));
+
+    // The plug/thermo overlap the thermo spec names: an H5086 plug's
+    // "GVH5086" satisfies the thermo's "^(GVH5|Govee_H5)" discovery regex,
+    // so all three are Strong on name + id and the payload (not modelled by
+    // either spec) is what would have to separate them.
+    let plug = scan(
+        "GVH5086_ABCD",
+        &[],
+        vec![ManufacturerRecordDto {
+            company_id: 0xEC88,
+            data: vec![0xEC, 0x00, 0x01, 0x01, 0x00],
+        }],
+    );
+    assert_eq!(
+        strong(&plug),
+        vec![THERMO.to_string(), PLUG.to_string(), RGBIC.to_string()]
+    );
+    // The legacy plug name is not a thermometer's.
+    let legacy = scan(
+        "ihoment_H5080_ABCD",
+        &[],
+        vec![ManufacturerRecordDto {
+            company_id: 0xEC88,
+            data: Vec::new(),
+        }],
+    );
+    assert_eq!(confidence_of(&legacy, PLUG), Some(MatchConfidence::Strong));
+    assert_eq!(
+        confidence_of(&legacy, THERMO),
+        Some(MatchConfidence::Likely)
+    );
+}

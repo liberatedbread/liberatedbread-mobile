@@ -31,7 +31,13 @@ void main() {
     if (await temp.exists()) await temp.delete(recursive: true);
   });
 
-  ProviderContainer containerWith(FakeRepeaterSource source) {
+  /// [cacheNeverFresh] makes every cached copy stale (a negative TTL, so
+  /// no clock tie can make it fresh), so any second `suggest()` visibly
+  /// refetches and a fetch count measures provider reuse, not the disk cache.
+  ProviderContainer containerWith(
+    FakeRepeaterSource source, {
+    bool cacheNeverFresh = false,
+  }) {
     final container = ProviderContainer(
       overrides: [
         channelSuggestionServiceProvider.overrideWithValue(
@@ -39,6 +45,9 @@ void main() {
             sources: [source],
             cache: RadioSourceCache(cacheDirResolver: () async => temp),
             bundled: RadioBundledData(),
+            cacheTtl: cacheNeverFresh
+                ? const Duration(seconds: -1)
+                : RadioSourceCache.defaultTtl,
           ),
         ),
       ],
@@ -87,13 +96,29 @@ void main() {
     () async {
       // This is what the value equality on SuggestionRequest is for. A rebuild
       // that hands over a fresh instance must not re-run every HTTP fetch.
+      //
+      // The disk cache can serve nothing here, and a listener stands in for
+      // the screen's watch: with the default seven-day TTL the second
+      // suggest() was a cache hit whether or not the element was reused, so
+      // the fetch count below could not fail.
       final source = sourceWithOne();
-      final container = containerWith(source);
+      final container = containerWith(source, cacheNeverFresh: true);
+      final sub = container.listen(
+        radioSuggestionProvider(request()),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
 
-      await container.read(radioSuggestionProvider(request()).future);
+      final first = await container.read(
+        radioSuggestionProvider(request()).future,
+      );
       final afterFirst = source.fetched.length;
-      await container.read(radioSuggestionProvider(request()).future);
+      expect(afterFirst, greaterThan(0));
+      final second = await container.read(
+        radioSuggestionProvider(request()).future,
+      );
 
+      expect(identical(first, second), isTrue);
       expect(source.fetched.length, afterFirst);
       expect(request(), request());
       expect(request().hashCode, request().hashCode);

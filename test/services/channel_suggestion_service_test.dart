@@ -577,6 +577,51 @@ void main() {
       expect(result.sourceFailures, hasLength(1));
     });
 
+    test('a source that throws unwrapped still falls back to the stale '
+        'cache, as a network failure', () async {
+      // A source is meant to wrap its errors in RepeaterSourceException; one
+      // that let a raw HandshakeException out used to take the search down.
+      await cache.write('test', 'CT', [
+        _repeater(
+          name: 'CACHED',
+          rxHz: 146940000,
+          txHz: 146340000,
+          at: _hartford,
+        ),
+      ], now: DateTime.now().subtract(const Duration(days: 30)));
+      final tls = _ThrowingSource(
+        id: 'test',
+        displayName: 'Test',
+        error: const HandshakeException('bad certificate'),
+      );
+
+      final result = await service([tls]).suggest(request());
+
+      expect(tls.fetched, contains('CT'));
+      expect(result.repeaters.single.channel.name, 'CACHED');
+      expect(result.usedStaleCache, isTrue);
+      expect(result.presets, isNotEmpty);
+      final failure = result.sourceFailures.single;
+      expect(failure.sourceId, 'test');
+      expect(failure.kind, SourceFailureKind.network);
+      expect(failure.message, contains('Could not reach Test'));
+    });
+
+    test('with no cache, an unwrapped throw is a failure, not an '
+        'exception', () async {
+      final tls = _ThrowingSource(
+        id: 'test',
+        error: const HandshakeException('bad certificate'),
+      );
+
+      final result = await service([tls]).suggest(request());
+
+      expect(result.repeaters, isEmpty);
+      expect(result.usedStaleCache, isFalse);
+      expect(result.presets, isNotEmpty);
+      expect(result.sourceFailures.single.kind, SourceFailureKind.network);
+    });
+
     test('a fresh search does not claim to be stale', () async {
       final source = FakeRepeaterSource(
         id: 'test',
@@ -674,4 +719,18 @@ void main() {
     expect(result.isEmpty, isFalse);
     expect(const SuggestionResult().isEmpty, isTrue);
   });
+}
+
+/// A source that breaks its contract: it lets a raw exception out of
+/// [fetchByState] rather than a [RepeaterSourceException].
+class _ThrowingSource extends FakeRepeaterSource {
+  final Exception error;
+
+  _ThrowingSource({required super.id, super.displayName, required this.error});
+
+  @override
+  Future<List<RepeaterListing>> fetchByState(String stateCode) async {
+    fetched.add(stateCode);
+    throw error;
+  }
 }

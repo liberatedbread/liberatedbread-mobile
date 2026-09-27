@@ -20,6 +20,7 @@ import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/device_control_panel.dart';
 import 'package:liberated_bread_mobile/widgets/entity_sensor_card.dart';
 import 'package:liberated_bread_mobile/widgets/raw_characteristic_widget.dart';
+import 'package:liberated_bread_mobile/widgets/switch_control_card.dart';
 import 'package:liberated_bread_mobile/widgets/typed_characteristic_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -1245,6 +1246,221 @@ void main() {
     expect(find.text('Acme Corp'), findsOneWidget);
     expect(find.byIcon(unknownDeviceIcon), findsOneWidget);
   });
+
+  // The panel decides isLock and isPrinter from the matched spec's category
+  // (and, for a lock, which switch is the bolt). The card tests pass both
+  // flags by hand, so a spec rename or a category plumbing change would put
+  // "Off" back on the button that opens a door with every one of them green.
+  // These drive the flags the way production does: through the panel.
+  group('category-driven controls', () {
+    // Scoped to the switch card: the typed command widgets further down
+    // list the same lock/unlock commands by name.
+    Finder inSwitchCard(String text) => find.descendant(
+      of: find.byType(SwitchControlCard),
+      matching: find.text(text),
+    );
+
+    testWidgets('a lock-category spec draws its Lock switch as Lock/Unlock', (
+      tester,
+    ) async {
+      await _pumpCategorySpec(
+        tester,
+        _categorySpec(category: 'lock', entities: [_switchEntity('Lock')]),
+      );
+
+      expect(inSwitchCard('Unlock'), findsOneWidget);
+      expect(inSwitchCard('Off'), findsNothing);
+      expect(inSwitchCard('On'), findsNothing);
+    });
+
+    testWidgets('any other switch on a lock stays an ordinary On/Off', (
+      tester,
+    ) async {
+      // key and deviceClass left null too, so this also proves the other two
+      // legs of the bolt test stay quiet, not just the name leg.
+      await _pumpCategorySpec(
+        tester,
+        _categorySpec(category: 'lock', entities: [_switchEntity('Auto-lock')]),
+      );
+
+      expect(inSwitchCard('On'), findsOneWidget);
+      expect(inSwitchCard('Off'), findsOneWidget);
+      expect(inSwitchCard('Unlock'), findsNothing);
+    });
+
+    testWidgets('a switch named Lock on a non-lock device stays On/Off', (
+      tester,
+    ) async {
+      await _pumpCategorySpec(
+        tester,
+        _categorySpec(category: 'light', entities: [_switchEntity('Lock')]),
+      );
+
+      expect(inSwitchCard('Off'), findsOneWidget);
+      expect(inSwitchCard('Unlock'), findsNothing);
+    });
+
+    testWidgets('a printer-category spec with an image surface says Print', (
+      tester,
+    ) async {
+      await _pumpCategorySpec(
+        tester,
+        _categorySpec(category: 'printer', imageUpload: _paper),
+      );
+
+      expect(find.text('Print an image'), findsOneWidget);
+      expect(find.text('LED image'), findsNothing);
+      expect(find.text('Print'), findsOneWidget);
+      expect(find.text('Send to device'), findsNothing);
+    });
+
+    testWidgets('the same image surface on an LED panel says LED image', (
+      tester,
+    ) async {
+      await _pumpCategorySpec(
+        tester,
+        _categorySpec(category: 'light', imageUpload: _paper),
+      );
+
+      expect(find.text('LED image'), findsOneWidget);
+      expect(find.text('Send to device'), findsOneWidget);
+      expect(find.text('Print'), findsNothing);
+    });
+  });
+}
+
+// ── Fixture: one spec per category, driven through the panel ─────────────────
+
+const _catSvcUuid = '0000fd00-0000-1000-8000-00805f9b34fb';
+const _catCharUuid = '0000fd01-0000-1000-8000-00805f9b34fb';
+
+const _paper = ImageUploadDto(
+  encodable: true,
+  resolutionDeviceReported: false,
+  animation: false,
+  maxWidth: 8,
+  maxHeight: 8,
+);
+
+/// A stateless switch the way the vendored lock specs declare their bolt:
+/// platform switch, a display name, turn_on/turn_off commands, and no key or
+/// device_class.
+EntityDto _switchEntity(String name) => EntityDto(
+  options: const [],
+  name: name,
+  platform: 'switch',
+  canNotify: false,
+  hasFormat: false,
+  onWhenNonzero: false,
+  actions: [
+    for (final (role, command) in const [
+      ('turn_on', 'lock'),
+      ('turn_off', 'unlock'),
+    ])
+      EntityActionDto(
+        role: role,
+        serviceUuid: _catSvcUuid,
+        characteristicUuid: _catCharUuid,
+        commandName: command,
+        userParams: const [],
+      ),
+  ],
+  variants: const [],
+);
+
+DeviceSpecDto _categorySpec({
+  required String category,
+  List<EntityDto> entities = const [],
+  ImageUploadDto? imageUpload,
+}) => DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Test $category',
+  manufacturer: 'Acme',
+  manufacturerStatus: 'active',
+  protocol: 'ble',
+  category: category,
+  localNamePrefixes: const ['ACME_'],
+  localNames: const [],
+  serviceUuids: const [_catSvcUuid],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  defaultPort: null,
+  entities: entities,
+  imageUpload: imageUpload,
+  services: [
+    ServiceDto(
+      uuid: _catSvcUuid,
+      name: 'Command service',
+      characteristics: [
+        CharacteristicDto(
+          uuid: _catCharUuid,
+          name: 'Command write',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: [
+            for (final name in const ['lock', 'unlock'])
+              CommandDto(
+                name: name,
+                description: name,
+                parameters: const [],
+                isFixed: true,
+                isEncodable: true,
+                unsupportedEncoding: null,
+                advanced: false,
+              ),
+          ],
+          formatFields: const [],
+        ),
+      ],
+    ),
+  ],
+);
+
+Future<void> _pumpCategorySpec(WidgetTester tester, DeviceSpecDto spec) async {
+  const services = [
+    BleDiscoveredService(
+      uuid: _catSvcUuid,
+      characteristics: [
+        BleDiscoveredCharacteristic(
+          uuid: _catCharUuid,
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+        ),
+      ],
+    ),
+  ];
+  await tester.pumpWidget(
+    await _wrap(
+      const DeviceControlPanel(
+        deviceId: '01',
+        deviceName: 'ACME_Device',
+        services: services,
+      ),
+      ble: FakeBleService(),
+      codec: FakeSpecCodec(
+        spec: spec,
+        matches: [
+          MatchResult(
+            spec: spec,
+            matchedByNamePrefix: true,
+            matchedServiceUuids: const [_catSvcUuid],
+            confidence: MatchConfidence.strong,
+          ),
+        ],
+        encoded: Uint8List.fromList([0x0A]),
+      ),
+      specs: const {'category.yaml': 'yaml'},
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 // ── Shared fixture: two white-label brands on one GATT platform service ──────

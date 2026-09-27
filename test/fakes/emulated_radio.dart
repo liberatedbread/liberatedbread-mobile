@@ -3,9 +3,11 @@
 //
 // A Baofeng that is not there, at the GATT level.
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart';
+import 'package:liberated_bread_mobile/services/real_ble_service.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart' as rust;
 
 import 'emulated_ble.dart';
@@ -35,8 +37,39 @@ class EmulatedRadio {
   int? failWriteAt;
 
   /// Answer nothing at all from this address on, to model a radio that goes
-  /// away mid-read.
+  /// away mid-read -- or, for a write at or past it, mid-write.
   int? goSilentAt;
+
+  /// Never complete the GATT write carrying a read or write command
+  /// addressed here or past it: the write itself stalls, as it does when a
+  /// controller's queue wedges, rather than the radio going quiet after it.
+  ///
+  /// Takes effect only through [EmulatedRadioBleService]; the adapter
+  /// always completes a write.
+  int? hangSendsFrom;
+
+  /// The address of the command whose write was hung, once one was.
+  int? hungAt;
+
+  /// Whether the central's write of [value] should never complete.
+  bool _hangs(List<int> value) {
+    final from = hangSendsFrom;
+    if (from == null || value.length < 4) return false;
+    if (value[0] != 0x52 && value[0] != 0x57) return false;
+    final addr = (value[1] << 8) | value[2];
+    if (addr < from) return false;
+    hungAt = addr;
+    return true;
+  }
+
+  /// Answer the read at this address with the header of the next block,
+  /// to model a conversation that has slipped a step.
+  int? misaddressReadAt;
+
+  /// Write frames refused for their shape (a length byte that is not the
+  /// 0x80 the Bluetooth upload needs, or that disagrees with the payload),
+  /// by address. The fake NAKs them as the real radio fails to ack them.
+  final List<int> malformedWrites = [];
 
   /// How many bytes fit in one notification. The BLE minimum leaves 20, which
   /// is what makes a 0x44-byte reply arrive in three pieces -- the case the
@@ -57,6 +90,7 @@ class EmulatedRadio {
     String name = 'UV-5R Mini',
     String modelId = 'uv-5r-mini',
     Uint8List? image,
+    int answersIdent = 0,
   }) async {
     final models = await rust.radioModels();
     final model = models.firstWhere((m) => m.id == modelId);
@@ -81,8 +115,12 @@ class EmulatedRadio {
     );
 
     final radio = EmulatedRadio._(peripheral, contents);
-    radio._magic = await rust.radioIdentMagic(modelId: modelId);
-    radio._handshake = await rust.radioHandshakeSteps();
+    // A radio answers one of its model's magics -- which one is its
+    // firmware's business -- and ignores the rest, the way a v0.05 UV-5G
+    // Mini ignores the v0.01 string.
+    final magics = await rust.radioIdentMagics(modelId: modelId);
+    radio._magic = magics[answersIdent];
+    radio._handshake = await rust.radioHandshakeSteps(modelId: modelId);
     radio._ack = 0x06;
 
     // Pre-scramble every block the driver might read. Reusing the write
@@ -92,7 +130,10 @@ class EmulatedRadio {
       final start = block.imageOffset;
       final plain = contents.sublist(start, start + block.len);
       final frame = await rust.radioWriteCommand(addr: block.addr, data: plain);
-      radio._scrambled[block.addr] = frame.sublist(4);
+      // The write frame is padded to 0x80; the substitution is positional
+      // from the payload's first byte, so its first block.len bytes are this
+      // block scrambled and the rest is padding to drop.
+      radio._scrambled[block.addr] = frame.sublist(4, 4 + block.len);
     }
 
     characteristic.onWrite = radio._onWrite;
@@ -158,11 +199,21 @@ class EmulatedRadio {
       if (goSilentAt != null && addr >= goSilentAt!) return;
       final payload = _scrambled[addr];
       if (payload == null) return;
+      if (misaddressReadAt == addr) {
+        _reply([0x52, value[1], (value[2] + len) & 0xFF, len, ...payload]);
+        return;
+      }
       _reply([0x52, value[1], value[2], len, ...payload]);
       return;
     }
 
     if (opcode == 0x57) {
+      if (goSilentAt != null && addr >= goSilentAt!) return;
+      if (len != 0x80 || value.length - 4 != len) {
+        malformedWrites.add(addr);
+        _reply([0x15]);
+        return;
+      }
       if (failWriteAt == addr) {
         _reply([0x15]);
         return;
@@ -172,13 +223,15 @@ class EmulatedRadio {
     }
   }
 
-  /// What the central actually wrote at [addr], descrambled.
+  /// The first [len] bytes the central wrote at [addr], descrambled --
+  /// the image's share of a frame that may be padded past it.
   ///
   /// The substitution is its own inverse, so the read parser is what turns
   /// the recorded bytes back into plaintext.
   Future<List<int>> plaintextWrittenAt(int addr, int len) async {
-    final scrambled = written[addr];
-    if (scrambled == null) throw StateError('nothing written at 0x$addr');
+    final frame = written[addr];
+    if (frame == null) throw StateError('nothing written at 0x$addr');
+    final scrambled = frame.sublist(0, len);
     return rust.radioParseReadReply(
       reply: [0x52, (addr >> 8) & 0xFF, addr & 0xFF, len, ...scrambled],
       addr: addr,
@@ -192,5 +245,27 @@ class EmulatedRadio {
       if (a[i] != b[i]) return false;
     }
     return true;
+  }
+}
+
+/// The real [RealBleService], except that a write [radio] is set to hang
+/// ([EmulatedRadio.hangSendsFrom]) never completes and never reaches it.
+///
+/// The emulated adapter answers every write, so a stalled one has to be
+/// held above it; everything else is the shipping service unchanged.
+class EmulatedRadioBleService extends RealBleService {
+  final EmulatedRadio radio;
+
+  EmulatedRadioBleService(this.radio);
+
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) {
+    if (radio._hangs(value)) return Completer<void>().future;
+    return super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
   }
 }

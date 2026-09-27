@@ -12,7 +12,7 @@ import 'package:liberated_bread_mobile/services/ble_service.dart';
 /// Each stage of the flow can be independently controlled: the devices
 /// emitted by [scan], whether connect/discover/read succeed, and what
 /// values reads return.
-class FakeBleService implements BleService {
+class FakeBleService implements BleService, BleConnectCanceller {
   final List<IoTDevice> devicesToEmit;
   final List<BleDiscoveredService> servicesToReturn;
   final Map<String, List<int>> readValues;
@@ -84,9 +84,9 @@ class FakeBleService implements BleService {
   int stopScanCount = 0;
   int rssiReadCount = 0;
 
-  /// Ordered log of connect/disconnect calls (e.g. 'connect:01',
-  /// 'disconnect:01'). Lets tests assert the *order* of lifecycle calls, which
-  /// call-count lists alone can't capture.
+  /// Ordered log of connect/disconnect/cancel calls (e.g. 'connect:01',
+  /// 'disconnect:01', 'cancel:01'). Lets tests assert the *order* of
+  /// lifecycle calls, which call-count lists alone can't capture.
   final List<String> events = [];
 
   FakeBleService({
@@ -171,6 +171,13 @@ class FakeBleService implements BleService {
   Future<void> disconnect(String deviceId) async {
     disconnectedIds.add(deviceId);
     events.add('disconnect:$deviceId');
+  }
+
+  /// Recorded as `cancel:<id>` in [events]; releases nothing, like the real
+  /// service's.
+  @override
+  Future<void> cancelConnect(String deviceId) async {
+    events.add('cancel:$deviceId');
   }
 
   @override

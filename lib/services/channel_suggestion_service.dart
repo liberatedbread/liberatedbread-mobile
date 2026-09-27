@@ -220,27 +220,58 @@ class ChannelSuggestionService {
       return (listings: cached.listings, failure: null, stale: false);
     }
 
+    final List<RepeaterListing> fetched;
     try {
-      final fetched = await source.fetchByState(state);
-      await _cache.write(source.id, state, fetched);
-      return (listings: fetched, failure: null, stale: false);
+      fetched = await source.fetchByState(state);
     } on RepeaterSourceException catch (error) {
-      if (cached != null) {
-        // The stale copy is why this is worth doing at all: standing
-        // somewhere with no signal, last week's repeater list is not
-        // meaningfully worse than today's, and it is enormously better than
-        // an error.
-        Log.radio.info(
-          '${source.id}/$state failed, using cache from ${cached.fetchedAt}',
-        );
-        return (listings: cached.listings, failure: error.failure, stale: true);
-      }
-      return (
-        listings: const <RepeaterListing>[],
-        failure: error.failure,
-        stale: false,
+      return _fallBack(source, state, cached, error.failure);
+    } on Exception catch (error) {
+      // A source is meant to wrap its failures, and the shipped ones do; a
+      // raw one escaping (a TLS handshake a client forgot) would otherwise
+      // take the whole search down — presets, the other sources and this
+      // one's stale cache gone behind one error line.
+      Log.radio.warning('${source.id}/$state threw unwrapped', error: error);
+      return _fallBack(
+        source,
+        state,
+        cached,
+        SourceFailure(
+          sourceId: source.id,
+          displayName: source.displayName,
+          kind: SourceFailureKind.network,
+          message:
+              'Could not reach ${source.displayName}. Anything cached is '
+              'still shown.',
+        ),
       );
     }
+    await _cache.write(source.id, state, fetched);
+    return (listings: fetched, failure: null, stale: false);
+  }
+
+  /// A failed fetch: the stale cache if there is one, and the failure.
+  ({List<RepeaterListing> listings, SourceFailure? failure, bool stale})
+  _fallBack(
+    RepeaterSource source,
+    String state,
+    CachedListings? cached,
+    SourceFailure failure,
+  ) {
+    if (cached != null) {
+      // The stale copy is why this is worth doing at all: standing
+      // somewhere with no signal, last week's repeater list is not
+      // meaningfully worse than today's, and it is enormously better than
+      // an error.
+      Log.radio.info(
+        '${source.id}/$state failed, using cache from ${cached.fetchedAt}',
+      );
+      return (listings: cached.listings, failure: failure, stale: true);
+    }
+    return (
+      listings: const <RepeaterListing>[],
+      failure: failure,
+      stale: false,
+    );
   }
 
   /// Distance filter and capability judgement, in that order.

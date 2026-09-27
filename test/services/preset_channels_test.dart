@@ -59,6 +59,12 @@ void main() {
       expect(repeaters.last.name, 'RPT 22');
     });
 
+    test('are wideband, as the directory listings of them are', () {
+      for (final channel in gmrsRepeaterChannels()) {
+        expect(channel.mode, ChannelMode.fm, reason: channel.name);
+      }
+    });
+
     test('say out loud that the tone is the user\'s to supply', () {
       // A repeater pair with no tone is the one preset that silently does
       // nothing on the air, so the comment has to carry the missing half.

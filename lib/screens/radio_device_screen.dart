@@ -23,6 +23,14 @@ import '../widgets/confirm_dialog.dart';
 import '../widgets/tx_unlock_dialog.dart';
 import 'channel_plan_screen.dart';
 
+/// What forgetting a saved radio costs, asked the same way from this
+/// screen and from Saved devices so the two cannot drift. A radio is saved
+/// again only when a session with it completes, not when it is opened.
+const forgetRadioConsequence =
+    'It comes off this list, and which model it is goes with it. Reach it '
+    'again from Nearby or over its cable and check it answers to bring it '
+    'back. Its backups stay.';
+
 /// A radio, opened from the Nearby list, Saved devices or the USB tab.
 ///
 /// The Radio tab is where plans are made; this is where a particular radio
@@ -61,6 +69,12 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
 
   /// A plan the last read produced, offered as a shortcut.
   String? _readPlanId;
+
+  /// The backup saved just before the write now going out, while it is
+  /// going out. A link that drops part way through a write leaves the radio
+  /// holding some new blocks and some old; the error alone ("stopped
+  /// responding… try again") never said so, nor which copy puts it back.
+  CodeplugBackup? _writingOver;
 
   bool get _busy => _progress != null;
 
@@ -408,10 +422,15 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
               ListTile(
                 leading: const Icon(Icons.list_alt_outlined),
                 title: Text(plan.name),
+                // A plan made for a bigger radio cannot go on this one;
+                // _write refuses it too, for the pending-plan button.
+                enabled: plan.length <= profile.channelCapacity,
                 subtitle: Text(
                   [
                     '${plan.length} '
                         '${plan.length == 1 ? 'channel' : 'channels'}',
+                    if (plan.length > profile.channelCapacity)
+                      'this radio holds ${profile.channelCapacity}',
                     if (plan.radioProfileId != profile.id)
                       'made for '
                           '${radioProfileById(plan.radioProfileId)?.displayName ?? 'another radio'}',
@@ -430,6 +449,21 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
   /// Read, back up, then write [plan] — the backup on disk before a single
   /// byte goes back, which is the whole point.
   Future<void> _write(RadioProfile profile, ChannelPlan plan) async {
+    // A plan made for a bigger radio used to be read, backed up and only
+    // then refused by the encoder, surfacing as "The radio did not finish."
+    // Refuse it before anything touches the radio, naming both numbers.
+    if (plan.length > profile.channelCapacity) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '"${plan.name}" has ${plan.length} channels; a '
+            '${profile.displayName} holds ${profile.channelCapacity}. '
+            'Nothing was read or written.',
+          ),
+        ),
+      );
+      return;
+    }
     final confirmed = await confirmAction(
       context,
       title: 'Write to ${_target.displayName}?',
@@ -449,14 +483,15 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       body: (programmer) async {
         final base = await _read(programmer, profile);
         final backup = await backups.save(base);
-        await programmer
-            .writeChannels(
-              deviceId: _target.id,
-              profile: profile,
-              base: base,
-              channels: plan.channels,
-            )
-            .forEach(_onProgress);
+        await _writeOver(
+          backup,
+          programmer.writeChannels(
+            deviceId: _target.id,
+            profile: profile,
+            base: base,
+            channels: plan.channels,
+          ),
+        );
         return '${plan.length} '
             '${plan.length == 1 ? 'channel' : 'channels'} from "${plan.name}" '
             'written. What was on the radio before is saved as '
@@ -551,7 +586,6 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       ),
     );
     if (chosen == null || !mounted) return;
-    if (!mounted) return;
     final confirmed = await confirmAction(
       context,
       title: 'Restore to ${_target.displayName}?',
@@ -562,7 +596,9 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
           'undone the same way.',
       confirmLabel: 'Restore',
     );
-    if (!confirmed) return;
+    // The dialog can outlive the screen; a session started after that has
+    // no State to report into.
+    if (!confirmed || !mounted) return;
 
     await _session(
       profile,
@@ -576,14 +612,15 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         // as before a plan is written: whatever is on it now may be newer
         // than the backup, and a restore is a write like any other.
         final current = await _read(programmer, profile);
-        await backups.save(current);
-        await programmer
-            .restoreCodeplug(
-              deviceId: _target.id,
-              profile: profile,
-              codeplug: codeplug,
-            )
-            .forEach(_onProgress);
+        final backup = await backups.save(current);
+        await _writeOver(
+          backup,
+          programmer.restoreCodeplug(
+            deviceId: _target.id,
+            profile: profile,
+            codeplug: codeplug,
+          ),
+        );
         return 'Backup from ${_when(chosen.takenAt)} restored. What was on '
             'the radio before was saved as a backup first.';
       },
@@ -603,7 +640,7 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       body: (programmer) async {
         final limits = programmer as BandLimitProgrammer;
         final base = await _read(programmer, profile);
-        await backups.save(base);
+        final backup = await backups.save(base);
         final before = await limits.bandLimitsIn(base, profile);
         if (before == widened) {
           await unlock.setEnabled(profile, true);
@@ -616,14 +653,15 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
           profile,
           OriginalBandLimits(limits: before, readAt: base.readAt),
         );
-        await limits
-            .writeBandLimits(
-              deviceId: _target.id,
-              profile: profile,
-              base: base,
-              limits: widened,
-            )
-            .forEach(_onProgress);
+        await _writeOver(
+          backup,
+          limits.writeBandLimits(
+            deviceId: _target.id,
+            profile: profile,
+            base: base,
+            limits: widened,
+          ),
+        );
         // It transmits there now, so suggestions for it may say so.
         await unlock.setEnabled(profile, true);
         return 'Widened to ${widened.label}, and read back. It had '
@@ -655,17 +693,18 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       body: (programmer) async {
         final limits = programmer as BandLimitProgrammer;
         final base = await _read(programmer, profile);
-        await backups.save(base);
+        final backup = await backups.save(base);
         final before = await limits.bandLimitsIn(base, profile);
         if (before != original.limits) {
-          await limits
-              .writeBandLimits(
-                deviceId: _target.id,
-                profile: profile,
-                base: base,
-                limits: original.limits,
-              )
-              .forEach(_onProgress);
+          await _writeOver(
+            backup,
+            limits.writeBandLimits(
+              deviceId: _target.id,
+              profile: profile,
+              base: base,
+              limits: original.limits,
+            ),
+          );
         }
         await unlock.setEnabled(profile, false);
         return before == original.limits
@@ -679,6 +718,16 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
   }
 
   Future<void> _forget() async {
+    // A tap on the AppBar's delete icon dropped the record — and the model
+    // choice it carries — with no way back but reconnecting; every other
+    // forget in the app asks first.
+    final confirmed = await confirmAction(
+      context,
+      title: 'Forget ${_target.displayName}?',
+      message: forgetRadioConsequence,
+      confirmLabel: 'Forget',
+    );
+    if (!confirmed || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     await ref.read(savedRadiosProvider.notifier).remove(_target);
@@ -711,6 +760,11 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     required String start,
     required Future<String> Function(RadioProgrammer programmer) body,
   }) async {
+    // Every caller's tile is disabled while busy, but only from the next
+    // frame — and _restore awaits the backup list before its sheet opens.
+    // A second session on the same link would cut the first off mid-write
+    // when its teardown ran.
+    if (_busy) return;
     final programmer = ref.read(
       radioProgrammerForTransportProvider(_target.transport),
     );
@@ -725,6 +779,7 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       _error = null;
       _outcome = null;
       _readPlanId = null;
+      _writingOver = null;
       _progress = RadioProgressEvent(
         stage: RadioProgressStage.connecting,
         message: start,
@@ -744,18 +799,64 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       });
     } catch (error) {
       if (!mounted) return;
-      final text = friendlyErrorText(
-        error,
-        fallback: 'The radio did not finish.',
-        context: 'radio session',
-      );
+      final text = [
+        friendlyErrorText(
+          error,
+          fallback: 'The radio did not finish.',
+          context: 'radio session',
+        ),
+        ?_partWritten(error),
+      ].join(' ');
       setState(() {
         _progress = null;
         _readPlanId = null;
+        _writingOver = null;
         _error = text;
       });
       messenger.showSnackBar(SnackBar(content: Text(text)));
     }
+  }
+
+  /// Send [write], remembering [backup] as the way back while it runs.
+  Future<void> _writeOver(
+    CodeplugBackup backup,
+    Stream<RadioProgressEvent> write,
+  ) async {
+    _writingOver = backup;
+    await write.forEach(_onProgress);
+    _writingOver = null;
+  }
+
+  /// What to add to [error]'s text when it cut a write off part way: that
+  /// the radio may be half written, and which backup puts it back.
+  ///
+  /// Only once blocks were going out (the writing stage). The programmer
+  /// owns the warning when it can say what happened on the wire: a refused
+  /// block or a read-back that differs (a protocol error), or a radio that
+  /// stopped answering mid-write ([RadioTimeoutException.partlyWritten])
+  /// already says the radio may be half written and to restore, so they get
+  /// only the backup's name — never the warning a second time. A failure
+  /// while verifying came after the write finished, so a timeout there gets
+  /// nothing.
+  String? _partWritten(Object error) {
+    final backup = _writingOver;
+    final stage = _progress?.stage;
+    if (backup == null) return null;
+    final which =
+        '${backup.displayName}, saved ${_when(backup.takenAt)}, under '
+        '"Restore a backup"';
+    final saysItself =
+        error is RadioProtocolException ||
+        (error is RadioTimeoutException && error.partlyWritten);
+    if (saysItself) {
+      return stage == RadioProgressStage.writing ||
+              stage == RadioProgressStage.verifying
+          ? 'The copy taken just before the write is $which.'
+          : null;
+    }
+    if (stage != RadioProgressStage.writing) return null;
+    return 'The radio may now hold part of the write and part of what was '
+        'there before. Try again, or put back $which.';
   }
 
   /// A full read, reporting progress, returning the image.
