@@ -1209,6 +1209,19 @@ observed. Until it says how to recognise a `findhostd` datagram, that probe
 cannot be executed safely: it is `passive_ok`, so honouring it means binding UDP
 9999 and treating whatever arrives as a NAS.
 
+## Found 2026-09-26, while stopping Apple devices matching as a Nuki
+
+### S-26 — emazinglights-spectra's Apple-ID prefix disagrees with its own prose
+
+`discovery.methods[].ble.manufacturer_data` on emazinglights-spectra.yaml
+declares `additional_company_ids: [76]` beside `pattern: "48554231"` (`HUB1`),
+so under Apple's 0x004C the matcher looks for a payload starting `HUB1` —
+while the block's prose says that under 0x004C the payload reads `EHUB1`.
+The app implements the schema's meaning (an additional id is an equivalent
+alternative, same pattern), which is inert in practice — no Apple Continuity
+message type is 0x48 — but the spec should either give 0x004C its own
+matcher with the `EHUB1` prefix or drop the additional id.
+
 ## Found 2026-09-24, while catching up with upstream #61
 
 S-23 (DIAL in `shared-service-types.tsv`), S-24 (what `labels` name beside a

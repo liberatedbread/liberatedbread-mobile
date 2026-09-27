@@ -236,6 +236,12 @@ class ScanIdentity {
   final String name;
   final List<String> serviceUuids;
   final List<int> companyIds;
+
+  /// Manufacturer-specific payloads by company id, cut down to the declared
+  /// prefix each one starts with — see [ScanIdentity.of]. Empty unless a
+  /// catalogue prefix matched, so a device with only a company id keys the
+  /// same as it always did.
+  final Map<int, List<int>> manufacturerData;
   final String? macAddress;
 
   const ScanIdentity({
@@ -243,13 +249,60 @@ class ScanIdentity {
     required this.serviceUuids,
     required this.companyIds,
     required this.macAddress,
+    this.manufacturerData = const {},
   });
 
-  ScanIdentity.of(IoTDevice device)
-    : name = device.name,
-      serviceUuids = device.serviceUuids,
-      companyIds = device.companyIds,
-      macAddress = device.macAddress;
+  /// [device]'s identity, keeping of its manufacturer data only what
+  /// [declaredPrefixes] — the catalogue's payload prefixes by company id,
+  /// from [declaredManufacturerPrefixesProvider] — says matching reads.
+  ///
+  /// The whole payload is not identity. A thermometer re-encodes its reading
+  /// into every advertisement and an iPhone's Continuity bytes change by the
+  /// second, so keying on them would re-run matching on every packet, and
+  /// blank the row's badge while it ran — the very cache this class exists
+  /// to keep. What matching reads of a record is whether it STARTS with a
+  /// declared prefix, so a record is kept, truncated to the longest prefix
+  /// it starts with, only when one does. A caller with no catalogue in hand
+  /// gets an identity blind to payloads, matched on everything else.
+  ScanIdentity.of(
+    IoTDevice device, {
+    Map<int, List<Uint8List>> declaredPrefixes = const {},
+  }) : name = device.name,
+       serviceUuids = device.serviceUuids,
+       companyIds = device.companyIds,
+       manufacturerData = _declaredRecords(
+         device.manufacturerData,
+         declaredPrefixes,
+       ),
+       macAddress = device.macAddress;
+
+  static Map<int, List<int>> _declaredRecords(
+    Map<int, List<int>> records,
+    Map<int, List<Uint8List>> declared,
+  ) {
+    if (records.isEmpty || declared.isEmpty) return const {};
+    final kept = <int, List<int>>{};
+    for (final record in records.entries) {
+      final prefixes = declared[record.key];
+      if (prefixes == null) continue;
+      var longest = 0;
+      for (final prefix in prefixes) {
+        if (prefix.length > longest && _startsWith(record.value, prefix)) {
+          longest = prefix.length;
+        }
+      }
+      if (longest > 0) kept[record.key] = record.value.sublist(0, longest);
+    }
+    return kept;
+  }
+
+  static bool _startsWith(List<int> data, List<int> prefix) {
+    if (data.length < prefix.length) return false;
+    for (var i = 0; i < prefix.length; i++) {
+      if (data[i] != prefix[i]) return false;
+    }
+    return true;
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -257,7 +310,8 @@ class ScanIdentity {
       other.name == name &&
       other.macAddress == macAddress &&
       listEquals(other.serviceUuids, serviceUuids) &&
-      listEquals(other.companyIds, companyIds);
+      listEquals(other.companyIds, companyIds) &&
+      sameManufacturerData(other.manufacturerData, manufacturerData);
 
   @override
   int get hashCode => Object.hash(
@@ -265,8 +319,29 @@ class ScanIdentity {
     macAddress,
     Object.hashAll(serviceUuids),
     Object.hashAll(companyIds),
+    _manufacturerDataHash,
   );
+
+  /// Order-independent over the map: two identities that compare equal by
+  /// [sameManufacturerData] must hash alike whatever order their records
+  /// were inserted in.
+  int get _manufacturerDataHash {
+    final keys = manufacturerData.keys.toList()..sort();
+    return Object.hashAll([
+      for (final key in keys)
+        Object.hash(key, Object.hashAll(manufacturerData[key]!)),
+    ]);
+  }
 }
+
+/// [IoTDevice.manufacturerData] in the shape the matcher takes.
+List<ManufacturerRecordDto> manufacturerRecordsOf(Map<int, List<int>> data) => [
+  for (final record in data.entries)
+    ManufacturerRecordDto(
+      companyId: record.key,
+      data: Uint8List.fromList(record.value),
+    ),
+];
 
 /// The catalogue reduced to its identifying fields, derived once.
 ///
@@ -288,6 +363,23 @@ final specIdentitiesProvider = FutureProvider<List<SpecIdentityDto>>((
   // to the by-value one over the entire vendored catalogue.
   return [for (final entry in catalogue.specs) entry.identity];
 });
+
+/// The manufacturer-data payload prefixes the catalogue declares, by company
+/// id: the only bytes of a record the matcher reads, and so the only bytes a
+/// [ScanIdentity] keeps. Empty until the identities have loaded, so a row
+/// keyed before then is keyed again — once — when they do.
+final declaredManufacturerPrefixesProvider =
+    Provider<Map<int, List<Uint8List>>>((ref) {
+      final identities = ref.watch(specIdentitiesProvider).valueOrNull;
+      if (identities == null) return const {};
+      final byCompany = <int, List<Uint8List>>{};
+      for (final identity in identities) {
+        for (final declared in identity.manufacturerDataPrefixes) {
+          (byCompany[declared.companyId] ??= []).add(declared.prefix);
+        }
+      }
+      return byCompany;
+    });
 
 /// What the catalogue makes of one scanned device, or `null` when nothing
 /// matched (or the native codec is unavailable).
@@ -312,6 +404,7 @@ final scanGuessProvider = FutureProvider.autoDispose
             name: identity.name,
             serviceUuids: identity.serviceUuids,
             companyIds: Uint16List.fromList(identity.companyIds),
+            manufacturerData: manufacturerRecordsOf(identity.manufacturerData),
             macAddress: identity.macAddress,
           ),
         );

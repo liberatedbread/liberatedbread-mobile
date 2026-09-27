@@ -7190,8 +7190,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 30)
-      throw Exception('unexpected arr length: expect 30 but see ${arr.length}');
+    if (arr.length != 31)
+      throw Exception('unexpected arr length: expect 31 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -7211,20 +7211,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       localNames: dco_decode_list_String(arr[13]),
       serviceUuids: dco_decode_list_String(arr[14]),
       companyIds: dco_decode_list_prim_u_16_strict(arr[15]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[16]),
-      mdnsServiceTypes: dco_decode_list_String(arr[17]),
-      ssdpSearchTargets: dco_decode_list_String(arr[18]),
-      lanProtocols: dco_decode_list_String(arr[19]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[20]),
-      nameMatchers: dco_decode_list_name_match_dto(arr[21]),
-      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[22]),
-      platformFallbackTypes: dco_decode_list_String(arr[23]),
-      services: dco_decode_list_service_dto(arr[24]),
-      protocolHandler: dco_decode_opt_String(arr[25]),
-      entities: dco_decode_list_entity_dto(arr[26]),
-      hiddenEntityNames: dco_decode_list_String(arr[27]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[28]),
-      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[29]),
+      manufacturerDataPrefixes: dco_decode_list_manufacturer_prefix_dto(
+        arr[16],
+      ),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[17]),
+      mdnsServiceTypes: dco_decode_list_String(arr[18]),
+      ssdpSearchTargets: dco_decode_list_String(arr[19]),
+      lanProtocols: dco_decode_list_String(arr[20]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[21]),
+      nameMatchers: dco_decode_list_name_match_dto(arr[22]),
+      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[23]),
+      platformFallbackTypes: dco_decode_list_String(arr[24]),
+      services: dco_decode_list_service_dto(arr[25]),
+      protocolHandler: dco_decode_opt_String(arr[26]),
+      entities: dco_decode_list_entity_dto(arr[27]),
+      hiddenEntityNames: dco_decode_list_String(arr[28]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[29]),
+      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[30]),
     );
   }
 
@@ -7678,6 +7681,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ManufacturerPrefixDto> dco_decode_list_manufacturer_prefix_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_manufacturer_prefix_dto)
+        .toList();
+  }
+
+  @protected
+  List<ManufacturerRecordDto> dco_decode_list_manufacturer_record_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_manufacturer_record_dto)
+        .toList();
+  }
+
+  @protected
   List<MatchResult> dco_decode_list_match_result(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_match_result).toList();
@@ -8025,6 +8048,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return MacPrefixDto(
       prefix: dco_decode_String(arr[0]),
       confidence: dco_decode_mac_prefix_confidence(arr[1]),
+    );
+  }
+
+  @protected
+  ManufacturerPrefixDto dco_decode_manufacturer_prefix_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ManufacturerPrefixDto(
+      companyId: dco_decode_u_16(arr[0]),
+      prefix: dco_decode_list_prim_u_8_strict(arr[1]),
+    );
+  }
+
+  @protected
+  ManufacturerRecordDto dco_decode_manufacturer_record_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ManufacturerRecordDto(
+      companyId: dco_decode_u_16(arr[0]),
+      data: dco_decode_list_prim_u_8_strict(arr[1]),
     );
   }
 
@@ -8786,8 +8833,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ScanMatch dco_decode_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 15)
-      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return ScanMatch(
       specIndex: dco_decode_u_32(arr[0]),
       deviceName: dco_decode_String(arr[1]),
@@ -8804,8 +8851,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       matchedByNamePrefix: dco_decode_bool(arr[10]),
       matchedServiceUuids: dco_decode_list_String(arr[11]),
       matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[12]),
-      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[13]),
-      matchedServiceTypes: dco_decode_list_String(arr[14]),
+      matchedManufacturerPrefixes: dco_decode_list_manufacturer_prefix_dto(
+        arr[13],
+      ),
+      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[14]),
+      matchedServiceTypes: dco_decode_list_String(arr[15]),
     );
   }
 
@@ -8813,13 +8863,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ScannedDeviceDto dco_decode_scanned_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return ScannedDeviceDto(
       name: dco_decode_String(arr[0]),
       serviceUuids: dco_decode_list_String(arr[1]),
       companyIds: dco_decode_list_prim_u_16_strict(arr[2]),
-      macAddress: dco_decode_opt_String(arr[3]),
+      manufacturerData: dco_decode_list_manufacturer_record_dto(arr[3]),
+      macAddress: dco_decode_opt_String(arr[4]),
     );
   }
 
@@ -8975,8 +9026,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 20)
-      throw Exception('unexpected arr length: expect 20 but see ${arr.length}');
+    if (arr.length != 21)
+      throw Exception('unexpected arr length: expect 21 but see ${arr.length}');
     return SpecIdentityDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -8992,14 +9043,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       localNames: dco_decode_list_String(arr[9]),
       serviceUuids: dco_decode_list_String(arr[10]),
       companyIds: dco_decode_list_prim_u_16_strict(arr[11]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[12]),
-      mdnsServiceTypes: dco_decode_list_String(arr[13]),
-      ssdpSearchTargets: dco_decode_list_String(arr[14]),
-      lanProtocols: dco_decode_list_String(arr[15]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[16]),
-      nameMatchers: dco_decode_list_name_match_dto(arr[17]),
-      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[18]),
-      platformFallbackTypes: dco_decode_list_String(arr[19]),
+      manufacturerDataPrefixes: dco_decode_list_manufacturer_prefix_dto(
+        arr[12],
+      ),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[13]),
+      mdnsServiceTypes: dco_decode_list_String(arr[14]),
+      ssdpSearchTargets: dco_decode_list_String(arr[15]),
+      lanProtocols: dco_decode_list_String(arr[16]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[17]),
+      nameMatchers: dco_decode_list_name_match_dto(arr[18]),
+      txtMatchGroups: dco_decode_list_txt_match_group_dto(arr[19]),
+      platformFallbackTypes: dco_decode_list_String(arr[20]),
     );
   }
 
@@ -10022,6 +10076,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_localNames = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
+    var var_manufacturerDataPrefixes = sse_decode_list_manufacturer_prefix_dto(
+      deserializer,
+    );
     var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
     var var_mdnsServiceTypes = sse_decode_list_String(deserializer);
     var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
@@ -10057,6 +10114,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       localNames: var_localNames,
       serviceUuids: var_serviceUuids,
       companyIds: var_companyIds,
+      manufacturerDataPrefixes: var_manufacturerDataPrefixes,
       macPrefixes: var_macPrefixes,
       mdnsServiceTypes: var_mdnsServiceTypes,
       ssdpSearchTargets: var_ssdpSearchTargets,
@@ -10726,6 +10784,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ManufacturerPrefixDto> sse_decode_list_manufacturer_prefix_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ManufacturerPrefixDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_manufacturer_prefix_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<ManufacturerRecordDto> sse_decode_list_manufacturer_record_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ManufacturerRecordDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_manufacturer_record_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -11351,6 +11437,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_prefix = sse_decode_String(deserializer);
     var var_confidence = sse_decode_mac_prefix_confidence(deserializer);
     return MacPrefixDto(prefix: var_prefix, confidence: var_confidence);
+  }
+
+  @protected
+  ManufacturerPrefixDto sse_decode_manufacturer_prefix_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_companyId = sse_decode_u_16(deserializer);
+    var var_prefix = sse_decode_list_prim_u_8_strict(deserializer);
+    return ManufacturerPrefixDto(companyId: var_companyId, prefix: var_prefix);
+  }
+
+  @protected
+  ManufacturerRecordDto sse_decode_manufacturer_record_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_companyId = sse_decode_u_16(deserializer);
+    var var_data = sse_decode_list_prim_u_8_strict(deserializer);
+    return ManufacturerRecordDto(companyId: var_companyId, data: var_data);
   }
 
   @protected
@@ -12341,6 +12447,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_matchedByNamePrefix = sse_decode_bool(deserializer);
     var var_matchedServiceUuids = sse_decode_list_String(deserializer);
     var var_matchedCompanyIds = sse_decode_list_prim_u_16_strict(deserializer);
+    var var_matchedManufacturerPrefixes =
+        sse_decode_list_manufacturer_prefix_dto(deserializer);
     var var_matchedMacPrefix = sse_decode_opt_box_autoadd_mac_prefix_dto(
       deserializer,
     );
@@ -12359,6 +12467,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       matchedByNamePrefix: var_matchedByNamePrefix,
       matchedServiceUuids: var_matchedServiceUuids,
       matchedCompanyIds: var_matchedCompanyIds,
+      matchedManufacturerPrefixes: var_matchedManufacturerPrefixes,
       matchedMacPrefix: var_matchedMacPrefix,
       matchedServiceTypes: var_matchedServiceTypes,
     );
@@ -12370,11 +12479,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_name = sse_decode_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
+    var var_manufacturerData = sse_decode_list_manufacturer_record_dto(
+      deserializer,
+    );
     var var_macAddress = sse_decode_opt_String(deserializer);
     return ScannedDeviceDto(
       name: var_name,
       serviceUuids: var_serviceUuids,
       companyIds: var_companyIds,
+      manufacturerData: var_manufacturerData,
       macAddress: var_macAddress,
     );
   }
@@ -12569,6 +12682,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_localNames = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
+    var var_manufacturerDataPrefixes = sse_decode_list_manufacturer_prefix_dto(
+      deserializer,
+    );
     var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
     var var_mdnsServiceTypes = sse_decode_list_String(deserializer);
     var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
@@ -12590,6 +12706,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       localNames: var_localNames,
       serviceUuids: var_serviceUuids,
       companyIds: var_companyIds,
+      manufacturerDataPrefixes: var_manufacturerDataPrefixes,
       macPrefixes: var_macPrefixes,
       mdnsServiceTypes: var_mdnsServiceTypes,
       ssdpSearchTargets: var_ssdpSearchTargets,
@@ -13606,6 +13723,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.localNames, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
+    sse_encode_list_manufacturer_prefix_dto(
+      self.manufacturerDataPrefixes,
+      serializer,
+    );
     sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
     sse_encode_list_String(self.mdnsServiceTypes, serializer);
     sse_encode_list_String(self.ssdpSearchTargets, serializer);
@@ -14140,6 +14261,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_mac_prefix_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_manufacturer_prefix_dto(
+    List<ManufacturerPrefixDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_manufacturer_prefix_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_manufacturer_record_dto(
+    List<ManufacturerRecordDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_manufacturer_record_dto(item, serializer);
     }
   }
 
@@ -14713,6 +14858,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.prefix, serializer);
     sse_encode_mac_prefix_confidence(self.confidence, serializer);
+  }
+
+  @protected
+  void sse_encode_manufacturer_prefix_dto(
+    ManufacturerPrefixDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self.companyId, serializer);
+    sse_encode_list_prim_u_8_strict(self.prefix, serializer);
+  }
+
+  @protected
+  void sse_encode_manufacturer_record_dto(
+    ManufacturerRecordDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self.companyId, serializer);
+    sse_encode_list_prim_u_8_strict(self.data, serializer);
   }
 
   @protected
@@ -15568,6 +15733,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.matchedByNamePrefix, serializer);
     sse_encode_list_String(self.matchedServiceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.matchedCompanyIds, serializer);
+    sse_encode_list_manufacturer_prefix_dto(
+      self.matchedManufacturerPrefixes,
+      serializer,
+    );
     sse_encode_opt_box_autoadd_mac_prefix_dto(
       self.matchedMacPrefix,
       serializer,
@@ -15584,6 +15753,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.name, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
+    sse_encode_list_manufacturer_record_dto(self.manufacturerData, serializer);
     sse_encode_opt_String(self.macAddress, serializer);
   }
 
@@ -15730,6 +15900,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.localNames, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
+    sse_encode_list_manufacturer_prefix_dto(
+      self.manufacturerDataPrefixes,
+      serializer,
+    );
     sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
     sse_encode_list_String(self.mdnsServiceTypes, serializer);
     sse_encode_list_String(self.ssdpSearchTargets, serializer);

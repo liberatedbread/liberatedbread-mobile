@@ -389,6 +389,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MacPrefixDto> dco_decode_list_mac_prefix_dto(dynamic raw);
 
   @protected
+  List<ManufacturerPrefixDto> dco_decode_list_manufacturer_prefix_dto(
+    dynamic raw,
+  );
+
+  @protected
+  List<ManufacturerRecordDto> dco_decode_list_manufacturer_record_dto(
+    dynamic raw,
+  );
+
+  @protected
   List<MatchResult> dco_decode_list_match_result(dynamic raw);
 
   @protected
@@ -551,6 +561,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MacPrefixDto dco_decode_mac_prefix_dto(dynamic raw);
+
+  @protected
+  ManufacturerPrefixDto dco_decode_manufacturer_prefix_dto(dynamic raw);
+
+  @protected
+  ManufacturerRecordDto dco_decode_manufacturer_record_dto(dynamic raw);
 
   @protected
   MatchConfidence dco_decode_match_confidence(dynamic raw);
@@ -1348,6 +1364,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<ManufacturerPrefixDto> sse_decode_list_manufacturer_prefix_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ManufacturerRecordDto> sse_decode_list_manufacturer_record_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer);
 
   @protected
@@ -1568,6 +1594,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MacPrefixDto sse_decode_mac_prefix_dto(SseDeserializer deserializer);
+
+  @protected
+  ManufacturerPrefixDto sse_decode_manufacturer_prefix_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ManufacturerRecordDto sse_decode_manufacturer_record_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   MatchConfidence sse_decode_match_confidence(SseDeserializer deserializer);
@@ -2576,6 +2612,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_manufacturer_prefix_dto(
+    List<ManufacturerPrefixDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_manufacturer_record_dto(
+    List<ManufacturerRecordDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_match_result(
     List<MatchResult> self,
     SseSerializer serializer,
@@ -2862,6 +2910,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_mac_prefix_dto(MacPrefixDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_manufacturer_prefix_dto(
+    ManufacturerPrefixDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_manufacturer_record_dto(
+    ManufacturerRecordDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_match_confidence(

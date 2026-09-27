@@ -1621,6 +1621,141 @@ fn every_vendored_spec_reports_the_mdns_types_from_both_blocks() {
     );
 }
 
+/// The one vendored spec that declares a platform company id, and the two
+/// payload prefixes that make the id worth anything: `02 15` + the Smart Lock
+/// command-service UUID for a paired lock, the Opener's for a paired Opener.
+/// Pinned exactly, because a third prefix or a lost one changes which Apple
+/// advertisements in a room are a Nuki.
+#[test]
+fn the_vendored_nuki_identity_carries_exactly_its_two_prefixes() {
+    use liberated_bread_core::api::device_api::{
+        load_device_spec, ManufacturerPrefixDto, SpecIdentityDto,
+    };
+
+    let path = spec_path("nuki-smart-lock.yaml");
+    let yaml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let identity = SpecIdentityDto::from(&load_device_spec(yaml).expect("nuki loads"));
+
+    let beacon = |uuid_byte: u8| ManufacturerPrefixDto {
+        company_id: 76,
+        prefix: vec![
+            0x02, 0x15, 0xa9, uuid_byte, 0xe2, 0x00, 0x55, 0x01, 0x11, 0xe4, 0x91, 0x6c, 0x08,
+            0x00, 0x20, 0x0c, 0x9a, 0x66,
+        ],
+    };
+    assert_eq!(
+        identity.manufacturer_data_prefixes,
+        vec![beacon(0x2e), beacon(0x2a)]
+    );
+    assert_eq!(
+        identity.company_ids,
+        vec![76],
+        "Apple's id is still declared; the prefixes are what narrow it"
+    );
+}
+
+/// Every manufacturer-data pattern the catalogue declares turns into bytes,
+/// and every block declaring one was read. A pattern that fails either way is
+/// a matcher that silently never fires, which is exactly what the Nuki spec
+/// looked like before the discovery block was read at all.
+#[test]
+fn every_vendored_manufacturer_data_pattern_parses() {
+    let mut declared = 0usize;
+    let mut unparseable: Vec<String> = Vec::new();
+    for path in vendored_yaml_paths() {
+        let name = path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let Some(device) = doc.get("device") else {
+            continue;
+        };
+        // The raw count, so a block the typed reader dropped (a company id
+        // written as a string, say) is a failure here rather than a pattern
+        // that quietly went missing.
+        let raw_patterns = device
+            .get("discovery")
+            .and_then(|d| d.get("methods"))
+            .and_then(|m| m.as_sequence())
+            .into_iter()
+            .flatten()
+            .filter(|method| method.get("type").and_then(|t| t.as_str()) == Some("ble_scan"))
+            .filter_map(|method| method.get("ble")?.get("manufacturer_data")?.get("pattern"))
+            .count();
+
+        let spec = parse_device_spec(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let matchers = spec.device.discovery_manufacturer_matchers();
+        let typed_patterns = matchers.iter().filter(|m| m.pattern.is_some()).count();
+        assert_eq!(
+            typed_patterns, raw_patterns,
+            "{name}: {raw_patterns} manufacturer_data pattern(s) declared, {typed_patterns} read"
+        );
+        for matcher in matchers.iter().filter(|m| m.pattern.is_some()) {
+            declared += 1;
+            if matcher.pattern_bytes().is_none() {
+                unparseable.push(format!("  {name}: {:?}", matcher.pattern));
+            }
+        }
+    }
+    assert!(
+        unparseable.is_empty(),
+        "{} declared pattern(s) do not parse as hex bytes:\n{}",
+        unparseable.len(),
+        unparseable.join("\n")
+    );
+    // A floor, not a count: the walk above is vacuous if it found nothing.
+    assert!(
+        declared >= 10,
+        "only {declared} pattern(s) found across the catalogue — did the walk read the right key?"
+    );
+}
+
+/// An advertisement carrying nothing but a platform's company id is every
+/// phone, laptop and earbud in the room. Whatever the catalogue declares —
+/// today, Nuki declares Apple's — no spec may claim one.
+#[test]
+fn a_platform_company_id_alone_claims_nothing_in_the_catalogue() {
+    use liberated_bread_core::api::device_api::{
+        load_device_spec, match_scanned_device, ScannedDeviceDto, SpecIdentityDto,
+    };
+
+    let identities: Vec<SpecIdentityDto> = vendored_yaml_paths()
+        .into_iter()
+        .filter_map(|path| load_device_spec(fs::read_to_string(path).ok()?).ok())
+        .map(|spec| SpecIdentityDto::from(&spec))
+        .collect();
+    assert!(identities.len() > 100, "the catalogue did not load");
+    assert!(
+        identities.iter().any(|i| i.company_ids.contains(&0x004C)),
+        "no vendored spec declares Apple's id any more; this test has nothing to guard"
+    );
+
+    for (platform, id) in [
+        ("Apple", 0x004C),
+        ("Microsoft", 0x0006),
+        ("Google", 0x00E0),
+        ("Samsung", 0x0075),
+    ] {
+        let bare = ScannedDeviceDto {
+            name: String::new(),
+            service_uuids: Vec::new(),
+            company_ids: vec![id],
+            manufacturer_data: Vec::new(),
+            mac_address: None,
+        };
+        let matches = match_scanned_device(identities.clone(), bare);
+        assert!(
+            matches.is_empty(),
+            "{platform}'s company id {id:#06x} alone was claimed by {} spec(s): {:?}",
+            matches.len(),
+            matches.iter().map(|m| &m.device_name).collect::<Vec<_>>()
+        );
+    }
+}
+
 /// The discovery matchers, against the real catalogue: a platform's service
 /// type belongs to whichever spec the device's TXT records name, and to the
 /// catch-all only when none of them does.

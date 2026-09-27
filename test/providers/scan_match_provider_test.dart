@@ -3,6 +3,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart' show Icons;
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
@@ -10,11 +11,31 @@ import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_spec_codec.dart';
+import '../helpers/host_rust_lib.dart';
 
 const _svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
+
+/// Apple's company id, which every Apple device advertises under — and
+/// which the vendored Nuki spec declares, because a paired lock is an iBeacon.
+const _apple = 0x004C;
+
+/// `02 15` + the Nuki Smart Lock command-service UUID: the payload prefix the
+/// Nuki spec declares for a paired lock, as bytes after the company id.
+const _nukiLockPrefix = [
+  0x02, 0x15, 0xa9, 0x2e, 0xe2, 0x00, 0x55, 0x01, 0x11, 0xe4, //
+  0x91, 0x6c, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x66,
+];
+
+/// A whole iBeacon payload: the prefix, then major, minor and TX power.
+const _nukiLockBeacon = [..._nukiLockPrefix, 0x00, 0x01, 0x00, 0x02, 0xc5];
+
+/// What an iPhone actually sends under 0x004C: a Continuity message, not an
+/// iBeacon. Its bytes change by the second.
+const _continuity = [0x10, 0x05, 0x01, 0x18, 0x6a, 0x3d, 0x8f];
 
 final _spec = DeviceSpecDto(
   nameMatchers: const [],
@@ -33,6 +54,37 @@ final _spec = DeviceSpecDto(
   macPrefixes: const [
     MacPrefixDto(prefix: 'C4:7C:8D', confidence: MacPrefixConfidence.medium),
   ],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  defaultPort: null,
+  entities: const <EntityDto>[],
+  services: const [],
+);
+
+/// [_spec] as a beacon-shaped product: Apple's company id, narrowed by the
+/// Nuki lock prefix.
+final _beaconSpec = DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Example Beacon Lock',
+  manufacturer: 'Acme',
+  manufacturerStatus: 'active',
+  protocol: 'ble',
+  category: 'lock',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [],
+  companyIds: Uint16List.fromList(const [_apple]),
+  manufacturerDataPrefixes: [
+    ManufacturerPrefixDto(
+      companyId: _apple,
+      prefix: Uint8List.fromList(_nukiLockPrefix),
+    ),
+  ],
+  macPrefixes: const [],
   mdnsServiceTypes: const [],
   ssdpSearchTargets: const [],
   lanProtocols: const [],
@@ -72,6 +124,7 @@ IoTDevice _device({
   int rssi = -50,
   List<String> serviceUuids = const [],
   List<int> companyIds = const [],
+  Map<int, List<int>> manufacturerData = const {},
   DateTime? discoveredAt,
 }) => IoTDevice(
   id: id,
@@ -81,7 +134,14 @@ IoTDevice _device({
   discoveredAt: discoveredAt ?? DateTime.now(),
   serviceUuids: serviceUuids,
   companyIds: companyIds,
+  manufacturerData: manufacturerData,
 );
+
+/// The catalogue's declared prefixes as the scan screen hands them to
+/// [ScanIdentity.of]: here, just the Nuki lock's under Apple's id.
+final _nukiPrefixes = {
+  _apple: [Uint8List.fromList(_nukiLockPrefix)],
+};
 
 ProviderContainer _container(FakeSpecCodec codec) {
   final c = ProviderContainer(
@@ -95,6 +155,115 @@ ProviderContainer _container(FakeSpecCodec codec) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('ScanIdentity.of', () {
+    test(
+      'keeps a record only as far as the declared prefix it starts with',
+      () {
+        final identity = ScanIdentity.of(
+          _device(
+            companyIds: const [_apple],
+            manufacturerData: const {_apple: _nukiLockBeacon},
+          ),
+          declaredPrefixes: _nukiPrefixes,
+        );
+        expect(identity.manufacturerData, {_apple: _nukiLockPrefix});
+      },
+    );
+
+    test('a reading behind the prefix does not re-key the device', () {
+      // A lock's major/minor are stable, but the point generalises: the
+      // matcher reads whether the payload STARTS with the prefix, so bytes
+      // after it are not identity, and keying on them would re-run matching
+      // — and blank the badge while it ran — on every advertisement.
+      final a = ScanIdentity.of(
+        _device(
+          companyIds: const [_apple],
+          manufacturerData: const {
+            _apple: [..._nukiLockPrefix, 0x00, 0x01, 0x00, 0x02, 0xc5],
+          },
+        ),
+        declaredPrefixes: _nukiPrefixes,
+      );
+      final b = ScanIdentity.of(
+        _device(
+          companyIds: const [_apple],
+          manufacturerData: const {
+            _apple: [..._nukiLockPrefix, 0x00, 0x07, 0x00, 0x09, 0xb0],
+          },
+        ),
+        declaredPrefixes: _nukiPrefixes,
+      );
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('a record that matches no declared prefix is not identity', () {
+      // An iPhone's Continuity bytes change by the second. Kept, they would
+      // re-key the row on every packet; dropped, the device keys exactly as
+      // it did when only its company id was read.
+      final continuity = ScanIdentity.of(
+        _device(
+          companyIds: const [_apple],
+          manufacturerData: const {_apple: _continuity},
+        ),
+        declaredPrefixes: _nukiPrefixes,
+      );
+      final bare = ScanIdentity.of(_device(companyIds: const [_apple]));
+      expect(continuity.manufacturerData, isEmpty);
+      expect(continuity, bare);
+      expect(continuity.hashCode, bare.hashCode);
+    });
+
+    test('a beacon and a non-beacon under the same id are different', () {
+      // The other half of the cache key: nameless iBeacon and nameless
+      // AirPods, both 0x004C and (on iOS) no address, must not share a
+      // cached guess.
+      final lock = ScanIdentity.of(
+        _device(
+          name: '',
+          companyIds: const [_apple],
+          manufacturerData: const {_apple: _nukiLockBeacon},
+        ),
+        declaredPrefixes: _nukiPrefixes,
+      );
+      final airpods = ScanIdentity.of(
+        _device(
+          name: '',
+          companyIds: const [_apple],
+          manufacturerData: const {_apple: _continuity},
+        ),
+        declaredPrefixes: _nukiPrefixes,
+      );
+      expect(lock, isNot(airpods));
+    });
+
+    test('with no catalogue in hand, payloads are not read', () {
+      final identity = ScanIdentity.of(
+        _device(
+          companyIds: const [_apple],
+          manufacturerData: const {_apple: _nukiLockBeacon},
+        ),
+      );
+      expect(identity.manufacturerData, isEmpty);
+    });
+  });
+
+  group('declaredManufacturerPrefixesProvider', () {
+    test('indexes every identity prefix by company id', () async {
+      final c = _container(FakeSpecCodec(spec: _beaconSpec));
+
+      // Empty until the identities have loaded; keyed once they have.
+      expect(c.read(declaredManufacturerPrefixesProvider), isEmpty);
+      await c.read(specIdentitiesProvider.future);
+
+      final declared = c.read(declaredManufacturerPrefixesProvider);
+      expect(declared.keys, [_apple]);
+      expect(declared[_apple], [_nukiLockPrefix]);
+    });
+  });
+
   group('specIdentitiesProvider', () {
     test('projects the identifying fields of every parsed spec', () async {
       final c = _container(FakeSpecCodec(spec: _spec));
@@ -193,7 +362,33 @@ void main() {
       expect(asked.name, 'ACME_Living_Room');
       expect(asked.serviceUuids, const [_svcUuid]);
       expect(asked.companyIds, const [961]);
+      expect(asked.manufacturerData, isEmpty);
       expect(asked.macAddress, 'AA:BB:CC:DD:EE:01');
+    });
+
+    test('passes the declared manufacturer data through as records', () async {
+      // The Rust matcher reads the payload as (company id, bytes after it),
+      // the same origin the catalogue's patterns are written against.
+      final codec = FakeSpecCodec(spec: _spec, scanMatches: (_) => []);
+      final c = _container(codec);
+
+      await c.read(
+        scanGuessProvider(
+          ScanIdentity.of(
+            _device(
+              companyIds: const [_apple],
+              manufacturerData: const {_apple: _nukiLockBeacon},
+            ),
+            declaredPrefixes: _nukiPrefixes,
+          ),
+        ).future,
+      );
+
+      final asked = codec.scanMatchCalls.single;
+      expect(asked.companyIds, const [_apple]);
+      expect(asked.manufacturerData, hasLength(1));
+      expect(asked.manufacturerData.single.companyId, _apple);
+      expect(asked.manufacturerData.single.data, _nukiLockPrefix);
     });
 
     test(
@@ -253,6 +448,79 @@ void main() {
       );
 
       expect(guess, isNull);
+    });
+  });
+
+  group('scanGuessProvider against the vendored Nuki spec', () {
+    // The bug as seen on an iPhone: every AirPods, iPad and Mac in the room
+    // badged "Likely Nuki Smart Lock", because the spec declares Apple's
+    // company id and every Apple advertisement carries it. Through the real
+    // codec and the real spec, so the whole path — identity projection,
+    // record marshalling, Rust matcher — is what is under test.
+    late final bool rustReady;
+    late final String nukiYaml;
+
+    setUpAll(() async {
+      rustReady = await initHostRustLib();
+      nukiYaml = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/devices/nuki-smart-lock.yaml',
+      );
+    });
+
+    Future<ScanGuess?> guessFor(IoTDevice device) async {
+      final c = ProviderContainer(
+        overrides: [
+          specCodecProvider.overrideWithValue(RealSpecCodec()),
+          deviceSpecsProvider.overrideWith(
+            (ref) => {'nuki-smart-lock.yaml': nukiYaml},
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      // The scan screen keys a row with the catalogue's prefixes once the
+      // identities have loaded; do the same.
+      await c.read(specIdentitiesProvider.future);
+      final declared = c.read(declaredManufacturerPrefixesProvider);
+      return c.read(
+        scanGuessProvider(
+          ScanIdentity.of(device, declaredPrefixes: declared),
+        ).future,
+      );
+    }
+
+    test(
+      'an Apple device carrying only the company id is not a Nuki',
+      () async {
+        if (!rustReady) {
+          markTestSkipped('Rust lib not loaded');
+          return;
+        }
+        final guess = await guessFor(
+          _device(
+            name: '',
+            companyIds: const [_apple],
+            manufacturerData: const {_apple: _continuity},
+          ),
+        );
+        expect(guess, isNull);
+      },
+    );
+
+    test('a paired lock\'s iBeacon is a Strong Nuki', () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      final guess = await guessFor(
+        _device(
+          name: '',
+          companyIds: const [_apple],
+          manufacturerData: const {_apple: _nukiLockBeacon},
+        ),
+      );
+      expect(guess, isNotNull);
+      expect(guess!.confidence, MatchConfidence.strong);
+      expect(guess.label, 'Nuki Smart Lock');
     });
   });
 

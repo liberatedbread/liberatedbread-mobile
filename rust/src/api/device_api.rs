@@ -82,6 +82,9 @@ impl From<&SafetyAdvisory> for SafetyAdvisoryDto {
 }
 
 /// A parsed device specification, ready for use by the Flutter app.
+// `#[frb]` on the struct is what lets the field-level `frb(default)` below
+// exist: the attribute macro strips its own field attributes.
+#[frb]
 #[derive(Debug, Clone)]
 pub struct DeviceSpecDto {
     pub device_name: String,
@@ -134,6 +137,14 @@ pub struct DeviceSpecDto {
     /// manufacturer-specific data, primary first. Empty when the spec declares
     /// none.
     pub company_ids: Vec<u16>,
+    /// Manufacturer-data payload prefixes from the `discovery` block, one per
+    /// company id each matcher covers. What narrows a company id a whole
+    /// platform advertises under to this product; see
+    /// [`ManufacturerPrefixDto`]. Empty when the spec declares none.
+    /// Defaulted on the Dart side so the fixtures that build a spec by hand
+    /// need not name it.
+    #[frb(default = "const []")]
+    pub manufacturer_data_prefixes: Vec<ManufacturerPrefixDto>,
     /// IEEE OUI prefixes seen on this device's MAC address, e.g. `C4:7C:8D`.
     /// Empty when the spec declares none. See [`MatchConfidence`] for why these
     /// only ever rank a device rather than identify one, and
@@ -723,7 +734,33 @@ impl From<&MacPrefix> for MacPrefixDto {
     }
 }
 
+/// One manufacturer-specific record (AD type 0xFF) from an advertisement: the
+/// company id and the payload AFTER it. That origin — not the whole AD value —
+/// is how every stack this app reads reports a record (BlueZ keys
+/// `ManufacturerData` by company id, flutter_blue_plus likewise, and Dart's
+/// `IoTDevice.manufacturerData` carries exactly that), and it is the origin
+/// the catalogue's patterns are written against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManufacturerRecordDto {
+    pub company_id: u16,
+    pub data: Vec<u8>,
+}
+
+/// One payload prefix a spec's discovery block declares under a company id,
+/// parsed from its hex. The evidence that turns a company id anyone may
+/// advertise into a claim about one product: 0x004C is every Apple device and
+/// every iBeacon of any make, but 0x004C whose payload starts `02 15` + the
+/// Nuki command-service UUID is a paired Nuki and nothing else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManufacturerPrefixDto {
+    pub company_id: u16,
+    pub prefix: Vec<u8>,
+}
+
 /// What a scanner saw about one device, before connecting to it.
+// `#[frb]` on the struct is what lets the field-level `frb(default)` below
+// exist: the attribute macro strips its own field attributes.
+#[frb]
 #[derive(Debug, Clone)]
 pub struct ScannedDeviceDto {
     /// Advertised local name. Empty when the device advertises none.
@@ -734,6 +771,17 @@ pub struct ScannedDeviceDto {
     /// Company IDs from the manufacturer-specific data (AD type 0xFF). A
     /// device may advertise several records.
     pub company_ids: Vec<u16>,
+    /// The manufacturer-specific records themselves, payload after the
+    /// company id, for the specs whose evidence is the payload's SHAPE rather
+    /// than the id it rides under — a paired Nuki is an iBeacon (Apple's id)
+    /// whose proximity UUID is the Nuki command service, and the id alone is
+    /// every Apple device in the room. Read only for those declared prefixes:
+    /// a record here does not stand in for its id in `company_ids`, which the
+    /// caller still fills. Defaulted on the Dart side because the callers
+    /// with no advertisement in hand — the post-connect matchers, a saved
+    /// device looked up by name — are the majority.
+    #[frb(default = "const []")]
+    pub manufacturer_data: Vec<ManufacturerRecordDto>,
     /// The hardware address, when the platform reports one.
     ///
     /// `None` on Apple platforms: CoreBluetooth substitutes a per-host UUID for
@@ -792,6 +840,9 @@ pub struct NetworkDeviceDto {
 /// Exists so the scan path can ask about the whole catalogue on every newly
 /// seen device without pushing the full catalogue across the FFI boundary each
 /// time. Dart builds these once from its parsed specs and reuses them.
+// `#[frb]` on the struct is what lets the field-level `frb(default)` below
+// exist: the attribute macro strips its own field attributes.
+#[frb]
 #[derive(Debug, Clone)]
 pub struct SpecIdentityDto {
     pub device_name: String,
@@ -826,6 +877,12 @@ pub struct SpecIdentityDto {
     pub local_names: Vec<String>,
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
+    /// [`DeviceSpecDto::manufacturer_data_prefixes`]: the payload shapes that
+    /// make a company id evidence. Without them here the scan path had only
+    /// the id, and a spec declaring Apple's id (Nuki, whose paired lock is an
+    /// iBeacon) claimed every Apple device in the room.
+    #[frb(default = "const []")]
+    pub manufacturer_data_prefixes: Vec<ManufacturerPrefixDto>,
     pub mac_prefixes: Vec<MacPrefixDto>,
     /// Every mDNS service type this spec claims, for the Wi-Fi scan path.
     /// Empty on a BLE-only spec. Plural because the schema states a type in
@@ -866,6 +923,9 @@ pub struct SpecIdentityDto {
 }
 
 /// One spec that a scanned device might be, and why we think so.
+// `#[frb]` on the struct is what lets the field-level `frb(default)` below
+// exist: the attribute macro strips its own field attributes.
+#[frb]
 #[derive(Debug, Clone)]
 pub struct ScanMatch {
     /// Position of the matched identity in the list that was passed in, so the
@@ -897,7 +957,17 @@ pub struct ScanMatch {
     pub matched_by_name_prefix: bool,
     /// Matched advertised service UUIDs, lowercased.
     pub matched_service_uuids: Vec<String>,
+    /// Every declared company id the device advertised — including the
+    /// platform ids (`is_platform_company_id`) that were matched, reported,
+    /// and counted for nothing. A user asking why a device was flagged wants
+    /// the whole list; only the confidence verdict tells the ids apart.
     pub matched_company_ids: Vec<u16>,
+    /// The declared payload prefixes the device's manufacturer data started
+    /// with, under the matching company id. Strong evidence: the spec named
+    /// a payload shape and it held. Defaulted on the Dart side so the fixtures
+    /// that build a match by hand need not name it.
+    #[frb(default = "const []")]
+    pub matched_manufacturer_prefixes: Vec<ManufacturerPrefixDto>,
     /// The spec MAC prefix that the device's address starts with, as the spec
     /// wrote it, with the spec's verdict on how much that block is worth.
     /// `None` when the address did not match (or was not available).
@@ -1061,6 +1131,7 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             local_names: spec.local_names.clone(),
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
+            manufacturer_data_prefixes: spec.manufacturer_data_prefixes.clone(),
             mac_prefixes: spec.mac_prefixes.clone(),
             mdns_service_types: spec.mdns_service_types.clone(),
             ssdp_search_targets: spec.ssdp_search_targets.clone(),
@@ -1153,6 +1224,12 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
             company_ids: ident.map(Identification::company_ids).unwrap_or_default(),
+            manufacturer_data_prefixes: spec
+                .device
+                .discovery_manufacturer_prefixes()
+                .into_iter()
+                .map(|(company_id, prefix)| ManufacturerPrefixDto { company_id, prefix })
+                .collect(),
             mac_prefixes: ident
                 .and_then(|i| i.mac_prefixes.as_ref())
                 .map(|prefixes| prefixes.iter().map(MacPrefixDto::from).collect())
@@ -3965,8 +4042,18 @@ struct MatchAxes {
     /// A weaker signal than a narrowed match (it names the platform, not the
     /// product), so it promotes only to Likely.
     platform_fallback_match: bool,
+    /// Strong tier: a manufacturer-data payload whose leading bytes are the
+    /// shape the spec declared under that company id. Proof-shaped for the
+    /// same reason a vendor UUID is — the spec named a payload and it held —
+    /// and the only thing that lets a platform id below count for anything.
+    manufacturer_prefixes: Vec<ManufacturerPrefixDto>,
     /// Likely tier.
     company_ids: Vec<u16>,
+    /// The manufacturer-data counterpart of
+    /// [`shared_service_uuids`](Self::shared_service_uuids): ids
+    /// [`is_platform_company_id`] names, which a whole platform's hardware
+    /// advertises under. Reported, never admitting, never promoting.
+    shared_company_ids: Vec<u16>,
     /// Identifies a vendor, not a product — except where the spec says
     /// otherwise. Worth what its [`MacPrefixConfidence`] says it is.
     mac_prefix: Option<MacPrefixDto>,
@@ -3993,6 +4080,9 @@ impl MatchAxes {
             // ...or where the spec is the deliberate catch-all for it and no
             // product claimed it more specifically. See [`platform_fallback_match`].
             && !self.platform_fallback_match
+            && self.manufacturer_prefixes.is_empty()
+            // `shared_company_ids` is deliberately absent, as
+            // `shared_service_uuids` is: a platform id admits nothing.
             && self.company_ids.is_empty()
             && self.mac_prefix.is_none()
     }
@@ -4011,6 +4101,14 @@ impl MatchAxes {
     fn all_service_uuids(&self) -> Vec<String> {
         let mut all = self.service_uuids.clone();
         all.extend(self.shared_service_uuids.iter().cloned());
+        all
+    }
+
+    /// The same, for company ids: the diagnostics keep showing a matched
+    /// platform id, it just no longer counts.
+    fn all_company_ids(&self) -> Vec<u16> {
+        let mut all = self.company_ids.clone();
+        all.extend(self.shared_company_ids.iter().copied());
         all
     }
 
@@ -4041,12 +4139,16 @@ impl MatchAxes {
     ///   one says what the device does and nothing about who built it);
     /// - a shared service type or search target (`upnp:rootdevice` is answered
     ///   by every router, printer and NAS on the link);
+    /// - a platform company id (0x004C is in every advertisement every Apple
+    ///   device sends, so "the name matched AND the company id matched" is
+    ///   the name matching on an iPhone).
     ///
     /// A default port does not appear at all — not because it cannot promote,
     /// but because it is not an axis; see the note on [`MatchAxes`].
     fn agreeing(&self) -> usize {
         usize::from(self.by_name_prefix)
             + usize::from(!self.service_uuids.is_empty())
+            + usize::from(!self.manufacturer_prefixes.is_empty())
             + usize::from(!self.service_types.is_empty())
             // A shared type the spec EARNED by narrowing it counts, and counts
             // here rather than in `service_types` so the two stay
@@ -4071,6 +4173,12 @@ impl MatchAxes {
         // thermometer on the market exposes, and matching it was reporting each
         // of them as a Strong "Xiaomi LYWSD03MMC".
         if !self.service_uuids.is_empty()
+            // A declared payload shape that held is the manufacturer-data
+            // form of a vendor UUID. It is also the ONLY route by which a
+            // platform company id promotes: through the prefix, never through
+            // the id, which `shared_company_ids` keeps out of every branch
+            // below.
+            || !self.manufacturer_prefixes.is_empty()
             || !self.service_types.is_empty()
             // A narrowed shared type is proof-shaped for the same reason a
             // vendor type is: the spec named conditions, and they held. An
@@ -4392,11 +4500,41 @@ fn match_axes(
         }
     }
 
-    let company_ids: Vec<u16> = identity
+    // Split as they are collected, like the UUIDs above: a company id a whole
+    // platform advertises under says nothing about who made the device, so
+    // it belongs in the report and nowhere near the verdict. Before the split
+    // Nuki's declared 0x004C made every Apple device in the room a "Likely
+    // Nuki Smart Lock".
+    let mut company_ids: Vec<u16> = Vec::new();
+    let mut shared_company_ids: Vec<u16> = Vec::new();
+    for id in identity
         .company_ids
         .iter()
         .copied()
         .filter(|id| device.company_ids.contains(id))
+    {
+        if is_platform_company_id(id) {
+            shared_company_ids.push(id);
+        } else {
+            company_ids.push(id);
+        }
+    }
+
+    // A declared payload shape the device's record under that company id
+    // starts with. Compared on the record's own company id rather than on
+    // `device.company_ids`, so a caller that filled only the records still
+    // gets the evidence — and one that filled only the ids gets none, which
+    // is right: the ids are not the bytes.
+    let manufacturer_prefixes: Vec<ManufacturerPrefixDto> = identity
+        .manufacturer_data_prefixes
+        .iter()
+        .filter(|declared| {
+            device.manufacturer_data.iter().any(|record| {
+                record.company_id == declared.company_id
+                    && record.data.starts_with(&declared.prefix)
+            })
+        })
+        .cloned()
         .collect();
 
     let mac_prefix = best_mac_prefix(&identity.mac_prefixes, device_mac);
@@ -4405,7 +4543,9 @@ fn match_axes(
         by_name_prefix,
         service_uuids,
         shared_service_uuids,
+        manufacturer_prefixes,
         company_ids,
+        shared_company_ids,
         mac_prefix,
         ..MatchAxes::default()
     }
@@ -4725,6 +4865,41 @@ fn is_shared_service_type(normalized: &str) -> bool {
     )
 }
 
+/// Whether a Bluetooth SIG company identifier is one a whole platform's
+/// hardware advertises under, rather than one vendor's product line.
+///
+/// The manufacturer-data counterpart of [`is_shared_service_type`]. The
+/// registries' own verdict on a company id already applies to every one of
+/// them — it says which company REGISTERED an identifier, not which built the
+/// thing in front of you; treat it as a way to rank and label, never as proof,
+/// and never as grounds for telling someone which product they are looking at
+/// (`registries/SOURCES.md`, "What a company ID is worth"). These four are
+/// where that caution stops being a caution and becomes a certainty, because
+/// the id is on the air from hardware the spec's vendor never made:
+///
+/// - 0x004C Apple: iBeacon and Continuity, in every advertisement from every
+///   iPhone, iPad, Mac, Watch and AirPods — and from every iBeacon of any
+///   brand, since the iBeacon format is Apple's and rides its id. Nuki declares
+///   it because a paired lock IS an iBeacon, and on the id alone every Apple
+///   device in the room was badged "Likely Nuki Smart Lock".
+/// - 0x0006 Microsoft: Swift Pair, from every Windows machine.
+/// - 0x00E0 Google: Fast Pair and Nearby, from every Android phone.
+/// - 0x0075 Samsung: every Galaxy phone, tablet and watch.
+///
+/// A spec declaring one of these is describing an advertisement FORMAT its
+/// device borrows, and the evidence is the payload shape that format carries:
+/// the discovery block's manufacturer-data prefix, matched into
+/// [`MatchAxes::manufacturer_prefixes`]. The id itself is matched into
+/// [`MatchAxes::shared_company_ids`], where it is reported and neither admits
+/// nor promotes.
+///
+/// A fixed list, for the reason [`is_shared_service_type`] gives: the
+/// generic-ness is a property of the platform, not of any one spec, so it
+/// should not be restated (or forgotten) per spec.
+fn is_platform_company_id(id: u16) -> bool {
+    matches!(id, 0x004C | 0x0006 | 0x00E0 | 0x0075)
+}
+
 /// Find every spec matching a device we are already talking to, with the
 /// reasons it matched.
 ///
@@ -4748,9 +4923,10 @@ pub fn match_device_to_spec(
     let device = ScannedDeviceDto {
         name: device_name,
         service_uuids: advertised_service_uuids,
-        // Neither is observable on this path — it runs against a connected
-        // device, where the advertisement is long gone.
+        // None of these is observable on this path — it runs against a
+        // connected device, where the advertisement is long gone.
         company_ids: Vec::new(),
+        manufacturer_data: Vec::new(),
         mac_address: None,
     };
     specs
@@ -4848,8 +5024,9 @@ pub fn match_network_device(
 
 /// The shared tail of both scan matchers: run the axes function over the
 /// catalogue, keep what matched, and sort best-first — confidence, then how
-/// many volunteered identifiers (service UUIDs on BLE, service types on the
-/// network; each path only ever populates its own) agreed, then spec order so
+/// many volunteered identifiers (service UUIDs and declared payload prefixes
+/// on BLE, service types on the network; each path only ever populates its
+/// own) agreed, then spec order so
 /// the result is stable for a given catalogue rather than depending on sort
 /// implementation details.
 fn rank_matches(
@@ -4864,6 +5041,7 @@ fn rank_matches(
             // Built before the struct moves the axes apart.
             let matched_service_types = axes.all_service_types();
             let matched_service_uuids = axes.all_service_uuids();
+            let matched_company_ids = axes.all_company_ids();
             (!axes.is_empty()).then(|| ScanMatch {
                 spec_index: index as u32,
                 device_name: identity.device_name.clone(),
@@ -4877,7 +5055,8 @@ fn rank_matches(
                 confidence: axes.confidence(),
                 matched_by_name_prefix: axes.by_name_prefix,
                 matched_service_uuids,
-                matched_company_ids: axes.company_ids,
+                matched_company_ids,
+                matched_manufacturer_prefixes: axes.manufacturer_prefixes,
                 matched_mac_prefix: axes.mac_prefix,
                 matched_service_types,
             })
@@ -4885,8 +5064,11 @@ fn rank_matches(
         .collect();
 
     matches.sort_by(|a, b| {
-        let volunteered =
-            |m: &ScanMatch| m.matched_service_uuids.len() + m.matched_service_types.len();
+        let volunteered = |m: &ScanMatch| {
+            m.matched_service_uuids.len()
+                + m.matched_manufacturer_prefixes.len()
+                + m.matched_service_types.len()
+        };
         b.confidence
             .cmp(&a.confidence)
             .then(volunteered(b).cmp(&volunteered(a)))
@@ -7491,6 +7673,7 @@ commands:
             name: "Anonymous".into(),
             service_uuids: vec![],
             company_ids: vec![],
+            manufacturer_data: vec![],
             mac_address: None,
         }
     }
@@ -7725,6 +7908,246 @@ commands:
         assert_eq!(matches[0].matched_company_ids, vec![89]);
     }
 
+    /// The vendored Nuki spec, verbatim: the one spec that declares Apple's
+    /// company id, because a paired lock advertises as an iBeacon.
+    const NUKI_YAML: &str =
+        include_str!("../../../vendor/protocol-specs/device-specs/devices/nuki-smart-lock.yaml");
+
+    fn nuki_identity() -> SpecIdentityDto {
+        SpecIdentityDto::from(&load_device_spec(NUKI_YAML.into()).unwrap())
+    }
+
+    /// `02 15` + the Smart Lock command-service UUID: the payload prefix the
+    /// spec's discovery block declares for a paired lock.
+    const NUKI_LOCK_PREFIX: [u8; 18] = [
+        0x02, 0x15, 0xa9, 0x2e, 0xe2, 0x00, 0x55, 0x01, 0x11, 0xe4, 0x91, 0x6c, 0x08, 0x00, 0x20,
+        0x0c, 0x9a, 0x66,
+    ];
+
+    /// An iBeacon payload as it sits after Apple's company id: the 18-byte
+    /// header + proximity UUID, then major, minor and calibrated TX power.
+    fn ibeacon(prefix: &[u8]) -> Vec<u8> {
+        let mut payload = prefix.to_vec();
+        payload.extend_from_slice(&[0x00, 0x01, 0x00, 0x02, 0xc5]);
+        payload
+    }
+
+    fn apple_record(payload: Vec<u8>) -> ScannedDeviceDto {
+        ScannedDeviceDto {
+            company_ids: vec![0x004C],
+            manufacturer_data: vec![ManufacturerRecordDto {
+                company_id: 0x004C,
+                data: payload,
+            }],
+            ..anonymous_device()
+        }
+    }
+
+    #[test]
+    fn a_platform_company_id_alone_admits_nothing() {
+        // The bug as seen on an iPhone: AirPods, iPads and Macs all badged
+        // "Likely Nuki Smart Lock", because every Apple advertisement carries
+        // 0x004C and the spec declares it. The id is in the report when
+        // something else admits the match; on its own it is not a match.
+        let device = ScannedDeviceDto {
+            company_ids: vec![0x004C],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![nuki_identity()], device);
+        assert!(
+            matches.is_empty(),
+            "Apple's company id alone claimed {:?}",
+            matches.iter().map(|m| &m.device_name).collect::<Vec<_>>()
+        );
+
+        // A Continuity payload — what an iPhone actually sends under 0x004C —
+        // is still not an iBeacon, so the records change nothing.
+        let continuity = apple_record(vec![0x10, 0x05, 0x01, 0x18, 0x6a, 0x3d, 0x8f]);
+        assert!(match_scanned_device(vec![nuki_identity()], continuity).is_empty());
+    }
+
+    #[test]
+    fn a_declared_manufacturer_prefix_is_strong() {
+        // A paired Smart Lock: Apple's id, and a payload whose proximity UUID
+        // is the Nuki command service. The prefix is the evidence; the id is
+        // reported alongside it but is not what promoted the match.
+        let device = apple_record(ibeacon(&NUKI_LOCK_PREFIX));
+        let matches = match_scanned_device(vec![nuki_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].device_name, "Nuki Smart Lock");
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(
+            matches[0].matched_manufacturer_prefixes,
+            vec![ManufacturerPrefixDto {
+                company_id: 0x004C,
+                prefix: NUKI_LOCK_PREFIX.to_vec(),
+            }]
+        );
+        assert_eq!(
+            matches[0].matched_company_ids,
+            vec![0x004C],
+            "the platform id stays in the diagnostics"
+        );
+        assert!(!matches[0].matched_by_name_prefix);
+        assert!(matches[0].matched_service_uuids.is_empty());
+    }
+
+    #[test]
+    fn an_ibeacon_with_another_proximity_uuid_is_not_a_nuki() {
+        // Same format, same company id, a different beacon: a shop's Estimote
+        // or a museum guide. Only the proximity UUID makes it a Nuki.
+        let mut other = NUKI_LOCK_PREFIX;
+        other[10] ^= 0xff;
+        let device = apple_record(ibeacon(&other));
+        assert!(match_scanned_device(vec![nuki_identity()], device).is_empty());
+
+        // And a payload that is shorter than the prefix is not a partial hit.
+        let short = apple_record(NUKI_LOCK_PREFIX[..17].to_vec());
+        assert!(match_scanned_device(vec![nuki_identity()], short).is_empty());
+    }
+
+    #[test]
+    fn a_platform_company_id_is_reported_but_never_promotes() {
+        // A spec that declares Apple's id next to a name prefix: the name
+        // alone is Likely, and the name plus the id is STILL Likely — two
+        // axes did not agree, because the id is not an axis. Before this,
+        // "TEST_" on an iPhone would have been a Strong match.
+        let mut identity = scan_identity();
+        identity.company_ids = vec![0x004C];
+        let device = ScannedDeviceDto {
+            name: "TEST_Kitchen".into(),
+            company_ids: vec![0x004C],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![identity], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+        assert!(matches[0].matched_by_name_prefix);
+        assert_eq!(
+            matches[0].matched_company_ids,
+            vec![0x004C],
+            "reported, so the diagnostics still say what was seen"
+        );
+    }
+
+    #[test]
+    fn the_platform_company_ids_are_the_four_platforms() {
+        for id in [0x004C, 0x0006, 0x00E0, 0x0075] {
+            assert!(is_platform_company_id(id), "{id:#06x}");
+        }
+        // Ember, and the id the scan fixture declares: product lines, whose
+        // id is still Likely on its own (see `company_id_alone_is_likely`).
+        for id in [89, 961, 0xFFFF, 21076] {
+            assert!(!is_platform_company_id(id), "{id:#06x}");
+        }
+    }
+
+    #[test]
+    fn a_prefix_covers_every_company_id_its_matcher_names() {
+        // emazinglights-spectra's shape: a vendor id with Apple's as an
+        // additional, and one "HUB1" prefix under both. The exact and masked
+        // matchers are not prefixes and must not be read as one; a pattern
+        // that is not hex is dropped rather than matched on nothing.
+        const YAML: &str = r#"
+device:
+  name: "Prefix Family"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 17740
+            additional_company_ids: [76, 17740]
+            match: "prefix"
+            pattern: "48:55:42:31"
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 220
+            match: "masked"
+            pattern: "0061"
+            mask: "00FF"
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 300
+            match: "exact"
+            pattern: "0102"
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 301
+            pattern: "0x0102"
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 302
+            pattern: "abc"
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 2234
+            match: "prefix"
+"#;
+        let identity = SpecIdentityDto::from(&load_device_spec(YAML.into()).unwrap());
+        let hub1 = b"HUB1".to_vec();
+        assert_eq!(
+            identity.manufacturer_data_prefixes,
+            vec![
+                ManufacturerPrefixDto {
+                    company_id: 17740,
+                    prefix: hub1.clone(),
+                },
+                ManufacturerPrefixDto {
+                    company_id: 76,
+                    prefix: hub1.clone(),
+                },
+            ]
+        );
+
+        // Under Apple's id the prefix promotes and the id does not: the
+        // same bytes under an id the spec never named are nothing.
+        let device = ScannedDeviceDto {
+            company_ids: vec![76],
+            manufacturer_data: vec![ManufacturerRecordDto {
+                company_id: 76,
+                data: b"HUB1\x01\x02".to_vec(),
+            }],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![identity.clone()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        let stranger = ScannedDeviceDto {
+            company_ids: vec![961],
+            manufacturer_data: vec![ManufacturerRecordDto {
+                company_id: 961,
+                data: b"HUB1\x01\x02".to_vec(),
+            }],
+            ..anonymous_device()
+        };
+        assert!(match_scanned_device(vec![identity], stranger).is_empty());
+    }
+
+    #[test]
+    fn hex_patterns_parse_in_the_spellings_a_catalogue_reaches_for() {
+        use crate::spec::types::parse_hex_bytes;
+        let bytes = Some(vec![0x02, 0x15, 0xa9, 0x2e]);
+        assert_eq!(parse_hex_bytes("0215a92e"), bytes);
+        assert_eq!(parse_hex_bytes("0215A92E"), bytes);
+        assert_eq!(parse_hex_bytes("02:15:a9:2e"), bytes);
+        assert_eq!(parse_hex_bytes("02-15-A9-2E"), bytes);
+        assert_eq!(parse_hex_bytes("02 15 a9 2e"), bytes);
+        // Not whole bytes, not hex, or nothing at all — an empty prefix would
+        // match every record under its company id.
+        for bad in ["", "abc", "0x0215", "zz", ":"] {
+            assert_eq!(parse_hex_bytes(bad), None, "{bad:?}");
+        }
+    }
+
     #[test]
     fn mac_prefix_alone_is_only_possible() {
         // The whole point of the weakest tier: an OUI is a vendor, not a
@@ -7877,6 +8300,7 @@ commands:
             name: "TEST_Kitchen".into(),
             service_uuids: vec!["0000fff0-0000-1000-8000-00805f9b34fb".into()],
             company_ids: vec![],
+            manufacturer_data: vec![],
             mac_address: Some("c4:7c:8d:11:22:33".into()),
         };
         // Weak is passed FIRST, so ordering can only come from confidence.

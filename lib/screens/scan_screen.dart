@@ -904,10 +904,18 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     // again. A guess that has not resolved yet reads as "no guess", so a row
     // appears immediately and gains its badge a frame later rather than the
     // whole list waiting on the catalogue.
+    // Which manufacturer-data bytes count as identity is the catalogue's
+    // call, not the row's — see ScanIdentity.of.
+    final declaredPrefixes = ref.watch(declaredManufacturerPrefixesProvider);
     final ranked = rankScannedDevices(
       others,
-      (device) =>
-          ref.watch(scanGuessProvider(ScanIdentity.of(device))).valueOrNull,
+      (device) => ref
+          .watch(
+            scanGuessProvider(
+              ScanIdentity.of(device, declaredPrefixes: declaredPrefixes),
+            ),
+          )
+          .valueOrNull,
       isStale: (device) => _deviceManager.isStale(device, now),
     );
     final scheme = Theme.of(context).colorScheme;

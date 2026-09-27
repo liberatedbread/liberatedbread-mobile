@@ -1206,6 +1206,82 @@ pub struct NameMatch {
     pub values: Option<Vec<String>>,
 }
 
+/// A `discovery.methods[].ble.manufacturer_data` matcher: the shape of the
+/// manufacturer-specific payload a device advertises under a company id.
+///
+/// `pattern` is hex over the PAYLOAD — the bytes after the two little-endian
+/// company-id bytes, which is how every stack this app reads reports a record
+/// (BlueZ keys `ManufacturerData` by company id, flutter_blue_plus likewise,
+/// and [`ResolutionAdvertisement`] indexes from the same origin). The schema
+/// states the origin because the catalogue once measured it from both, and
+/// the four specs squatting company id 21076 differ in nothing but the two
+/// bytes after it: a reader counting from the wrong end matches all four or
+/// none.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ManufacturerDataMatch {
+    pub company_id: u16,
+    /// Further ids this matcher accepts as equivalent to `company_id` —
+    /// alternatives, as in the identification block.
+    #[serde(default)]
+    pub additional_company_ids: Option<Vec<u16>>,
+    /// `prefix` (default) | `exact` | `masked`. Kept verbatim: a spelling
+    /// this build does not know is never treated as the looser `prefix`.
+    #[serde(rename = "match", default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub pattern: Option<String>,
+    #[serde(default)]
+    pub mask: Option<String>,
+}
+
+impl ManufacturerDataMatch {
+    /// Every company id this matcher covers, primary first, deduplicated in
+    /// declaration order.
+    pub fn company_ids(&self) -> Vec<u16> {
+        let mut ids = vec![self.company_id];
+        for id in self.additional_company_ids.iter().flatten().copied() {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
+
+    /// Whether this matcher compares the START of the payload — the schema's
+    /// default when `match` is absent, and the only comparison the matcher
+    /// makes today.
+    pub fn is_prefix(&self) -> bool {
+        self.kind.as_deref().is_none_or(|kind| kind == "prefix")
+    }
+
+    /// The declared `pattern` as bytes, or `None` when the matcher declares
+    /// none, or declares one that is not whole bytes of hex.
+    pub fn pattern_bytes(&self) -> Option<Vec<u8>> {
+        parse_hex_bytes(self.pattern.as_deref()?)
+    }
+}
+
+/// Hex text to bytes, or `None` when it is not a whole number of bytes of hex.
+///
+/// Tolerates the spellings a hand-written catalogue reaches for — either
+/// case, and `:`, `-` or a space between bytes — because a pattern that fails
+/// to parse is a pattern that silently never matches, and the schema's
+/// `^[0-9a-fA-F]+$` is the only guard upstream. Deliberately NOT tolerant of
+/// an empty string: an empty prefix matches every record under its company
+/// id, which is the bare company-id axis wearing a stronger tier's badge.
+pub fn parse_hex_bytes(raw: &str) -> Option<Vec<u8>> {
+    let nibbles: Vec<u8> = raw
+        .chars()
+        .filter(|c| !matches!(c, ':' | '-' | ' '))
+        .map(|c| c.to_digit(16).map(|d| d as u8))
+        .collect::<Option<_>>()?;
+    let (pairs, rest) = nibbles.as_chunks::<2>();
+    if pairs.is_empty() || !rest.is_empty() {
+        return None;
+    }
+    Some(pairs.iter().map(|[hi, lo]| (hi << 4) | lo).collect())
+}
+
 /// One `discovery.methods[].udp_broadcast` block: a vendor's LAN probe, as the
 /// spec states it.
 ///
@@ -1354,6 +1430,48 @@ impl DeviceInfo {
             .filter_map(|m| m.get("ble")?.get("local_name"))
             .filter_map(|v| serde_yaml::from_value(v.clone()).ok())
             .collect()
+    }
+
+    /// Every manufacturer-data matcher the discovery block declares (one per
+    /// `ble_scan` method that states a `manufacturer_data`). A malformed
+    /// entry — a company id written as a string, say — is skipped, never
+    /// fatal, on the same grounds as [`Self::discovery_name_matchers`].
+    pub fn discovery_manufacturer_matchers(&self) -> Vec<ManufacturerDataMatch> {
+        self.discovery_methods()
+            .filter(|m| m.get("type").and_then(|t| t.as_str()) == Some("ble_scan"))
+            .filter_map(|m| m.get("ble")?.get("manufacturer_data"))
+            .filter_map(|v| serde_yaml::from_value(v.clone()).ok())
+            .collect()
+    }
+
+    /// The payload prefixes discovery declares, as `(company_id, bytes)`: one
+    /// entry per company id a matcher covers, deduplicated in declaration
+    /// order.
+    ///
+    /// Only a `match: prefix` matcher (the default) with a parseable
+    /// `pattern` counts. An `exact` or `masked` matcher is left out rather
+    /// than read as a prefix: reporting "the spec's declared shape held"
+    /// when only its leading bytes were compared would be a claim the spec
+    /// never made. A matcher with no pattern at all (Ember, Hyperice) is
+    /// documentation of the company id, which the identification block
+    /// already carries.
+    pub fn discovery_manufacturer_prefixes(&self) -> Vec<(u16, Vec<u8>)> {
+        let mut prefixes: Vec<(u16, Vec<u8>)> = Vec::new();
+        for matcher in self.discovery_manufacturer_matchers() {
+            if !matcher.is_prefix() {
+                continue;
+            }
+            let Some(bytes) = matcher.pattern_bytes() else {
+                continue;
+            };
+            for id in matcher.company_ids() {
+                let entry = (id, bytes.clone());
+                if !prefixes.contains(&entry) {
+                    prefixes.push(entry);
+                }
+            }
+        }
+        prefixes
     }
 
     /// The TXT-record condition groups this spec declares, each paired with

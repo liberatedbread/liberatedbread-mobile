@@ -9,9 +9,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_company_ids`, `all_service_types`, `all_service_uuids`, `best_mac_prefix`, `brightness_to_byte`, `brother_ql_media`, `brother_ql_test_canvas`, `check_stored_layer_edges`, `confidence`, `decode_with_protocol`, `encode_command_with_spec`, `encode_entity_value_with_spec`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `groups_governing`, `handler_surface`, `http_scheme_of`, `image_upload_dto`, `is_empty`, `is_narrowed`, `is_platform_company_id`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `list_network_instances_with_spec`, `mac_prefix_confidence`, `match_axes`, `match_connected_device`, `match_network_axes`, `network_surface_for`, `normalize_mac_prefix`, `normalize_mac`, `rank_matches`, `read_network_entity_with_spec`, `read_network_instance_with_spec`, `reading_to_dto`, `regex_for`, `render_network_http_state_request_with_spec`, `render_network_state_request_with_spec`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`, `txt_conditions_hold`, `txt_group_holds`, `value_matches`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConnectedMatch`, `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -1986,6 +1986,14 @@ class DeviceSpecDto {
   /// none.
   final Uint16List companyIds;
 
+  /// Manufacturer-data payload prefixes from the `discovery` block, one per
+  /// company id each matcher covers. What narrows a company id a whole
+  /// platform advertises under to this product; see
+  /// [`ManufacturerPrefixDto`]. Empty when the spec declares none.
+  /// Defaulted on the Dart side so the fixtures that build a spec by hand
+  /// need not name it.
+  final List<ManufacturerPrefixDto> manufacturerDataPrefixes;
+
   /// IEEE OUI prefixes seen on this device's MAC address, e.g. `C4:7C:8D`.
   /// Empty when the spec declares none. See [`MatchConfidence`] for why these
   /// only ever rank a device rather than identify one, and
@@ -2072,6 +2080,7 @@ class DeviceSpecDto {
     required this.localNames,
     required this.serviceUuids,
     required this.companyIds,
+    this.manufacturerDataPrefixes = const [],
     required this.macPrefixes,
     required this.mdnsServiceTypes,
     required this.ssdpSearchTargets,
@@ -2106,6 +2115,7 @@ class DeviceSpecDto {
       localNames.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
+      manufacturerDataPrefixes.hashCode ^
       macPrefixes.hashCode ^
       mdnsServiceTypes.hashCode ^
       ssdpSearchTargets.hashCode ^
@@ -2142,6 +2152,7 @@ class DeviceSpecDto {
           localNames == other.localNames &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
+          manufacturerDataPrefixes == other.manufacturerDataPrefixes &&
           macPrefixes == other.macPrefixes &&
           mdnsServiceTypes == other.mdnsServiceTypes &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
@@ -3017,6 +3028,53 @@ class MacPrefixDto {
           runtimeType == other.runtimeType &&
           prefix == other.prefix &&
           confidence == other.confidence;
+}
+
+/// One payload prefix a spec's discovery block declares under a company id,
+/// parsed from its hex. The evidence that turns a company id anyone may
+/// advertise into a claim about one product: 0x004C is every Apple device and
+/// every iBeacon of any make, but 0x004C whose payload starts `02 15` + the
+/// Nuki command-service UUID is a paired Nuki and nothing else.
+class ManufacturerPrefixDto {
+  final int companyId;
+  final Uint8List prefix;
+
+  const ManufacturerPrefixDto({required this.companyId, required this.prefix});
+
+  @override
+  int get hashCode => companyId.hashCode ^ prefix.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ManufacturerPrefixDto &&
+          runtimeType == other.runtimeType &&
+          companyId == other.companyId &&
+          prefix == other.prefix;
+}
+
+/// One manufacturer-specific record (AD type 0xFF) from an advertisement: the
+/// company id and the payload AFTER it. That origin — not the whole AD value —
+/// is how every stack this app reads reports a record (BlueZ keys
+/// `ManufacturerData` by company id, flutter_blue_plus likewise, and Dart's
+/// `IoTDevice.manufacturerData` carries exactly that), and it is the origin
+/// the catalogue's patterns are written against.
+class ManufacturerRecordDto {
+  final int companyId;
+  final Uint8List data;
+
+  const ManufacturerRecordDto({required this.companyId, required this.data});
+
+  @override
+  int get hashCode => companyId.hashCode ^ data.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ManufacturerRecordDto &&
+          runtimeType == other.runtimeType &&
+          companyId == other.companyId &&
+          data == other.data;
 }
 
 /// How much weight a match carries.
@@ -4370,7 +4428,18 @@ class ScanMatch {
 
   /// Matched advertised service UUIDs, lowercased.
   final List<String> matchedServiceUuids;
+
+  /// Every declared company id the device advertised — including the
+  /// platform ids (`is_platform_company_id`) that were matched, reported,
+  /// and counted for nothing. A user asking why a device was flagged wants
+  /// the whole list; only the confidence verdict tells the ids apart.
   final Uint16List matchedCompanyIds;
+
+  /// The declared payload prefixes the device's manufacturer data started
+  /// with, under the matching company id. Strong evidence: the spec named
+  /// a payload shape and it held. Defaulted on the Dart side so the fixtures
+  /// that build a match by hand need not name it.
+  final List<ManufacturerPrefixDto> matchedManufacturerPrefixes;
 
   /// The spec MAC prefix that the device's address starts with, as the spec
   /// wrote it, with the spec's verdict on how much that block is worth.
@@ -4395,6 +4464,7 @@ class ScanMatch {
     required this.matchedByNamePrefix,
     required this.matchedServiceUuids,
     required this.matchedCompanyIds,
+    this.matchedManufacturerPrefixes = const [],
     this.matchedMacPrefix,
     required this.matchedServiceTypes,
   });
@@ -4414,6 +4484,7 @@ class ScanMatch {
       matchedByNamePrefix.hashCode ^
       matchedServiceUuids.hashCode ^
       matchedCompanyIds.hashCode ^
+      matchedManufacturerPrefixes.hashCode ^
       matchedMacPrefix.hashCode ^
       matchedServiceTypes.hashCode;
 
@@ -4435,6 +4506,7 @@ class ScanMatch {
           matchedByNamePrefix == other.matchedByNamePrefix &&
           matchedServiceUuids == other.matchedServiceUuids &&
           matchedCompanyIds == other.matchedCompanyIds &&
+          matchedManufacturerPrefixes == other.matchedManufacturerPrefixes &&
           matchedMacPrefix == other.matchedMacPrefix &&
           matchedServiceTypes == other.matchedServiceTypes;
 }
@@ -4452,6 +4524,17 @@ class ScannedDeviceDto {
   /// device may advertise several records.
   final Uint16List companyIds;
 
+  /// The manufacturer-specific records themselves, payload after the
+  /// company id, for the specs whose evidence is the payload's SHAPE rather
+  /// than the id it rides under — a paired Nuki is an iBeacon (Apple's id)
+  /// whose proximity UUID is the Nuki command service, and the id alone is
+  /// every Apple device in the room. Read only for those declared prefixes:
+  /// a record here does not stand in for its id in `company_ids`, which the
+  /// caller still fills. Defaulted on the Dart side because the callers
+  /// with no advertisement in hand — the post-connect matchers, a saved
+  /// device looked up by name — are the majority.
+  final List<ManufacturerRecordDto> manufacturerData;
+
   /// The hardware address, when the platform reports one.
   ///
   /// `None` on Apple platforms: CoreBluetooth substitutes a per-host UUID for
@@ -4464,6 +4547,7 @@ class ScannedDeviceDto {
     required this.name,
     required this.serviceUuids,
     required this.companyIds,
+    this.manufacturerData = const [],
     this.macAddress,
   });
 
@@ -4472,6 +4556,7 @@ class ScannedDeviceDto {
       name.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
+      manufacturerData.hashCode ^
       macAddress.hashCode;
 
   @override
@@ -4482,6 +4567,7 @@ class ScannedDeviceDto {
           name == other.name &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
+          manufacturerData == other.manufacturerData &&
           macAddress == other.macAddress;
 }
 
@@ -4860,6 +4946,12 @@ class SpecIdentityDto {
   final List<String> localNames;
   final List<String> serviceUuids;
   final Uint16List companyIds;
+
+  /// [`DeviceSpecDto::manufacturer_data_prefixes`]: the payload shapes that
+  /// make a company id evidence. Without them here the scan path had only
+  /// the id, and a spec declaring Apple's id (Nuki, whose paired lock is an
+  /// iBeacon) claimed every Apple device in the room.
+  final List<ManufacturerPrefixDto> manufacturerDataPrefixes;
   final List<MacPrefixDto> macPrefixes;
 
   /// Every mDNS service type this spec claims, for the Wi-Fi scan path.
@@ -4918,6 +5010,7 @@ class SpecIdentityDto {
     required this.localNames,
     required this.serviceUuids,
     required this.companyIds,
+    this.manufacturerDataPrefixes = const [],
     required this.macPrefixes,
     required this.mdnsServiceTypes,
     required this.ssdpSearchTargets,
@@ -4942,6 +5035,7 @@ class SpecIdentityDto {
       localNames.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
+      manufacturerDataPrefixes.hashCode ^
       macPrefixes.hashCode ^
       mdnsServiceTypes.hashCode ^
       ssdpSearchTargets.hashCode ^
@@ -4968,6 +5062,7 @@ class SpecIdentityDto {
           localNames == other.localNames &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
+          manufacturerDataPrefixes == other.manufacturerDataPrefixes &&
           macPrefixes == other.macPrefixes &&
           mdnsServiceTypes == other.mdnsServiceTypes &&
           ssdpSearchTargets == other.ssdpSearchTargets &&

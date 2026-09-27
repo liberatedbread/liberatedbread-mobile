@@ -53,6 +53,7 @@ final deviceSetupHelpProvider = FutureProvider.autoDispose
             name: identity.name,
             serviceUuids: identity.serviceUuids,
             companyIds: Uint16List.fromList(identity.companyIds),
+            manufacturerData: manufacturerRecordsOf(identity.manufacturerData),
             macAddress: identity.macAddress,
           ),
         );

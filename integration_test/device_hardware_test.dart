@@ -82,7 +82,7 @@ import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/network_scan_provider.dart'
     show NetworkIdentity;
 import 'package:liberated_bread_mobile/providers/scan_match_provider.dart'
-    show specIdentitiesProvider;
+    show manufacturerRecordsOf, specIdentitiesProvider;
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart'
     show specAssetPath, specManifestPath;
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart'
@@ -656,6 +656,7 @@ void main() {
             name: target.name,
             serviceUuids: target.serviceUuids,
             companyIds: Uint16List.fromList(target.companyIds),
+            manufacturerData: manufacturerRecordsOf(target.manufacturerData),
             macAddress: null,
           ),
         );
@@ -816,6 +817,7 @@ void main() {
           name: target.name,
           serviceUuids: target.serviceUuids,
           companyIds: Uint16List.fromList(target.companyIds),
+          manufacturerData: manufacturerRecordsOf(target.manufacturerData),
           macAddress: null,
         ),
       );

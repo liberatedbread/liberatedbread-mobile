@@ -387,9 +387,10 @@ impl CatalogueHandle {
         let device = ScannedDeviceDto {
             name: device_name,
             service_uuids,
-            // Neither is observable here: this runs against a connected
-            // device, where the advertisement is long gone.
+            // None of these is observable here: this runs against a
+            // connected device, where the advertisement is long gone.
             company_ids: Vec::new(),
+            manufacturer_data: Vec::new(),
             mac_address: None,
         };
         self.entries

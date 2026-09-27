@@ -752,7 +752,16 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // "where is it?" the natural next question, not a follow-up one.
       case _ScreenState.error:
         final help = ref
-            .watch(deviceSetupHelpProvider(ScanIdentity.of(widget.device)))
+            .watch(
+              deviceSetupHelpProvider(
+                ScanIdentity.of(
+                  widget.device,
+                  declaredPrefixes: ref.watch(
+                    declaredManufacturerPrefixesProvider,
+                  ),
+                ),
+              ),
+            )
             .valueOrNull;
         return _StatusState(
           icon: Icons.error_outline,
@@ -771,7 +780,16 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
       case _ScreenState.disconnected:
         final help = ref
-            .watch(deviceSetupHelpProvider(ScanIdentity.of(widget.device)))
+            .watch(
+              deviceSetupHelpProvider(
+                ScanIdentity.of(
+                  widget.device,
+                  declaredPrefixes: ref.watch(
+                    declaredManufacturerPrefixesProvider,
+                  ),
+                ),
+              ),
+            )
             .valueOrNull;
         return _StatusState(
           icon: Icons.bluetooth_disabled,

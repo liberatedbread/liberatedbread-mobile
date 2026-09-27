@@ -50,6 +50,9 @@ final specDeclaresDirectAttProvider = Provider<DirectAttRouteHint>((ref) {
     // nothing to match.)
     final name = seen?.name ?? saved?.name;
     if (name == null || name.isEmpty) return false;
+    // Deliberately without manufacturer data: the router's sighting record
+    // keeps ids only, and no spec that declares a payload prefix also asks
+    // for raw ATT. Carry the payload through the record before a spec does.
     final guess = await ref.read(
       scanGuessProvider(
         ScanIdentity(

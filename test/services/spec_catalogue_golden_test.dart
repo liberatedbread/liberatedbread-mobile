@@ -60,6 +60,10 @@ String identityDigest(SpecIdentityDto i) => [
   i.localNames.join(','),
   i.serviceUuids.join(','),
   i.companyIds.join(','),
+  [
+    for (final p in i.manufacturerDataPrefixes)
+      '${p.companyId}:${p.prefix.join('.')}',
+  ].join(','),
   [for (final m in i.macPrefixes) '${m.prefix}:${m.confidence}'].join(','),
   i.mdnsServiceTypes.join(','),
   i.ssdpSearchTargets.join(','),
