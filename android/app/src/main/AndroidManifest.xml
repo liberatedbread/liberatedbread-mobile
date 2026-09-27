@@ -30,6 +30,11 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <!-- Programming a radio over a USB cable on an OTG adapter. Optional, so
+         a phone without USB host still installs the app; permission for each
+         cable is asked by the system when it is first opened, and needs
+         nothing declared here. -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <!-- usesCleartextTraffic: most local Home Assistant servers are plain
          http://192.168.x.x:8123, and network-security-config cannot whitelist
          RFC1918 ranges, so cleartext must be allowed app-wide. The setup UI

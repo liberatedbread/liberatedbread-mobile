@@ -306,6 +306,16 @@ class Log {
   /// App startup and process-wide concerns.
   static const Logger app = Logger._('app');
 
+  /// Radio programming: channel suggestions, the codeplug transfers, and the
+  /// band-limit reads and writes. Its own category (not `ble`) because a
+  /// programming session's diagnosis needs the whole conversation in order --
+  /// ident, each block read, each block written, the verify pass -- and `ble`
+  /// is where the ambient scan chatter lives, which is what a reader has to
+  /// filter out. NOTE: a codeplug read carries whatever the owner has stored
+  /// in the radio; these lines carry block addresses and lengths, never block
+  /// contents.
+  static const Logger radio = Logger._('radio');
+
   /// A user-visible operation failed and the UI showed fallback text.
   static const Logger ui = Logger._('ui');
 
@@ -320,6 +330,7 @@ class Log {
     packs,
     ads,
     app,
+    radio,
     ui,
   ];
 
@@ -358,7 +369,7 @@ class Log {
   /// The threshold used to be a single knob, and the two useful positions were
   /// both wrong during a hardware session: `info` hides the datagram-level
   /// detail that is the whole diagnosis, and `debug` buries it under the
-  /// unrelated chatter of nine other categories. Passing `null` clears the
+  /// unrelated chatter of ten other categories. Passing `null` clears the
   /// override and returns the category to [minLevel].
   ///
   /// The release floor does NOT apply to these: the override is set by a

@@ -1,0 +1,54 @@
+{
+  "count": 4,
+  "results": [
+    {
+      "State ID": "09",
+      "Rptr ID": "20001",
+      "Frequency": "146.940",
+      "Input Freq": "146.340",
+      "PL": "100.0",
+      "TSQ": "100.0",
+      "Callsign": "WT1EST",
+      "Lat": "41.7291",
+      "Long": "-72.7083",
+      "Landmark": "Testington",
+      "County": "Hartford",
+      "State": "Connecticut",
+      "Country": "United States",
+      "Use": "OPEN",
+      "Operational Status": "On-air",
+      "FM Analog": "Yes"
+    },
+    {
+      "Rptr ID": "20002",
+      "Frequency": "449.325",
+      "Input Freq": "444.325",
+      "PL": "D023",
+      "Callsign": "WT2EST",
+      "Lat": "41.30",
+      "Long": "-72.93",
+      "Landmark": "Sea View",
+      "County": "New Haven",
+      "Use": "CLOSED",
+      "Operational Status": "Off-air"
+    },
+    {
+      "Rptr ID": "20003",
+      "Frequency": "147.000",
+      "Input Freq": "",
+      "PL": "CSQ",
+      "Callsign": "WT3EST",
+      "Lat": "41.55",
+      "Long": "-72.65",
+      "Landmark": "Simplex Hill",
+      "Use": "OPEN"
+    },
+    {
+      "Rptr ID": "20004",
+      "Frequency": "145.110",
+      "PL": "",
+      "Callsign": "WT4EST",
+      "Landmark": "No Coordinates"
+    }
+  ]
+}

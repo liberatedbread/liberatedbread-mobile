@@ -3,11 +3,13 @@
 import 'package:flutter/material.dart';
 
 import 'groups_screen.dart';
+import 'radio_screen.dart';
 import 'saved_devices_screen.dart';
 import 'scan_screen.dart';
+import 'usb_scan_screen.dart';
 import 'wifi_scan_screen.dart';
 
-/// The app's four top-level destinations.
+/// The app's top-level destinations.
 ///
 /// Devices arrive by two different radios and are worth keeping afterwards,
 /// which is three jobs and used to be one screen: a BLE scan with a saved-device
@@ -15,6 +17,12 @@ import 'wifi_scan_screen.dart';
 /// reachable in a tap and gives Wi-Fi somewhere to live. Groups sits between
 /// Saved and Wi-Fi: it is built *from* the saved devices, and it is the tab
 /// where acting on several of them at once lives.
+///
+/// USB is the third way a device arrives — a programming cable, with a radio
+/// on the far end — so it sits with the other two, before Radio, which is
+/// where plans are made rather than where devices are found. Six is one past
+/// the five Material suggests for a bottom bar; they fit a phone because each
+/// label is one short word, and a seventh needs a different home.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -47,6 +55,8 @@ class _HomeShellState extends State<HomeShell> {
           const SavedDevicesScreen(),
           const GroupsScreen(),
           const WifiScanScreen(),
+          UsbScanScreen(active: _index == 4),
+          const RadioScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -72,6 +82,16 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.wifi_find_outlined),
             selectedIcon: Icon(Icons.wifi_find),
             label: 'Wi-Fi',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.usb_outlined),
+            selectedIcon: Icon(Icons.usb),
+            label: 'USB',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_input_antenna_outlined),
+            selectedIcon: Icon(Icons.settings_input_antenna),
+            label: 'Radio',
           ),
         ],
       ),
