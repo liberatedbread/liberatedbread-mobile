@@ -11,6 +11,8 @@ import '../core/log.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/print/label_content.dart';
 import '../services/print/label_renderer.dart';
+import '../services/print/os_print_service.dart';
+import '../services/print/pdf_documents.dart';
 import '../services/print/photo_source.dart';
 import '../services/print/print_target.dart';
 import '../services/spec_codec.dart';
@@ -208,13 +210,45 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
     }
   }
 
+  /// The label at its true size on a page, through the system print dialog
+  /// — for sticker sheets on an office printer.
+  Future<void> _printOnPaper() async {
+    final preview = _preview;
+    if (preview == null) return;
+    try {
+      await ref
+          .read(osPrintServiceProvider)
+          .printDocument(
+            name: 'Label',
+            build: (format) => labelImagePdf(
+              format: format,
+              rgb: preview.rgb,
+              width: preview.width,
+              height: preview.height,
+              dpi: widget.target.geometry.dpi,
+            ),
+          );
+    } on Object catch (e) {
+      Log.spec.warning('printing the label on paper failed', error: e);
+      if (mounted) setState(() => _error = 'Could not open the print dialog.');
+    }
+  }
+
   bool get _hasContent =>
       _mode == _Mode.photo ? _photo != null : !_content.isEmpty;
 
   Future<void> _pickPhoto(Future<Uint8List?> Function() pick) async {
     try {
-      final bytes = await pick();
+      var bytes = await pick();
       if (bytes == null || !mounted) return;
+      if (isPdf(bytes)) {
+        // A document's first page, at the printer's own resolution.
+        final pages = await ref
+            .read(osPrintServiceProvider)
+            .rasterizePdf(bytes, dpi: widget.target.geometry.dpi);
+        if (pages.isEmpty || !mounted) return;
+        bytes = pages.first;
+      }
       setState(() => _photo = bytes);
       _scheduleRender();
     } on Object catch (e) {
@@ -296,7 +330,18 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
     final qrTooLong = _qr.text.trim().isNotEmpty && !fitsInQr(_qr.text.trim());
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Print a label')),
+      appBar: AppBar(
+        title: const Text('Print a label'),
+        actions: [
+          IconButton(
+            tooltip: 'Print on a regular printer',
+            icon: const Icon(Icons.local_printshop_outlined),
+            onPressed: _preview != null && _hasContent
+                ? () => unawaited(_printOnPaper())
+                : null,
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
