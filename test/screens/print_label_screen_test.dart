@@ -259,4 +259,28 @@ void main() {
     await tester.pump();
     expect(target.prints.single.width, 200);
   });
+
+  testWidgets('a photo that fails to render cannot print the old label', (
+    tester,
+  ) async {
+    final photos = _FakePhotos(Uint8List.fromList([1, 2, 3]));
+    final target = _RecordingTarget();
+    await _pump(tester, target, photos: photos);
+    await tester.enterText(find.byKey(const ValueKey('label-line-0')), 'Old');
+    await _settleRender(tester);
+
+    await tester.tap(find.text('Photo'));
+    await tester.pump();
+    await tester.tap(find.text('Choose a photo'));
+    await _settleRender(tester);
+
+    expect(find.text('Could not read that photo.'), findsOneWidget);
+    final button = tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Print'),
+        matching: find.byType(FilledButton),
+      ),
+    );
+    expect(button.onPressed, isNull);
+  });
 }

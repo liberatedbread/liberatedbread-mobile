@@ -43,6 +43,7 @@ class _ScriptedPrinter extends FakeBleService {
     final queue = replies[value[2]];
     if (queue == null || queue.isEmpty) return;
     final reply = queue.length == 1 ? queue.first : queue.removeAt(0);
+    if (reply.isEmpty) return;
     scheduleMicrotask(() {
       _notify.add(reply.sublist(0, 2));
       _notify.add(reply.sublist(2));
@@ -102,6 +103,7 @@ void main() {
       ],
     });
     await runImageWritePlan(
+      subscribeSettle: Duration.zero,
       ble,
       'dev',
       ImageWritePlanDto(
@@ -144,7 +146,9 @@ void main() {
         ),
         throwsA(isA<TimeoutException>()),
       );
-      expect(ble.written, hasLength(1));
+      // The first packet is asked for once more (its reply may have raced
+      // the notification enable), and then nothing further is sent.
+      expect(ble.written.map((w) => w[2]), [0xC1, 0xC1]);
     },
   );
 
@@ -156,6 +160,7 @@ void main() {
     });
     await expectLater(
       runImageWritePlan(
+        subscribeSettle: Duration.zero,
         ble,
         'dev',
         ImageWritePlanDto(
@@ -169,4 +174,85 @@ void main() {
     );
     expect(ble.written, hasLength(1));
   });
+
+  test('an error pattern later in the stream is not a refusal', () async {
+    // The expected reply arrives, and its own data happens to contain the
+    // bytes of an error prefix further on.
+    final ble = _ScriptedPrinter.create({
+      0x21: [
+        [0x55, 0x55, 0x31, 0x03, 0x55, 0x55, 0xDB, 0x00, 0xAA, 0xAA],
+      ],
+    });
+    await runImageWritePlan(
+      subscribeSettle: Duration.zero,
+      ble,
+      'dev',
+      ImageWritePlanDto(
+        serviceUuid: 'srv',
+        writes: [_w(0x21), _w(0x23)],
+        nextFrameIndex: 0,
+        replyWaits: [_wait(0, 0x31)],
+      ),
+    );
+    expect(ble.written, hasLength(2));
+  });
+
+  test('a status reply split mid-field is read whole', () async {
+    // The poll's page counter sits at bytes 4-5; the scripted printer splits
+    // every reply after byte 2, so the verdict field arrives in the second
+    // notification and must not be judged from the first.
+    final ble = _ScriptedPrinter.create({
+      0xA3: [
+        [0x55, 0x55, 0xB3, 0x04, 0x00, 0x01, 0x64, 0x64, 0x00, 0xAA, 0xAA],
+      ],
+    });
+    await runImageWritePlan(
+      subscribeSettle: Duration.zero,
+      ble,
+      'dev',
+      ImageWritePlanDto(
+        serviceUuid: 'srv',
+        writes: [_w(0xF3)],
+        nextFrameIndex: 0,
+        replyWaits: const [],
+        completionPoll: CompletionPollDto(
+          beforeWrite: 0,
+          request: _w(0xA3),
+          characteristicUuid: _char,
+          replyPrefix: _b([0x55, 0x55, 0xB3]),
+          doneOffset: 4,
+          doneBytes: _b([0x00, 0x01]),
+          intervalMs: 1,
+          timeoutMs: 1000,
+        ),
+      ),
+    );
+    expect(ble.written.map((w) => w[2]), [0xA3, 0xF3]);
+  });
+
+  test(
+    'a first reply lost to a late subscription is asked for again',
+    () async {
+      // The printer ignores the first connect (notifications were not on yet)
+      // and answers the resend.
+      final ble = _ScriptedPrinter.create({
+        0xC1: [
+          [],
+          [0x55, 0x55, 0xC2, 0x01, 0x01, 0xC2, 0xAA, 0xAA],
+        ],
+      });
+      await runImageWritePlan(
+        subscribeSettle: Duration.zero,
+        ble,
+        'dev',
+        ImageWritePlanDto(
+          serviceUuid: 'srv',
+          writes: [_w(0xC1), _w(0x21)],
+          nextFrameIndex: 0,
+          replyWaits: [_wait(0, 0xC2, timeoutMs: 100)],
+        ),
+      );
+      expect(ble.written.map((w) => w[2]), [0xC1, 0xC1, 0x21]);
+    },
+  );
 }

@@ -32,11 +32,24 @@ class MainActivity : FlutterActivity() {
     private var pendingShare: Map<String, Any?>? = null
     private var shareChannel: MethodChannel? = null
 
+    /** Dart asked for the launch share before the copy finished. */
+    private var initialShareResult: MethodChannel.Result? = null
+    private var initialShareLoading = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Not on a re-creation (rotation, process restore): the intent is the
         // one already handled, and printing it twice would be a surprise.
-        if (savedInstanceState == null) pendingShare = readShare(intent)
+        if (savedInstanceState == null) {
+            val launch = intent
+            initialShareLoading = true
+            readShareInBackground(launch) { share ->
+                initialShareLoading = false
+                val waiting = initialShareResult
+                initialShareResult = null
+                if (waiting != null) waiting.success(share) else pendingShare = share
+            }
+        }
     }
 
     /**
@@ -46,13 +59,27 @@ class MainActivity : FlutterActivity() {
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val share = readShare(intent) ?: return
-        val channel = shareChannel
-        if (channel == null) {
-            pendingShare = share
-        } else {
-            channel.invokeMethod("shared", share)
+        readShareInBackground(intent) { share ->
+            if (share == null) return@readShareInBackground
+            val channel = shareChannel
+            if (channel == null) {
+                pendingShare = share
+            } else {
+                channel.invokeMethod("shared", share)
+            }
         }
+    }
+
+    /**
+     * Copy the shared stream off the main thread — a cloud-backed URI (a
+     * Drive file) can take seconds, and reading it here would freeze the UI
+     * into an ANR — then deliver the result back on the main thread.
+     */
+    private fun readShareInBackground(intent: Intent?, done: (Map<String, Any?>?) -> Unit) {
+        Thread {
+            val share = readShare(intent)
+            runOnUiThread { done(share) }
+        }.start()
     }
 
     /**
@@ -127,8 +154,13 @@ class MainActivity : FlutterActivity() {
                 setMethodCallHandler { call, result ->
                     when (call.method) {
                         "initialShare" -> {
-                            result.success(pendingShare)
-                            pendingShare = null
+                            if (initialShareLoading) {
+                                // Answered when the copy finishes.
+                                initialShareResult = result
+                            } else {
+                                result.success(pendingShare)
+                                pendingShare = null
+                            }
                         }
                         else -> result.notImplemented()
                     }

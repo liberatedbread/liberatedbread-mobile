@@ -140,11 +140,14 @@ Future<RenderedLabel> renderLabel(
   final contentW = qrSide + (qr != null && hasText ? gap : 0) + textW;
   final contentH = math.max(qrSide, textH);
 
+  // The feed direction is bounded by the printer's own maximum when its spec
+  // states one; across the head, the width is the head's.
+  final feedLimit = _feedLimit(geometry);
   final designW = (fixedW ?? (contentW + 2 * pad).ceil())
-      .clamp(1, _maxLengthDots)
+      .clamp(1, content.alongTape ? feedLimit : _maxLengthDots)
       .toInt();
   final designH = (fixedH ?? (contentH + 2 * pad).ceil())
-      .clamp(1, _maxLengthDots)
+      .clamp(1, content.alongTape ? _maxLengthDots : feedLimit)
       .toInt();
 
   final headW = across;
@@ -216,6 +219,11 @@ Future<RenderedLabel> renderLabel(
   }
 }
 
+/// The longest label this app will lay out for [geometry]: the printer's own
+/// maximum when stated, and never past [_maxLengthDots].
+int _feedLimit(LabelGeometry geometry) =>
+    math.min(_maxLengthDots, geometry.maxLengthDots ?? _maxLengthDots);
+
 /// Whether [data] fits in a QR code at all (version 40, medium correction).
 bool fitsInQr(String data) {
   try {
@@ -257,6 +265,11 @@ Future<RenderedLabel> renderPhoto(
     var scale = alongTape ? across / ih : across / iw;
     if (fixedW != null && iw * scale > fixedW) scale = fixedW / iw;
     if (fixedH != null && ih * scale > fixedH) scale = fixedH / ih;
+    // A long photo on continuous stock shrinks to the printer's maximum
+    // length rather than being cut off.
+    final feedLimit = _feedLimit(geometry);
+    final feedSide = alongTape ? iw : ih;
+    if (feedSide * scale > feedLimit) scale = feedLimit / feedSide;
     final drawW = math.max(1, (iw * scale).round());
     final drawH = math.max(1, (ih * scale).round());
     final designW = (fixedW ?? drawW).clamp(1, _maxLengthDots).toInt();

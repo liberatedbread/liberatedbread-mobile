@@ -173,6 +173,10 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
       if (!mounted || epoch != _renderEpoch) return;
       setState(() {
         _rendering = false;
+        // The old preview is not what the screen now describes; printing it
+        // would send the label before the one that failed.
+        _preview?.image.dispose();
+        _preview = null;
         _error = _mode == _Mode.photo
             ? 'Could not read that photo.'
             : 'Could not draw the label.';

@@ -61,6 +61,13 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- The VIEW filter below hands this activity content:// URIs.
+                 Flutter would otherwise push each one as a named route —
+                 which this app does not have, so it throws. Shared files
+                 arrive over the share_in channel instead. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
