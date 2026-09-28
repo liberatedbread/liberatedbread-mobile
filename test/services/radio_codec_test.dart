@@ -570,7 +570,8 @@ void main() {
         // A plan stored before the index was carried, a Low made in the
         // app, and a High set back to Low in the editor all reach the codec
         // with no index. Encoded afresh they went out as 1: Med on the HP.
-        // Fails on channelToDto's straight pass-through.
+        // Fails on the encoder's old rule, which encoded an indexless Low
+        // afresh as 1.
         final hp = await uv5rWithLowAt(2);
         final relevelled = lowAt2
             .copyWith(power: PowerLevel.high)
@@ -586,7 +587,9 @@ void main() {
           [2, 2, 0],
         );
 
-        // A radio that shows no unlisted Low gets the profile's own 1.
+        // A radio whose image holds no 2 -- the UV-5R profile's declared
+        // Low alias, the only unlisted index it adopts -- gets the
+        // profile's own 1.
         final plain = await encoder.encode(
           await uv5rWithLowAt(1),
           uv5rProfile,
@@ -599,8 +602,8 @@ void main() {
         if (!rustReady) return markTestSkipped('host Rust library unavailable');
         // An HP's Low (2) in a plan written to a plain UV-5R under the same
         // profile id, or to a Mini from the device screen's picker. Those
-        // list only 0 and 1, and CHIRP reads 2 as High. Fails on the old
-        // pass-through, which wrote the 2.
+        // list only 0 and 1, and CHIRP reads 2 as High. Fails on the
+        // encoder's old rule, which wrote a carried index verbatim.
         const fromHp = lowAt2;
         final plain = await encoder.encode(
           await uv5rWithLowAt(1),

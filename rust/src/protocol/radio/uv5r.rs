@@ -35,7 +35,7 @@
 
 use super::codeplug::{
     decode_bcd, decode_power, decode_tone, encode_bcd, encode_tone, held_power_indexes, power_bits,
-    ChannelRecord, Power, TWO_POWER_LEVELS,
+    ChannelRecord, Power, POWER_MASK, TWO_POWER_LEVELS,
 };
 pub use super::Block;
 use super::{read_reply_len, REPLY_HEADER_LEN};
@@ -133,6 +133,15 @@ pub struct Uv5rModel {
     /// Low here, where on a UV-32 it is Medium.
     pub power_levels: &'static [Power],
 
+    /// An index `power_levels` does not list that a radio behind this
+    /// profile documents as its Low, which [`power_bits`] adopts for a
+    /// channel with no usable index of its own when the target image holds
+    /// it. CHIRP's UV-82HP answers with the UV-82 ident (`MAGIC_UV82`, which
+    /// [`UV5R`] lists) and uses `UV5R_POWER_LEVELS3` = [High, Med, Low], so
+    /// its Low is 2 -- where this two-level profile's 1 runs it at Med. No
+    /// other index is adopted: one merely held has no documented meaning.
+    pub aliased_low_index: Option<u8>,
+
     /// Uses the newer band-limit layout whatever its firmware string says.
     pub always_new_limits: bool,
 }
@@ -146,6 +155,7 @@ pub const UV5R: Uv5rModel = Uv5rModel {
     id: "uv5r",
     idents: &[MAGIC_291, MAGIC_ORIGINAL, MAGIC_UV82],
     power_levels: TWO_POWER_LEVELS,
+    aliased_low_index: Some(2),
     always_new_limits: false,
 };
 
@@ -153,6 +163,7 @@ pub const BF_F8HP: Uv5rModel = Uv5rModel {
     id: "bf-f8hp",
     idents: &[MAGIC_291, MAGIC_A58],
     power_levels: THREE_POWER_LEVELS,
+    aliased_low_index: None,
     always_new_limits: true,
 };
 
@@ -161,6 +172,7 @@ pub const AR152: Uv5rModel = Uv5rModel {
     id: "ar-152",
     idents: &[MAGIC_291, MAGIC_A58],
     power_levels: THREE_POWER_LEVELS,
+    aliased_low_index: None,
     always_new_limits: true,
 };
 
@@ -574,10 +586,10 @@ fn decode_channel(record: &[u8], name: &[u8], power_levels: &[Power]) -> Option<
         rx_only,
         rx_tone: decode_tone(u16::from_le_bytes([record[8], record[9]])),
         tx_tone: decode_tone(u16::from_le_bytes([record[10], record[11]])),
-        power: decode_power(record[14] & 0x03, power_levels),
+        power: decode_power(record[14] & POWER_MASK, power_levels),
         narrow: record[15] & 0x40 == 0,
         skip: record[15] & 0x04 == 0,
-        power_raw: Some(record[14] & 0x03),
+        power_raw: Some(record[14] & POWER_MASK),
     })
 }
 
@@ -647,7 +659,7 @@ fn encode_channel(
     // a UV-82HP's Low (2) behind this two-level profile goes back as 2
     // wherever it lands on the radio it came from, not as High (0) or Med
     // (1) -- and not onto a radio whose records never hold a 2.
-    record[14] = power_bits(channel, model.power_levels, held);
+    record[14] = power_bits(channel, model.power_levels, held, model.aliased_low_index);
     if !channel.narrow {
         record[15] |= 0x40;
     }
@@ -1239,7 +1251,7 @@ mod tests {
     }
 
     #[test]
-    fn a_changed_level_or_a_missing_index_is_encoded_afresh() {
+    fn a_changed_level_or_a_missing_index_follows_the_images_held_levels() {
         let (image, read) = hp_image();
         let written_as = |channel: ChannelRecord| {
             let written = encode_channels(&image, &[channel], &UV5R).unwrap();
@@ -1261,10 +1273,52 @@ mod tests {
         assert_eq!(written_as(lowered), 2);
 
         // No index -- a channel made in the app, or one whose level the
-        // app changed -- takes the Low this image holds (the 2).
+        // app changed -- takes the Low this image holds (the 2). Rule 2 of
+        // power_bits: UV5R declares 2 as its documented Low alias.
         let mut fresh = read[2].clone();
         fresh.power_raw = None;
         assert_eq!(written_as(fresh), 2);
+    }
+
+    #[test]
+    fn a_low_without_an_index_adopts_only_the_declared_alias() {
+        let mut fresh = channel("NEW", 146_560_000, 146_560_000);
+        fresh.power = Power::Low;
+        assert_eq!(UV5R.aliased_low_index, Some(2));
+
+        // An HP-shaped image holding 2: the alias, the HP's Low.
+        let (hp, _) = hp_image();
+        let written = encode_channels(&hp, &[fresh.clone()], &UV5R).unwrap();
+        assert_eq!(power_raws(&written, 1), [2]);
+
+        // An image holding only a stray 3, whose meaning no source
+        // documents: not adopted, the profile's Low. Adopting any held
+        // unlisted index let that 3 pull every new Low onto it.
+        let mut stray = encode_channels(&blank(), &[fresh.clone()], &UV5R).unwrap();
+        let at = record_range(0).start + 14;
+        stray[at] = (stray[at] & !0x03) | 3;
+        let read: Vec<ChannelRecord> = decode_channels(&stray, &UV5R)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(read[0].power_raw, Some(3));
+        let written = encode_channels(&stray, &[fresh.clone()], &UV5R).unwrap();
+        assert_eq!(power_raws(&written, 1), [1]);
+        // Rule 1 still keeps the untouched channel's own held 3.
+        assert_eq!(encode_channels(&stray, &read, &UV5R).unwrap(), stray);
+
+        // BF-F8HP declares no alias; its Low is the listed 2, its Med 1,
+        // whatever the image holds.
+        assert_eq!(BF_F8HP.aliased_low_index, None);
+        let mut f8hp = encode_channels(&blank(), &[fresh.clone()], &BF_F8HP).unwrap();
+        f8hp[at] = (f8hp[at] & !0x03) | 3;
+        let written = encode_channels(&f8hp, &[fresh.clone()], &BF_F8HP).unwrap();
+        assert_eq!(power_raws(&written, 1), [2]);
+        let mut med = fresh;
+        med.power = Power::Medium;
+        let written = encode_channels(&f8hp, &[med], &BF_F8HP).unwrap();
+        assert_eq!(power_raws(&written, 1), [1]);
     }
 
     #[test]

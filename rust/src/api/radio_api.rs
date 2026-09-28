@@ -776,11 +776,12 @@ mod tests {
             radio_encode_channels(written, vec![read[1].clone()], "uv-5r-mini".into()).unwrap();
         assert_eq!(moved[14] & 0x03, 2);
 
-        // Without an index of its own, a Low takes the unlisted Low this
-        // image holds (the 2), not the profile's 1 -- see power_bits.
+        // Without an index of its own, a Low is encoded afresh (1) even on
+        // this image that holds a 2: rule 2 of power_bits adopts only a
+        // model's declared alias, and the UV-17 family declares none.
         low.power_raw = None;
         let fresh = radio_encode_channels(image, vec![low], "uv-5r-mini".into()).unwrap();
-        assert_eq!(fresh[14] & 0x03, 2);
+        assert_eq!(fresh[14] & 0x03, 1);
     }
 
     #[test]
