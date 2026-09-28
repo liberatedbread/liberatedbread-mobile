@@ -31,18 +31,17 @@ class RawCharacteristicWidget extends ConsumerStatefulWidget {
       _RawCharacteristicWidgetState();
 }
 
-/// What [tryParseHex] can accept: hex digits, whitespace, its `,`/`:`/`-`
-/// separators and the `x` of a `0x` prefix. Anything else could only ever be
-/// rejected at send time, so it is refused at the keyboard instead.
+/// Refuses, at the keyboard, any character [tryParseHex] could only ever
+/// reject at send time (see [isHexInputPlausible], which shares the parser's
+/// grammar so the two cannot drift).
 ///
 /// The whole edit is refused, not filtered: stripping characters from a
 /// paste turned '01 02 // comment' into '01 02 ce', valid bytes nobody
 /// typed.
 final _hexInputChars = TextInputFormatter.withFunction(
   (oldValue, newValue) =>
-      _hexChars.hasMatch(newValue.text) ? newValue : oldValue,
+      isHexInputPlausible(newValue.text) ? newValue : oldValue,
 );
-final _hexChars = RegExp(r'^[0-9a-fA-FxX\s:,\-]*$');
 
 class _RawCharacteristicWidgetState
     extends ConsumerState<RawCharacteristicWidget> {
@@ -216,26 +215,53 @@ class _RawCharacteristicWidgetState
       children: [
         ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-          // The UUID gets the full width, with the property chips beneath
-          // it: sharing a row with them wrapped a 128-bit UUID mid-string.
+          // The UUID gets the full width, with the property chips and the
+          // refresh button beneath it: sharing a row with either wrapped a
+          // 128-bit UUID mid-string (a trailing button still left one
+          // character on a second line).
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(char.uuid, style: monoTextStyleOf(fontSize: 12)),
+              // Scaled down, never ellipsized or wrapped: a truncated UUID
+              // is useless, and one split across lines is hard to read off.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  char.uuid,
+                  style: monoTextStyleOf(fontSize: 12),
+                  softWrap: false,
+                ),
+              ),
               if (properties.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
-                  child: Wrap(
-                    spacing: 4,
-                    runSpacing: 4,
+                  child: Row(
                     children: [
-                      for (final p in properties)
-                        Chip(
-                          label: Text(p, style: const TextStyle(fontSize: 10)),
-                          padding: EdgeInsets.zero,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
+                      Expanded(
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            for (final p in properties)
+                              Chip(
+                                label: Text(
+                                  p,
+                                  style: const TextStyle(fontSize: 10),
+                                ),
+                                padding: EdgeInsets.zero,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                visualDensity: VisualDensity.compact,
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (char.canRead)
+                        IconButton(
+                          tooltip: 'Read this characteristic again',
+                          icon: const Icon(Icons.refresh, size: 18),
+                          onPressed: _loading ? null : _read,
                         ),
                     ],
                   ),
@@ -243,13 +269,6 @@ class _RawCharacteristicWidgetState
             ],
           ),
           subtitle: _buildValue(),
-          trailing: char.canRead
-              ? IconButton(
-                  tooltip: 'Read this characteristic again',
-                  icon: const Icon(Icons.refresh, size: 18),
-                  onPressed: _loading ? null : _read,
-                )
-              : null,
         ),
         if (char.canWrite) _buildWriteRow(),
       ],
@@ -345,8 +364,15 @@ class _RawCharacteristicWidgetState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (value != null)
+        // Captioned: bare bytes under the R/W/N chips read as one more
+        // property rather than what the device returned.
+        if (value != null) ...[
+          Text(
+            'Value',
+            style: text.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           Text(bytesToHex(value), style: monoTextStyleOf(fontSize: 13)),
+        ],
         if (ascii != null)
           Text(
             '"$ascii"',

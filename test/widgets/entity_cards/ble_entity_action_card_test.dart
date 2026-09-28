@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/entity_cards/ble_entity_action_card.dart';
 
 import '../../fakes/fake_ble_service.dart';
@@ -21,6 +22,36 @@ import '../../fakes/fake_spec_codec.dart';
 const _cmdChar = '0000fff1-0000-1000-8000-00805f9b34fb';
 const _cmdService = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _stateChar = '0000fff2-0000-1000-8000-00805f9b34fb';
+
+/// A second readable characteristic in the written service, which no card
+/// reads itself.
+const _statusChar = '0000beef-0000-1000-8000-00805f9b34fb';
+
+/// A readable Status under [serviceUuid], mounted beside the card: the
+/// reading the card's writes must re-read.
+Widget _besideStatus(Widget card, String serviceUuid) => SingleChildScrollView(
+  child: Column(
+    children: [
+      card,
+      DecodedValueWidget(
+        deviceId: 'd',
+        serviceUuid: serviceUuid,
+        specYaml: 'y',
+        specChar: const CharacteristicDto(
+          uuid: _statusChar,
+          name: 'Status',
+          canRead: true,
+          canWrite: false,
+          canNotify: false,
+          commands: [],
+          formatFields: [],
+        ),
+        canRead: true,
+        canNotify: false,
+      ),
+    ],
+  ),
+);
 
 EntityActionDto _action(
   String role,
@@ -38,12 +69,16 @@ EntityActionDto _action(
   max: max,
 );
 
+Widget _maybeBesideStatus(Widget card, String? svc) =>
+    svc == null ? card : _besideStatus(card, svc);
+
 Widget _wrap(
   EntityDto entity, {
   required FakeSpecCodec codec,
   required FakeBleService ble,
   String? stateServiceUuid,
   bool isLock = false,
+  String? statusServiceUuid,
 }) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(ble),
@@ -51,18 +86,58 @@ Widget _wrap(
   ],
   child: MaterialApp(
     home: Scaffold(
-      body: BleEntityActionCard(
-        deviceId: 'd',
-        stateServiceUuid: stateServiceUuid,
-        entity: entity,
-        specYaml: 'y',
-        isLock: isLock,
+      body: _maybeBesideStatus(
+        BleEntityActionCard(
+          deviceId: 'd',
+          stateServiceUuid: stateServiceUuid,
+          entity: entity,
+          specYaml: 'y',
+          isLock: isLock,
+        ),
+        statusServiceUuid,
       ),
     ),
   ),
 );
 
 void main() {
+  testWidgets('a press re-reads the Status in the same service', (
+    tester,
+  ) async {
+    // Only the typed command card bumped the same-service re-read, so a
+    // Status beside this card stayed on its first read after a press. Fails
+    // on the old card: one read.
+    final entity = EntityDto(
+      options: const [],
+      name: 'Start',
+      platform: 'button',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [_action('press', 'start_belt')],
+      variants: const [],
+    );
+    final ble = FakeBleService();
+    await tester.pumpWidget(
+      _wrap(
+        entity,
+        codec: FakeSpecCodec(encoded: Uint8List.fromList([1])),
+        ble: ble,
+        statusServiceUuid: _cmdService.toUpperCase(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    int statusReads() =>
+        ble.reads.where((r) => r.charUuid == _statusChar).length;
+    expect(statusReads(), 1);
+
+    await tester.tap(find.text('Press'));
+    await tester.pumpAndSettle();
+
+    expect(ble.writes, hasLength(1));
+    expect(statusReads(), 2);
+  });
+
   testWidgets('a button presses its bound command', (tester) async {
     final entity = EntityDto(
       options: const [],

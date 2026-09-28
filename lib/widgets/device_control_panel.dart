@@ -292,6 +292,22 @@ class DeviceControlPanel extends ConsumerWidget {
         .characteristics
         .any((c) => lightChars.contains(normalizeUuid(c.uuid)));
 
+    // And for any device, a service that is nothing but readings already on
+    // screen: a light's Battery Service drew "Battery 85 %" a second time,
+    // expanded, under the Readings card's own. EVERY characteristic, not any:
+    // a service that also carries something no card draws stays open, since
+    // folding it would bury that one thing.
+    final readingChars = <String>{
+      for (final r in readings)
+        if (r.entity.stateCharacteristic case final state?)
+          normalizeUuid(state),
+    };
+    bool drawnByReadings(BleDiscoveredService service) =>
+        service.characteristics.isNotEmpty &&
+        service.characteristics.every(
+          (c) => readingChars.contains(normalizeUuid(c.uuid)),
+        );
+
     // Leading slots above the raw service list: the spec chooser when several
     // specs tie (raw controls stay usable below it), a banner when the active
     // spec is a saved user choice (with the way to change it), the LED image
@@ -364,6 +380,7 @@ class DeviceControlPanel extends ConsumerWidget {
           deviceId: deviceId,
           controls: listedControls,
           specYaml: match!.yaml,
+          spec: match.spec,
           category: category,
         ),
       if (readings.isNotEmpty)
@@ -429,7 +446,10 @@ class DeviceControlPanel extends ConsumerWidget {
           service: service,
           matched: match,
           registry: registry,
-          foldedForReadings: foldRawServices || drawnByLightCard(service),
+          foldedForReadings:
+              foldRawServices ||
+              drawnByLightCard(service) ||
+              drawnByReadings(service),
         );
       },
     );
@@ -857,10 +877,14 @@ class _ReadingsSection extends StatelessWidget {
 /// Same payoff as the readings section, for the write direction: the spec's
 /// resolved actions become working toggles, sliders and color pickers with no
 /// per-device code.
-class _ControlsSection extends StatelessWidget {
+class _ControlsSection extends StatefulWidget {
   final String deviceId;
   final List<({EntityDto entity, String? stateServiceUuid})> controls;
   final String specYaml;
+
+  /// The matched spec, for what an entity action does not carry — a light's
+  /// brightness unit.
+  final DeviceSpecDto spec;
 
   /// The matched spec's device class, for the controls whose meaning depends
   /// on it — a lock's switch is its bolt.
@@ -871,11 +895,34 @@ class _ControlsSection extends StatelessWidget {
     required this.deviceId,
     required this.controls,
     required this.specYaml,
+    required this.spec,
     this.category,
   });
 
   @override
+  State<_ControlsSection> createState() => _ControlsSectionState();
+}
+
+/// Kept alive, because this section is one item of the panel's lazy list:
+/// scrolled out of view, its element — and every card under it — was
+/// disposed, and scrolling back re-seeded each card from device state. The
+/// cards hold what the user chose and what a send assumed (a light's 13%
+/// brightness and colour, a switch's or setpoint's assumed position), which
+/// a write-only light cannot read back, so the rebuilt card showed 80% again
+/// for a light that was at 13%. One section, a handful of cards: cheap.
+class _ControlsSectionState extends State<_ControlsSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
+    final deviceId = widget.deviceId;
+    final controls = widget.controls;
+    final specYaml = widget.specYaml;
+    final spec = widget.spec;
+    final category = widget.category;
     final text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
@@ -894,6 +941,7 @@ class _ControlsSection extends StatelessWidget {
                 stateServiceUuid: control.stateServiceUuid,
                 entity: control.entity,
                 specYaml: specYaml,
+                spec: spec,
               ),
               'number' || 'climate' => SetpointControlCard(
                 deviceId: deviceId,

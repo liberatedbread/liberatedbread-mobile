@@ -444,6 +444,14 @@ heading.
   mangle, and its result shows above the keyboard. A Home Assistant error no
   longer points at a Tailscale tip "below" that is not there, and Clear all
   and Disconnect confirms are coloured as destructive.
+  A second round: the light card keeps what the user set when it scrolls
+  away and back; the demo bulb's status follows its commands, so an Off no
+  longer snaps back on; a reading shown on its card folds its raw service;
+  an install replacing many built-ins counts them instead of listing 203;
+  Clear all is off with nothing to clear (but on when the list cannot be
+  read); a bare Home Assistant hostname (`homeassistant:8123`) or
+  `*.home.arpa` counts as the home network, and a public one that fails
+  asks about the address and port rather than the Wi-Fi.
 - **Every Apple device in the room was "Likely Nuki Smart Lock".** The Nuki
   spec declares Apple's company id, and a matched company id alone earned
   "Likely" — so every iPhone, iPad and pair of AirPods was a likely lock.

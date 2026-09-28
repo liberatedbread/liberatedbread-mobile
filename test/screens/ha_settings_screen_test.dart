@@ -159,7 +159,7 @@ void main() {
     expect(find.text('Connect'), findsOneWidget);
   });
 
-  testWidgets('suggests Tailscale when the server is unreachable', (
+  testWidgets('suggests Tailscale when a LAN server is unreachable', (
     tester,
   ) async {
     final api = FakeHaApiClient()
@@ -167,15 +167,63 @@ void main() {
     await tester.pumpWidget(_wrap(store: InMemorySettingsStore(), api: api));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).first, 'http://ha:8123');
+    await tester.enterText(
+      find.byType(TextField).first,
+      'http://192.168.1.10:8123',
+    );
     await tester.enterText(find.byType(TextField).last, 'tok');
     await tester.tap(find.text('Connect'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('try Tailscale'), findsOneWidget);
+    // The suggestion card also says "try Tailscale" for a LAN address.
+    expect(
+      find.textContaining('same network? For access away from home, try'),
+      findsOneWidget,
+    );
     // The card sits above the error, and is absent for a public https URL,
     // so the message must not point "below" at it.
     expect(find.textContaining('tip below'), findsNothing);
+  });
+
+  // Being on the same Wi-Fi changes nothing for a public address, and Tailscale
+  // is not the fix for one the user reaches directly.
+  testWidgets('an unreachable public server gets no same-network advice', (
+    tester,
+  ) async {
+    final api = FakeHaApiClient()
+      ..registerDeviceError = const HaNetworkException('no route');
+    await tester.pumpWidget(_wrap(store: InMemorySettingsStore(), api: api));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextField).first,
+      'http://192.0.2.10:8123',
+    );
+    await tester.enterText(find.byType(TextField).last, 'tok');
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('same network'), findsNothing);
+    expect(find.textContaining('try Tailscale'), findsNothing);
+    expect(find.textContaining('Check the address and port'), findsOneWidget);
+  });
+
+  testWidgets('the missing-field prompt names the empty field', (tester) async {
+    final api = FakeHaApiClient();
+    await tester.pumpWidget(_wrap(store: InMemorySettingsStore(), api: api));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, 'tok');
+    await tester.tap(find.text('Connect'));
+    await tester.pump();
+    expect(find.text('Enter the Home Assistant URL.'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'http://ha:8123');
+    await tester.enterText(find.byType(TextField).last, '');
+    await tester.tap(find.text('Connect'));
+    await tester.pump();
+    expect(find.text('Enter an access token.'), findsOneWidget);
+    expect(api.registeredDevices, isEmpty);
   });
 
   testWidgets('the intro and token helper read plainly', (tester) async {

@@ -87,7 +87,7 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
           enabled: !_busy,
           keyboardType: TextInputType.url,
           autocorrect: false,
-          // Also drops a stale "Enter both..." prompt once the user types.
+          // Also drops a stale "Enter ..." prompt once the user types.
           onChanged: (_) => setState(() => _errorMessage = null),
           decoration: const InputDecoration(
             labelText: 'Home Assistant URL',
@@ -253,7 +253,15 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
     final url = _urlController.text.trim();
     final token = _tokenController.text.trim();
     if (url.isEmpty || token.isEmpty) {
-      setState(() => _errorMessage = 'Enter both a URL and an access token.');
+      // Name the empty field: "Enter both" left the user comparing two
+      // fields to find which one it meant.
+      setState(
+        () => _errorMessage = url.isEmpty && token.isEmpty
+            ? 'Enter both a URL and an access token.'
+            : url.isEmpty
+            ? 'Enter the Home Assistant URL.'
+            : 'Enter an access token.',
+      );
       return;
     }
     setState(() {
@@ -265,7 +273,12 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
           .read(haConfigProvider.notifier)
           .register(baseUrl: url, token: token);
     } on HaApiException catch (e) {
-      if (mounted) setState(() => _errorMessage = friendlyHaMessage(e));
+      if (mounted) {
+        setState(
+          () =>
+              _errorMessage = friendlyHaMessage(e, urlKind: classifyHaUrl(url)),
+        );
+      }
     } catch (e) {
       if (mounted) {
         setState(

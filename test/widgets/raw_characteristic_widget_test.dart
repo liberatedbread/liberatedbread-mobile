@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
@@ -490,5 +491,79 @@ void main() {
       final chip = tester.getRect(find.widgetWithText(Chip, p));
       expect(chip.top, greaterThanOrEqualTo(uuid.bottom), reason: p);
     }
+  });
+
+  // Screenshots 23-25: the trailing refresh button narrowed the title, and
+  // the UUID still wrapped one character onto a second line.
+  testWidgets('the UUID stays on one line beside no trailing button', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ),
+        FakeBleService(
+          readValues: {
+            _charUuid: const [0x0a],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final uuid = find.text(_charUuid);
+    final lines = tester
+        .renderObject<RenderParagraph>(uuid)
+        .getBoxesForSelection(
+          const TextSelection(baseOffset: 0, extentOffset: _charUuid.length),
+        )
+        .map((b) => b.top)
+        .toSet();
+    expect(lines, hasLength(1));
+    // Nothing shares the UUID's row: the refresh button sits with the chips.
+    final refresh = find.byTooltip('Read this characteristic again');
+    expect(refresh, findsOneWidget);
+    expect(
+      tester.getRect(refresh).top,
+      greaterThanOrEqualTo(tester.getRect(uuid).bottom),
+    );
+  });
+
+  // Screenshot 23: bare bytes under the chips read as another property.
+  testWidgets('the read value is captioned', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+        ),
+        FakeBleService(
+          readValues: {
+            _charUuid: const [0x0a, 0x1b, 0x2c],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final caption = tester.getRect(find.text('Value'));
+    final value = tester.getRect(find.text('0a 1b 2c'));
+    expect(value.top, greaterThanOrEqualTo(caption.bottom));
   });
 }

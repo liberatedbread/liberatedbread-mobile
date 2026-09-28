@@ -1132,11 +1132,14 @@ class SpecPackService {
   ///
   /// Packs were cached under the app's Documents directory, which iOS backs
   /// up to iCloud and Finder and which Apple reserves for user-created data;
-  /// a pack is app-managed, re-downloadable content (up to 4 MB each, no
-  /// count limit). Application Support is the directory for exactly that.
-  /// Caches would not be backed up at all, but the system may purge it, and
-  /// a pack the user installed vanishing between launches is worse than a
-  /// few megabytes in a backup.
+  /// a pack is app-managed, re-downloadable content (at most
+  /// [SpecPackLimits.maxSpecCount] specs totalling
+  /// [SpecPackLimits.maxTotalBytes]; named rather than restated so the
+  /// prose cannot drift from the caps). Application Support is the
+  /// directory for exactly that. Caches would not be backed up at all, but
+  /// the system may purge it, and a pack the user installed vanishing
+  /// between launches is worse than a few megabytes (the default pack is
+  /// about 5 MB) in a backup.
   ///
   /// The move is a rename, so it is atomic on the same volume and costs
   /// nothing after the first launch; a rename that fails leaves the packs

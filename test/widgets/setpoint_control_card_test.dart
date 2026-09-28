@@ -9,12 +9,43 @@ import 'package:liberated_bread_mobile/core/decoded_number.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/setpoint_control_card.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_spec_codec.dart';
 
 const _stateChar = '90759319-1668-44da-9ef3-492d593bd1e5';
+
+/// A second readable characteristic in the written service, which no card
+/// reads itself.
+const _statusChar = '0000beef-0000-1000-8000-00805f9b34fb';
+
+/// A readable Status under [serviceUuid], mounted beside the card: the
+/// reading the card's writes must re-read.
+Widget _besideStatus(Widget card, String serviceUuid) => SingleChildScrollView(
+  child: Column(
+    children: [
+      card,
+      DecodedValueWidget(
+        deviceId: 'd',
+        serviceUuid: serviceUuid,
+        specYaml: 'y',
+        specChar: const CharacteristicDto(
+          uuid: _statusChar,
+          name: 'Status',
+          canRead: true,
+          canWrite: false,
+          canNotify: false,
+          commands: [],
+          formatFields: [],
+        ),
+        canRead: true,
+        canNotify: false,
+      ),
+    ],
+  ),
+);
 
 EntityActionDto _setValue({String? command}) => EntityActionDto(
   role: 'set_value',
@@ -43,11 +74,15 @@ EntityDto _heatEntity({bool writable = true}) => EntityDto(
   variants: const [],
 );
 
+Widget _maybeBesideStatus(Widget card, String? svc) =>
+    svc == null ? SingleChildScrollView(child: card) : _besideStatus(card, svc);
+
 Widget _wrap(
   EntityDto entity, {
   required FakeSpecCodec codec,
   required FakeBleService ble,
   String? stateServiceUuid = 's',
+  String? statusServiceUuid,
 }) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(ble),
@@ -55,13 +90,14 @@ Widget _wrap(
   ],
   child: MaterialApp(
     home: Scaffold(
-      body: SingleChildScrollView(
-        child: SetpointControlCard(
+      body: _maybeBesideStatus(
+        SetpointControlCard(
           deviceId: 'd',
           stateServiceUuid: stateServiceUuid,
           entity: entity,
           specYaml: 'y',
         ),
+        statusServiceUuid,
       ),
     ),
   ),
@@ -103,6 +139,33 @@ FakeSpecCodec _codecReading(
 );
 
 void main() {
+  testWidgets('a setpoint sent from the card re-reads the Status in the '
+      'same service', (tester) async {
+    // Only the typed command card bumped the same-service re-read, so a
+    // Status beside this card stayed on its first read after a send. Fails
+    // on the old card: one read.
+    final ble = FakeBleService();
+    await tester.pumpWidget(
+      _wrap(
+        _heatEntity(),
+        codec: _codecReading(40),
+        ble: ble,
+        // Where the codec's entity write lands.
+        statusServiceUuid: 's',
+      ),
+    );
+    await tester.pumpAndSettle();
+    int statusReads() =>
+        ble.reads.where((r) => r.charUuid == _statusChar).length;
+    expect(statusReads(), 1);
+
+    await tester.drag(find.byType(Slider), const Offset(400, 0));
+    await tester.pumpAndSettle();
+
+    expect(ble.writes, hasLength(1));
+    expect(statusReads(), 2);
+  });
+
   testWidgets('shows the live reading and a slider bounded by the spec', (
     tester,
   ) async {

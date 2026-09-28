@@ -923,8 +923,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         );
 
       case _ScreenState.discovering:
+        // Not the step's name: the app bar's status and the step list below
+        // both already say "Reading device features", and a third copy as the
+        // headline read as the screen stuttering.
         return _PairingProgress(
-          label: 'Reading device features...',
+          label: 'Almost there...',
           step: 1,
           deviceName: null,
           elapsedSeconds: _elapsedSeconds,
@@ -1369,52 +1372,62 @@ class _PairingProgress extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 28),
-            for (var i = 0; i < steps.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Done steps get a check, the active step a filled dot, and
-                    // pending steps a hollow ring — readable without colour.
-                    if (i < step)
-                      Icon(
-                        Icons.check_circle,
-                        size: 18,
-                        color: scheme.secondary,
-                      )
-                    else if (i == step)
-                      SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          color: scheme.secondary,
-                        ),
-                      )
-                    else
-                      Icon(
-                        Icons.circle_outlined,
-                        size: 18,
-                        color: scheme.outlineVariant,
-                      ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        steps[i],
-                        style: text.bodyMedium?.copyWith(
-                          color: i <= step
-                              ? scheme.onSurface
-                              : scheme.onSurfaceVariant,
-                          fontWeight: i == step
-                              ? FontWeight.w600
-                              : FontWeight.w400,
-                        ),
+            // One left-aligned block, centred as a whole: each step used to be
+            // its own centred row, so rows of different lengths put their
+            // icons at different x and the list read as scattered.
+            IntrinsicWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < steps.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Done steps get a check, the active step a filled dot, and
+                          // pending steps a hollow ring — readable without colour.
+                          if (i < step)
+                            Icon(
+                              Icons.check_circle,
+                              size: 18,
+                              color: scheme.secondary,
+                            )
+                          else if (i == step)
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: scheme.secondary,
+                              ),
+                            )
+                          else
+                            Icon(
+                              Icons.circle_outlined,
+                              size: 18,
+                              color: scheme.outlineVariant,
+                            ),
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              steps[i],
+                              style: text.bodyMedium?.copyWith(
+                                color: i <= step
+                                    ? scheme.onSurface
+                                    : scheme.onSurfaceVariant,
+                                fontWeight: i == step
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                ],
               ),
+            ),
           ],
         ),
       ),

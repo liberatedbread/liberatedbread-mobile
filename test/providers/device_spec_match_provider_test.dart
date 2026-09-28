@@ -904,9 +904,42 @@ void main() {
         entry(4, 'pack:Other/envoy.yaml', 'Envoy', 'Enphase'),
         entry(5, 'pack:Fixes Two/envoy.yaml', 'Envoy', 'Enphase'),
       ];
-      expect(builtInSpecsShadowedByPack(specs, 'Fixes'), ['iRobot Roomba']);
-      expect(builtInSpecsShadowedByPack(specs, 'Other'), ['Enphase Envoy']);
+      expect(builtInSpecsShadowedByPack(specs, 'Fixes'), ['Roomba (iRobot)']);
+      expect(builtInSpecsShadowedByPack(specs, 'Other'), ['Envoy (Enphase)']);
       expect(builtInSpecsShadowedByPack(specs, 'Missing'), isEmpty);
+    });
+
+    // Prefixing the maker unconditionally read "Airthings ASA Airthings Wave
+    // Family" and "Belkin Belkin Wemo Smart Devices".
+    test('a device name that already leads with the maker is not repeated', () {
+      final specs = [
+        entry(
+          0,
+          'vendor/a/wave.yaml',
+          'Airthings Wave Family',
+          'Airthings ASA',
+        ),
+        entry(1, 'vendor/a/wemo.yaml', 'Belkin Wemo Smart Devices', 'Belkin'),
+        entry(2, 'vendor/a/bare.yaml', 'Bare Thing', ''),
+        entry(3, 'pack:P/wave.yaml', 'Airthings Wave Family', 'Airthings ASA'),
+        entry(4, 'pack:P/wemo.yaml', 'Belkin Wemo Smart Devices', 'Belkin'),
+        entry(5, 'pack:P/bare.yaml', 'Bare Thing', ''),
+      ];
+      expect(builtInSpecsShadowedByPack(specs, 'P'), [
+        'Airthings Wave Family',
+        'Bare Thing',
+        'Belkin Wemo Smart Devices',
+      ]);
+      // Case-insensitive, and a maker merely containing the brand elsewhere
+      // in the device name still gets named.
+      expect(
+        shadowedSpecLabel('IKEA of Sweden', 'Ikea Tradfri'),
+        'Ikea Tradfri',
+      );
+      expect(
+        shadowedSpecLabel('Acme', 'Rocket by Acme'),
+        'Rocket by Acme (Acme)',
+      );
     });
 
     test('a pack spec shadowing another pack is not a built-in', () {

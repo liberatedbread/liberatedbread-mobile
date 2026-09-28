@@ -14,7 +14,9 @@ enum HaUrlKind {
   /// (CGNAT) tailnet IP. Reachable from anywhere on the tailnet.
   tailscale,
 
-  /// A private/loopback/link-local IPv4 address - only works on the home LAN.
+  /// A private/loopback/link-local IPv4 address, or a name only a home
+  /// network resolves (a bare `homeassistant`, `*.home.arpa`) - only works
+  /// on the home LAN.
   privateLan,
 
   /// An mDNS `.local` name - only works on the home LAN.
@@ -42,7 +44,9 @@ HaUrlKind classifyHaUrl(String input) {
     return HaUrlKind.tailscale;
   }
   if (host.endsWith('.local')) return HaUrlKind.mdnsLocal;
-  if (isPrivateIpv4(host) || host == 'localhost') return HaUrlKind.privateLan;
+  if (isPrivateIpv4(host) || host == 'localhost' || _isHomeNetworkName(host)) {
+    return HaUrlKind.privateLan;
+  }
   return uri.scheme == 'https' ? HaUrlKind.publicHttps : HaUrlKind.publicHttp;
 }
 
@@ -69,6 +73,16 @@ bool isPrivateIpv4(String host) {
   if (a == 169 && b == 254) return true;
   return false;
 }
+
+/// A name only the home network's resolver answers: a single label with no
+/// dot (`homeassistant`, `ha`: public DNS never resolves one) or the
+/// RFC 8375 `home.arpa` zone. Treating these as public told a user on their
+/// LAN to check their port forwarding. IPv6 literals (with `:`) are not
+/// names.
+bool _isHomeNetworkName(String host) =>
+    (!host.contains('.') && !host.contains(':')) ||
+    host == 'home.arpa' ||
+    host.endsWith('.home.arpa');
 
 /// True for the 100.64.0.0/10 CGNAT range Tailscale assigns tailnet IPs from.
 bool _isTailnetIpv4(String host) {

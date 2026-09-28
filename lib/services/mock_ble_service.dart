@@ -459,9 +459,39 @@ class MockBleService implements BleService, BleConnectCanceller {
       }
     }
     final key = normalizeUuid(charUuid);
-    _writtenValues.putIfAbsent(deviceId, () => {});
-    _writtenValues[deviceId]![key] = value;
+    final writes = _writtenValues.putIfAbsent(deviceId, () => {});
+    writes[key] = value;
+    // The bulb's status follows its commands, as in the Rust simulator: a
+    // status poll that ignored them showed a demo user's Off as not sent.
+    if (key == _bulbCommandKey) {
+      // Padded from the defaults: a status written short directly would
+      // otherwise throw a RangeError out of this write.
+      final defaults = _defaults[_bulbStatusKey]!;
+      final status = List<int>.of(writes[_bulbStatusKey] ?? defaults);
+      if (status.length < defaults.length) {
+        status.addAll(defaults.skip(status.length));
+      }
+      switch (value) {
+        case [0x01, final power]:
+          status[0] = power;
+        case [0x02, final brightness]:
+          status[1] = brightness;
+        case [0x03, final r, final g, final b]:
+          status.setRange(2, 5, [r, g, b]);
+      }
+      writes[_bulbStatusKey] = status;
+    }
   }
+
+  /// The example bulb's Command and Status characteristics (example-bulb.yaml):
+  /// `01 pp` power, `02 bb` brightness, `03 rr gg bb` colour on the first, and
+  /// power, brightness, r, g, b at offsets 0..5 of the second.
+  static final _bulbCommandKey = normalizeUuid(
+    '0000fff1-0000-1000-8000-00805f9b34fb',
+  );
+  static final _bulbStatusKey = normalizeUuid(
+    '0000fff2-0000-1000-8000-00805f9b34fb',
+  );
 
   @override
   Future<int> mtu(String deviceId) async {

@@ -279,6 +279,47 @@ void main() {
       expect(value, [0x01, 0x50]);
     });
 
+    test('the bulb status follows its commands', () async {
+      // Demo mode's Off used to be undone by the next status poll, which
+      // kept serving the on/80/amber defaults.
+      const device = 'AA:BB:CC:DD:EE:01';
+      const service_ = '0000fff0-0000-1000-8000-00805f9b34fb';
+      const command = '0000fff1-0000-1000-8000-00805f9b34fb';
+      const status = '0000fff2-0000-1000-8000-00805f9b34fb';
+
+      await service.writeCharacteristic(device, service_, command, [0, 0]);
+      expect(
+        await service.readCharacteristic(device, service_, status),
+        [1, 80, 255, 180, 50],
+        reason: 'an unknown opcode changes nothing',
+      );
+
+      await service.writeCharacteristic(device, service_, command, [1, 0]);
+      expect(await service.readCharacteristic(device, service_, status), [
+        0,
+        80,
+        255,
+        180,
+        50,
+      ]);
+
+      await service.writeCharacteristic(device, service_, command, [2, 30]);
+      await service.writeCharacteristic(device, service_, command, [
+        3,
+        1,
+        2,
+        3,
+      ]);
+      await service.writeCharacteristic(device, service_, command, [1, 1]);
+      expect(await service.readCharacteristic(device, service_, status), [
+        1,
+        30,
+        1,
+        2,
+        3,
+      ]);
+    });
+
     test('writes are isolated per device', () async {
       await service.writeCharacteristic(
         'AA:BB:CC:DD:EE:01',

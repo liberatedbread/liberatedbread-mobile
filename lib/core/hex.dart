@@ -118,9 +118,23 @@ List<int>? tryParseHex(String input) {
   return bytes;
 }
 
-final _hexSeparators = RegExp(r'[\s:,\-]+');
+/// The separators [tryParseHex] splits on, as a character-class body. One
+/// definition so the parser and [isHexInputPlausible] cannot disagree on
+/// what a separator is.
+const _hexSeparatorClass = r'\s:,\-';
+final _hexSeparators = RegExp('[$_hexSeparatorClass]+');
 final _hexPrefix = RegExp(r'^0[xX]');
 final _anyCaseHex = RegExp(r'^[0-9a-fA-F]+$');
+
+/// Whether [text] uses only characters [tryParseHex] can accept: hex digits,
+/// its separators, and the `x` of a `0x` prefix.
+///
+/// A keyboard filter, not a validator — `0x1` passes here and is still
+/// rejected by [tryParseHex] — so a half-typed value is never blocked, while
+/// a character that could only ever fail at send time is.
+bool isHexInputPlausible(String text) => _hexInputChars.hasMatch(text);
+
+final _hexInputChars = RegExp('^[0-9a-fA-FxX$_hexSeparatorClass]*\$');
 
 /// [bytes] rendered as text when every byte is printable ASCII, else null.
 ///

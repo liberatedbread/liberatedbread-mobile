@@ -262,10 +262,17 @@ void main() {
       // the command's name and once on the button that sends it. ensureVisible
       // first, because the spec's controls are taller than the test viewport
       // and tapping a widget below the fold hits whatever IS there.
+      //
+      // Retried until the button is really hit-testable: a read landing
+      // between ensureVisible and the tap re-laid the list, the tap hit the
+      // item that moved under it, nothing was sent, and the wait for "Sent"
+      // ran out its 90 s (only under the full suite's load).
       final powerOn = find.widgetWithText(ElevatedButton, 'Power on');
-      await tester.ensureVisible(powerOn);
-      await _pumpAWhile(tester, rounds: 4);
-      await tester.tap(powerOn);
+      for (var i = 0; i < 20 && powerOn.hitTestable().evaluate().isEmpty; i++) {
+        await tester.ensureVisible(powerOn);
+        await _pumpAWhile(tester, rounds: 4);
+      }
+      await tester.tap(powerOn.hitTestable());
       await _pumpUntil(tester, find.text('Sent'));
       expect(
         find.text('Sent'),

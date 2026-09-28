@@ -738,7 +738,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// Whether the body is showing a state with its own scan button — the
   /// permission guidance's Retry, a failure's Retry, or an empty result's Scan
   /// again. None of these is reachable mid-scan (a start clears them), so the
-  /// stop control is never what gets hidden.
+  /// stop control is never what gets hidden. "Bluetooth is off" counts too,
+  /// though it offers no button: a scan cannot start until the radio is on,
+  /// and the adapter watcher starts one then.
   bool get _bodyOffersScan =>
       !_isScanning &&
       (_permissionDenied ||
@@ -1041,7 +1043,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             ),
           ),
         ],
-        if (_error != null) ...[
+        // Not while the radio is off: a scan can only fail again until the
+        // user turns it on, and [_adapterSub] restarts the scan when they do
+        // — which is what the subhead promises.
+        if (_error != null && !_bluetoothOff) ...[
           const SizedBox(height: 24),
           Center(
             child: ActionPillButton(

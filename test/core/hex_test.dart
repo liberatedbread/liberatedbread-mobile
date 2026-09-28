@@ -67,6 +67,36 @@ void main() {
     });
   });
 
+  group('isHexInputPlausible', () {
+    // The keyboard filter must never refuse something the parser accepts.
+    test('passes every input tryParseHex accepts', () {
+      for (final input in [
+        '',
+        '01aaff',
+        '01 aa ff',
+        '01:AA:FF',
+        '0x01, 0xAA',
+        '0X01',
+        '01-aa',
+        '01\taa\n02',
+        '01 ,:- aa',
+      ]) {
+        expect(tryParseHex(input), isNotNull, reason: input);
+        expect(isHexInputPlausible(input), isTrue, reason: input);
+      }
+    });
+
+    test('passes a half-typed value the parser would still reject', () {
+      expect(isHexInputPlausible('0x1'), isTrue);
+    });
+
+    test('refuses characters the parser can never accept', () {
+      expect(isHexInputPlausible('01 02 // comment'), isFalse);
+      expect(isHexInputPlausible('zz'), isFalse);
+      expect(isHexInputPlausible('01;02'), isFalse);
+    });
+  });
+
   group('normalizeUuid', () {
     test('folds a SIG-base UUID to its short form, lowercased', () {
       expect(normalizeUuid('0000FFF0-0000-1000-8000-00805F9B34FB'), 'fff0');

@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/light_control_card.dart';
 
 import '../fakes/fake_ble_service.dart';
@@ -59,11 +60,76 @@ EntityDto _stripEntity() => EntityDto(
   variants: const [],
 );
 
+/// A spec whose `set_brightness` parameter declares [unit] (or none), bound
+/// where [_stripEntity]'s actions point.
+DeviceSpecDto _specWithBrightnessUnit(
+  String? unit, {
+  double? scale,
+}) => DeviceSpecDto(
+  nameMatchers: const [],
+  platformFallbackTypes: const [],
+  txtMatchGroups: const [],
+  hiddenEntityNames: const [],
+  deviceName: 'Strip',
+  manufacturer: 'Test Co',
+  manufacturerStatus: 'abandoned',
+  protocol: 'ble',
+  localNamePrefixes: const [],
+  localNames: const [],
+  serviceUuids: const [_cmdService],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  mdnsServiceTypes: const [],
+  ssdpSearchTargets: const [],
+  lanProtocols: const [],
+  defaultPort: null,
+  entities: const [],
+  services: [
+    ServiceDto(
+      // Upper-case: the lookup folds, as the discovered spelling may differ.
+      uuid: _cmdService.toUpperCase(),
+      name: 'Control',
+      characteristics: [
+        CharacteristicDto(
+          uuid: _cmdChar,
+          name: 'Command',
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+          commands: [
+            CommandDto(
+              name: 'set_brightness',
+              description: 'Set brightness',
+              isFixed: false,
+              isEncodable: true,
+              unsupportedEncoding: null,
+              advanced: false,
+              parameters: [
+                ParameterDto(
+                  name: 'brightness',
+                  valueType: 'uint8',
+                  min: 0,
+                  max: 100,
+                  unit: unit,
+                  scale: scale,
+                  userSettable: true,
+                ),
+              ],
+            ),
+          ],
+          formatFields: const [],
+        ),
+      ],
+    ),
+  ],
+);
+
 Widget _wrap(
   EntityDto entity, {
   required FakeSpecCodec codec,
   required FakeBleService ble,
   String? stateServiceUuid,
+  DeviceSpecDto? spec,
 }) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(ble),
@@ -77,6 +143,7 @@ Widget _wrap(
           stateServiceUuid: stateServiceUuid,
           entity: entity,
           specYaml: 'y',
+          spec: spec,
         ),
       ),
     ),
@@ -142,40 +209,128 @@ void main() {
     expect(ble.writes, hasLength(1));
   });
 
-  testWidgets('a 0..100 brightness reads as a percentage; a 0..255 one does '
-      'not', (tester) async {
-    // The raw command card for the same parameter says "%", so a bare "100"
-    // here read as a different quantity.
+  testWidgets('the brightness figure carries the unit the spec declares, and '
+      'none it does not', (tester) async {
+    // It used to be guessed from the bounds: 0..100 read as "%", so
+    // elk-bledom's unitless brightness said "100%" here while its typed
+    // command card said a bare 100. Fails on the bounds guess: the
+    // unitless 0..100 spec below showed "100%".
     await tester.pumpWidget(
-      _wrap(_stripEntity(), codec: FakeSpecCodec(), ble: FakeBleService()),
+      _wrap(
+        _stripEntity(),
+        codec: FakeSpecCodec(),
+        ble: FakeBleService(),
+        spec: _specWithBrightnessUnit(null),
+      ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('100%'), findsOneWidget);
-
-    final raw = EntityDto(
-      options: const [],
-      name: 'Bulb',
-      platform: 'light',
-      canNotify: false,
-      hasFormat: false,
-      onWhenNonzero: false,
-      actions: [
-        _action(
-          'set_brightness',
-          'set_brightness',
-          userParams: const ['brightness'],
-          min: 0,
-          max: 255,
-        ),
-      ],
-      variants: const [],
-    );
-    await tester.pumpWidget(
-      _wrap(raw, codec: FakeSpecCodec(), ble: FakeBleService()),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('255'), findsOneWidget);
+    expect(find.text('100'), findsOneWidget);
     expect(find.textContaining('%'), findsNothing);
+
+    // yeelight-cube-lamp declares `unit: "%"`; spelled as the typed card
+    // spells it.
+    await tester.pumpWidget(
+      _wrap(
+        _stripEntity(),
+        codec: FakeSpecCodec(),
+        ble: FakeBleService(),
+        spec: _specWithBrightnessUnit('%'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('100 %'), findsOneWidget);
+
+    // A `percent` spelling goes through the same display table.
+    await tester.pumpWidget(
+      _wrap(
+        _stripEntity(),
+        codec: FakeSpecCodec(),
+        ble: FakeBleService(),
+        spec: _specWithBrightnessUnit('percent'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('100 %'), findsOneWidget);
+  });
+
+  testWidgets('a scaled brightness shows no unit beside its raw value', (
+    tester,
+  ) async {
+    // The unit names raw * scale, and the slider shows the raw value it
+    // sends: a 0..100 raw at scale 0.5 said "100 %" for what is 50 %. Fails
+    // on the old card, which labelled the raw number with the unit.
+    await tester.pumpWidget(
+      _wrap(
+        _stripEntity(),
+        codec: FakeSpecCodec(),
+        ble: FakeBleService(),
+        spec: _specWithBrightnessUnit('%', scale: 0.5),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('100'), findsOneWidget);
+    expect(find.textContaining('%'), findsNothing);
+  });
+
+  testWidgets('a brightness sent from the card re-reads the Status in the '
+      'same service', (tester) async {
+    // The light's own service folds under this card, so its Status reading
+    // stayed on its first read after a send from here — only the typed
+    // command card bumped the re-read. Fails on the old card: one read.
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([9]));
+    final ble = FakeBleService();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble),
+          specCodecProvider.overrideWithValue(codec),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Column(
+                children: [
+                  LightControlCard(
+                    deviceId: 'd',
+                    stateServiceUuid: null,
+                    entity: _stripEntity(),
+                    specYaml: 'y',
+                  ),
+                  const DecodedValueWidget(
+                    deviceId: 'd',
+                    // Spelled differently from the action's UUID: the key
+                    // folds, so the reader and writer still agree.
+                    serviceUuid: '0000FFF0-0000-1000-8000-00805F9B34FB',
+                    specYaml: 'y',
+                    specChar: CharacteristicDto(
+                      uuid: _stateChar,
+                      name: 'Status',
+                      canRead: true,
+                      canWrite: false,
+                      canNotify: false,
+                      commands: [],
+                      formatFields: [],
+                    ),
+                    canRead: true,
+                    canNotify: false,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    int statusReads() =>
+        ble.reads.where((r) => r.charUuid == _stateChar).length;
+    expect(statusReads(), 1);
+
+    await tester.drag(find.byType(Slider), const Offset(-400, 0));
+    await tester.pumpAndSettle();
+
+    expect(ble.writes, hasLength(1));
+    expect(statusReads(), 2);
   });
 
   testWidgets(

@@ -1334,7 +1334,26 @@ void main() {
     const batterySvc = '0000180f-0000-1000-8000-00805f9b34fb';
     const batteryChar = '00002a19-0000-1000-8000-00805f9b34fb';
 
-    final lightSpec = DeviceSpecDto(
+    const bulb = EntityDto(
+      name: 'Bulb',
+      variants: [],
+      platform: 'light',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      options: [],
+      actions: [
+        EntityActionDto(
+          role: 'turn_on',
+          commandName: 'power_on',
+          serviceUuid: lightSvc,
+          characteristicUuid: lightChar,
+          userParams: [],
+        ),
+      ],
+    );
+
+    DeviceSpecDto lightSpecWith(List<EntityDto> entities) => DeviceSpecDto(
       nameMatchers: const [],
       platformFallbackTypes: const [],
       txtMatchGroups: const [],
@@ -1353,26 +1372,7 @@ void main() {
       ssdpSearchTargets: const [],
       lanProtocols: const [],
       defaultPort: null,
-      entities: const [
-        EntityDto(
-          name: 'Bulb',
-          variants: [],
-          platform: 'light',
-          canNotify: false,
-          hasFormat: false,
-          onWhenNonzero: false,
-          options: [],
-          actions: [
-            EntityActionDto(
-              role: 'turn_on',
-              commandName: 'power_on',
-              serviceUuid: lightSvc,
-              characteristicUuid: lightChar,
-              userParams: [],
-            ),
-          ],
-        ),
-      ],
+      entities: entities,
       services: const [
         ServiceDto(
           uuid: lightSvc,
@@ -1391,6 +1391,8 @@ void main() {
         ),
       ],
     );
+
+    final lightSpec = lightSpecWith(const [bulb]);
 
     const services = [
       BleDiscoveredService(
@@ -1417,13 +1419,19 @@ void main() {
       ),
     ];
 
-    Future<void> pumpLight(WidgetTester tester, {Widget? header}) async {
+    Future<void> pumpLight(
+      WidgetTester tester, {
+      Widget? header,
+      DeviceSpecDto? spec,
+      List<BleDiscoveredService> discovered = services,
+    }) async {
+      final matched = spec ?? lightSpec;
       await tester.pumpWidget(
         await _wrap(
           DeviceControlPanel(
             deviceId: '01',
             deviceName: 'ACME_Living_Room',
-            services: services,
+            services: discovered,
             header: header,
           ),
           ble: FakeBleService(
@@ -1432,10 +1440,23 @@ void main() {
             },
           ),
           codec: FakeSpecCodec(
-            spec: lightSpec,
+            spec: matched,
+            encoded: Uint8List.fromList([1]),
+            decoded: const [
+              DecodedValueDto(
+                name: 'v',
+                valueType: 'uint',
+                display: '85',
+                uintValue: 85,
+                rawNumber: 85.0,
+                decodedNumber: 85.0,
+                decodedText: '85',
+                decimals: 0,
+              ),
+            ],
             matches: [
               MatchResult(
-                spec: lightSpec,
+                spec: matched,
                 matchedByNamePrefix: true,
                 matchedServiceUuids: const [lightSvc],
                 confidence: MatchConfidence.strong,
@@ -1467,6 +1488,108 @@ void main() {
       await tester.tap(find.text('Control Service'));
       await tester.pumpAndSettle();
       expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
+    });
+
+    testWidgets('a service whose every characteristic is an on-screen '
+        'reading starts folded', (tester) async {
+      // The Battery Service repeated the Readings card's "Battery 85 %" as
+      // an expanded raw value, one screen apart. Folded like the light's
+      // service: mounted, one tap away. Fails on the old panel, which only
+      // folded a sensor device's services.
+      await pumpLight(
+        tester,
+        spec: lightSpecWith(const [
+          bulb,
+          EntityDto(
+            name: 'Battery',
+            variants: [],
+            platform: 'sensor',
+            deviceClass: 'battery',
+            unit: '%',
+            stateCharacteristic: batteryChar,
+            canNotify: false,
+            hasFormat: true,
+            valueField: 'v',
+            onWhenNonzero: false,
+            options: [],
+            actions: [],
+          ),
+        ]),
+      );
+
+      expect(find.byType(EntitySensorCard), findsOneWidget);
+      expect(find.text('Battery Service'), findsOneWidget);
+      expect(find.byType(RawCharacteristicWidget), findsNothing);
+
+      await tester.tap(find.text('Battery Service'));
+      await tester.pumpAndSettle();
+      expect(find.byType(RawCharacteristicWidget), findsOneWidget);
+    });
+
+    testWidgets('a light keeps the brightness the user sent when its card '
+        'scrolls out of the list and back', (tester) async {
+      // The controls section is one item of a lazy list: scrolled away it was
+      // disposed, and the rebuilt light card re-seeded to full brightness —
+      // "80%" for a light the user had just set to 13%. Fails without the
+      // keep-alive: the slider is back at its maximum.
+      const dimmable = EntityDto(
+        name: 'Bulb',
+        variants: [],
+        platform: 'light',
+        canNotify: false,
+        hasFormat: false,
+        onWhenNonzero: false,
+        options: [],
+        actions: [
+          EntityActionDto(
+            role: 'set_brightness',
+            commandName: 'set_brightness',
+            serviceUuid: lightSvc,
+            characteristicUuid: lightChar,
+            userParams: ['brightness'],
+            min: 0,
+            max: 100,
+          ),
+        ],
+      );
+      // Enough raw services below the controls to scroll them far past the
+      // list's cache extent.
+      final many = [
+        ...services,
+        for (var i = 0; i < 40; i++)
+          BleDiscoveredService(
+            uuid:
+                '0000ee${i.toString().padLeft(2, '0')}'
+                '-0000-1000-8000-00805f9b34fb',
+            characteristics: const [
+              BleDiscoveredCharacteristic(
+                uuid: '0000eeff-0000-1000-8000-00805f9b34fb',
+                canRead: false,
+                canWrite: false,
+                canNotify: false,
+              ),
+            ],
+          ),
+      ];
+      await pumpLight(
+        tester,
+        spec: lightSpecWith(const [dimmable]),
+        discovered: many,
+      );
+
+      double sliderValue() => tester.widget<Slider>(find.byType(Slider)).value;
+      expect(sliderValue(), 100);
+      await tester.drag(find.byType(Slider), const Offset(-1000, 0));
+      await tester.pumpAndSettle();
+      expect(sliderValue(), 0);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -6000));
+      await tester.pumpAndSettle();
+      expect(find.byType(Slider), findsNothing);
+      await tester.drag(find.byType(ListView), const Offset(0, 6000));
+      await tester.pumpAndSettle();
+
+      expect(sliderValue(), 0);
     });
 
     testWidgets('service cards draw no edge-to-edge dividers when open', (

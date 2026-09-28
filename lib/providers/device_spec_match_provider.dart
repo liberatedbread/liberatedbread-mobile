@@ -172,8 +172,8 @@ Map<String, CatalogueSpec> specEntriesByKey(List<CatalogueSpec> parsed) => {
 bool isPackSpec(CatalogueSpec entry) => entry.key.startsWith('pack:');
 
 /// The built-in specs the installed pack [packName] REPLACES under
-/// [specEntriesByKey]'s pack-wins rule, as sorted "Manufacturer Device"
-/// labels.
+/// [specEntriesByKey]'s pack-wins rule, as sorted labels (see
+/// [shadowedSpecLabel]).
 ///
 /// The shadowing is deliberate (a pack ships corrected copies), but a
 /// replaced spec brings its own commands, TLS policy and credential mapping,
@@ -192,11 +192,24 @@ List<String> builtInSpecsShadowedByPack(
     for (final e in specs)
       if (e.key.startsWith(prefix) &&
           builtIn.contains(specKeyOf(e.deviceName, e.manufacturer)))
-        e.manufacturer.isEmpty
-            ? e.deviceName
-            : '${e.manufacturer} ${e.deviceName}',
+        shadowedSpecLabel(e.manufacturer, e.deviceName),
   };
   return labels.toList()..sort();
+}
+
+/// How a replaced built-in is named: the device name alone when it already
+/// leads with the maker, else "Device (Maker)".
+///
+/// Prefixing the maker unconditionally read "Airthings ASA Airthings Wave
+/// Family" and "Belkin Belkin Wemo Smart Devices" — most catalogue device
+/// names already carry the brand, and the legal suffix ("ASA") defeats a
+/// whole-string prefix check, so only the maker's first word is compared.
+String shadowedSpecLabel(String manufacturer, String deviceName) {
+  final maker = manufacturer.trim();
+  if (maker.isEmpty) return deviceName;
+  final brand = maker.split(RegExp(r'\s+')).first.toLowerCase();
+  final first = deviceName.trim().split(RegExp(r'\s+')).first.toLowerCase();
+  return first == brand ? deviceName : '$deviceName ($maker)';
 }
 
 /// [builtInSpecsShadowedByPack] over the live catalogue, for the spec-pack

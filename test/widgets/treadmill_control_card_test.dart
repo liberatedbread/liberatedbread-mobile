@@ -10,6 +10,7 @@ import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/treadmill_control_card.dart';
 
 import '../fakes/fake_ble_service.dart';
@@ -17,6 +18,9 @@ import '../fakes/fake_spec_codec.dart';
 
 const _svc = '0000fe00-0000-1000-8000-00805f9b34fb';
 const _char = '0000fe02-0000-1000-8000-00805f9b34fb';
+
+/// A readable Status in the pad's service, which the card never reads itself.
+const _statusChar = '0000fe03-0000-1000-8000-00805f9b34fb';
 
 // A KingSmith WiLink-shaped spec: a fixed start command, a speed command with
 // presentation metadata (raw counts at 0.1 km/h) beside an encoder-filled
@@ -141,6 +145,8 @@ Widget _wrap({
   // The variant-narrowed entities the panel hands over. Defaults to the whole
   // spec's, which is what a single-generation device gets.
   List<EntityDto>? entities,
+  // Mounts a readable Status in the written service under the card.
+  bool withStatus = false,
 }) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(ble),
@@ -149,12 +155,33 @@ Widget _wrap({
   child: MaterialApp(
     home: Scaffold(
       body: SingleChildScrollView(
-        child: TreadmillControlCard(
-          deviceId: 'd',
-          specYaml: 'yaml',
-          spec: spec ?? _treadmillSpec,
-          services: services,
-          entities: entities ?? (spec ?? _treadmillSpec).entities,
+        child: Column(
+          children: [
+            TreadmillControlCard(
+              deviceId: 'd',
+              specYaml: 'yaml',
+              spec: spec ?? _treadmillSpec,
+              services: services,
+              entities: entities ?? (spec ?? _treadmillSpec).entities,
+            ),
+            if (withStatus)
+              const DecodedValueWidget(
+                deviceId: 'd',
+                serviceUuid: _svc,
+                specYaml: 'yaml',
+                specChar: CharacteristicDto(
+                  uuid: _statusChar,
+                  name: 'Status',
+                  canRead: true,
+                  canWrite: false,
+                  canNotify: false,
+                  commands: [],
+                  formatFields: [],
+                ),
+                canRead: true,
+                canNotify: false,
+              ),
+          ],
         ),
       ),
     ),
@@ -239,6 +266,25 @@ void main() {
     expect(ble.writes.single.value, [0xF7, 0xA7]);
     // Status line and snackbar both announce the send.
     expect(find.text('Sent Start belt'), findsWidgets);
+  });
+
+  testWidgets('a send re-reads the Status in the same service', (tester) async {
+    // The card wrote on its own, bypassing the shared writer that bumps the
+    // same-service re-read, so a pad's status stayed on its first read after
+    // Stop. Fails on the old card: one read.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
+    await tester.pumpWidget(_wrap(ble: ble, codec: codec, withStatus: true));
+    await tester.pumpAndSettle();
+    int statusReads() =>
+        ble.reads.where((r) => r.charUuid == _statusChar).length;
+    expect(statusReads(), 1);
+
+    await tester.tap(find.text('Stop'));
+    await tester.pumpAndSettle();
+
+    expect(ble.writes, hasLength(1));
+    expect(statusReads(), 2);
   });
 
   testWidgets('the shared stop-or-pause opcode splits into Pause and Stop '

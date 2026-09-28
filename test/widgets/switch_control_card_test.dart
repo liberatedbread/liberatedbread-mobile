@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/switch_control_card.dart';
 
 import '../fakes/fake_ble_service.dart';
@@ -17,6 +18,36 @@ const _cmdChar = '00010203-0405-0607-0809-0a0b0c0d2b11';
 const _cmdService = '00010203-0405-0607-0809-0a0b0c0d1910';
 const _stateChar = 'fc540003-236c-4c94-8fa9-944a3e5353fa';
 
+/// A second readable characteristic in the written service, which no card
+/// reads itself.
+const _statusChar = '0000beef-0000-1000-8000-00805f9b34fb';
+
+/// A readable Status under [serviceUuid], mounted beside the card: the
+/// reading the card's writes must re-read.
+Widget _besideStatus(Widget card, String serviceUuid) => SingleChildScrollView(
+  child: Column(
+    children: [
+      card,
+      DecodedValueWidget(
+        deviceId: 'd',
+        serviceUuid: serviceUuid,
+        specYaml: 'y',
+        specChar: const CharacteristicDto(
+          uuid: _statusChar,
+          name: 'Status',
+          canRead: true,
+          canWrite: false,
+          canNotify: false,
+          commands: [],
+          formatFields: [],
+        ),
+        canRead: true,
+        canNotify: false,
+      ),
+    ],
+  ),
+);
+
 EntityActionDto _fixedAction(String role, String command) => EntityActionDto(
   role: role,
   serviceUuid: _cmdService,
@@ -25,12 +56,16 @@ EntityActionDto _fixedAction(String role, String command) => EntityActionDto(
   userParams: const [],
 );
 
+Widget _maybeBesideStatus(Widget card, String? svc) =>
+    svc == null ? card : _besideStatus(card, svc);
+
 Widget _wrap(
   EntityDto entity, {
   required FakeSpecCodec codec,
   required FakeBleService ble,
   String? stateServiceUuid,
   bool isLock = false,
+  String? statusServiceUuid,
 }) => ProviderScope(
   overrides: [
     bleServiceProvider.overrideWithValue(ble),
@@ -38,18 +73,60 @@ Widget _wrap(
   ],
   child: MaterialApp(
     home: Scaffold(
-      body: SwitchControlCard(
-        deviceId: 'd',
-        stateServiceUuid: stateServiceUuid,
-        entity: entity,
-        specYaml: 'y',
-        isLock: isLock,
+      body: _maybeBesideStatus(
+        SwitchControlCard(
+          deviceId: 'd',
+          stateServiceUuid: stateServiceUuid,
+          entity: entity,
+          specYaml: 'y',
+          isLock: isLock,
+        ),
+        statusServiceUuid,
       ),
     ),
   ),
 );
 
 void main() {
+  testWidgets('a switch sent from the card re-reads the Status in the same '
+      'service', (tester) async {
+    // Only the typed command card bumped the same-service re-read, so a
+    // Status under the folded service stayed on its first read after a send
+    // from here. Fails on the old card: one read.
+    final entity = EntityDto(
+      options: const [],
+      name: 'Plug Outlet',
+      platform: 'switch',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _fixedAction('turn_on', 'turn_on'),
+        _fixedAction('turn_off', 'turn_off'),
+      ],
+      variants: const [],
+    );
+    final ble = FakeBleService();
+    await tester.pumpWidget(
+      _wrap(
+        entity,
+        codec: FakeSpecCodec(encoded: Uint8List.fromList([1])),
+        ble: ble,
+        statusServiceUuid: _cmdService.toUpperCase(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    int statusReads() =>
+        ble.reads.where((r) => r.charUuid == _statusChar).length;
+    expect(statusReads(), 1);
+
+    await tester.tap(find.text('On'));
+    await tester.pumpAndSettle();
+
+    expect(ble.writes, hasLength(1));
+    expect(statusReads(), 2);
+  });
+
   testWidgets(
     'a stateless switch renders On/Off buttons and sends the bound command',
     (tester) async {

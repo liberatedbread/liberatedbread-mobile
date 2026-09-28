@@ -36,6 +36,33 @@ final serviceWritesProvider = NotifierProvider.autoDispose
 String serviceWriteKey(String deviceId, String serviceUuid) =>
     '$deviceId|${normalizeUuid(serviceUuid)}';
 
+/// Writes one command and, once it lands, bumps [serviceWritesProvider] for
+/// its service. Every spec-driven card that writes goes through here: only
+/// the typed command card used to bump, so a brightness sent from the light
+/// card — the main control once the light's own service folds away — left
+/// the Status under that fold on its first read, "Brightness: 80" after 40.
+///
+/// Takes the [container] (`ProviderScope.containerOf`, taken before the
+/// caller's first await) rather than a `WidgetRef`: the bump belongs to the
+/// readings, not the writer, so it must land even when the writer unmounted
+/// mid-write, and a ref throws once its widget is gone.
+Future<void> writeServiceCommand(
+  ProviderContainer container, {
+  required String deviceId,
+  required String serviceUuid,
+  required String charUuid,
+  required List<int> bytes,
+}) async {
+  await container
+      .read(bleServiceProvider)
+      .writeCharacteristic(deviceId, serviceUuid, charUuid, bytes);
+  container
+      .read(
+        serviceWritesProvider(serviceWriteKey(deviceId, serviceUuid)).notifier,
+      )
+      .wrote();
+}
+
 /// Reads a spec-described characteristic and renders its decoded, named fields
 /// (e.g. "Power state: on", "Brightness: 80") instead of raw hex. Subscribes
 /// for live updates when the characteristic supports notify.

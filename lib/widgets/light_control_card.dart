@@ -6,9 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/color_names.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
-import '../providers/ble_provider.dart';
+import '../core/unit_display.dart';
+import '../providers/device_spec_match_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import 'decoded_value_widget.dart';
 import 'entity_value.dart';
 import 'unclaimed_actions.dart';
 
@@ -53,12 +55,18 @@ class LightControlCard extends ConsumerStatefulWidget {
   final EntityDto entity;
   final String specYaml;
 
+  /// The parsed spec, read only for the brightness parameter's declared
+  /// unit; null shows the bare number, as the typed card does for a
+  /// parameter that declares none.
+  final DeviceSpecDto? spec;
+
   const LightControlCard({
     super.key,
     required this.deviceId,
     required this.stateServiceUuid,
     required this.entity,
     required this.specYaml,
+    this.spec,
   });
 
   @override
@@ -131,16 +139,42 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
   double get _brightnessMin => _setBrightness?.min ?? 0;
   double get _brightnessMax => _setBrightness?.max ?? 255;
 
-  /// Whether the brightness reads as a percentage, so the number beside the
-  /// slider can say "80%" rather than a bare "80" while the raw command card
-  /// for the same parameter says "%". The action carries bounds but no unit,
-  /// so the bounds are the signal: a brightness that runs 0 (or 1) to 100 is a
-  /// percentage, and a 0..255 one is a raw level and stays unitless.
-  bool get _brightnessIsPercent =>
-      _brightnessMax == 100 && (_brightnessMin == 0 || _brightnessMin == 1);
+  /// The unit the spec declares on the parameter the slider sends, spelled
+  /// the way the typed command card spells it — so the two cards for one
+  /// parameter say the same thing. This used to be guessed from the bounds
+  /// (0 or 1 to 100 read as "%"), which put "40%" beside elk-bledom's
+  /// unitless brightness while its typed card said a bare 40, and left
+  /// idotmatrix's 5..100 without one.
+  String? get _brightnessUnit {
+    final spec = widget.spec;
+    final action = _setBrightness ?? _setColor;
+    final commandName = action?.commandName;
+    if (spec == null || action == null || commandName == null) return null;
+    final service = findServiceForUuid(spec, action.serviceUuid);
+    final char = service == null
+        ? null
+        : findCharForUuid(service, action.characteristicUuid);
+    final command = char?.commands
+        .where((c) => c.name == commandName)
+        .firstOrNull;
+    final param = command?.parameters
+        .where((p) => p.name == 'brightness' || p.name == 'level')
+        .where((p) => action.userParams.contains(p.name))
+        .firstOrNull;
+    // The unit describes the DISPLAY value (raw * scale + offset), and the
+    // slider shows the raw one it sends. A scaled parameter's unit beside
+    // the raw number would state a quantity that is not there — the typed
+    // card converts before it labels; this card does not.
+    if (param == null || param.scale != null || param.valueOffset != null) {
+      return null;
+    }
+    return displayUnit(param.unit);
+  }
 
-  String get _brightnessText =>
-      '${_effectiveBrightness.round()}${_brightnessIsPercent ? '%' : ''}';
+  String _brightnessLabel(double v) {
+    final unit = _brightnessUnit;
+    return unit == null ? '${v.round()}' : '${v.round()} $unit';
+  }
 
   double get _effectiveBrightness =>
       (_brightness ?? _brightnessMax).clamp(_brightnessMin, _brightnessMax);
@@ -191,20 +225,21 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
     });
     try {
       final codec = ref.read(specCodecProvider);
+      final container = ProviderScope.containerOf(context, listen: false);
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
         charUuid: action.characteristicUuid,
         commandName: commandName,
         params: _paramsFor(action),
       );
-      await ref
-          .read(bleServiceProvider)
-          .writeCharacteristic(
-            widget.deviceId,
-            action.serviceUuid,
-            action.characteristicUuid,
-            bytes.toList(),
-          );
+      // Through the shared writer, so the readings in this service re-read.
+      await writeServiceCommand(
+        container,
+        deviceId: widget.deviceId,
+        serviceUuid: action.serviceUuid,
+        charUuid: action.characteristicUuid,
+        bytes: bytes.toList(),
+      );
       if (!mounted) return;
       setState(() {
         _sending = false;
@@ -426,12 +461,11 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                     // — "40" — and which of a light card's several numbers it
                     // is has to be guessed from focus order.
                     semanticFormatterCallback: (v) =>
-                        'Brightness ${v.round()}'
-                        '${_brightnessIsPercent ? ' percent' : ''}',
+                        'Brightness ${_brightnessLabel(v)}',
                     min: _brightnessMin,
                     max: _brightnessMax,
                     value: _effectiveBrightness,
-                    label: _brightnessText,
+                    label: _brightnessLabel(_effectiveBrightness),
                     onChanged: _sending
                         ? null
                         : (v) => setState(() {
@@ -444,7 +478,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                   ),
                 ),
                 Text(
-                  _brightnessText,
+                  _brightnessLabel(_effectiveBrightness),
                   style: text.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),

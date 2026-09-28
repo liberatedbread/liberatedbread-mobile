@@ -7,10 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/entity_icon.dart';
 import '../../core/error_text.dart';
-import '../../providers/ble_provider.dart';
 import '../../providers/spec_codec_provider.dart';
 import '../../services/spec_codec.dart';
 import '../confirm_dialog.dart';
+import '../decoded_value_widget.dart';
 import '../entity_value.dart';
 import '../unclaimed_actions.dart';
 
@@ -163,20 +163,21 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
     });
     try {
       final codec = ref.read(specCodecProvider);
+      final container = ProviderScope.containerOf(context, listen: false);
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
         charUuid: action.characteristicUuid,
         commandName: commandName,
         params: params,
       );
-      await ref
-          .read(bleServiceProvider)
-          .writeCharacteristic(
-            widget.deviceId,
-            action.serviceUuid,
-            action.characteristicUuid,
-            bytes.toList(),
-          );
+      // Through the shared writer, so the readings in this service re-read.
+      await writeServiceCommand(
+        container,
+        deviceId: widget.deviceId,
+        serviceUuid: action.serviceUuid,
+        charUuid: action.characteristicUuid,
+        bytes: bytes.toList(),
+      );
       if (!mounted) return;
       setState(() {
         _sendingRole = null;

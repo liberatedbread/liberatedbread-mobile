@@ -6,10 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
 import '../core/value_format.dart';
-import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../core/entity_icon.dart';
 import '../services/spec_codec.dart';
+import 'decoded_value_widget.dart';
 import 'entity_value.dart';
 import 'unclaimed_actions.dart';
 
@@ -130,16 +130,17 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
       _sendingRole = role;
       _errorText = null;
     });
+    final container = ProviderScope.containerOf(context, listen: false);
     try {
       final write = await encode();
-      await ref
-          .read(bleServiceProvider)
-          .writeCharacteristic(
-            widget.deviceId,
-            write.serviceUuid,
-            write.characteristicUuid,
-            write.bytes.toList(),
-          );
+      // Through the shared writer, so the readings in this service re-read.
+      await writeServiceCommand(
+        container,
+        deviceId: widget.deviceId,
+        serviceUuid: write.serviceUuid,
+        charUuid: write.characteristicUuid,
+        bytes: write.bytes.toList(),
+      );
       if (!mounted) return;
       setState(() {
         _sendingRole = null;

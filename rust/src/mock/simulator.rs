@@ -12,6 +12,57 @@ use std::collections::HashMap;
 pub struct MockDeviceState {
     /// Written characteristic values (keyed by char UUID).
     written: HashMap<String, Vec<u8>>,
+    /// What the demo bulb has been told to do, laid over its status reads.
+    bulb: BulbCommands,
+}
+
+/// The example bulb's Command (write) and Status (read) characteristics —
+/// `vendor/protocol-specs/device-specs/examples/example-bulb.yaml`, the spec
+/// behind demo mode's lights.
+const BULB_COMMAND_UUID: &str = "0000fff1-0000-1000-8000-00805f9b34fb";
+const BULB_STATUS_UUID: &str = "0000fff2-0000-1000-8000-00805f9b34fb";
+
+/// Commands the demo bulb has applied. A real bulb's status follows its
+/// commands; without this the next poll re-read the untouched defaults and
+/// the user's Off looked like it never happened. Kept as an overlay rather
+/// than a status buffer because the status defaults come from the spec's
+/// format, which only `read` is given.
+#[derive(Default)]
+struct BulbCommands {
+    power: Option<u8>,
+    brightness: Option<u8>,
+    rgb: Option<[u8; 3]>,
+}
+
+impl BulbCommands {
+    /// Record one example-bulb command: `01 pp` power, `02 bb` brightness,
+    /// `03 rr gg bb` colour. Anything else is not a bulb command and changes
+    /// nothing.
+    fn apply(&mut self, value: &[u8]) {
+        match *value {
+            [0x01, power] => self.power = Some(power),
+            [0x02, brightness] => self.brightness = Some(brightness),
+            [0x03, r, g, b] => self.rgb = Some([r, g, b]),
+            _ => {}
+        }
+    }
+
+    /// Lay the applied commands over status bytes (power, brightness, r, g,
+    /// b at offsets 0..5), leaving any byte the buffer lacks alone.
+    fn overlay(&self, status: &mut [u8]) {
+        let mut set = |i: usize, v: Option<u8>| {
+            if let (Some(slot), Some(v)) = (status.get_mut(i), v) {
+                *slot = v;
+            }
+        };
+        set(0, self.power);
+        set(1, self.brightness);
+        if let Some([r, g, b]) = self.rgb {
+            set(2, Some(r));
+            set(3, Some(g));
+            set(4, Some(b));
+        }
+    }
 }
 
 impl MockDeviceState {
@@ -23,7 +74,14 @@ impl MockDeviceState {
     pub fn write(&mut self, char_uuid: &str, value: Vec<u8>) {
         // ASCII-lowercase per crate convention (SEV2 §2.5): UUIDs are pure
         // ASCII, and `read`/`read_raw` must normalize keys identically.
-        self.written.insert(char_uuid.to_ascii_lowercase(), value);
+        let key = char_uuid.to_ascii_lowercase();
+        if key == BULB_COMMAND_UUID {
+            self.bulb.apply(&value);
+        } else if key == BULB_STATUS_UUID {
+            // A direct status write replaces the whole state, commands included.
+            self.bulb = BulbCommands::default();
+        }
+        self.written.insert(key, value);
     }
 
     /// Generate a mock read value for a characteristic based on its format spec.
@@ -32,13 +90,15 @@ impl MockDeviceState {
     pub fn read(&self, char_uuid: &str, format: &[FormatField]) -> Vec<u8> {
         let key = char_uuid.to_ascii_lowercase();
 
-        // Return last written value if available
-        if let Some(written) = self.written.get(&key) {
-            return written.clone();
+        // Return last written value if available, else plausible defaults.
+        let mut bytes = match self.written.get(&key) {
+            Some(written) => written.clone(),
+            None => generate_defaults(format),
+        };
+        if key == BULB_STATUS_UUID {
+            self.bulb.overlay(&mut bytes);
         }
-
-        // Generate default values based on format
-        generate_defaults(format)
+        bytes
     }
 
     /// Generate a mock read value for a characteristic that has no format spec.
@@ -332,6 +392,61 @@ mod tests {
         state.write(uuid, vec![0]);
         let bytes = state.read(uuid, &fields);
         assert_eq!(bytes, vec![0]);
+    }
+
+    /// The example bulb's Status format: power, brightness, r, g, b.
+    fn bulb_status_format() -> Vec<FormatField> {
+        let field = |offset, name: &str, field_type| FormatField {
+            offset,
+            length: 1,
+            name: name.into(),
+            field_type,
+            ..Default::default()
+        };
+        vec![
+            field(0, "power_state", ValueType::Bool),
+            field(1, "brightness", ValueType::Uint8),
+            field(2, "red", ValueType::Uint8),
+            field(3, "green", ValueType::Uint8),
+            field(4, "blue", ValueType::Uint8),
+        ]
+    }
+
+    #[test]
+    fn bulb_status_follows_its_commands() {
+        let mut state = MockDeviceState::new();
+        let format = bulb_status_format();
+        assert_eq!(
+            state.read(BULB_STATUS_UUID, &format),
+            vec![1, 80, 255, 180, 50]
+        );
+
+        // Demo mode's Off used to be undone by the next status poll.
+        state.write(BULB_COMMAND_UUID, vec![0x01, 0x00]);
+        assert_eq!(
+            state.read(BULB_STATUS_UUID, &format),
+            vec![0, 80, 255, 180, 50]
+        );
+
+        state.write(BULB_COMMAND_UUID, vec![0x02, 30]);
+        state.write(BULB_COMMAND_UUID, vec![0x03, 1, 2, 3]);
+        // Case differs from the constant: keys are normalized.
+        state.write(&BULB_COMMAND_UUID.to_ascii_uppercase(), vec![0x01, 0x01]);
+        assert_eq!(state.read(BULB_STATUS_UUID, &format), vec![1, 30, 1, 2, 3]);
+    }
+
+    #[test]
+    fn bulb_ignores_what_is_not_a_command() {
+        let mut state = MockDeviceState::new();
+        let format = bulb_status_format();
+        // Wrong length for its opcode, and an unknown opcode.
+        state.write(BULB_COMMAND_UUID, vec![0x01]);
+        state.write(BULB_COMMAND_UUID, vec![0x03, 1, 2]);
+        state.write(BULB_COMMAND_UUID, vec![0x09, 0x00]);
+        assert_eq!(
+            state.read(BULB_STATUS_UUID, &format),
+            vec![1, 80, 255, 180, 50]
+        );
     }
 
     #[test]

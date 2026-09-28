@@ -595,6 +595,19 @@ void main() {
       );
     });
 
+    // Screenshot 28: a prominent Retry under "scanning will start again by
+    // itself" could only fail again while the radio stayed off.
+    testWidgets('a radio that is off offers no Retry', (tester) async {
+      final fake = FakeBleService(scanError: const BleUnavailableException());
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bluetooth is off'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+      // Nor the FAB standing in for it.
+      expect(find.byType(FloatingActionButton), findsNothing);
+    });
+
     testWidgets('does not resurrect a scan the user stopped', (tester) async {
       // Broadcast: matches fbp's adapterState, and a single-subscription
       // controller that never gains a listener hangs its own close() in

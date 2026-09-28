@@ -132,6 +132,9 @@ void main() {
     // recorded in docs/APP_STORE_SUBMISSION.md as an environment problem.
     await _waitFor(tester, find.text('Example Smart Bulb'));
     await _waitFor(tester, find.text('Controls'));
+    // Let the switch finish animating in: the shot caught its thumb grey
+    // and half-size.
+    await _soak(tester, const Duration(seconds: 1));
     await _shot(tester, '06_device_typed_controls');
     expect(find.text('Example Smart Bulb'), findsOneWidget);
     expect(find.text('Controls'), findsOneWidget);
@@ -166,9 +169,17 @@ void main() {
     await _soak(tester, const Duration(seconds: 2));
     await _shot(tester, '09_readings');
 
-    await tester.drag(find.byType(ListView).first, const Offset(0, -600));
+    // The light card draws the Control Service, so it starts folded; open
+    // it, or this shot is the same screen as the last.
+    final controlService = find.text('Control Service');
+    await tester.ensureVisible(controlService);
+    await _soak(tester, const Duration(milliseconds: 500));
+    await tester.tap(controlService);
+    await _soak(tester, const Duration(seconds: 1));
+    await tester.drag(find.byType(ListView).first, const Offset(0, -400));
     await _soak(tester, const Duration(seconds: 2));
     await _shot(tester, '10_raw_services');
+    expect(find.text('Power on'), findsWidgets);
 
     // Back out to the scan list.
     await tester.pageBack();
@@ -234,8 +245,22 @@ void main() {
     await tester.tap(find.text('Reset URL'));
     await _soak(tester, const Duration(seconds: 1));
     await tester.tap(find.text('Install / Refresh'));
-    await _soak(tester, const Duration(seconds: 20));
+    // Wait for the result, not a fixed time: the default pack is ~200
+    // files fetched one by one, and a still-running install keeps Clear all
+    // disabled, so the next step's dialog never opened.
+    await _soak(tester, const Duration(seconds: 1));
+    await _waitFor(
+      tester,
+      find.text('Install / Refresh'),
+      const Duration(minutes: 3),
+    );
+    await _soak(tester, const Duration(seconds: 1));
     await _shot(tester, '16_spec_pack_default_url_result');
+    expect(
+      find.text('Install / Refresh'),
+      findsOneWidget,
+      reason: 'the default-URL install was still running after 3 minutes',
+    );
 
     await tester.tap(find.byTooltip('Clear all packs'));
     await _soak(tester, const Duration(seconds: 1));

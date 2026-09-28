@@ -878,7 +878,7 @@ void main() {
     await tester.pumpWidget(_wrap(fake));
     await tester.pump();
     await tester.pump();
-    expect(find.text('Reading device features...'), findsOneWidget);
+    expect(find.text('Almost there...'), findsOneWidget);
 
     conn.add(BleConnectionState.disconnected);
     await tester.pump();
@@ -1702,10 +1702,19 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('Reading device features...'), findsOneWidget);
       expect(find.text('Connecting'), findsNothing);
       expect(find.text('Connected'), findsOneWidget);
       expect(find.textContaining('services'), findsNothing);
+      // Named twice — the app bar's status and the active step — not a third
+      // time as the headline too.
+      expect(find.text('Almost there...'), findsOneWidget);
+      expect(find.textContaining('Reading device features'), findsNWidgets(2));
+      // The step icons share one left edge rather than each row centring
+      // on its own text's length.
+      expect(
+        tester.getTopLeft(find.byIcon(Icons.check_circle)).dx,
+        tester.getTopLeft(find.byType(CircularProgressIndicator)).dx,
+      );
 
       gate.complete();
       await tester.pumpAndSettle();

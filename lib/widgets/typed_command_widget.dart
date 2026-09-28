@@ -5,7 +5,6 @@ import '../core/unit_display.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/value_format.dart';
-import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 import '../core/error_text.dart';
@@ -276,7 +275,7 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     });
     try {
       final codec = ref.read(specCodecProvider);
-      final ble = ref.read(bleServiceProvider);
+      final container = ProviderScope.containerOf(context, listen: false);
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
         charUuid: widget.charUuid,
@@ -293,21 +292,16 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
             if (_isSendable(e.key)) e.key: e.value.roundToDouble(),
         },
       );
-      await ble.writeCharacteristic(
-        widget.deviceId,
-        widget.serviceUuid,
-        widget.charUuid,
-        bytes.toList(),
+      // Readings in this service re-read once it lands; see
+      // [writeServiceCommand].
+      await writeServiceCommand(
+        container,
+        deviceId: widget.deviceId,
+        serviceUuid: widget.serviceUuid,
+        charUuid: widget.charUuid,
+        bytes: bytes.toList(),
       );
       if (mounted) {
-        // Readings in this service re-read; see [serviceWritesProvider].
-        ref
-            .read(
-              serviceWritesProvider(
-                serviceWriteKey(widget.deviceId, widget.serviceUuid),
-              ).notifier,
-            )
-            .wrote();
         setState(() {
           _sending = false;
           _status = 'Sent';

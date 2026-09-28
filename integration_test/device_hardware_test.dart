@@ -387,18 +387,18 @@ Future<({int ms, Object? error})> _sequenceDisconnect(
   return (ms: clock.elapsedMilliseconds, error: error);
 }
 
-/// One device, one pass: connect (three attempts, 2 s apart), discover, MTU
-/// and RSSI, read every readable characteristic, hold the link idle for
-/// [_sequenceHold] listening for the peripheral to hang up, disconnect.
-/// Never throws — every outcome lands in the row, and a crash-class error
-/// ([_isCrashClass]) is appended to [crashes] for the verdict at the end —
-/// so one bad step cannot end the experiment before the table is printed.
 /// A device's name for the log, or its id's first block when it advertises
 /// none: an `id:` entry's rows all read `""` otherwise.
 String _shownName(IoTDevice device) => device.name.isNotEmpty
     ? device.name
     : '(no name) ${device.id.split('-').first}';
 
+/// One device, one pass: connect (three attempts, 2 s apart), discover, MTU
+/// and RSSI, read every readable characteristic, hold the link idle for
+/// [_sequenceHold] listening for the peripheral to hang up, disconnect.
+/// Never throws — every outcome lands in the row, and a crash-class error
+/// ([_isCrashClass]) is appended to [crashes] for the verdict at the end —
+/// so one bad step cannot end the experiment before the table is printed.
 Future<_SequenceRow> _sequenceOne(
   RealBleService ble, {
   required int pass,

@@ -14,6 +14,12 @@ void main() {
       'http://169.254.1.1': HaUrlKind.privateLan,
       'http://127.0.0.1:8123': HaUrlKind.privateLan,
       'http://localhost:8123': HaUrlKind.privateLan,
+      // Names only a home resolver answers.
+      'http://homeassistant:8123': HaUrlKind.privateLan,
+      'ha:8123': HaUrlKind.privateLan,
+      'http://ha.home.arpa:8123': HaUrlKind.privateLan,
+      // An IPv6 literal is not a bare name.
+      'http://[2001:db8::1]:8123': HaUrlKind.publicHttp,
       // Not private: outside 172.16/12.
       'http://172.32.0.1': HaUrlKind.publicHttp,
       // mDNS.

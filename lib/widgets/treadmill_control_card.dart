@@ -10,10 +10,10 @@ import '../core/entity_keys.dart';
 import '../core/error_text.dart';
 import '../core/value_format.dart';
 import '../models/ble_discovered_service.dart';
-import '../providers/ble_provider.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import 'decoded_value_widget.dart';
 
 /// Step of the speed steppers and slider, in DISPLAY units (km/h where the
 /// spec declares one). Walking pads move in half-km/h clicks in their stock
@@ -487,7 +487,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     var attempted = false;
     try {
       final codec = ref.read(specCodecProvider);
-      final ble = ref.read(bleServiceProvider);
+      final container = ProviderScope.containerOf(context, listen: false);
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
         serviceUuid: serviceUuid,
@@ -496,11 +496,13 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
         params: params,
       );
       attempted = true;
-      await ble.writeCharacteristic(
-        widget.deviceId,
-        serviceUuid,
-        charUuid,
-        bytes.toList(),
+      // Through the shared writer, so the readings in this service re-read.
+      await writeServiceCommand(
+        container,
+        deviceId: widget.deviceId,
+        serviceUuid: serviceUuid,
+        charUuid: charUuid,
+        bytes: bytes.toList(),
       );
       if (mounted) {
         setState(() {

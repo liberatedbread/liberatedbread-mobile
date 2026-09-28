@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:liberated_bread_mobile/core/ha_url.dart';
 import 'package:liberated_bread_mobile/models/ha_sensor.dart';
 import 'package:liberated_bread_mobile/services/ha_api_client.dart';
 import 'package:liberated_bread_mobile/services/http_ha_api_client.dart';
@@ -250,5 +251,30 @@ void main() {
         );
       },
     );
+  });
+
+  group('friendlyHaMessage for a network failure', () {
+    const e = HaNetworkException('no route');
+
+    test('keeps the same-network advice for a LAN or unknown address', () {
+      for (final kind in [HaUrlKind.privateLan, HaUrlKind.mdnsLocal, null]) {
+        expect(friendlyHaMessage(e, urlKind: kind), contains('try Tailscale'));
+      }
+    });
+
+    test('a public address gets no same-network or Tailscale advice', () {
+      for (final kind in [HaUrlKind.publicHttp, HaUrlKind.publicHttps]) {
+        final text = friendlyHaMessage(e, urlKind: kind);
+        expect(text, isNot(contains('same network')));
+        expect(text, isNot(contains('Tailscale')));
+        expect(text, contains('Check the address and port'));
+      }
+    });
+
+    test('a tailnet address is told to check Tailscale, not try it', () {
+      final text = friendlyHaMessage(e, urlKind: HaUrlKind.tailscale);
+      expect(text, isNot(contains('try Tailscale')));
+      expect(text, contains('Tailscale is connected'));
+    });
   });
 }

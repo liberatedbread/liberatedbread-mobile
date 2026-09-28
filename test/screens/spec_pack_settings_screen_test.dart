@@ -83,6 +83,36 @@ void main() {
     expect(find.textContaining('1 spec'), findsOneWidget);
   });
 
+  // "updated" was wrong on a first install, and the hh:mm wrapped onto a
+  // line of its own beside the two trailing buttons.
+  testWidgets('a pack card says "installed" with the date on one line', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_wrap(FakeSpecPackService(packs: [_pack()])));
+    await tester.pumpAndSettle();
+
+    final subtitle = find.text('1 spec · installed 2026-07-11');
+    expect(subtitle, findsOneWidget);
+    expect(tester.widget<Text>(subtitle).maxLines, 1);
+    expect(find.textContaining('updated'), findsNothing);
+  });
+
+  // An enabled clear-all over an empty list confirmed, then printed
+  // "Cleared all installed packs." over nothing.
+  testWidgets('clear-all is disabled with no packs installed', (tester) async {
+    await tester.pumpWidget(_wrap(FakeSpecPackService()));
+    await tester.pumpAndSettle();
+
+    IconButton clearAll() => tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.delete_sweep_outlined),
+    );
+    expect(clearAll().onPressed, isNull);
+
+    await tester.pumpWidget(_wrap(FakeSpecPackService(packs: [_pack()])));
+    await tester.pumpAndSettle();
+    expect(clearAll().onPressed, isNotNull);
+  });
+
   testWidgets('shows a validation error for a non-http URL', (tester) async {
     await tester.pumpWidget(_wrap(FakeSpecPackService()));
     await tester.pumpAndSettle();
@@ -258,6 +288,39 @@ void main() {
     );
   });
 
+  testWidgets('a pack replacing many built-ins counts them, not lists them', (
+    tester,
+  ) async {
+    final service = FakeSpecPackService(
+      nextResult: InstallOk(_pack(name: 'Everything')),
+    );
+    await tester.pumpWidget(
+      _wrap(
+        service,
+        shadowed: {
+          'Everything': [for (var i = 1; i <= 203; i++) 'Device $i'],
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
+    await tester.tap(find.text('Install / Refresh'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining(
+        'replaces the built-in definitions for 203 devices, among them '
+        'Device 1, Device 2, Device 3.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Device 4'), findsNothing);
+  });
+
   // Before the fix a pack saved from a public http:// source got only "no
   // valid source URL", with no hint that https is what is required.
   testWidgets('refresh explains why a saved http source is refused', (
@@ -353,6 +416,15 @@ void main() {
     );
     expect(find.textContaining('Bad state'), findsNothing);
     expect(find.text('No packs installed yet.'), findsNothing);
+    // Clearing is the way out of an unreadable cache, so it stays enabled.
+    expect(
+      tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.delete_sweep_outlined),
+          )
+          .onPressed,
+      isNotNull,
+    );
   });
 
   testWidgets('clear-all removes every pack after confirmation', (

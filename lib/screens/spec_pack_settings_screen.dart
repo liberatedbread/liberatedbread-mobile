@@ -45,6 +45,13 @@ class _SpecPackSettingsScreenState
     }
 
     final scheme = Theme.of(context).colorScheme;
+    // Nothing to clear with no packs (or before the list has loaded): an
+    // enabled button there confirmed and then printed "Cleared all installed
+    // packs." over an already-empty list. A listing that FAILED keeps it:
+    // clearing deletes the whole cache without reading it, the one way back
+    // from a cache that cannot be listed.
+    final packs = ref.watch(installedSpecPacksProvider);
+    final hasPacks = packs.hasError || (packs.valueOrNull?.isNotEmpty ?? false);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Device Spec Packs'),
@@ -52,7 +59,7 @@ class _SpecPackSettingsScreenState
           IconButton(
             icon: const Icon(Icons.delete_sweep_outlined),
             tooltip: 'Clear all packs',
-            onPressed: _busy ? null : _confirmClearAll,
+            onPressed: _busy || !hasPacks ? null : _confirmClearAll,
           ),
         ],
       ),
@@ -170,10 +177,15 @@ class _SpecPackSettingsScreenState
               Card(
                 child: ListTile(
                   title: Text('${pack.name}  ·  v${pack.version}'),
+                  // "installed", not "updated": the stamp is also a first
+                  // install's. Date only, so the line fits beside the two
+                  // trailing buttons instead of wrapping the time alone.
                   subtitle: Text(
                     '${pack.specCount} '
-                    '${pack.specCount == 1 ? 'spec' : 'specs'} · updated '
+                    '${pack.specCount == 1 ? 'spec' : 'specs'} · installed '
                     '${_formatDate(pack.installedAt)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -484,12 +496,23 @@ class _SpecPackSettingsScreenState
       '$verb "${pack.name}" v${pack.version} (${pack.specCount} '
           '${pack.specCount == 1 ? 'spec' : 'specs'}).',
       if (skipped > 0) '$skipped file(s) were skipped.',
-      if (shadowed.isNotEmpty)
+      if (shadowed.isNotEmpty && shadowed.length <= _shadowedNamedMax)
         'It replaces the built-in definition'
             '${shadowed.length == 1 ? '' : 's'} for: ${shadowed.join(', ')}.',
+      // The default pack replaces every built-in (203 of them), and naming
+      // each was a screenful of text under the button.
+      if (shadowed.length > _shadowedNamedMax)
+        'It replaces the built-in definitions for ${shadowed.length} '
+            'devices, among them '
+            '${shadowed.take(_shadowedNamedShown).join(', ')}.',
     ];
     return parts.join(' ');
   }
+
+  /// Most replaced built-ins an install result names one by one, and how
+  /// many it names when there are more than that.
+  static const _shadowedNamedMax = 5;
+  static const _shadowedNamedShown = 3;
 
   String _friendlyError(SpecPackError error) {
     return switch (error.kind) {
@@ -517,7 +540,6 @@ class _SpecPackSettingsScreenState
   static String _formatDate(DateTime dt) {
     final local = dt.toLocal();
     String two(int v) => v.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)} '
-        '${two(local.hour)}:${two(local.minute)}';
+    return '${local.year}-${two(local.month)}-${two(local.day)}';
   }
 }

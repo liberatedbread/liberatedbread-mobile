@@ -6,6 +6,7 @@
 // also the seam where an MQTT publisher or a two-way command channel would
 // plug in later without touching the UI.
 
+import '../core/ha_url.dart';
 import '../models/ha_sensor.dart';
 
 /// Result of a successful mobile_app device registration.
@@ -50,7 +51,13 @@ sealed class HaApiException implements Exception {
 /// background forwarder describe the same failure the same way — and so no
 /// caller is tempted to interpolate the raw exception (which can carry a
 /// socket message or a raw server response body) into the UI.
-String friendlyHaMessage(HaApiException e) {
+///
+/// [urlKind] is where the address the failure came from is reachable from.
+/// A network failure only earns the "same network? try Tailscale" line when
+/// the address is a home-LAN one (or unknown): for a public address that
+/// advice is wrong — being on the same Wi-Fi changes nothing — and for a
+/// tailnet address the user already has Tailscale.
+String friendlyHaMessage(HaApiException e, {HaUrlKind? urlKind}) {
   return switch (e) {
     HaAuthException() =>
       'Home Assistant rejected the access token. '
@@ -58,11 +65,19 @@ String friendlyHaMessage(HaApiException e) {
     HaNotFoundException() =>
       'That address does not look like a Home '
           'Assistant server (mobile_app API not found).',
-    HaNetworkException() =>
+    HaNetworkException() => switch (urlKind) {
+      HaUrlKind.publicHttp || HaUrlKind.publicHttps =>
+        'Could not reach the server. Check the address and port, and that '
+            'Home Assistant is reachable from this network.',
+      HaUrlKind.tailscale =>
+        'Could not reach the server. Check that Tailscale is connected on '
+            'this phone and on the Home Assistant host.',
       // No "tip below": the Tailscale card sits above this message on the
       // form, and is not shown at all for a public https address.
-      'Could not reach the server. Are you on the '
-          'same network? For access away from home, try Tailscale.',
+      _ =>
+        'Could not reach the server. Are you on the '
+            'same network? For access away from home, try Tailscale.',
+    },
     HaServerException() =>
       'Home Assistant returned an error. Check that it '
           'is running and up to date, then try again.',
