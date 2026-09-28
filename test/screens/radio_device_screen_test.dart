@@ -1445,5 +1445,22 @@ void main() {
         reason: 'the confirmation names the model too',
       );
     });
+
+    // Regression: whose a record was got worked out again after lookup
+    // picked it, re-walking the ids by identity, and fell through to the
+    // profile's own name on a miss. The matched id decides it now.
+    test('only a record under the profile\'s own id is called its own', () {
+      expect(
+        whoseOriginalLimits(uv82hpProfile.id, uv82hpProfile),
+        startsWith('what a Baofeng UV-82HP held'),
+      );
+      final borrowed = whoseOriginalLimits(uv5rProfile.id, uv82hpProfile);
+      expect(borrowed, startsWith('what a radio widened as the Baofeng UV-5R'));
+      expect(borrowed, isNot(contains('what a Baofeng UV-82HP held')));
+      expect(
+        whoseOriginalLimits('gone-model', uv82hpProfile),
+        startsWith('what a radio widened as the gone-model'),
+      );
+    });
   });
 }

@@ -275,7 +275,10 @@ void main() {
       // originals are keyed 'uv5r'; with nothing of its own recorded the
       // HP profile still finds them for Put back.
       final kept = {uv5rProfile.id: first};
-      expect(OriginalBandLimitsNotifier.lookup(kept, uv82hpProfile), first);
+      expect(OriginalBandLimitsNotifier.lookup(kept, uv82hpProfile), (
+        original: first,
+        fromId: uv5rProfile.id,
+      ));
       // The legacy id is the HP's only: another model does not borrow it.
       expect(OriginalBandLimitsNotifier.lookup(kept, bfF8hpProfile), isNull);
     });
@@ -297,7 +300,10 @@ void main() {
       expect(kept[uv82hpProfile.id], hpBefore);
       expect(kept[uv5rProfile.id], first);
       // Its own reading now wins over the legacy one.
-      expect(OriginalBandLimitsNotifier.lookup(kept, uv82hpProfile), hpBefore);
+      expect(OriginalBandLimitsNotifier.lookup(kept, uv82hpProfile), (
+        original: hpBefore,
+        fromId: uv82hpProfile.id,
+      ));
     });
 
     test('a record that cannot be read is no record, not a guess', () async {

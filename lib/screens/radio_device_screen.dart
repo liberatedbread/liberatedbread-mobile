@@ -343,12 +343,13 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       return const [];
     }
     final recorded = ref.watch(originalBandLimitsProvider).valueOrNull;
-    final original = recorded == null
+    final found = recorded == null
         ? null
         : OriginalBandLimitsNotifier.lookup(recorded, profile);
-    final whose = original == null
+    final original = found?.original;
+    final whose = found == null
         ? ''
-        : _whoseOriginal(recorded!, original, profile);
+        : whoseOriginalLimits(found.fromId, profile);
     return [
       const Divider(height: 24),
       ListTile(
@@ -377,30 +378,6 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
           onTap: () => _putBack(profile, original, whose),
         ),
     ];
-  }
-
-  /// Whose limits [original] are, in words.
-  ///
-  /// A record found only under a legacy id (a UV-5R's, for a UV-82HP) was
-  /// read from whatever radio was widened under that profile, perhaps a real
-  /// UV-5R. Naming [profile] for it claimed one of its own had held them.
-  static String _whoseOriginal(
-    Map<String, OriginalBandLimits> recorded,
-    OriginalBandLimits original,
-    RadioProfile profile,
-  ) {
-    final own =
-        'what a ${profile.displayName} held before this app first widened '
-        'one';
-    if (recorded[profile.id] != null) return own;
-    for (final id in profile.legacyProfileIds) {
-      if (!identical(recorded[id], original)) continue;
-      final name = radioProfileById(id)?.displayName ?? id;
-      return 'what a radio widened as the $name held before this app first '
-          'widened one, kept from before the ${profile.displayName} was a '
-          'model of its own';
-    }
-    return own;
   }
 
   // -------------------------------------------------------------------------
@@ -1057,6 +1034,26 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     return '${local.year}-${two(local.month)}-${two(local.day)} '
         '${two(local.hour)}:${two(local.minute)}';
   }
+}
+
+/// Whose limits a record found under [fromId] are, in words, for
+/// [profile]. [fromId] is what [OriginalBandLimitsNotifier.lookup] matched,
+/// so whose it is is decided once, there.
+///
+/// A record found under any other id than [profile]'s own (a UV-5R's, for
+/// a UV-82HP) was read from whatever radio was widened under that profile,
+/// perhaps a real UV-5R. Naming [profile] for it claimed one of its own had
+/// held them.
+@visibleForTesting
+String whoseOriginalLimits(String fromId, RadioProfile profile) {
+  if (fromId == profile.id) {
+    return 'what a ${profile.displayName} held before this app first '
+        'widened one';
+  }
+  final name = 'the ${radioProfileById(fromId)?.displayName ?? fromId}';
+  return 'what a radio widened as $name held before this app first '
+      'widened one, kept from before the ${profile.displayName} was a '
+      'model of its own';
 }
 
 class _Header extends StatelessWidget {

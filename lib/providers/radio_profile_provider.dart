@@ -107,19 +107,21 @@ class OriginalBandLimitsNotifier
     extends AsyncNotifier<Map<String, OriginalBandLimits>> {
   static const key = 'radio_original_limits_v1';
 
-  /// What is recorded for [profile]: under its own id, else under an id it
-  /// was saved as before it had one (see [RadioProfile.legacyProfileIds]).
+  /// What is recorded for [profile], and the id it was found under: its
+  /// own id, else an id it was saved as before it had one (see
+  /// [RadioProfile.legacyProfileIds]). The id is the one answer to whose
+  /// record it is; the screen words a borrowed one from it.
   ///
   /// For showing and Put back only. A legacy record is not proven to be
   /// this radio's, so [recordIfAbsent] never lets one stand in for the
   /// radio's own reading, and once that is recorded it wins here.
-  static OriginalBandLimits? lookup(
+  static ({OriginalBandLimits original, String fromId})? lookup(
     Map<String, OriginalBandLimits> recorded,
     RadioProfile profile,
   ) {
     for (final id in [profile.id, ...profile.legacyProfileIds]) {
       final found = recorded[id];
-      if (found != null) return found;
+      if (found != null) return (original: found, fromId: id);
     }
     return null;
   }
