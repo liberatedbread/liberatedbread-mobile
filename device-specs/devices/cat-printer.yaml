@@ -206,6 +206,16 @@ features:
     # 1 bit per pixel: the thermal head is on or off. Stated so an editor
     # quantizes to two colours, not to another device's 16-colour ceiling.
     max_palette_colors: 2
+    # Head geometry, promoted from the notes' prose (paper_width 384 pixels,
+    # 48 bytes per row) so a label composer reads the canvas width by key.
+    # The sequence's set_dpi_as_200 step and the 48 mm paper put the head at
+    # the usual 8 dots/mm (203 dpi) of a 58 mm thermal roll mechanism. Row
+    # bits are reversed per byte on the wire (LSB = leftmost dot), which is
+    # not a left-right mirror of the row, so mirror_rows stays absent.
+    print_geometry:
+      dpi: 203
+      bytes_per_row: 48
+      head_dots: 384
   # The upload IS the device: the commands below put rows on paper and
   # resolve no entities. A consumer keeps the printer on this marker instead
   # of dropping it as empty; image_upload above describes the bitmap it takes.

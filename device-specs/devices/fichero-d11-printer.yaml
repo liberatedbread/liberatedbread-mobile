@@ -165,6 +165,12 @@ features:
     format: "1bit-bitmap"
     # 1 bit per pixel, MSB first, 1 = black. Two colours, nothing between.
     max_palette_colors: 2
+    # Head geometry, promoted from the notes' prose (96px head at 203 DPI,
+    # 12 bytes per row, MSB first) so a label composer reads it by key.
+    print_geometry:
+      dpi: 203
+      bytes_per_row: 12
+      head_dots: 96
     # Darkness codes for set_density (10 FF 10 00 nn) and stock codes for
     # set_paper_type (10 FF 84 nn) — the vocabularies the print sequence
     # opens with, declared so a consumer offers a picker and sends the byte.
