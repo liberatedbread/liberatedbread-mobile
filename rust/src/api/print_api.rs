@@ -207,11 +207,18 @@ fn brother_placement(
     let feature = crate::protocol::image_upload::image_feature(spec)
         .ok_or_else(|| anyhow::anyhow!("the spec declares no image_upload feature"))?;
     let geometry = feature.print_geometry.clone().unwrap_or_default();
-    let head_dots = geometry
-        .head_dots
-        .or(feature.max_width)
-        .ok_or_else(|| anyhow::anyhow!("the spec states no head width"))?
-        as usize;
+    // The encoder sizes every row from the image feature (max_width), so the
+    // placement must use the same head, or each row would be shifted by the
+    // difference.
+    let head_dots = crate::protocol::image_upload::printhead_row_bytes(spec)? * 8;
+    if let Some(declared) = geometry.head_dots {
+        if declared as usize != head_dots {
+            anyhow::bail!(
+                "the spec's print_geometry.head_dots ({declared}) disagrees with its \
+                 image width ({head_dots} dots)"
+            );
+        }
+    }
     let dead_zone = geometry.additional_offset_right_dots.unwrap_or(0) as usize;
     let dpi = geometry.dpi.unwrap_or(300);
     let feed_margin = geometry.feed_margin_dots.unwrap_or(35);
