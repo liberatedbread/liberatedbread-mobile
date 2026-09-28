@@ -239,5 +239,22 @@ else
   fail "$ios: the put-the-app-back advice omits --release (debug will not launch from the icon)"
 fi
 
+# Both lanes rewrite Generated.xcconfig, and the exit advice sends the
+# operator to Xcode's Product > Profile, which builds whatever it names. The
+# backup must come before the flutter lane's early return, or that lane
+# leaves the suite (keychain-wipe define and all) as Xcode's target.
+# shellcheck disable=SC2016  # the $s are regex text matched in the script
+backup_line="$(grep -nE '^ *XCCONFIG_BACKUP="\$\(mktemp\)"' "$ios" |
+  head -1 | cut -d: -f1)"
+# shellcheck disable=SC2016  # the $s are regex text matched in the script
+flutter_line="$(grep -nE '^ *if \[\[ "\$LAUNCHER" == "flutter" \]\]' \
+  "$ios" | head -1 | cut -d: -f1)"
+if [[ -n "$backup_line" && -n "$flutter_line" &&
+      "$backup_line" -lt "$flutter_line" ]]; then
+  pass "$ios backs up Generated.xcconfig before either lane builds"
+else
+  fail "$ios: Generated.xcconfig is backed up only after the flutter lane returns (line ${backup_line:-none} vs ${flutter_line:-none})"
+fi
+
 if [[ "$status" -eq 0 ]]; then echo "run-ios-device-tests selftest: all passed"; fi
 exit "$status"

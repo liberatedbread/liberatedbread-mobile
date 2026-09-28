@@ -291,10 +291,12 @@ DEFINES=(
 LOG_DIR="build/ios-device-tests"
 mkdir -p "$LOG_DIR"
 
-# The xcodebuild lane points ios/Flutter/Generated.xcconfig at the suite
-# (FLUTTER_TARGET, DART_DEFINES). It is gitignored and Flutter rewrites it on
-# every build, but an Xcode GUI build in between would otherwise build the
-# test app instead of the real one — so put it back on exit.
+# Both lanes point ios/Flutter/Generated.xcconfig at the suite
+# (FLUTTER_TARGET, DART_DEFINES): the xcodebuild lane's --config-only build
+# and the flutter lane's `flutter test -d`, which builds through Xcode. It is
+# gitignored and Flutter rewrites it on every build, but an Xcode GUI build
+# in between (the Product > Profile the exit advice names) would otherwise
+# build the test app instead of the real one — so put it back on exit.
 XCCONFIG="ios/Flutter/Generated.xcconfig"
 XCCONFIG_BACKUP=""
 restore_xcconfig() {
@@ -387,6 +389,14 @@ run_suite() {
   local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
   local logfile="$LOG_DIR/$name-$stamp.log"
 
+  # Before either lane builds: both rewrite Generated.xcconfig, so a backup
+  # taken only on the xcodebuild lane left the flutter lane's suite (and its
+  # keychain-wipe define) as what Xcode's Product > Profile builds next.
+  if [[ -z "$XCCONFIG_BACKUP" && -f "$XCCONFIG" ]]; then
+    XCCONFIG_BACKUP="$(mktemp)"
+    cp "$XCCONFIG" "$XCCONFIG_BACKUP"
+  fi
+
   if [[ "$LAUNCHER" == "flutter" ]]; then
     # --no-uninstall: flutter's default removes the app when the run ends,
     # which drops its SharedPreferences but not its keychain; the next real
@@ -398,10 +408,6 @@ run_suite() {
     return "${PIPESTATUS[0]}"
   fi
 
-  if [[ -z "$XCCONFIG_BACKUP" && -f "$XCCONFIG" ]]; then
-    XCCONFIG_BACKUP="$(mktemp)"
-    cp "$XCCONFIG" "$XCCONFIG_BACKUP"
-  fi
   # PROFILE, not debug, and that is load-bearing.
   #
   # A Flutter app built in debug mode calls `ptrace(PT_TRACE_ME)` on startup
