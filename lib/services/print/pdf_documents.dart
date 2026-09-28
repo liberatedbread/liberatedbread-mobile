@@ -210,11 +210,15 @@ Future<Uint8List> labelImagePdf({
       margin: const pw.EdgeInsets.all(36),
       build: (context) => pw.Align(
         alignment: pw.Alignment.topLeft,
-        child: pw.SizedBox(
-          // Points are 1/72 in; a dot is 1/dpi in.
-          width: width * 72 / dpi,
-          height: height * 72 / dpi,
-          child: pw.Image(image, fit: pw.BoxFit.fill),
+        // Points are 1/72 in; a dot is 1/dpi in. A label longer than the
+        // page is scaled down to fit, keeping its shape, rather than
+        // squeezed.
+        child: pw.ConstrainedBox(
+          constraints: pw.BoxConstraints(
+            maxWidth: width * 72 / dpi,
+            maxHeight: height * 72 / dpi,
+          ),
+          child: pw.Image(image, fit: pw.BoxFit.contain),
         ),
       ),
     ),

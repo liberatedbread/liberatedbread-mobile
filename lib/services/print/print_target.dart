@@ -26,12 +26,16 @@ class LabelGeometry {
   /// real hardware; the composer says so before the first print.
   final bool hardwareTested;
 
+  /// The longest label the printer takes, in feed dots, when its spec says.
+  final int? maxLengthDots;
+
   const LabelGeometry({
     required this.widthDots,
     required this.dpi,
     this.lengthDots,
     this.mediaName,
     this.hardwareTested = true,
+    this.maxLengthDots,
   });
 
   /// Continuous stock with no content yet still needs some length to show.
@@ -188,6 +192,7 @@ class BleRasterTarget implements LabelPrintTarget {
          widthDots: raster.printableDots ?? raster.headDots ?? 384,
          dpi: raster.dpi,
          hardwareTested: raster.hardwareTested,
+         maxLengthDots: raster.maxLengthDots,
        );
 
   @override

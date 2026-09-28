@@ -48,8 +48,9 @@ class DeviceRefusedException implements Exception {
 Future<void> runImageWritePlan(
   BleService ble,
   String deviceId,
-  ImageWritePlanDto plan,
-) async {
+  ImageWritePlanDto plan, {
+  Duration subscribeSettle = const Duration(milliseconds: 250),
+}) async {
   final poll = plan.completionPoll;
   if (plan.replyWaits.isEmpty && poll == null) {
     for (final write in plan.writes) {
@@ -75,6 +76,11 @@ Future<void> runImageWritePlan(
           .listen(replies.add, onError: (Object _) {}),
   ];
   try {
+    // Subscribing returns before the platform has written the CCCD, so a
+    // reply to the very first write could arrive with notifications still
+    // off. Give the enable a moment, and (below) resend the first write
+    // once if its reply still does not come.
+    await Future<void>.delayed(subscribeSettle);
     final waitsAfter = <int, List<ReplyWaitDto>>{};
     for (final w in plan.replyWaits) {
       (waitsAfter[w.afterWrite] ??= []).add(w);
@@ -91,11 +97,26 @@ Future<void> runImageWritePlan(
         write.bytes,
       );
       for (final wait in waitsAfter[i] ?? const <ReplyWaitDto>[]) {
-        await replies.take(
-          wait.expectPrefix,
-          errors: wait.errorPrefixes,
-          timeout: Duration(milliseconds: wait.timeoutMs),
-        );
+        try {
+          await replies.take(
+            wait.expectPrefix,
+            errors: wait.errorPrefixes,
+            timeout: Duration(milliseconds: wait.timeoutMs),
+          );
+        } on TimeoutException {
+          if (i != 0) rethrow;
+          await ble.writeCharacteristic(
+            deviceId,
+            plan.serviceUuid,
+            write.characteristicUuid,
+            write.bytes,
+          );
+          await replies.take(
+            wait.expectPrefix,
+            errors: wait.errorPrefixes,
+            timeout: Duration(milliseconds: wait.timeoutMs),
+          );
+        }
       }
     }
   } finally {
@@ -125,7 +146,13 @@ Future<void> _pollUntilDone(
     if (remaining <= Duration.zero) {
       throw TimeoutException('the device never reported done', remaining);
     }
-    final reply = await replies.take(poll.replyPrefix, timeout: remaining);
+    final reply = await replies.take(
+      poll.replyPrefix,
+      // The whole field the verdict is read from, not just the prefix: a
+      // reply split across notifications must not be judged half-arrived.
+      minLength: poll.doneOffset + poll.doneBytes.length,
+      timeout: remaining,
+    );
     if (_carries(reply, poll.doneOffset, poll.doneBytes)) return;
     await Future<void>.delayed(Duration(milliseconds: poll.intervalMs));
   }
@@ -160,26 +187,32 @@ class _ReplyBuffer {
     if (waiting != null && !waiting.isCompleted) waiting.complete();
   }
 
-  /// Wait for [prefix] to appear; return the bytes from it on, and drop
-  /// everything up to their end — each request has one reply, so what came
-  /// before it is stale and what came with it is spent.
+  /// Wait for [prefix] to appear with at least [minLength] bytes from its
+  /// start; return those bytes on, and drop everything — each request has
+  /// one reply, so what came before it is stale and what came with it is
+  /// spent. Whichever of [prefix] and [errors] appears FIRST decides: an
+  /// error pattern that happens to occur later, inside other data, is not
+  /// a refusal.
   Future<List<int>> take(
     List<int> prefix, {
     List<List<int>> errors = const [],
+    int minLength = 0,
     required Duration timeout,
   }) async {
     final deadline = DateTime.now().add(timeout);
     while (true) {
-      for (final error in errors) {
-        final at = _find(error);
-        if (at >= 0) {
-          final reply = _bytes.sublist(at);
-          _bytes.clear();
-          throw DeviceRefusedException(reply);
-        }
-      }
       final at = _find(prefix);
-      if (at >= 0) {
+      var errorAt = -1;
+      for (final error in errors) {
+        final e = _find(error);
+        if (e >= 0 && (errorAt < 0 || e < errorAt)) errorAt = e;
+      }
+      if (errorAt >= 0 && (at < 0 || errorAt < at)) {
+        final reply = _bytes.sublist(errorAt);
+        _bytes.clear();
+        throw DeviceRefusedException(reply);
+      }
+      if (at >= 0 && _bytes.length - at >= minLength) {
         final reply = _bytes.sublist(at);
         _bytes.clear();
         return reply;

@@ -857,16 +857,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           frameIndex: _frameSequence,
           maxPayloadPerWrite: payloadPerWrite,
         );
-    for (final write in plan.writes) {
-      // Each write names its own characteristic: the doodle flow opens the
-      // session on the command channel and streams pixels on the bulk one.
-      await ble.writeCharacteristic(
-        widget.deviceId,
-        plan.serviceUuid,
-        write.characteristicUuid,
-        write.bytes,
-      );
-    }
+    // Each write names its own characteristic: the doodle flow opens the
+    // session on the command channel and streams pixels on the bulk one. A
+    // request/response device (a NIIMBOT printer) also gets its replies
+    // waited for; a plain stream still goes back to back.
+    await runImageWritePlan(ble, widget.deviceId, plan);
     // A frame-0 send opened the doodle session; note it so a later save/replay
     // sends `ui_start_sync` to hand the panel back before playing.
     _doodleSessionOpen = true;
