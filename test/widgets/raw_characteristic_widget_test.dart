@@ -408,9 +408,10 @@ void main() {
 
   // Screenshots 24/25 (round 3): the "Value" caption pushed the field to
   // the keyboard's edge and the result line was cut in half. A widget test
-  // has no keyboard inset, so this does not reproduce that (it passes on
-  // the old code too); it pins the contract, and the walkthrough's shots
-  // are the check against the real keyboard.
+  // has no keyboard inset, so it re-parks the field on the viewport's
+  // bottom edge after typing (undoing the keystroke's own scroll-padding
+  // scroll); only _revealResult can then bring the error into view, and
+  // the walkthrough's shots are the check against the real keyboard.
   testWidgets('a write result is scrolled fully into view', (tester) async {
     final scroll = ScrollController();
     addTearDown(scroll.dispose);
@@ -454,12 +455,22 @@ void main() {
     // write, with no keystroke to scroll it into view, and runs to lines
     // the default scroll padding does not cover.
     await tester.enterText(find.byType(TextField), '01');
+    await tester.pumpAndSettle();
+    // Typing scrolled the caret clear with the field's scrollPadding, which
+    // already made room for the error line and hid a missing reveal. Park
+    // the field back on the bottom edge, where it rests on a keyboard.
+    scroll.jumpTo(
+      scroll.offset + tester.getRect(field).bottom - viewport.bottom,
+    );
+    await tester.pumpAndSettle();
+    final before = scroll.offset;
     await tester.tap(find.byIcon(Icons.send));
     await tester.pumpAndSettle();
 
     final error = find.textContaining('rejected');
     expect(error, findsOneWidget);
     expect(tester.getRect(error).bottom, lessThanOrEqualTo(viewport.bottom));
+    expect(scroll.offset, greaterThan(before));
   });
 
   testWidgets('the hex field is not a prose field', (tester) async {
