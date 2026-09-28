@@ -132,8 +132,12 @@ class NetworkIdentity {
 /// with DHCP, and dead identities must not accumulate for the app's lifetime.
 final networkGuessProvider = FutureProvider.autoDispose
     .family<ScanGuess?, NetworkIdentity>((ref, identity) async {
-      final catalogue = await ref.watch(specCatalogueProvider.future);
-      final identities = await ref.watch(specIdentitiesProvider.future);
+      // Both watched before the first await, as in scanGuessProvider: a
+      // watch after one throws once the scope has been disposed meanwhile.
+      final catalogueFuture = ref.watch(specCatalogueProvider.future);
+      final identitiesFuture = ref.watch(specIdentitiesProvider.future);
+      final catalogue = await catalogueFuture;
+      final identities = await identitiesFuture;
       if (identities.isEmpty) return null;
 
       final List<ScanMatch> matches;

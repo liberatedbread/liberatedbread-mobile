@@ -506,8 +506,14 @@ final declaredManufacturerPrefixesProvider =
 /// keep their entry alive by watching it.
 final scanGuessProvider = FutureProvider.autoDispose
     .family<ScanGuess?, ScanIdentity>((ref, identity) async {
-      final catalogue = await ref.watch(specCatalogueProvider.future);
-      final identities = await ref.watch(specIdentitiesProvider.future);
+      // Both watched BEFORE the first await: a watch after one runs whenever
+      // the catalogue resolves, and if the scope was disposed meanwhile (a
+      // device screen closed, a test ended) it throws "Tried to read a
+      // provider from a ProviderContainer that was already disposed".
+      final catalogueFuture = ref.watch(specCatalogueProvider.future);
+      final identitiesFuture = ref.watch(specIdentitiesProvider.future);
+      final catalogue = await catalogueFuture;
+      final identities = await identitiesFuture;
       if (identities.isEmpty) return null;
 
       final List<ScanMatch> matches;

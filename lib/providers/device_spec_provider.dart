@@ -58,12 +58,16 @@ String specAssetPath(String indexPath) => '$specsRoot/$indexPath';
 /// `pack:<name>/<file>`). The two key spaces cannot collide, and a failure
 /// loading remote packs never removes a bundled spec.
 final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
-  final specs = {...await ref.watch(bundledDeviceSpecsProvider.future)};
+  // Both sources watched before the first await: a watch after one throws
+  // once the scope has been disposed meanwhile.
+  final bundledFuture = ref.watch(bundledDeviceSpecsProvider.future);
+  final cachedFuture = ref.watch(cachedSpecPacksProvider.future);
+  final specs = {...await bundledFuture};
   final bundledCount = specs.length;
 
   // Remote (cached) packs. Namespaced keys guarantee no collision with the
   // bundled asset paths above. This provider already swallows its own errors.
-  final cached = await ref.watch(cachedSpecPacksProvider.future);
+  final cached = await cachedFuture;
   specs.addAll(cached);
 
   Log.spec.info(
