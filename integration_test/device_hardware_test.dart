@@ -1526,6 +1526,13 @@ void main() {
           '(best ${strongest[pick.id]} dBm'
           '${others.isEmpty ? '' : '; also matched $others'})',
         );
+        // The whole advertisement, for a device the catalogue does not know
+        // yet: what a spec's identity block would match on.
+        final pickedAd = seen[pick.id]!;
+        _say(
+          '  advertises services ${pickedAd.serviceUuids}; manufacturer data '
+          '${{for (final e in pickedAd.manufacturerData.entries) '0x${e.key.toRadixString(16).padLeft(4, '0')}': e.value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}}',
+        );
         targets.add((prefix: prefix, device: pick));
       }
       if (targets.isEmpty) {

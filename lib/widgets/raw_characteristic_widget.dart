@@ -121,6 +121,7 @@ class _RawCharacteristicWidgetState
         _writeError = 'Invalid hex (expected pairs, e.g. "01 aa")';
         _writeStatus = null;
       });
+      _revealResult();
       return;
     }
     if (bytes.isEmpty) {
@@ -128,6 +129,7 @@ class _RawCharacteristicWidgetState
         _writeError = 'Enter at least one byte';
         _writeStatus = null;
       });
+      _revealResult();
       return;
     }
 
@@ -153,6 +155,7 @@ class _RawCharacteristicWidgetState
           _writing = false;
           _writeStatus = 'Wrote ${bytesToHex(bytes)}';
         });
+        _revealResult();
       }
     } catch (e) {
       if (mounted) {
@@ -164,8 +167,27 @@ class _RawCharacteristicWidgetState
             fallback: 'The write was rejected by the device.',
           );
         });
+        _revealResult();
       }
     }
+  }
+
+  final _writeRowKey = GlobalKey();
+
+  /// Scroll the whole write row, result line included, above the keyboard
+  /// once the result is laid out. The field only scrolls ITSELF into view
+  /// on a keystroke, and a submit moves no cursor, so a result appearing
+  /// under a field already sitting on the keyboard's edge was cut in half.
+  void _revealResult() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final row = _writeRowKey.currentContext;
+      if (row == null || !row.mounted) return;
+      Scrollable.ensureVisible(
+        row,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+        duration: const Duration(milliseconds: 150),
+      );
+    });
   }
 
   void _subscribe() {
@@ -281,6 +303,7 @@ class _RawCharacteristicWidgetState
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Padding(
+      key: _writeRowKey,
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
       // Top-aligned: the result line under the field would otherwise pull
       // the send button down off the field it belongs to.
@@ -302,9 +325,10 @@ class _RawCharacteristicWidgetState
               smartQuotesType: SmartQuotesType.disabled,
               keyboardType: TextInputType.visiblePassword,
               inputFormatters: [_hexInputChars],
-              // The result lives in the decoration, not a Text below the
-              // row, so scrolling the field above the keyboard brings
-              // the result line with it instead of cutting it in half.
+              // Room below the field for a result line while typing: the
+              // field scrolls only itself (plus this) above the keyboard.
+              // A result appearing on submit is revealed by _revealResult.
+              scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 20 + 56),
               decoration: InputDecoration(
                 isDense: true,
                 labelText: 'Write hex',

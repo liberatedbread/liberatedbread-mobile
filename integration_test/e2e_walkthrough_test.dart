@@ -163,6 +163,8 @@ void main() {
     await tester.drag(find.byType(Slider), const Offset(-90, 0));
     await _soak(tester, const Duration(seconds: 1));
     await _shot(tester, '08_brightness_sent');
+    final setBrightness = tester.widget<Slider>(find.byType(Slider)).value;
+    final setPower = tester.widget<Switch>(find.byType(Switch)).value;
 
     // Readings, then the raw GATT services, live further down the list.
     await tester.drag(find.byType(ListView).first, const Offset(0, -600));
@@ -180,6 +182,22 @@ void main() {
     await _soak(tester, const Duration(seconds: 2));
     await _shot(tester, '10_raw_services');
     expect(find.text('Power on'), findsWidgets);
+
+    // Back up to the light card, which scrolled out of the list's cache on
+    // the way down: it must still show what the user set, not reseed.
+    await tester.fling(
+      find.byType(ListView).first,
+      const Offset(0, 3000),
+      3000,
+    );
+    await _soak(tester, const Duration(seconds: 2));
+    await _shot(tester, '10b_light_card_after_scroll');
+    expect(
+      tester.widget<Slider>(find.byType(Slider).first).value,
+      setBrightness,
+      reason: 'the light card kept the brightness the user set',
+    );
+    expect(tester.widget<Switch>(find.byType(Switch).first).value, setPower);
 
     // Back out to the scan list.
     await tester.pageBack();

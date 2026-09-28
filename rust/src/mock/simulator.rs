@@ -65,6 +65,25 @@ impl BulbCommands {
     }
 }
 
+/// Whether `format` is the example bulb's Status layout — power_state (bool)
+/// then brightness, red, green, blue (uint8), one byte each at offsets 0..5 —
+/// the bytes [`BulbCommands::overlay`] writes. Only then is the overlay the
+/// device's own behaviour rather than a guess from a shared UUID.
+fn is_bulb_status(format: &[FormatField]) -> bool {
+    const LAYOUT: [(&str, ValueType); 5] = [
+        ("power_state", ValueType::Bool),
+        ("brightness", ValueType::Uint8),
+        ("red", ValueType::Uint8),
+        ("green", ValueType::Uint8),
+        ("blue", ValueType::Uint8),
+    ];
+    LAYOUT.iter().enumerate().all(|(offset, (name, ty))| {
+        format
+            .iter()
+            .any(|f| f.offset == offset && f.length == 1 && f.name == *name && f.field_type == *ty)
+    })
+}
+
 impl MockDeviceState {
     pub fn new() -> Self {
         Self::default()
@@ -95,7 +114,14 @@ impl MockDeviceState {
             Some(written) => written.clone(),
             None => generate_defaults(format),
         };
-        if key == BULB_STATUS_UUID {
+        // The UUID alone does not make a bulb: fff1/fff2 are the catalogue's
+        // most reused vendor UUIDs, and an Inkbird's fff2 is a temperature.
+        // Without the format check a `02 1e` config write to its fff1 would
+        // rewrite the temperature's high byte on the next read.
+        if key == BULB_STATUS_UUID && is_bulb_status(format) {
+            // A short directly-written status stays short: the overlay only
+            // sets the bytes it has, the same rule as MockBleService's Dart
+            // fallback, so the two paths read back the same bytes.
             self.bulb.overlay(&mut bytes);
         }
         bytes
@@ -394,22 +420,89 @@ mod tests {
         assert_eq!(bytes, vec![0]);
     }
 
+    fn parse(yaml: &str) -> crate::spec::types::DeviceSpec {
+        crate::spec::parser::parse_device_spec(yaml).unwrap()
+    }
+
+    /// The vendored example bulb, the spec behind demo mode's lights. Read
+    /// from the YAML, not rebuilt by hand, so a spec change to the offsets
+    /// fails these tests instead of leaving them green over a broken demo.
+    fn example_bulb() -> crate::spec::types::DeviceSpec {
+        parse(include_str!(
+            "../../../vendor/protocol-specs/device-specs/examples/example-bulb.yaml"
+        ))
+    }
+
     /// The example bulb's Status format: power, brightness, r, g, b.
     fn bulb_status_format() -> Vec<FormatField> {
-        let field = |offset, name: &str, field_type| FormatField {
-            offset,
-            length: 1,
-            name: name.into(),
-            field_type,
-            ..Default::default()
+        example_bulb()
+            .find_decodable_characteristic(BULB_STATUS_UUID)
+            .and_then(|(_, c)| c.format.clone())
+            .expect("example-bulb declares a Status format")
+    }
+
+    /// The opcodes `BulbCommands::apply` understands are the ones the spec's
+    /// commands encode; a drift in either would make demo Off a no-op.
+    #[test]
+    fn bulb_opcodes_match_the_vendored_spec() {
+        use crate::codec::types::encode_command;
+        let spec = example_bulb();
+        let (_, command_char) = spec
+            .find_characteristic_where(BULB_COMMAND_UUID, |c| c.commands.is_some())
+            .expect("example-bulb declares a Command characteristic");
+        let commands = command_char.commands.as_ref().unwrap();
+        let encode = |name: &str, params: &[(&str, f64)]| {
+            let params = params.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+            encode_command(&commands[name], &params).unwrap()
         };
-        vec![
-            field(0, "power_state", ValueType::Bool),
-            field(1, "brightness", ValueType::Uint8),
-            field(2, "red", ValueType::Uint8),
-            field(3, "green", ValueType::Uint8),
-            field(4, "blue", ValueType::Uint8),
-        ]
+        let mut state = MockDeviceState::new();
+        let format = bulb_status_format();
+        state.write(BULB_COMMAND_UUID, encode("power_off", &[]));
+        state.write(
+            BULB_COMMAND_UUID,
+            encode("set_brightness", &[("brightness", 30.0)]),
+        );
+        state.write(
+            BULB_COMMAND_UUID,
+            encode("set_color", &[("red", 1.0), ("green", 2.0), ("blue", 3.0)]),
+        );
+        assert_eq!(state.read(BULB_STATUS_UUID, &format), vec![0, 30, 1, 2, 3]);
+        state.write(BULB_COMMAND_UUID, encode("power_on", &[]));
+        assert_eq!(state.read(BULB_STATUS_UUID, &format), vec![1, 30, 1, 2, 3]);
+    }
+
+    /// fff1/fff2 are shared by a dozen catalogue specs. A bulb-shaped write
+    /// to an Inkbird's fff1 config used to rewrite byte 1 of the temperature
+    /// its fff2 reads back.
+    #[test]
+    fn a_non_bulb_fff2_is_not_overlaid() {
+        let inkbird = parse(include_str!(
+            "../../../vendor/protocol-specs/device-specs/devices/inkbird-ibs-th.yaml"
+        ));
+        let format = inkbird
+            .find_decodable_characteristic(BULB_STATUS_UUID)
+            .and_then(|(_, c)| c.format.clone())
+            .expect("inkbird-ibs-th declares an fff2 format");
+        let mut state = MockDeviceState::new();
+        let before = state.read(BULB_STATUS_UUID, &format);
+        state.write(BULB_COMMAND_UUID, vec![0x02, 0x1e]);
+        state.write(BULB_COMMAND_UUID, vec![0x01, 0x00]);
+        assert_eq!(state.read(BULB_STATUS_UUID, &format), before);
+    }
+
+    /// A short direct status write stays short, and a command sets only the
+    /// bytes it has, exactly as the Dart fallback's test ("a short bulb
+    /// status stays short, as in the simulator") pins; the two paths
+    /// disagreed on this before.
+    #[test]
+    fn short_status_write_stays_short() {
+        let mut state = MockDeviceState::new();
+        let format = bulb_status_format();
+        state.write(BULB_STATUS_UUID, vec![0]);
+        state.write(BULB_COMMAND_UUID, vec![0x02, 30]);
+        assert_eq!(state.read(BULB_STATUS_UUID, &format), vec![0]);
+        state.write(BULB_COMMAND_UUID, vec![0x01, 1]);
+        assert_eq!(state.read(BULB_STATUS_UUID, &format), vec![1]);
     }
 
     #[test]

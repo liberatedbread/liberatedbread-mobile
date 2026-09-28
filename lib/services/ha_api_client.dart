@@ -56,8 +56,10 @@ sealed class HaApiException implements Exception {
 /// A network failure only earns the "same network? try Tailscale" line when
 /// the address is a home-LAN one (or unknown): for a public address that
 /// advice is wrong — being on the same Wi-Fi changes nothing — and for a
-/// tailnet address the user already has Tailscale.
-String friendlyHaMessage(HaApiException e, {HaUrlKind? urlKind}) {
+/// tailnet address the user already has Tailscale. Required (pass null when
+/// no address is known) so a new caller cannot silently fall back to the
+/// LAN wording for an address that is not on the LAN.
+String friendlyHaMessage(HaApiException e, {required HaUrlKind? urlKind}) {
   return switch (e) {
     HaAuthException() =>
       'Home Assistant rejected the access token. '

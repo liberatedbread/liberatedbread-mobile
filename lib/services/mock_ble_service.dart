@@ -464,20 +464,26 @@ class MockBleService implements BleService, BleConnectCanceller {
     // The bulb's status follows its commands, as in the Rust simulator: a
     // status poll that ignored them showed a demo user's Off as not sent.
     if (key == _bulbCommandKey) {
-      // Padded from the defaults: a status written short directly would
-      // otherwise throw a RangeError out of this write.
-      final defaults = _defaults[_bulbStatusKey]!;
-      final status = List<int>.of(writes[_bulbStatusKey] ?? defaults);
-      if (status.length < defaults.length) {
-        status.addAll(defaults.skip(status.length));
+      // Only the offsets the stored status has are set, as in the Rust
+      // simulator's BulbCommands::overlay: padding a status written short
+      // made this fallback read back bytes demo mode never shows, and
+      // indexing it unguarded threw a RangeError out of this write.
+      final status = List<int>.of(
+        writes[_bulbStatusKey] ?? _defaults[_bulbStatusKey]!,
+      );
+      void set(int i, int v) {
+        if (i < status.length) status[i] = v;
       }
+
       switch (value) {
         case [0x01, final power]:
-          status[0] = power;
+          set(0, power);
         case [0x02, final brightness]:
-          status[1] = brightness;
+          set(1, brightness);
         case [0x03, final r, final g, final b]:
-          status.setRange(2, 5, [r, g, b]);
+          set(2, r);
+          set(3, g);
+          set(4, b);
       }
       writes[_bulbStatusKey] = status;
     }

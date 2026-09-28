@@ -223,6 +223,48 @@ void main() {
     expect(forwarder.status.lastSuccess, isNotNull);
   });
 
+  group('network-failure wording follows the configured address', () {
+    // Old code passed no kind, so every address got the LAN line "same
+    // network? try Tailscale" - wrong for a public or tailnet address.
+    Future<String?> lastErrorFor(String baseUrl) async {
+      final api = FakeHaApiClient()
+        ..registerSensorError = const HaNetworkException('no route');
+      final forwarder = _forwarder(
+        api,
+        config: HaConfig(
+          baseUrl: baseUrl,
+          token: 't',
+          deviceId: 'app1',
+          webhookId: 'wh1',
+        ),
+      );
+      await forwarder.onDecodedValues(
+        deviceId: 'd',
+        specChar: _statusChar,
+        values: [_brightness(10)],
+      );
+      return forwarder.status.lastError;
+    }
+
+    test('a public https address gets no Tailscale advice', () async {
+      final text = await lastErrorFor('https://ha.example.com');
+      expect(text, contains('Could not reach the server'));
+      expect(text, isNot(contains('Tailscale')));
+      expect(text, isNot(contains('same network')));
+    });
+
+    test('a tailnet address is told to check Tailscale, not try it', () async {
+      final text = await lastErrorFor('https://ha.tail1234.ts.net');
+      expect(text, contains('Tailscale is connected'));
+      expect(text, isNot(contains('try Tailscale')));
+    });
+
+    test('a LAN address keeps the same-network advice', () async {
+      final text = await lastErrorFor('http://ha.local:8123');
+      expect(text, contains('try Tailscale'));
+    });
+  });
+
   test('does not record a success when there is no work to send', () async {
     final api = FakeHaApiClient();
     final forwarder = _forwarder(api);

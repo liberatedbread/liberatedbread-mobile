@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/ha_sensor_mapping.dart';
+import '../core/ha_url.dart';
 import '../core/log.dart';
 import '../models/ha_config.dart';
 import '../models/ha_sensor.dart';
@@ -237,13 +238,19 @@ class HaSensorForwarder {
           'and ${states.length} state(s)',
           error: e,
         );
-        status._recordError(_statusErrorText(e));
+        // Classified from the address the flush used, so a public or tailnet
+        // address is not told "same network? try Tailscale" in the background
+        // when the setup form words the same failure for its address.
+        status._recordError(
+          _statusErrorText(e, urlKind: classifyHaUrl(config.baseUrl)),
+        );
       }
     } catch (e) {
       // Failure before any work was captured (config read / interval wait).
       _flushScheduled = false;
       Log.ha.warning('flush aborted before any work was captured', error: e);
-      status._recordError(_statusErrorText(e));
+      // No config was read, so no address to classify: the generic wording.
+      status._recordError(_statusErrorText(e, urlKind: null));
     }
   }
 
@@ -270,8 +277,12 @@ class HaSensorForwarder {
 /// Typed HA failures get the same wording the setup form uses; anything else
 /// (a platform channel blowing up, a StateError) gets a generic line, with the
 /// real error going to the log — never to the screen.
-String _statusErrorText(Object e) => e is HaApiException
-    ? friendlyHaMessage(e)
+///
+/// [urlKind] classifies the address the failure came from; null when none
+/// was read.
+String _statusErrorText(Object e, {required HaUrlKind? urlKind}) =>
+    e is HaApiException
+    ? friendlyHaMessage(e, urlKind: urlKind)
     : friendlyErrorText(
         e,
         context: 'HA forward',

@@ -406,6 +406,62 @@ void main() {
     expect(decoration().helperText, 'Wrote 01 ff 42');
   });
 
+  // Screenshots 24/25 (round 3): the "Value" caption pushed the field to
+  // the keyboard's edge and the result line was cut in half. A widget test
+  // has no keyboard inset, so this does not reproduce that (it passes on
+  // the old code too); it pins the contract, and the walkthrough's shots
+  // are the check against the real keyboard.
+  testWidgets('a write result is scrolled fully into view', (tester) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [bleServiceProvider.overrideWithValue(_RejectingBle())],
+        child: MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              controller: scroll,
+              children: [
+                // Filler so the field sits right at the viewport's bottom
+                // edge, as it does above an open keyboard.
+                SizedBox(
+                  height:
+                      tester.view.physicalSize.height /
+                      tester.view.devicePixelRatio,
+                ),
+                const RawCharacteristicWidget(
+                  deviceId: '01',
+                  serviceUuid: _serviceUuid,
+                  characteristic: writable,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Scroll so the field's bottom edge is exactly the viewport's, where
+    // the keyboard leaves it (ensureVisible would park it at the top).
+    final field = find.byType(TextField, skipOffstage: false);
+    final viewport = tester.getRect(find.byType(ListView));
+    scroll.jumpTo(
+      scroll.offset + tester.getRect(field).bottom - viewport.bottom,
+    );
+    await tester.pumpAndSettle();
+
+    // A valid payload the device rejects: its error arrives after the
+    // write, with no keystroke to scroll it into view, and runs to lines
+    // the default scroll padding does not cover.
+    await tester.enterText(find.byType(TextField), '01');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    final error = find.textContaining('rejected');
+    expect(error, findsOneWidget);
+    expect(tester.getRect(error).bottom, lessThanOrEqualTo(viewport.bottom));
+  });
+
   testWidgets('the hex field is not a prose field', (tester) async {
     await tester.pumpWidget(
       _wrap(
@@ -566,4 +622,20 @@ void main() {
     final value = tester.getRect(find.text('0a 1b 2c'));
     expect(value.top, greaterThanOrEqualTo(caption.bottom));
   });
+}
+
+/// Rejects every write, for the error path that has no keystroke behind it.
+class _RejectingBle extends FakeBleService {
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) async {
+    throw Exception(
+      'GATT write rejected: the device refused the value it '
+      'was sent (status 0x03, write not permitted)',
+    );
+  }
 }

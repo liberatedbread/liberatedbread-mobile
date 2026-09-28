@@ -80,20 +80,25 @@ void main() {
 
     expect(find.textContaining('Demo Pack'), findsOneWidget);
     expect(find.textContaining('v3.1.0'), findsOneWidget);
-    expect(find.textContaining('1 spec'), findsOneWidget);
+    expect(find.textContaining('1\u00a0spec'), findsOneWidget);
   });
 
   // "updated" was wrong on a first install, and the hh:mm wrapped onto a
-  // line of its own beside the two trailing buttons.
-  testWidgets('a pack card says "installed" with the date on one line', (
+  // line of its own beside the two trailing buttons. Then a one-line cap
+  // cut the date off a 203-spec pack ("203 specs · installed 2026-0…"): the
+  // line may wrap, only at the separator, and is never truncated.
+  testWidgets('a pack card says "installed" with the whole date', (
     tester,
   ) async {
     await tester.pumpWidget(_wrap(FakeSpecPackService(packs: [_pack()])));
     await tester.pumpAndSettle();
 
-    final subtitle = find.text('1 spec · installed 2026-07-11');
+    const nbsp = '\u00a0';
+    final subtitle = find.text('1${nbsp}spec · installed${nbsp}2026-07-11');
     expect(subtitle, findsOneWidget);
-    expect(tester.widget<Text>(subtitle).maxLines, 1);
+    final text = tester.widget<Text>(subtitle);
+    expect(text.maxLines, isNull);
+    expect(text.overflow, isNot(TextOverflow.ellipsis));
     expect(find.textContaining('updated'), findsNothing);
   });
 

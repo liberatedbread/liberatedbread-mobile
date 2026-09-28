@@ -320,6 +320,38 @@ void main() {
       ]);
     });
 
+    test('a short bulb status stays short, as in the simulator', () async {
+      // The fallback padded a short status from the defaults, so plain unit
+      // tests read back bytes the Rust simulator (BulbCommands::overlay)
+      // never shows demo mode.
+      expect(MockBleService.rustAvailable, isFalse);
+      const device = 'AA:BB:CC:DD:EE:01';
+      const service_ = '0000fff0-0000-1000-8000-00805f9b34fb';
+      const command = '0000fff1-0000-1000-8000-00805f9b34fb';
+      const status = '0000fff2-0000-1000-8000-00805f9b34fb';
+
+      await service.writeCharacteristic(device, service_, status, [0]);
+      await service.writeCharacteristic(device, service_, command, [2, 30]);
+      expect(await service.readCharacteristic(device, service_, status), [0]);
+
+      await service.writeCharacteristic(device, service_, status, [0, 0]);
+      await service.writeCharacteristic(device, service_, command, [
+        3,
+        1,
+        2,
+        3,
+      ]);
+      expect(await service.readCharacteristic(device, service_, status), [
+        0,
+        0,
+      ]);
+      await service.writeCharacteristic(device, service_, command, [2, 9]);
+      expect(await service.readCharacteristic(device, service_, status), [
+        0,
+        9,
+      ]);
+    });
+
     test('writes are isolated per device', () async {
       await service.writeCharacteristic(
         'AA:BB:CC:DD:EE:01',

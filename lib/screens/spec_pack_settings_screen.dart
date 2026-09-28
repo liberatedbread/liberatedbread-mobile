@@ -178,14 +178,14 @@ class _SpecPackSettingsScreenState
                 child: ListTile(
                   title: Text('${pack.name}  ·  v${pack.version}'),
                   // "installed", not "updated": the stamp is also a first
-                  // install's. Date only, so the line fits beside the two
-                  // trailing buttons instead of wrapping the time alone.
+                  // install's. Allowed to wrap, but only at the " · ": each
+                  // half is held together with non-breaking spaces, so the
+                  // date is never cut off ("203 specs · installed 2026-0…")
+                  // nor split from its word.
                   subtitle: Text(
-                    '${pack.specCount} '
-                    '${pack.specCount == 1 ? 'spec' : 'specs'} · installed '
-                    '${_formatDate(pack.installedAt)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    '${pack.specCount}\u00a0'
+                    '${pack.specCount == 1 ? 'spec' : 'specs'} · '
+                    'installed\u00a0${_formatDate(pack.installedAt)}',
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
