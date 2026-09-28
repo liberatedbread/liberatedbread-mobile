@@ -190,16 +190,18 @@ pub fn decode_printer_attributes(bytes: &[u8]) -> Result<PrinterStatus, Protocol
             VT_BOOLEAN => Value::Other,
             VT_TEXT_WITH_LANGUAGE | VT_NAME_WITH_LANGUAGE => {
                 // [u16 lang len][lang][u16 text len][text]
-                let lang = raw
+                // Every length read is checked: a value too short to hold
+                // its own length fields is Other, not a sentinel to add to.
+                let text = raw
                     .get(0..2)
                     .map(|b| u16::from_be_bytes([b[0], b[1]]) as usize)
-                    .unwrap_or(usize::MAX);
-                let text = raw.get(2 + lang..).and_then(|rest| {
-                    let n = rest
-                        .get(0..2)
-                        .map(|b| u16::from_be_bytes([b[0], b[1]]) as usize)?;
-                    rest.get(2..2 + n)
-                });
+                    .and_then(|lang| raw.get(2 + lang..))
+                    .and_then(|rest| {
+                        let n = rest
+                            .get(0..2)
+                            .map(|b| u16::from_be_bytes([b[0], b[1]]) as usize)?;
+                        rest.get(2..2 + n)
+                    });
                 match text {
                     Some(t) => Value::Text(String::from_utf8_lossy(t).into_owned()),
                     None => Value::Other,
@@ -223,15 +225,18 @@ pub fn decode_printer_attributes(bytes: &[u8]) -> Result<PrinterStatus, Protocol
             .map(|(_, v)| v.as_slice())
             .unwrap_or(&[])
     };
-    let texts = |name: &str| -> Vec<String> {
+    // Index-aligned: an out-of-band value keeps its slot as None, so the
+    // marker-* lists stay aligned with each other.
+    let text_slots = |name: &str| -> Vec<Option<String>> {
         get(name)
             .iter()
-            .filter_map(|v| match v {
+            .map(|v| match v {
                 Value::Text(t) => Some(t.clone()),
                 _ => None,
             })
             .collect()
     };
+    let texts = |name: &str| -> Vec<String> { text_slots(name).into_iter().flatten().collect() };
     let ints = |name: &str| -> Vec<Option<i32>> {
         get(name)
             .iter()
@@ -250,9 +255,9 @@ pub fn decode_printer_attributes(bytes: &[u8]) -> Result<PrinterStatus, Protocol
     }
     .to_string();
 
-    let names = texts("marker-names");
-    let colors = texts("marker-colors");
-    let kinds = texts("marker-types");
+    let names = text_slots("marker-names");
+    let colors = text_slots("marker-colors");
+    let kinds = text_slots("marker-types");
     let levels = ints("marker-levels");
     let lows = ints("marker-low-levels");
     let pct = |v: Option<i32>| v.filter(|l| (0..=100).contains(l)).map(|l| l as u8);
@@ -262,9 +267,13 @@ pub fn decode_printer_attributes(bytes: &[u8]) -> Result<PrinterStatus, Protocol
         .map(|(i, name)| {
             let raw = levels.get(i).copied().flatten();
             Marker {
-                name: name.clone(),
-                color: colors.get(i).cloned().filter(|c| c.starts_with('#')),
-                kind: kinds.get(i).cloned(),
+                name: name.clone().unwrap_or_else(|| format!("Supply {}", i + 1)),
+                color: colors
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .filter(|c| c.starts_with('#')),
+                kind: kinds.get(i).cloned().flatten(),
                 level: pct(raw),
                 some_remaining: raw == Some(-3),
                 low_level: pct(lows.get(i).copied().flatten()),
@@ -442,5 +451,30 @@ mod tests {
         b.push(TAG_END);
         let s = decode_printer_attributes(&b).unwrap();
         assert_eq!(s.state, "unknown");
+    }
+
+    #[test]
+    fn a_short_with_language_value_is_skipped_not_a_panic() {
+        // 0x35 textWithLanguage whose value is one byte: no room for even
+        // the language length.
+        let reply = Reply::new(0)
+            .attr(VT_TEXT_WITH_LANGUAGE, "printer-state-message", &[&[0x00]])
+            .end();
+        let s = decode_printer_attributes(&reply).unwrap();
+        assert_eq!(s.state_message, None);
+    }
+
+    #[test]
+    fn an_out_of_band_marker_value_keeps_the_lists_aligned() {
+        let reply = Reply::new(0)
+            .attr(0x42, "marker-names", &[b"Cyan", b"Magenta"])
+            // The first colour is unknown (out-of-band 0x12, no value).
+            .attr(0x12, "marker-colors", &[b""])
+            .attr(0x42, "", &[b"#FF00FF"])
+            .ints(VT_INTEGER, "marker-levels", &[40, 60])
+            .end();
+        let s = decode_printer_attributes(&reply).unwrap();
+        assert_eq!(s.markers[0].color, None);
+        assert_eq!(s.markers[1].color.as_deref(), Some("#FF00FF"));
     }
 }
