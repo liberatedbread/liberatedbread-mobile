@@ -41,7 +41,19 @@ class IppPrinterScreen extends ConsumerStatefulWidget {
 }
 
 class _IppPrinterScreenState extends ConsumerState<IppPrinterScreen> {
-  static const _ippPort = 631;
+  /// The IPP port: the advertised one when IPP is all the device advertises
+  /// (then the mDNS SRV port IS the IPP port), else the standard 631 — a
+  /// device also seen as a raw socket or LPD queue has a merged port that
+  /// may be 9100 or 515.
+  int get _ippPort {
+    final types = widget.device.serviceTypes;
+    final ippOnly =
+        types.isNotEmpty &&
+        types.every(
+          (t) => t.startsWith('_ipp._tcp') || t.startsWith('_ipps._tcp'),
+        );
+    return ippOnly ? (widget.device.port ?? 631) : 631;
+  }
 
   IppPrinterStatusDto? _status;
   String? _error;
