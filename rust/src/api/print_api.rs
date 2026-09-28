@@ -583,7 +583,7 @@ mod tests {
     #[test]
     fn the_niimbot_surface_is_scoped_to_the_d110() {
         let yaml = std::fs::read_to_string(format!(
-            "{}/tests/specs/niimbot-d110.yaml",
+            "{}/../vendor/protocol-specs/device-specs/devices/niimbot-d110.yaml",
             env!("CARGO_MANIFEST_DIR")
         ))
         .unwrap();
@@ -610,7 +610,7 @@ mod tests {
     #[test]
     fn the_updated_ipp_spec_is_a_status_surface_not_a_raster_printer() {
         let yaml = std::fs::read_to_string(format!(
-            "{}/tests/specs/ipp-network-printer.yaml",
+            "{}/../vendor/protocol-specs/device-specs/devices/ipp-network-printer.yaml",
             env!("CARGO_MANIFEST_DIR")
         ))
         .unwrap();
