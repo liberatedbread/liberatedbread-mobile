@@ -396,7 +396,15 @@ void main() {
     // Into the handshake: the write is out, the 2 s delay is sleeping.
     await tester.pump(const Duration(milliseconds: 100));
     expect(ble.writes, hasLength(1), reason: 'the handshake is under way');
-    expect(find.text('Connected'), findsNothing);
+    // The app bar's status line, not the whole screen: the progress list's
+    // finished first step reads "Connected" by now, and truly is.
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Connected'),
+      ),
+      findsNothing,
+    );
 
     // The peripheral drops mid-sleep.
     connection.add(BleConnectionState.disconnected);

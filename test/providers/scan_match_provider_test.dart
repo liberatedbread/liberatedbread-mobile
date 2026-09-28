@@ -790,6 +790,18 @@ void main() {
       expect(ranked.other.map((r) => r.device.id), ['1']);
     });
 
+    test('the group header hedges no more than its rows', () {
+      Ranked<int> r(MatchConfidence c) => Ranked(device: 0, guess: g(c));
+      expect(supportedGroupLabel([r(MatchConfidence.strong)]), 'Supported');
+      expect(
+        supportedGroupLabel([
+          r(MatchConfidence.strong),
+          r(MatchConfidence.likely),
+        ]),
+        'Likely supported',
+      );
+    });
+
     test('an OUI-only match is a hint, not a claim of support', () {
       final ouiOnly = _device(id: '1', rssi: -90);
       final unknown = _device(id: '2', rssi: -40);

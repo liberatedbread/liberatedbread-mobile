@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/typed_command_widget.dart';
 
 import '../fakes/fake_ble_service.dart';
@@ -409,6 +410,111 @@ void main() {
     );
     expect(call.params['brightness'], 64.0);
     expect(ble.writes.single.value, [2, 64]);
+  });
+
+  testWidgets('an untouched slider says it is not the device\'s value', (
+    tester,
+  ) async {
+    // "Brightness: 0" sat above a Status reading "Brightness: 80"; the card
+    // cannot know the device's setting, so it must not pass off the bottom of
+    // the range as one.
+    await tester.pumpWidget(
+      _wrap(ble: FakeBleService(), codec: FakeSpecCodec()),
+    );
+    const hint =
+        'Sliders start at their lowest value, not the device\'s current '
+        'setting.';
+    expect(find.text(hint), findsOneWidget);
+
+    tester.widget<Slider>(find.byType(Slider)).onChanged!(40);
+    await tester.pump();
+    expect(find.text(hint), findsNothing);
+  });
+
+  testWidgets('an untouched slider, once sent, is the device\'s value', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(encoded: Uint8List.fromList([2, 0])),
+      ),
+    );
+    expect(find.textContaining('Sliders start at their lowest'), findsOne);
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Sliders start at their lowest'), findsNothing);
+  });
+
+  testWidgets('a successful send re-reads the readings in the same service', (
+    tester,
+  ) async {
+    const statusChar = CharacteristicDto(
+      uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
+      name: 'Status',
+      canRead: true,
+      canWrite: false,
+      canNotify: false,
+      commands: [],
+      formatFields: [],
+    );
+    final ble = FakeBleService(
+      readValues: const {
+        '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80],
+      },
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(ble),
+          specCodecProvider.overrideWithValue(
+            FakeSpecCodec(encoded: Uint8List.fromList([1, 1])),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Column(
+                children: [
+                  TypedCommandWidget(
+                    deviceId: 'd',
+                    serviceUuid: _svc,
+                    specYaml: 'yaml',
+                    specChar: _charDto,
+                  ),
+                  // The short spelling of the same service: the platform
+                  // and the spec disagree on UUID form all the time.
+                  DecodedValueWidget(
+                    deviceId: 'd',
+                    serviceUuid: 'fff0',
+                    specYaml: 'yaml',
+                    specChar: statusChar,
+                    canRead: true,
+                    canNotify: false,
+                  ),
+                  // Another service's reading has no reason to re-read.
+                  DecodedValueWidget(
+                    deviceId: 'd',
+                    serviceUuid: '0000180f-0000-1000-8000-00805f9b34fb',
+                    specYaml: 'yaml',
+                    specChar: statusChar,
+                    canRead: true,
+                    canNotify: false,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(ble.reads, hasLength(2), reason: 'one initial read each');
+
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Power on'));
+    await tester.pumpAndSettle();
+    expect(ble.writes, hasLength(1));
+    expect(ble.reads, hasLength(3), reason: 'only the same service re-reads');
   });
 
   testWidgets('renders a valid Slider for a malformed inverted range', (

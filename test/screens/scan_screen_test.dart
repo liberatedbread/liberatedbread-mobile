@@ -4,6 +4,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:clock/clock.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -562,15 +564,35 @@ void main() {
       );
       await tester.pumpWidget(_wrap(fake));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Bluetooth is turned off'), findsOneWidget);
+      expect(find.text('Bluetooth is off'), findsOneWidget);
 
       fake.scanError = null; // the radio works again
       radio.add(true);
       await tester.pumpAndSettle();
 
       expect(find.text('ACME_A'), findsOneWidget);
-      expect(find.textContaining('Bluetooth is turned off'), findsNothing);
+      expect(find.text('Bluetooth is off'), findsNothing);
       expect(fake.scanTimeouts, hasLength(2));
+    });
+
+    testWidgets('a radio that is off is a setting, not a failure', (
+      tester,
+    ) async {
+      // Not "Scan failed" in red: nothing failed, and the screen picks the
+      // scan up again by itself (the test above), so it says so.
+      final fake = FakeBleService(scanError: const BleUnavailableException());
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bluetooth is off'), findsOneWidget);
+      expect(find.text('Scan failed'), findsNothing);
+      final subhead = find.textContaining('start again by itself');
+      expect(subhead, findsOneWidget);
+      final context = tester.element(subhead);
+      expect(
+        tester.widget<Text>(subhead).style?.color,
+        isNot(Theme.of(context).colorScheme.error),
+      );
     });
 
     testWidgets('does not resurrect a scan the user stopped', (tester) async {
@@ -1084,12 +1106,15 @@ void main() {
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
-      expect(find.text('Likely supported'), findsOneWidget);
+      // Every row in the group is a strong match, so the header does not
+      // hedge more than they do.
+      expect(find.text('Supported'), findsOneWidget);
+      expect(find.text('Likely supported'), findsNothing);
       expect(find.text('Other devices'), findsOneWidget);
       // The matched device carries the product name from the spec.
       expect(find.text('Example Smart Bulb'), findsOneWidget);
 
-      final likelyHeader = tester.getTopLeft(find.text('Likely supported')).dy;
+      final likelyHeader = tester.getTopLeft(find.text('Supported')).dy;
       final otherHeader = tester.getTopLeft(find.text('Other devices')).dy;
       final matched = tester.getTopLeft(find.text('ACME_Bulb')).dy;
       expect(likelyHeader, lessThan(matched));
@@ -1098,6 +1123,24 @@ void main() {
       // The louder unknown device is still listed, just below the fold.
       await tester.scrollUntilVisible(find.text('Anonymous Thing'), 200);
       expect(find.text('Anonymous Thing'), findsOneWidget);
+    });
+
+    testWidgets('a likely match keeps the group header hedged', (tester) async {
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'ACME_Bulb')],
+      );
+      await tester.pumpWidget(
+        wrapWithCatalogue(
+          fake,
+          matchFor: (_) => [_scanMatch(MatchConfidence.likely)],
+        ),
+      );
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Likely supported'), findsOneWidget);
+      expect(find.text('Supported'), findsNothing);
     });
 
     testWidgets('an OUI-only match is a hint, not a supported-device claim', (
@@ -1160,7 +1203,11 @@ void main() {
 
     expect(fake.stopScanCount, greaterThan(0));
     // Stopped, nothing is happening, so the way back has to be the loud one.
-    expect(find.widgetWithText(FloatingActionButton, 'Scan'), findsOneWidget);
+    // Stopped before anything turned up, that is the body's own Scan again —
+    // and only that: a second Scan button in the corner would be the same
+    // action twice.
+    expect(find.text('Scan again'), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
     expect(find.byIcon(Icons.stop), findsNothing);
   });
 
@@ -1181,7 +1228,7 @@ void main() {
     expect(fake.scanTimeouts.length, scansAfterStop);
 
     // ...and the button starts it again.
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.text('Scan again'));
     await tester.pumpAndSettle();
     expect(fake.scanTimeouts.length, scansAfterStop + 1);
   });
@@ -1198,9 +1245,13 @@ void main() {
     expect(find.textContaining('Scanning failed'), findsOneWidget);
     expect(find.textContaining('Bad state'), findsNothing);
     expect(find.textContaining('boom'), findsNothing);
+    // The failure's Retry is the one way back; the corner Scan is not shown
+    // beside it.
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
   });
 
-  testWidgets('settings gear opens the Home Assistant screen', (tester) async {
+  testWidgets('Home Assistant button opens its screen', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -1213,10 +1264,38 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byIcon(Icons.settings));
+    await tester.tap(find.byTooltip('Home Assistant'));
     await tester.pumpAndSettle();
 
     expect(find.byType(HaSettingsScreen), findsOneWidget);
+  });
+
+  testWidgets('the app bar keeps one icon and folds the rest into a menu', (
+    tester,
+  ) async {
+    // Four icons used to cut the title down to "Liberated ...". Home
+    // Assistant keeps its own button, and not a gear: it is not the app's
+    // settings.
+    await tester.pumpWidget(_wrap(FakeBleService()));
+    final appBar = find.byType(AppBar);
+    for (final folded in [
+      Icons.extension_outlined,
+      Icons.bug_report_outlined,
+      Icons.info_outline,
+      Icons.settings,
+    ]) {
+      expect(
+        find.descendant(of: appBar, matching: find.byIcon(folded)),
+        findsNothing,
+      );
+    }
+    expect(find.byTooltip('Home Assistant'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('More'));
+    await tester.pumpAndSettle();
+    expect(find.text('Device Spec Packs'), findsOneWidget);
+    expect(find.text('Diagnostics'), findsOneWidget);
+    expect(find.text('About'), findsOneWidget);
   });
 
   testWidgets('shows a distinct no-results state after an empty scan', (
@@ -1274,6 +1353,37 @@ void main() {
     );
     await tester.scrollUntilVisible(find.text('Retry'), 80);
     expect(find.text('Retry'), findsOneWidget);
+  });
+
+  group('permission guidance is worded for the platform', () {
+    Future<String> guidanceOn(WidgetTester tester, TargetPlatform os) async {
+      debugDefaultTargetPlatformOverride = os;
+      try {
+        final fake = FakeBleService(
+          scanError: const BlePermissionDeniedException(),
+        );
+        await tester.pumpWidget(_wrap(fake));
+        await tester.pumpAndSettle();
+        return tester
+            .widget<Text>(find.textContaining('so the app can scan'))
+            .data!;
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+
+    testWidgets('iOS is not told about Android permissions', (tester) async {
+      final text = await guidanceOn(tester, TargetPlatform.iOS);
+      expect(text, contains('Settings'));
+      expect(text, isNot(contains('Android')));
+      expect(text, isNot(contains('nearby')));
+    });
+
+    testWidgets('Android names nearby devices and location', (tester) async {
+      final text = await guidanceOn(tester, TargetPlatform.android);
+      expect(text, contains('nearby devices'));
+      expect(text, contains('location'));
+    });
   });
 
   testWidgets(
@@ -1406,7 +1516,10 @@ void main() {
 
     expect(find.text('Bluetooth permission needed'), findsOneWidget);
     expect(find.byIcon(Icons.stop), findsNothing);
-    expect(find.widgetWithText(FloatingActionButton, 'Scan'), findsOneWidget);
+    // The guidance carries its own Retry, so no corner Scan beside it.
+    expect(find.byType(FloatingActionButton), findsNothing);
+    await tester.scrollUntilVisible(find.text('Retry'), 80);
+    expect(find.text('Retry'), findsOneWidget);
   });
 
   // R-091: _resumeIfIdle had no idea the permission had been refused, and

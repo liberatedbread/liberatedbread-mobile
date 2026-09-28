@@ -59,9 +59,10 @@ String friendlyHaMessage(HaApiException e) {
       'That address does not look like a Home '
           'Assistant server (mobile_app API not found).',
     HaNetworkException() =>
+      // No "tip below": the Tailscale card sits above this message on the
+      // form, and is not shown at all for a public https address.
       'Could not reach the server. Are you on the '
-          'same network? For access away from home, see the Tailscale tip '
-          'below.',
+          'same network? For access away from home, try Tailscale.',
     HaServerException() =>
       'Home Assistant returned an error. Check that it '
           'is running and up to date, then try again.',

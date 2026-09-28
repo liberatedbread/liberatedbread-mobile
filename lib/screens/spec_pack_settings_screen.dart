@@ -308,7 +308,7 @@ class _SpecPackSettingsScreenState
       // Pass the reason through: a pack installed from a public http://
       // address before https was required used to get only "no valid source
       // URL", with no hint that reinstalling over https fixes it. The
-      // install field's "Enter a valid http(s) URL." prompt makes no sense
+      // install field's "Enter a full https:// address" prompt makes no sense
       // here, so an empty source gets its own line.
       setState(() {
         _errorMessage = url.trim().isEmpty
@@ -377,7 +377,13 @@ class _SpecPackSettingsScreenState
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
+          // Error colours mark the destructive choice apart from a primary
+          // action.
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Clear all'),
           ),
@@ -498,8 +504,10 @@ class _SpecPackSettingsScreenState
         'The server rejected the request (${error.message}).',
       SpecPackErrorKind.malformedManifest =>
         'That URL did not return a valid spec-pack manifest.',
+      // The service's message says what was too big (the manifest, or how
+      // many specs it lists).
       SpecPackErrorKind.tooLarge =>
-        'The pack is larger than allowed and was not installed.',
+        '${error.message} The pack was not installed.',
       SpecPackErrorKind.noSpecsInstalled =>
         'None of the specs could be downloaded.',
       SpecPackErrorKind.cacheIo => error.message,

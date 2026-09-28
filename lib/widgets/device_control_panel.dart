@@ -43,18 +43,39 @@ class DeviceControlPanel extends ConsumerWidget {
   /// without a fresh scan (e.g. reconnect), which just falls back to defaults.
   final Map<int, List<int>> manufacturerData;
 
+  /// The device screen's connection summary (name, Find, Disconnect), drawn
+  /// as the list's first item so it scrolls away with the content instead of
+  /// holding a third of the screen. Pinned above the body on the two paths
+  /// that are not this list, so Find and Disconnect stay reachable there too.
+  final Widget? header;
+
   const DeviceControlPanel({
     super.key,
     required this.deviceId,
     required this.deviceName,
     required this.services,
     this.manufacturerData = const {},
+    this.header,
   });
+
+  /// [body] under the header, for the paths that do not build the list.
+  Widget _underHeader(Widget body) {
+    final header = this.header;
+    if (header == null) return body;
+    return Column(
+      children: [
+        header,
+        Expanded(child: body),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (services.isEmpty) {
-      return const Center(child: Text('No services found on this device.'));
+      return _underHeader(
+        const Center(child: Text('No services found on this device.')),
+      );
     }
 
     // Names standard services the spec does not describe. Watched, not read:
@@ -112,12 +133,14 @@ class DeviceControlPanel extends ConsumerWidget {
         ? null
         : ref.watch(rabbitAirBleControlsProvider(match.yaml)).valueOrNull;
     if (match != null && rabbitAirEntities != null) {
-      return RabbitAirBleControlsPanel(
-        key: const ValueKey('rabbit-air-ble-controls'),
-        deviceId: deviceId,
-        specYaml: match.yaml,
-        entities: rabbitAirEntities,
-        services: services,
+      return _underHeader(
+        RabbitAirBleControlsPanel(
+          key: const ValueKey('rabbit-air-ble-controls'),
+          deviceId: deviceId,
+          specYaml: match.yaml,
+          entities: rabbitAirEntities,
+          services: services,
+        ),
       );
     }
 
@@ -248,6 +271,27 @@ class DeviceControlPanel extends ConsumerWidget {
         if (!drawnByTreadmillCard.contains(control.entity.name)) control,
     ];
 
+    // The same double-drawing for a light, one level down: its Control
+    // Service opened expanded under the light card and repeated Power on,
+    // Power off, brightness and colour as generic command cards. Those
+    // services start folded — not removed, the raw commands and the decoded
+    // status are still one tap away — like a sensor's under its readings.
+    // Matched by the characteristics the light binds, against what was
+    // discovered — the same test that let the entity through above — so the
+    // spec's service spelling never has to agree with the peripheral's.
+    final lightChars = <String>{
+      for (final control in listedControls)
+        if (control.entity.platform == 'light') ...[
+          for (final action in control.entity.actions)
+            normalizeUuid(action.characteristicUuid),
+          if (control.entity.stateCharacteristic case final state?)
+            normalizeUuid(state),
+        ],
+    };
+    bool drawnByLightCard(BleDiscoveredService service) => service
+        .characteristics
+        .any((c) => lightChars.contains(normalizeUuid(c.uuid)));
+
     // Leading slots above the raw service list: the spec chooser when several
     // specs tie (raw controls stay usable below it), a banner when the active
     // spec is a saved user choice (with the way to change it), the LED image
@@ -260,7 +304,10 @@ class DeviceControlPanel extends ConsumerWidget {
     // re-pairs the STATEFUL service cards positionally — a card labeled with
     // service B would keep service A's element state (including notify
     // subscriptions bound in initState) after the shift.
+    final header = this.header;
     final leading = <Widget>[
+      if (header != null)
+        KeyedSubtree(key: const ValueKey('connected-header'), child: header),
       if (outcome != null && outcome.needsChoice)
         _SpecChoicePrompt(
           key: const ValueKey('spec-choice-prompt'),
@@ -382,7 +429,7 @@ class DeviceControlPanel extends ConsumerWidget {
           service: service,
           matched: match,
           registry: registry,
-          foldedForReadings: foldRawServices,
+          foldedForReadings: foldRawServices || drawnByLightCard(service),
         );
       },
     );
@@ -896,8 +943,10 @@ class _ServiceCard extends StatefulWidget {
   /// is what it showed for every unlisted service before.
   final AsyncValue<NumberRegistry> registry;
 
-  /// Whether this card should sit folded because spec-declared readings own
-  /// the screen (a matched sensor device). See the panel's `foldRawServices`.
+  /// Whether this card should sit folded because spec-declared cards above
+  /// already present it: readings own the screen (a matched sensor device),
+  /// or a light card draws the service's commands. See the panel's
+  /// `foldRawServices` and `drawnByLightCard`.
   final bool foldedForReadings;
 
   const _ServiceCard({
@@ -955,6 +1004,10 @@ class _ServiceCardState extends State<_ServiceCard> {
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ExpansionTile(
         controller: _expansion,
+        // The tile's default expanded shape draws top and bottom dividers
+        // edge to edge, straight across the card's rounded corners.
+        shape: const Border(),
+        collapsedShape: const Border(),
         leading: const Icon(Icons.account_tree),
         title: Text(
           specService?.name ?? _serviceDisplayName(service.uuid),

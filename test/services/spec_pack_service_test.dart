@@ -764,14 +764,45 @@ void main() {
     });
   });
 
+  test('a pack listing too many specs says so, and fetches none', () async {
+    var specFetches = 0;
+    final service = _service(tempDir, (request) async {
+      if (request.url.path.endsWith('pack.json')) {
+        return http.Response(
+          _manifestJson(
+            specs: [
+              for (var i = 0; i <= SpecPackLimits.maxSpecCount; i++) 's$i.yaml',
+            ],
+          ),
+          200,
+        );
+      }
+      specFetches++;
+      return http.Response('yaml', 200);
+    });
+
+    final result = await service.install(_manifestUrl);
+
+    final error = (result as InstallFailed).error;
+    expect(error.kind, SpecPackErrorKind.tooLarge);
+    expect(
+      error.message,
+      'This pack lists ${SpecPackLimits.maxSpecCount + 1} specs; the app '
+      'accepts at most ${SpecPackLimits.maxSpecCount}.',
+    );
+    expect(specFetches, 0);
+  });
+
   group('SpecPackManifest.tryParse', () {
-    test('trims entries and enforces the spec-count cap', () {
+    test('trims entries; a long list is not malformed', () {
       final ok = SpecPackManifest.tryParse(
         _manifestJson(specs: [' bulb.yaml ', 'sensor.yaml']),
       );
       expect(ok!.specs, ['bulb.yaml', 'sensor.yaml']);
 
-      final tooMany = SpecPackManifest.tryParse(
+      // Regression: over the count cap parsed as null, so the installer
+      // called a pack that was only too big "not a valid manifest".
+      final many = SpecPackManifest.tryParse(
         _manifestJson(
           specs: [
             for (var i = 0; i < SpecPackLimits.maxSpecCount + 1; i++)
@@ -779,7 +810,36 @@ void main() {
           ],
         ),
       );
-      expect(tooMany, isNull);
+      expect(many!.specs, hasLength(SpecPackLimits.maxSpecCount + 1));
+    });
+
+    // Regression: the default pack outgrew both caps (203 specs, 4.8 MB
+    // against 128 and 4 MB) and every install from the default URL failed.
+    // The vendored copy is what that URL serves.
+    test('the default pack fits under the caps', () {
+      const root = 'vendor/protocol-specs';
+      final manifest = SpecPackManifest.tryParse(
+        File('$root/pack.json').readAsStringSync(),
+      )!;
+      expect(
+        manifest.specs.length,
+        lessThanOrEqualTo(SpecPackLimits.maxSpecCount),
+      );
+      var total = 0;
+      for (final spec in manifest.specs) {
+        final size = File('$root/$spec').lengthSync();
+        expect(
+          size,
+          lessThanOrEqualTo(SpecPackLimits.maxSpecBytes),
+          reason: spec,
+        );
+        total += size;
+      }
+      expect(total, lessThanOrEqualTo(SpecPackLimits.maxTotalBytes));
+      expect(
+        File('$root/pack.json').lengthSync(),
+        lessThanOrEqualTo(SpecPackLimits.maxManifestBytes),
+      );
     });
   });
 
@@ -1009,10 +1069,12 @@ void main() {
       expect((result as InstallFailed).error.kind, SpecPackErrorKind.tooLarge);
     });
 
-    test('specs beyond the 4MB total cap are rejected', () async {
-      // 512KB per spec; 8 fill the 4MB budget exactly, the 9th is refused.
+    test('specs beyond the total cap are rejected', () async {
+      // Full-size specs exactly fill the total budget; the next is refused.
       final big = 'a' * SpecPackLimits.maxSpecBytes;
-      final specs = [for (var i = 0; i < 9; i++) 's$i.yaml'];
+      const fit = SpecPackLimits.maxTotalBytes ~/ SpecPackLimits.maxSpecBytes;
+      assert(fit * SpecPackLimits.maxSpecBytes == SpecPackLimits.maxTotalBytes);
+      final specs = [for (var i = 0; i <= fit; i++) 's$i.yaml'];
       final service = _service(tempDir, (request) async {
         if (request.url.path.endsWith('pack.json')) {
           return http.Response(_manifestJson(specs: specs), 200);
@@ -1022,9 +1084,9 @@ void main() {
       final result = await service.install(_manifestUrl);
       expect(result, isA<InstallOk>());
       final ok = result as InstallOk;
-      expect(ok.pack.specCount, 8);
+      expect(ok.pack.specCount, fit);
       expect(ok.partialFailures, hasLength(1));
-      expect(ok.partialFailures.single.specFile, 's8.yaml');
+      expect(ok.partialFailures.single.specFile, 's$fit.yaml');
     });
   });
 

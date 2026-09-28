@@ -556,6 +556,15 @@ class Ranked<T> {
       !guess!.isIdentifyOnly;
 }
 
+/// The header over [supported] (a [rankDevices] `likelySupported` group),
+/// no more hedged than its rows: nothing but strong matches (each badged as
+/// the device itself) is simply supported; one "Likely" row and the header
+/// says so too. One decision for the BLE and Wi-Fi tabs.
+String supportedGroupLabel(Iterable<Ranked<Object?>> supported) =>
+    supported.every((e) => e.guess?.confidence == MatchConfidence.strong)
+    ? 'Supported'
+    : 'Likely supported';
+
 /// A scanned BLE device paired with its guess.
 typedef RankedDevice = Ranked<IoTDevice>;
 

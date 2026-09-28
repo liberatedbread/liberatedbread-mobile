@@ -54,7 +54,9 @@
 //                                list is walked twice in order — connect,
 //                                discover, read, hold 20 s, disconnect —
 //                                and a table says what each device did in
-//                                each pass. Read-only, like LB_LIVE_BLE_ANY
+//                                each pass. Read-only, like LB_LIVE_BLE_ANY.
+//                                An entry `id:<identifier>` picks an
+//                                unnamed advertiser by its listed id
 //
 // Every test prints what it measured under a `[hardware]` prefix, because a
 // green run is only half the point — the numbers (catalogue parse time on a
@@ -391,6 +393,12 @@ Future<({int ms, Object? error})> _sequenceDisconnect(
 /// Never throws — every outcome lands in the row, and a crash-class error
 /// ([_isCrashClass]) is appended to [crashes] for the verdict at the end —
 /// so one bad step cannot end the experiment before the table is printed.
+/// A device's name for the log, or its id's first block when it advertises
+/// none: an `id:` entry's rows all read `""` otherwise.
+String _shownName(IoTDevice device) => device.name.isNotEmpty
+    ? device.name
+    : '(no name) ${device.id.split('-').first}';
+
 Future<_SequenceRow> _sequenceOne(
   RealBleService ble, {
   required int pass,
@@ -399,8 +407,10 @@ Future<_SequenceRow> _sequenceOne(
   required List<String> crashes,
 }) async {
   final id = device.id;
-  final label = prefix == device.name ? prefix : '$prefix -> ${device.name}';
-  final tag = 'pass $pass "${device.name}"';
+  final label = prefix == device.name
+      ? prefix
+      : '$prefix -> ${_shownName(device)}';
+  final tag = 'pass $pass "${_shownName(device)}"';
   final row = _SequenceRow(pass: pass, label: label);
 
   // CONNECT: each attempt timed, each error printed with its type. A failed
@@ -1448,8 +1458,12 @@ void main() {
       final strongest = <String, int>{};
       final announced = <String>{};
       final named = <String>{};
+      // `id:<identifier>` picks an advertiser by its platform id instead,
+      // for one that never advertises a name (read it off a listing).
+      bool picks(String p, IoTDevice d) =>
+          p.startsWith('id:') ? d.id == p.substring(3) : d.name.startsWith(p);
       bool everyPrefixSeen() =>
-          prefixes.every((p) => seen.values.any((d) => d.name.startsWith(p)));
+          prefixes.every((p) => seen.values.any((d) => picks(p, d)));
       _say(
         'sequence: ${prefixes.map((p) => '"$p"').join(', ')}; scanning up '
         'to 30 s for advertised names starting with them',
@@ -1490,11 +1504,16 @@ void main() {
 
       final targets = <({String prefix, IoTDevice device})>[];
       for (final prefix in prefixes) {
-        final matches =
-            seen.values.where((d) => d.name.startsWith(prefix)).toList()
-              ..sort((x, y) => strongest[y.id]!.compareTo(strongest[x.id]!));
+        final matches = seen.values.where((d) => picks(prefix, d)).toList()
+          ..sort((x, y) => strongest[y.id]!.compareTo(strongest[x.id]!));
         if (matches.isEmpty) {
-          _say('prefix "$prefix": no advertised name starts with it; skipped');
+          _say(
+            prefix.startsWith('id:')
+                ? '"$prefix": not heard in the scan (iOS ids of a rotating '
+                      'address last minutes); skipped'
+                : 'prefix "$prefix": no advertised name starts with it; '
+                      'skipped',
+          );
           continue;
         }
         final pick = matches.first;
@@ -1503,7 +1522,7 @@ void main() {
             .map((d) => '"${d.name}" ${strongest[d.id]} dBm')
             .join(', ');
         _say(
-          'prefix "$prefix" -> "${pick.name}" ${pick.id} '
+          'prefix "$prefix" -> "${_shownName(pick)}" ${pick.id} '
           '(best ${strongest[pick.id]} dBm'
           '${others.isEmpty ? '' : '; also matched $others'})',
         );
@@ -1523,7 +1542,7 @@ void main() {
       for (var pass = 1; pass <= 2; pass++) {
         _say(
           'pass $pass of 2: '
-          '${targets.map((t) => '"${t.device.name}"').join(' then ')}',
+          '${targets.map((t) => '"${_shownName(t.device)}"').join(' then ')}',
         );
         for (final t in targets) {
           rows.add(

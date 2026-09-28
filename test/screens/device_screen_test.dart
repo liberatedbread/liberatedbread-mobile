@@ -637,35 +637,35 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('the failed state offers Try to find, and it lands in the find '
+  testWidgets('the failed state offers Find device, and it lands in the find '
       'screen once the connect succeeds', (tester) async {
     // A failed connect usually MEANS out of range or powered off — "where is
     // it?" is the question that state poses, so the find affordance belongs
     // on it, not only on the connected header. Finding needs a live link for
-    // its RSSI ping, so the button is connect-first: hence "Try".
+    // its RSSI ping, so the button is connect-first.
     final fake = FakeBleService(connectError: StateError('out of range'));
     await tester.pumpWidget(_wrap(fake));
     await tester.pumpAndSettle();
 
     // Twice: the app-bar status line and the state card both say it.
     expect(find.text('Connection failed'), findsNWidgets(2));
-    expect(find.text('Try to find device'), findsOneWidget);
+    expect(find.text('Find device'), findsOneWidget);
 
     // The user moved closer: the retry connect works now.
     fake.connectError = null;
-    await tester.tap(find.text('Try to find device'));
+    await tester.tap(find.text('Find device'));
     await tester.pumpAndSettle();
 
     expect(find.byType(FindDeviceScreen), findsOneWidget);
   });
 
-  testWidgets('a failed Try to find stays on the error state, and a later '
+  testWidgets('a failed Find device stays on the error state, and a later '
       'plain Retry does not surprise-open the find screen', (tester) async {
     final fake = FakeBleService(connectError: StateError('still out of range'));
     await tester.pumpWidget(_wrap(fake));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Try to find device'));
+    await tester.tap(find.text('Find device'));
     await tester.pumpAndSettle();
     expect(find.byType(FindDeviceScreen), findsNothing);
     expect(find.text('Connection failed'), findsNWidgets(2));
@@ -684,7 +684,7 @@ void main() {
     );
   });
 
-  testWidgets('the disconnected state offers Try to find too', (tester) async {
+  testWidgets('the disconnected state offers Find device too', (tester) async {
     final conn = StreamController<BleConnectionState>.broadcast();
     addTearDown(conn.close);
     final fake = FakeBleService(connectionStateStream: conn.stream);
@@ -695,9 +695,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Device disconnected'), findsOneWidget);
-    expect(find.text('Try to find device'), findsOneWidget);
+    expect(find.text('Find device'), findsOneWidget);
 
-    await tester.tap(find.text('Try to find device'));
+    await tester.tap(find.text('Find device'));
     await tester.pumpAndSettle();
     expect(find.byType(FindDeviceScreen), findsOneWidget);
   });
@@ -878,7 +878,7 @@ void main() {
     await tester.pumpWidget(_wrap(fake));
     await tester.pump();
     await tester.pump();
-    expect(find.text('Discovering services...'), findsOneWidget);
+    expect(find.text('Reading device features...'), findsOneWidget);
 
     conn.add(BleConnectionState.disconnected);
     await tester.pump();
@@ -1547,7 +1547,7 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text('Discovering services'), findsOneWidget);
+      expect(find.text('Reading device features'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -1560,10 +1560,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.text('Try to find device'), findsOneWidget);
+      expect(find.text('Find device'), findsOneWidget);
       // The quietest action sits at the bottom; scrolling to it must work,
       // and tapping Retry afterwards must still land.
-      await tester.ensureVisible(find.text('Try to find device'));
+      await tester.ensureVisible(find.text('Find device'));
       await tester.pump();
       await tester.ensureVisible(find.text('Retry'));
       await tester.tap(find.text('Retry'));
@@ -1585,7 +1585,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      await tester.ensureVisible(find.text('Try to find device'));
+      await tester.ensureVisible(find.text('Find device'));
       await tester.pump();
       expect(tester.takeException(), isNull);
     });
@@ -1607,6 +1607,108 @@ void main() {
       expect(body.center.dx, closeTo(59 + (667 - 59) / 2, 1));
       // And it stops above the home indicator rather than running under it.
       expect(body.bottom, closeTo(375 - 34, 1));
+    });
+  });
+
+  group('screenshot review', () {
+    const battery = BleDiscoveredService(
+      uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+      characteristics: [],
+    );
+
+    Color dotColor(WidgetTester tester) =>
+        ((tester
+                    .widget<Container>(
+                      find.byKey(const ValueKey('connection-status-dot')),
+                    )
+                    .decoration
+                as BoxDecoration?)
+            ?.color)!;
+
+    ColorScheme schemeOf(WidgetTester tester) =>
+        Theme.of(tester.element(find.byType(Scaffold))).colorScheme;
+
+    testWidgets('the connected header scrolls with the controls', (
+      tester,
+    ) async {
+      // Pinned above the list it held a third of a phone screen and hid the
+      // readings under it; as the list's first item it scrolls away.
+      await tester.pumpWidget(
+        _wrap(FakeBleService(servicesToReturn: const [battery])),
+      );
+      await tester.pumpAndSettle();
+
+      for (final label in ['Find device', 'Disconnect']) {
+        expect(
+          find.ancestor(of: find.text(label), matching: find.byType(ListView)),
+          findsOneWidget,
+          reason: '$label is in the scrolling list',
+        );
+      }
+    });
+
+    testWidgets('the app-bar status dot is coloured by state', (tester) async {
+      final conn = StreamController<BleConnectionState>.broadcast();
+      addTearDown(conn.close);
+      await tester.pumpWidget(
+        _wrap(
+          FakeBleService(
+            servicesToReturn: const [battery],
+            connectionStateStream: conn.stream,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final scheme = schemeOf(tester);
+      expect(dotColor(tester), scheme.secondary);
+
+      conn.add(BleConnectionState.disconnected);
+      await tester.pumpAndSettle();
+      expect(dotColor(tester), scheme.outline);
+    });
+
+    testWidgets('a failed connect gets the error-coloured dot', (tester) async {
+      await tester.pumpWidget(
+        _wrap(FakeBleService(connectError: StateError('out of range'))),
+      );
+      await tester.pumpAndSettle();
+      expect(dotColor(tester), schemeOf(tester).error);
+    });
+
+    testWidgets('"Device disconnected" sits on a neutral disc', (tester) async {
+      await tester.pumpWidget(
+        _wrap(FakeBleService(discoverError: const BleLinkDroppedException())),
+      );
+      await tester.pumpAndSettle();
+
+      final disc = tester.widget<Container>(
+        find
+            .ancestor(
+              of: find.byIcon(Icons.bluetooth_disabled),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      expect(
+        (disc.decoration! as BoxDecoration).color,
+        schemeOf(tester).surfaceContainerHighest,
+      );
+    });
+
+    testWidgets('the finished pairing step says Connected, and discovery is '
+        'named for the user', (tester) async {
+      final gate = Completer<void>();
+      await tester.pumpWidget(_wrap(FakeBleService(discoverGate: gate)));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Reading device features...'), findsOneWidget);
+      expect(find.text('Connecting'), findsNothing);
+      expect(find.text('Connected'), findsOneWidget);
+      expect(find.textContaining('services'), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
     });
   });
 }

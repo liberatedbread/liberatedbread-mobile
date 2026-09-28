@@ -78,7 +78,7 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
       padding: const EdgeInsets.all(16),
       children: [
         const Text(
-          'Companion mode forwards live sensor readings from your BLE '
+          'Companion mode forwards live sensor readings from your '
           'devices (battery, power state, and more) to Home Assistant.',
         ),
         const SizedBox(height: 16),
@@ -87,7 +87,8 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
           enabled: !_busy,
           keyboardType: TextInputType.url,
           autocorrect: false,
-          onChanged: (_) => setState(() {}),
+          // Also drops a stale "Enter both..." prompt once the user types.
+          onChanged: (_) => setState(() => _errorMessage = null),
           decoration: const InputDecoration(
             labelText: 'Home Assistant URL',
             hintText: 'http://homeassistant.local:8123',
@@ -100,10 +101,13 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
           enabled: !_busy,
           obscureText: true,
           autocorrect: false,
+          onChanged: (_) {
+            if (_errorMessage != null) setState(() => _errorMessage = null);
+          },
           decoration: const InputDecoration(
             labelText: 'Long-lived access token',
             helperText:
-                'In Home Assistant: your profile -> Security -> '
+                'In Home Assistant: Profile › Security › '
                 'Long-lived access tokens',
             helperMaxLines: 2,
             border: OutlineInputBorder(),
@@ -295,7 +299,13 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
+          // Error colours: this forgets the stored token, so it is the
+          // destructive choice, not a primary action.
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Disconnect'),
           ),

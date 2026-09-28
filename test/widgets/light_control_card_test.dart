@@ -142,6 +142,42 @@ void main() {
     expect(ble.writes, hasLength(1));
   });
 
+  testWidgets('a 0..100 brightness reads as a percentage; a 0..255 one does '
+      'not', (tester) async {
+    // The raw command card for the same parameter says "%", so a bare "100"
+    // here read as a different quantity.
+    await tester.pumpWidget(
+      _wrap(_stripEntity(), codec: FakeSpecCodec(), ble: FakeBleService()),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('100%'), findsOneWidget);
+
+    final raw = EntityDto(
+      options: const [],
+      name: 'Bulb',
+      platform: 'light',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _action(
+          'set_brightness',
+          'set_brightness',
+          userParams: const ['brightness'],
+          min: 0,
+          max: 255,
+        ),
+      ],
+      variants: const [],
+    );
+    await tester.pumpWidget(
+      _wrap(raw, codec: FakeSpecCodec(), ble: FakeBleService()),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('255'), findsOneWidget);
+    expect(find.textContaining('%'), findsNothing);
+  });
+
   testWidgets(
     'brightness riding the color command stages until a color is known',
     (tester) async {

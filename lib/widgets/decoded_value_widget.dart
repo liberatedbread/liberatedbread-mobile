@@ -6,12 +6,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/decoded_number.dart';
+import '../core/hex.dart';
 import '../core/value_format.dart';
 import '../providers/ble_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 import '../core/error_text.dart';
+
+/// Counts successful command writes per `deviceId|serviceUuid` (see
+/// [serviceWriteKey]), so a decoded reading in the same service can read
+/// again after one.
+///
+/// A light's Status sat on its first read under the command cards that had
+/// just changed it — "Brightness: 80" after a send of 40 — unless the device
+/// happened to notify. The writer bumps this; [DecodedValueWidget] listens.
+class ServiceWrites extends AutoDisposeFamilyNotifier<int, String> {
+  @override
+  int build(String key) => 0;
+
+  void wrote() => state++;
+}
+
+final serviceWritesProvider = NotifierProvider.autoDispose
+    .family<ServiceWrites, int, String>(ServiceWrites.new);
+
+/// The [serviceWritesProvider] key for one device's service. Folded, so the
+/// writer's and the reader's spellings of one UUID agree.
+String serviceWriteKey(String deviceId, String serviceUuid) =>
+    '$deviceId|${normalizeUuid(serviceUuid)}';
 
 /// Reads a spec-described characteristic and renders its decoded, named fields
 /// (e.g. "Power state: on", "Brightness: 80") instead of raw hex. Subscribes
@@ -168,6 +191,18 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
 
   @override
   Widget build(BuildContext context) {
+    // Re-read after a command in this service lands: the write most likely
+    // changed what this characteristic reports. One read, the same one the
+    // refresh button makes, and only for a readable characteristic — a
+    // notify-only one hears about the change from the device itself.
+    ref.listen(
+      serviceWritesProvider(
+        serviceWriteKey(widget.deviceId, widget.serviceUuid),
+      ),
+      (_, _) {
+        if (widget.canRead) _read();
+      },
+    );
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 24),
       title: Text(

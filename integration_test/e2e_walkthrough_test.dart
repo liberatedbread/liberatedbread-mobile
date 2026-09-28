@@ -79,7 +79,7 @@ void main() {
       reason: 'the launch scan is running',
     );
     expect(
-      find.text('MOCK'),
+      find.text('Demo'),
       findsOneWidget,
       reason: 'run with --dart-define=LIBERATED_BREAD_MOCK=true',
     );
@@ -181,7 +181,10 @@ void main() {
     await _pumpApp(tester);
     await _soak(tester, const Duration(seconds: 1));
 
-    await tester.tap(find.byTooltip('Device Spec Packs'));
+    // Spec Packs lives in the app bar's overflow menu.
+    await tester.tap(find.byTooltip('More'));
+    await _soak(tester, const Duration(seconds: 1));
+    await tester.tap(find.text('Device Spec Packs'));
     await _soak(tester, const Duration(seconds: 2));
     expect(find.text('Device Spec Packs'), findsOneWidget);
     await _shot(tester, '12_spec_packs_screen');
@@ -191,7 +194,7 @@ void main() {
     await _type(tester, find.byType(TextField), 'not-a-url');
     await tester.tap(find.text('Install / Refresh'));
     await _soak(tester, const Duration(seconds: 1));
-    expect(find.textContaining('valid http'), findsOneWidget);
+    expect(find.textContaining('full https://'), findsOneWidget);
     await _shot(tester, '13_spec_pack_invalid_url');
 
     // …and the other reason: a spec pack decides what requests the app makes
@@ -294,7 +297,9 @@ void main() {
 
     // The write row sits at the top of this screen, so the keyboard never
     // covers it and plain enterText is enough.
-    await tester.enterText(find.byType(TextField), 'zz');
+    // Odd-length hex: the field only takes hex characters, so the typo it
+    // can still hold is a half byte.
+    await tester.enterText(find.byType(TextField), 'abc');
     await tester.tap(find.byTooltip('Write'));
     await _waitFor(tester, find.textContaining('Invalid hex'));
     await _shot(tester, '24_raw_write_invalid_hex');
@@ -335,7 +340,8 @@ void main() {
       _ScriptedBleService(scanError: const BleUnavailableException()),
     );
     await _soak(tester, const Duration(seconds: 2));
-    expect(find.textContaining('Bluetooth is turned off'), findsOneWidget);
+    expect(find.text('Bluetooth is off'), findsOneWidget);
+    expect(find.textContaining('start again by itself'), findsOneWidget);
     expect(find.textContaining('Bad state'), findsNothing);
     await _shot(tester, '28_scan_error');
   });

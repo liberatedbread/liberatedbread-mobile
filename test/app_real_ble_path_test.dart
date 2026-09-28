@@ -233,6 +233,10 @@ void main() {
             'the spec names the service; a failed match would leave the '
             'generic "Service" label',
       );
+      // The light card draws this service's controls, so its generic card
+      // starts folded; open it to reach the typed command buttons.
+      await tester.tap(find.text('Control Service'));
+      await _pumpAWhile(tester, rounds: 4);
       expect(
         find.text('Power on'),
         findsWidgets,
@@ -385,9 +389,11 @@ void main() {
       await tester.pumpWidget(app());
       await _pumpAWhile(tester, rounds: 4);
       await tester.tap(find.byType(FloatingActionButton));
-      await _pumpUntil(tester, find.textContaining('Bluetooth is turned off'));
+      await _pumpUntil(tester, find.text('Bluetooth is off'));
 
-      expect(find.textContaining('Bluetooth is turned off'), findsOneWidget);
+      expect(find.text('Bluetooth is off'), findsOneWidget);
+      // Nothing failed: the headline says what is wrong, not "Scan failed".
+      expect(find.text('Scan failed'), findsNothing);
       // Never the raw Dart rendering of an internal error.
       expect(find.textContaining('Bad state'), findsNothing);
     });

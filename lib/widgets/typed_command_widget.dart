@@ -9,6 +9,7 @@ import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 import '../core/error_text.dart';
+import 'decoded_value_widget.dart';
 
 /// Renders the commands of a spec-described writable characteristic as typed
 /// controls: fixed commands as buttons, parameterized commands as labeled
@@ -156,6 +157,15 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   /// Whether the defaulted parameters are on screen. See [_defaulted].
   bool _showDefaulted = false;
 
+  /// User-owned parameters still sitting at the placeholder [_seed] gave
+  /// them — the bottom of the range — rather than a value anyone chose.
+  ///
+  /// This card cannot know the device's current setting: the value lives in
+  /// another characteristic's decode, and pairing a parameter to a status
+  /// field by name is a guess. So the card says so instead. "Red: 0" above
+  /// a Status reading "Red: 255" otherwise read as the device's own value.
+  final Set<String> _placeholder = {};
+
   @override
   void initState() {
     super.initState();
@@ -206,6 +216,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       _values[p.name] = isDropdown
           ? allowed.first.toDouble()
           : rangeFor(p.valueType, p.min, p.max).min;
+      if (!isDropdown && p.userSettable && isNumericValueType(p.valueType)) {
+        _placeholder.add(p.name);
+      }
     }
   }
 
@@ -287,10 +300,20 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         bytes.toList(),
       );
       if (mounted) {
+        // Readings in this service re-read; see [serviceWritesProvider].
+        ref
+            .read(
+              serviceWritesProvider(
+                serviceWriteKey(widget.deviceId, widget.serviceUuid),
+              ).notifier,
+            )
+            .wrote();
         setState(() {
           _sending = false;
           _status = 'Sent';
           _failed = false;
+          // What was just sent IS the device's setting now.
+          _placeholder.clear();
         });
         _showSnack('Sent ${humanizeName(widget.command.name)}');
       }
@@ -381,6 +404,19 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
             // Spec-filled parameters are excluded here exactly as in
             // initState, and by the same one-word question, so the controls on
             // screen and the values in `_values` cannot disagree.
+            if (command.parameters.any(
+              (p) => p.userSettable && _placeholder.contains(p.name),
+            ))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'Sliders start at their lowest value, not the device\'s '
+                  'current setting.',
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
             for (final p in command.parameters)
               if (p.userSettable) _buildParam(p),
             if (_defaulted.isNotEmpty) ...[
@@ -449,7 +485,10 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         contentPadding: EdgeInsets.zero,
         title: Text(humanizeName(p.name)),
         value: value >= 0.5,
-        onChanged: (on) => setState(() => _values[p.name] = on ? 1.0 : 0.0),
+        onChanged: (on) => setState(() {
+          _placeholder.remove(p.name);
+          _values[p.name] = on ? 1.0 : 0.0;
+        }),
       );
     }
     if (!isNumericValueType(p.valueType)) {
@@ -515,6 +554,7 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
             value: displayValue,
             label: '${fmt(displayValue)}$unitSuffix',
             onChanged: (v) => setState(() {
+              _placeholder.remove(p.name);
               final snapped = snapToStep(v, displayMin, displayMax, step);
               _values[p.name] = rawValueFor(
                 snapped,
@@ -539,7 +579,10 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
           divisions: divisionsFor(range.min, range.max),
           value: value.toDouble(),
           label: '${value.round()}',
-          onChanged: (v) => setState(() => _values[p.name] = v.roundToDouble()),
+          onChanged: (v) => setState(() {
+            _placeholder.remove(p.name);
+            _values[p.name] = v.roundToDouble();
+          }),
         ),
       ],
     );

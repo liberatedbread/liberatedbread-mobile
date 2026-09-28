@@ -126,7 +126,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), 'zz');
+    // `zz` no longer reaches the parser (the field filters it out); an odd
+    // digit count is what the parser still has to reject.
+    await tester.enterText(find.byType(TextField), 'abc');
     await tester.tap(find.byIcon(Icons.send));
     await tester.pumpAndSettle();
 
@@ -359,5 +361,134 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('ab'), findsOneWidget);
     expect(find.textContaining('Live updates stopped'), findsOneWidget);
+  });
+
+  const writable = BleDiscoveredCharacteristic(
+    uuid: _charUuid,
+    canRead: false,
+    canWrite: true,
+    canWriteWithoutResponse: true,
+    canNotify: false,
+  );
+
+  // Screenshot 24/25: the result was a separate Text under the field, so
+  // with the keyboard up the field scrolled into view and the result line
+  // was cut in half at the keyboard edge. In the decoration, it scrolls with
+  // the field.
+  testWidgets('write results render in the field decoration', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: writable,
+        ),
+        FakeBleService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    InputDecoration decoration() =>
+        tester.widget<TextField>(find.byType(TextField)).decoration!;
+
+    await tester.enterText(find.byType(TextField), 'abc');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+    expect(decoration().errorText, contains('Invalid hex'));
+    expect(decoration().helperText, isNull);
+    // The result is the field's own: no 'Error: ' prefix used nowhere else.
+    expect(find.textContaining('Error:'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), '01 ff 42');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+    expect(decoration().errorText, isNull);
+    expect(decoration().helperText, 'Wrote 01 ff 42');
+  });
+
+  testWidgets('the hex field is not a prose field', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: writable,
+        ),
+        FakeBleService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.autocorrect, isFalse);
+    expect(field.enableSuggestions, isFalse);
+    expect(field.smartDashesType, SmartDashesType.disabled);
+    expect(field.smartQuotesType, SmartQuotesType.disabled);
+    expect(field.keyboardType, TextInputType.visiblePassword);
+
+    // Everything the parser accepts survives the filter...
+    const accepted = '0x01,0XAA 01:aa-ff\t0b';
+    await tester.enterText(find.byType(TextField), accepted);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      accepted,
+    );
+    // ...and an edit holding anything it could only reject is refused
+    // whole. Regression: stripping characters turned a pasted
+    // '01 02 // comment' into '01 02 ce', valid bytes nobody typed.
+    await tester.enterText(find.byType(TextField), '01 02 // comment');
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      accepted,
+    );
+  });
+
+  testWidgets('a failed read shows no "Error: " prefix', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+        ),
+        FakeBleService(readError: StateError('denied')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Could not read this characteristic.'), findsOneWidget);
+    expect(find.textContaining('Error:'), findsNothing);
+  });
+
+  // Screenshot 23: the R/W/N chips shared the UUID's row, which wrapped the
+  // 128-bit UUID mid-string on a phone.
+  testWidgets('the UUID has its own line above the property chips', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _wrap(
+        const RawCharacteristicWidget(
+          deviceId: '01',
+          serviceUuid: _serviceUuid,
+          characteristic: BleDiscoveredCharacteristic(
+            uuid: _charUuid,
+            canRead: true,
+            canWrite: true,
+            canNotify: true,
+          ),
+        ),
+        FakeBleService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final uuid = tester.getRect(find.text(_charUuid));
+    for (final p in ['R', 'W', 'N']) {
+      final chip = tester.getRect(find.widgetWithText(Chip, p));
+      expect(chip.top, greaterThanOrEqualTo(uuid.bottom), reason: p);
+    }
   });
 }

@@ -91,7 +91,15 @@ void main() {
     await tester.tap(find.text('Install / Refresh'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('valid http'), findsOneWidget);
+    // Not "valid http(s)": plain http is refused off the local network, so
+    // the prompt says https and names the one place http is allowed.
+    expect(
+      find.text(
+        'Enter a full https:// address (http:// only for a server on your '
+        'own network).',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('installs a pack, then lists it', (tester) async {
@@ -411,6 +419,25 @@ void main() {
 
     expect(find.textContaining('Could not remove "Stubborn"'), findsOneWidget);
   });
+
+  // The destructive confirm used to be a plain FilledButton, styled like any
+  // primary action.
+  testWidgets('the clear-all confirm uses the error colours', (tester) async {
+    await tester.pumpWidget(_wrap(FakeSpecPackService(packs: [_pack()])));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
+    await tester.pumpAndSettle();
+
+    final scheme = Theme.of(
+      tester.element(find.byType(AlertDialog)),
+    ).colorScheme;
+    final style = tester
+        .widget<FilledButton>(find.widgetWithText(FilledButton, 'Clear all'))
+        .style!;
+    expect(style.backgroundColor!.resolve({}), scheme.error);
+    expect(style.foregroundColor!.resolve({}), scheme.onError);
+  });
   // F-018 / F-055: the explicitly-padded ListView ignored MediaQuery.padding
   // (so in landscape the field sat under the notch), and the error/success/
   // empty messages used Colors.red/green/grey literals that fail contrast on
@@ -472,7 +499,10 @@ void main() {
       await tester.enterText(find.byType(TextField), 'not-a-url');
       await tester.tap(find.text('Install / Refresh'));
       await tester.pumpAndSettle();
-      expect(colorOf(tester, find.textContaining('valid http')), scheme.error);
+      expect(
+        colorOf(tester, find.textContaining('full https://')),
+        scheme.error,
+      );
 
       await tester.enterText(
         find.byType(TextField),

@@ -428,6 +428,22 @@ heading.
 
 ### Fixed
 
+- **The default spec pack installs again.** It had grown to 203 specs and
+  4.8 MB, past the app's caps of 128 specs and 4 MB, so every install from
+  the default URL failed as "not a valid spec-pack manifest". The caps are
+  now 1024 specs and 16 MB, too many specs gets its own message, and a test
+  holds the vendored pack under them.
+- **Screens say what is true, found by a screenshot review.** The connected
+  header scrolls with the device's controls instead of hiding its readings;
+  a service the light card already draws starts folded; a slider no longer
+  passes its lowest value off as the device's setting, and readings re-read
+  after a write. The scan bar keeps its title (Home Assistant has its own
+  icon, the rest are under More; mock mode reads "Demo"); Bluetooth off says
+  so instead of "Scan failed"; the permission text names only this
+  platform's permissions. The hex field refuses a paste it could only
+  mangle, and its result shows above the keyboard. A Home Assistant error no
+  longer points at a Tailscale tip "below" that is not there, and Clear all
+  and Disconnect confirms are coloured as destructive.
 - **Every Apple device in the room was "Likely Nuki Smart Lock".** The Nuki
   spec declares Apple's company id, and a matched company id alone earned
   "Likely" — so every iPhone, iPad and pair of AirPods was a likely lock.

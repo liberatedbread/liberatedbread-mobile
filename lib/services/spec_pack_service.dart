@@ -55,11 +55,13 @@ class SpecPackLimits {
   /// Largest single spec YAML we will accept.
   static const int maxSpecBytes = 512 * 1024;
 
-  /// Largest combined size of all specs in one pack.
-  static const int maxTotalBytes = 4 * 1024 * 1024;
+  /// Largest combined size of all specs in one pack. The default pack is
+  /// ~4.8 MB (203 specs, Sept 2026); a test holds the vendored copy of it
+  /// under both caps, which sat below it and failed every default install.
+  static const int maxTotalBytes = 16 * 1024 * 1024;
 
   /// Most specs a single manifest may list.
-  static const int maxSpecCount = 128;
+  static const int maxSpecCount = 1024;
 }
 
 /// Parsed remote manifest. Kept separate from the on-disk [SpecPack] record.
@@ -76,7 +78,8 @@ class SpecPackManifest {
   });
 
   /// Parse and validate manifest JSON. Returns null when the bytes are not
-  /// well-formed JSON of the expected shape.
+  /// well-formed JSON of the expected shape. Any number of specs parses;
+  /// [SpecPackService.install] refuses more than [SpecPackLimits.maxSpecCount].
   static SpecPackManifest? tryParse(String jsonText) {
     Object? decoded;
     try {
@@ -96,7 +99,8 @@ class SpecPackManifest {
       if (entry is! String || entry.trim().isEmpty) return null;
       specList.add(entry.trim());
     }
-    if (specList.length > SpecPackLimits.maxSpecCount) return null;
+    // The spec-count cap is the installer's to enforce, with its own error:
+    // folded in here, a pack that was only too big read as malformed.
     return SpecPackManifest(
       name: name.trim(),
       version: version.trim(),
@@ -190,7 +194,8 @@ enum SpecPackErrorKind {
   /// The manifest was not well-formed JSON of the expected shape.
   malformedManifest,
 
-  /// The manifest or a file exceeded the size caps.
+  /// The manifest exceeded the size caps or listed too many specs. The
+  /// [SpecPackError.message] says which.
   tooLarge,
 
   /// Not a single spec in the manifest could be downloaded.
@@ -550,7 +555,9 @@ class SpecPackService {
   static SpecPackError? manifestUrlProblem(String input) {
     const invalid = SpecPackError(
       SpecPackErrorKind.invalidUrl,
-      'Enter a valid http(s) URL.',
+      // Not "http(s)": plain http is refused off the local network below.
+      'Enter a full https:// address (http:// only for a server on your '
+      'own network).',
     );
     final trimmed = input.trim();
     if (trimmed.isEmpty || trimmed.contains(RegExp(r'\s'))) return invalid;
@@ -649,6 +656,16 @@ class SpecPackService {
       'manifest "${manifest.name}" v${manifest.version} lists '
       '${manifest.specs.length} spec(s)',
     );
+    if (manifest.specs.length > SpecPackLimits.maxSpecCount) {
+      Log.packs.warning('manifest rejected: too many specs');
+      return InstallFailed(
+        SpecPackError(
+          SpecPackErrorKind.tooLarge,
+          'This pack lists ${manifest.specs.length} specs; the app accepts '
+          'at most ${SpecPackLimits.maxSpecCount}.',
+        ),
+      );
+    }
 
     // 2. Download each spec, capping per-file and total size.
     final downloaded = <String, Uint8List>{};

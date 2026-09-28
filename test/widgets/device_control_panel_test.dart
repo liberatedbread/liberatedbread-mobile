@@ -1327,6 +1327,194 @@ void main() {
       expect(find.text('Print'), findsNothing);
     });
   });
+
+  group('screenshot review', () {
+    const lightSvc = '0000fff0-0000-1000-8000-00805f9b34fb';
+    const lightChar = '0000fff1-0000-1000-8000-00805f9b34fb';
+    const batterySvc = '0000180f-0000-1000-8000-00805f9b34fb';
+    const batteryChar = '00002a19-0000-1000-8000-00805f9b34fb';
+
+    final lightSpec = DeviceSpecDto(
+      nameMatchers: const [],
+      platformFallbackTypes: const [],
+      txtMatchGroups: const [],
+      hiddenEntityNames: const [],
+      deviceName: 'Example Smart Bulb',
+      manufacturer: 'Acme Corp',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'light',
+      localNamePrefixes: const ['ACME_'],
+      localNames: const [],
+      serviceUuids: const [lightSvc],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceTypes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      entities: const [
+        EntityDto(
+          name: 'Bulb',
+          variants: [],
+          platform: 'light',
+          canNotify: false,
+          hasFormat: false,
+          onWhenNonzero: false,
+          options: [],
+          actions: [
+            EntityActionDto(
+              role: 'turn_on',
+              commandName: 'power_on',
+              serviceUuid: lightSvc,
+              characteristicUuid: lightChar,
+              userParams: [],
+            ),
+          ],
+        ),
+      ],
+      services: const [
+        ServiceDto(
+          uuid: lightSvc,
+          name: 'Control Service',
+          characteristics: [
+            CharacteristicDto(
+              uuid: lightChar,
+              name: 'Command',
+              canRead: false,
+              canWrite: true,
+              canNotify: false,
+              commands: [],
+              formatFields: [],
+            ),
+          ],
+        ),
+      ],
+    );
+
+    const services = [
+      BleDiscoveredService(
+        uuid: lightSvc,
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: lightChar,
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+          ),
+        ],
+      ),
+      BleDiscoveredService(
+        uuid: batterySvc,
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: batteryChar,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+        ],
+      ),
+    ];
+
+    Future<void> pumpLight(WidgetTester tester, {Widget? header}) async {
+      await tester.pumpWidget(
+        await _wrap(
+          DeviceControlPanel(
+            deviceId: '01',
+            deviceName: 'ACME_Living_Room',
+            services: services,
+            header: header,
+          ),
+          ble: FakeBleService(
+            readValues: const {
+              batteryChar: [85],
+            },
+          ),
+          codec: FakeSpecCodec(
+            spec: lightSpec,
+            matches: [
+              MatchResult(
+                spec: lightSpec,
+                matchedByNamePrefix: true,
+                matchedServiceUuids: const [lightSvc],
+                confidence: MatchConfidence.strong,
+              ),
+            ],
+          ),
+          specs: const {'bulb.yaml': 'yaml'},
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a service the light card draws starts folded, and only that '
+        'one', (tester) async {
+      await pumpLight(tester);
+
+      expect(find.text('Bulb'), findsOneWidget);
+      // The light's Control Service repeated the card's verbs as generic
+      // command cards. Folded, not removed: still mounted, one tap away.
+      expect(find.text('Control Service'), findsOneWidget);
+      expect(find.byType(TypedCharacteristicWidget), findsNothing);
+      expect(
+        find.byType(TypedCharacteristicWidget, skipOffstage: false),
+        findsOneWidget,
+      );
+      // A service the light does not bind keeps its card open.
+      expect(find.byType(RawCharacteristicWidget), findsOneWidget);
+
+      await tester.tap(find.text('Control Service'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
+    });
+
+    testWidgets('service cards draw no edge-to-edge dividers when open', (
+      tester,
+    ) async {
+      await pumpLight(tester);
+      for (final tile in tester.widgetList<ExpansionTile>(
+        find.byType(ExpansionTile),
+      )) {
+        expect(tile.shape, const Border());
+        expect(tile.collapsedShape, const Border());
+      }
+    });
+
+    testWidgets('the header is the first item of the scrolling list', (
+      tester,
+    ) async {
+      await pumpLight(tester, header: const Text('HEADER'));
+      expect(
+        find.ancestor(of: find.text('HEADER'), matching: find.byType(ListView)),
+        findsOneWidget,
+      );
+      expect(
+        tester.getTopLeft(find.text('HEADER')).dy,
+        lessThan(tester.getTopLeft(find.text('Bulb')).dy),
+      );
+    });
+
+    testWidgets('a device with no services still shows the header', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        await _wrap(
+          const DeviceControlPanel(
+            deviceId: '01',
+            deviceName: 'X',
+            services: [],
+            header: Text('HEADER'),
+          ),
+          ble: FakeBleService(),
+          codec: FakeSpecCodec(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('HEADER'), findsOneWidget);
+      expect(find.text('No services found on this device.'), findsOneWidget);
+    });
+  });
 }
 
 // ── Fixture: one spec per category, driven through the panel ─────────────────

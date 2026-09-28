@@ -131,6 +131,17 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
   double get _brightnessMin => _setBrightness?.min ?? 0;
   double get _brightnessMax => _setBrightness?.max ?? 255;
 
+  /// Whether the brightness reads as a percentage, so the number beside the
+  /// slider can say "80%" rather than a bare "80" while the raw command card
+  /// for the same parameter says "%". The action carries bounds but no unit,
+  /// so the bounds are the signal: a brightness that runs 0 (or 1) to 100 is a
+  /// percentage, and a 0..255 one is a raw level and stays unitless.
+  bool get _brightnessIsPercent =>
+      _brightnessMax == 100 && (_brightnessMin == 0 || _brightnessMin == 1);
+
+  String get _brightnessText =>
+      '${_effectiveBrightness.round()}${_brightnessIsPercent ? '%' : ''}';
+
   double get _effectiveBrightness =>
       (_brightness ?? _brightnessMax).clamp(_brightnessMin, _brightnessMax);
 
@@ -414,11 +425,13 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                     // Without this a screen reader announces the bare number
                     // — "40" — and which of a light card's several numbers it
                     // is has to be guessed from focus order.
-                    semanticFormatterCallback: (v) => 'Brightness ${v.round()}',
+                    semanticFormatterCallback: (v) =>
+                        'Brightness ${v.round()}'
+                        '${_brightnessIsPercent ? ' percent' : ''}',
                     min: _brightnessMin,
                     max: _brightnessMax,
                     value: _effectiveBrightness,
-                    label: '${_effectiveBrightness.round()}',
+                    label: _brightnessText,
                     onChanged: _sending
                         ? null
                         : (v) => setState(() {
@@ -431,7 +444,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                   ),
                 ),
                 Text(
-                  '${_effectiveBrightness.round()}',
+                  _brightnessText,
                   style: text.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),

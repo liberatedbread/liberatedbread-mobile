@@ -210,7 +210,8 @@ void main() {
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
-    expect(find.text('Likely supported'), findsOneWidget);
+    // Every row a strong match, so the header does not hedge.
+    expect(find.text('Supported'), findsOneWidget);
     expect(find.text('Other devices'), findsOneWidget);
     expect(find.text('Hue Bridge'), findsOneWidget);
 
@@ -309,11 +310,11 @@ void main() {
     expect(find.text('Other devices'), findsNothing);
     expect(find.text('Opens its own web page'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('Likely supported'),
+      find.text('Supported'),
       -100,
       maxScrolls: 50,
     );
-    expect(find.text('Likely supported'), findsOneWidget);
+    expect(find.text('Supported'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Office LaserJet'), 100);
 
     final supported = tester.getTopLeft(find.text('Philips Hue')).dy;

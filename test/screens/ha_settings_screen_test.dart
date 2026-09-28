@@ -172,7 +172,51 @@ void main() {
     await tester.tap(find.text('Connect'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Tailscale tip'), findsOneWidget);
+    expect(find.textContaining('try Tailscale'), findsOneWidget);
+    // The card sits above the error, and is absent for a public https URL,
+    // so the message must not point "below" at it.
+    expect(find.textContaining('tip below'), findsNothing);
+  });
+
+  testWidgets('the intro and token helper read plainly', (tester) async {
+    await tester.pumpWidget(
+      _wrap(store: InMemorySettingsStore(), api: FakeHaApiClient()),
+    );
+    await tester.pumpAndSettle();
+
+    // The app also forwards Wi-Fi/LAN devices, and "BLE" is jargon.
+    expect(find.textContaining('your BLE'), findsNothing);
+    expect(find.textContaining('from your devices'), findsOneWidget);
+    expect(
+      find.text(
+        'In Home Assistant: Profile › Security › Long-lived access tokens',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('typing in either field clears the "Enter both" prompt', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(store: InMemorySettingsStore(), api: FakeHaApiClient()),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Connect'));
+    await tester.pump();
+    expect(find.textContaining('Enter both'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'http://ha:8123');
+    await tester.pump();
+    expect(find.textContaining('Enter both'), findsNothing);
+
+    await tester.enterText(find.byType(TextField).first, '');
+    await tester.tap(find.text('Connect'));
+    await tester.pump();
+    expect(find.textContaining('Enter both'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, 'tok');
+    await tester.pump();
+    expect(find.textContaining('Enter both'), findsNothing);
   });
 
   testWidgets('leaving the screen mid-connect does not crash on failure', (
@@ -255,6 +299,17 @@ void main() {
     await tester.tap(find.text('Disconnect'));
     await tester.pumpAndSettle();
     expect(find.textContaining('not deleted'), findsOneWidget);
+
+    // Forgetting the token is destructive, so the confirm wears the error
+    // colours rather than a primary action's.
+    final scheme = Theme.of(
+      tester.element(find.byType(AlertDialog)),
+    ).colorScheme;
+    final style = tester
+        .widget<FilledButton>(find.widgetWithText(FilledButton, 'Disconnect'))
+        .style!;
+    expect(style.backgroundColor!.resolve({}), scheme.error);
+    expect(style.foregroundColor!.resolve({}), scheme.onError);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Disconnect'));
     await tester.pumpAndSettle();

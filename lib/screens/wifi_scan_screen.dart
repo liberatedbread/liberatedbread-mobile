@@ -308,7 +308,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
             if (ranked.likelySupported.isNotEmpty) ...[
               const SizedBox(height: 36),
               SectionHeader(
-                label: 'Likely supported',
+                label: supportedGroupLabel(ranked.likelySupported),
                 count: ranked.likelySupported.length,
               ),
               const SizedBox(height: 12),

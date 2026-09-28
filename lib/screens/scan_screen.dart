@@ -3,7 +3,8 @@
 import 'dart:async';
 
 import 'package:clock/clock.dart';
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -141,6 +142,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   // Set when scanning failed because BLE permissions were denied; drives a
   // permission-specific state with an open-settings recovery path.
   bool _permissionDenied = false;
+  // Set alongside [_error] when the scan failed because the radio is off (a
+  // [BleUnavailableException]). Not a failure of the app's: nothing to retry
+  // until the user turns Bluetooth on, and [_adapterSub] restarts the scan
+  // when they do — so the screen says that, in neutral colours.
+  bool _bluetoothOff = false;
   late final BleService _bleService;
   // Owned scan subscription so a device tap (or dispose) can cancel the active
   // scan instead of leaving it running behind the pushed route.
@@ -255,6 +261,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _hasScanned = true;
       _permissionDenied = true;
       _error = null;
+      _bluetoothOff = false;
     });
   }
 
@@ -421,6 +428,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _setScanning(true);
       _pausedByUser = false;
       _error = null;
+      _bluetoothOff = false;
       _permissionDenied = false;
       // Devices found so far are kept. They age out on their own now (see
       // DeviceManager.forgetAfter), so a restart — a retry, a return from the
@@ -466,7 +474,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
               if (e is BlePermissionDeniedException) {
                 _permissionDenied = true;
                 _error = null;
+                _bluetoothOff = false;
               } else {
+                _bluetoothOff = e is BleUnavailableException;
                 _error = friendlyErrorText(
                   e,
                   context: 'BLE scan',
@@ -623,48 +633,59 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(
-        title: const Text(AppConstants.appName),
+        // The whole name, not "Liberated ...": four icons and a badge in the
+        // actions used to squeeze the title down to its first word. Only Home
+        // Assistant keeps an icon of its own; the rest are occasional visits
+        // and share one overflow menu.
+        title: const _ScanTitle(demo: isMockMode),
         actions: [
           IconButton(
-            icon: const Icon(Icons.extension_outlined),
-            tooltip: 'Device Spec Packs',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => const SpecPackSettingsScreen(),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(Icons.home_outlined),
             tooltip: 'Home Assistant',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(builder: (_) => const HaSettingsScreen()),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.bug_report_outlined),
-            tooltip: 'Diagnostics',
-            onPressed: () => Navigator.push(
+          PopupMenuButton<_ScanMenu>(
+            tooltip: 'More',
+            onSelected: (item) => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                builder: (_) => const DiagnosticsScreen(),
+                builder: (_) => switch (item) {
+                  _ScanMenu.specPacks => const SpecPackSettingsScreen(),
+                  _ScanMenu.diagnostics => const DiagnosticsScreen(),
+                  // Privacy policy, disclaimer, licences: the Terms gate shows
+                  // them once and never again, and App Review wants the
+                  // privacy policy reachable from inside the app.
+                  _ScanMenu.about => const AboutScreen(),
+                },
               ),
             ),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: _ScanMenu.specPacks,
+                child: ListTile(
+                  leading: Icon(Icons.extension_outlined),
+                  title: Text('Device Spec Packs'),
+                ),
+              ),
+              PopupMenuItem(
+                value: _ScanMenu.diagnostics,
+                child: ListTile(
+                  leading: Icon(Icons.bug_report_outlined),
+                  title: Text('Diagnostics'),
+                ),
+              ),
+              PopupMenuItem(
+                value: _ScanMenu.about,
+                child: ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('About'),
+                ),
+              ),
+            ],
           ),
-          // Privacy policy, disclaimer, licences: the Terms gate shows them
-          // once and never again, and App Review wants the privacy policy
-          // reachable from inside the app.
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: 'About',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
-            ),
-          ),
-          if (isMockMode) const _MockBadge(),
         ],
       ),
       body: SafeArea(child: _buildBody()),
@@ -689,7 +710,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       // default tag would collide. That is not a layout nit: it throws out of
       // the hero controller the moment any route is pushed, which is every tap
       // on a device.
-      floatingActionButton: _isScanning
+      //
+      // And neither, when the body already offers its own way to scan (Retry,
+      // Scan again): two buttons for one action, one of them in a corner, only
+      // make the reader wonder whether they differ.
+      floatingActionButton: _bodyOffersScan
+          ? null
+          : _isScanning
           ? FloatingActionButton.small(
               heroTag: 'scan-fab',
               tooltip: 'Stop scanning — saves battery',
@@ -708,10 +735,21 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     );
   }
 
+  /// Whether the body is showing a state with its own scan button — the
+  /// permission guidance's Retry, a failure's Retry, or an empty result's Scan
+  /// again. None of these is reachable mid-scan (a start clears them), so the
+  /// stop control is never what gets hidden.
+  bool get _bodyOffersScan =>
+      !_isScanning &&
+      (_permissionDenied ||
+          _error != null ||
+          (_hasScanned && _deviceManager.count == 0));
+
   /// Headline under the radar. Doubles as the scan status readout, so the
   /// screen never needs a separate progress caption.
   String get _headline {
     if (_permissionDenied) return 'Bluetooth permission needed';
+    if (_bluetoothOff) return 'Bluetooth is off';
     if (_error != null) return 'Scan failed';
     if (_deviceManager.count > 0) {
       final n = _deviceManager.count;
@@ -724,8 +762,23 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   String get _subhead {
     if (_permissionDenied) {
-      return 'Grant Bluetooth (and, on Android, nearby-devices/location) '
-          'access so the app can scan for devices.';
+      // Worded for the phone in hand: an iPhone owner told about Android's
+      // nearby-devices permission is left looking for a switch that is not
+      // there.
+      return switch (defaultTargetPlatform) {
+        TargetPlatform.iOS =>
+          'Allow Bluetooth access in Settings so the app can scan for '
+              'devices.',
+        TargetPlatform.android =>
+          'Grant Bluetooth (nearby devices) access — location, on older '
+              'Android versions — so the app can scan for devices.',
+        _ => 'Grant Bluetooth access so the app can scan for devices.',
+      };
+    }
+    // True, not hopeful: [_adapterSub] restarts the scan the moment the radio
+    // reports ready.
+    if (_bluetoothOff) {
+      return 'Turn Bluetooth on and scanning will start again by itself.';
     }
     if (_error != null) return _error!;
     if (_deviceManager.count > 0) {
@@ -955,7 +1008,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
               _subhead,
               textAlign: TextAlign.center,
               style: text.bodyMedium?.copyWith(
-                color: _error != null ? scheme.error : scheme.onSurfaceVariant,
+                // A radio that is switched off is a setting, not a fault.
+                color: _error != null && !_bluetoothOff
+                    ? scheme.error
+                    : scheme.onSurfaceVariant,
                 height: 1.5,
               ),
             ),
@@ -1026,7 +1082,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           if (ranked.likelySupported.isNotEmpty) ...[
             const SizedBox(height: 36),
             SectionHeader(
-              label: 'Likely supported',
+              label: supportedGroupLabel(ranked.likelySupported),
               count: ranked.likelySupported.length,
             ),
             const SizedBox(height: 12),
@@ -1065,30 +1121,48 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   static String _signalLabel(int band) => signalLabel(band);
 }
 
-class _MockBadge extends StatelessWidget {
-  const _MockBadge();
+/// The overflow menu's entries.
+enum _ScanMenu { specPacks, diagnostics, about }
+
+/// The app bar title, with the demo-build marker under it rather than in the
+/// actions, where it cost the title its width.
+class _ScanTitle extends StatelessWidget {
+  final bool demo;
+  const _ScanTitle({required this.demo});
+
+  @override
+  Widget build(BuildContext context) {
+    const name = Text(AppConstants.appName);
+    if (!demo) return name;
+    return const Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [name, SizedBox(height: 2), _DemoBadge()],
+    );
+  }
+}
+
+class _DemoBadge extends StatelessWidget {
+  const _DemoBadge();
 
   @override
   Widget build(BuildContext context) {
     final fg = Theme.of(context).appBarTheme.foregroundColor;
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: fg?.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: fg?.withValues(alpha: 0.4) ?? fg!),
-          ),
-          child: Text(
-            'MOCK',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: fg,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-            ),
-          ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      decoration: BoxDecoration(
+        color: fg?.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg?.withValues(alpha: 0.4) ?? fg!),
+      ),
+      // "Demo", not "MOCK": the word is for whoever is holding the phone,
+      // who has no reason to know what a mock is.
+      child: Text(
+        'Demo',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: fg,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
         ),
       ),
     );

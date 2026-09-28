@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
@@ -29,6 +30,19 @@ class RawCharacteristicWidget extends ConsumerStatefulWidget {
   ConsumerState<RawCharacteristicWidget> createState() =>
       _RawCharacteristicWidgetState();
 }
+
+/// What [tryParseHex] can accept: hex digits, whitespace, its `,`/`:`/`-`
+/// separators and the `x` of a `0x` prefix. Anything else could only ever be
+/// rejected at send time, so it is refused at the keyboard instead.
+///
+/// The whole edit is refused, not filtered: stripping characters from a
+/// paste turned '01 02 // comment' into '01 02 ce', valid bytes nobody
+/// typed.
+final _hexInputChars = TextInputFormatter.withFunction(
+  (oldValue, newValue) =>
+      _hexChars.hasMatch(newValue.text) ? newValue : oldValue,
+);
+final _hexChars = RegExp(r'^[0-9a-fA-FxX\s:,\-]*$');
 
 class _RawCharacteristicWidgetState
     extends ConsumerState<RawCharacteristicWidget> {
@@ -202,22 +216,30 @@ class _RawCharacteristicWidgetState
       children: [
         ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-          title: Row(
+          // The UUID gets the full width, with the property chips beneath
+          // it: sharing a row with them wrapped a 128-bit UUID mid-string.
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(char.uuid, style: monoTextStyleOf(fontSize: 12)),
-              ),
-              ...properties.map(
-                (p) => Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Chip(
-                    label: Text(p, style: const TextStyle(fontSize: 10)),
-                    padding: EdgeInsets.zero,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
+              Text(char.uuid, style: monoTextStyleOf(fontSize: 12)),
+              if (properties.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      for (final p in properties)
+                        Chip(
+                          label: Text(p, style: const TextStyle(fontSize: 10)),
+                          padding: EdgeInsets.zero,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                    ],
                   ),
                 ),
-              ),
             ],
           ),
           subtitle: _buildValue(),
@@ -241,55 +263,60 @@ class _RawCharacteristicWidgetState
     final text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-      child: Column(
+      // Top-aligned: the result line under the field would otherwise pull
+      // the send button down off the field it belongs to.
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _writeController,
-                  enabled: !_writing,
-                  style: monoTextStyleOf(fontSize: 13),
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    labelText: 'Write hex',
-                    hintText: 'e.g. 01 aa',
-                    border: OutlineInputBorder(),
-                  ),
-                  onSubmitted: (_) => _writing ? null : _write(),
-                ),
+          Expanded(
+            child: TextField(
+              controller: _writeController,
+              enabled: !_writing,
+              style: monoTextStyleOf(fontSize: 13),
+              // Hex, not prose: autocorrect, suggestions and smart dashes
+              // mangle byte tokens and `-` separators. visiblePassword is
+              // the plain keyboard with a digit row and no suggestion
+              // strip; the number pad would have no a-f.
+              autocorrect: false,
+              enableSuggestions: false,
+              smartDashesType: SmartDashesType.disabled,
+              smartQuotesType: SmartQuotesType.disabled,
+              keyboardType: TextInputType.visiblePassword,
+              inputFormatters: [_hexInputChars],
+              // The result lives in the decoration, not a Text below the
+              // row, so scrolling the field above the keyboard brings
+              // the result line with it instead of cutting it in half.
+              decoration: InputDecoration(
+                isDense: true,
+                labelText: 'Write hex',
+                hintText: 'e.g. 01 aa',
+                border: const OutlineInputBorder(),
+                errorText: _writeError,
+                errorMaxLines: 3,
+                helperText: _writeStatus,
+                helperMaxLines: 2,
+                helperStyle: text.bodySmall?.copyWith(color: scheme.tertiary),
               ),
-              const SizedBox(width: 8),
-              _writing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : IconButton(
-                      icon: const Icon(Icons.send, size: 20),
-                      tooltip: 'Write',
-                      onPressed: _write,
-                    ),
-            ],
+              onSubmitted: (_) => _writing ? null : _write(),
+            ),
           ),
-          if (_writeError != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'Error: $_writeError',
-                style: text.bodySmall?.copyWith(color: scheme.error),
-              ),
-            ),
-          if (_writeStatus != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                _writeStatus!,
-                style: text.bodySmall?.copyWith(color: scheme.tertiary),
-              ),
-            ),
+          const SizedBox(width: 8),
+          _writing
+              // Padded to the send button's 48px so the swap does not jump
+              // now that the row is top-aligned.
+              ? const Padding(
+                  padding: EdgeInsets.all(15),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.send, size: 20),
+                  tooltip: 'Write',
+                  onPressed: _write,
+                ),
         ],
       ),
     );
@@ -326,10 +353,7 @@ class _RawCharacteristicWidgetState
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         for (final error in errors)
-          Text(
-            'Error: $error',
-            style: text.bodySmall?.copyWith(color: scheme.error),
-          ),
+          Text(error, style: text.bodySmall?.copyWith(color: scheme.error)),
       ],
     );
   }

@@ -189,7 +189,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   bool _leaving = false;
 
   _ScreenState _state = _ScreenState.connecting;
-  // Set when "Try to find device" started the current connect attempt: the
+  // Set when "Find device" started the current connect attempt: the
   // find screen needs a live link for its RSSI ping, so from the failed and
   // disconnected states finding is connect-first. Cleared on failure — a
   // later manual Retry must not surprise-open the find screen.
@@ -861,12 +861,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
+                  key: const ValueKey('connection-status-dot'),
                   width: 7,
                   height: 7,
                   margin: const EdgeInsets.only(right: 6),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Theme.of(context).appBarTheme.foregroundColor,
+                    color: _statusDotColor(Theme.of(context).colorScheme),
                   ),
                 ),
                 Text(
@@ -890,10 +891,22 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
   String get _statusLabel => switch (_state) {
     _ScreenState.connecting => 'Connecting',
-    _ScreenState.discovering => 'Discovering services',
+    _ScreenState.discovering => 'Reading device features',
     _ScreenState.ready => 'Connected',
     _ScreenState.error => 'Connection failed',
     _ScreenState.disconnected => 'Disconnected',
+  };
+
+  /// The dot beside [_statusLabel]. It used to be the app bar's foreground
+  /// colour in every state, so "Connected" and "Connection failed" looked
+  /// identical at a glance — the dot said nothing the words did not. Same
+  /// secondary role the connected header's own dot uses for a live link.
+  Color _statusDotColor(ColorScheme scheme) => switch (_state) {
+    _ScreenState.ready => scheme.secondary,
+    _ScreenState.error => scheme.error,
+    _ScreenState.connecting ||
+    _ScreenState.discovering ||
+    _ScreenState.disconnected => scheme.outline,
   };
 
   Widget _buildBody() {
@@ -911,7 +924,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
       case _ScreenState.discovering:
         return _PairingProgress(
-          label: 'Discovering services...',
+          label: 'Reading device features...',
           step: 1,
           deviceName: null,
           elapsedSeconds: _elapsedSeconds,
@@ -940,7 +953,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           message: _error ?? 'Connection failed',
           actionLabel: 'Retry',
           onAction: _connect,
-          secondaryActionLabel: 'Try to find device',
+          secondaryActionLabel: 'Find device',
           secondaryActionIcon: Icons.radar,
           onSecondaryAction: _tryToFind,
           tertiaryActionLabel: help == null ? null : 'How to connect',
@@ -976,7 +989,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               'of range. Reconnect when you need it again.',
           actionLabel: 'Reconnect',
           onAction: _connect,
-          secondaryActionLabel: 'Try to find device',
+          secondaryActionLabel: 'Find device',
           secondaryActionIcon: Icons.radar,
           onSecondaryAction: _tryToFind,
           tertiaryActionLabel: help == null ? null : 'How to connect',
@@ -1019,63 +1032,74 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             ?.chosen
             ?.spec
             .safetyAdvisory;
+        // The header scrolls with the controls rather than sitting pinned
+        // above them: pinned, it took over a third of a phone screen and
+        // pushed a light's readings below the fold. Pinned stays only where
+        // the body is not the control panel's own list — the setup-info view
+        // and the safety gate, which until acknowledged shows no panel at all
+        // and would otherwise take Find and Disconnect away with it.
+        final scrollsWithPanel = !isRabbitAirSetup && safety == null;
+        final header = _ConnectedHeader(
+          scrolling: scrollsWithPanel,
+          name: widget.device.displayName,
+          device: widget.device,
+          // The registry is indexed once for the app's lifetime and this
+          // returns DeviceDescription.none until it is, so the header
+          // renders immediately and gains its identity rows a frame later
+          // rather than holding the whole screen on an asset load.
+          description: describeWith(
+            ref.watch(numberRegistryProvider),
+            widget.device,
+          ),
+          serviceCount: _services.length,
+          onFind: _openFind,
+          onDisconnect: () async {
+            // A deliberate disconnect means "done with this device", so
+            // return to the listing it was opened from. The reconnect
+            // state stays reserved for links *lost* (_watchConnection):
+            // parking a chosen disconnect there read as an error. The
+            // navigator is captured before the await so no BuildContext
+            // crosses the async gap, and the mounted guard keeps a
+            // pop-during-teardown from popping the listing itself.
+            // Once. A second tap while the first is still tearing down
+            // popped again after the screen had gone — the HomeShell
+            // underneath, leaving an empty Navigator.
+            if (_leaving) return;
+            _leaving = true;
+            final navigator = Navigator.of(context);
+            try {
+              await _cleanupConnection();
+            } catch (_) {
+              // _cleanupConnection is best-effort; a teardown that threw
+              // must still release the latch below rather than leave the
+              // button dead.
+            }
+            // The latch guards a second tap DURING the teardown. On the
+            // paths that return WITHOUT popping — the screen outlived the
+            // disconnect, or there is nothing under this route — it was
+            // never cleared, so the Disconnect button stayed inert for the
+            // life of the screen with nothing to show for it. It stays set
+            // once the pop is committed: the screen is still mounted for
+            // the length of the transition, and a second tap there is the
+            // double-pop this latch exists to stop.
+            if (!mounted || !navigator.canPop()) {
+              _leaving = false;
+              return;
+            }
+            navigator.pop();
+          },
+        );
         final panel = DeviceControlPanel(
           deviceId: widget.device.id,
           deviceName: widget.device.displayName,
           services: _services,
           manufacturerData: widget.device.manufacturerData,
+          header: scrollsWithPanel ? header : null,
         );
+        if (scrollsWithPanel) return panel;
         return Column(
           children: [
-            _ConnectedHeader(
-              name: widget.device.displayName,
-              device: widget.device,
-              // The registry is indexed once for the app's lifetime and this
-              // returns DeviceDescription.none until it is, so the header
-              // renders immediately and gains its identity rows a frame later
-              // rather than holding the whole screen on an asset load.
-              description: describeWith(
-                ref.watch(numberRegistryProvider),
-                widget.device,
-              ),
-              serviceCount: _services.length,
-              onFind: _openFind,
-              onDisconnect: () async {
-                // A deliberate disconnect means "done with this device", so
-                // return to the listing it was opened from. The reconnect
-                // state stays reserved for links *lost* (_watchConnection):
-                // parking a chosen disconnect there read as an error. The
-                // navigator is captured before the await so no BuildContext
-                // crosses the async gap, and the mounted guard keeps a
-                // pop-during-teardown from popping the listing itself.
-                // Once. A second tap while the first is still tearing down
-                // popped again after the screen had gone — the HomeShell
-                // underneath, leaving an empty Navigator.
-                if (_leaving) return;
-                _leaving = true;
-                final navigator = Navigator.of(context);
-                try {
-                  await _cleanupConnection();
-                } catch (_) {
-                  // _cleanupConnection is best-effort; a teardown that threw
-                  // must still release the latch below rather than leave the
-                  // button dead.
-                }
-                // The latch guards a second tap DURING the teardown. On the
-                // paths that return WITHOUT popping — the screen outlived the
-                // disconnect, or there is nothing under this route — it was
-                // never cleared, so the Disconnect button stayed inert for the
-                // life of the screen with nothing to show for it. It stays set
-                // once the pop is committed: the screen is still mounted for
-                // the length of the transition, and a second tap there is the
-                // double-pop this latch exists to stop.
-                if (!mounted || !navigator.canPop()) {
-                  _leaving = false;
-                  return;
-                }
-                navigator.pop();
-              },
-            ),
+            header,
             Expanded(
               child: isRabbitAirSetup
                   ? RabbitAirSetupInfoPanel(
@@ -1104,6 +1128,10 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 /// their own row rather than sharing the identity row: two labeled buttons
 /// beside the name left it a few dozen pixels on narrow phones.
 class _ConnectedHeader extends StatelessWidget {
+  /// Whether this is the first item of the control panel's list rather than
+  /// pinned above it. The list already pads its items by 8, so the header
+  /// takes the same inset as the cards below it instead of doubling it.
+  final bool scrolling;
   final String name;
   final IoTDevice device;
   final DeviceDescription description;
@@ -1112,6 +1140,7 @@ class _ConnectedHeader extends StatelessWidget {
   final Future<void> Function() onDisconnect;
 
   const _ConnectedHeader({
+    this.scrolling = false,
     required this.name,
     required this.device,
     required this.description,
@@ -1148,7 +1177,9 @@ class _ConnectedHeader extends StatelessWidget {
     final text = Theme.of(context).textTheme;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      margin: scrolling
+          ? const EdgeInsets.fromLTRB(8, 4, 8, 4)
+          : const EdgeInsets.fromLTRB(16, 12, 16, 4),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
@@ -1290,7 +1321,13 @@ class _PairingProgress extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    const steps = ['Connecting', 'Discovering services'];
+    // A finished step says what it achieved: "Connecting" beside a check
+    // read as still in progress. And "services" is GATT vocabulary; what the
+    // user is waiting on is the app learning what the device can do.
+    final steps = [
+      step > 0 ? 'Connected' : 'Connecting',
+      'Reading device features',
+    ];
 
     // Scrollable, not a bare Column: in landscape the body is ~320 pt tall
     // and this stack needs more, which pushed the actions off-screen; at a
@@ -1402,7 +1439,7 @@ class _StatusState extends StatelessWidget {
   final VoidCallback onAction;
 
   /// Optional second, visually quieter action under the primary one — how the
-  /// dead-end states offer "Try to find device" without competing with their
+  /// dead-end states offer "Find device" without competing with their
   /// Retry/Reconnect.
   final String? secondaryActionLabel;
   final IconData? secondaryActionIcon;
@@ -1435,10 +1472,13 @@ class _StatusState extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final isError = severity == _Severity.error;
-    final disc = isError ? scheme.errorContainer : scheme.tertiaryContainer;
-    final accent = isError
-        ? scheme.onErrorContainer
-        : scheme.onTertiaryContainer;
+    // A warning sits on a neutral disc, not tertiaryContainer: in this theme
+    // that role is green, and a green disc under "Device disconnected" read
+    // as success.
+    final disc = isError
+        ? scheme.errorContainer
+        : scheme.surfaceContainerHighest;
+    final accent = isError ? scheme.onErrorContainer : scheme.onSurfaceVariant;
 
     // Scrollable, not a bare Column: in landscape the body is ~320 pt tall
     // and this stack needs more, which pushed the actions off-screen; at a
