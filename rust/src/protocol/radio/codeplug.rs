@@ -67,8 +67,8 @@ pub const TWO_POWER_LEVELS: &[Power] = &[Power::High, Power::Low];
 ///
 /// An index past the list reads as Low (or the list's last level, on a
 /// model without Low). CHIRP reads it as `levels[0]`, High, but this app
-/// rewrites every channel on each write, so High here turned a UV-82HP's
-/// Low channel (index 2, behind the two-level UV-5R profile's ident) into a
+/// rewrites every channel on each write, so High here turned a tri-power
+/// radio's Low channel (index 2, read through a two-level profile) into a
 /// full-power one nobody chose. Low never transmits harder than the radio
 /// was set to. The exact index is not lost to this reading: the decoders
 /// keep it as [`ChannelRecord::power_raw`], and [`power_bits`] writes it
@@ -112,17 +112,15 @@ pub fn held_power_indexes<'a>(channels: impl IntoIterator<Item = &'a ChannelReco
 }
 
 /// The two power bits to write for `channel`, onto an image whose records
-/// held the indexes in `held` (see [`held_power_indexes`]), for a target
-/// model whose documented alias for its lowest level is `aliased_low`.
+/// held the indexes in `held` (see [`held_power_indexes`]).
 ///
-/// Rule 1, a carried index: the index the radio itself had for this channel
+/// A carried index: the index the radio itself had for this channel
 /// (`power_raw`, set when the channel was read from an image) while it
 /// still reads as the channel's level. The index travels with the channel
 /// rather than being looked up by slot, so moves, deletes, renames and
-/// duplicates cannot hand a channel another record's bits: a two-level Low
-/// reads from both 1 and 2, which a UV-82HP transmits as Med and Low, and
-/// every guess at which original a written channel came from found an
-/// arrangement that picked the Med one. A level the user changed no longer
+/// duplicates cannot hand a channel another record's bits: every guess at
+/// which original a written channel came from found an arrangement that
+/// picked another record's index. A level the user changed no longer
 /// matches the index, and the app drops the index with the old level
 /// anyway.
 ///
@@ -136,49 +134,26 @@ pub fn held_power_indexes<'a>(channels: impl IntoIterator<Item = &'a ChannelReco
 /// the firmware -- the write repeats the radio's own record, it does not
 /// choose a new power.
 ///
-/// Rule 2, a declared alias: a channel with no usable index of its own (a
-/// new channel, a retargeted plan, a changed level) takes `aliased_low`
-/// only when the model declares it, the target image holds it, and it
-/// decodes as the channel's level; otherwise [`encode_power`]. A Low going
-/// to a UV-82HP that answers as a UV-5R is the image's 2 (see
-/// `Uv5rModel::aliased_low_index`), not the profile's 1, which that radio
-/// runs at Med. Here the write does choose, so an index merely held by the
-/// image is not enough: a single stray unlisted index whose meaning no
-/// source documents (a 3 on a two-level profile) would otherwise pull every
-/// indexless Low onto it, and nothing then guarantees it is lower power
-/// than the listed Low. Only an index a source documents as the model's
-/// Low is adopted, so rule 2 never raises power.
-///
-/// Two cases stay open, because `power_raw` names no radio and the profile
-/// cannot tell a UV-82HP from the true UV-5R or Mini it answers as. A listed
-/// 1 carried from a true two-level radio is written as 1, which an HP runs
-/// at Med: a foreign 1 is indistinguishable from the HP's own Med, which
-/// already reads as Low. And a carried 2 is written as 1 when the target HP
-/// image holds no 2, since nothing then shows its table differs. Carrying
-/// the source's identity would not help: the model id is the ambiguous
-/// part, and an image digest changes with every write.
+/// Anything else -- a new channel, a retargeted plan, a changed level --
+/// is [`encode_power`] of its level: the index `levels` gives it, never
+/// one the image merely holds. A radio whose Low is an index its profile
+/// does not list is a different model with its own table: the tri-power
+/// UV-82HP, which answers with the two-level UV-82's ident, is its own
+/// `uv5r::UV82HP` picked by its firmware string, so no index is adopted on
+/// a guess, and a true UV-5R holding a stray 2 has its new Lows written as
+/// its own 1.
 ///
 /// This is the one place the decision is made: the encoder is the only
 /// layer that sees the target image, so no Dart layer second-guesses it.
-pub fn power_bits(
-    channel: &ChannelRecord,
-    levels: &[Power],
-    held: u8,
-    aliased_low: Option<u8>,
-) -> u8 {
-    let held_at_level = |raw: u8| {
-        raw <= POWER_MASK && held & 1 << raw != 0 && decode_power(raw, levels) == channel.power
-    };
+pub fn power_bits(channel: &ChannelRecord, levels: &[Power], held: u8) -> u8 {
     let carried = |raw: u8| {
         raw <= POWER_MASK
             && decode_power(raw, levels) == channel.power
             && (usize::from(raw) < levels.len() || held & 1 << raw != 0)
     };
-    if let Some(raw) = channel.power_raw.filter(|&raw| carried(raw)) {
-        return raw;
-    }
-    aliased_low
-        .filter(|&raw| held_at_level(raw))
+    channel
+        .power_raw
+        .filter(|&raw| carried(raw))
         .unwrap_or_else(|| encode_power(channel.power, levels))
 }
 
@@ -405,8 +380,7 @@ pub fn decode_channel(
 /// software.
 ///
 /// Alone, with no image around it, a record keeps an unlisted power index
-/// only when it already holds that index itself, and adopts none (see
-/// [`power_bits`]; this family declares no alias).
+/// only when it already holds that index itself (see [`power_bits`]).
 pub fn encode_channel(
     record: &mut [u8],
     channel: &ChannelRecord,
@@ -463,7 +437,7 @@ fn encode_channel_onto(
     // The channel's own index while its level holds, else the level afresh
     // (see `power_bits`) -- never the slot's: a slot's bits belong to
     // whichever channel was there before.
-    record[14] = (record[14] & !POWER_MASK) | power_bits(channel, power_levels, held, None);
+    record[14] = (record[14] & !POWER_MASK) | power_bits(channel, power_levels, held);
     let mut flags = record[15] & !(0x40 | 0x04);
     if channel.narrow {
         flags |= 0x40;
@@ -956,9 +930,8 @@ mod tests {
 
     #[test]
     fn a_low_without_an_index_adopts_no_unlisted_index_the_radio_holds() {
-        // Rule 2 of power_bits: this family declares no alias for its Low,
-        // so an indexless Low is encoded afresh (1) whatever unlisted index
-        // the image holds. Adopting a merely held index let one stray 3,
+        // An indexless Low is encoded afresh (1) whatever unlisted index
+        // the image holds (see power_bits). Adopting a merely held index let one stray 3,
         // whose meaning no source documents, pull every new Low onto it.
         let (image, read) = hp_image();
         let mut fresh = read[2].clone();
@@ -992,22 +965,23 @@ mod tests {
     }
 
     #[test]
-    fn power_bits_adopts_only_a_declared_alias_the_image_holds() {
-        // Rule 2 with an alias, as a model that declares one passes it.
+    fn power_bits_never_adopts_an_index_the_image_merely_holds() {
+        // A Low with no index of its own is the profile's Low, whatever
+        // unlisted index the image holds: a 2 (the tri-power HP's Low, now
+        // its own model) or a 3.
         let mut low = channel("L");
         low.power = Power::Low;
         let levels = TWO_POWER_LEVELS;
-        assert_eq!(power_bits(&low, levels, 1 << 2, Some(2)), 2);
-        // Not held, or held but not the alias: the profile's Low.
-        assert_eq!(power_bits(&low, levels, 1 << 3, Some(2)), 1);
-        assert_eq!(power_bits(&low, levels, 1 << 2 | 1 << 3, None), 1);
-        // The alias only answers for the level it decodes as.
+        for held in [1 << 2, 1 << 3, 1 << 2 | 1 << 3] {
+            assert_eq!(power_bits(&low, levels, held), 1, "{held:#b}");
+        }
         let mut high = low.clone();
         high.power = Power::High;
-        assert_eq!(power_bits(&high, levels, 1 << 2, Some(2)), 0);
-        // Rule 1 comes first: a carried held index is kept, alias or not.
+        assert_eq!(power_bits(&high, levels, 1 << 2), 0);
+        // A carried index is kept while the image holds it, and only then.
         low.power_raw = Some(3);
-        assert_eq!(power_bits(&low, levels, 1 << 2 | 1 << 3, Some(2)), 3);
+        assert_eq!(power_bits(&low, levels, 1 << 2 | 1 << 3), 3);
+        assert_eq!(power_bits(&low, levels, 1 << 2), 1);
     }
 
     #[test]
@@ -1046,9 +1020,9 @@ mod tests {
             raised.power = Power::High;
             assert_eq!(written_as(raised), encode_power(Power::High, levels));
         }
-        // Lowered to Low, even on a radio whose own records hold a 2: rule
-        // 2 of power_bits adopts only a declared alias, and this family
-        // declares none, so the profile's Low (1).
+        // Lowered to Low, even on a radio whose own records hold a 2: an
+        // index the image merely holds is never adopted, so the profile's
+        // Low (1).
         let mut lowered = read[0].clone();
         lowered.power = Power::Low;
         assert_eq!(written_as(lowered), encode_power(Power::Low, levels));

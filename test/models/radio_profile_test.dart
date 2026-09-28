@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/models/radio_target.dart';
 
@@ -247,6 +248,30 @@ void main() {
     expect(uv32Profile.channelCapacity, 1000);
   });
 
+  test('the UV-82HP is its own three-level radio, not the UV-5R', () {
+    // CHIRP BaofengUV82HPRadio: UV5R_POWER_LEVELS3 (High, Med, Low, indexed
+    // in that order) on the UV-5R's 128-slot memory. Fails before it had a
+    // profile: it was programmed as the two-level UV-5R it answers as.
+    expect(radioProfileById('uv-82hp'), same(uv82hpProfile));
+    expect(uv82hpProfile.displayName, 'Baofeng UV-82HP');
+    expect(uv82hpProfile.powerLevels, [
+      PowerLevel.high,
+      PowerLevel.medium,
+      PowerLevel.low,
+    ]);
+    expect(uv5rProfile.powerLevels, [PowerLevel.high, PowerLevel.low]);
+    expect(uv82hpProfile.channelCapacity, uv5rProfile.channelCapacity);
+    expect(uv82hpProfile.nameLength, uv5rProfile.nameLength);
+    expect(uv82hpProfile.rxRanges, uv5rProfile.rxRanges);
+    expect(uv82hpProfile.factoryTxRanges, uv5rProfile.factoryTxRanges);
+    expect(uv82hpProfile.programmingFamily, ProgrammingFamily.serialUv5r);
+    expect(
+      profilesProgrammableOver(RadioTransport.usb),
+      containsAllInOrder([uv5rProfile, bfF8hpProfile, uv82hpProfile]),
+    );
+    expect(uv5rProfile.displayName, isNot(contains('82HP')));
+  });
+
   group('programsOver', () {
     test('the Bluetooth radios program over Bluetooth and only Bluetooth', () {
       for (final profile in [uv5rMiniProfile, uv5gMiniProfile, uv32Profile]) {
@@ -264,7 +289,12 @@ void main() {
     });
 
     test('the UV-5R family programs over a cable and only a cable', () {
-      for (final profile in [uv5rProfile, bfF8hpProfile, ar152Profile]) {
+      for (final profile in [
+        uv5rProfile,
+        bfF8hpProfile,
+        uv82hpProfile,
+        ar152Profile,
+      ]) {
         expect(
           profile.programsOver(RadioTransport.usb),
           isTrue,

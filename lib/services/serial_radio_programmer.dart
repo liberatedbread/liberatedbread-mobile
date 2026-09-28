@@ -260,18 +260,28 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
       codeplug.image,
       codeplug.image,
       blocks,
+      checkModel: false,
     );
   }
 
   /// Write [blocks] of [image] and read them back, on a radio that answers
   /// with [expected]'s ident and firmware.
+  ///
+  /// [checkModel] is false only for a restore, which puts back a radio's
+  /// own bytes and chooses no power: a backup taken under the wrong model
+  /// still goes back to the radio it came from.
   Stream<RadioProgressEvent> _writeBlocks(
     String deviceId,
     RadioProfile profile,
     Uint8List expected,
     Uint8List image,
-    List<rust.CodeplugBlockDto> blocks,
-  ) => _session(deviceId, profile, (session, ident, probe) async* {
+    List<rust.CodeplugBlockDto> blocks, {
+    bool checkModel = true,
+  }) => _session(deviceId, profile, checkModel: checkModel, (
+    session,
+    ident,
+    probe,
+  ) async* {
     // The image was read from one radio; this had better be it, or at
     // least one answering exactly as it did.
     final firmware = await rust.uv5RFirmware(image: expected);
@@ -339,8 +349,9 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
     );
   });
 
-  /// Open the cable, wake the radio, probe it, hand off to [body], and always
-  /// close the port.
+  /// Open the cable, wake the radio, probe it, check its firmware is the
+  /// [profile]'s (unless [checkModel] is false), hand off to [body], and
+  /// always close the port.
   Stream<RadioProgressEvent> _session(
     String deviceId,
     RadioProfile profile,
@@ -349,8 +360,9 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
       Uint8List ident,
       rust.Uv5rProbeDto probe,
     )
-    body,
-  ) async* {
+    body, {
+    bool checkModel = true,
+  }) async* {
     if (!supports(profile)) throw const RadioUnsupportedException();
 
     yield const RadioProgressEvent(
@@ -371,6 +383,7 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
         await rust.uv5RIdentMagics(modelId: profile.id),
       );
       final probe = await session.probe();
+      if (checkModel) await _checkModel(profile, probe.firmware);
       yield* body(session, ident, probe);
     } finally {
       try {
@@ -379,6 +392,32 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
         Log.radio.debug('closing the cable failed', error: error);
       }
     }
+  }
+}
+
+/// Refuse a radio whose firmware string says it is not [profile].
+///
+/// The UV-82HP answers the same ident as the two-level UV-82, and its Low is
+/// the index the UV-5R's table has no entry for: read as a UV-5R its Med
+/// shows as Low, and a Low written as a UV-5R's is its Med. Only the
+/// firmware string tells them apart, so the choice is checked against it
+/// before anything is read or written.
+Future<void> _checkModel(RadioProfile profile, String firmware) async {
+  try {
+    await rust.uv5RCheckFirmware(modelId: profile.id, firmware: firmware);
+  } catch (error) {
+    Log.radio.warning('model does not match firmware', error: error);
+    final said = firmware.isEmpty ? 'reports no firmware' : 'is $firmware';
+    throw RadioUnsupportedException(
+      profile == uv82hpProfile
+          ? 'This radio\'s firmware $said, which is not a UV-82HP\'s, so '
+                'its power levels may not be the UV-82HP\'s three. Nothing '
+                'was read or written. Choose the model it is.'
+          : 'This radio\'s firmware $said: a UV-82HP, which has three power '
+                'levels where the ${profile.displayName} has '
+                '${profile.powerLevels.length}. Nothing was read or '
+                'written. Choose ${uv82hpProfile.displayName} and try again.',
+    );
   }
 }
 

@@ -56,7 +56,9 @@ void main() {
     // codeplug, and neither shows up until a write. Both families are in
     // the one table.
     final models = await radioModels();
-    expect([for (final m in models) m.id], containsAll(['uv-5r-mini', 'uv5r']));
+    expect([
+      for (final m in models) m.id,
+    ], containsAll(['uv-5r-mini', 'uv5r', 'uv-82hp']));
     expect(models.firstWhere((m) => m.id == 'uv-5r-mini').imageLen, 0x8240);
     // CHIRP's UV-32 has the UV-17Pro's 1000 slots; it carried the Mini's 999
     // on both sides, so the agreement check below could not see it.
@@ -75,6 +77,25 @@ void main() {
         reason: model.id,
       );
     }
+  });
+
+  test('a UV-82HP is told from a UV-5R by its firmware string', () async {
+    if (!rustReady) return markTestSkipped('host Rust library unavailable');
+    // Both answer the UV-82's ident; CHIRP's basetype match on the firmware
+    // is what names the HP. Fails without the check.
+    await uv5RCheckFirmware(modelId: 'uv-82hp', firmware: 'N82-3');
+    await uv5RCheckFirmware(modelId: 'uv5r', firmware: 'N82-2');
+    await expectLater(
+      uv5RCheckFirmware(modelId: 'uv5r', firmware: 'N823'),
+      throwsA(anything),
+    );
+    await expectLater(
+      uv5RCheckFirmware(modelId: 'uv-82hp', firmware: 'BFB297'),
+      throwsA(anything),
+    );
+    expect(await uv5RIdentMagics(modelId: 'uv-82hp'), [
+      (await uv5RIdentMagics(modelId: 'uv5r'))[2],
+    ]);
   });
 
   test('the read plan covers the whole image exactly once', () async {

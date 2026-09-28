@@ -104,6 +104,16 @@ void main() {
     );
   });
 
+  testWidgets('a UV-82HP plan offers Medium', (tester) async {
+    // The HP's Med had no name while it was programmed as a UV-5R.
+    await _pump(tester, _seed('uv-82hp', ['low']));
+    await tester.tap(find.text('CH0'));
+    await tester.pumpAndSettle();
+    expect(_segment('High'), findsOneWidget);
+    expect(_segment('Medium'), findsOneWidget);
+    expect(_segment('Low'), findsOneWidget);
+  });
+
   testWidgets('a Mini plan offers no Medium', (tester) async {
     await _pump(tester, _seed('uv-5r-mini', ['high']));
     await tester.tap(find.text('CH0'));

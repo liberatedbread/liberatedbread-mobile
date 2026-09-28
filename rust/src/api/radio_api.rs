@@ -489,6 +489,23 @@ pub fn uv5r_parse_probe(
     })
 }
 
+/// Whether the radio that answered, reporting `firmware`, may be programmed
+/// as `model_id`: an error when its firmware string says it is another
+/// model with another power table.
+///
+/// The UV-82HP answers the two-level UV-82's ident, so only its firmware
+/// string tells it apart; this refuses an HP chosen as the UV-5R and a radio
+/// that is not an HP chosen as one, as CHIRP's basetype match names them
+/// (see `uv5r::check_firmware`). Called on every session with a radio, where
+/// the firmware is always there to read.
+pub fn uv5r_check_firmware(model_id: String, firmware: String) -> anyhow::Result<()> {
+    Ok(uv5r::check_firmware(
+        uv5r_model_or_error(&model_id)?,
+        &firmware,
+        true,
+    )?)
+}
+
 /// Every read of the image after the probe, in image order. The session's
 /// eight ident bytes come first in the image; these fill the rest.
 pub fn uv5r_read_plan(drops_byte: bool) -> Vec<CodeplugBlockDto> {
@@ -741,6 +758,7 @@ mod tests {
         assert_eq!(levels("uv-5r-mini"), ["high", "low"]);
         assert_eq!(levels("bf-f8hp"), ["high", "medium", "low"]);
         assert_eq!(levels("uv5r"), ["high", "low"]);
+        assert_eq!(levels("uv-82hp"), ["high", "medium", "low"]);
     }
 
     #[test]
@@ -777,8 +795,8 @@ mod tests {
         assert_eq!(moved[14] & 0x03, 2);
 
         // Without an index of its own, a Low is encoded afresh (1) even on
-        // this image that holds a 2: rule 2 of power_bits adopts only a
-        // model's declared alias, and the UV-17 family declares none.
+        // this image that holds a 2: power_bits never adopts an index the
+        // image merely holds.
         low.power_raw = None;
         let fresh = radio_encode_channels(image, vec![low], "uv-5r-mini".into()).unwrap();
         assert_eq!(fresh[14] & 0x03, 1);
@@ -797,6 +815,34 @@ mod tests {
         assert_eq!(read[1].slot, 2);
         assert_eq!(read[1].name, "TWO");
         assert_eq!(read[1].rx_freq_hz, 446_000_000);
+    }
+
+    #[test]
+    fn a_uv82hp_is_told_from_a_uv5r_by_its_firmware() {
+        assert!(uv5r_check_firmware("uv-82hp".into(), "N82-3".into()).is_ok());
+        assert!(uv5r_check_firmware("uv5r".into(), "N82-3".into()).is_err());
+        assert!(uv5r_check_firmware("uv-82hp".into(), "BFB297".into()).is_err());
+        assert!(uv5r_check_firmware("uv-82hp".into(), "".into()).is_err());
+        assert!(uv5r_check_firmware("uv5r".into(), "BFB297".into()).is_ok());
+        assert!(uv5r_check_firmware("nokia".into(), "BFB297".into()).is_err());
+
+        // Through the bridge, its three levels by name, both ways.
+        let mut channels = vec![
+            dto(1, "H", 146_520_000),
+            dto(2, "M", 146_540_000),
+            dto(3, "L", 146_560_000),
+        ];
+        channels[1].power = "medium".into();
+        channels[2].power = "low".into();
+        let written =
+            uv5r_encode_channels(image_with_firmware("N82-3"), channels, "uv-82hp".into()).unwrap();
+        let read = uv5r_decode_channels(written, "uv-82hp".into()).unwrap();
+        assert_eq!(
+            read.iter()
+                .map(|c| (c.power.as_str(), c.power_raw))
+                .collect::<Vec<_>>(),
+            [("high", Some(0)), ("medium", Some(1)), ("low", Some(2))]
+        );
     }
 
     #[test]

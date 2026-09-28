@@ -270,7 +270,9 @@ const _noBandLimitField =
     'in firmware, so no programming software — this app, CHIRP or the '
     'manufacturer\'s own — can widen it.';
 
-/// UV-5R family: UV-5R itself, and the variants that program identically.
+/// UV-5R family: UV-5R itself, and the variants that program identically --
+/// not the UV-82HP, which answers the UV-82's ident but has three power
+/// levels ([uv82hpProfile]).
 const RadioProfile uv5rProfile = RadioProfile(
   id: 'uv5r',
   displayName: 'Baofeng UV-5R (and UV-82, GT-5R)',
@@ -314,6 +316,36 @@ const RadioProfile bfF8hpProfile = RadioProfile(
     mechanism: TxUnlockMechanism.codeplugBandLimit,
     expandedTxRanges: [_uv5rExpandedVhf, _uv5rExpandedUhf],
     notes: 'Same settings-memory band limits as the UV-5R it is built from.',
+  ),
+);
+
+/// UV-82HP: the tri-power UV-82 (CHIRP `BaofengUV82HPRadio`, High 8 W, Med
+/// 4 W, Low 1 W, indexed 0/1/2). It answers the two-level UV-82's ident, so
+/// only its firmware string (CHIRP's `N82-3`/`N823` basetypes) tells it
+/// apart; the cable driver refuses it as the UV-5R and refuses anything
+/// else as it. Same 128 slots, 7-character names and dual-band coverage as
+/// the UV-5R; CHIRP's own ranges for it (136-175, 400-521 MHz) contain the
+/// ones below.
+const RadioProfile uv82hpProfile = RadioProfile(
+  id: 'uv-82hp',
+  displayName: 'Baofeng UV-82HP',
+  powerLevels: _threePowerLevels,
+  rxRanges: [_fmBroadcast, _vhfRx, _uhfRx],
+  factoryTxRanges: [
+    FreqRange(144000000, 148000000),
+    FreqRange(420000000, 450000000),
+  ],
+  channelCapacity: 128,
+  nameLength: 7,
+  programmingFamily: ProgrammingFamily.serialUv5r,
+  programmerSupport: ProgrammerSupport.unverified,
+  txUnlock: TxUnlock(
+    supported: true,
+    mechanism: TxUnlockMechanism.codeplugBandLimit,
+    expandedTxRanges: [_uv5rExpandedVhf, _uv5rExpandedUhf],
+    notes:
+        'Same settings-memory band limits as the UV-5R, always in the '
+        'newer layout. Not confirmed on a UV-82HP itself.',
   ),
 );
 
@@ -451,6 +483,7 @@ const RadioProfile uv17rPlusProfile = RadioProfile(
 const List<RadioProfile> radioProfiles = [
   uv5rProfile,
   bfF8hpProfile,
+  uv82hpProfile,
   uv5rMiniProfile,
   uv5gMiniProfile,
   uv32Profile,

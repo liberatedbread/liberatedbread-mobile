@@ -162,6 +162,23 @@ Future<Uv5rProbeDto> uv5RParseProbe({
   dropBlock: dropBlock,
 );
 
+/// Whether the radio that answered, reporting `firmware`, may be programmed
+/// as `model_id`: an error when its firmware string says it is another
+/// model with another power table.
+///
+/// The UV-82HP answers the two-level UV-82's ident, so only its firmware
+/// string tells it apart; this refuses an HP chosen as the UV-5R and a radio
+/// that is not an HP chosen as one, as CHIRP's basetype match names them
+/// (see `uv5r::check_firmware`). Called on every session with a radio, where
+/// the firmware is always there to read.
+Future<void> uv5RCheckFirmware({
+  required String modelId,
+  required String firmware,
+}) => RustLib.instance.api.crateApiRadioApiUv5RCheckFirmware(
+  modelId: modelId,
+  firmware: firmware,
+);
+
 /// Every read of the image after the probe, in image order. The session's
 /// eight ident bytes come first in the image; these fill the rest.
 Future<List<CodeplugBlockDto>> uv5RReadPlan({required bool dropsByte}) =>

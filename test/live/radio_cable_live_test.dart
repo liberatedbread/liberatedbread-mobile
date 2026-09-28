@@ -64,7 +64,7 @@ void main() {
     if (!liveRadioEnabled) return;
     await initHostRustLib();
     programmer = SerialRadioProgrammer(DesktopSerialPortService());
-    // uv5r, bf-f8hp or ar-152; the UV-5R when unset.
+    // uv5r, bf-f8hp, uv-82hp or ar-152; the UV-5R when unset.
     profile = liveRadioProfile ?? uv5rProfile;
   });
 

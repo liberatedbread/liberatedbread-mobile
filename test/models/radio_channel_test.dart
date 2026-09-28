@@ -272,6 +272,12 @@ void main() {
           expect(read, isNotNull, reason: '$junk');
           expect(read!.powerRaw, isNull, reason: '$junk');
         }
+        // The bound itself is an index: 3 is a four-level radio's.
+        final top = RadioChannel.fromJson({
+          ...hpLow.toJson(),
+          'powerRaw': RadioChannel.maxPowerRaw,
+        });
+        expect(top!.powerRaw, 3);
       });
 
       test('copyWith keeps it unless the level changes', () {

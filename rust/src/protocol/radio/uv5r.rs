@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! The older Baofeng serial family: the UV-5R, and the radios that program
-//! like it — the BF-F8HP, the UV-82, and the AR-152, which is reported to
-//! program as an F8HP.
+//! like it — the BF-F8HP, the UV-82, the tri-power UV-82HP, and the AR-152,
+//! which is reported to program as an F8HP.
 //!
 //! Facts, not code: the conversation and the memory layout below are
 //! established from CHIRP's published `chirp/drivers/uv5r.py`, under the same
@@ -133,15 +133,6 @@ pub struct Uv5rModel {
     /// Low here, where on a UV-32 it is Medium.
     pub power_levels: &'static [Power],
 
-    /// An index `power_levels` does not list that a radio behind this
-    /// profile documents as its Low, which [`power_bits`] adopts for a
-    /// channel with no usable index of its own when the target image holds
-    /// it. CHIRP's UV-82HP answers with the UV-82 ident (`MAGIC_UV82`, which
-    /// [`UV5R`] lists) and uses `UV5R_POWER_LEVELS3` = [High, Med, Low], so
-    /// its Low is 2 -- where this two-level profile's 1 runs it at Med. No
-    /// other index is adopted: one merely held has no documented meaning.
-    pub aliased_low_index: Option<u8>,
-
     /// Uses the newer band-limit layout whatever its firmware string says.
     pub always_new_limits: bool,
 }
@@ -149,13 +140,13 @@ pub struct Uv5rModel {
 /// High, Med, Low: CHIRP `UV5R_POWER_LEVELS3`, for the tri-power models.
 const THREE_POWER_LEVELS: &[Power] = &[Power::High, Power::Medium, Power::Low];
 
-/// The UV-5R, which the app's profile also offers for the UV-82 and GT-5R —
-/// hence the UV-82's ident in its list.
+/// The UV-5R, which the app's profile also offers for the two-level UV-82
+/// and GT-5R — hence the UV-82's ident in its list. Not the UV-82HP, which
+/// answers that same ident: see [`UV82HP`].
 pub const UV5R: Uv5rModel = Uv5rModel {
     id: "uv5r",
     idents: &[MAGIC_291, MAGIC_ORIGINAL, MAGIC_UV82],
     power_levels: TWO_POWER_LEVELS,
-    aliased_low_index: Some(2),
     always_new_limits: false,
 };
 
@@ -163,7 +154,6 @@ pub const BF_F8HP: Uv5rModel = Uv5rModel {
     id: "bf-f8hp",
     idents: &[MAGIC_291, MAGIC_A58],
     power_levels: THREE_POWER_LEVELS,
-    aliased_low_index: None,
     always_new_limits: true,
 };
 
@@ -172,7 +162,19 @@ pub const AR152: Uv5rModel = Uv5rModel {
     id: "ar-152",
     idents: &[MAGIC_291, MAGIC_A58],
     power_levels: THREE_POWER_LEVELS,
-    aliased_low_index: None,
+    always_new_limits: true,
+};
+
+/// The tri-power UV-82HP: CHIRP's `BaofengUV82HPRadio`, whose only ident is
+/// the two-level UV-82's (`UV5R_MODEL_UV82`) and whose records index
+/// `UV5R_POWER_LEVELS3` -- 0 High, 1 Med, 2 Low. Its `_is_orig` is always
+/// false, so its limits are always in the newer layout. The ident cannot
+/// tell it from a UV-82; its firmware string can (see [`firmware_model`]),
+/// and [`check_firmware`] holds the two apart.
+pub const UV82HP: Uv5rModel = Uv5rModel {
+    id: "uv-82hp",
+    idents: &[MAGIC_UV82],
+    power_levels: THREE_POWER_LEVELS,
     always_new_limits: true,
 };
 
@@ -181,10 +183,81 @@ pub const AR152: Uv5rModel = Uv5rModel {
 /// Not the UV-5G: its radio answers an ident of its own, and the driver this
 /// layout comes from deliberately refuses it — its memory is not a UV-5R's.
 /// A profile with no row here cannot be programmed, which is the point.
-pub const MODELS: &[Uv5rModel] = &[UV5R, BF_F8HP, AR152];
+pub const MODELS: &[Uv5rModel] = &[UV5R, BF_F8HP, AR152, UV82HP];
 
 pub fn model_by_id(id: &str) -> Option<&'static Uv5rModel> {
     MODELS.iter().find(|model| model.id == id)
+}
+
+/// CHIRP's `_basetype` lists, in the order `chirp/drivers/uv5r.py`
+/// registers the classes that carry them, each with the CHIRP model name.
+///
+/// CHIRP names the model of an image with no metadata by the first
+/// registered class one of whose basetypes occurs anywhere in the image's
+/// firmware string (`model_match`: `any(type in rid for type in
+/// cls._basetype)`). Order decides overlaps: `N5R2` is in both the UV-5R's
+/// list and the UV-82HP's, and the UV-5R class registers first, so an
+/// `N5R2` radio is a UV-5R. Classes whose `match_model` always answers no
+/// (UV-5G Pro, UV-5RX3, GT-5R, UV-5G) are left out, as they never match.
+const CHIRP_BASETYPES: &[(&str, &[&str])] = &[
+    (
+        "UV-5R",
+        &["BFS", "BFB", "N5R-2", "N5R2", "N5RV", "BTS", "D5R2", "B5R2"],
+    ),
+    ("F-11", &["USA"]),
+    ("UV-82", &["US2S2", "B82S", "BF82", "N82-2", "N822"]),
+    ("UV-82X3", &["HN5RV01"]),
+    ("UV-6", &["BF1", "UV6"]),
+    ("KT-980HP", &["BFP3V3 B"]),
+    (
+        "BF-F8HP",
+        &["BFP3V3 F", "N5R-3", "N5R3", "F5R3", "BFT", "N5RV"],
+    ),
+    ("UV-82HP", &["N82-3", "N823", "N5R2"]),
+];
+
+/// The CHIRP model a firmware string names, by CHIRP's basetype match (see
+/// [`CHIRP_BASETYPES`]), or `None` when it names none of them -- an empty
+/// or unreadable string, or a radio this list does not know.
+pub fn firmware_model(firmware: &str) -> Option<&'static str> {
+    CHIRP_BASETYPES
+        .iter()
+        .find(|(_, basetypes)| basetypes.iter().any(|b| firmware.contains(b)))
+        .map(|&(model, _)| model)
+}
+
+/// Whether a radio reporting `firmware` may be programmed as `model`, as far
+/// as the UV-82HP goes -- the one model here whose table no ident can tell
+/// from another's.
+///
+/// A firmware string CHIRP matches to the UV-82HP is programmed only as
+/// [`UV82HP`], and one it matches to anything else never is. A string that
+/// names no model at all is refused for the HP when `strict` -- a radio
+/// answering live, which always reports one -- and let through otherwise:
+/// a blank or unreadable image names nothing, and says nothing about
+/// power either. The other models are left as the user chose them.
+pub fn check_firmware(
+    model: &Uv5rModel,
+    firmware: &str,
+    strict: bool,
+) -> Result<(), ProtocolError> {
+    let named = firmware_model(firmware);
+    let is_hp = model.id == UV82HP.id;
+    let named_hp = named == Some("UV-82HP");
+    let refuse = match named {
+        Some(_) => is_hp != named_hp,
+        None => is_hp && strict,
+    };
+    if refuse {
+        return Err(ProtocolError::MalformedReply(format!(
+            "firmware {firmware:?} is {}, not {}",
+            named.map_or("no model this app knows".to_string(), |m| {
+                format!("CHIRP's {m}")
+            }),
+            model.id
+        )));
+    }
+    Ok(())
 }
 
 // ── Framing ─────────────────────────────────────────────────────────────────
@@ -556,7 +629,7 @@ pub fn decode_channels(
     image: &[u8],
     model: &Uv5rModel,
 ) -> Result<Vec<Option<ChannelRecord>>, ProtocolError> {
-    check_image(image)?;
+    check_firmware(model, &firmware(image)?, false)?;
     Ok((0..CHANNEL_COUNT)
         .map(|slot| {
             decode_channel(
@@ -604,7 +677,7 @@ pub fn encode_channels(
     channels: &[ChannelRecord],
     model: &Uv5rModel,
 ) -> Result<Vec<u8>, ProtocolError> {
-    check_image(image)?;
+    check_firmware(model, &firmware(image)?, false)?;
     if channels.len() > CHANNEL_COUNT {
         return Err(ProtocolError::MalformedReply(format!(
             "{} channels do not fit in {CHANNEL_COUNT}",
@@ -655,11 +728,8 @@ fn encode_channel(
     }
     // The channel's own index while its level holds, else its level afresh
     // (see `power_bits`) -- never the slot's, which belonged to whatever was
-    // there before: a Low channel moved onto a mid record went out mid. So
-    // a UV-82HP's Low (2) behind this two-level profile goes back as 2
-    // wherever it lands on the radio it came from, not as High (0) or Med
-    // (1) -- and not onto a radio whose records never hold a 2.
-    record[14] = power_bits(channel, model.power_levels, held, model.aliased_low_index);
+    // there before: a Low channel moved onto a mid record went out mid.
+    record[14] = power_bits(channel, model.power_levels, held);
     if !channel.narrow {
         record[15] |= 0x40;
     }
@@ -1160,11 +1230,11 @@ mod tests {
             .collect()
     }
 
-    /// A UV-82HP read through the two-level UV-5R profile (its ident is the
-    /// UV-82's; CHIRP UV5R_POWER_LEVELS3 is 0 High, 1 Med, 2 Low): H (High,
-    /// raw 0), M (Low, raw 1 -- Med on the HP) and L (Low, raw 2, the HP's
-    /// Low) on M's frequencies, and the channels as they read back.
-    fn hp_image() -> (Vec<u8>, Vec<ChannelRecord>) {
+    /// A true UV-5R's image whose records hold an index its two-level table
+    /// does not list -- a 2, as some other tool (or an earlier build writing
+    /// a BF-F8HP plan verbatim) left it: H (High, raw 0), M (Low, raw 1) and
+    /// L (Low, raw 2) on M's frequencies, and the channels as they read back.
+    fn stray_two_image() -> (Vec<u8>, Vec<ChannelRecord>) {
         let mut med = channel("M", 146_540_000, 146_540_000);
         med.power = Power::Low;
         let mut low = med.clone();
@@ -1195,12 +1265,12 @@ mod tests {
 
     #[test]
     fn a_channel_carries_its_own_power_index_through_any_arrangement() {
-        // Low reads from both 1 and 2 here, which the HP transmits as Med and
-        // Low. The index read with a channel goes back with it wherever it
-        // lands; the slot's old bits never decide. Every guess at a written
+        // Low reads from both 1 and 2 here. The index read with a channel
+        // goes back with it wherever it lands; the slot's old bits never
+        // decide. Every guess at a written
         // channel's original slot (same slot, same record, same level, same
         // frequencies) had an arrangement that picked the 1, or the 0.
-        let (image, read) = hp_image();
+        let (image, read) = stray_two_image();
         let [h, m, l] = [read[0].clone(), read[1].clone(), read[2].clone()];
         let renamed = |c: &ChannelRecord, name: &str| {
             let mut c = c.clone();
@@ -1251,8 +1321,8 @@ mod tests {
     }
 
     #[test]
-    fn a_changed_level_or_a_missing_index_follows_the_images_held_levels() {
-        let (image, read) = hp_image();
+    fn a_changed_level_or_a_missing_index_is_encoded_afresh() {
+        let (image, read) = stray_two_image();
         let written_as = |channel: ChannelRecord| {
             let written = encode_channels(&image, &[channel], &UV5R).unwrap();
             power_raws(&written, 1)[0]
@@ -1266,34 +1336,34 @@ mod tests {
                 encode_power(Power::High, UV5R.power_levels)
             );
         }
-        // Lowered to Low on a radio whose own records hold its Low at 2:
-        // the radio's 2, not the profile's 1 (its Med).
+        // Lowered to Low, or with no index at all -- a channel made in the
+        // app, or one whose level the app changed -- it is the profile's
+        // Low (1), though the image holds a 2: an index merely held is
+        // never adopted. Adopted, it went out as 2, which CHIRP reads as
+        // High on a two-level radio.
         let mut lowered = read[0].clone();
         lowered.power = Power::Low;
-        assert_eq!(written_as(lowered), 2);
-
-        // No index -- a channel made in the app, or one whose level the
-        // app changed -- takes the Low this image holds (the 2). Rule 2 of
-        // power_bits: UV5R declares 2 as its documented Low alias.
+        assert_eq!(written_as(lowered), 1);
         let mut fresh = read[2].clone();
         fresh.power_raw = None;
-        assert_eq!(written_as(fresh), 2);
+        assert_eq!(written_as(fresh), 1);
     }
 
     #[test]
-    fn a_low_without_an_index_adopts_only_the_declared_alias() {
+    fn a_true_uv5r_never_adopts_a_stray_2_for_a_new_low() {
+        // Fails on the aliased-Low rule, which took the held 2 as a UV-82HP's
+        // documented Low and wrote every indexless Low as 2.
         let mut fresh = channel("NEW", 146_560_000, 146_560_000);
         fresh.power = Power::Low;
-        assert_eq!(UV5R.aliased_low_index, Some(2));
+        let (image, read) = stray_two_image();
+        let mut plan = read.clone();
+        plan.push(fresh.clone());
+        let written = encode_channels(&image, &plan, &UV5R).unwrap();
+        // The untouched stray still goes back as its own 2; the new Low is 1.
+        assert_eq!(power_raws(&written, 4), [0, 1, 2, 1]);
+        assert_eq!(encode_channels(&image, &read, &UV5R).unwrap(), image);
 
-        // An HP-shaped image holding 2: the alias, the HP's Low.
-        let (hp, _) = hp_image();
-        let written = encode_channels(&hp, &[fresh.clone()], &UV5R).unwrap();
-        assert_eq!(power_raws(&written, 1), [2]);
-
-        // An image holding only a stray 3, whose meaning no source
-        // documents: not adopted, the profile's Low. Adopting any held
-        // unlisted index let that 3 pull every new Low onto it.
+        // A stray 3 likewise: not adopted, kept by the channel that has it.
         let mut stray = encode_channels(&blank(), &[fresh.clone()], &UV5R).unwrap();
         let at = record_range(0).start + 14;
         stray[at] = (stray[at] & !0x03) | 3;
@@ -1305,12 +1375,10 @@ mod tests {
         assert_eq!(read[0].power_raw, Some(3));
         let written = encode_channels(&stray, &[fresh.clone()], &UV5R).unwrap();
         assert_eq!(power_raws(&written, 1), [1]);
-        // Rule 1 still keeps the untouched channel's own held 3.
         assert_eq!(encode_channels(&stray, &read, &UV5R).unwrap(), stray);
 
-        // BF-F8HP declares no alias; its Low is the listed 2, its Med 1,
-        // whatever the image holds.
-        assert_eq!(BF_F8HP.aliased_low_index, None);
+        // BF-F8HP: its Low is the listed 2, its Med 1, whatever the image
+        // holds.
         let mut f8hp = encode_channels(&blank(), &[fresh.clone()], &BF_F8HP).unwrap();
         f8hp[at] = (f8hp[at] & !0x03) | 3;
         let written = encode_channels(&f8hp, &[fresh.clone()], &BF_F8HP).unwrap();
@@ -1319,6 +1387,119 @@ mod tests {
         med.power = Power::Medium;
         let written = encode_channels(&f8hp, &[med], &BF_F8HP).unwrap();
         assert_eq!(power_raws(&written, 1), [1]);
+    }
+
+    // ── the UV-82HP ──
+
+    #[test]
+    fn the_firmware_string_names_the_model_as_chirp_matches_it() {
+        for (firmware, model) in [
+            // CHIRP BASETYPE_UV82HP, less the N5R2 the UV-5R claims first.
+            ("N82-3 V3.08", Some("UV-82HP")),
+            ("N823", Some("UV-82HP")),
+            // In both lists; CHIRP registers the UV-5R class first.
+            ("N5R2", Some("UV-5R")),
+            ("BFB297", Some("UV-5R")),
+            ("BFS311", Some("UV-5R")),
+            ("N82-2", Some("UV-82")),
+            ("BF82", Some("UV-82")),
+            ("BFT", Some("BF-F8HP")),
+            ("N5R-3", Some("BF-F8HP")),
+            ("", None),
+            ("XYZ", None),
+        ] {
+            assert_eq!(firmware_model(firmware), model, "{firmware:?}");
+        }
+        // Read from where the image keeps it, as CHIRP reads 0x1838..0x1846.
+        let image = image_with_firmware("N82-3");
+        assert_eq!(firmware_model(&firmware(&image).unwrap()), Some("UV-82HP"));
+    }
+
+    #[test]
+    fn a_uv82hp_is_programmed_as_one_and_nothing_else_is() {
+        // CHIRP BaofengUV82HPRadio: _idents = [UV5R_MODEL_UV82], _tri_power.
+        assert_eq!(UV82HP.idents, &[MAGIC_UV82]);
+        assert_eq!(
+            UV82HP.power_levels,
+            &[Power::High, Power::Medium, Power::Low]
+        );
+        assert_eq!(model_by_id("uv-82hp").map(|m| m.id), Some("uv-82hp"));
+
+        for firmware in ["N82-3", "N823 V3"] {
+            assert!(check_firmware(&UV82HP, firmware, true).is_ok());
+            assert!(check_firmware(&UV5R, firmware, false).is_err());
+            assert!(check_firmware(&BF_F8HP, firmware, false).is_err());
+        }
+        for firmware in ["BFB297", "N82-2", "N5R2", "BFT"] {
+            assert!(check_firmware(&UV82HP, firmware, false).is_err());
+        }
+        assert!(check_firmware(&UV5R, "N82-2", true).is_ok());
+        // Nothing named: an HP only from an image, never from a radio.
+        assert!(check_firmware(&UV82HP, "", false).is_ok());
+        assert!(check_firmware(&UV82HP, "", true).is_err());
+        assert!(check_firmware(&UV5R, "", true).is_ok());
+
+        // The codec holds the same line: an HP's image is not read or
+        // written through the two-level table.
+        let hp = image_with_firmware("N82-3");
+        assert!(decode_channels(&hp, &UV5R).is_err());
+        assert!(encode_channels(&hp, &[], &UV5R).is_err());
+        assert!(decode_channels(&blank(), &UV82HP).is_err());
+        assert!(limit_layout(&image_with_firmware("BFB250 N82-3"), &UV82HP).is_ok());
+    }
+
+    #[test]
+    fn a_uv82hp_reads_and_writes_all_three_levels() {
+        // UV5R_POWER_LEVELS3: 0 High, 1 Med, 2 Low.
+        let base = image_with_firmware("N82-3");
+        let mut image = encode_channels(
+            &base,
+            &[
+                channel("H", 146_520_000, 146_520_000),
+                channel("M", 146_540_000, 146_540_000),
+                channel("L", 146_560_000, 146_560_000),
+            ],
+            &UV82HP,
+        )
+        .unwrap();
+        for (slot, raw) in [(0, 0), (1, 1), (2, 2)] {
+            let at = record_range(slot).start + 14;
+            image[at] = (image[at] & !0x03) | raw;
+        }
+        let read: Vec<ChannelRecord> = decode_channels(&image, &UV82HP)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(
+            read.iter()
+                .map(|c| (c.power, c.power_raw))
+                .collect::<Vec<_>>(),
+            [
+                (Power::High, Some(0)),
+                (Power::Medium, Some(1)),
+                (Power::Low, Some(2))
+            ]
+        );
+        assert_eq!(encode_channels(&image, &read, &UV82HP).unwrap(), image);
+
+        // Made in the app, with no index: each level is its own.
+        let fresh: Vec<ChannelRecord> = [Power::Low, Power::Medium, Power::High]
+            .into_iter()
+            .map(|power| {
+                let mut c = channel("NEW", 146_520_000, 146_520_000);
+                c.power = power;
+                c
+            })
+            .collect();
+        let written = encode_channels(&base, &fresh, &UV82HP).unwrap();
+        assert_eq!(power_raws(&written, 3), [2, 1, 0]);
+        // And the HP's limits are always in the newer layout (_is_orig is
+        // always false in CHIRP), whatever its firmware says.
+        assert_eq!(
+            limit_layout(&image_with_firmware("BFB250 N82-3"), &UV82HP).unwrap(),
+            LimitLayout::New
+        );
     }
 
     #[test]
@@ -1348,9 +1529,10 @@ mod tests {
             let written = encode_channels(&target, &read, &UV5R).unwrap();
             assert_eq!(power_raws(&written, 1), [1]);
         }
-        // Onto an HP answering as a UV-5R, whose records hold 2s, it stays 2.
-        let (hp, _) = hp_image();
-        let written = encode_channels(&hp, &read, &UV5R).unwrap();
+        // Onto an image whose own records hold a 2, the carried 2 is kept:
+        // the index is the channel's, and that radio already holds it.
+        let (held, _) = stray_two_image();
+        let written = encode_channels(&held, &read, &UV5R).unwrap();
         assert_eq!(power_raws(&written, 1), [2]);
     }
 

@@ -79,6 +79,7 @@ void main() {
     expect(programmer.supports(uv5rProfile), isTrue);
     expect(programmer.supports(bfF8hpProfile), isTrue);
     expect(programmer.supports(ar152Profile), isTrue);
+    expect(programmer.supports(uv82hpProfile), isTrue);
     expect(
       programmer.supports(uv5gProfile),
       isFalse,
@@ -109,6 +110,86 @@ void main() {
       expect(r.radio.writes, isEmpty, reason: 'identifying writes nothing');
     },
   );
+
+  group('the UV-82HP', () {
+    // It answers the UV-82's ident (the UV-5R's third magic); only its
+    // firmware string, CHIRP's N82-3 or N823, says it has three levels.
+    test('is read as itself, with its three power levels', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final r = rig(magicIndex: 2, firmware: 'N82-3');
+      expect(await rust.uv5RIdentMagics(modelId: uv82hpProfile.id), [
+        uv5rMagics[2],
+      ]);
+      final identity = await r.programmer.identify(
+        deviceId: EmulatedSerialPortService.cable.id,
+        profile: uv82hpProfile,
+      );
+      expect(identity.reported, 'firmware N82-3');
+
+      // Slot 1 holds 146.52 MHz at power index 1: Med on the HP, where
+      // the UV-5R's table reads it as Low.
+      r.radio.memory.setRange(0, 16, [
+        0x00, 0x20, 0x65, 0x14, // rx
+        0x00, 0x20, 0x65, 0x14, // tx
+        0, 0, 0, 0, 0, 0, // no tones, nothing else
+        1, // power index
+        0x44, // wide, scanned
+      ]);
+      final codeplug = await r.programmer.readWhole(
+        deviceId: EmulatedSerialPortService.cable.id,
+        profile: uv82hpProfile,
+      );
+      expect(codeplug.modelId, uv82hpProfile.id);
+      final read = await const CodeplugDecoder().decode(
+        codeplug,
+        uv82hpProfile,
+      );
+      expect(read.channels.single.power, PowerLevel.medium);
+    });
+
+    test('is refused as a UV-5R before anything is read', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // Fails without the firmware check: read as a UV-5R, the HP's Meds
+      // show as Low and its Lows are written as Med.
+      for (final firmware in ['N82-3', 'N823']) {
+        final r = rig(magicIndex: 2, firmware: firmware);
+        await expectLater(
+          read(r.programmer),
+          throwsA(
+            isA<RadioUnsupportedException>().having(
+              (e) => e.message,
+              'message',
+              contains(uv82hpProfile.displayName),
+            ),
+          ),
+        );
+        expect(
+          r.radio.reads.length,
+          3,
+          reason: 'the probe, and nothing after it',
+        );
+        expect(r.ports.openLinks, 0);
+      }
+    });
+
+    test('a radio whose firmware is not an HP\'s is refused as one', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // A two-level UV-82 answers the same ident; written as an HP, its Lows
+      // would go out as 2. N5R2 is in CHIRP's HP list too, but CHIRP
+      // matches it to the UV-5R first.
+      for (final firmware in ['N82-2', 'BFB297', 'N5R2']) {
+        final r = rig(magicIndex: 2, firmware: firmware);
+        await expectLater(
+          r.programmer.identify(
+            deviceId: EmulatedSerialPortService.cable.id,
+            profile: uv82hpProfile,
+          ),
+          throwsA(isA<RadioUnsupportedException>()),
+          reason: firmware,
+        );
+      }
+    });
+  });
 
   test('reads the whole image, probe first, in order', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');

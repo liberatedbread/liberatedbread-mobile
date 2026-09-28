@@ -216,12 +216,18 @@ class RadioChannel {
   /// The power index the radio itself had for this channel, when it was read
   /// from one; null for a channel made in the app. Written back while
   /// [power] still reads from it, because the same level can sit at more
-  /// than one index: a UV-82HP answers a two-level profile whose Low is 1,
-  /// but keeps its own Low at 2 and transmits 1 as Med. Carried with the
+  /// than one index: a two-level profile reads both 1 and an unlisted 2 as
+  /// Low, and a record holding the 2 goes back as the 2. Carried with the
   /// channel so a delete, a move or a rename cannot trade it for another
   /// slot's; [copyWith] drops it when [power] changes, since the user then
   /// chose the level and the old index no longer applies.
   final int? powerRaw;
+
+  /// The largest [powerRaw] a radio can hold: its power field is two bits.
+  /// Mirrors `POWER_MASK` in rust/src/protocol/radio/codeplug.rs, so a
+  /// stored plan keeps exactly the indexes the encoder accepts; change both
+  /// together.
+  static const int maxPowerRaw = 0x03;
 
   const RadioChannel({
     required this.name,
@@ -323,8 +329,8 @@ class RadioChannel {
       power: PowerLevel.fromWire(json['power']) ?? PowerLevel.high,
       comment: json['comment'] is String ? json['comment'] as String : '',
       skip: json['skip'] == true,
-      // Two bits on the radio; anything else is not an index from one.
-      powerRaw: powerRaw is int && powerRaw >= 0 && powerRaw <= 3
+      // Anything outside the radio's two bits is not an index from one.
+      powerRaw: powerRaw is int && powerRaw >= 0 && powerRaw <= maxPowerRaw
           ? powerRaw
           : null,
     );
