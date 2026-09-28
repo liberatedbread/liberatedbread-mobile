@@ -1380,5 +1380,70 @@ void main() {
       expect(harness.programmer.readCalls, 0);
       expect(harness.programmer.writtenLimits, isEmpty);
     });
+
+    // Regression: a UV-82HP shown the record kept under 'uv5r' called it
+    // "what a Baofeng UV-82HP held", though it may be a real UV-5R's.
+    testWidgets('a UV-82HP says whose record it borrows from the UV-5R', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        target: cable,
+        initialProfile: uv82hpProfile,
+        settings: kept(stockBandLimits),
+      );
+      expect(
+        find.textContaining('what a radio widened as the Baofeng UV-5R'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('before the Baofeng UV-82HP was a model'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('what a Baofeng UV-82HP held'), findsNothing);
+
+      await tester.tap(find.text('Put back its original transmit limits'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('what a radio widened as the Baofeng UV-5R'),
+        findsNWidgets(2),
+        reason: 'the confirmation says whose limits they are too',
+      );
+    });
+
+    testWidgets('a UV-82HP with its own record names itself', (tester) async {
+      await _pump(
+        tester,
+        target: cable,
+        initialProfile: uv82hpProfile,
+        settings: InMemorySettingsStore({
+          OriginalBandLimitsNotifier.key: jsonEncode({
+            uv5rProfile.id: OriginalBandLimits(
+              limits: widened,
+              readAt: DateTime(2026, 9, 20, 14, 2),
+            ).toJson(),
+            uv82hpProfile.id: OriginalBandLimits(
+              limits: stockBandLimits,
+              readAt: DateTime(2026, 9, 21, 8, 0),
+            ).toJson(),
+          }),
+        }),
+      );
+      expect(
+        find.textContaining(
+          'VHF 136–174 MHz and UHF 400–520 MHz: what a Baofeng UV-82HP held',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('widened as the'), findsNothing);
+
+      await tester.tap(find.text('Put back its original transmit limits'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('what a Baofeng UV-82HP held'),
+        findsNWidgets(2),
+        reason: 'the confirmation names the model too',
+      );
+    });
   });
 }

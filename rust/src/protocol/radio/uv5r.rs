@@ -229,14 +229,6 @@ pub fn firmware_models(firmware: &str) -> impl Iterator<Item = &'static str> + '
         .map(|&(model, _)| model)
 }
 
-/// The model CHIRP would name an image reporting `firmware`: the first of
-/// [`firmware_models`], as its `model_match` picks one. For display only --
-/// a string in two lists does not decide which the radio is (see
-/// [`check_firmware`]).
-pub fn firmware_model(firmware: &str) -> Option<&'static str> {
-    firmware_models(firmware).next()
-}
-
 /// CHIRP's name for [`UV82HP`], as [`CHIRP_BASETYPES`] lists it.
 const CHIRP_UV82HP: &str = "UV-82HP";
 
@@ -1420,27 +1412,31 @@ mod tests {
 
     #[test]
     fn the_firmware_string_names_the_model_as_chirp_matches_it() {
-        for (firmware, model) in [
+        // Every match, not only CHIRP's first: a first-match answer would
+        // call an N5R2 UV-82HP a UV-5R, which check_firmware must not.
+        let names = |f: &str| firmware_models(f).collect::<Vec<_>>();
+        let none: &[&str] = &[];
+        for (firmware, models) in [
             // CHIRP BASETYPE_UV82HP.
-            ("N82-3 V3.08", Some("UV-82HP")),
-            ("N823", Some("UV-82HP")),
-            // In both lists; CHIRP's model_match, guessing an image's
-            // model, takes the UV-5R class it registers first.
-            ("N5R2", Some("UV-5R")),
-            ("BFB297", Some("UV-5R")),
-            ("BFS311", Some("UV-5R")),
-            ("N82-2", Some("UV-82")),
-            ("BF82", Some("UV-82")),
-            ("BFT", Some("BF-F8HP")),
-            ("N5R-3", Some("BF-F8HP")),
-            ("", None),
-            ("XYZ", None),
+            ("N82-3 V3.08", &["UV-82HP"][..]),
+            ("N823", &["UV-82HP"]),
+            // In both lists, in CHIRP's registration order.
+            ("N5R2", &["UV-5R", "UV-82HP"]),
+            ("N5RV", &["UV-5R", "BF-F8HP"]),
+            ("BFB297", &["UV-5R"]),
+            ("BFS311", &["UV-5R"]),
+            ("N82-2", &["UV-82"]),
+            ("BF82", &["UV-82"]),
+            ("BFT", &["BF-F8HP"]),
+            ("N5R-3", &["BF-F8HP"]),
+            ("", none),
+            ("XYZ", none),
         ] {
-            assert_eq!(firmware_model(firmware), model, "{firmware:?}");
+            assert_eq!(names(firmware), models, "{firmware:?}");
         }
         // Read from where the image keeps it, as CHIRP reads 0x1838..0x1846.
         let image = image_with_firmware("N82-3");
-        assert_eq!(firmware_model(&firmware(&image).unwrap()), Some("UV-82HP"));
+        assert_eq!(names(&firmware(&image).unwrap()), ["UV-82HP"]);
     }
 
     #[test]

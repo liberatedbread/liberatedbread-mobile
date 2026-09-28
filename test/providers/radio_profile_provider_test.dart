@@ -270,23 +270,34 @@ void main() {
       expect(kept[bfF8hpProfile.id], isNull);
     });
 
-    test('a UV-82HP finds what was recorded when it was a UV-5R', () async {
+    test('a UV-82HP shows what was recorded when it was a UV-5R', () {
       // Widened under the UV-5R profile before the HP had its own, its
-      // originals are keyed 'uv5r'; the HP profile reads them rather than
-      // losing Put back, and does not record a second copy.
+      // originals are keyed 'uv5r'; with nothing of its own recorded the
+      // HP profile still finds them for Put back.
+      final kept = {uv5rProfile.id: first};
+      expect(OriginalBandLimitsNotifier.lookup(kept, uv82hpProfile), first);
+      // The legacy id is the HP's only: another model does not borrow it.
+      expect(OriginalBandLimitsNotifier.lookup(kept, bfF8hpProfile), isNull);
+    });
+
+    test('a UV-82HP widened keeps its own reading, not a UV-5R\'s', () async {
+      // Regression: recordIfAbsent looked under the legacy 'uv5r' id too,
+      // so a real UV-5R's record stood in for the HP, the HP's own `before`
+      // was dropped for good, and Put back wrote the UV-5R's limits into
+      // it.
       final container = _container(InMemorySettingsStore());
       final notifier = container.read(originalBandLimitsProvider.notifier);
       await notifier.recordIfAbsent(uv5rProfile, first);
-      final later = OriginalBandLimits(
-        limits: RadioBandLimits.widenedFor(uv5rProfile)!,
+      final hpBefore = OriginalBandLimits(
+        limits: RadioBandLimits.widenedFor(uv82hpProfile)!,
         readAt: DateTime.utc(2026, 9, 28),
       );
-      expect(await notifier.recordIfAbsent(uv82hpProfile, later), first);
+      expect(await notifier.recordIfAbsent(uv82hpProfile, hpBefore), hpBefore);
       final kept = container.read(originalBandLimitsProvider).value!;
-      expect(OriginalBandLimitsNotifier.lookup(kept, uv82hpProfile), first);
-      expect(kept.containsKey(uv82hpProfile.id), isFalse);
-      // The legacy id is the HP's only: another model does not borrow it.
-      expect(OriginalBandLimitsNotifier.lookup(kept, bfF8hpProfile), isNull);
+      expect(kept[uv82hpProfile.id], hpBefore);
+      expect(kept[uv5rProfile.id], first);
+      // Its own reading now wins over the legacy one.
+      expect(OriginalBandLimitsNotifier.lookup(kept, uv82hpProfile), hpBefore);
     });
 
     test('a record that cannot be read is no record, not a guess', () async {

@@ -109,6 +109,10 @@ class OriginalBandLimitsNotifier
 
   /// What is recorded for [profile]: under its own id, else under an id it
   /// was saved as before it had one (see [RadioProfile.legacyProfileIds]).
+  ///
+  /// For showing and Put back only. A legacy record is not proven to be
+  /// this radio's, so [recordIfAbsent] never lets one stand in for the
+  /// radio's own reading, and once that is recorded it wins here.
   static OriginalBandLimits? lookup(
     Map<String, OriginalBandLimits> recorded,
     RadioProfile profile,
@@ -130,13 +134,19 @@ class OriginalBandLimitsNotifier
   }
 
   /// Record [limits] as what [profile] radios came with, unless something is
-  /// recorded for it already. Returns what is recorded afterwards.
+  /// recorded under [profile]'s own id already. Returns what is recorded
+  /// under it afterwards.
+  ///
+  /// Only the own id counts, never a legacy one: a 'uv5r' record is most
+  /// often a real UV-5R's, and nothing in it says which radio it was read
+  /// from. Letting it stand in here dropped a UV-82HP's own pre-widen
+  /// reading for good, and Put back then wrote a UV-5R's limits into it.
   Future<OriginalBandLimits> recordIfAbsent(
     RadioProfile profile,
     OriginalBandLimits limits,
   ) async {
     final current = await future;
-    final existing = lookup(current, profile);
+    final existing = current[profile.id];
     if (existing != null) return existing;
     final next = {...current, profile.id: limits};
     await writeJsonSetting(ref, key, {

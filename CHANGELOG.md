@@ -50,9 +50,11 @@ heading.
   cable session checks the radio's firmware string and refuses one that is
   not the chosen model — a UV-82HP picked as a UV-5R/UV-82, or the reverse —
   before a byte is read or written, so a power level never lands on the
-  wrong index; a restore skips the check, so a backup can always go back.
-  The UV-5R family's transmit limits can be widened and put back, shown as
-  unverified. The app now asks for location while in use (for the
+  wrong index. A firmware string CHIRP lists under both models (N5R2) may be
+  either. A restore is checked too; a UV-82HP backup saved while the radio
+  was picked as a UV-5R is offered under the UV-82HP, so it can still go
+  back. The UV-5R family's transmit limits can be widened and put back,
+  shown as unverified. The app now asks for location while in use (for the
   repeater lookup) and declares the optional USB-host feature on Android.
 - **Every build says which commit it is.** `scripts/release.sh android|ios`
   builds the store artefact with a clock-derived build number and stamps it

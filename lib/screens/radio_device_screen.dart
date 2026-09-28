@@ -346,6 +346,9 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     final original = recorded == null
         ? null
         : OriginalBandLimitsNotifier.lookup(recorded, profile);
+    final whose = original == null
+        ? ''
+        : _whoseOriginal(recorded!, original, profile);
     return [
       const Divider(height: 24),
       ListTile(
@@ -367,14 +370,37 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
           leading: const Icon(Icons.lock_outline),
           title: const Text('Put back its original transmit limits'),
           subtitle: Text(
-            '${original.limits.label}: what a '
-            '${profile.displayName} held before this app first widened '
-            'one, read ${_when(original.readAt)}.',
+            '${original.limits.label}: $whose, read '
+            '${_when(original.readAt)}.',
           ),
           enabled: !_busy,
-          onTap: () => _putBack(profile, original),
+          onTap: () => _putBack(profile, original, whose),
         ),
     ];
+  }
+
+  /// Whose limits [original] are, in words.
+  ///
+  /// A record found only under a legacy id (a UV-5R's, for a UV-82HP) was
+  /// read from whatever radio was widened under that profile, perhaps a real
+  /// UV-5R. Naming [profile] for it claimed one of its own had held them.
+  static String _whoseOriginal(
+    Map<String, OriginalBandLimits> recorded,
+    OriginalBandLimits original,
+    RadioProfile profile,
+  ) {
+    final own =
+        'what a ${profile.displayName} held before this app first widened '
+        'one';
+    if (recorded[profile.id] != null) return own;
+    for (final id in profile.legacyProfileIds) {
+      if (!identical(recorded[id], original)) continue;
+      final name = radioProfileById(id)?.displayName ?? id;
+      return 'what a radio widened as the $name held before this app first '
+          'widened one, kept from before the ${profile.displayName} was a '
+          'model of its own';
+    }
+    return own;
   }
 
   // -------------------------------------------------------------------------
@@ -625,7 +651,8 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
               await _mistaggedFor(backup, profile, backups, fitsFirmware))
             backup,
       ];
-    } catch (error) {
+      // Exceptions only: an Error here is a bug, not an unreadable backup.
+    } on Exception catch (error) {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
@@ -797,14 +824,14 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
   Future<void> _putBack(
     RadioProfile profile,
     OriginalBandLimits original,
+    String whose,
   ) async {
     final confirmed = await confirmAction(
       context,
       title: 'Put back its transmit limits?',
       message:
           '${_target.displayName} will be set to ${original.limits.label}: '
-          'what a ${profile.displayName} held before this app first widened '
-          'one.\n\nThe radio is read and backed up first.',
+          '$whose.\n\nThe radio is read and backed up first.',
       confirmLabel: 'Put back',
     );
     if (!confirmed || !mounted) return;
