@@ -34,8 +34,8 @@
 //! radio.
 
 use super::codeplug::{
-    decode_bcd, decode_power, decode_tone, encode_bcd, encode_tone, power_bits, ChannelRecord,
-    Power, TWO_POWER_LEVELS,
+    decode_bcd, decode_power, decode_tone, encode_bcd, encode_tone, held_power_indexes, power_bits,
+    ChannelRecord, Power, TWO_POWER_LEVELS,
 };
 pub use super::Block;
 use super::{read_reply_len, REPLY_HEADER_LEN};
@@ -599,10 +599,13 @@ pub fn encode_channels(
             channels.len()
         )));
     }
+    // Read before anything is overwritten: which power indexes this radio's
+    // records use (see `power_bits`).
+    let held = held_power_indexes(decode_channels(image, model)?.iter().flatten());
     let mut out = image.to_vec();
     for slot in 0..CHANNEL_COUNT {
         match channels.get(slot) {
-            Some(channel) => encode_channel(&mut out, slot, channel, model)?,
+            Some(channel) => encode_channel(&mut out, slot, channel, model, held)?,
             None => {
                 out[record_range(slot)].fill(0xFF);
                 out[name_range(slot)].fill(0xFF);
@@ -617,6 +620,7 @@ fn encode_channel(
     slot: usize,
     channel: &ChannelRecord,
     model: &Uv5rModel,
+    held: u8,
 ) -> Result<(), ProtocolError> {
     let previous: [u8; RECORD_LEN] = image[record_range(slot)].try_into().expect("record length");
     let occupied = previous[0] != 0xFF;
@@ -641,8 +645,9 @@ fn encode_channel(
     // (see `power_bits`) -- never the slot's, which belonged to whatever was
     // there before: a Low channel moved onto a mid record went out mid. So
     // a UV-82HP's Low (2) behind this two-level profile goes back as 2
-    // wherever it lands, not as High (0) or Med (1).
-    record[14] = power_bits(channel, model.power_levels);
+    // wherever it lands on the radio it came from, not as High (0) or Med
+    // (1) -- and not onto a radio whose records never hold a 2.
+    record[14] = power_bits(channel, model.power_levels, held);
     if !channel.narrow {
         record[15] |= 0x40;
     }
@@ -1249,18 +1254,50 @@ mod tests {
                 encode_power(Power::High, UV5R.power_levels)
             );
         }
+        // Lowered to Low on a radio whose own records hold its Low at 2:
+        // the radio's 2, not the profile's 1 (its Med).
         let mut lowered = read[0].clone();
         lowered.power = Power::Low;
-        assert_eq!(
-            written_as(lowered),
-            encode_power(Power::Low, UV5R.power_levels)
-        );
+        assert_eq!(written_as(lowered), 2);
 
         // No index -- a channel made in the app, or one whose level the
-        // app changed -- is the level afresh, even over the 2 record.
+        // app changed -- takes the Low this image holds (the 2).
         let mut fresh = read[2].clone();
         fresh.power_raw = None;
-        assert_eq!(written_as(fresh), 1);
+        assert_eq!(written_as(fresh), 2);
+    }
+
+    #[test]
+    fn a_three_level_low_written_to_a_two_level_radio_is_its_low() {
+        // A BF-F8HP's Low is 2 (CHIRP UV5R_POWER_LEVELS3), and 2 decodes as
+        // Low on the two-level UV-5R profile too. A plan read from the
+        // F8HP and written to a UV-5R whose records hold no 2 sent the 2
+        // verbatim, an index that radio never defined; before the index
+        // travelled with the channel it went out as 1. Fails on the
+        // index-only rule.
+        let mut low = channel("L", 146_540_000, 146_540_000);
+        low.power = Power::Low;
+        let f8hp = encode_channels(&blank(), &[low], &BF_F8HP).unwrap();
+        let read: Vec<ChannelRecord> = decode_channels(&f8hp, &BF_F8HP)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(read[0].power_raw, Some(2));
+        // Round trip on the F8HP itself: 2 is its listed Low.
+        let again = encode_channels(&blank(), &read, &BF_F8HP).unwrap();
+        assert_eq!(power_raws(&again, 1), [2]);
+
+        let uv5r =
+            encode_channels(&blank(), &[channel("H", 146_520_000, 146_520_000)], &UV5R).unwrap();
+        for target in [blank(), uv5r] {
+            let written = encode_channels(&target, &read, &UV5R).unwrap();
+            assert_eq!(power_raws(&written, 1), [1]);
+        }
+        // Onto an HP answering as a UV-5R, whose records hold 2s, it stays 2.
+        let (hp, _) = hp_image();
+        let written = encode_channels(&hp, &read, &UV5R).unwrap();
+        assert_eq!(power_raws(&written, 1), [2]);
     }
 
     #[test]

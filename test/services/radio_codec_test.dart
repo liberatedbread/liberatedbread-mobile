@@ -526,6 +526,104 @@ void main() {
       expect(powerAt(raised, 0), 0);
     });
 
+    group('a power index the profile does not list', () {
+      // A UV-82HP answers the UV-82 ident behind the two-level UV-5R
+      // profile, whose Low is 1; the HP's own Low is 2 and its 1 is Med.
+      int uv5rPowerAt(Uint8List image, int slot) =>
+          image[8 + slot * 16 + 14] & 0x03;
+      const low = RadioChannel(
+        name: 'L',
+        rxFreqHz: 146520000,
+        txFreqHz: 146520000,
+        power: PowerLevel.low,
+      );
+      const lowAt2 = RadioChannel(
+        name: 'L',
+        rxFreqHz: 146520000,
+        txFreqHz: 146520000,
+        power: PowerLevel.low,
+        powerRaw: 2,
+      );
+      const encoder = CodeplugEncoder();
+
+      /// A uv5r image whose slot 1 is [raw] at Low: 2 for an HP, 1 for a
+      /// plain UV-5R.
+      Future<RadioCodeplug> uv5rWithLowAt(int raw) async {
+        final base = RadioCodeplug(
+          modelId: uv5rProfile.id,
+          image: await blankUv5rImage(),
+          readAt: DateTime(2026, 9, 1),
+        );
+        final image = await encoder.encode(base, uv5rProfile, [
+          low.copyWith(name: 'OLD'),
+        ]);
+        image[8 + 14] = (image[8 + 14] & ~0x03) | raw;
+        return RadioCodeplug(
+          modelId: uv5rProfile.id,
+          image: image,
+          readAt: DateTime(2026, 9, 1),
+        );
+      }
+
+      test('is taken from the radio for a Low that carries none', () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        // A plan stored before the index was carried, a Low made in the
+        // app, and a High set back to Low in the editor all reach the codec
+        // with no index. Encoded afresh they went out as 1: Med on the HP.
+        // Fails on channelToDto's straight pass-through.
+        final hp = await uv5rWithLowAt(2);
+        final relevelled = lowAt2
+            .copyWith(power: PowerLevel.high)
+            .copyWith(power: PowerLevel.low);
+        expect(relevelled.powerRaw, isNull);
+        final written = await encoder.encode(hp, uv5rProfile, [
+          low,
+          relevelled,
+          low.copyWith(power: PowerLevel.high),
+        ]);
+        expect(
+          [for (var s = 0; s < 3; s++) uv5rPowerAt(written, s)],
+          [2, 2, 0],
+        );
+
+        // A radio that shows no unlisted Low gets the profile's own 1.
+        final plain = await encoder.encode(
+          await uv5rWithLowAt(1),
+          uv5rProfile,
+          [low],
+        );
+        expect(uv5rPowerAt(plain, 0), 1);
+      });
+
+      test('read from one radio is not written to another', () async {
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        // An HP's Low (2) in a plan written to a plain UV-5R under the same
+        // profile id, or to a Mini from the device screen's picker. Those
+        // list only 0 and 1, and CHIRP reads 2 as High. Fails on the old
+        // pass-through, which wrote the 2.
+        const fromHp = lowAt2;
+        final plain = await encoder.encode(
+          await uv5rWithLowAt(1),
+          uv5rProfile,
+          [fromHp],
+        );
+        expect(uv5rPowerAt(plain, 0), 1);
+
+        final mini = await encoder.encode(
+          await _blank(uv5rMiniProfile),
+          uv5rMiniProfile,
+          [fromHp],
+        );
+        expect(mini[14] & 0x03, 1, reason: 'the Mini\'s Low');
+
+        // Written back to an HP, which holds 2 at Low, it keeps the 2.
+        final hp = await encoder.encode(await uv5rWithLowAt(2), uv5rProfile, [
+          fromHp,
+        ]);
+        expect(uv5rPowerAt(hp, 0), 2);
+      });
+    });
+
     test('a radio without medium is written low for it', () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
       const medium = RadioChannel(

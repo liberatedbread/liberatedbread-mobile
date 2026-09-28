@@ -747,17 +747,24 @@ mod tests {
     fn the_raw_power_index_crosses_the_boundary_both_ways() {
         // A UV-82HP-shaped Mini image: Low is 2, which the two-level
         // profile does not list. It reads back as "low" carrying its 2, and
-        // a channel carrying the 2 is written as 2 wherever it lands.
-        let image = vec![0xFFu8; models::UV5R_MINI.image_len as usize];
+        // a channel carrying the 2 goes back as 2 onto that radio.
+        let mut image = vec![0xFFu8; models::UV5R_MINI.image_len as usize];
         let mut low = dto(1, "L", 146_520_000);
         low.power = "low".into();
         low.power_raw = Some(2);
-        let written = radio_encode_channels(
-            image.clone(),
-            vec![dto(1, "H", 146_540_000), low.clone()],
-            "uv-5r-mini".into(),
-        )
-        .unwrap();
+        let channels = vec![dto(1, "H", 146_540_000), low.clone()];
+
+        // Onto a radio none of whose records hold a 2 -- a plan read from a
+        // BF-F8HP, whose Low is 2, written to a Mini -- the level is
+        // encoded afresh: the Mini's firmware never defined a 2.
+        let written =
+            radio_encode_channels(image.clone(), channels.clone(), "uv-5r-mini".into()).unwrap();
+        assert_eq!(written[32 + 14] & 0x03, 1);
+
+        // The HP's own image holds its 2s, so they are kept.
+        image = written;
+        image[32 + 14] = (image[32 + 14] & !0x03) | 2;
+        let written = radio_encode_channels(image.clone(), channels, "uv-5r-mini".into()).unwrap();
         assert_eq!(written[32 + 14] & 0x03, 2);
         let read = radio_decode_channels(written.clone(), "uv-5r-mini".into()).unwrap();
         assert_eq!(read[1].power, "low");
@@ -769,10 +776,11 @@ mod tests {
             radio_encode_channels(written, vec![read[1].clone()], "uv-5r-mini".into()).unwrap();
         assert_eq!(moved[14] & 0x03, 2);
 
-        // Without the index, the level is encoded afresh.
+        // Without an index of its own, a Low takes the unlisted Low this
+        // image holds (the 2), not the profile's 1 -- see power_bits.
         low.power_raw = None;
         let fresh = radio_encode_channels(image, vec![low], "uv-5r-mini".into()).unwrap();
-        assert_eq!(fresh[14] & 0x03, 1);
+        assert_eq!(fresh[14] & 0x03, 2);
     }
 
     #[test]
