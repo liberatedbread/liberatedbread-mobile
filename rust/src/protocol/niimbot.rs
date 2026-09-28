@@ -295,10 +295,10 @@ pub fn encode_print_job(
 mod tests {
     use super::*;
 
-    /// The S2 spec, as a fixture until the vendored copy is refreshed with it.
+    /// The vendored NIIMBOT spec — the catalogue the app ships.
     fn spec() -> DeviceSpec {
         let path = format!(
-            "{}/tests/specs/niimbot-d110.yaml",
+            "{}/../vendor/protocol-specs/device-specs/devices/niimbot-d110.yaml",
             env!("CARGO_MANIFEST_DIR")
         );
         crate::spec::parser::parse_device_spec(&std::fs::read_to_string(path).unwrap())
