@@ -270,6 +270,25 @@ void main() {
       expect(kept[bfF8hpProfile.id], isNull);
     });
 
+    test('a UV-82HP finds what was recorded when it was a UV-5R', () async {
+      // Widened under the UV-5R profile before the HP had its own, its
+      // originals are keyed 'uv5r'; the HP profile reads them rather than
+      // losing Put back, and does not record a second copy.
+      final container = _container(InMemorySettingsStore());
+      final notifier = container.read(originalBandLimitsProvider.notifier);
+      await notifier.recordIfAbsent(uv5rProfile, first);
+      final later = OriginalBandLimits(
+        limits: RadioBandLimits.widenedFor(uv5rProfile)!,
+        readAt: DateTime.utc(2026, 9, 28),
+      );
+      expect(await notifier.recordIfAbsent(uv82hpProfile, later), first);
+      final kept = container.read(originalBandLimitsProvider).value!;
+      expect(OriginalBandLimitsNotifier.lookup(kept, uv82hpProfile), first);
+      expect(kept.containsKey(uv82hpProfile.id), isFalse);
+      // The legacy id is the HP's only: another model does not borrow it.
+      expect(OriginalBandLimitsNotifier.lookup(kept, bfF8hpProfile), isNull);
+    });
+
     test('a record that cannot be read is no record, not a guess', () async {
       for (final raw in [
         '{not json',

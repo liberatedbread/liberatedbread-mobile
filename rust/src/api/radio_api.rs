@@ -495,8 +495,9 @@ pub fn uv5r_parse_probe(
 ///
 /// The UV-82HP answers the two-level UV-82's ident, so only its firmware
 /// string tells it apart; this refuses an HP chosen as the UV-5R and a radio
-/// that is not an HP chosen as one, as CHIRP's basetype match names them
-/// (see `uv5r::check_firmware`). Called on every session with a radio, where
+/// that is not an HP chosen as one, as CHIRP's basetype lists name them. A
+/// string in the HP's list and another's (`N5R2`) allows either (see
+/// `uv5r::check_firmware`). Called on every session with a radio, where
 /// the firmware is always there to read.
 pub fn uv5r_check_firmware(model_id: String, firmware: String) -> anyhow::Result<()> {
     Ok(uv5r::check_firmware(
@@ -824,6 +825,8 @@ mod tests {
         assert!(uv5r_check_firmware("uv-82hp".into(), "BFB297".into()).is_err());
         assert!(uv5r_check_firmware("uv-82hp".into(), "".into()).is_err());
         assert!(uv5r_check_firmware("uv5r".into(), "BFB297".into()).is_ok());
+        assert!(uv5r_check_firmware("uv-82hp".into(), "N5R2".into()).is_ok());
+        assert!(uv5r_check_firmware("uv5r".into(), "N5R2".into()).is_ok());
         assert!(uv5r_check_firmware("nokia".into(), "BFB297".into()).is_err());
 
         // Through the bridge, its three levels by name, both ways.

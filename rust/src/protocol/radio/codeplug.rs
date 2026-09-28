@@ -82,9 +82,8 @@ pub fn decode_power(raw: u8, levels: &[Power]) -> Power {
 
 /// The power field: the bottom two bits of record byte 14 (see the codecs'
 /// decode paths). An index is `0..=POWER_MASK`, so a power list has at most
-/// four entries and one bit per index fits the `u8` that
-/// [`held_power_indexes`] returns. One name, so the width cannot drift
-/// between the mask, the range checks and that bitmask.
+/// four entries. One name, so the width cannot drift between the mask and
+/// the range checks.
 pub const POWER_MASK: u8 = 0x03;
 
 /// The index `power` has in `levels`.
@@ -99,20 +98,52 @@ pub fn encode_power(power: Power, levels: &[Power]) -> u8 {
     index as u8
 }
 
-/// The power indexes, as a bit per index (bit `i` for index `i`), that the
-/// occupied records of an image hold -- the image a write lands on, as it
-/// read before the write. [`power_bits`] takes it as the target radio's
-/// word on which indexes its firmware uses.
-pub fn held_power_indexes<'a>(channels: impl IntoIterator<Item = &'a ChannelRecord>) -> u8 {
+/// The records of an image -- the image a write lands on, as it read
+/// before the write -- whose power index `levels` does not list: the only
+/// records [`power_bits`] ever repeats such an index from.
+pub fn unlisted_power_records<'a>(
+    channels: impl IntoIterator<Item = &'a ChannelRecord>,
+    levels: &[Power],
+) -> Vec<ChannelRecord> {
     channels
         .into_iter()
-        .filter_map(|channel| channel.power_raw)
-        .filter(|&raw| raw <= POWER_MASK)
-        .fold(0, |held, raw| held | 1 << raw)
+        .filter(|c| {
+            c.power_raw
+                .is_some_and(|raw| usize::from(raw) >= levels.len())
+        })
+        .cloned()
+        .collect()
+}
+
+/// Whether `a` and `b` are the same channel, name aside: every setting the
+/// record holds, power index included. Destructured, so a field added to
+/// [`ChannelRecord`] has to be placed on one side or the other here.
+fn same_channel_but_name(a: &ChannelRecord, b: &ChannelRecord) -> bool {
+    let ChannelRecord {
+        name: _,
+        rx_freq_hz,
+        tx_freq_hz,
+        rx_only,
+        tx_tone,
+        rx_tone,
+        narrow,
+        power,
+        skip,
+        power_raw,
+    } = a;
+    *rx_freq_hz == b.rx_freq_hz
+        && *tx_freq_hz == b.tx_freq_hz
+        && *rx_only == b.rx_only
+        && *tx_tone == b.tx_tone
+        && *rx_tone == b.rx_tone
+        && *narrow == b.narrow
+        && *power == b.power
+        && *skip == b.skip
+        && *power_raw == b.power_raw
 }
 
 /// The two power bits to write for `channel`, onto an image whose records
-/// held the indexes in `held` (see [`held_power_indexes`]).
+/// with an unlisted index are `held` (see [`unlisted_power_records`]).
 ///
 /// A carried index: the index the radio itself had for this channel
 /// (`power_raw`, set when the channel was read from an image) while it
@@ -124,32 +155,36 @@ pub fn held_power_indexes<'a>(channels: impl IntoIterator<Item = &'a ChannelReco
 /// matches the index, and the app drops the index with the old level
 /// anyway.
 ///
-/// An index `levels` does not list is kept only when a record of the target
-/// image holds it too. `power_raw` names no model, and a plan read from a
-/// three-level BF-F8HP carries its Low as 2, which decodes as Low on every
-/// two-level profile: written verbatim to a true UV-5R or Mini, that sent
-/// an index its firmware never defined. Keeping a held unlisted index is
-/// safe here because it is this channel's own: an untouched channel read
-/// from this radio goes back byte for byte, whatever its index means to
-/// the firmware -- the write repeats the radio's own record, it does not
-/// choose a new power.
+/// An index `levels` does not list is kept only when the target image
+/// holds this very channel -- every setting but its name, that index
+/// included -- so the write repeats a record the radio already has. That
+/// keeps an untouched channel byte for byte, whatever its index means to
+/// the firmware: a tri-power radio programmed through a two-level profile
+/// -- an `N5R2` UV-82HP chosen as the UV-5R -- keeps its Lows at 2, where
+/// encoding them afresh as 1 would raise each to Med. `power_raw` names no model, so the image
+/// merely holding the index somewhere is not enough: a plan read from a
+/// BF-F8HP carries its Low as 2, which decodes as Low on every two-level
+/// profile, and keyed to any record of the image holding a 2 it wrote an
+/// index that radio never defined, and CHIRP reads as High, into every
+/// such Low.
 ///
 /// Anything else -- a new channel, a retargeted plan, a changed level --
-/// is [`encode_power`] of its level: the index `levels` gives it, never
-/// one the image merely holds. A radio whose Low is an index its profile
-/// does not list is a different model with its own table: the tri-power
-/// UV-82HP, which answers with the two-level UV-82's ident, is its own
-/// `uv5r::UV82HP` picked by its firmware string, so no index is adopted on
-/// a guess, and a true UV-5R holding a stray 2 has its new Lows written as
-/// its own 1.
+/// is [`encode_power`] of its level: the index `levels` gives it. A radio
+/// whose Low is an index its profile does not list is a different model
+/// with its own table: the tri-power UV-82HP, which answers with the
+/// two-level UV-82's ident, is its own `uv5r::UV82HP`, and a true UV-5R
+/// holding a stray 2 has its new Lows written as its own 1.
 ///
 /// This is the one place the decision is made: the encoder is the only
 /// layer that sees the target image, so no Dart layer second-guesses it.
-pub fn power_bits(channel: &ChannelRecord, levels: &[Power], held: u8) -> u8 {
+pub fn power_bits(channel: &ChannelRecord, levels: &[Power], held: &[ChannelRecord]) -> u8 {
     let carried = |raw: u8| {
         raw <= POWER_MASK
             && decode_power(raw, levels) == channel.power
-            && (usize::from(raw) < levels.len() || held & 1 << raw != 0)
+            && (usize::from(raw) < levels.len()
+                || held
+                    .iter()
+                    .any(|record| same_channel_but_name(record, channel)))
     };
     channel
         .power_raw
@@ -380,7 +415,8 @@ pub fn decode_channel(
 /// software.
 ///
 /// Alone, with no image around it, a record keeps an unlisted power index
-/// only when it already holds that index itself (see [`power_bits`]).
+/// only when it already holds this same channel with that index (see
+/// [`power_bits`]).
 pub fn encode_channel(
     record: &mut [u8],
     channel: &ChannelRecord,
@@ -388,18 +424,18 @@ pub fn encode_channel(
     power_levels: &[Power],
 ) -> Result<(), ProtocolError> {
     let held = decode_channel(record, name_len, power_levels);
-    let held = held_power_indexes(held.as_ref());
-    encode_channel_onto(record, channel, name_len, power_levels, held)
+    let held = unlisted_power_records(held.as_ref(), power_levels);
+    encode_channel_onto(record, channel, name_len, power_levels, &held)
 }
 
-/// [`encode_channel`], for a record of an image whose records held the
-/// power indexes in `held` before the write.
+/// [`encode_channel`], for a record of an image whose records with an
+/// unlisted power index were `held` before the write.
 fn encode_channel_onto(
     record: &mut [u8],
     channel: &ChannelRecord,
     name_len: usize,
     power_levels: &[Power],
-    held: u8,
+    held: &[ChannelRecord],
 ) -> Result<(), ProtocolError> {
     if record.len() < CHANNEL_RECORD_LEN as usize {
         return Err(ProtocolError::BufferTooShort {
@@ -508,9 +544,12 @@ pub fn encode_channels(
         )));
     }
 
-    // Read before anything is overwritten: which power indexes this radio's
-    // records use (see `power_bits`).
-    let held = held_power_indexes(decode_channels(image, model)?.iter().flatten());
+    // Read before anything is overwritten: the records holding an index
+    // the profile does not list (see `power_bits`).
+    let held = unlisted_power_records(
+        decode_channels(image, model)?.iter().flatten(),
+        model.power_levels,
+    );
     let mut out = image.to_vec();
     for index in 0..model.channel_count {
         let Some((start, end)) = model.channel_range(index) else {
@@ -522,7 +561,7 @@ pub fn encode_channels(
                 channel,
                 NAME_LEN,
                 model.power_levels,
-                held,
+                &held,
             )?,
             None => clear_channel(&mut out[start..end])?,
         }
@@ -972,16 +1011,37 @@ mod tests {
         let mut low = channel("L");
         low.power = Power::Low;
         let levels = TWO_POWER_LEVELS;
-        for held in [1 << 2, 1 << 3, 1 << 2 | 1 << 3] {
-            assert_eq!(power_bits(&low, levels, held), 1, "{held:#b}");
+        let base = low.clone();
+        let holding = |raws: &[u8]| -> Vec<ChannelRecord> {
+            raws.iter()
+                .map(|&raw| {
+                    let mut other = base.clone();
+                    other.rx_freq_hz += 25_000 * u32::from(raw);
+                    other.power_raw = Some(raw);
+                    other
+                })
+                .collect()
+        };
+        for raws in [&[2][..], &[3], &[2, 3]] {
+            assert_eq!(power_bits(&low, levels, &holding(raws)), 1, "{raws:?}");
         }
         let mut high = low.clone();
         high.power = Power::High;
-        assert_eq!(power_bits(&high, levels, 1 << 2), 0);
-        // A carried index is kept while the image holds it, and only then.
+        assert_eq!(power_bits(&high, levels, &holding(&[2])), 0);
+
+        // A carried unlisted index is kept only where the image holds this
+        // same channel with it, name aside -- a repeat of the radio's own
+        // record. Another record holding the index is not enough: that let
+        // a plan retargeted from a tri-power radio write its 2 into every
+        // Low. Fails on the image-wide rule.
         low.power_raw = Some(3);
-        assert_eq!(power_bits(&low, levels, 1 << 2 | 1 << 3), 3);
-        assert_eq!(power_bits(&low, levels, 1 << 2), 1);
+        assert_eq!(power_bits(&low, levels, &holding(&[2, 3])), 1);
+        let mut own = low.clone();
+        own.name = "OLD NAME".into();
+        assert_eq!(power_bits(&low, levels, &[own.clone()]), 3);
+        own.narrow = !own.narrow;
+        assert_eq!(power_bits(&low, levels, &[own]), 1);
+        assert_eq!(power_bits(&low, levels, &[]), 1);
     }
 
     #[test]

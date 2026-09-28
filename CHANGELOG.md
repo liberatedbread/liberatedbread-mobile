@@ -42,12 +42,17 @@ heading.
   read and back up, write a plan, restore a backup — and every write reads the
   radio first and puts that copy on disk before a byte is sent. One transport
   per family: the UV-17Pro family (UV-5R Mini, UV-5G Mini, UV-32) over the
-  radio's own Bluetooth; the UV-5R family (UV-5R, UV-82, GT-5R, BF-F8HP,
-  AR-152) over a USB programming cable from a new USB tab — Android through
-  its USB host stack, Linux and macOS through the `serialport` crate, the one
-  transport that lives in the Rust core. iOS has no route to a cable, and the
-  tab says so. The UV-5R family's transmit limits can be widened and put back,
-  shown as unverified. The app now asks for location while in use (for the
+  radio's own Bluetooth; the UV-5R family (UV-5R, UV-82, UV-82HP, GT-5R,
+  BF-F8HP, AR-152) over a USB programming cable from a new USB tab — Android
+  through its USB host stack, Linux and macOS through the `serialport` crate,
+  the one transport that lives in the Rust core. iOS has no route to a cable,
+  and the tab says so. The UV-82HP (three power levels) is its own model: a
+  cable session checks the radio's firmware string and refuses one that is
+  not the chosen model — a UV-82HP picked as a UV-5R/UV-82, or the reverse —
+  before a byte is read or written, so a power level never lands on the
+  wrong index; a restore skips the check, so a backup can always go back.
+  The UV-5R family's transmit limits can be widened and put back, shown as
+  unverified. The app now asks for location while in use (for the
   repeater lookup) and declares the optional USB-host feature on Android.
 - **Every build says which commit it is.** `scripts/release.sh android|ios`
   builds the store artefact with a clock-derived build number and stamps it

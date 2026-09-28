@@ -149,6 +149,13 @@ class RadioProfile {
   /// model table by a test; the channel editor offers exactly these.
   final List<PowerLevel> powerLevels;
 
+  /// Ids this radio was saved under before it had its own profile. A
+  /// UV-82HP was programmed as a UV-5R until it was told apart by its
+  /// firmware, and what was recorded for it then (the limits it came with,
+  /// which "Put back" writes) is keyed 'uv5r'; looking only under the new id
+  /// lost them. Read-only: new records go under [id].
+  final List<String> legacyProfileIds;
+
   const RadioProfile({
     required this.id,
     required this.displayName,
@@ -161,6 +168,7 @@ class RadioProfile {
     this.programmerSupport = ProgrammerSupport.none,
     this.txUnlock = TxUnlock.unsupported,
     this.powerLevels = _twoPowerLevels,
+    this.legacyProfileIds = const [],
   });
 
   /// Whether this build can read and write this radio directly.
@@ -329,6 +337,7 @@ const RadioProfile bfF8hpProfile = RadioProfile(
 const RadioProfile uv82hpProfile = RadioProfile(
   id: 'uv-82hp',
   displayName: 'Baofeng UV-82HP',
+  legacyProfileIds: ['uv5r'],
   powerLevels: _threePowerLevels,
   rxRanges: [_fmBroadcast, _vhfRx, _uhfRx],
   factoryTxRanges: [

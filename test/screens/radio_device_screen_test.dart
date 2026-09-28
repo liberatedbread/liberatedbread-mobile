@@ -166,6 +166,7 @@ Future<_Harness> _pump(
   String? planId,
   bool behindLauncher = false,
   SavedRadioStore Function(SharedPreferences prefs)? savedRadioStore,
+  BackupFirmwareCheck? firmwareCheck,
 }) async {
   // Tall enough that every action tile is built: the list is lazy.
   tester.view.physicalSize = const Size(1200, 2400);
@@ -194,6 +195,15 @@ Future<_Harness> _pump(
         serialRadioProgrammerProvider.overrideWithValue(prog),
         codeplugBackupStoreProvider.overrideWithValue(store),
         codeplugDecoderProvider.overrideWithValue(_FakeDecoder(decoded)),
+        // The real check is native; one that is never expected to run
+        // fails the test loudly rather than hanging it. A StateError, not
+        // fail(): the screen catches Exceptions (an unreadable backup), and
+        // fail()'s TestFailure is one, so it was swallowed and never failed.
+        backupFirmwareCheckProvider.overrideWithValue(
+          firmwareCheck ??
+              (modelId, image) async =>
+                  throw StateError('firmware of a $modelId backup was checked'),
+        ),
       ],
       child: MaterialApp(
         home: behindLauncher
@@ -608,6 +618,75 @@ void main() {
         ),
         findsWidgets,
       );
+    });
+
+    group('a UV-82HP backed up while it could only be read as a UV-5R', () {
+      const cable = RadioTarget(
+        transport: RadioTransport.usb,
+        id: '/dev/ttyUSB0',
+        name: 'Cable radio',
+      );
+      // Byte 0 stands in for the firmware string: 0x82 says N82-3, anything
+      // else a UV-5R's. Only a UV-82HP may be programmed as one, and
+      // nothing else as it, as uv5r::check_firmware decides.
+      Future<bool> fits(String modelId, Uint8List image) async =>
+          (image[0] == 0x82) == (modelId == uv82hpProfile.id);
+      RadioCodeplug savedAsUv5r(int firmware) => RadioCodeplug(
+        modelId: uv5rProfile.id,
+        image: Uint8List(0x1808)..[0] = firmware,
+        readAt: DateTime(2026, 9, 1, 9, 30),
+      );
+
+      // Regression: the list kept only backups filed under the chosen
+      // model. Under the UV-82HP the HP's old 'uv5r' backups were hidden
+      // ("No backups of a Baofeng UV-82HP"); under the UV-5R the model
+      // check refused the radio before the pre-restore read.
+      testWidgets('is offered, and restored, as the UV-82HP', (tester) async {
+        final old = savedAsUv5r(0x82);
+        final harness = await _pump(
+          tester,
+          target: cable,
+          initialProfile: uv82hpProfile,
+          backups: FakeCodeplugBackupStore(existing: [old]),
+          firmwareCheck: fits,
+        );
+
+        await tester.tap(find.text('Restore a backup'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('saved as the Baofeng UV-5R'), findsOne);
+        await tester.tap(find.text('2026-09-01 09:30'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
+        await tester.pumpAndSettle();
+
+        expect(harness.programmer.restored.single.image, old.image);
+        expect(
+          harness.backups.saved.single.modelId,
+          uv82hpProfile.id,
+          reason: 'the safety copy is filed under the model it is',
+        );
+        expect(find.textContaining('restored'), findsOneWidget);
+      });
+
+      testWidgets('a UV-5R\'s own backup is not offered for a UV-82HP', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          target: cable,
+          initialProfile: uv82hpProfile,
+          backups: FakeCodeplugBackupStore(existing: [savedAsUv5r(0x5)]),
+          firmwareCheck: fits,
+        );
+
+        await tester.tap(find.text('Restore a backup'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('No backups of a Baofeng UV-82HP'),
+          findsOneWidget,
+        );
+      });
     });
 
     testWidgets('only offers backups of this model', (tester) async {

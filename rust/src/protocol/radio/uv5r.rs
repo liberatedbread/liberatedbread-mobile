@@ -34,8 +34,8 @@
 //! radio.
 
 use super::codeplug::{
-    decode_bcd, decode_power, decode_tone, encode_bcd, encode_tone, held_power_indexes, power_bits,
-    ChannelRecord, Power, POWER_MASK, TWO_POWER_LEVELS,
+    decode_bcd, decode_power, decode_tone, encode_bcd, encode_tone, power_bits,
+    unlisted_power_records, ChannelRecord, Power, POWER_MASK, TWO_POWER_LEVELS,
 };
 pub use super::Block;
 use super::{read_reply_len, REPLY_HEADER_LEN};
@@ -169,7 +169,7 @@ pub const AR152: Uv5rModel = Uv5rModel {
 /// the two-level UV-82's (`UV5R_MODEL_UV82`) and whose records index
 /// `UV5R_POWER_LEVELS3` -- 0 High, 1 Med, 2 Low. Its `_is_orig` is always
 /// false, so its limits are always in the newer layout. The ident cannot
-/// tell it from a UV-82; its firmware string can (see [`firmware_model`]),
+/// tell it from a UV-82; its firmware string can (see [`firmware_models`]),
 /// and [`check_firmware`] holds the two apart.
 pub const UV82HP: Uv5rModel = Uv5rModel {
     id: "uv-82hp",
@@ -192,13 +192,15 @@ pub fn model_by_id(id: &str) -> Option<&'static Uv5rModel> {
 /// CHIRP's `_basetype` lists, in the order `chirp/drivers/uv5r.py`
 /// registers the classes that carry them, each with the CHIRP model name.
 ///
-/// CHIRP names the model of an image with no metadata by the first
-/// registered class one of whose basetypes occurs anywhere in the image's
-/// firmware string (`model_match`: `any(type in rid for type in
-/// cls._basetype)`). Order decides overlaps: `N5R2` is in both the UV-5R's
-/// list and the UV-82HP's, and the UV-5R class registers first, so an
-/// `N5R2` radio is a UV-5R. Classes whose `match_model` always answers no
-/// (UV-5G Pro, UV-5RX3, GT-5R, UV-5G) are left out, as they never match.
+/// A basetype matches when it occurs anywhere in the firmware string
+/// (`model_match`: `any(type in rid for type in cls._basetype)`). Lists
+/// overlap: `N5R2` is in both the UV-5R's and the UV-82HP's, so a radio
+/// reporting it may be either. CHIRP settles an overlap by registration
+/// order only when it guesses the model of an image with no metadata; a
+/// live radio is programmed as the class the user picked, and `_basetype`
+/// is never consulted (`uv5r.py` reads it only in `model_match`). Classes
+/// whose `match_model` always answers no (UV-5G Pro, UV-5RX3, GT-5R, UV-5G)
+/// are left out, as they never match.
 const CHIRP_BASETYPES: &[(&str, &[&str])] = &[
     (
         "UV-5R",
@@ -216,22 +218,38 @@ const CHIRP_BASETYPES: &[(&str, &[&str])] = &[
     ("UV-82HP", &["N82-3", "N823", "N5R2"]),
 ];
 
-/// The CHIRP model a firmware string names, by CHIRP's basetype match (see
-/// [`CHIRP_BASETYPES`]), or `None` when it names none of them -- an empty
-/// or unreadable string, or a radio this list does not know.
-pub fn firmware_model(firmware: &str) -> Option<&'static str> {
+/// Every CHIRP model a firmware string could be, by CHIRP's basetype match
+/// (see [`CHIRP_BASETYPES`]), in CHIRP's registration order. Empty when it
+/// names none of them -- an empty or unreadable string, or a radio this
+/// list does not know.
+pub fn firmware_models(firmware: &str) -> impl Iterator<Item = &'static str> + '_ {
     CHIRP_BASETYPES
         .iter()
-        .find(|(_, basetypes)| basetypes.iter().any(|b| firmware.contains(b)))
+        .filter(|(_, basetypes)| basetypes.iter().any(|b| firmware.contains(b)))
         .map(|&(model, _)| model)
 }
+
+/// The model CHIRP would name an image reporting `firmware`: the first of
+/// [`firmware_models`], as its `model_match` picks one. For display only --
+/// a string in two lists does not decide which the radio is (see
+/// [`check_firmware`]).
+pub fn firmware_model(firmware: &str) -> Option<&'static str> {
+    firmware_models(firmware).next()
+}
+
+/// CHIRP's name for [`UV82HP`], as [`CHIRP_BASETYPES`] lists it.
+const CHIRP_UV82HP: &str = "UV-82HP";
 
 /// Whether a radio reporting `firmware` may be programmed as `model`, as far
 /// as the UV-82HP goes -- the one model here whose table no ident can tell
 /// from another's.
 ///
-/// A firmware string CHIRP matches to the UV-82HP is programmed only as
-/// [`UV82HP`], and one it matches to anything else never is. A string that
+/// A firmware string only the UV-82HP's list matches (`N82-3`, `N823`) is
+/// programmed only as [`UV82HP`], and one the HP's list does not match is
+/// never programmed as it. A string in the HP's list and another's (`N5R2`,
+/// also the UV-5R's) allows either, as CHIRP does for a live radio: taking
+/// only the first match refused such an HP as one and left it the
+/// two-level table, which writes its Low as 1, its Med. A string that
 /// names no model at all is refused for the HP when `strict` -- a radio
 /// answering live, which always reports one -- and let through otherwise:
 /// a blank or unreadable image names nothing, and says nothing about
@@ -241,19 +259,25 @@ pub fn check_firmware(
     firmware: &str,
     strict: bool,
 ) -> Result<(), ProtocolError> {
-    let named = firmware_model(firmware);
+    let named: Vec<&str> = firmware_models(firmware).collect();
     let is_hp = model.id == UV82HP.id;
-    let named_hp = named == Some("UV-82HP");
-    let refuse = match named {
-        Some(_) => is_hp != named_hp,
-        None => is_hp && strict,
+    let hp_named = named.contains(&CHIRP_UV82HP);
+    let other_named = named.iter().any(|&m| m != CHIRP_UV82HP);
+    let refuse = if named.is_empty() {
+        is_hp && strict
+    } else if is_hp {
+        !hp_named
+    } else {
+        !other_named
     };
     if refuse {
+        let named = if named.is_empty() {
+            "no model this app knows".to_string()
+        } else {
+            format!("CHIRP's {}", named.join(" or "))
+        };
         return Err(ProtocolError::MalformedReply(format!(
-            "firmware {firmware:?} is {}, not {}",
-            named.map_or("no model this app knows".to_string(), |m| {
-                format!("CHIRP's {m}")
-            }),
+            "firmware {firmware:?} is {named}, not {}",
             model.id
         )));
     }
@@ -684,13 +708,16 @@ pub fn encode_channels(
             channels.len()
         )));
     }
-    // Read before anything is overwritten: which power indexes this radio's
-    // records use (see `power_bits`).
-    let held = held_power_indexes(decode_channels(image, model)?.iter().flatten());
+    // Read before anything is overwritten: the records holding an index
+    // the profile does not list (see `power_bits`).
+    let held = unlisted_power_records(
+        decode_channels(image, model)?.iter().flatten(),
+        model.power_levels,
+    );
     let mut out = image.to_vec();
     for slot in 0..CHANNEL_COUNT {
         match channels.get(slot) {
-            Some(channel) => encode_channel(&mut out, slot, channel, model, held)?,
+            Some(channel) => encode_channel(&mut out, slot, channel, model, &held)?,
             None => {
                 out[record_range(slot)].fill(0xFF);
                 out[name_range(slot)].fill(0xFF);
@@ -705,7 +732,7 @@ fn encode_channel(
     slot: usize,
     channel: &ChannelRecord,
     model: &Uv5rModel,
-    held: u8,
+    held: &[ChannelRecord],
 ) -> Result<(), ProtocolError> {
     let previous: [u8; RECORD_LEN] = image[record_range(slot)].try_into().expect("record length");
     let occupied = previous[0] != 0xFF;
@@ -1394,10 +1421,11 @@ mod tests {
     #[test]
     fn the_firmware_string_names_the_model_as_chirp_matches_it() {
         for (firmware, model) in [
-            // CHIRP BASETYPE_UV82HP, less the N5R2 the UV-5R claims first.
+            // CHIRP BASETYPE_UV82HP.
             ("N82-3 V3.08", Some("UV-82HP")),
             ("N823", Some("UV-82HP")),
-            // In both lists; CHIRP registers the UV-5R class first.
+            // In both lists; CHIRP's model_match, guessing an image's
+            // model, takes the UV-5R class it registers first.
             ("N5R2", Some("UV-5R")),
             ("BFB297", Some("UV-5R")),
             ("BFS311", Some("UV-5R")),
@@ -1430,9 +1458,23 @@ mod tests {
             assert!(check_firmware(&UV5R, firmware, false).is_err());
             assert!(check_firmware(&BF_F8HP, firmware, false).is_err());
         }
-        for firmware in ["BFB297", "N82-2", "N5R2", "BFT"] {
+        for firmware in ["BFB297", "N82-2", "BFT"] {
             assert!(check_firmware(&UV82HP, firmware, false).is_err());
         }
+        // N5R2 is in both the UV-5R's and the UV-82HP's list, so either may
+        // be chosen, as CHIRP programs a live radio as the class picked.
+        // Fails on the first-match rule, which refused an N5R2 HP as one
+        // and left it only the two-level table.
+        assert_eq!(
+            firmware_models("N5R2").collect::<Vec<_>>(),
+            ["UV-5R", "UV-82HP"]
+        );
+        for strict in [false, true] {
+            assert!(check_firmware(&UV82HP, "N5R2", strict).is_ok());
+            assert!(check_firmware(&UV5R, "N5R2", strict).is_ok());
+        }
+        let err = check_firmware(&UV82HP, "BFB297", true).unwrap_err();
+        assert!(err.to_string().contains("CHIRP's UV-5R"), "{err}");
         assert!(check_firmware(&UV5R, "N82-2", true).is_ok());
         // Nothing named: an HP only from an image, never from a radio.
         assert!(check_firmware(&UV82HP, "", false).is_ok());
@@ -1529,9 +1571,18 @@ mod tests {
             let written = encode_channels(&target, &read, &UV5R).unwrap();
             assert_eq!(power_raws(&written, 1), [1]);
         }
-        // Onto an image whose own records hold a 2, the carried 2 is kept:
-        // the index is the channel's, and that radio already holds it.
+        // Onto an image holding a 2 on another channel, still 1: the 2
+        // is the F8HP's, not this radio's. Kept because the image held a 2
+        // anywhere, it went into every such retargeted Low, a Low this app
+        // shows and CHIRP reads as High. Fails on the image-wide rule.
         let (held, _) = stray_two_image();
+        let mut elsewhere = read[0].clone();
+        elsewhere.rx_freq_hz = 146_580_000;
+        elsewhere.tx_freq_hz = 146_580_000;
+        let written = encode_channels(&held, &[elsewhere], &UV5R).unwrap();
+        assert_eq!(power_raws(&written, 1), [1]);
+        // The image's own 2 channel (146.54 MHz, Low, as "L") is this one,
+        // name aside, so its 2 is a repeat of the radio's own record.
         let written = encode_channels(&held, &read, &UV5R).unwrap();
         assert_eq!(power_raws(&written, 1), [2]);
     }

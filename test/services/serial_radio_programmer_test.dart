@@ -172,12 +172,72 @@ void main() {
       }
     });
 
+    test('its backups saved as the UV-5R go back under the HP\'s profile, '
+        'and are refused under the UV-5R\'s', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // Before it had a profile, an HP could only be read as the UV-5R, so
+      // its backups are tagged uv5r. The screen offers them under the HP,
+      // whose checked safety read passes. Under the UV-5R the read before a
+      // restore is refused, so the restore itself is too: one gate for the
+      // whole flow. Fails on the old code, whose restore skipped the model
+      // check and wrote the HP as a UV-5R.
+      final r = rig(magicIndex: 2, firmware: 'N82-3');
+      final read = await r.programmer.readWhole(
+        deviceId: EmulatedSerialPortService.cable.id,
+        profile: uv82hpProfile,
+      );
+      final codeplug = RadioCodeplug(
+        modelId: uv5rProfile.id,
+        image: read.image,
+        readAt: read.readAt,
+      );
+
+      // Restored as _restore does it: the checked safety read, then the
+      // write, both under the HP's profile.
+      for (var i = 0; i < 0x0CF0; i++) {
+        r.radio.memory[i] = 0x5A;
+      }
+      await r.programmer.readWhole(
+        deviceId: EmulatedSerialPortService.cable.id,
+        profile: uv82hpProfile,
+      );
+      await r.programmer
+          .restoreCodeplug(
+            deviceId: EmulatedSerialPortService.cable.id,
+            profile: uv82hpProfile,
+            codeplug: codeplug,
+          )
+          .drain<void>();
+      expect(
+        listEquals(
+          r.radio.memory.sublist(0x0000, 0x0CF0),
+          codeplug.image.sublist(8, 8 + 0x0CF0),
+        ),
+        isTrue,
+      );
+
+      // Under the UV-5R it is refused before anything is written, as the
+      // read before it is: one gate for the whole restore.
+      final writes = r.radio.writes.length;
+      await expectLater(
+        r.programmer
+            .restoreCodeplug(
+              deviceId: EmulatedSerialPortService.cable.id,
+              profile: uv5rProfile,
+              codeplug: codeplug,
+            )
+            .drain<void>(),
+        throwsA(isA<RadioUnsupportedException>()),
+      );
+      expect(r.radio.writes.length, writes);
+    });
+
     test('a radio whose firmware is not an HP\'s is refused as one', () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
       // A two-level UV-82 answers the same ident; written as an HP, its Lows
-      // would go out as 2. N5R2 is in CHIRP's HP list too, but CHIRP
-      // matches it to the UV-5R first.
-      for (final firmware in ['N82-2', 'BFB297', 'N5R2']) {
+      // would go out as 2. N5R2 is not here: CHIRP lists it for both the
+      // UV-5R and the UV-82HP, so either choice is the user's (below).
+      for (final firmware in ['N82-2', 'BFB297']) {
         final r = rig(magicIndex: 2, firmware: firmware);
         await expectLater(
           r.programmer.identify(
@@ -190,6 +250,23 @@ void main() {
       }
     });
   });
+
+  test(
+    'an N5R2 radio may be programmed as either model CHIRP lists it for',
+    () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // CHIRP's BASETYPE_UV5R and BASETYPE_UV82HP both list N5R2, and on a live
+      // radio CHIRP uses the class the user picked. Refusing the HP here left
+      // an N5R2 HP only the two-level table, whose Low it runs at Med.
+      for (final profile in [uv5rProfile, uv82hpProfile]) {
+        final r = rig(magicIndex: 2, firmware: 'N5R2');
+        await r.programmer.identify(
+          deviceId: EmulatedSerialPortService.cable.id,
+          profile: profile,
+        );
+      }
+    },
+  );
 
   test('reads the whole image, probe first, in order', () async {
     if (!rustReady) return markTestSkipped('host Rust library unavailable');

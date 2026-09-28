@@ -107,6 +107,19 @@ class OriginalBandLimitsNotifier
     extends AsyncNotifier<Map<String, OriginalBandLimits>> {
   static const key = 'radio_original_limits_v1';
 
+  /// What is recorded for [profile]: under its own id, else under an id it
+  /// was saved as before it had one (see [RadioProfile.legacyProfileIds]).
+  static OriginalBandLimits? lookup(
+    Map<String, OriginalBandLimits> recorded,
+    RadioProfile profile,
+  ) {
+    for (final id in [profile.id, ...profile.legacyProfileIds]) {
+      final found = recorded[id];
+      if (found != null) return found;
+    }
+    return null;
+  }
+
   @override
   Future<Map<String, OriginalBandLimits>> build() async {
     final stored = await readJsonSetting(ref, key) ?? const {};
@@ -123,7 +136,7 @@ class OriginalBandLimitsNotifier
     OriginalBandLimits limits,
   ) async {
     final current = await future;
-    final existing = current[profile.id];
+    final existing = lookup(current, profile);
     if (existing != null) return existing;
     final next = {...current, profile.id: limits};
     await writeJsonSetting(ref, key, {

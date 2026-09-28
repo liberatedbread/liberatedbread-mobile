@@ -4,6 +4,7 @@
 // One radio: which one, and everything the app can do with it.
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +22,7 @@ import '../providers/saved_radio_provider.dart';
 import '../services/baofeng_ble_programmer.dart' show RadioWritePreflight;
 import '../services/codeplug_backup_store.dart';
 import '../services/radio_programmer.dart';
+import '../src/rust/api/radio_api.dart' as rust;
 import '../widgets/confirm_dialog.dart';
 import '../widgets/tx_unlock_dialog.dart';
 import 'channel_plan_screen.dart';
@@ -32,6 +34,26 @@ const forgetRadioConsequence =
     'It comes off this list, and which model it is goes with it. Reach it '
     'again from Nearby or over its cable and check it answers to bring it '
     'back. Its backups stay.';
+
+/// Whether a live radio reporting the firmware in [image] may be programmed
+/// as [modelId]: false when the firmware string names another model.
+typedef BackupFirmwareCheck =
+    Future<bool> Function(String modelId, Uint8List image);
+
+/// The firmware check [RadioDeviceScreen] uses to find backups saved under
+/// a model the image turned out not to be. Overridden in widget tests,
+/// whose fake-async zone never completes a native call.
+final backupFirmwareCheckProvider = Provider<BackupFirmwareCheck>(
+  (ref) => (modelId, image) async {
+    try {
+      final firmware = await rust.uv5RFirmware(image: image);
+      await rust.uv5RCheckFirmware(modelId: modelId, firmware: firmware);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+);
 
 /// A radio, opened from the Nearby list, Saved devices or the USB tab.
 ///
@@ -320,9 +342,10 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     if (programmer is! BandLimitProgrammer || !programmer.supports(profile)) {
       return const [];
     }
-    final original = ref
-        .watch(originalBandLimitsProvider)
-        .valueOrNull?[profile.id];
+    final recorded = ref.watch(originalBandLimitsProvider).valueOrNull;
+    final original = recorded == null
+        ? null
+        : OriginalBandLimitsNotifier.lookup(recorded, profile);
     return [
       const Divider(height: 24),
       ListTile(
@@ -593,11 +616,14 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
     if (await _refusesWrite(profile) || !mounted) return;
     final backups = ref.read(codeplugBackupStoreProvider);
     final messenger = ScaffoldMessenger.of(context);
+    final fitsFirmware = ref.read(backupFirmwareCheckProvider);
     final List<CodeplugBackup> mine;
     try {
       mine = [
         for (final backup in await backups.list())
-          if (backup.modelId == profile.id) backup,
+          if (backup.modelId == profile.id ||
+              await _mistaggedFor(backup, profile, backups, fitsFirmware))
+            backup,
       ];
     } catch (error) {
       messenger.showSnackBar(
@@ -635,7 +661,13 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
               ListTile(
                 leading: const Icon(Icons.history),
                 title: Text(_when(backup.takenAt)),
-                subtitle: Text(backup.displayName),
+                subtitle: Text(
+                  backup.modelId == profile.id
+                      ? backup.displayName
+                      : '${backup.displayName} (saved as the '
+                            '${radioProfileById(backup.modelId)?.displayName}'
+                            ', before this model was its own)',
+                ),
                 onTap: () => Navigator.of(context).pop(backup),
               ),
           ],
@@ -682,6 +714,40 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
             'the radio before was saved as a backup first.';
       },
     );
+  }
+
+  /// Whether [backup], saved under another model, is really a [profile]'s.
+  ///
+  /// A UV-82HP could only be read as the UV-5R before it had a profile of
+  /// its own, so every backup taken of one then is filed as 'uv5r'. Listed
+  /// only under the UV-5R, it was offered to the one choice whose model
+  /// check refuses the radio before the pre-restore read, and hidden from
+  /// the one that can put it back: the owner's every older backup was
+  /// stranded. A backup is adopted only when its own model's check now
+  /// refuses its firmware and [profile]'s accepts it, so a UV-5R's backup
+  /// is never offered for an HP, nor a BF-F8HP's for a UV-5R.
+  Future<bool> _mistaggedFor(
+    CodeplugBackup backup,
+    RadioProfile profile,
+    CodeplugBackupStore backups,
+    BackupFirmwareCheck fitsFirmware,
+  ) async {
+    final tagged = radioProfileById(backup.modelId);
+    if (tagged == null ||
+        tagged.programmingFamily != ProgrammingFamily.serialUv5r ||
+        profile.programmingFamily != ProgrammingFamily.serialUv5r) {
+      return false;
+    }
+    try {
+      final image = (await backups.load(backup)).image;
+      return !await fitsFirmware(tagged.id, image) &&
+          await fitsFirmware(profile.id, image);
+    } on Exception catch (error) {
+      // One unreadable file hides that backup, not the whole list. An Error
+      // is a bug, not an unreadable file, and is not swallowed.
+      Log.radio.warning('backup not checked', error: error);
+      return false;
+    }
   }
 
   Future<void> _widen(RadioProfile profile, RadioBandLimits widened) async {

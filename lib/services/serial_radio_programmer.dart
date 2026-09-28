@@ -260,28 +260,22 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
       codeplug.image,
       codeplug.image,
       blocks,
-      checkModel: false,
     );
   }
 
   /// Write [blocks] of [image] and read them back, on a radio that answers
   /// with [expected]'s ident and firmware.
   ///
-  /// [checkModel] is false only for a restore, which puts back a radio's
-  /// own bytes and chooses no power: a backup taken under the wrong model
-  /// still goes back to the radio it came from.
+  /// A restore is model-checked too: the safety read before it is, so an
+  /// exemption here could never be reached. A UV-82HP's backups saved as
+  /// the UV-5R are offered under the HP's profile instead.
   Stream<RadioProgressEvent> _writeBlocks(
     String deviceId,
     RadioProfile profile,
     Uint8List expected,
     Uint8List image,
-    List<rust.CodeplugBlockDto> blocks, {
-    bool checkModel = true,
-  }) => _session(deviceId, profile, checkModel: checkModel, (
-    session,
-    ident,
-    probe,
-  ) async* {
+    List<rust.CodeplugBlockDto> blocks,
+  ) => _session(deviceId, profile, (session, ident, probe) async* {
     // The image was read from one radio; this had better be it, or at
     // least one answering exactly as it did.
     final firmware = await rust.uv5RFirmware(image: expected);
@@ -350,8 +344,7 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
   });
 
   /// Open the cable, wake the radio, probe it, check its firmware is the
-  /// [profile]'s (unless [checkModel] is false), hand off to [body], and
-  /// always close the port.
+  /// [profile]'s, hand off to [body], and always close the port.
   Stream<RadioProgressEvent> _session(
     String deviceId,
     RadioProfile profile,
@@ -360,9 +353,8 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
       Uint8List ident,
       rust.Uv5rProbeDto probe,
     )
-    body, {
-    bool checkModel = true,
-  }) async* {
+    body,
+  ) async* {
     if (!supports(profile)) throw const RadioUnsupportedException();
 
     yield const RadioProgressEvent(
@@ -383,7 +375,7 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
         await rust.uv5RIdentMagics(modelId: profile.id),
       );
       final probe = await session.probe();
-      if (checkModel) await _checkModel(profile, probe.firmware);
+      await _checkModel(profile, probe.firmware);
       yield* body(session, ident, probe);
     } finally {
       try {
