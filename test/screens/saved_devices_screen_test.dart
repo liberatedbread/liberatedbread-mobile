@@ -11,6 +11,9 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
+import 'package:liberated_bread_mobile/providers/printer_provider.dart';
+import 'package:liberated_bread_mobile/screens/print_label_screen.dart';
+import 'package:liberated_bread_mobile/services/saved_device_store.dart';
 import 'package:liberated_bread_mobile/screens/roomba_transport_screen.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
@@ -28,8 +31,10 @@ import '../fakes/in_memory_settings_store.dart';
 
 late SharedPreferences _prefs;
 
-Widget _wrap() => ProviderScope(
+Widget _wrap({List<SavedPrinter>? printers}) => ProviderScope(
   overrides: [
+    if (printers != null)
+      savedPrintersProvider.overrideWith((ref) async => printers),
     bleServiceProvider.overrideWithValue(FakeBleService()),
     sharedPreferencesProvider.overrideWithValue(_prefs),
     // Forget now clears the Roomba and Rabbit Air secrets too, and the
@@ -395,6 +400,61 @@ void main() {
       expect(find.text('Base radio'), findsNothing);
       expect(find.text('Removed Base radio'), findsOneWidget);
       expect(find.text('No saved devices yet'), findsOneWidget);
+    });
+  });
+
+  group('asset labels', () {
+    final printer = SavedPrinter(
+      name: 'Label Cat',
+      specYaml: 'cat-yaml',
+      raster: const RasterPrintDto(
+        handler: 'cat_printer',
+        transport: 'ble_write_plan',
+        encodable: true,
+        dpi: 203,
+        dpiAssumed: false,
+        printableDots: 384,
+        media: [],
+        variants: [],
+        hardwareTested: true,
+      ),
+      ble: SavedDevice(
+        id: 'cc',
+        name: 'Label Cat',
+        lastSeen: DateTime(2026, 7, 30),
+      ),
+    );
+
+    testWidgets('no label action until there is a printer to use', (
+      tester,
+    ) async {
+      await _seed(
+        '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+      );
+      await tester.pumpWidget(_wrap(printers: const []));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Print a label for Probe One'), findsNothing);
+    });
+
+    testWidgets('a saved printer puts the device on a label', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await _seed(
+        '[{"id":"aa:bb","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+      );
+      await tester.pumpWidget(_wrap(printers: [printer]));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Print a label for Probe One'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // One printer: no picker, straight to the composer, prefilled.
+      expect(find.byType(PrintLabelScreen), findsOneWidget);
+      expect(find.text('Label Cat'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Probe One'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'aa:bb'), findsWidgets);
     });
   });
 }

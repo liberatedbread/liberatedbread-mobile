@@ -7,6 +7,7 @@
 
 import 'api/device_api.dart';
 import 'api/mock_api.dart';
+import 'api/print_api.dart';
 import 'api/radio_api.dart';
 import 'api/serial_api.dart';
 import 'api/spec_handle.dart';
@@ -129,6 +130,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CameraKeepaliveDto dco_decode_box_autoadd_camera_keepalive_dto(dynamic raw);
 
   @protected
+  CompletionPollDto dco_decode_box_autoadd_completion_poll_dto(dynamic raw);
+
+  @protected
   double dco_decode_box_autoadd_f_64(dynamic raw);
 
   @protected
@@ -160,7 +164,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PanelResolutionDto dco_decode_box_autoadd_panel_resolution_dto(dynamic raw);
 
   @protected
+  PrintChoiceDto dco_decode_box_autoadd_print_choice_dto(dynamic raw);
+
+  @protected
   QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw);
+
+  @protected
+  RasterPrintDto dco_decode_box_autoadd_raster_print_dto(dynamic raw);
 
   @protected
   RejoinDto dco_decode_box_autoadd_rejoin_dto(dynamic raw);
@@ -245,6 +255,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CommandDto dco_decode_command_dto(dynamic raw);
 
   @protected
+  CompletionPollDto dco_decode_completion_poll_dto(dynamic raw);
+
+  @protected
   DecodedValueDto dco_decode_decoded_value_dto(dynamic raw);
 
   @protected
@@ -299,7 +312,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw);
 
   @protected
+  IppMarkerDto dco_decode_ipp_marker_dto(dynamic raw);
+
+  @protected
+  IppPrinterStatusDto dco_decode_ipp_printer_status_dto(dynamic raw);
+
+  @protected
   KasaRequestDto dco_decode_kasa_request_dto(dynamic raw);
+
+  @protected
+  LabelCanvasDto dco_decode_label_canvas_dto(dynamic raw);
 
   @protected
   LifxAccessPointDto dco_decode_lifx_access_point_dto(dynamic raw);
@@ -376,6 +398,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> dco_decode_list_image_write_dto(dynamic raw);
+
+  @protected
+  List<IppMarkerDto> dco_decode_list_ipp_marker_dto(dynamic raw);
 
   @protected
   List<LifxZoneColorDto> dco_decode_list_lifx_zone_color_dto(dynamic raw);
@@ -457,6 +482,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<PrintMediaDto> dco_decode_list_print_media_dto(dynamic raw);
+
+  @protected
   List<ProfileCharacteristicDto> dco_decode_list_profile_characteristic_dto(
     dynamic raw,
   );
@@ -487,6 +515,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<(int, Uint8List)> dco_decode_list_record_u_16_list_prim_u_8_strict(
     dynamic raw,
   );
+
+  @protected
+  List<ReplyWaitDto> dco_decode_list_reply_wait_dto(dynamic raw);
 
   @protected
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
@@ -643,6 +674,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CompletionPollDto? dco_decode_opt_box_autoadd_completion_poll_dto(
+    dynamic raw,
+  );
+
+  @protected
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
 
   @protected
@@ -675,7 +711,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PrintChoiceDto? dco_decode_opt_box_autoadd_print_choice_dto(dynamic raw);
+
+  @protected
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
+
+  @protected
+  RasterPrintDto? dco_decode_opt_box_autoadd_raster_print_dto(dynamic raw);
 
   @protected
   RejoinDto? dco_decode_opt_box_autoadd_rejoin_dto(dynamic raw);
@@ -749,6 +791,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlaylistWritesDto dco_decode_playlist_writes_dto(dynamic raw);
 
   @protected
+  PrintChoiceDto dco_decode_print_choice_dto(dynamic raw);
+
+  @protected
+  PrintDither dco_decode_print_dither(dynamic raw);
+
+  @protected
+  PrintMediaDto dco_decode_print_media_dto(dynamic raw);
+
+  @protected
   ProfileCharacteristicDto dco_decode_profile_characteristic_dto(dynamic raw);
 
   @protected
@@ -765,6 +816,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RadioModelDto dco_decode_radio_model_dto(dynamic raw);
+
+  @protected
+  RasterPrintDto dco_decode_raster_print_dto(dynamic raw);
 
   @protected
   ReadRequestDto dco_decode_read_request_dto(dynamic raw);
@@ -785,6 +839,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RejoinDto dco_decode_rejoin_dto(dynamic raw);
+
+  @protected
+  ReplyWaitDto dco_decode_reply_wait_dto(dynamic raw);
 
   @protected
   RoombaAnnouncementDto dco_decode_roomba_announcement_dto(dynamic raw);
@@ -1026,6 +1083,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CompletionPollDto sse_decode_box_autoadd_completion_poll_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
@@ -1073,7 +1135,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PrintChoiceDto sse_decode_box_autoadd_print_choice_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   QuerySourceDto sse_decode_box_autoadd_query_source_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RasterPrintDto sse_decode_box_autoadd_raster_print_dto(
     SseDeserializer deserializer,
   );
 
@@ -1180,6 +1252,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CommandDto sse_decode_command_dto(SseDeserializer deserializer);
 
   @protected
+  CompletionPollDto sse_decode_completion_poll_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   DecodedValueDto sse_decode_decoded_value_dto(SseDeserializer deserializer);
 
   @protected
@@ -1238,7 +1315,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  IppMarkerDto sse_decode_ipp_marker_dto(SseDeserializer deserializer);
+
+  @protected
+  IppPrinterStatusDto sse_decode_ipp_printer_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   KasaRequestDto sse_decode_kasa_request_dto(SseDeserializer deserializer);
+
+  @protected
+  LabelCanvasDto sse_decode_label_canvas_dto(SseDeserializer deserializer);
 
   @protected
   LifxAccessPointDto sse_decode_lifx_access_point_dto(
@@ -1347,6 +1435,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<IppMarkerDto> sse_decode_list_ipp_marker_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<LifxZoneColorDto> sse_decode_list_lifx_zone_color_dto(
     SseDeserializer deserializer,
   );
@@ -1448,6 +1541,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<PrintMediaDto> sse_decode_list_print_media_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<ProfileCharacteristicDto> sse_decode_list_profile_characteristic_dto(
     SseDeserializer deserializer,
   );
@@ -1490,6 +1588,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<(int, Uint8List)> sse_decode_list_record_u_16_list_prim_u_8_strict(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ReplyWaitDto> sse_decode_list_reply_wait_dto(
     SseDeserializer deserializer,
   );
 
@@ -1700,6 +1803,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CompletionPollDto? sse_decode_opt_box_autoadd_completion_poll_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
 
   @protected
@@ -1742,7 +1850,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PrintChoiceDto? sse_decode_opt_box_autoadd_print_choice_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   QuerySourceDto? sse_decode_opt_box_autoadd_query_source_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RasterPrintDto? sse_decode_opt_box_autoadd_raster_print_dto(
     SseDeserializer deserializer,
   );
 
@@ -1828,6 +1946,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PrintChoiceDto sse_decode_print_choice_dto(SseDeserializer deserializer);
+
+  @protected
+  PrintDither sse_decode_print_dither(SseDeserializer deserializer);
+
+  @protected
+  PrintMediaDto sse_decode_print_media_dto(SseDeserializer deserializer);
+
+  @protected
   ProfileCharacteristicDto sse_decode_profile_characteristic_dto(
     SseDeserializer deserializer,
   );
@@ -1848,6 +1975,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RadioModelDto sse_decode_radio_model_dto(SseDeserializer deserializer);
+
+  @protected
+  RasterPrintDto sse_decode_raster_print_dto(SseDeserializer deserializer);
 
   @protected
   ReadRequestDto sse_decode_read_request_dto(SseDeserializer deserializer);
@@ -1872,6 +2002,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RejoinDto sse_decode_rejoin_dto(SseDeserializer deserializer);
+
+  @protected
+  ReplyWaitDto sse_decode_reply_wait_dto(SseDeserializer deserializer);
 
   @protected
   RoombaAnnouncementDto sse_decode_roomba_announcement_dto(
@@ -2172,6 +2305,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_completion_poll_dto(
+    CompletionPollDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
 
   @protected
@@ -2229,8 +2368,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_print_choice_dto(
+    PrintChoiceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_query_source_dto(
     QuerySourceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_raster_print_dto(
+    RasterPrintDto self,
     SseSerializer serializer,
   );
 
@@ -2364,6 +2515,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_command_dto(CommandDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_completion_poll_dto(
+    CompletionPollDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_decoded_value_dto(
     DecodedValueDto self,
     SseSerializer serializer,
@@ -2451,8 +2608,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_ipp_marker_dto(IppMarkerDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_ipp_printer_status_dto(
+    IppPrinterStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_kasa_request_dto(
     KasaRequestDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_label_canvas_dto(
+    LabelCanvasDto self,
     SseSerializer serializer,
   );
 
@@ -2592,6 +2764,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_ipp_marker_dto(
+    List<IppMarkerDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_lifx_zone_color_dto(
     List<LifxZoneColorDto> self,
     SseSerializer serializer,
@@ -2727,6 +2905,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_print_media_dto(
+    List<PrintMediaDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_profile_characteristic_dto(
     List<ProfileCharacteristicDto> self,
     SseSerializer serializer,
@@ -2777,6 +2961,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_record_u_16_list_prim_u_8_strict(
     List<(int, Uint8List)> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_reply_wait_dto(
+    List<ReplyWaitDto> self,
     SseSerializer serializer,
   );
 
@@ -3051,6 +3241,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_completion_poll_dto(
+    CompletionPollDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);
 
   @protected
@@ -3102,8 +3298,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_print_choice_dto(
+    PrintChoiceDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_query_source_dto(
     QuerySourceDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_raster_print_dto(
+    RasterPrintDto? self,
     SseSerializer serializer,
   );
 
@@ -3207,6 +3415,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_print_choice_dto(
+    PrintChoiceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_print_dither(PrintDither self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_print_media_dto(PrintMediaDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_profile_characteristic_dto(
     ProfileCharacteristicDto self,
     SseSerializer serializer,
@@ -3240,6 +3460,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_radio_model_dto(RadioModelDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_raster_print_dto(
+    RasterPrintDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_read_request_dto(
     ReadRequestDto self,
     SseSerializer serializer,
@@ -3271,6 +3497,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_rejoin_dto(RejoinDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_reply_wait_dto(ReplyWaitDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_roomba_announcement_dto(

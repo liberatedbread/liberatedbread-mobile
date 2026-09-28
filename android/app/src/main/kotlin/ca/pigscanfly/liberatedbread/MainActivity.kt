@@ -2,7 +2,11 @@ package ca.pigscanfly.liberatedbread
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.net.wifi.WifiManager
+import android.os.Build
+import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -24,6 +28,111 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var multicastLock: WifiManager.MulticastLock? = null
 
+    /** A file shared in before Dart asked for it (a cold start), held once. */
+    private var pendingShare: Map<String, Any?>? = null
+    private var shareChannel: MethodChannel? = null
+
+    /** Dart asked for the launch share before the copy finished. */
+    private var initialShareResult: MethodChannel.Result? = null
+    private var initialShareLoading = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Not on a re-creation (rotation, process restore): the intent is the
+        // one already handled, and printing it twice would be a surprise.
+        if (savedInstanceState == null) {
+            val launch = intent
+            initialShareLoading = true
+            readShareInBackground(launch) { share ->
+                initialShareLoading = false
+                val waiting = initialShareResult
+                initialShareResult = null
+                if (waiting != null) waiting.success(share) else pendingShare = share
+            }
+        }
+    }
+
+    /**
+     * A share while the app is already running (launchMode singleTop reuses
+     * this activity): hand it straight to Dart, or hold it if the engine has
+     * not asked yet.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        readShareInBackground(intent) { share ->
+            if (share == null) return@readShareInBackground
+            val channel = shareChannel
+            if (channel == null) {
+                pendingShare = share
+            } else {
+                channel.invokeMethod("shared", share)
+            }
+        }
+    }
+
+    /**
+     * Copy the shared stream off the main thread — a cloud-backed URI (a
+     * Drive file) can take seconds, and reading it here would freeze the UI
+     * into an ANR — then deliver the result back on the main thread.
+     */
+    private fun readShareInBackground(intent: Intent?, done: (Map<String, Any?>?) -> Unit) {
+        Thread {
+            val share = readShare(intent)
+            runOnUiThread { done(share) }
+        }.start()
+    }
+
+    /**
+     * The shared or opened file's bytes, type and name, or null for an intent
+     * that is not a share. Copied now, while the URI permission the sharing
+     * app granted is still live; it lapses when this activity goes.
+     */
+    private fun readShare(intent: Intent?): Map<String, Any?>? {
+        intent ?: return null
+        val uri: Uri = when (intent.action) {
+            Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+            Intent.ACTION_VIEW -> intent.data
+            else -> null
+        } ?: return null
+        return try {
+            val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                // A label or a page is never this big; a 4K video someone
+                // shared by mistake would be, and should not be read into RAM.
+                val limit = MAX_SHARE_BYTES + 1
+                val buffer = ByteArray(8192)
+                val out = java.io.ByteArrayOutputStream()
+                var total = 0
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    total += n
+                    if (total > limit) return null
+                    out.write(buffer, 0, n)
+                }
+                out.toByteArray()
+            } ?: return null
+            mapOf(
+                "bytes" to bytes,
+                "mime" to (intent.type ?: contentResolver.getType(uri)),
+                "name" to displayName(uri),
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun displayName(uri: Uri): String? = try {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+    } catch (e: Exception) {
+        null
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
@@ -37,6 +146,30 @@ class MainActivity : FlutterActivity() {
                         releaseMulticastLock()
                         result.success(null)
                     }
+                    else -> result.notImplemented()
+                }
+            }
+        shareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARE_CHANNEL)
+            .apply {
+                setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "initialShare" -> {
+                            if (initialShareLoading) {
+                                // Answered when the copy finishes.
+                                initialShareResult = result
+                            } else {
+                                result.success(pendingShare)
+                                pendingShare = null
+                            }
+                        }
+                        else -> result.notImplemented()
+                    }
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PRINT_SETTINGS_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "open" -> result.success(openPrintSettings())
                     else -> result.notImplemented()
                 }
             }
@@ -91,6 +224,21 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
+     * The system print-service settings, for "add to system printers": the
+     * app cannot add a printer itself, but it can open the page where the
+     * user turns on the service that finds them. False when no activity
+     * handles the intent, and the Dart side then says where to look.
+     */
+    private fun openPrintSettings(): Boolean {
+        return try {
+            startActivity(Intent(Settings.ACTION_PRINT_SETTINGS))
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Idempotent: a second scan starting while one is running must not stack a
      * second lock that the matching single release would then leave held.
      */
@@ -126,5 +274,8 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "ca.pigscanfly.liberatedbread/multicast"
         private const val WIFI_SCAN_CHANNEL = "ca.pigscanfly.liberatedbread/wifi_scan"
         private const val LOCK_TAG = "liberatedbread-network-scan"
+        private const val SHARE_CHANNEL = "ca.pigscanfly.liberatedbread/share_in"
+        private const val PRINT_SETTINGS_CHANNEL = "ca.pigscanfly.liberatedbread/print_settings"
+        private const val MAX_SHARE_BYTES = 32 * 1024 * 1024
     }
 }

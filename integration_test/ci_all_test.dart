@@ -36,6 +36,7 @@ import 'group_flow_test.dart' as group_flow;
 import 'keychain_accessibility_test.dart' as keychain_accessibility;
 import 'mock_flow_test.dart' as mock_flow;
 import 'native_core_test.dart' as native_core;
+import 'printing_test.dart' as printing;
 
 void main() {
   // MUST come before the group() calls, and is not redundant with the
@@ -97,4 +98,7 @@ void main() {
   // of the RustLib divide; after native_core, the init guard inside it is a
   // no-op.
   group('group_flow_test.dart', group_flow.main);
+  // printing drives the real codec (NIIMBOT) and the Brother/IPP composers
+  // through the bridge, so it too sits after the RustLib divide.
+  group('printing_test.dart', printing.main);
 }

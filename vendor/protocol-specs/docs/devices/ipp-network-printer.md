@@ -1,18 +1,33 @@
-# Generic IPP Network Printer (identify-only)
+# Generic IPP Network Printer (status)
 
-> **Status**: Identify-only (discovery signature from public standards; untested — no hardware)
-> **Protocol**: mDNS / DNS-SD (Bonjour printing)
+> **Status**: Status only (discovery signature and IPP status from public standards; untested — no hardware)
+> **Protocol**: mDNS / DNS-SD (Bonjour printing) + IPP (RFC 8010/8011)
 > **Manufacturer**: Various (IPP Everywhere / AirPrint printers)
-> **Manufacturer Status**: Active — recognised and linked to the printer's own web UI, not driven here
+> **Manufacturer Status**: Active — status read over IPP; printing left to the OS print system
 
 ## Overview
 
 Office and home network printers advertise themselves over mDNS/DNS-SD using
-standard, vendor-neutral service types. This app **identifies** them — shows a
-printer pictogram and deep-links to the printer's embedded web interface — and
-does **not** print. Printing is the job of the OS print system (AirPrint, IPP
-Everywhere / driverless printing) or the vendor's companion app (HP Smart,
-Epson Smart Panel, Brother iPrint&Scan, Canon PRINT).
+standard, vendor-neutral service types. This app **identifies** them and
+**reads their status over IPP** — state, what is wrong, ink or toner levels,
+the paper loaded — with one standard Get-Printer-Attributes request, and
+deep-links to the printer's embedded web interface. It does **not** send
+print jobs itself: printing is the job of the OS print system (AirPrint, IPP
+Everywhere / driverless printing), which already reaches these printers with
+no vendor software.
+
+## Status over IPP
+
+`POST http://<ip>:631/<rp>` with `Content-Type: application/ipp` (TLS on the
+same port for `_ipps._tcp`, self-signed — pin on first use). The body is an
+RFC 8010 Get-Printer-Attributes request (operation `0x000B`) asking for
+`printer-state`, `printer-state-reasons`, `printer-state-message`,
+`printer-make-and-model`, the `marker-*` supply attributes, `media-ready` and
+`document-format-supported`. The full byte layout is in the spec's
+`protocol_details.ipp_status`.
+
+Only `_ipp._tcp` / `_ipps._tcp` carry this surface; a printer seen only as
+`_pdl-datastream` or `_printer` is linked to its admin page, nothing more.
 
 ## Discovery Summary
 

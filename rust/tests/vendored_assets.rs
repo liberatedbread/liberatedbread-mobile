@@ -3543,9 +3543,11 @@ fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
             }
         }
     }
+    // 69: the NIIMBOT D110's print task added set_density's density (1-3),
+    // set_label_type's label_type (gap / transparent) and heartbeat's type.
     assert_eq!(
         coded.len(),
-        66,
+        69,
         "the catalogue's coded BLE parameters, each offering its codes: {coded:#?}"
     );
     assert!(
@@ -3851,5 +3853,41 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
     assert!(
         synology[0].passive_ok && synology[0].probe.is_empty(),
         "a DiskStation is heard, not asked — it shares port 9999 with Kasa"
+    );
+}
+
+/// The printing catalogue drives the paths the app calls, not just fixtures:
+/// the vendored NIIMBOT spec encodes through the public image-frame entry
+/// point into a reply-gated plan, and the vendored IPP spec is a status
+/// surface rather than a raster printer.
+#[test]
+fn the_vendored_printers_drive_their_print_paths() {
+    let niimbot = std::fs::read_to_string(spec_path("niimbot-d110.yaml")).unwrap();
+    let raster = liberated_bread_core::api::print_api::raster_print_for_spec(niimbot.clone())
+        .unwrap()
+        .expect("the D110 is a raster printer");
+    assert_eq!(raster.transport.as_deref(), Some("ble_write_plan"));
+    assert!(raster.encodable);
+    assert_eq!(raster.printable_dots, Some(96));
+
+    let (w, h) = (96u32, 120u32);
+    let mut rgb = vec![255u8; (w * h * 3) as usize];
+    rgb[..3 * 40].fill(0);
+    let plan =
+        liberated_bread_core::api::device_api::encode_image_frame(niimbot, w, h, rgb, 0, 180)
+            .expect("the D110 plan encodes from the vendored spec");
+    assert_eq!(plan.writes[0].bytes[..4], [0x03, 0x55, 0x55, 0xC1]);
+    assert_eq!(plan.reply_waits.len(), 10, "one per control packet");
+    assert!(
+        plan.completion_poll.is_some(),
+        "print_end waits for the page"
+    );
+
+    let ipp = std::fs::read_to_string(spec_path("ipp-network-printer.yaml")).unwrap();
+    assert!(liberated_bread_core::api::print_api::ipp_status_supported(ipp.clone()).unwrap());
+    assert!(
+        liberated_bread_core::api::print_api::raster_print_for_spec(ipp)
+            .unwrap()
+            .is_none()
     );
 }

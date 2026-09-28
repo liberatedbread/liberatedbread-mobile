@@ -185,7 +185,11 @@ pub fn encode_print_job(
             bytes: part.to_vec(),
         })
         .collect();
-    Ok(EncodedFrame { writes, packets })
+    Ok(EncodedFrame {
+        writes,
+        packets,
+        ..Default::default()
+    })
 }
 
 /// The TX channel: the single writable characteristic of the service the

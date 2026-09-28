@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show immutable;
 
 import '../src/rust/api/device_api.dart';
+import '../src/rust/api/print_api.dart'
+    show IppPrinterStatusDto, LabelCanvasDto, PrintDither, RasterPrintDto;
 import '../src/rust/api/spec_handle.dart'
     show CatalogueEntryDto, SpecLoadFailureDto, UdpProbeDto;
 
@@ -30,6 +32,8 @@ export '../src/rust/api/device_api.dart'
         PanelResolutionDto,
         ImageWriteDto,
         ImageWritePlanDto,
+        ReplyWaitDto,
+        CompletionPollDto,
         StoredUploadDto,
         StoredUploadPlanDto,
         StoredUploadEventDto,
@@ -126,6 +130,17 @@ export '../src/rust/api/spec_handle.dart'
         SpecLoadFailureDto,
         UdpIdentityFieldDto,
         UdpProbeDto;
+
+// The printing DTOs, from their own generated module for the same reason.
+export '../src/rust/api/print_api.dart'
+    show
+        IppMarkerDto,
+        IppPrinterStatusDto,
+        LabelCanvasDto,
+        PrintChoiceDto,
+        PrintDither,
+        PrintMediaDto,
+        RasterPrintDto;
 
 /// Abstraction over the Rust device-spec codec (flutter_rust_bridge FFI).
 ///
@@ -1007,6 +1022,48 @@ abstract class SpecCodec {
   /// The device's `camera:` feed(s) and optional keepalive, or null when the
   /// spec declares no camera.
   Future<CameraDto?> cameraForDevice({required String specYaml});
+
+  /// The spec's raster-print surface — transport, head geometry, rolls — or
+  /// null when the spec is not a raster printer.
+  Future<RasterPrintDto?> rasterPrintForSpec({required String specYaml});
+
+  /// Reduce a composed RGBA canvas (straight alpha) to the black-and-white
+  /// RGB888 a raster printer takes — what the preview shows is what prints.
+  Future<Uint8List> prepareMonoRaster({
+    required Uint8List rgba,
+    required int width,
+    required int height,
+    required PrintDither dither,
+    required int threshold,
+  });
+
+  /// The canvas to compose a Brother QL label on for the given media.
+  Future<LabelCanvasDto> brotherQlLabelCanvas({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
+  });
+
+  /// Whether the spec reads its status over IPP Get-Printer-Attributes.
+  Future<bool> ippStatusSupported({required String specYaml});
+
+  /// The body of an IPP Get-Printer-Attributes POST for [printerUri].
+  Future<Uint8List> ippStatusRequest({
+    required String printerUri,
+    required int requestId,
+  });
+
+  /// Decode a Get-Printer-Attributes reply body (throws when malformed).
+  Future<IppPrinterStatusDto> decodeIppStatus({required List<int> reply});
+
+  /// Encode a composed black-and-white RGB888 label as a whole Brother QL
+  /// raster job, placed on the head for the given media.
+  Future<Uint8List> renderBrotherQlJob({
+    required String specYaml,
+    required BrotherQlJobParamsDto params,
+    required Uint8List rgb,
+    required int width,
+    required int height,
+  });
 }
 
 /// Play/loop-mode values for [SpecCodec.encodeAutorunMode].

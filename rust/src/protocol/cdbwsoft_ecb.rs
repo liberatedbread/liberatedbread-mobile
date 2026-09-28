@@ -225,7 +225,11 @@ pub fn encode_bitmap_transfer(
 
     // One AES block per BLE write, so packets and writes are the same count.
     let packets = writes.len() as u32;
-    Ok(EncodedFrame { writes, packets })
+    Ok(EncodedFrame {
+        writes,
+        packets,
+        ..Default::default()
+    })
 }
 
 /// The 1-bit mask the spec states for this family: "any RGB channel >= 128 =
