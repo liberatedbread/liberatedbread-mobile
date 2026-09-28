@@ -491,7 +491,9 @@ check_specs_validate() {
   # sends someone to the wrong repository entirely. A real validation failure
   # always prints at least one `FAIL <path>` line, so require one before
   # claiming the specs are at fault.
-  if ! printf '%s\n' "$output" | grep -q '^FAIL'; then
+  # Here-string, not `printf | grep -q`: see ci-format-selftest.sh — an early
+  # grep exit SIGPIPEs printf, and under pipefail that reads as "no FAIL".
+  if ! grep -q '^FAIL' <<<"$output"; then
     echo "::error::could not RUN the vendored validator ($python). This says" >&2
     echo "::error::nothing about whether the specs are valid — the tool did not" >&2
     echo "::error::get far enough to judge them. Its output was:" >&2

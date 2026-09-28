@@ -54,7 +54,10 @@ fi
 # The app's own Dart is in. Named directories rather than a count, so adding a
 # file cannot break it and losing a whole tree cannot pass.
 for dir in lib test integration_test; do
-  if printf '%s\n' "$listed" | grep -q "^$dir/"; then
+  # A here-string, not `printf | grep -q`: grep -q exits at its first match,
+  # and once the list outgrew the pipe buffer printf took SIGPIPE, which
+  # pipefail reported as "dropped out" — an intermittent false failure.
+  if grep -q "^$dir/" <<<"$listed"; then
     pass "$dir/ is formatted"
   else
     fail "$dir/ has dropped out of the format set"

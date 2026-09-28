@@ -240,6 +240,64 @@ void main() {
       expect(skipped.copyWith(name: 'x').skip, isTrue);
     });
 
+    group('powerRaw', () {
+      // The radio's own power index, read with the channel: what keeps a
+      // UV-82HP's Low (2, behind a profile listing Low as 1) from going
+      // back out as 1, its Med.
+      final hpLow = repeater.copyWith(power: PowerLevel.low);
+      final withRaw = RadioChannel.fromJson({
+        ...hpLow.toJson(),
+        'powerRaw': 2,
+      })!;
+
+      test('round-trips through JSON, and is omitted when absent', () {
+        expect(withRaw.powerRaw, 2);
+        final json = jsonDecode(jsonEncode(withRaw.toJson()));
+        expect(json['powerRaw'], 2);
+        final back = RadioChannel.fromJson(json as Map<String, dynamic>)!;
+        expect(back, withRaw);
+        expect(back.powerRaw, 2);
+
+        // A plan stored before the field existed reads as no index.
+        expect(hpLow.toJson().containsKey('powerRaw'), isFalse);
+        expect(RadioChannel.fromJson(hpLow.toJson())!.powerRaw, isNull);
+      });
+
+      test('an index that is not two bits is dropped, not the channel', () {
+        for (final junk in <Object?>[-1, 4, 'two', 2.0]) {
+          final read = RadioChannel.fromJson({
+            ...hpLow.toJson(),
+            'powerRaw': junk,
+          });
+          expect(read, isNotNull, reason: '$junk');
+          expect(read!.powerRaw, isNull, reason: '$junk');
+        }
+      });
+
+      test('copyWith keeps it unless the level changes', () {
+        expect(withRaw.copyWith(name: 'RENAMED').powerRaw, 2);
+        expect(withRaw.copyWith(skip: true, rxFreqHz: 146520000).powerRaw, 2);
+        // The channel editor passes the level back on every save; an
+        // unchanged one is not a change.
+        expect(withRaw.copyWith(power: PowerLevel.low).powerRaw, 2);
+        // The user chose a level: the radio's index was for the old one.
+        expect(withRaw.copyWith(power: PowerLevel.high).powerRaw, isNull);
+        expect(
+          withRaw
+              .copyWith(power: PowerLevel.high)
+              .copyWith(power: PowerLevel.low)
+              .powerRaw,
+          isNull,
+        );
+      });
+
+      test('takes part in equality', () {
+        expect(withRaw, isNot(hpLow));
+        expect(withRaw.copyWith(), withRaw);
+        expect(withRaw.copyWith().hashCode, withRaw.hashCode);
+      });
+    });
+
     test('has value equality over every field', () {
       expect(repeater.copyWith(), repeater);
       expect(repeater.copyWith().hashCode, repeater.hashCode);

@@ -8879,8 +8879,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RadioChannelDto dco_decode_radio_channel_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return RadioChannelDto(
       slot: dco_decode_u_16(arr[0]),
       name: dco_decode_String(arr[1]),
@@ -8892,6 +8892,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       narrow: dco_decode_bool(arr[7]),
       power: dco_decode_String(arr[8]),
       skip: dco_decode_bool(arr[9]),
+      powerRaw: dco_decode_opt_box_autoadd_u_8(arr[10]),
     );
   }
 
@@ -12483,6 +12484,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_narrow = sse_decode_bool(deserializer);
     var var_power = sse_decode_String(deserializer);
     var var_skip = sse_decode_bool(deserializer);
+    var var_powerRaw = sse_decode_opt_box_autoadd_u_8(deserializer);
     return RadioChannelDto(
       slot: var_slot,
       name: var_name,
@@ -12494,6 +12496,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       narrow: var_narrow,
       power: var_power,
       skip: var_skip,
+      powerRaw: var_powerRaw,
     );
   }
 
@@ -15804,6 +15807,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.narrow, serializer);
     sse_encode_String(self.power, serializer);
     sse_encode_bool(self.skip, serializer);
+    sse_encode_opt_box_autoadd_u_8(self.powerRaw, serializer);
   }
 
   @protected

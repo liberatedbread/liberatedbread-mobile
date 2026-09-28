@@ -9424,6 +9424,7 @@ impl SseDecode for crate::api::radio_api::RadioChannelDto {
         let mut var_narrow = <bool>::sse_decode(deserializer);
         let mut var_power = <String>::sse_decode(deserializer);
         let mut var_skip = <bool>::sse_decode(deserializer);
+        let mut var_powerRaw = <Option<u8>>::sse_decode(deserializer);
         return crate::api::radio_api::RadioChannelDto {
             slot: var_slot,
             name: var_name,
@@ -9435,6 +9436,7 @@ impl SseDecode for crate::api::radio_api::RadioChannelDto {
             narrow: var_narrow,
             power: var_power,
             skip: var_skip,
+            power_raw: var_powerRaw,
         };
     }
 }
@@ -12776,6 +12778,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::radio_api::RadioChannelDto {
             self.narrow.into_into_dart().into_dart(),
             self.power.into_into_dart().into_dart(),
             self.skip.into_into_dart().into_dart(),
+            self.power_raw.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -15711,6 +15714,7 @@ impl SseEncode for crate::api::radio_api::RadioChannelDto {
         <bool>::sse_encode(self.narrow, serializer);
         <String>::sse_encode(self.power, serializer);
         <bool>::sse_encode(self.skip, serializer);
+        <Option<u8>>::sse_encode(self.power_raw, serializer);
     }
 }
 

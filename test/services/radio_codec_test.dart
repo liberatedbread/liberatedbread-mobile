@@ -1,8 +1,10 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/channel_plan.dart';
 import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
@@ -33,6 +35,7 @@ rust.RadioChannelDto _dto(
   bool narrow = false,
   String power = 'high',
   bool skip = false,
+  int? powerRaw,
 }) => rust.RadioChannelDto(
   slot: slot,
   name: '$name$slot',
@@ -44,6 +47,7 @@ rust.RadioChannelDto _dto(
   narrow: narrow,
   power: power,
   skip: skip,
+  powerRaw: powerRaw,
 );
 
 /// [profile]'s image as an unwritten radio holds it, sized the way the
@@ -104,6 +108,16 @@ void main() {
       expect(back.power, PowerLevel.low);
       expect(back.skip, isTrue);
       expect(back, channel);
+    });
+
+    test('the radio\'s power index crosses in both directions', () {
+      final hpLow = channelFromDto(_dto(1, power: 'low', powerRaw: 2));
+      expect(hpLow.powerRaw, 2);
+      expect(channelToDto(hpLow, slot: 1).powerRaw, 2);
+      expect(channelFromDto(channelToDto(hpLow, slot: 1)), hpLow);
+      // A channel made in the app has none to send.
+      expect(channelToDto(channel, slot: 1).powerRaw, isNull);
+      expect(channelFromDto(_dto(1)).powerRaw, isNull);
     });
 
     test('medium power crosses the boundary as medium', () {
@@ -433,6 +447,83 @@ void main() {
         [for (final c in read.channels) c.power],
         [PowerLevel.medium, PowerLevel.low],
       );
+    });
+
+    test('a UV-82HP Low keeps its index when the channel above it is '
+        'deleted from the plan', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // A UV-82HP answers the UV-82 ident behind the two-level UV-5R
+      // profile, whose Low is 1; the HP's own Low is 2 and its 1 is Med.
+      // Slots M (1) and L (2) both read Low. Delete M from the plan and
+      // write: L lands on M's record and must still go out as 2, not as
+      // the record's 1 or a fresh 1 -- either is Med, raised with no user
+      // action.
+      int powerAt(Uint8List image, int slot) =>
+          image[8 + slot * 16 + 14] & 0x03;
+      const med = RadioChannel(
+        name: 'M',
+        rxFreqHz: 146520000,
+        txFreqHz: 146520000,
+        power: PowerLevel.low,
+      );
+      final low = med.copyWith(name: 'L');
+      const encoder = CodeplugEncoder();
+      final base = RadioCodeplug(
+        modelId: uv5rProfile.id,
+        image: await blankUv5rImage(),
+        readAt: DateTime(2026, 9, 1),
+      );
+      final image = await encoder.encode(base, uv5rProfile, [med, low]);
+      image[8 + 16 + 14] = (image[8 + 16 + 14] & ~0x03) | 2;
+      expect([powerAt(image, 0), powerAt(image, 1)], [1, 2]);
+
+      final read = await const CodeplugDecoder().decode(
+        RadioCodeplug(
+          modelId: uv5rProfile.id,
+          image: image,
+          readAt: DateTime(2026),
+        ),
+        uv5rProfile,
+      );
+      expect([for (final c in read.channels) c.powerRaw], [1, 2]);
+
+      // Through the plan's own storage, then the delete.
+      final stored = ChannelPlan(
+        id: 'hp',
+        name: 'HP',
+        radioProfileId: uv5rProfile.id,
+        channels: read.channels,
+        createdAt: DateTime(2026),
+        modifiedAt: DateTime(2026),
+      );
+      final reloaded = ChannelPlan.fromJson(
+        jsonDecode(jsonEncode(stored.toJson())) as Map<String, dynamic>,
+      )!;
+      final deleted = reloaded.channels.sublist(1);
+      expect(deleted.single.name, 'L');
+
+      final written = await encoder.encode(
+        RadioCodeplug(
+          modelId: uv5rProfile.id,
+          image: image,
+          readAt: DateTime(2026),
+        ),
+        uv5rProfile,
+        deleted,
+      );
+      expect(powerAt(written, 0), 2, reason: 'L, moved up a slot');
+
+      // Set to High in the editor, it is written High.
+      final raised = await encoder.encode(
+        RadioCodeplug(
+          modelId: uv5rProfile.id,
+          image: image,
+          readAt: DateTime(2026),
+        ),
+        uv5rProfile,
+        [deleted.single.copyWith(power: PowerLevel.high)],
+      );
+      expect(powerAt(raised, 0), 0);
     });
 
     test('a radio without medium is written low for it', () async {

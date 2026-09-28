@@ -40,6 +40,7 @@ rust.RadioChannelDto channelToDto(RadioChannel channel, {required int slot}) {
     narrow: channel.mode == ChannelMode.nfm,
     power: channel.power.wireName,
     skip: channel.skip,
+    powerRaw: channel.powerRaw,
   );
 }
 
@@ -74,6 +75,9 @@ RadioChannel channelFromDto(rust.RadioChannelDto dto) {
     // build does not know, and high is what CHIRP reads an unknown level as.
     power: PowerLevel.fromWire(dto.power) ?? PowerLevel.high,
     skip: dto.skip,
+    // The record's own index, written back while the level holds (the
+    // codec checks it still reads as `power`).
+    powerRaw: dto.powerRaw,
   );
 }
 

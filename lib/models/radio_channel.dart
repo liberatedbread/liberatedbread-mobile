@@ -213,6 +213,16 @@ class RadioChannel {
   /// would undo that without saying so.
   final bool skip;
 
+  /// The power index the radio itself had for this channel, when it was read
+  /// from one; null for a channel made in the app. Written back while
+  /// [power] still reads from it, because the same level can sit at more
+  /// than one index: a UV-82HP answers a two-level profile whose Low is 1,
+  /// but keeps its own Low at 2 and transmits 1 as Med. Carried with the
+  /// channel so a delete, a move or a rename cannot trade it for another
+  /// slot's; [copyWith] drops it when [power] changes, since the user then
+  /// chose the level and the old index no longer applies.
+  final int? powerRaw;
+
   const RadioChannel({
     required this.name,
     required this.rxFreqHz,
@@ -224,6 +234,7 @@ class RadioChannel {
     this.power = PowerLevel.high,
     this.comment = '',
     this.skip = false,
+    this.powerRaw,
   });
 
   /// A receive-only channel: transmit frequency mirrors receive so that a
@@ -241,7 +252,8 @@ class RadioChannel {
   }) : rxFreqHz = freqHz,
        txFreqHz = freqHz,
        rxOnly = true,
-       txTone = ToneSetting.none;
+       txTone = ToneSetting.none,
+       powerRaw = null;
 
   /// Repeater shift in Hz: positive for an input above the output, negative
   /// below, zero for simplex.
@@ -249,6 +261,8 @@ class RadioChannel {
 
   bool get isSimplex => txFreqHz == rxFreqHz;
 
+  /// A copy with the given fields replaced. A [power] other than this
+  /// channel's drops [powerRaw]: the radio's index was for the old level.
   RadioChannel copyWith({
     String? name,
     int? rxFreqHz,
@@ -271,6 +285,7 @@ class RadioChannel {
     power: power ?? this.power,
     comment: comment ?? this.comment,
     skip: skip ?? this.skip,
+    powerRaw: power == null || power == this.power ? powerRaw : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -284,6 +299,7 @@ class RadioChannel {
     'power': power.wireName,
     if (comment.isNotEmpty) 'comment': comment,
     if (skip) 'skip': true,
+    if (powerRaw != null) 'powerRaw': powerRaw,
   };
 
   /// Returns null for a record that cannot be read, so one corrupt channel
@@ -293,6 +309,7 @@ class RadioChannel {
     final rx = json['rx'];
     final tx = json['tx'];
     if (name is! String || rx is! int || rx <= 0) return null;
+    final powerRaw = json['powerRaw'];
     return RadioChannel(
       name: name,
       rxFreqHz: rx,
@@ -306,6 +323,10 @@ class RadioChannel {
       power: PowerLevel.fromWire(json['power']) ?? PowerLevel.high,
       comment: json['comment'] is String ? json['comment'] as String : '',
       skip: json['skip'] == true,
+      // Two bits on the radio; anything else is not an index from one.
+      powerRaw: powerRaw is int && powerRaw >= 0 && powerRaw <= 3
+          ? powerRaw
+          : null,
     );
   }
 
@@ -322,7 +343,8 @@ class RadioChannel {
           mode == other.mode &&
           power == other.power &&
           comment == other.comment &&
-          skip == other.skip;
+          skip == other.skip &&
+          powerRaw == other.powerRaw;
 
   @override
   int get hashCode => Object.hash(
@@ -336,6 +358,7 @@ class RadioChannel {
     power,
     comment,
     skip,
+    powerRaw,
   );
 
   @override

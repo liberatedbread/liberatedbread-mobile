@@ -146,6 +146,11 @@ pub struct RadioChannelDto {
     /// A level the radio lacks is written as the nearest one below it.
     pub power: String,
     pub skip: bool,
+    /// The record's own power index when the channel was read from a radio,
+    /// written back while `power` still reads from it -- so a UV-82HP's Low
+    /// (2, behind a two-level profile that lists Low as 1) is not rewritten
+    /// as its Med. Absent for a channel made or re-levelled in the app.
+    pub power_raw: Option<u8>,
 }
 
 impl RadioChannelDto {
@@ -160,6 +165,7 @@ impl RadioChannelDto {
             narrow: self.narrow,
             power: power_from_name(&self.power)?,
             skip: self.skip,
+            power_raw: self.power_raw,
         })
     }
 
@@ -175,6 +181,7 @@ impl RadioChannelDto {
             narrow: channel.narrow,
             power: power_name(channel.power),
             skip: channel.skip,
+            power_raw: channel.power_raw,
         }
     }
 }
@@ -636,6 +643,7 @@ mod tests {
             narrow: false,
             power: "high".into(),
             skip: false,
+            power_raw: None,
         }
     }
 
@@ -733,6 +741,38 @@ mod tests {
         assert_eq!(levels("uv-5r-mini"), ["high", "low"]);
         assert_eq!(levels("bf-f8hp"), ["high", "medium", "low"]);
         assert_eq!(levels("uv5r"), ["high", "low"]);
+    }
+
+    #[test]
+    fn the_raw_power_index_crosses_the_boundary_both_ways() {
+        // A UV-82HP-shaped Mini image: Low is 2, which the two-level
+        // profile does not list. It reads back as "low" carrying its 2, and
+        // a channel carrying the 2 is written as 2 wherever it lands.
+        let image = vec![0xFFu8; models::UV5R_MINI.image_len as usize];
+        let mut low = dto(1, "L", 146_520_000);
+        low.power = "low".into();
+        low.power_raw = Some(2);
+        let written = radio_encode_channels(
+            image.clone(),
+            vec![dto(1, "H", 146_540_000), low.clone()],
+            "uv-5r-mini".into(),
+        )
+        .unwrap();
+        assert_eq!(written[32 + 14] & 0x03, 2);
+        let read = radio_decode_channels(written.clone(), "uv-5r-mini".into()).unwrap();
+        assert_eq!(read[1].power, "low");
+        assert_eq!(read[1].power_raw, Some(2));
+        assert_eq!(read[0].power_raw, Some(0));
+
+        // The first deleted: the Low moves up a slot and keeps its 2.
+        let moved =
+            radio_encode_channels(written, vec![read[1].clone()], "uv-5r-mini".into()).unwrap();
+        assert_eq!(moved[14] & 0x03, 2);
+
+        // Without the index, the level is encoded afresh.
+        low.power_raw = None;
+        let fresh = radio_encode_channels(image, vec![low], "uv-5r-mini".into()).unwrap();
+        assert_eq!(fresh[14] & 0x03, 1);
     }
 
     #[test]

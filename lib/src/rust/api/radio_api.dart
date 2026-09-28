@@ -395,6 +395,12 @@ class RadioChannelDto {
   final String power;
   final bool skip;
 
+  /// The record's own power index when the channel was read from a radio,
+  /// written back while `power` still reads from it -- so a UV-82HP's Low
+  /// (2, behind a two-level profile that lists Low as 1) is not rewritten
+  /// as its Med. Absent for a channel made or re-levelled in the app.
+  final int? powerRaw;
+
   const RadioChannelDto({
     required this.slot,
     required this.name,
@@ -406,6 +412,7 @@ class RadioChannelDto {
     required this.narrow,
     required this.power,
     required this.skip,
+    this.powerRaw,
   });
 
   @override
@@ -419,7 +426,8 @@ class RadioChannelDto {
       rxTone.hashCode ^
       narrow.hashCode ^
       power.hashCode ^
-      skip.hashCode;
+      skip.hashCode ^
+      powerRaw.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -435,7 +443,8 @@ class RadioChannelDto {
           rxTone == other.rxTone &&
           narrow == other.narrow &&
           power == other.power &&
-          skip == other.skip;
+          skip == other.skip &&
+          powerRaw == other.powerRaw;
 }
 
 /// A radio these codecs can program, of either family: what the Dart
