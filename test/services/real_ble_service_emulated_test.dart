@@ -2193,12 +2193,14 @@ void main() {
       () async {
         // didModifyServices (iOS, after pairing — when a CCCD ack is slowest)
         // expires every share while the subscriber is still listening. The
-        // expiry's one detach runs before the enable resolves, and the dead
-        // share's release returns early without a second one, so only the
-        // enable's own `!dead` check keeps a recorder off it. Without that,
-        // the orphan fills the ring with every later read and doubles every
-        // successor push. The abandon test above cannot see this: its
-        // release reaches a backstop detach that this path never runs.
+        // expiry's detach runs before the enable resolves, and the dead
+        // share's release skips the backstop detach that follows the enable,
+        // so only the enable's own `!dead` check keeps a recorder off it.
+        // Without that, the orphan lives until the expired subscriber
+        // cancels: it fills the ring with every read and doubles every push
+        // a successor share records. The expired subscriber is therefore
+        // kept listening across the successor's push below. The abandon
+        // test above cannot see this: its release reaches the backstop.
         final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId))
           ..cccdConfirmDelay = const Duration(milliseconds: 100);
         await service.connect(_bulbId);
@@ -2230,8 +2232,9 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
         expect(ring(), isEmpty, reason: 'the expired share records nothing');
-        await expired.cancel();
 
+        // Still listening: cancelling here would detach an orphan before the
+        // push and hide the doubling.
         final next = service
             .subscribeCharacteristic(
               _bulbId,
@@ -2245,6 +2248,7 @@ void main() {
         expect(ring(), [
           [84],
         ], reason: 'one push, one entry');
+        await expired.cancel();
         await next.cancel();
       },
     );

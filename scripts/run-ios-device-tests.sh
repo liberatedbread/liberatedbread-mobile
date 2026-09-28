@@ -320,7 +320,10 @@ warn_test_build_left() {
   if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" ]]; then
     warn "That build has LB_KEYCHAIN_WIPE_OK compiled in: launching it from the icon WIPES the app's keychain again."
   fi
-  warn "Put the app back before opening it: ./scripts/run-ios-device.sh --device $UDID (or run it from Xcode)."
+  # --release, not the default --hot: since iOS 14 a debug build will not
+  # start from the icon once flutter detaches, so the advice would swap a
+  # wiping test build for one that does not open at all.
+  warn "Put the app back before opening it: ./scripts/run-ios-device.sh --device $UDID --release (a debug build does not launch from the icon), or Product > Profile in Xcode, which installs a Release build (its plain Run builds Debug, and Archive installs nothing)."
 }
 # shellcheck disable=SC2317,SC2329  # reached through the trap below, which shellcheck cannot see (SC2317 is 0.9's code for it, the runner's version)
 cleanup() { restore_xcconfig; restore_entitlements; warn_test_build_left; }

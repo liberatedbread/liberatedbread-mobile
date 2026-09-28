@@ -229,5 +229,15 @@ else
   fail "$ios: no exit warning that the phone's app icon now runs the test build"
 fi
 
+# The advice must name a build that opens from the icon: the script's
+# default is a debug build, which iOS 14+ will not start once flutter has
+# detached, so without --release the "fix" leaves no launchable app.
+if grep -qE '^ *warn "Put the app back.*run-ios-device\.sh [^"]*--release' \
+     "$ios"; then
+  pass "$ios tells the operator to put back a release build"
+else
+  fail "$ios: the put-the-app-back advice omits --release (debug will not launch from the icon)"
+fi
+
 if [[ "$status" -eq 0 ]]; then echo "run-ios-device-tests selftest: all passed"; fi
 exit "$status"

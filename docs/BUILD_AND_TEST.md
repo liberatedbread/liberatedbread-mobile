@@ -644,7 +644,9 @@ runner therefore rebuilds `lib/main.dart` and `adb install -r`s it over the
 test build when the suites finish, pass or fail, keeping the data; if that
 fails it exits 1 and says to rerun `./scripts/run-android.sh --sideload`.
 The iOS runner cannot reinstall a signed app itself, so it warns on exit:
-rerun `./scripts/run-ios-device.sh` before opening the app.
+rerun `./scripts/run-ios-device.sh --release` before opening the app (a
+debug build, the script's default, does not launch from the home screen on
+iOS 14 and later).
 
 `--all` skips the keychain suite on a phone, because its fresh-install case
 deletes every secure-storage item the app holds; pass `--allow-keychain-wipe`

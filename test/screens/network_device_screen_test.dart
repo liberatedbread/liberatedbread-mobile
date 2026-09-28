@@ -4137,6 +4137,14 @@ void main() {
       // round() clamps to int64 on the VM: this pre-filled and sent
       // '9223372036854775807' for a reading of 1e20.
       ('a whole number past int64', 1e20, 1e20.toString()),
+      // Past 2^53 but inside int64 round() is still exact: a 2^53 cutoff
+      // sent this as '1152921504606847000.0', decimal text for a whole
+      // value.
+      (
+        'a whole number past 2^53',
+        1152921504606846976.0,
+        '1152921504606846976',
+      ),
     ]) {
       testWidgets('the entry pre-fills $label so it round-trips', (
         tester,

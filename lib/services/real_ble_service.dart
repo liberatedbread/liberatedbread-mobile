@@ -1915,8 +1915,9 @@ class RealBleService
             // is why a share abandoned or expired DURING the enable (a slow
             // CCCD ack, a pairing prompt the user walked away from) gets
             // none: both teardowns have already run their detach, and a
-            // recorder attached now would be orphaned for the process's
-            // life.
+            // recorder attached now would sit on the dead share until its
+            // last subscriber releases it — filling the ring with every read
+            // and doubling every push the successor share records.
             if (!claimed.dead && claimed.interest > 0) {
               claimed.recorder ??= char.onValueReceived.listen(
                 (value) =>

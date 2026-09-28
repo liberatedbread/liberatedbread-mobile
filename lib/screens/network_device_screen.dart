@@ -2829,21 +2829,23 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       ? value.round().toString()
       : value.toStringAsFixed(1);
 
-  /// Whether [value] is whole AND small enough that `round()` gives it back
-  /// exactly. The VM's `round()` clamps to int64, so a whole 1e20 came out
-  /// as 9223372036854775807 — a different number, sent as if typed. 2^53 is
-  /// where every whole double is still an exact int; past it toString() is
-  /// the lossless form.
+  /// Whether [value] is whole AND inside int64, where `round()` gives it
+  /// back exactly. At or past 2^63 the VM's `round()` clamps, so a whole
+  /// 1e20 came out as 9223372036854775807 — a different number, sent as if
+  /// typed. The bound is 2^63, not 2^53: every whole double below 2^63
+  /// rounds exactly, and a tighter cutoff sent a whole 2^60 as decimal text
+  /// ('1152921504606847000.0') that an integer parameter may reject.
   static bool _isExactInt(double value) =>
-      value == value.roundToDouble() && value.abs() < 9007199254740992;
+      value == value.roundToDouble() && value.abs() < 9223372036854775808.0;
 
-  /// [value] without loss: whole numbers below 2^53 without a ".0",
-  /// anything else (a larger whole number included, since `round()` would
-  /// clamp it) as Dart's shortest round-trip text. For a value a person typed or will
-  /// send unedited — [_trimNumber] is for slider positions, which are noisy
-  /// doubles, and pre-filling the entry dialog with a rounded reading made
-  /// a no-edit Send move a 21.25 setpoint to 21.3 (or, rounded to whole
-  /// numbers as it once was, 21.5 to 22).
+  /// [value] without loss: whole numbers inside int64 without a ".0",
+  /// anything else (a whole number at or past 2^63 included, since
+  /// `round()` would clamp it) as Dart's shortest round-trip text. For a
+  /// value a person typed or will send unedited — [_trimNumber] is for
+  /// slider positions, which are noisy doubles, and pre-filling the entry
+  /// dialog with a rounded reading made a no-edit Send move a 21.25
+  /// setpoint to 21.3 (or, rounded to whole numbers as it once was, 21.5
+  /// to 22).
   ///
   /// Dart's toString is already the SHORTEST text that parses back to the
   /// same double: a reading computed as 0.1 * 213 prints '21.3'. A longer
