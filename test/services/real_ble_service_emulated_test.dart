@@ -2188,6 +2188,67 @@ void main() {
       },
     );
 
+    test(
+      'a share expired mid-enable while the link stays up gets no recorder',
+      () async {
+        // didModifyServices (iOS, after pairing — when a CCCD ack is slowest)
+        // expires every share while the subscriber is still listening. The
+        // expiry's one detach runs before the enable resolves, and the dead
+        // share's release returns early without a second one, so only the
+        // enable's own `!dead` check keeps a recorder off it. Without that,
+        // the orphan fills the ring with every later read and doubles every
+        // successor push. The abandon test above cannot see this: its
+        // release reaches a backstop detach that this path never runs.
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId))
+          ..cccdConfirmDelay = const Duration(milliseconds: 100);
+        await service.connect(_bulbId);
+        List<List<int>> ring() => service.recentNotifications(
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        );
+
+        final expired = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        // A services reset, not a disconnect: fbp fails a pending enable on
+        // disconnect, so the attach would never be reached.
+        ble.pushServicesReset(_bulbId);
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        bulb.cccdConfirmDelay = null;
+
+        // fbp delivers read results on onValueReceived too.
+        await service.readCharacteristic(
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(ring(), isEmpty, reason: 'the expired share records nothing');
+        await expired.cancel();
+
+        final next = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(ring(), [
+          [84],
+        ], reason: 'one push, one entry');
+        await next.cancel();
+      },
+    );
+
     test('disconnecting clears the buffer', () async {
       // The ring is per-connection: a stale push replayed into the next link
       // would size a canvas from the previous device's answer.

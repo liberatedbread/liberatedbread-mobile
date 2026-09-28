@@ -38,6 +38,7 @@ import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/rabbit_air_controls_panel.dart';
 import '../widgets/unclaimed_actions.dart';
+import 'roomba_identity.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
 /// Wi-Fi counterpart of the BLE device screen's typed control panel.
@@ -512,8 +513,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Keyed on the spec's own `protocol_handler`, not on the transport: the
   /// transport string is `mqtt` for a Hisense set too, and taking the robot's
   /// path for a television would look up a BLID that does not exist.
-  bool get _isRoomba =>
-      widget.controls.capabilities?.protocolHandler == roombaProtocolHandler;
+  bool get _isRoomba => isRoombaControls(widget.controls);
 
   /// The robot's BLID, from the discovery announcement. Null means this screen
   /// was reached without one, which for a Roomba is not drivable.
@@ -521,10 +521,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// An EMPTY value counts as absent: a TXT record can carry a bare flag with
   /// no value, which the parser stores as `''`, and an empty BLID looks up no
   /// password and addresses no robot.
-  String? get _blid {
-    final blid = widget.device.txt['blid'];
-    return blid == null || blid.isEmpty ? null : blid;
-  }
+  String? get _blid => announcedBlid(widget.device.txt);
 
   /// Entities this transport can actually drive.
   ///
@@ -2828,12 +2825,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// the whole screen became an error page over one odd reading.
   static String _trimNumber(double value) => !value.isFinite
       ? value.toString()
-      : value == value.roundToDouble()
+      : _isExactInt(value)
       ? value.round().toString()
       : value.toStringAsFixed(1);
 
-  /// [value] without loss: whole numbers without a ".0", anything else as
-  /// Dart's shortest round-trip text. For a value a person typed or will
+  /// Whether [value] is whole AND small enough that `round()` gives it back
+  /// exactly. The VM's `round()` clamps to int64, so a whole 1e20 came out
+  /// as 9223372036854775807 — a different number, sent as if typed. 2^53 is
+  /// where every whole double is still an exact int; past it toString() is
+  /// the lossless form.
+  static bool _isExactInt(double value) =>
+      value == value.roundToDouble() && value.abs() < 9007199254740992;
+
+  /// [value] without loss: whole numbers below 2^53 without a ".0",
+  /// anything else (a larger whole number included, since `round()` would
+  /// clamp it) as Dart's shortest round-trip text. For a value a person typed or will
   /// send unedited — [_trimNumber] is for slider positions, which are noisy
   /// doubles, and pre-filling the entry dialog with a rounded reading made
   /// a no-edit Send move a 21.25 setpoint to 21.3 (or, rounded to whole
@@ -2846,7 +2852,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// no-edit Send. Non-finite values print as themselves rather than throw
   /// from `round()`; nothing sends one ([_editNumber] refuses them).
   static String _exactNumber(double value) =>
-      value.isFinite && value == value.roundToDouble()
+      value.isFinite && _isExactInt(value)
       ? value.round().toString()
       : value.toString();
 

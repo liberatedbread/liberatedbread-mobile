@@ -28,7 +28,12 @@
 # The test APK has the app's own applicationId and debug key, so it REPLACES
 # a `run-android.sh` install on the phone and runs against that install's
 # saved devices, credentials, pins and accepted Terms. It is never uninstalled
-# afterwards (--no-uninstall), which would have deleted all of that.
+# afterwards (--no-uninstall), which would have deleted all of that. Instead,
+# once the suites are done, pass or fail, the real app (lib/main.dart, debug)
+# is built and `adb install -r`'d over it, data kept: left in place, the test
+# build IS the home-screen icon, and each tap reruns the suite, including
+# (after --allow-keychain-wipe) the secure-storage wipe. If that reinstall
+# fails the run exits 1 and says to rerun ./scripts/run-android.sh.
 #
 # Exit codes: 0 all green; 1 a test failed or a build failed; 2 no phone
 # attached (0 with --if-present).
@@ -53,7 +58,7 @@ source "$SCRIPT_DIR/regen-spec-index.sh"
 # shellcheck source=ensure-gradle-jdk.sh
 source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
 
-usage() { sed -n '5,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '5,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 DEVICE_ID=""
 LIST_ONLY=false
@@ -154,11 +159,52 @@ DEFINES=(
 
 status=0
 
+# True from the first `flutter test` until the real app is back on the phone.
+# Read by the EXIT trap, so a Ctrl-C or a `set -e` exit mid-run still says
+# what the phone's icon now launches.
+TEST_BUILD_ON_PHONE=false
+# shellcheck disable=SC2317,SC2329  # reached through the trap below, which shellcheck cannot see (SC2317 is 0.9's code for it, the runner's version)
+warn_test_build_left() {
+  [[ "$TEST_BUILD_ON_PHONE" == "true" ]] || return 0
+  err "The phone is left on the TEST build: its app icon runs the integration suite, not the app, against the app's real data."
+  if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" ]]; then
+    err "That build has LB_KEYCHAIN_WIPE_OK compiled in: every launch from the icon WIPES the app's secure storage again."
+  fi
+  err "Put the app back before opening it: ./scripts/run-android.sh --device $DEVICE --sideload --no-launch"
+}
+trap warn_test_build_left EXIT
+
+# The build `flutter test -d` leaves behind has the suite as its Dart
+# entrypoint and its dart-defines compiled in. Rebuild lib/main.dart as
+# run-android.sh --sideload does and install it OVER the test build: -r keeps
+# the data --no-uninstall kept (a bare `flutter install` would uninstall
+# first, and would install the last-built APK, the test one).
+restore_real_app() {
+  local adb apk=build/app/outputs/flutter-apk/app-debug.apk
+  log "Putting the app back: flutter build apk --debug -t lib/main.dart, then adb install -r (data kept)"
+  if ! adb="$(find_adb)"; then
+    err "adb not found, so the app could not be reinstalled."
+    return 1
+  fi
+  if ! flutter build apk --debug -t lib/main.dart; then
+    err "Rebuilding the app failed."
+    return 1
+  fi
+  # -d as in run-android.sh: allow a version-code downgrade during dev.
+  if ! "$adb" -s "$DEVICE" install -r -d "$apk"; then
+    err "Reinstalling the app failed."
+    return 1
+  fi
+  TEST_BUILD_ON_PHONE=false
+  log "The app is back on the phone, its data kept."
+}
+
 log "Hardware suite: integration_test/device_hardware_test.dart"
 log "(watch the phone: the first launch asks for Bluetooth / nearby-devices permission, and the suite waits for the answer)"
 # --no-uninstall: `flutter test -d` uninstalls the app when the run ends by
 # default, and the app it removes is the operator's own install (same id,
 # same key): saved devices, secure-storage credentials, pins and Terms gone.
+TEST_BUILD_ON_PHONE=true
 if ! flutter test integration_test/device_hardware_test.dart \
     -d "$DEVICE" \
     --no-uninstall \
@@ -194,6 +240,10 @@ if [[ "$RUN_ALL" == "true" ]]; then
     err "Mock-mode aggregate failed on the phone."
     status=1
   fi
+fi
+
+if ! restore_real_app; then
+  status=1
 fi
 
 if [[ "$status" -eq 0 ]]; then

@@ -13,6 +13,8 @@
 #                                         matches the filter (see the iOS
 #                                         picker for why those differ).
 #   list_android_devices                  prints the attached phones.
+#   find_adb                              prints the adb to use, or nothing
+#                                         (exit 1) when there is none.
 #
 # A phone is `targetPlatform` starting with "android" AND `emulator == false`;
 # a running emulator reports the same platform with `emulator: true`.
@@ -74,4 +76,12 @@ else:
     for d in phones:
         print(f"  {d['name']} ({d['id']})  [{d.get('sdk') or '?'}]")
 PY
+}
+
+find_adb() {
+  [[ -n "${ANDROID_HOME:-}" ]] && [[ -x "${ANDROID_HOME}/platform-tools/adb" ]] && { echo "${ANDROID_HOME}/platform-tools/adb"; return; }
+  command -v adb &>/dev/null && { echo adb; return; }
+  [[ -x "$HOME/Android/Sdk/platform-tools/adb" ]] && { echo "$HOME/Android/Sdk/platform-tools/adb"; return; }
+  [[ -x "$HOME/Library/Android/sdk/platform-tools/adb" ]] && { echo "$HOME/Library/Android/sdk/platform-tools/adb"; return; }
+  return 1
 }

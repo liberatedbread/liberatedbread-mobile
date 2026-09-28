@@ -636,11 +636,21 @@ keychain, with the measurements printed as `[hardware]` lines.
 Both runners share the suite and its flags; the Android one needs no
 entitlement handling. Both run against the app installed on the phone (on
 Android the test APK replaces a `run-android.sh` install of the same id) and
-leave it installed afterwards. `--all` skips the keychain suite on a phone,
-because its fresh-install case deletes every secure-storage item the app
-holds; pass `--allow-keychain-wipe` on a phone whose credentials are
-disposable. The iOS runner has two ways onto the phone. By default
-it builds each suite as the app's Dart target (`flutter build ios
+never uninstall it, so its data survives. What stays installed is the test
+build, though: the suite is its Dart entrypoint, with its dart-defines
+compiled in, and opening it from the home screen reruns the suite against
+the app's data (after `--allow-keychain-wipe`, the wipe too). The Android
+runner therefore rebuilds `lib/main.dart` and `adb install -r`s it over the
+test build when the suites finish, pass or fail, keeping the data; if that
+fails it exits 1 and says to rerun `./scripts/run-android.sh --sideload`.
+The iOS runner cannot reinstall a signed app itself, so it warns on exit:
+rerun `./scripts/run-ios-device.sh` before opening the app.
+
+`--all` skips the keychain suite on a phone, because its fresh-install case
+deletes every secure-storage item the app holds; pass `--allow-keychain-wipe`
+on a phone whose credentials are disposable.
+
+The iOS runner has two ways onto the phone. By default it builds each suite as the app's Dart target (`flutter build ios
 --config-only -t …`) and runs it with `xcodebuild test` on the `RunnerTests`
 XCTest target, which `ios/RunnerTests/RunnerTests.m` hosts through
 `integration_test`'s `INTEGRATION_TEST_IOS_RUNNER` macro: every Dart test

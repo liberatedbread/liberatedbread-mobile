@@ -119,12 +119,10 @@ find_emulator() {
   [[ -x "$HOME/Library/Android/sdk/emulator/emulator" ]] && { echo "$HOME/Library/Android/sdk/emulator/emulator"; return; }
 }
 
-find_adb() {
-  [[ -n "${ANDROID_HOME:-}" ]] && [[ -x "${ANDROID_HOME}/platform-tools/adb" ]] && { echo "${ANDROID_HOME}/platform-tools/adb"; return; }
-  command -v adb &>/dev/null && { echo adb; return; }
-  [[ -x "$HOME/Android/Sdk/platform-tools/adb" ]] && { echo "$HOME/Android/Sdk/platform-tools/adb"; return; }
-  [[ -x "$HOME/Library/Android/sdk/platform-tools/adb" ]] && { echo "$HOME/Library/Android/sdk/platform-tools/adb"; return; }
-}
+# find_adb, shared with run-android-device-tests.sh, which reinstalls the app
+# through it after its suites.
+# shellcheck source=android-device-select.sh
+source "$SCRIPT_DIR/android-device-select.sh"
 
 ADB="$(find_adb || true)"
 if [[ -z "${ADB:-}" ]]; then

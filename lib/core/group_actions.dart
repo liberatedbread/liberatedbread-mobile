@@ -278,7 +278,8 @@ Map<String, double> _paramsFor(EntityActionDto action, {double? brightness}) {
   final values = <String, double>{};
   for (final p in action.userParams) {
     final value = switch (p) {
-      'brightness' || 'level' => brightness ?? (action.max ?? 255),
+      'brightness' ||
+      'level' => brightness ?? (action.max ?? kUndeclaredBrightnessMax),
       'red' || 'green' || 'blue' => 255.0,
       _ => null,
     };

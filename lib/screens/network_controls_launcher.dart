@@ -8,12 +8,12 @@ import '../core/log.dart';
 import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
-import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
 import 'hub_device_screen.dart';
 import 'label_printer_screen.dart';
 import 'network_device_screen.dart';
 import 'roomba_adoption_screen.dart';
+import 'roomba_identity.dart';
 
 /// Open whatever this device's controls need, from wherever the user tapped.
 ///
@@ -86,17 +86,10 @@ Future<bool> _adopted({
   required NetworkDevice device,
   required NetworkControls controls,
 }) async {
-  final blid = device.txt['blid'];
-  // Keyed on the spec's protocol_handler, as NetworkDeviceScreen and the
-  // saved-devices row key it — not on the `mqtt` transport, which Hisense,
-  // Dyson and Bambu devices ride too: one of those announcing a `blid` key
-  // was sent to the Roomba wizard here, while the control screen (rightly)
-  // did not treat it as a robot.
-  final isRoomba =
-      blid != null &&
-      blid.isNotEmpty &&
-      controls.capabilities?.protocolHandler == roombaProtocolHandler;
-  if (!isRoomba) return true;
+  // The shared rule, so this tap and the saved-devices row cannot drift
+  // apart again (this copy once keyed on the `mqtt` transport).
+  final blid = roombaBlidFor(device.txt, controls);
+  if (blid == null) return true;
 
   final store = ref.read(roombaCredentialStoreProvider);
   // Both callers fire this from a tap and drop the future, so a keychain

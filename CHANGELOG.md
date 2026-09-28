@@ -444,8 +444,11 @@ heading.
   512 when unknown; a notify recorder left behind by an abandoned
   subscription is detached.
 - **Test tooling.** The Android phone runner no longer uninstalls the app
-  (and its data) without an explicit opt-in, and the local coverage audit
-  no longer accepts a leftover discovery report CI would reject.
+  (and its data) without an explicit opt-in, and puts the real app back over
+  its test build afterwards, data kept, so the home-screen icon no longer
+  reruns the suite (or its keychain wipe); the iOS runner warns that it
+  cannot. The local coverage audit no longer accepts a leftover discovery
+  report CI would reject.
 - **The default spec pack installs again.** It had grown to 203 specs and
   4.8 MB, past the app's caps of 128 specs and 4 MB, so every install from
   the default URL failed as "not a valid spec-pack manifest". The caps are

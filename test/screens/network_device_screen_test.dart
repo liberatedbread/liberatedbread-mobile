@@ -4134,6 +4134,9 @@ void main() {
       ('a computed 21.3', 0.1 * 213, '21.3'),
       ('a whole number', 22.0, '22'),
       ('a scaled value', 2133 * 0.01, (2133 * 0.01).toString()),
+      // round() clamps to int64 on the VM: this pre-filled and sent
+      // '9223372036854775807' for a reading of 1e20.
+      ('a whole number past int64', 1e20, 1e20.toString()),
     ]) {
       testWidgets('the entry pre-fills $label so it round-trips', (
         tester,

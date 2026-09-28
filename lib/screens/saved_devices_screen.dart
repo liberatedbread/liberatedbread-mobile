@@ -23,7 +23,6 @@ import '../providers/saved_radio_provider.dart';
 import '../providers/spec_choice_provider.dart';
 import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
-import '../services/roomba_control_service.dart' show roombaProtocolHandler;
 import '../services/roomba_credential_store.dart';
 import '../services/saved_network_device_store.dart';
 import '../services/saved_radio_store.dart';
@@ -31,6 +30,7 @@ import '../widgets/device_list_tile.dart';
 import 'device_screen.dart';
 import 'network_controls_launcher.dart';
 import 'radio_device_screen.dart';
+import 'roomba_identity.dart';
 import 'roomba_transport_screen.dart';
 
 /// The devices the user has already paired with.
@@ -399,11 +399,7 @@ class _NetworkSavedTile extends ConsumerWidget {
     // it is answered, and until now nothing in the app could reach it with a
     // robot's credentials, so the choice could be made once at adoption and
     // never revised. This is that entry point.
-    final blid = device.txt['blid'];
-    final isRoomba =
-        blid != null &&
-        blid.isNotEmpty &&
-        controls?.capabilities?.protocolHandler == roombaProtocolHandler;
+    final blid = roombaBlidFor(device.txt, controls);
     return DeviceListTile(
       title: device.name.isNotEmpty ? device.name : 'Unknown device',
       subtitle: category?.label ?? 'Wi-Fi',
@@ -411,8 +407,10 @@ class _NetworkSavedTile extends ConsumerWidget {
       icon: category?.icon ?? Icons.router_outlined,
       description: device.host,
       onTap: controls == null ? null : () => onOpen(controls),
-      onConfigure: isRoomba ? () => _chooseTransport(context, ref, blid) : null,
-      configureTooltip: isRoomba ? 'How to reach this robot' : null,
+      onConfigure: blid != null
+          ? () => _chooseTransport(context, ref, blid)
+          : null,
+      configureTooltip: blid != null ? 'How to reach this robot' : null,
       onForget: onForget,
     );
   }

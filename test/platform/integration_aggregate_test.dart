@@ -330,11 +330,15 @@ void main() {
       reason: 'a second site handing out the define would bypass the flag',
     );
     // ...and that one site sits inside the flag's branch, not beside it.
-    final gate = android.indexOf(
+    // The gate nearest BEFORE the define: the script tests the flag in
+    // more than one place (its restore warning does too), and anchoring on
+    // the first one checked the wrong branch.
+    final define = android.indexOf('--dart-define=LB_KEYCHAIN_WIPE_OK=true');
+    final gate = android.lastIndexOf(
       'if [[ "\$ALLOW_KEYCHAIN_WIPE" == "true" ]]; then',
+      define,
     );
     expect(gate, isNonNegative, reason: 'the wipe define must be gated');
-    final define = android.indexOf('--dart-define=LB_KEYCHAIN_WIPE_OK=true');
     final branchEnd = android.indexOf(
       RegExp(r'^\s*(else|fi)\b', multiLine: true),
       gate,

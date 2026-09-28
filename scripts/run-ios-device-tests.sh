@@ -304,8 +304,26 @@ restore_xcconfig() {
     XCCONFIG_BACKUP=""
   fi
 }
+# Both lanes leave the suite's build installed as the app: the xcodebuild
+# lane's Profile Runner (which launches from the home screen) and the
+# flutter lane's debug one, each with the suite as its Dart entrypoint and
+# its dart-defines compiled in. Opening that from the icon reruns the suite
+# against the app's real data, the keychain wipe included when
+# --allow-keychain-wipe put LB_KEYCHAIN_WIPE_OK into it. Nothing here
+# reinstalls the real app (that needs a signed build of lib/main.dart), so
+# say so on every exit, Ctrl-C included, once a suite has been installed.
+TEST_BUILD_ON_PHONE=false
 # shellcheck disable=SC2317,SC2329  # reached through the trap below, which shellcheck cannot see (SC2317 is 0.9's code for it, the runner's version)
-cleanup() { restore_xcconfig; restore_entitlements; }
+warn_test_build_left() {
+  [[ "$TEST_BUILD_ON_PHONE" == "true" ]] || return 0
+  warn "The phone is left on the TEST build: its app icon runs the integration suite, not the app, against the app's real data."
+  if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" ]]; then
+    warn "That build has LB_KEYCHAIN_WIPE_OK compiled in: launching it from the icon WIPES the app's keychain again."
+  fi
+  warn "Put the app back before opening it: ./scripts/run-ios-device.sh --device $UDID (or run it from Xcode)."
+}
+# shellcheck disable=SC2317,SC2329  # reached through the trap below, which shellcheck cannot see (SC2317 is 0.9's code for it, the runner's version)
+cleanup() { restore_xcconfig; restore_entitlements; warn_test_build_left; }
 trap cleanup EXIT
 
 # Wait until the phone is unlocked, because xcodebuild will not.
@@ -476,6 +494,7 @@ run_suite() {
 
 status=0
 
+TEST_BUILD_ON_PHONE=true
 log "Hardware suite: integration_test/device_hardware_test.dart"
 log "(watch the phone: a fresh install raises the Bluetooth and Local Network alerts, and the suite waits for you to answer them)"
 if ! run_suite integration_test/device_hardware_test.dart "${DEFINES[@]}"; then

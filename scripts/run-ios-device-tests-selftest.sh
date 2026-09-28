@@ -20,9 +20,11 @@
 # on the phone; the wrapper signals the process group instead.
 #
 # It also checks both device runners keep the operator's app installed and
-# gate the keychain wipe (see the end).
+# gate the keychain wipe, and drives the Android runner against stub flutter
+# and adb to prove it puts the real app back over the test build (see the
+# end).
 #
-# Runs in scripts/test.sh; needs bash and perl only.
+# Runs in scripts/test.sh; needs bash, perl and python3 (the Android picker).
 
 set -uo pipefail
 
@@ -132,6 +134,99 @@ if [[ "$(grep -c 'LB_KEYCHAIN_WIPE_OK=true' "$android")" == 1 ]] &&
   pass "...and hands out LB_KEYCHAIN_WIPE_OK only behind --allow-keychain-wipe"
 else
   fail "$android: LB_KEYCHAIN_WIPE_OK=true must appear once, behind --allow-keychain-wipe"
+fi
+
+# --no-uninstall keeps the data, but leaves the phone on the TEST build:
+# `flutter test -d` installs the suite as the app's Dart entrypoint with its
+# dart-defines compiled in, so the icon reran ci_all_test.dart, and with
+# --allow-keychain-wipe every tap wiped secure storage again. The Android
+# runner must rebuild lib/main.dart and `adb install -r` it over the test
+# build whether or not the suites passed, and say so loudly when it cannot.
+# Driven for real, in a sandbox, against stub flutter / adb and no-op
+# regen/JDK helpers; the calls each makes are logged in order.
+sandbox="$(mktemp -d)"
+mkdir -p "$sandbox/scripts" "$sandbox/flutter/bin" "$sandbox/sdk/platform-tools"
+cp scripts/run-android-device-tests.sh scripts/android-device-select.sh \
+  "$sandbox/scripts/"
+printf 'regen_frb_bindings() { :; }\n' >"$sandbox/scripts/regen-bindings.sh"
+printf 'regen_spec_index() { :; }\n' >"$sandbox/scripts/regen-spec-index.sh"
+printf 'ensure_gradle_jdk() { :; }\n' >"$sandbox/scripts/ensure-gradle-jdk.sh"
+cat >"$sandbox/flutter/bin/flutter" <<'STUB'
+#!/usr/bin/env bash
+echo "flutter $*" >>"$STUB_CALLS"
+case "$1" in
+  devices)
+    echo '[{"name":"Pixel","id":"SER123","targetPlatform":"android-arm64","emulator":false}]' ;;
+  test) exit "${STUB_TEST_RC:-0}" ;;
+  build)
+    [[ "${STUB_BUILD_RC:-0}" == 0 ]] || exit 1
+    mkdir -p build/app/outputs/flutter-apk
+    : >build/app/outputs/flutter-apk/app-debug.apk ;;
+esac
+STUB
+cat >"$sandbox/sdk/platform-tools/adb" <<'STUB'
+#!/usr/bin/env bash
+echo "adb $*" >>"$STUB_CALLS"
+STUB
+chmod +x "$sandbox/flutter/bin/flutter" "$sandbox/sdk/platform-tools/adb"
+
+run_android_stubbed() { # test_rc build_rc args... ; sets out, rc, calls
+  local test_rc="$1" build_rc="$2"; shift 2
+  rm -rf "$sandbox/build"; : >"$sandbox/calls"
+  out="$(cd "$sandbox" && STUB_CALLS="$sandbox/calls" \
+    STUB_TEST_RC="$test_rc" STUB_BUILD_RC="$build_rc" \
+    FLUTTER_HOME="$sandbox/flutter" ANDROID_HOME="$sandbox/sdk" \
+    bash scripts/run-android-device-tests.sh "$@" 2>&1)"
+  rc=$?
+  calls="$(grep -E '^(flutter (test|build)|adb)' "$sandbox/calls" \
+    | sed -E 's/^(flutter test [^ ]+|flutter build apk --debug -t [^ ]+|adb -s [^ ]+ install -r -d [^ ]+).*/\1/')"
+}
+restored="flutter build apk --debug -t lib/main.dart
+adb -s SER123 install -r -d build/app/outputs/flutter-apk/app-debug.apk"
+
+run_android_stubbed 0 0 --all
+check_eq "android runner: green --all run exits 0" 0 "$rc"
+check_eq "...runs both suites, then reinstalls lib/main.dart over them" \
+  "flutter test integration_test/device_hardware_test.dart
+flutter test integration_test/ci_all_test.dart
+$restored" "$calls"
+if grep -q 'left on the TEST build' <<<"$out"; then
+  fail "android runner: warned the test build was left after putting the app back"
+else
+  pass "...and does not warn the test build was left"
+fi
+
+run_android_stubbed 1 0
+check_eq "android runner: a red suite still exits 1" 1 "$rc"
+check_eq "...and the app is still put back" \
+  "flutter test integration_test/device_hardware_test.dart
+$restored" "$calls"
+
+run_android_stubbed 0 1 --all --allow-keychain-wipe
+check_eq "android runner: a failed app rebuild exits 1" 1 "$rc"
+if grep -q '^adb' <<<"$calls"; then
+  fail "android runner: installed an APK although the app rebuild failed"
+else
+  pass "...installs nothing"
+fi
+if grep -q 'left on the TEST build' <<<"$out" &&
+   grep -q 'LB_KEYCHAIN_WIPE_OK compiled in' <<<"$out" &&
+   grep -q 'run-android.sh --device SER123 --sideload' <<<"$out"; then
+  pass "...and says the icon runs the wiping test build, and how to fix it"
+else
+  fail "android runner: a failed restore did not warn the phone is left on the test build"
+fi
+rm -rf "$sandbox"
+
+# The iOS runner cannot reinstall a signed real app itself, so it must at
+# least say, on every exit once a suite is installed, that the icon now
+# launches the test build.
+ios=scripts/run-ios-device-tests.sh
+if grep -qE '^cleanup\(\) \{.*warn_test_build_left' "$ios" &&
+   grep -qE '^TEST_BUILD_ON_PHONE=true$' "$ios"; then
+  pass "$ios warns on exit that the phone is left on the test build"
+else
+  fail "$ios: no exit warning that the phone's app icon now runs the test build"
 fi
 
 if [[ "$status" -eq 0 ]]; then echo "run-ios-device-tests selftest: all passed"; fi
