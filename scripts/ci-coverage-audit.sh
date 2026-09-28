@@ -36,9 +36,10 @@
 #
 # Several reports are unioned because the suites are split across CI jobs (see
 # codecov.yml): a file reached only by the netdisco suites is absent from the
-# unit run's report and present in that job's. Locally both exist and both can
-# be passed; in CI the unit-tests job passes its own, so a netdisco-only library
-# would need an allowlist entry saying so.
+# unit run's report and present in that job's. The unit-tests job, and
+# scripts/test.sh which mirrors it, pass the unit report alone, so a
+# netdisco-only library needs an allowlist entry saying so. Passing both by
+# hand is for investigating a report, not a verdict CI will agree with.
 
 set -uo pipefail
 

@@ -9,18 +9,22 @@ import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/core/group_actions.dart';
 import 'package:liberated_bread_mobile/core/stop_signal.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
+import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_choice_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
+import 'package:liberated_bread_mobile/providers/saved_network_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/device_credential_store.dart';
 import 'package:liberated_bread_mobile/services/device_group_store.dart';
 import 'package:liberated_bread_mobile/services/group_runner.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/services/saved_device_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/services/tls_trust.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
@@ -330,6 +334,90 @@ void main() {
         ['rabbitair.ble-CC:DD.userkey'],
         reason: 'this purifier\'s key is gone; another\'s stays',
       );
+    });
+  });
+
+  group('forgetNetworkDevice', () {
+    // The cached host is only the last DHCP lease. Once the record knows the
+    // identity its pins were written under, clearing `host:<ip>` as well
+    // wiped whatever device holds that address NOW — a stranger's pin and
+    // pairing token gone because this device was removed.
+    test('leaves the host-keyed pin of the address\'s new tenant', () async {
+      final container = await _container();
+      final savedNetwork = container.read(savedNetworkDevicesProvider.notifier);
+      final record = await savedNetwork.touch(
+        NetworkDevice(
+          host: '192.168.1.20',
+          name: 'Old TV',
+          txt: const {'mac': 'aa:bb:cc:dd:ee:ff'},
+          sources: const {NetworkDiscoverySource.mdns},
+          discoveredAt: DateTime.utc(2026),
+        ),
+      );
+      final ownIdentity = record.credentialIdentity!;
+      expect(ownIdentity, startsWith('mac:'));
+
+      final settings = InMemorySettingsStore();
+      final pins = CertificatePinStore(settings);
+      final credentials = DeviceCredentialStore(settings);
+      await pins.save(ownIdentity, 'fp-own');
+      await credentials.save(ownIdentity, 'token', 'mine');
+      // Another device has since been leased this record's cached address.
+      final tenant = identityFor(host: record.host);
+      await pins.save(tenant, 'fp-tenant');
+      await credentials.save(tenant, 'token', 'theirs');
+
+      await forgetNetworkDevice(
+        savedDevices: savedNetwork,
+        groups: container.read(deviceGroupsProvider.notifier),
+        deviceId: record.id,
+        trust: TlsTrust(pins),
+        credentials: credentials,
+        deviceMac: 'aa:bb:cc:dd:ee:ff',
+        host: record.host,
+        recordedIdentity: record.credentialIdentity,
+        recordedIdentities: record.credentialIdentities,
+      );
+
+      expect(await pins.pin(ownIdentity), isNull);
+      expect(await credentials.credentials(ownIdentity), isEmpty);
+      expect(
+        await pins.pin(tenant),
+        'fp-tenant',
+        reason: 'the address now belongs to another device',
+      );
+      expect(await credentials.credentials(tenant), {'token': 'theirs'});
+    });
+
+    // A legacy record never recorded what it wrote under, so the host form
+    // is still the best guess there — and an empty mac adds no `mac:` key.
+    test('a legacy record still clears the host-keyed pin', () async {
+      final container = await _container();
+      final savedNetwork = container.read(savedNetworkDevicesProvider.notifier);
+      final record = await savedNetwork.touch(
+        NetworkDevice(
+          host: '192.168.1.21',
+          name: 'Legacy TV',
+          sources: const {NetworkDiscoverySource.ssdp},
+          discoveredAt: DateTime.utc(2026),
+        ),
+      );
+      final settings = InMemorySettingsStore();
+      final pins = CertificatePinStore(settings);
+      await pins.save(identityFor(host: record.host), 'fp-legacy');
+
+      await forgetNetworkDevice(
+        savedDevices: savedNetwork,
+        groups: container.read(deviceGroupsProvider.notifier),
+        deviceId: record.id,
+        trust: TlsTrust(pins),
+        credentials: DeviceCredentialStore(settings),
+        deviceMac: '',
+        host: record.host,
+      );
+
+      expect(await pins.pin(identityFor(host: record.host)), isNull);
+      expect(settings.values, isEmpty);
     });
   });
 

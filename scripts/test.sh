@@ -264,15 +264,13 @@ LB_REQUIRE_RUST_LIB=1 flutter test --coverage --exclude-tags="$tags_excluded" \
   --concurrency="$jobs" ${reporter:+"$reporter"}
 
 # A file no test imports is ABSENT from lcov rather than reported as zero, so
-# it silently leaves the percentage alone. Both reports are offered when the
-# netdisco run has left one behind, since a library only those suites reach is
-# legitimately missing from the run above.
+# it silently leaves the percentage alone. The unit report alone is audited,
+# exactly as CI's unit-tests job does: a library only the netdisco suites
+# reach needs an allowlist entry there. Unioning in a leftover
+# coverage/netdisco-lcov.info (from any earlier ci-netdisco-tests.sh run, of
+# any commit) passed files here that CI's audit then rejected.
 log "coverage audit (every lib/ file measured?)"
-coverage_reports=(coverage/lcov.info)
-if [[ -s coverage/netdisco-lcov.info ]]; then
-  coverage_reports+=(coverage/netdisco-lcov.info)
-fi
-./scripts/ci-coverage-audit.sh "${coverage_reports[@]}"
+./scripts/ci-coverage-audit.sh coverage/lcov.info
 }
 
 leg_cargo() {

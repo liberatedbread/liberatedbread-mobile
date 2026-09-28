@@ -437,6 +437,30 @@ void main() {
       );
     });
 
+    for (final (label, peer) in [
+      (
+        'refuses the MTU exchange',
+        () => FakeAttPeripheral.ldm330()..refusesMtuExchange = true,
+      ),
+      ('offers 23 in the MTU exchange', () => FakeAttPeripheral.ldm330()),
+    ]) {
+      test('a direct link whose peer $label reports 23, not 512', () async {
+        // The Linux stuck-default heuristic reads a post-connect 23 as
+        // "flutter_blue_plus_linux never said" and answers the 512 the
+        // connect requested. A direct link's 23 is real — DirectAttPlatform
+        // emits the settled MTU before announcing the connection — and 512
+        // sizes writes AttClient refuses past mtu-3 (Core 5.3 Vol 3 Part F
+        // 3.4.5.3: a Write Command carries at most ATT_MTU-3 bytes).
+        service.isLinux = true;
+        rig.ble.add(EmulatedPeripheral.bulb(id: _meterId));
+        rig.channels.peripherals[_meterId] = peer();
+
+        await service.connect(_meterId);
+        expect(await service.mtu(_meterId), 23);
+        await service.disconnect(_meterId);
+      });
+    }
+
     test('in any spelling of its address', () async {
       attMeter();
       await service.connect(_meterId.toLowerCase());

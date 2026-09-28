@@ -70,11 +70,14 @@ impl Handshake {
 /// declared. Within a block the steps keep their written order, which is the
 /// only thing the schema says about them — "ordered".
 ///
-/// A step's service is resolved by looking for the characteristic in the
-/// spec's own service list, so a top-level step is addressable at all and a
-/// per-service step whose characteristic is really declared elsewhere is
-/// addressed where it actually lives. Only when no service declares it does a
-/// per-service step fall back to its owning service, which is the spec
+/// A per-service step whose owning service declares its characteristic is
+/// addressed to that service, even when an earlier service reuses the same
+/// UUID. Otherwise the step's service is resolved by looking for the
+/// characteristic in the spec's own service list, so a top-level step is
+/// addressable at all and a per-service step whose characteristic is really
+/// declared elsewhere is addressed where it actually lives. Only when no
+/// service declares it does a per-service step fall back to its owning
+/// service, which is the spec
 /// author's own claim about where it sits (kingsmith's vendor preamble is
 /// declared under the FTMS service and nowhere else — an upstream problem
 /// noted in SPECS_TO_FIX.md, not one to paper over here).
@@ -115,10 +118,24 @@ fn push(
         );
         return;
     }
-    let service_uuid = spec
-        .find_characteristic(&step.characteristic)
-        .map(|(service, _)| service.uuid.clone())
-        .or_else(|| owner.map(|service| service.uuid.clone()));
+    // The owner wins when it declares the characteristic itself. A
+    // spec-wide search first would hand a step to whichever EARLIER service
+    // reuses the UUID (sensorpush and govee both repeat characteristic UUIDs
+    // across services), and the handshake write would land on another
+    // service's characteristic.
+    let declared_by_owner = owner.filter(|service| {
+        service
+            .characteristics
+            .iter()
+            .any(|c| c.uuid.eq_ignore_ascii_case(&step.characteristic))
+    });
+    let service_uuid = declared_by_owner
+        .or_else(|| {
+            spec.find_characteristic(&step.characteristic)
+                .map(|(service, _)| service)
+        })
+        .or(owner)
+        .map(|service| service.uuid.clone());
     out.steps.push(HandshakeStep {
         service_uuid,
         characteristic_uuid: step.characteristic.clone(),
@@ -348,6 +365,83 @@ services:
         assert_eq!(
             steps[0].service_uuid.as_deref(),
             Some("00001826-0000-1000-8000-00805f9b34fb")
+        );
+    }
+
+    /// Two services declare the same characteristic UUID and the SECOND one's
+    /// block names it. The step used to be addressed to the first service —
+    /// the spec-wide search ran before the owner was asked — so the handshake
+    /// write went to another service's characteristic.
+    #[test]
+    fn the_owning_service_wins_when_it_declares_the_characteristic() {
+        let spec = parse_spec(
+            r#"
+device:
+  name: "Sensor"
+  manufacturer: "Example"
+  manufacturer_status: active
+  protocol: ble
+services:
+  - uuid: "0000aaa0-0000-1000-8000-00805f9b34fb"
+    name: "First"
+    characteristics:
+      - uuid: "0000abc1-0000-1000-8000-00805f9b34fb"
+        name: "Shared"
+        properties: ["write"]
+  - uuid: "0000bbb0-0000-1000-8000-00805f9b34fb"
+    name: "Second"
+    initialization:
+      - characteristic: "0000ABC1-0000-1000-8000-00805f9b34fb"
+        write: [1]
+    characteristics:
+      - uuid: "0000abc1-0000-1000-8000-00805f9b34fb"
+        name: "Shared"
+        properties: ["write"]
+"#,
+        )
+        .unwrap();
+        let steps = handshake(&spec).steps;
+        assert_eq!(
+            steps[0].service_uuid.as_deref(),
+            Some("0000bbb0-0000-1000-8000-00805f9b34fb")
+        );
+    }
+
+    /// A per-service step whose owner does NOT declare the characteristic
+    /// still moves to the service that does — the owner check must not
+    /// swallow the re-addressing it sits in front of.
+    #[test]
+    fn a_step_declared_elsewhere_still_moves_to_where_it_lives() {
+        let spec = parse_spec(
+            r#"
+device:
+  name: "Sensor"
+  manufacturer: "Example"
+  manufacturer_status: active
+  protocol: ble
+services:
+  - uuid: "0000aaa0-0000-1000-8000-00805f9b34fb"
+    name: "First"
+    initialization:
+      - characteristic: "0000abc2-0000-1000-8000-00805f9b34fb"
+        subscribe: true
+    characteristics:
+      - uuid: "0000abc1-0000-1000-8000-00805f9b34fb"
+        name: "Other"
+        properties: ["write"]
+  - uuid: "0000bbb0-0000-1000-8000-00805f9b34fb"
+    name: "Second"
+    characteristics:
+      - uuid: "0000abc2-0000-1000-8000-00805f9b34fb"
+        name: "Events"
+        properties: ["notify"]
+"#,
+        )
+        .unwrap();
+        let steps = handshake(&spec).steps;
+        assert_eq!(
+            steps[0].service_uuid.as_deref(),
+            Some("0000bbb0-0000-1000-8000-00805f9b34fb")
         );
     }
 

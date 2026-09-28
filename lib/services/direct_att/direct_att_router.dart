@@ -298,6 +298,13 @@ final class DirectAttRouter extends FlutterBluePlusPlatform {
       _handingOver.contains(_k(id)) ||
       direct.hasLink(id.str);
 
+  /// Whether [id]'s reported MTU is the one really negotiated, so a 23 is
+  /// a real 23 rather than flutter_blue_plus_linux's never-updated default.
+  /// True for a direct link: DirectAttPlatform emits the settled MTU before
+  /// it announces the connection. RealBleService asks this instead of
+  /// knowing the routing internals.
+  bool reportsNegotiatedMtu(DeviceIdentifier id) => direct.hasLink(id.str);
+
   bool _onlyDeclared(DeviceIdentifier id) =>
       registry.isOnlyDeclared(id.str) &&
       !_handingOver.contains(_k(id)) &&

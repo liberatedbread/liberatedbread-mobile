@@ -16,6 +16,7 @@ import 'package:liberated_bread_mobile/screens/roomba_transport_screen.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
+import 'package:liberated_bread_mobile/services/hub_credential_store.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 import 'package:liberated_bread_mobile/services/panel_resolution_cache.dart';
 import 'package:liberated_bread_mobile/services/settings_store.dart';
@@ -201,6 +202,52 @@ void main() {
     expect(PanelResolutionCache(_prefs).get('aa'), isNull);
   });
 
+  // forgetNetworkDevice took the hub store and bridgeid, but this screen
+  // passed neither, so Remove left a Hue bridge's whitelist username, client
+  // key, TLS pin and scheme behind while saying "Removed".
+  testWidgets('removing a saved Hue bridge clears its pairing', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'saved_network_devices_v1':
+          '[{"id":"h1","name":"Hue Bridge","lastSeen":"2026-07-30T12:00:00.000",'
+          '"host":"192.168.1.32","txt":{"bridgeid":"001788fffe123456"}}]',
+    });
+    _prefs = await SharedPreferences.getInstance();
+    final store = InMemorySettingsStore();
+    final hub = HubCredentialStore(store);
+    await tester.runAsync(() async {
+      await hub.saveCredentials(
+        '001788FFFE123456',
+        const HubCredentials(username: 'whitelist-user', clientKey: 'ab12'),
+      );
+      await hub.saveCertPin('001788FFFE123456', 'AABB');
+      await hub.saveScheme('001788FFFE123456', 'https');
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(FakeBleService()),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          settingsStoreProvider.overrideWithValue(store),
+        ],
+        child: const MaterialApp(home: SavedDevicesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Forget Hue Bridge'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Forget'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Removed Hue Bridge'), findsOneWidget);
+    expect(
+      store.values.keys.where((k) => k.startsWith('hub.')),
+      isEmpty,
+      reason: 'username, client key, pin and scheme all go with the bridge',
+    );
+  });
+
   group('relativeTime', () {
     test('reads as a relative time until that stops being useful', () {
       final now = DateTime.now();
@@ -221,7 +268,10 @@ void main() {
     const blid = 'ABC123';
     const roombaSpec = 'Roomba|iRobot';
 
-    Widget wrapRoomba({required SettingsStore store}) => ProviderScope(
+    Widget wrapRoomba({
+      required SettingsStore store,
+      String manufacturer = 'iRobot',
+    }) => ProviderScope(
       overrides: [
         bleServiceProvider.overrideWithValue(FakeBleService()),
         sharedPreferencesProvider.overrideWithValue(_prefs),
@@ -256,7 +306,7 @@ void main() {
                     txtMatchGroups: const [],
                     hiddenEntityNames: const [],
                     deviceName: 'Roomba',
-                    manufacturer: 'iRobot',
+                    manufacturer: manufacturer,
                     manufacturerStatus: 'active',
                     protocol: 'wifi',
                     localNamePrefixes: const [],
@@ -279,12 +329,12 @@ void main() {
       child: const MaterialApp(home: SavedDevicesScreen()),
     );
 
-    Future<void> seedRobot() async {
+    Future<void> seedRobot({String specKey = roombaSpec}) async {
       SharedPreferences.setMockInitialValues({
         'saved_network_devices_v1':
             '[{"id":"r1","name":"Dusty","lastSeen":"2026-07-30T12:00:00.000",'
             '"host":"192.168.1.40","txt":{"blid":"$blid"},'
-            '"specKey":"$roombaSpec"}]',
+            '"specKey":"$specKey"}]',
       });
       _prefs = await SharedPreferences.getInstance();
     }
@@ -313,8 +363,8 @@ void main() {
     testWidgets('says so when the robot has no password on this phone', (
       tester,
     ) async {
-      // Adopted through Home Assistant: the robot is drivable, just not
-      // directly, and a chooser with two dead sections would not say that.
+      // Nothing usable stored: a chooser whose every path needs a password
+      // would not say that.
       await seedRobot();
 
       await tester.pumpWidget(wrapRoomba(store: InMemorySettingsStore()));
@@ -324,7 +374,55 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(RoombaTransportScreen), findsNothing);
-      expect(find.textContaining('only be reached through'), findsOneWidget);
+      // It used to say "can only be reached through Home Assistant" — the
+      // one path a robot with no HA entity stored does not have.
+      expect(find.textContaining('Home Assistant'), findsOneWidget);
+      expect(find.textContaining('only be reached through'), findsNothing);
+      expect(find.textContaining('Tap it to set it up'), findsOneWidget);
+    });
+
+    // A robot adopted through Home Assistant is stored with an entity and no
+    // password. It reaches the chooser, but before the fix the chooser drew
+    // the direct card for it, and tapping it cleared the entity and left the
+    // robot un-adopted.
+    testWidgets('an HA-adopted robot reaches the chooser with only HA', (
+      tester,
+    ) async {
+      await seedRobot();
+      final store = InMemorySettingsStore();
+      await RoombaCredentialStore(store).save(
+        const RoombaCredentials(
+          blid: blid,
+          password: '',
+          haEntityId: 'vacuum.dusty',
+        ),
+      );
+
+      await tester.pumpWidget(wrapRoomba(store: store));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('How to reach this robot'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RoombaTransportScreen), findsOneWidget);
+      expect(find.text('Straight at the robot'), findsNothing);
+      expect(find.text('A rest980 server'), findsNothing);
+    });
+
+    // The row split its spec key by hand and demanded exactly two parts, so
+    // a manufacturer containing `|` resolved no controls: the row was
+    // disabled and the robot lost its transport action, with no error.
+    testWidgets('a manufacturer with a bar in it still resolves controls', (
+      tester,
+    ) async {
+      await seedRobot(specKey: 'Roomba|iRobot|Labs');
+
+      await tester.pumpWidget(
+        wrapRoomba(store: InMemorySettingsStore(), manufacturer: 'iRobot|Labs'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('How to reach this robot'), findsOneWidget);
     });
 
     testWidgets('a device that is not a robot has no such action', (

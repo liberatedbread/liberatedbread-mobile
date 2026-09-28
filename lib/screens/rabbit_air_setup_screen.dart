@@ -149,6 +149,10 @@ class _RabbitAirSetupScreenState extends ConsumerState<RabbitAirSetupScreen> {
       _stage = _Stage.working;
       _busyLabel = 'Connecting to the purifier...';
       _error = null;
+      // The scan is stopped just above, and a cancelled subscription never
+      // fires onDone. Left false, a failed begin fell back to the scanning
+      // view spinning for a scan that no longer ran, with Scan again hidden.
+      _scanEnded = true;
     });
     await _service.begin(device.id);
   }

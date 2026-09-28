@@ -381,23 +381,39 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     ({int width, int height})? res;
     var fromLiveSource = false;
 
+    // Each source is taken only inside the spec's own bounds, and one that
+    // is not falls through to the next. A garbled advertisement or DeviceInfo
+    // decode (a 0 is how a truncated field reads) sized the canvas to 0 wide
+    // — every stroke off-grid and every send refused by the encoder — or past
+    // the declared maximum, which the size box refuses to type; and being a
+    // live answer it was cached, so every later reconnect restored it.
+    bool fits(int width, int height) =>
+        width >= 1 &&
+        height >= 1 &&
+        (_spec.maxWidth == null || width <= _spec.maxWidth!) &&
+        (_spec.maxHeight == null || height <= _spec.maxHeight!);
+
     // 1. Advertisement.
     if (widget.manufacturerData.isNotEmpty) {
       final adv = await codec.advertisedResolution(
         specYaml: widget.specYaml,
         manufacturerData: widget.manufacturerData,
       );
-      if (adv != null) {
+      if (adv != null && fits(adv.width, adv.height)) {
         res = (width: adv.width, height: adv.height);
         fromLiveSource = true;
       }
     }
-    // 2. Persistent cache.
-    res ??= cache.get(widget.deviceId);
+    // 2. Persistent cache — which an older build may have filled with an
+    // out-of-bounds answer, so it is checked too.
+    if (res == null) {
+      final cached = cache.get(widget.deviceId);
+      if (cached != null && fits(cached.width, cached.height)) res = cached;
+    }
     // 3. DeviceInfo query over BLE.
     if (res == null) {
       final info = await _queryDeviceInfoResolution();
-      if (info != null) {
+      if (info != null && fits(info.width, info.height)) {
         res = info;
         fromLiveSource = true;
       }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/ha_sensor_mapping.dart';
+import 'package:liberated_bread_mobile/core/unit_display.dart';
 import 'package:liberated_bread_mobile/models/ha_sensor.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
@@ -26,6 +27,25 @@ const _customChar = CharacteristicDto(
 );
 
 void main() {
+  // The card and the HA registration used to keep separate alias tables
+  // that had already drifted ('°c' was HA-only): a spelling in one table
+  // only puts '°C' on the card while HA registers the raw unit and drops
+  // the temperature class. One table now; 'k' is the only HA-only extra.
+  test('HA unit spellings agree with the card for every alias', () {
+    for (final unit in const [
+      'c', 'C', 'degC', '°c', '°C', 'f', 'F', 'degF', '°f', '°F', //
+      'lux', 'lx', 'percent', 'pct', '%', 'hPa', 'W', 'mV', 'dBm',
+    ]) {
+      expect(normalizeHaUnit(unit), displayUnit(unit), reason: unit);
+    }
+    expect(displayUnit('°c'), '°C');
+    expect(normalizeHaUnit('k'), 'K');
+    expect(haClassAndUnit('temperature', 'degC'), (
+      deviceClass: 'temperature',
+      unit: '°C',
+    ));
+  });
+
   group('haUniqueId', () {
     test('uses the assigned number for Bluetooth-base UUIDs', () {
       expect(

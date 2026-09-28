@@ -47,6 +47,14 @@ const _robotEntity = NetworkEntityDto(
   ],
 );
 
+/// What makes a spec a Roomba: its protocol_handler, not its transport.
+const _robotCaps = NetworkCapabilitiesDto(
+  protocolHandler: 'roomba_mqtt',
+  tlsSelfSigned: true,
+  advertisedPortUnreliable: false,
+  mqttClientIdGenerated: true,
+);
+
 NetworkDevice _robot() => NetworkDevice(
   // RFC 5737 TEST-NET-2: this is a widget test, and the pre-flight must
   // settle before anything is dialed.
@@ -87,7 +95,10 @@ void main() {
 
   /// A host with one button that opens [_robot]'s controls through the
   /// launcher — the same call the scan list and the saved-devices list make.
-  Widget wrap({bool labelPrinter = false}) => ProviderScope(
+  Widget wrap({
+    bool labelPrinter = false,
+    NetworkCapabilitiesDto? capabilities = _robotCaps,
+  }) => ProviderScope(
     overrides: [
       settingsStoreProvider.overrideWithValue(settings),
       specCodecProvider.overrideWithValue(FakeSpecCodec()),
@@ -105,6 +116,7 @@ void main() {
               controls: NetworkControls(
                 specYaml: 'yaml',
                 entities: const [_robotEntity],
+                capabilities: capabilities,
                 rasterPrintHandler: labelPrinter ? 'brother_ql_raster' : null,
               ),
             ),
@@ -130,6 +142,31 @@ void main() {
       );
     },
   );
+
+  // The pre-flight keyed on the `mqtt` transport, which Hisense, Dyson and
+  // Bambu specs ride too: any of them announcing a `blid` key went to the
+  // Roomba wizard, though the control screen keys on the handler and would
+  // not treat it as a robot.
+  testWidgets('an MQTT device that is not a Roomba skips the robot wizard', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        labelPrinter: true,
+        capabilities: const NetworkCapabilitiesDto(
+          protocolHandler: 'hisense_mqtt',
+          tlsSelfSigned: true,
+          advertisedPortUnreliable: false,
+          mqttClientIdGenerated: false,
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RoombaAdoptionScreen), findsNothing);
+    expect(find.byType(LabelPrinterScreen), findsOneWidget);
+  });
 
   testWidgets('backing out of adoption pushes nothing', (tester) async {
     await tester.pumpWidget(wrap());
@@ -173,6 +210,7 @@ void main() {
                   controls: const NetworkControls(
                     specYaml: 'yaml',
                     entities: [_robotEntity],
+                    capabilities: _robotCaps,
                   ),
                 ),
                 child: const Text('Open'),
@@ -205,7 +243,10 @@ void main() {
     );
     await store.rememberAddress(_blid, '198.51.100.99');
 
-    await tester.pumpWidget(wrap());
+    // The label printer screen stands in for the controls: with the robot's
+    // real handler the control screen now takes the Roomba path, whose
+    // connection leaves timers — and the pre-flight is what is under test.
+    await tester.pumpWidget(wrap(labelPrinter: true));
     await tester.tap(find.text('Open'));
     // One pump, not pumpAndSettle: the control screen's own connection is
     // another file's business, and settling it here is what leaves timers.

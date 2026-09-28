@@ -235,17 +235,31 @@ bool _declaresSigBattery(DeviceSpecDto spec) {
   return false;
 }
 
-/// Map [percent] (0–100) onto an action's declared parameter range. The
+/// The range a brightness action is taken to span when its spec declares
+/// no bounds. One definition, because it used to be written per path and
+/// the network group copy said 0..100 while the device screen's cards said
+/// 0..255: a group "50%" then sent 50 where the card's midpoint sent 128,
+/// landing a 0..255 device at about 20%. The light cards should read these
+/// too rather than restating 0 and 255.
+const double kUndeclaredBrightnessMin = 0;
+const double kUndeclaredBrightnessMax = 255;
+
+/// Map [percent] (0–100) onto a declared parameter range, rounded to a
+/// whole device value, falling back to [kUndeclaredBrightnessMin] and
+/// [kUndeclaredBrightnessMax] for a bound the spec left out. The
 /// catalogue's brightness ranges genuinely differ — 0–100, 5–100, 0–255,
 /// 1–255 — so a group brightness has to be a percentage re-encoded per
-/// device; the defaults (0 and 255) match what the light card assumes when a
-/// spec declares no bounds.
-double brightnessDeviceValue(EntityActionDto action, double percent) {
-  final min = action.min ?? 0;
-  final max = action.max ?? 255;
+/// device.
+double brightnessFromPercent(double? min, double? max, double percent) {
+  final lo = min ?? kUndeclaredBrightnessMin;
+  final hi = max ?? kUndeclaredBrightnessMax;
   final fraction = percent.clamp(0.0, 100.0) / 100.0;
-  return (min + (max - min) * fraction).roundToDouble();
+  return (lo + (hi - lo) * fraction).roundToDouble();
 }
+
+/// [brightnessFromPercent] for a BLE entity action.
+double brightnessDeviceValue(EntityActionDto action, double percent) =>
+    brightnessFromPercent(action.min, action.max, percent);
 
 /// Parameter values for one group write, mirroring the control cards: only
 /// the UI-owned parameters are sent (the encoder fills the rest from spec
@@ -330,9 +344,15 @@ List<GroupWrite> resolveGroupWrites({
 /// detectAlertActions gives spec commands over the Immediate Alert profile).
 /// The SIG path is the fallback and needs no spec at all, which is why every
 /// member gets offered a battery read.
+///
+/// [matchedVariants] narrows the spec's entities to the model in front of
+/// us ([entityIsForVariants]) before the per-characteristic dedupe, so a
+/// family spec's two variant bindings on one characteristic decode with the
+/// matched variant's format rather than whichever is declared first.
 List<GroupRead> resolveBatteryReads({
   DeviceSpecDto? spec,
   required List<BleDiscoveredService> services,
+  List<String>? matchedVariants,
 }) {
   final reads = <GroupRead>[];
   final seenChars = <String>{};
@@ -340,6 +360,7 @@ List<GroupRead> resolveBatteryReads({
   if (spec != null) {
     for (final entity in spec.entities) {
       if (!_isSpecBatteryEntity(entity)) continue;
+      if (!entityIsForVariants(entity, matchedVariants)) continue;
       final stateChar = entity.stateCharacteristic!;
       final owning = _owningReadableService(spec, services, stateChar);
       if (owning == null) continue;
@@ -382,10 +403,17 @@ List<GroupRead> resolveBatteryReads({
 /// readings the device screen would show, in spec order. Capped because a
 /// group snapshot is a glance ("is the greenhouse OK"), not the device
 /// screen — airthings alone declares 25 entities.
+///
+/// [matchedVariants] narrows exactly as the device panel does, BEFORE the
+/// name dedupe claims a key: without it the first-declared variant's
+/// binding won, so two variants sharing one characteristic in different
+/// formats decoded the group snapshot in the wrong dialect while the device
+/// screen read it right.
 List<GroupRead> resolveSensorReads({
   required DeviceSpecDto spec,
   required List<BleDiscoveredService> services,
   int cap = 6,
+  List<String>? matchedVariants,
 }) {
   final reads = <GroupRead>[];
   // Same dedupe key as the control panel: a family spec binds one logical
@@ -394,6 +422,7 @@ List<GroupRead> resolveSensorReads({
   for (final entity in spec.entities) {
     if (reads.length >= cap) break;
     if (!_isSensorEntity(entity)) continue;
+    if (!entityIsForVariants(entity, matchedVariants)) continue;
     final stateChar = entity.stateCharacteristic!;
     final owning = _owningReadableService(spec, services, stateChar);
     if (owning == null) continue;
@@ -571,10 +600,13 @@ GroupNetworkPlan resolveNetworkGroupPlan({
       case GroupOp.setBrightness:
         final action = _networkBrightnessAction(entity);
         if (action != null) {
-          final percent = (brightnessPercent ?? 100).clamp(0.0, 100.0);
-          final min = action.min ?? 0;
-          final max = action.max ?? 100;
-          final value = (min + (max - min) * percent / 100).round();
+          // Through the shared helper: this copy used to default a missing
+          // max to 100 while the device screen's card defaulted to 255.
+          final value = brightnessFromPercent(
+            action.min,
+            action.max,
+            brightnessPercent ?? 100,
+          ).round();
           direct.add(
             GroupNetworkSend(
               entity: entity,

@@ -19,6 +19,9 @@
 # the exec'd process, which killed xcodebuild outright and orphaned the app
 # on the phone; the wrapper signals the process group instead.
 #
+# It also checks both device runners keep the operator's app installed and
+# gate the keychain wipe (see the end).
+#
 # Runs in scripts/test.sh; needs bash and perl only.
 
 set -uo pipefail
@@ -91,6 +94,44 @@ if grep -qE '^[[:space:]]*if \(\( rc == 142 \)\); then' "$runner"; then
   pass "...and reports the kill as a failed suite"
 else
   fail "$runner: exit 142 from the bound is not treated as a failure"
+fi
+
+# Every `flutter test` either device runner runs keeps the app installed.
+# flutter's default --uninstall removes it when the run ends, and on a phone
+# the app it removes is the operator's own install (same id, same key): on
+# Android that deletes saved devices and secure storage, on iOS it drops
+# SharedPreferences so the next launch's reconcileInstall wipes the keychain.
+# Each `flutter test` must have --no-uninstall within its continued command.
+for r in scripts/run-ios-device-tests.sh scripts/run-android-device-tests.sh; do
+  missing="$(awk '
+    /^[[:space:]]*#/ { next }
+    /flutter test / { inrun = 1; ok = 0; start = FNR }
+    inrun && /--no-uninstall/ { ok = 1 }
+    inrun && !/\\$/ { if (!ok) print start; inrun = 0 }
+  ' "$r")"
+  n="$(grep -cE '^[^#]*flutter test [^-]' "$r")"
+  if (( n == 0 )); then
+    fail "$r: found no \`flutter test\` invocation to check"
+  elif [[ -z "$missing" ]]; then
+    pass "$r: all $n \`flutter test\` run(s) pass --no-uninstall"
+  else
+    fail "$r: \`flutter test\` without --no-uninstall at line(s) ${missing//$'\n'/ }"
+  fi
+done
+
+# The Android runner's keychain opt-in mirrors the iOS one: the aggregate run
+# tells the suite it is on a phone, and the wipe define sits behind the flag.
+android=scripts/run-android-device-tests.sh
+if grep -qE '^[[:space:]]*--dart-define=LB_PHYSICAL_PHONE=true' "$android"; then
+  pass "$android marks its aggregate run as a physical phone"
+else
+  fail "$android: ci_all_test.dart is not run with --dart-define=LB_PHYSICAL_PHONE=true, so keychain_accessibility_test wipes the phone's secure storage unasked"
+fi
+if [[ "$(grep -c 'LB_KEYCHAIN_WIPE_OK=true' "$android")" == 1 ]] &&
+   grep -q -- '--allow-keychain-wipe) ALLOW_KEYCHAIN_WIPE=true' "$android"; then
+  pass "...and hands out LB_KEYCHAIN_WIPE_OK only behind --allow-keychain-wipe"
+else
+  fail "$android: LB_KEYCHAIN_WIPE_OK=true must appear once, behind --allow-keychain-wipe"
 fi
 
 if [[ "$status" -eq 0 ]]; then echo "run-ios-device-tests selftest: all passed"; fi

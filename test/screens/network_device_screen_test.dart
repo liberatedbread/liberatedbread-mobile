@@ -2577,8 +2577,10 @@ void main() {
       WidgetTester tester, {
       List<NetworkCredentialDto> declaredCredentials = const [],
       InMemorySettingsStore? settings,
+      bool pollsFailAfterToggle = false,
     }) async {
       childOn = {'8006AAA00': true, '8006AAA01': false, '8006AAA02': true};
+      var toggled = false;
       stripCodec = FakeSpecCodec(
         networkCredentials: declaredCredentials,
         networkEntities: (_) => stripEntities,
@@ -2617,6 +2619,9 @@ void main() {
         if (child != null && child.isNotEmpty) {
           if (json.contains('relay_on_child')) childOn[child] = true;
           if (json.contains('relay_off_child')) childOn[child] = false;
+          toggled = true;
+        } else if (pollsFailAfterToggle && toggled) {
+          throw Exception('read-back timed out');
         }
         // Every poll answers get_sysinfo; the fake codec enumerates the
         // children from its configured list, so the body's exact shape is moot.
@@ -2720,6 +2725,27 @@ void main() {
       expect(outletSwitch(tester, 'Pleaky1').value, isTrue);
       expect(outletSwitch(tester, 'RackFans').value, isTrue);
       expect(outletSwitch(tester, 'Spare').value, isTrue);
+    });
+
+    // The strip took the toggle, then the get_sysinfo re-read failed. The
+    // shared catch reported that as "The outlet did not accept that. Try
+    // again." — wrong about the device, and a retry sends the toggle twice.
+    testWidgets('a failed re-read after a toggle is not called a refusal', (
+      tester,
+    ) async {
+      await pumpStrip(tester, pollsFailAfterToggle: true);
+
+      await tester.tap(
+        find.descendant(
+          of: find.widgetWithText(Card, 'Pleaky1'),
+          matching: find.byType(Switch),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(childOn['8006AAA01'], isTrue);
+      expect(find.textContaining('did not accept'), findsNothing);
+      expect(find.textContaining('could not read back'), findsOneWidget);
     });
 
     testWidgets('an outlet send goes through the same sender every other '
@@ -3894,12 +3920,13 @@ void main() {
       WidgetTester tester, {
       List<NetworkEntityDto> entities = utilityEntities,
       List<String> hiddenNames = const [],
+      NetworkReadingDto? Function(String, Map<String, String>)? reading,
     }) async {
       posts = [];
       codec = FakeSpecCodec(
         networkEntities: (_) => entities,
         networkHiddenNames: hiddenNames,
-        networkReading: readUtility,
+        networkReading: reading ?? readUtility,
       );
       codec.networkRequest = (name, values) => SoapRequestDto(
         service: 'urn:Belkin:service:basicevent:1',
@@ -3936,6 +3963,35 @@ void main() {
       );
       await tester.pumpAndSettle();
     }
+
+    /// The unbounded 'Target Speed' number entity, reading [number]: the
+    /// entry dialog is its only control, pre-filled from that reading.
+    Future<void> pumpNumberReading(WidgetTester tester, double number) =>
+        pumpUtility(
+          tester,
+          entities: utilityEntities
+              .where((e) => e.platform == 'number')
+              .map(
+                (e) => NetworkEntityDto(
+                  isInstanced: e.isInstanced,
+                  name: e.name,
+                  platform: e.platform,
+                  unit: e.unit,
+                  stateCommand: e.stateCommand,
+                  valueField: e.valueField,
+                  options: e.options,
+                  actions: e.actions,
+                ),
+              )
+              .toList(),
+          reading: (entity, ret) => entity == 'Target Speed'
+              ? NetworkReadingDto(
+                  kind: NetworkReadingKind.number,
+                  number: number,
+                  raw: '$number',
+                )
+              : null,
+        );
 
     testWidgets('a cover renders its three motions and sends open', (
       tester,
@@ -4016,6 +4072,188 @@ void main() {
         (c) => c.commandName == 'set_speed',
       );
       expect(call.values['speed'], '21.5');
+    });
+
+    // The dialog pre-filled the reading rounded to a whole number, so a
+    // Send with no edit moved a 21.5 setpoint to 22 (and a one-decimal
+    // formatter would still move 21.25 to 21.3). The helper text rounded
+    // the bounds too: 0.5-1.5 read "Between 1 and 2".
+    testWidgets('an unedited number entry sends the reading unrounded', (
+      tester,
+    ) async {
+      final unbounded = utilityEntities
+          .where((e) => e.platform == 'number')
+          .map(
+            (e) => NetworkEntityDto(
+              isInstanced: e.isInstanced,
+              name: e.name,
+              platform: e.platform,
+              unit: e.unit,
+              stateCommand: e.stateCommand,
+              valueField: e.valueField,
+              setpointMin: 0.5,
+              options: e.options,
+              actions: e.actions,
+            ),
+          )
+          .toList();
+      await pumpUtility(
+        tester,
+        entities: unbounded,
+        reading: (entity, ret) => entity == 'Target Speed'
+            ? const NetworkReadingDto(
+                kind: NetworkReadingKind.number,
+                number: 21.25,
+                raw: '21.25',
+              )
+            : null,
+      );
+
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        '21.25',
+      );
+      expect(find.text('At least 0.5'), findsOneWidget);
+
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
+      final call = codec.renderNetworkCommandCalls.lastWhere(
+        (c) => c.commandName == 'set_speed',
+      );
+      expect(call.values['speed'], '21.25');
+    });
+
+    // Network readings are not rounded in Rust (SOAP multiplies by the
+    // value scale), so the pre-fill must be the shortest text that parses
+    // back to the SAME double: clean where the double allows ('21.3' for
+    // 0.1 * 213), whole numbers without '.0', and exact otherwise, since
+    // Send-without-edit has to send the current value and nothing else.
+    for (final (label, reading, text) in <(String, double, String)>[
+      ('a computed 21.3', 0.1 * 213, '21.3'),
+      ('a whole number', 22.0, '22'),
+      ('a scaled value', 2133 * 0.01, (2133 * 0.01).toString()),
+    ]) {
+      testWidgets('the entry pre-fills $label so it round-trips', (
+        tester,
+      ) async {
+        await pumpNumberReading(tester, reading);
+        await tester.tap(find.byIcon(Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        final shown = tester
+            .widget<TextField>(find.byType(TextField))
+            .controller
+            ?.text;
+        expect(shown, text);
+        expect(double.parse(shown!), reading);
+
+        await tester.tap(find.text('Send'));
+        await tester.pumpAndSettle();
+        final call = codec.renderNetworkCommandCalls.lastWhere(
+          (c) => c.commandName == 'set_speed',
+        );
+        expect(call.values['speed'], text);
+      });
+    }
+
+    // Rust's f64 parse accepts "inf": a device reporting it made the card's
+    // label call Infinity.round(), which throws mid-build, so the whole
+    // screen became an error page (and the pre-fill threw the same way).
+    testWidgets('an infinite reading renders and opens an empty entry', (
+      tester,
+    ) async {
+      await pumpNumberReading(tester, double.infinity);
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('Infinity'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        '',
+      );
+    });
+
+    // "Infinity" and "NaN" both parse, NaN passes every bound comparison,
+    // and formatting either for the wire threw in the send path.
+    for (final typed in ['Infinity', 'NaN']) {
+      testWidgets('typing $typed is refused, not sent', (tester) async {
+        await pumpNumberReading(tester, 21.0);
+        await tester.tap(find.byIcon(Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), typed);
+        await tester.tap(find.text('Send'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(
+          codec.renderNetworkCommandCalls.where(
+            (c) => c.commandName == 'set_speed',
+          ),
+          isEmpty,
+        );
+        expect(
+          find.text('That is not a value the device accepts.'),
+          findsOneWidget,
+        );
+      });
+    }
+
+    // The cover's position slider drew only the live reading and its
+    // onChanged did nothing, so the thumb sat still under the finger and the
+    // door was sent to a position the user never saw.
+    testWidgets('a cover position slider follows the finger while dragged', (
+      tester,
+    ) async {
+      final cover = utilityEntities.firstWhere((e) => e.platform == 'cover');
+      final withPosition = NetworkEntityDto(
+        isInstanced: cover.isInstanced,
+        name: cover.name,
+        platform: cover.platform,
+        deviceClass: cover.deviceClass,
+        stateCommand: cover.stateCommand,
+        valueField: cover.valueField,
+        options: cover.options,
+        actions: [
+          ...cover.actions,
+          const NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
+            role: 'set_cover_position',
+            transport: 'soap',
+            commandName: 'door_position',
+            userParams: ['position'],
+            min: 0,
+            max: 100,
+            readBack: [],
+          ),
+        ],
+      );
+      await pumpUtility(
+        tester,
+        entities: [withPosition],
+        reading: (entity, ret) => const NetworkReadingDto(
+          kind: NetworkReadingKind.number,
+          number: 20,
+          raw: '20',
+        ),
+      );
+
+      final slider = find.byType(Slider);
+      expect(tester.widget<Slider>(slider).value, 20);
+      final gesture = await tester.startGesture(tester.getCenter(slider));
+      await tester.pump();
+      await gesture.moveBy(const Offset(40, 0));
+      await tester.pump();
+      final held = tester.widget<Slider>(slider).value;
+      expect(held, isNot(20), reason: 'the thumb must move with the drag');
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      final call = codec.renderNetworkCommandCalls.lastWhere(
+        (c) => c.commandName == 'door_position',
+      );
+      expect(double.parse(call.values['position']!), closeTo(held, 1e-9));
     });
 
     testWidgets('a bounded number renders a slider, not the edit dialog', (

@@ -213,6 +213,26 @@ class HttpControlClient {
     );
   }
 
+  /// Read [host]'s pin again if the last read failed, before a handshake.
+  ///
+  /// [useTlsPolicy] runs once per sender, and a pin it could not read (a
+  /// locked keychain on a cold start or a resume) left the identity marked
+  /// unreadable with nothing on the send path to clear it: every later
+  /// handshake was refused for the life of the screen, under a message telling
+  /// the user to unlock the phone and try again. The policy stays published
+  /// while this runs, so a handshake in the gap still fails closed rather than
+  /// taking the first-contact branch.
+  Future<void> _rereadUnreadablePin(String host) async {
+    final trust = _trust;
+    final registered = _policies[host];
+    if (trust == null || registered == null || registered.policy == null) {
+      return;
+    }
+    if (trust.isUnreadable(registered.identity)) {
+      await trust.prepare(registered.identity);
+    }
+  }
+
   /// Send [request] against [path] and return the body, or `null` for a 404.
   ///
   /// A 404 is the ONE status that comes back as a value rather than a throw,
@@ -239,6 +259,7 @@ class HttpControlClient {
     final secure = request.scheme == 'https';
     final http.Client client;
     if (secure) {
+      await _rereadUnreadablePin(host);
       _trustedHosts.add(host);
       client = _httpsClient;
     } else {

@@ -8,9 +8,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/raw_characteristic_widget.dart';
 
 import '../fakes/fake_ble_service.dart';
+import '../fakes/fake_spec_codec.dart';
 
 Widget _wrap(Widget child, FakeBleService fake) => ProviderScope(
   overrides: [bleServiceProvider.overrideWithValue(fake)],
@@ -106,6 +110,94 @@ void main() {
     expect(fake.writes.length, 1);
     expect(fake.writes.single.value, const [0x01, 0xaa, 0xff]);
     expect(find.textContaining('Wrote 01 aa ff'), findsOneWidget);
+  });
+
+  testWidgets('a raw write re-reads the same service\'s decoded reading', (
+    tester,
+  ) async {
+    // The write-only hex row sits under a DecodedValueWidget of the same
+    // service, and it wrote straight to the BLE service — skipping the
+    // service-write bump every spec card makes — so the reading above it
+    // stayed on its first read after the bytes changed it. Fails on the old
+    // row: the status characteristic is read once, not twice.
+    const statusUuid = '0000fff2-0000-1000-8000-00805f9b34fb';
+    const writeUuid = '0000fff3-0000-1000-8000-00805f9b34fb';
+    final fake = FakeBleService(
+      readValues: const {
+        statusUuid: [1, 80],
+      },
+    );
+    final codec = FakeSpecCodec(
+      decoded: const [
+        DecodedValueDto(
+          name: 'power_state',
+          valueType: 'bool',
+          display: 'on',
+          boolValue: true,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(fake),
+          specCodecProvider.overrideWithValue(codec),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: const [
+                DecodedValueWidget(
+                  deviceId: '01',
+                  serviceUuid: _serviceUuid,
+                  specYaml: 'y',
+                  specChar: CharacteristicDto(
+                    uuid: statusUuid,
+                    name: 'Status',
+                    canRead: true,
+                    canWrite: false,
+                    canNotify: false,
+                    commands: [],
+                    formatFields: [
+                      FormatFieldDto(
+                        name: 'power_state',
+                        fieldType: 'bool',
+                        offset: 0,
+                        length: 1,
+                      ),
+                    ],
+                  ),
+                  canRead: true,
+                  canNotify: false,
+                ),
+                RawCharacteristicWidget(
+                  deviceId: '01',
+                  serviceUuid: _serviceUuid,
+                  writeOnly: true,
+                  characteristic: BleDiscoveredCharacteristic(
+                    uuid: writeUuid,
+                    canRead: false,
+                    canWrite: true,
+                    canNotify: false,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    int statusReads() =>
+        fake.reads.where((r) => r.charUuid == statusUuid).length;
+    expect(statusReads(), 1);
+
+    await tester.enterText(find.byType(TextField), '01 00');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(fake.writes.single.value, const [0x01, 0x00]);
+    expect(statusReads(), 2, reason: 'the raw write must re-read the status');
   });
 
   testWidgets('invalid hex is rejected without a write', (tester) async {

@@ -39,6 +39,17 @@ pub enum ProtocolError {
         reason: String,
     },
 
+    /// A value that is present but unusable, where the value is text rather
+    /// than a number. `ParameterInvalid` carries an `f64` and would print a
+    /// false "value 0" for a refused string, and `ParameterMissing` would
+    /// report a value the caller did supply as absent.
+    #[error("parameter '{name}' value {value:?} is invalid: {reason}")]
+    ParameterValueInvalid {
+        name: String,
+        value: String,
+        reason: String,
+    },
+
     #[error("value type {ty} cannot be used as an encode parameter")]
     UnsupportedParameterType { ty: crate::spec::types::ValueType },
 

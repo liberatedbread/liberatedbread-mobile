@@ -26,12 +26,11 @@
 //! does: it is protobuf + CRC assembly over a base template, which YAML cannot
 //! express without inventing a bytecode.
 
-use super::daniao::fragment_packet;
 use super::daniao_store::{self, StoredAnimation, StoredProgram, StoredText};
 use super::daniao_upload;
-use super::image_upload::FragmentRequest;
+use super::image_upload;
 use super::{service_for_characteristic, EncodedWrite};
-use crate::codec::types::encode_command;
+use crate::codec::types::encode_command_with_bytes;
 use crate::error::ProtocolError;
 use crate::spec::types::{Characteristic, DeviceSpec, Feature};
 use std::collections::HashMap;
@@ -338,8 +337,8 @@ fn assemble_plan(
     })
 }
 
-/// Encode the play-by-id command and wrap it in the command channel's fragment
-/// framing, so it is honoured (the controller ignores unframed command writes).
+/// Encode the play-by-id command and frame it for its characteristic, so it
+/// is honoured (the controller ignores unframed command writes).
 ///
 /// The command's bytes come from its spec template — the effect id rides in as
 /// `effect_id` (the vendor's `SimpleMessage.i1`) with `slot` defaulting to 0 —
@@ -350,49 +349,11 @@ fn build_play_write(
     cid: u32,
     sequence: u16,
 ) -> Result<EncodedWrite, ProtocolError> {
-    let (characteristic, tag) =
-        command_channel(spec, command_name)?.ok_or_else(|| ProtocolError::CommandNotFound {
-            uuid: "<any>".to_string(),
-            command: command_name.to_string(),
-        })?;
-    let commands = characteristic
-        .commands
-        .as_ref()
-        .ok_or_else(|| ProtocolError::NoCommands {
-            uuid: characteristic.uuid.clone(),
-        })?;
-    let command = commands
-        .get(command_name)
-        .ok_or_else(|| ProtocolError::CommandNotFound {
-            uuid: characteristic.uuid.clone(),
-            command: command_name.to_string(),
-        })?;
-
-    // `sn` overrides the template's `auto: sequence` default (codec fills 0
-    // otherwise), so the DNX header and the fragment header carry the SAME
-    // rolling counter — a repeat play is a distinct packet on both layers.
     let params = HashMap::from([
         ("effect_id".to_string(), cid as f64),
         ("slot".to_string(), 0.0),
-        ("sn".to_string(), sequence as f64),
     ]);
-    let dnx = encode_command(command, &params)?;
-
-    // One logical packet, so one fragment: give the framer capacity for the
-    // whole payload. tag comes from the characteristic's framing (0 on the
-    // command channel).
-    let parts = fragment_packet(FragmentRequest {
-        packet: &dnx,
-        serial: sequence as u32,
-        tag,
-        capacity: dnx.len().max(1),
-    });
-    // A single-packet command never splits; take the one fragment.
-    let bytes = parts.into_iter().next().unwrap_or(dnx);
-    Ok(EncodedWrite {
-        characteristic_uuid: characteristic.uuid.clone(),
-        bytes,
-    })
+    build_framed_command(spec, command_name, params, HashMap::new(), sequence)
 }
 
 /// One playlist entry: a stored effect's id (cid) and its device slot.
@@ -577,10 +538,18 @@ fn write_varint(out: &mut Vec<u8>, mut v: u64) {
 }
 
 /// Build any framed DDP command from its spec template — numeric params and an
-/// optional `bytes` payload — then wrap it in the command channel's fragment
-/// framing. `sequence` drives both the DNX `sn` and the fragment serial.
-/// Generalises [`build_play_write`] for commands that carry a Rust-built
-/// payload (set_playlist).
+/// optional `bytes` payload — then frame it for the characteristic that
+/// declares it. `sequence` drives both the DNX `sn` (overriding the
+/// template's `auto: sequence`, which the codec would fill with 0) and the
+/// fragment serial, so a repeat command is a distinct packet on both layers.
+///
+/// Framing goes through [`image_upload::frame_command`], the one reader of
+/// the `framing` block: it applies the DECLARED scheme, refuses one this
+/// build does not implement or a malformed `channel_tag`, and passes an
+/// unframed characteristic through. This path used to call the Daniao
+/// fragmenter directly and parse `channel_tag` by hand, so a command on an
+/// unframed (or differently framed) characteristic still went out with a
+/// Daniao header, and the two readers once disagreed about the tag.
 fn build_framed_command(
     spec: &DeviceSpec,
     command_name: &str,
@@ -588,87 +557,47 @@ fn build_framed_command(
     bytes_params: HashMap<String, Vec<u8>>,
     sequence: u16,
 ) -> Result<EncodedWrite, ProtocolError> {
-    let (characteristic, tag) =
-        command_channel(spec, command_name)?.ok_or_else(|| ProtocolError::CommandNotFound {
+    let characteristic = command_characteristic(spec, command_name).ok_or_else(|| {
+        ProtocolError::CommandNotFound {
             uuid: "<any>".to_string(),
             command: command_name.to_string(),
-        })?;
-    let commands = characteristic
+        }
+    })?;
+    let command = characteristic
         .commands
         .as_ref()
-        .ok_or_else(|| ProtocolError::NoCommands {
-            uuid: characteristic.uuid.clone(),
-        })?;
-    let command = commands
-        .get(command_name)
+        .and_then(|c| c.get(command_name))
         .ok_or_else(|| ProtocolError::CommandNotFound {
             uuid: characteristic.uuid.clone(),
             command: command_name.to_string(),
         })?;
     params.insert("sn".to_string(), sequence as f64);
-    let dnx = crate::codec::types::encode_command_with_bytes(command, &params, &bytes_params)?;
-    let parts = fragment_packet(FragmentRequest {
-        packet: &dnx,
-        serial: sequence as u32,
-        tag,
-        capacity: dnx.len().max(1),
-    });
-    let bytes = parts.into_iter().next().unwrap_or(dnx);
+    let dnx = encode_command_with_bytes(command, &params, &bytes_params)?;
+    // The fragment serial is one byte on the wire; the u16 counter's low
+    // byte is what the Daniao header always carried.
+    let bytes = image_upload::frame_command(characteristic, dnx, sequence as u8)?;
     Ok(EncodedWrite {
         characteristic_uuid: characteristic.uuid.clone(),
         bytes,
     })
 }
 
-/// The characteristic carrying `command_name`, plus its fragment channel tag.
-///
-/// Resolves by which characteristic declares the command rather than by a
-/// hardcoded UUID, so the play command can live on whichever channel the spec
-/// puts it. The tag is the characteristic's `framing.channel_tag` (0 for the
-/// Daniao command channel); an UNSTATED tag is 0, which is the scheme's own
-/// default and the only silence this reads as a value.
-///
-/// A tag that IS stated but is not a byte — `256`, `-1`, `"bulk"` — is an
-/// error, not a 0. `.as_u64().unwrap_or(0) as u8` said 0 for every one of
-/// those: `256` wrapped to the command channel and a misspelled tag fell back
-/// to it, so a write meant for the bulk channel went out framed for the
-/// command one and the device answered nothing. `image_upload::frame_command`
-/// reads the same key through a typed `Option<u8>` and refuses the same
-/// values; the two disagreeing about one YAML key was the whole bug.
-fn command_channel<'a>(
+/// The characteristic declaring `command_name`, found by which one declares
+/// it rather than by a hardcoded UUID, so a command can live on whichever
+/// channel the spec puts it.
+fn command_characteristic<'a>(
     spec: &'a DeviceSpec,
     command_name: &str,
-) -> Result<Option<(&'a Characteristic, u8)>, ProtocolError> {
-    for service in &spec.services {
-        for characteristic in &service.characteristics {
-            let has_command = characteristic
+) -> Option<&'a Characteristic> {
+    spec.services
+        .iter()
+        .flat_map(|service| &service.characteristics)
+        .find(|characteristic| {
+            characteristic
                 .commands
                 .as_ref()
-                .is_some_and(|c| c.contains_key(command_name));
-            if !has_command {
-                continue;
-            }
-            let declared = characteristic
-                .framing
-                .as_ref()
-                .and_then(|f| f.get("channel_tag"));
-            let tag = match declared {
-                None | Some(serde_yaml::Value::Null) => 0,
-                Some(value) => value
-                    .as_u64()
-                    .and_then(|t| u8::try_from(t).ok())
-                    .ok_or_else(|| ProtocolError::InvalidFraming {
-                        reason: format!(
-                            "characteristic {} declares channel_tag {value:?}, which is \
-                             not a byte; a fragment channel tag is 0..=255",
-                            characteristic.uuid
-                        ),
-                    })?,
-            };
-            return Ok(Some((characteristic, tag)));
-        }
-    }
-    Ok(None)
+                .is_some_and(|c| c.contains_key(command_name))
+        })
 }
 
 #[cfg(test)]
@@ -1034,8 +963,8 @@ services:
     /// every malformed spelling — a value past a byte, a negative, a word —
     /// silently became 0, the Daniao COMMAND channel. A bulk write framed for
     /// the command channel is a write the device drops with no error anywhere.
-    /// `image_upload::frame_command` reads the same key through a typed
-    /// `Option<u8>` and has always refused these; the two now agree.
+    /// Framing now goes through `image_upload::frame_command`, whose typed
+    /// `Option<u8>` has always refused these.
     #[test]
     fn a_channel_tag_that_is_not_a_byte_is_refused_not_truncated_to_zero() {
         for hostile in ["256", "-1", "\"bulk\""] {
@@ -1067,6 +996,43 @@ services:
         let spec = parse_device_spec(&yaml).expect("fixture parses");
         let (_service, write) = encode_bookmark_enable(&spec, 0, 7).expect("encodes");
         assert_eq!(write.bytes[3], 0, "the fragment header's tag byte");
+    }
+
+    /// A command on a characteristic with no `framing` block went out with a
+    /// Daniao fragment header anyway: this path called the fragmenter
+    /// directly and never read `framing.scheme`, while the generic BLE path
+    /// passes the same spec's write through unframed.
+    #[test]
+    fn a_command_on_an_unframed_characteristic_is_not_fragment_framed() {
+        let yaml = SPEC.replace(
+            r#"        framing: { scheme: "daniao_fragment", channel_tag: 0 }
+"#,
+            "",
+        );
+        assert_ne!(yaml, SPEC, "the fixture's framing line was removed");
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let (_service, write) = encode_bookmark_enable(&spec, 0, 7).expect("encodes");
+        assert_eq!(
+            write.bytes[0], 0xF0,
+            "the DNX flag leads; no fragment header"
+        );
+    }
+
+    /// A scheme this build does not implement is refused, never framed as
+    /// Daniao: the old path ignored `framing.scheme` entirely.
+    #[test]
+    fn a_command_on_an_unimplemented_scheme_is_refused() {
+        let yaml = SPEC.replace(
+            r#"framing: { scheme: "daniao_fragment", channel_tag: 0 }"#,
+            r#"framing: { scheme: "some_other_fragment", channel_tag: 0 }"#,
+        );
+        let spec = parse_device_spec(&yaml).expect("fixture parses");
+        let error = encode_bookmark_enable(&spec, 0, 7)
+            .expect_err("an unimplemented scheme must not be framed as Daniao");
+        assert!(
+            matches!(&error, ProtocolError::InvalidFraming { .. }),
+            "{error}"
+        );
     }
 
     #[test]

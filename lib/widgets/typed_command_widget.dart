@@ -278,6 +278,10 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       final container = ProviderScope.containerOf(context, listen: false);
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
+        // The service this command is drawn under, which is where it is
+        // written: unscoped, a characteristic UUID repeated under another
+        // service was encoded against that twin's command table.
+        serviceUuid: widget.serviceUuid,
         charUuid: widget.charUuid,
         commandName: widget.command.name,
         // Only what is on screen. A defaulted parameter is sent when the

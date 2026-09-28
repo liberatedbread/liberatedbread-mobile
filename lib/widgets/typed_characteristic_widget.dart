@@ -11,6 +11,8 @@ import 'typed_command_widget.dart';
 /// Chooses the right control(s) for a spec-matched characteristic:
 /// - readable/notify + has format spec -> [DecodedValueWidget]
 /// - writable + has commands           -> [TypedCommandWidget]
+/// - writable, no sendable command     -> [RawCharacteristicWidget]'s hex
+///                                        write row, beside the reader
 /// - neither                           -> [RawCharacteristicWidget] (raw hex)
 ///
 /// A characteristic can be both, and many are: a light's control point is
@@ -79,12 +81,37 @@ class TypedCharacteristicWidget extends StatelessWidget {
           )
         : null;
 
+    // Writable, but nothing in the spec this build can send: a `format:`
+    // with no commands (Ember's Mug Name, Chef iQ's Volume), or only
+    // commands in an encoding not supported yet. The reader alone used to
+    // answer here, so matching a spec REMOVED the hex write box the
+    // unmatched browser offers, with nothing saying why. Keep the raw
+    // write row (write-only: the decoded view already reads and
+    // subscribes), and the typed widget's "cannot send yet" note when the
+    // spec does document commands.
+    final rawWrite = discovered.canWrite && encodable.isEmpty
+        ? RawCharacteristicWidget(
+            deviceId: deviceId,
+            serviceUuid: serviceUuid,
+            characteristic: discovered,
+            writeOnly: true,
+          )
+        : null;
+    final blockedNote = rawWrite != null && specChar.commands.isNotEmpty
+        ? TypedCommandWidget(
+            deviceId: deviceId,
+            serviceUuid: serviceUuid,
+            specYaml: specYaml,
+            specChar: specChar,
+          )
+        : null;
+
     if (decoded == null) return commands!;
-    if (commands == null) return decoded;
+    if (commands == null && rawWrite == null) return decoded;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
-      children: [decoded, commands],
+      children: [decoded, ?commands, ?blockedNote, ?rawWrite],
     );
   }
 }

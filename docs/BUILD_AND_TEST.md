@@ -629,10 +629,17 @@ keychain, with the measurements printed as `[hardware]` lines.
 ./scripts/run-ios-device-tests.sh --if-present           # exit 0 when no phone is paired
 ./scripts/run-ios-device-tests.sh --launcher flutter     # `flutter test -d`, see below
 ./scripts/run-android-device-tests.sh --all              # the same suite on an attached Android phone
+./scripts/run-ios-device-tests.sh --all --allow-keychain-wipe   # also run the keychain suite, which WIPES the app's credentials
+./scripts/run-android-device-tests.sh --all --allow-keychain-wipe   # the same, WIPING the Android app's secure storage
 ```
 
 Both runners share the suite and its flags; the Android one needs no
-entitlement handling. The iOS runner has two ways onto the phone. By default
+entitlement handling. Both run against the app installed on the phone (on
+Android the test APK replaces a `run-android.sh` install of the same id) and
+leave it installed afterwards. `--all` skips the keychain suite on a phone,
+because its fresh-install case deletes every secure-storage item the app
+holds; pass `--allow-keychain-wipe` on a phone whose credentials are
+disposable. The iOS runner has two ways onto the phone. By default
 it builds each suite as the app's Dart target (`flutter build ios
 --config-only -t …`) and runs it with `xcodebuild test` on the `RunnerTests`
 XCTest target, which `ios/RunnerTests/RunnerTests.m` hosts through

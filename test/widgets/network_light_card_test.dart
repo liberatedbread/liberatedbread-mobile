@@ -9,7 +9,9 @@ import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/lifx_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/light_swatches.dart';
 import 'package:liberated_bread_mobile/widgets/network_light_card.dart';
+import 'package:liberated_bread_mobile/widgets/unclaimed_actions.dart';
 
 import '../fakes/fake_spec_codec.dart';
 
@@ -312,6 +314,225 @@ void main() {
       await tester.pumpAndSettle();
       expect(sent.single.$1, 'set_color');
       expect(sent.single.$2.keys.toSet(), {'red', 'green', 'blue'});
+    });
+  });
+
+  group('the generic path shows the device, not its own guess', () {
+    // NetworkDeviceScreen._send catches every failure itself (its banner
+    // reports it) and never rethrows, so on this path the card cannot tell
+    // a refused command from an accepted one. It assumed the sent position
+    // anyway, and only a CHANGED reading could correct it — a refused Off
+    // left the poll saying On, unchanged, and the card said Off for as long
+    // as the screen was open. The senders below swallow, like the screen's.
+    NetworkActionDto generic(String role, [List<String> params = const []]) =>
+        NetworkActionDto(
+          role: role,
+          commandName: role,
+          transport: 'http',
+          userParams: params,
+          readBack: const [],
+          credentials: const [],
+          instanceParams: const [],
+          min: role == 'set_brightness' ? 1 : null,
+          max: role == 'set_brightness' ? 100 : null,
+        );
+
+    Future<List<String>> pump(
+      WidgetTester tester,
+      List<NetworkActionDto> actions, {
+      bool? initialOn,
+      double? initialBrightness,
+    }) async {
+      final sent = <String>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(FakeSpecCodec()),
+            lifxControlClientProvider.overrideWithValue(_FakeLifxClient()),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: NetworkLightCard(
+                  entity: NetworkEntityDto(
+                    name: 'Kasa Bulb',
+                    platform: 'light',
+                    transport: 'http',
+                    isInstanced: false,
+                    stateCommand: '',
+                    options: const [],
+                    actions: actions,
+                  ),
+                  specYaml: 'y',
+                  host: '10.0.0.7',
+                  targetMac: '',
+                  initialOn: initialOn,
+                  initialBrightness: initialBrightness,
+                  // Refused, and swallowed: completes normally, and the
+                  // screen's reading does not move.
+                  sendAction: (action, values) async =>
+                      sent.add(action.commandName),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    testWidgets('a refused Off leaves the switch on the polled On', (
+      tester,
+    ) async {
+      // Fails on the old card: the switch reads Off.
+      final sent = await pump(tester, [
+        generic('turn_on'),
+        generic('turn_off'),
+      ], initialOn: true);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+
+      expect(sent, ['turn_off']);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(find.text('On'), findsOneWidget);
+    });
+
+    testWidgets('a refused brightness puts the slider back on the reading', (
+      tester,
+    ) async {
+      // Fails on the old card: the slider keeps the dragged 100.
+      await pump(tester, [
+        generic('set_brightness', ['brightness']),
+      ], initialBrightness: 40);
+      final slider = tester.widget<Slider>(find.byType(Slider));
+      slider.onChanged!(100);
+      await tester.pump();
+      tester.widget<Slider>(find.byType(Slider)).onChangeEnd!(100);
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<Slider>(find.byType(Slider)).value, 40);
+    });
+
+    testWidgets('with no reading, the sent position is the best there is', (
+      tester,
+    ) async {
+      await pump(tester, [generic('turn_on'), generic('turn_off')]);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    });
+  });
+
+  group('a role the card cannot draw is handed on, not hidden', () {
+    // The card claimed set_color and the power pair whether or not it drew
+    // them, so UnclaimedActions never named them: Yeelight Cube's packed
+    // `rgb` and MiLight's `hue` set_color vanished, and so did a lone
+    // turn_on. Each case below fails on the old card.
+    NetworkActionDto generic(String role, [List<String> params = const []]) =>
+        NetworkActionDto(
+          role: role,
+          commandName: role,
+          transport: 'http',
+          userParams: params,
+          readBack: const [],
+          credentials: const [],
+          instanceParams: const [],
+        );
+
+    Future<List<String>> pump(
+      WidgetTester tester,
+      List<NetworkActionDto> actions,
+    ) async {
+      final sent = <String>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(FakeSpecCodec()),
+            lifxControlClientProvider.overrideWithValue(_FakeLifxClient()),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: NetworkLightCard(
+                  entity: NetworkEntityDto(
+                    name: 'Lamp',
+                    platform: 'light',
+                    transport: 'http',
+                    isInstanced: false,
+                    stateCommand: '',
+                    options: const [],
+                    actions: actions,
+                  ),
+                  specYaml: 'y',
+                  host: '10.0.0.7',
+                  targetMac: '',
+                  sendAction: (action, values) async =>
+                      sent.add(action.commandName),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    testWidgets('a packed rgb set_color is named in the note', (tester) async {
+      await pump(tester, [
+        generic('turn_on'),
+        generic('turn_off'),
+        generic('set_color', ['rgb']),
+      ]);
+      expect(find.byType(SwatchButton), findsNothing);
+      expect(
+        find.text(
+          'Set color is in this device’s spec but has no control here yet.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a zone action carrying rgb draws no set_color swatches', (
+      tester,
+    ) async {
+      // The card counted set_color as drawn when only set_zone_color carried
+      // rgb, but on the generic path no zone can be picked (the zone row is
+      // LIFX-only), so every swatch sent the packed set_color with its `rgb`
+      // missing. Fails on the old card: 16 swatches, and no note.
+      await pump(tester, [
+        generic('turn_on'),
+        generic('turn_off'),
+        generic('set_color', ['rgb']),
+        generic('set_zone_color', ['zone', 'red', 'green', 'blue']),
+      ]);
+      expect(find.byType(SwatchButton), findsNothing);
+      expect(find.byType(UnclaimedActions), findsOneWidget);
+      expect(find.textContaining('Set color'), findsOneWidget);
+    });
+
+    testWidgets('a lone turn_on becomes a button that says On', (tester) async {
+      final sent = await pump(tester, [generic('turn_on')]);
+      expect(find.byType(Switch), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('unclaimed-action:turn_on')));
+      await tester.pumpAndSettle();
+      expect(sent, ['turn_on']);
+      expect(find.text('On'), findsOneWidget);
+    });
+
+    testWidgets('a light that draws everything has no unclaimed row', (
+      tester,
+    ) async {
+      await pump(tester, [
+        generic('turn_on'),
+        generic('turn_off'),
+        generic('set_color', ['red', 'green', 'blue']),
+      ]);
+      expect(find.byType(SwatchButton), findsNWidgets(16));
+      expect(find.byType(UnclaimedActions), findsNothing);
     });
   });
 

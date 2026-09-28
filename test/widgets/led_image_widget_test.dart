@@ -1623,6 +1623,71 @@ void main() {
     },
   );
 
+  group('a reported resolution outside the spec bounds is refused', () {
+    // A garbled advertisement (a truncated field reads 0) or one past the
+    // spec's maximum resized the canvas to it, and — being a live answer —
+    // was cached, so every reconnect restored it. Each case fails on the old
+    // widget: the canvas takes the bad size and the cache keeps it.
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 32,
+      maxHeight: 32,
+    );
+
+    for (final (label, width, height) in [
+      ('a zero width', 0, 20),
+      ('a height past the maximum', 20, 64),
+    ]) {
+      testWidgets('$label leaves the default and is not cached', (
+        tester,
+      ) async {
+        final codec = FakeSpecCodec()
+          ..advertisedResolutionResult = PanelResolutionDto(
+            width: width,
+            height: height,
+          );
+        await tester.pumpWidget(
+          _wrap(
+            const LedImageWidget(
+              deviceId: 'AA:BB',
+              imageUpload: deviceReported,
+              specYaml: 'yaml',
+              manufacturerData: {
+                0x61EA: [3, 232, 0, 100, 20, 20],
+              },
+            ),
+            ble: FakeBleService(),
+            codec: codec,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(codec.advertisedResolutionArg, isNotNull);
+        expect(_canvasSizeShowing('Width', 16, max: 32), findsOneWidget);
+        expect(_canvasSizeShowing('Height', 16, max: 32), findsOneWidget);
+        expect(_prefs.getString('panel_res_AA:BB'), isNull);
+      });
+    }
+
+    testWidgets('an out-of-bounds cached size is not restored', (tester) async {
+      await _prefs.setString('panel_res_AA:BB', '64x64');
+      await tester.pumpWidget(
+        _wrap(
+          const LedImageWidget(
+            deviceId: 'AA:BB',
+            imageUpload: deviceReported,
+            specYaml: 'yaml',
+          ),
+          ble: FakeBleService(),
+          codec: FakeSpecCodec(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(_canvasSizeShowing('Width', 16, max: 32), findsOneWidget);
+    });
+  });
+
   testWidgets('a reconnect with no advertisement uses the cached resolution', (
     tester,
   ) async {

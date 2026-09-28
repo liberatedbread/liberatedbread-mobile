@@ -469,18 +469,24 @@ void main() {
       expect(find.textContaining('restored'), findsOneWidget);
     });
 
-    testWidgets('restores the oldest of a full set of backups', (tester) async {
-      // Saving the pre-restore read prunes the model's oldest backup. When
-      // the backup being restored IS the oldest, it has to be loaded first —
-      // the other order deletes it and then fails to read it.
-      final oldest = backup(0xAB, DateTime(2026, 9, 1, 0, 0));
+    testWidgets('restores the backup the pre-restore save prunes', (
+      tester,
+    ) async {
+      // With a full set on disk -- the model's oldest plus its newest ten --
+      // saving the pre-restore read prunes the second-oldest, the first
+      // past the newest ten that the real store keeps. When that is the one
+      // being restored it has to be loaded first: the other order deletes
+      // it and then fails to read it.
+      final oldest = backup(0x01, DateTime(2026, 9, 1, 0, 0));
+      final pruned = backup(0xAB, DateTime(2026, 9, 1, 1, 0));
       final harness = await _pump(
         tester,
         backups: FakeCodeplugBackupStore(
-          keepPerModel: 10,
+          prunes: true,
           existing: [
             oldest,
-            for (var i = 1; i < 10; i++) backup(i, DateTime(2026, 9, 1, i)),
+            pruned,
+            for (var i = 2; i < 11; i++) backup(i, DateTime(2026, 9, 1, i)),
           ],
         ),
       );
@@ -488,17 +494,26 @@ void main() {
       await tester.tap(find.text('Restore a backup'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('2026-09-01 00:00'),
+        find.text('2026-09-01 01:00'),
         80,
         scrollable: find.byType(Scrollable).last,
       );
-      await tester.tap(find.text('2026-09-01 00:00'));
+      await tester.tap(find.text('2026-09-01 01:00'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
       await tester.pumpAndSettle();
 
-      expect(harness.programmer.restored.single.image, oldest.image);
+      expect(harness.programmer.restored.single.image, pruned.image);
       expect(find.textContaining('restored'), findsOneWidget);
+      final left = await harness.backups.list();
+      expect(
+        left.map((b) => b.takenAt),
+        isNot(contains(pruned.readAt)),
+        reason:
+            'the save did prune the restored backup, so the order was '
+            'what saved it',
+      );
+      expect(left.last.takenAt, oldest.readAt, reason: 'never the oldest');
     });
 
     testWidgets('cancelling the confirmation touches nothing', (tester) async {

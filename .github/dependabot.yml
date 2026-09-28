@@ -71,7 +71,9 @@ updates:
   # of them — on both platforms, on both retry attempts. A version skew that
   # manifests as a dropped test result is precisely the kind of red a bot PR
   # cannot explain, so the bot does not get to propose it. FRB moves by hand,
-  # all three pins at once.
+  # all three pins at once; `scripts/ci-versions.sh --strict` (the gate job and
+  # scripts/test.sh) fails when the three disagree, so a hand bump of one is
+  # caught in its own pull request rather than on the device jobs.
   - package-ecosystem: cargo
     directory: /rust
     schedule:

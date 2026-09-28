@@ -698,8 +698,8 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       start: 'Starting…',
       body: (programmer) async {
         // The chosen copy is loaded before anything is saved: saving prunes
-        // each model's backups to the newest few, and the one being restored
-        // may be the oldest.
+        // each model's backups (all but the newest few and the very
+        // oldest), and the one being restored may be among those pruned.
         final codeplug = await backups.load(chosen);
         // Then the radio is read and saved before it is overwritten, exactly
         // as before a plan is written: whatever is on it now may be newer
@@ -755,8 +755,9 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
   }
 
   Future<void> _widen(RadioProfile profile, RadioBandLimits widened) async {
-    // Asked every time, as the Radio tab's switch asks: the acknowledgement
-    // is about this radio and these ranges, not something agreed to once.
+    // Asked every time: the acknowledgement is about this radio and these
+    // ranges, not something agreed to once. (The Radio tab's switch has a
+    // dialog of its own, since it changes suggestions, not the radio.)
     if (!await showTxUnlockDialog(context, profile) || !mounted) return;
     final backups = ref.read(codeplugBackupStoreProvider);
     final originals = ref.read(originalBandLimitsProvider.notifier);

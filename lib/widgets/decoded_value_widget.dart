@@ -20,7 +20,8 @@ import '../core/error_text.dart';
 ///
 /// A light's Status sat on its first read under the command cards that had
 /// just changed it — "Brightness: 80" after a send of 40 — unless the device
-/// happened to notify. The writer bumps this; [DecodedValueWidget] listens.
+/// happened to notify. The writer bumps this; [DecodedValueWidget] and
+/// `EntityValueBuilder` listen.
 class ServiceWrites extends AutoDisposeFamilyNotifier<int, String> {
   @override
   int build(String key) => 0;
@@ -46,21 +47,29 @@ String serviceWriteKey(String deviceId, String serviceUuid) =>
 /// caller's first await) rather than a `WidgetRef`: the bump belongs to the
 /// readings, not the writer, so it must land even when the writer unmounted
 /// mid-write, and a ref throws once its widget is gone.
+///
+/// [stateServiceUuid] is the writing card's own state service, bumped too
+/// when it differs: the card's reading (`EntityValueBuilder`) listens under
+/// the service it READS, and an entity whose command and state sit in two
+/// services would otherwise never hear about its own write.
 Future<void> writeServiceCommand(
   ProviderContainer container, {
   required String deviceId,
   required String serviceUuid,
   required String charUuid,
   required List<int> bytes,
+  String? stateServiceUuid,
 }) async {
   await container
       .read(bleServiceProvider)
       .writeCharacteristic(deviceId, serviceUuid, charUuid, bytes);
-  container
-      .read(
-        serviceWritesProvider(serviceWriteKey(deviceId, serviceUuid)).notifier,
-      )
-      .wrote();
+  final keys = {
+    serviceWriteKey(deviceId, serviceUuid),
+    if (stateServiceUuid != null) serviceWriteKey(deviceId, stateServiceUuid),
+  };
+  for (final key in keys) {
+    container.read(serviceWritesProvider(key).notifier).wrote();
+  }
 }
 
 /// Reads a spec-described characteristic and renders its decoded, named fields

@@ -41,7 +41,8 @@ class RoombaTransportScreen extends ConsumerStatefulWidget {
   /// The robot being configured. Null when this screen is being used to ADD a
   /// robot from Home Assistant's list rather than to re-point a known one — in
   /// which case only the Home Assistant section makes sense, because the other
-  /// two need a password this app does not have.
+  /// two need a password this app does not have. The same holds for a robot
+  /// adopted through Home Assistant, whose credentials carry no password.
   final RoombaCredentials? credentials;
 
   const RoombaTransportScreen({super.key, this.credentials});
@@ -57,6 +58,13 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
   List<HaEntityState>? _vacuums;
   String? _error;
   bool _busy = false;
+
+  /// Whether the direct and rest980 paths can be offered. Keyed on a stored
+  /// password, not on credentials being passed: a robot adopted through Home
+  /// Assistant arrives with credentials and an EMPTY password, and choosing
+  /// either path cleared its HA entity — leaving the store with nothing
+  /// usable, so the robot silently fell back to un-adopted.
+  bool get _hasPassword => widget.credentials?.password.isNotEmpty ?? false;
 
   @override
   void initState() {
@@ -174,7 +182,7 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
 
   Future<void> _saveRest980() async {
     final credentials = widget.credentials;
-    if (credentials == null) return;
+    if (credentials == null || !_hasPassword) return;
     final url = Rest980Client.normalizeBaseUrl(_rest980Controller.text);
     setState(() {
       _busy = true;
@@ -206,7 +214,7 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
 
   Future<void> _chooseDirect() async {
     final credentials = widget.credentials;
-    if (credentials == null) return;
+    if (credentials == null || !_hasPassword) return;
     await _storeChoice((store) async {
       await store.setHaEntityId(credentials.blid, null);
       await store.setRest980BaseUrl(credentials.blid, null);
@@ -230,7 +238,7 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
               const SizedBox(height: 16),
             ],
             _haSection(context, open),
-            if (widget.credentials != null) ...[
+            if (_hasPassword) ...[
               const SizedBox(height: 24),
               _directSection(context),
               const SizedBox(height: 24),

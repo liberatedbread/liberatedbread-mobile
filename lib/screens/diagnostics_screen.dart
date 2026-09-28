@@ -91,7 +91,13 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
           IconButton(
             icon: const Icon(Icons.delete_outline),
             tooltip: 'Clear',
-            onPressed: () => setState(() => Log.buffer?.clear()),
+            // The view filter goes with the records: a fresh buffer starts
+            // unfiltered, instead of hiding every new line behind a category
+            // whose last record was just cleared.
+            onPressed: () => setState(() {
+              Log.buffer?.clear();
+              _showOnly.clear();
+            }),
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -221,9 +227,13 @@ class _ViewControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // Only the categories actually present, so the filter row describes this
-    // session rather than the catalogue of categories.
+    // session rather than the catalogue of categories — plus every active
+    // filter. A selected category whose records all went (a Clear, or the
+    // ring evicting them) lost its chip, so nothing on screen could untick
+    // the filter that hid every new record.
     final present = {
       for (final r in Log.buffer?.records ?? const <LogRecord>[]) r.category,
+      ...showOnly,
     }.toList()..sort();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),

@@ -36,7 +36,8 @@ use crate::spec::types::{DeviceSpec, SpecCommand};
 
 /// The `protocol_handler` name a spec declares to be driven from here. The
 /// bindings resolver admits `transport: udp` commands only under this handler,
-/// so no other spec can claim the bare transport.
+/// and [`render_request`] refuses any other spec, so no other spec can claim
+/// the bare transport.
 pub const HANDLER_NAME: &str = "rabbit_air_lan";
 
 /// The transport a command must declare to be sendable from here.
@@ -72,6 +73,13 @@ pub struct RabbitAirRequest {
 /// `id` is the caller's fresh client nonce; `ts` the device-clock timestamp —
 /// the local clock plus the offset learned from the `time_sync` reply (zero
 /// offset for the time-sync request itself, before any offset is known).
+///
+/// Refuses a spec that does not name this handler, as Kasa's renderer does.
+/// The resolver already declines to build a control for one, so in the app
+/// this is unreachable — which is why it is here: the FFI and the group runner
+/// reach the renderers by name without the resolver, and `udp` is declared by
+/// LIFX, Tuya, WiZ and more, so any of their bodies would otherwise come back
+/// wrapped in this device's `{id,cmd,ts,data}` envelope.
 pub fn render_request(
     spec: &DeviceSpec,
     command_name: &str,
@@ -79,6 +87,11 @@ pub fn render_request(
     id: u32,
     ts: u32,
 ) -> Result<RabbitAirRequest, ProtocolError> {
+    if spec.protocol_handler.as_deref() != Some(HANDLER_NAME) {
+        return Err(ProtocolError::UnsupportedCommandEncoding(
+            spec.protocol_handler.clone().unwrap_or_default(),
+        ));
+    }
     let command = super::top_level_command(spec, command_name)?;
     render_command(command_name, command, values, id, ts)
 }
@@ -420,6 +433,30 @@ entities:
             matches!(&err, ProtocolError::UnsupportedCommandEncoding(t) if t == "soap"),
             "unexpected error: {err}"
         );
+    }
+
+    /// Without the handler check, a LIFX- or Tuya-shaped spec with a `udp`
+    /// command rendered straight into the Rabbit Air envelope.
+    #[test]
+    fn a_spec_for_another_handler_is_declined() {
+        let other = SPEC.replace(
+            r#"protocol_handler: "rabbit_air_lan""#,
+            r#"protocol_handler: "lifx_lan""#,
+        );
+        let bare = SPEC.replace("protocol_handler: \"rabbit_air_lan\"\n", "");
+        for (yaml, handler) in [(other, "lifx_lan"), (bare, "")] {
+            assert_ne!(yaml, SPEC, "the fixture's handler line was rewritten");
+            let spec = parse_device_spec(&yaml).expect("fixture spec parses");
+            for err in [
+                render_request(&spec, "get_state", &values(&[]), 1, 1).unwrap_err(),
+                render_state_request(&spec, "get_state", 1, 1).unwrap_err(),
+            ] {
+                assert!(
+                    matches!(&err, ProtocolError::UnsupportedCommandEncoding(h) if h == handler),
+                    "{handler:?}: unexpected error: {err}"
+                );
+            }
+        }
     }
 
     #[test]

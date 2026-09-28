@@ -161,6 +161,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(codec.encodeCalls.single.commandName, 'start_belt');
+    // Scoped to the write's service, not whichever twin UUID comes first.
+    expect(codec.encodeCalls.single.serviceUuid, _cmdService);
     expect(codec.encodeCalls.single.params, isEmpty);
     expect(ble.writes.single.value, [0xF7, 0xA2]);
   });

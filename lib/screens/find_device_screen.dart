@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
 import '../core/find_device.dart';
-import '../core/hex.dart';
 import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
 import '../providers/ble_provider.dart';
@@ -241,17 +240,15 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
-    // Same family key as DeviceControlPanel builds, so this watch hits the
-    // already-resolved match instead of re-running matching.
-    final serviceUuids = [
-      for (final s in widget.services) normalizeUuid(s.uuid),
-    ]..sort();
+    // Built through forServices, as DeviceControlPanel's is, so this watch
+    // hits the already-resolved match: a hand-rolled copy of its
+    // normalization would split the cache on any change to it.
     final matchAsync = ref.watch(
       matchedDeviceSpecProvider(
-        SpecMatchRequest(
+        SpecMatchRequest.forServices(
           deviceId: widget.deviceId,
           deviceName: widget.deviceName,
-          serviceUuids: serviceUuids,
+          services: widget.services,
         ),
       ),
     );

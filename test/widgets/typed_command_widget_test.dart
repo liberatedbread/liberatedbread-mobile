@@ -409,6 +409,8 @@ void main() {
       (c) => c.commandName == 'set_brightness',
     );
     expect(call.params['brightness'], 64.0);
+    // Scoped to the service it is drawn under, which is where it is written.
+    expect(call.serviceUuid, _svc);
     expect(ble.writes.single.value, [2, 64]);
   });
 

@@ -315,4 +315,46 @@ void main() {
     expect(saved?.rest980BaseUrl, isNull);
     expect(saved?.haEntityId, isNull);
   });
+
+  // A robot adopted through Home Assistant is saved with an EMPTY password.
+  // Before the fix the chooser drew the direct and rest980 cards for it (it
+  // only checked for credentials), and either choice cleared the HA entity,
+  // leaving nothing usable stored: the robot silently fell back to
+  // un-adopted.
+  testWidgets('a robot adopted through Home Assistant is offered only HA', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(500, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final store = InMemorySettingsStore();
+    final credentialStore = RoombaCredentialStore(store);
+    await credentialStore.save(
+      const RoombaCredentials(
+        blid: 'ABC123',
+        password: '',
+        haEntityId: 'vacuum.dusty',
+      ),
+    );
+    final stored = await credentialStore.credentials('ABC123');
+    expect(stored, isNotNull);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(store),
+          haApiClientProvider.overrideWithValue(FakeHaApiClient()),
+          urlOpenerProvider.overrideWithValue((url) async => true),
+        ],
+        child: MaterialApp(home: RoombaTransportScreen(credentials: stored)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Straight at the robot'), findsNothing);
+    expect(find.text('A rest980 server'), findsNothing);
+    expect(find.text('Use the direct connection'), findsNothing);
+    final after = await credentialStore.credentials('ABC123');
+    expect(after?.haEntityId, 'vacuum.dusty');
+  });
 }

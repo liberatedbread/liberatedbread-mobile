@@ -71,8 +71,10 @@ pub struct ConnectOptions<'a> {
     /// its BLID and refuses anything else — so this is always the caller's.
     pub client_id: &'a str,
     /// Username and password, when the broker wants them. Each is sent only
-    /// when present: MQTT flags them independently, and a broker that expects
-    /// neither refuses a CONNECT carrying empty strings.
+    /// when present: MQTT flags them separately, and a broker that expects
+    /// neither refuses a CONNECT carrying empty strings. A password needs a
+    /// username (MQTT 3.1.1 §3.1.2.9, MQTT-3.1.2-22); [`connect_packet`]
+    /// refuses a password alone.
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
     /// Keepalive advertised to the broker. Zero disables the broker's timeout,
@@ -104,6 +106,16 @@ impl<'a> ConnectOptions<'a> {
 /// refused by name rather than silently truncated into a packet the broker
 /// reads as a different one.
 pub fn connect_packet(options: &ConnectOptions<'_>) -> Result<Vec<u8>, ProtocolError> {
+    // MQTT-3.1.2-22: no password flag without the username flag. The two
+    // credentials are resolved separately, so a stored password with no
+    // stored username built a CONNECT a conforming broker drops without a
+    // CONNACK — a hang-up where the user should hear which credential is
+    // missing.
+    if options.password.is_some() && options.username.is_none() {
+        return Err(ProtocolError::ParameterMissing(
+            "username (an MQTT password is only sent with a username)".to_string(),
+        ));
+    }
     let mut variable = Vec::new();
     encode_string(&mut variable, "protocol name", "MQTT")?;
     variable.push(0x04); // protocol level 4 = MQTT 3.1.1
@@ -470,10 +482,13 @@ fn substitute_topic(
         }
         let value = resolve(command, command_name, param, values)?;
         if value.contains(TOPIC_LANGUAGE) {
-            return Err(ProtocolError::ParameterMissing(format!(
-                "{command_name}.{param} carries a topic separator or wildcard \
-                 ({value:?}); it would rewrite the topic rather than fill it"
-            )));
+            return Err(ProtocolError::ParameterValueInvalid {
+                name: format!("{command_name}.{param}"),
+                value,
+                reason: "it carries a topic separator or wildcard, which \
+                         would rewrite the topic rather than fill it"
+                    .to_string(),
+            });
         }
         Ok(Some(value))
     })
@@ -715,6 +730,24 @@ mod tests {
         assert_eq!(packet[9], 0x80, "username flag, no clean session");
     }
 
+    /// MQTT-3.1.2-22 forbids the password flag without the username flag;
+    /// this built one (flags 0x42) and the broker hung up with no CONNACK.
+    #[test]
+    fn a_password_without_a_username_is_refused_by_name() {
+        let error = connect_packet(&ConnectOptions {
+            client_id: "c",
+            username: None,
+            password: Some("p"),
+            keepalive_seconds: KEEPALIVE_SECONDS,
+            clean_session: true,
+        })
+        .expect_err("a password alone is not a legal CONNECT");
+        assert!(
+            matches!(&error, ProtocolError::ParameterMissing(n) if n.starts_with("username")),
+            "{error}"
+        );
+    }
+
     /// An MQTT string is prefixed with a TWO-byte length, so 65535 bytes is
     /// the whole of what the format can say. Written as `len as u16` the count
     /// wrapped: a 65536-byte topic went out as a length of 0 followed by
@@ -901,8 +934,14 @@ commands:
         for hostile in ["a/../b", "phone+1", "#"] {
             let error = render_request(&spec(), "press_power", &values(&[("client_id", hostile)]))
                 .expect_err("a topic-rewriting value must be refused");
+            // The value WAS supplied, so "missing" would send whoever reads
+            // the error looking for a credential that is already stored.
             assert!(
-                matches!(error, ProtocolError::ParameterMissing(_)),
+                matches!(
+                    &error,
+                    ProtocolError::ParameterValueInvalid { name, value, .. }
+                        if name == "press_power.client_id" && value == hostile
+                ),
                 "{hostile:?} gave {error}"
             );
         }

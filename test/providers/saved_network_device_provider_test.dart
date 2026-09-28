@@ -8,6 +8,7 @@ import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_network_device_provider.dart';
 import 'package:liberated_bread_mobile/services/device_credential_store.dart';
 import 'package:liberated_bread_mobile/services/device_group_store.dart';
+import 'package:liberated_bread_mobile/services/hub_credential_store.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 import 'package:liberated_bread_mobile/services/tls_trust.dart';
@@ -521,6 +522,61 @@ void main() {
         settings.values.keys,
         ['rabbitair.other-purifier.userkey'],
         reason: 'every scope of this purifier is gone; the other one stays',
+      );
+    },
+  );
+
+  // The third bespoke store: Remove used to leave a Hue bridge's whitelist
+  // username, client key, cert pin and scheme in the keychain, so a
+  // re-added bridge reused the stale credential and a pre-reset pin kept
+  // refusing it.
+  test(
+    'forgetting a Hue bridge clears its pairing under the bridgeid',
+    () async {
+      final c = await container();
+      final savedNetwork = c.read(savedNetworkDevicesProvider.notifier);
+      final groups = c.read(deviceGroupsProvider.notifier);
+      final record = await savedNetwork.touch(
+        NetworkDevice(
+          host: '192.168.1.32',
+          name: 'Hue Bridge',
+          txt: const {'bridgeid': '001788fffe123456'},
+          sources: const {NetworkDiscoverySource.mdns},
+          discoveredAt: DateTime.utc(2026),
+        ),
+      );
+
+      final settings = InMemorySettingsStore();
+      final hub = HubCredentialStore(settings);
+      await hub.saveCredentials(
+        '001788FFFE123456',
+        const HubCredentials(username: 'whitelist-user', clientKey: 'ab12'),
+      );
+      await hub.saveCertPin('001788FFFE123456', 'AABB');
+      await hub.saveScheme('001788FFFE123456', 'https');
+      // A neighbour's bridge stays.
+      await hub.saveCredentials(
+        '001788FFFE654321',
+        const HubCredentials(username: 'other'),
+      );
+
+      await forgetNetworkDevice(
+        savedDevices: savedNetwork,
+        groups: groups,
+        deviceId: record.id,
+        trust: TlsTrust(CertificatePinStore(settings)),
+        credentials: DeviceCredentialStore(settings),
+        host: record.host,
+        roomba: RoombaCredentialStore(settings),
+        rabbitAir: RabbitAirKeyStore(settings),
+        hub: hub,
+        bridgeId: record.txt['bridgeid'],
+      );
+
+      expect(
+        settings.values.keys,
+        ['hub.hue.001788FFFE654321.username'],
+        reason: 'username, clientkey, pin and scheme are all gone',
       );
     },
   );

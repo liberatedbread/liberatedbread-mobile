@@ -65,6 +65,7 @@ Widget _wrap(
   required FakeBleService ble,
   String? stateServiceUuid,
   bool isLock = false,
+  bool onLockDevice = false,
   String? statusServiceUuid,
 }) => ProviderScope(
   overrides: [
@@ -80,6 +81,7 @@ Widget _wrap(
           entity: entity,
           specYaml: 'y',
           isLock: isLock,
+          onLockDevice: onLockDevice,
         ),
         statusServiceUuid,
       ),
@@ -220,6 +222,100 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
     expect(codec.encodeCalls.last.commandName, 'lock');
     expect(ble.writes, hasLength(2));
+  });
+
+  group('on a lock device, what is not known to lock asks first', () {
+    // The bolt was recognised by name alone ('Lock'), and Press and every
+    // unclaimed role (a `toggle`) skipped the question entirely, though
+    // every other momentary action on a lock asks. Each case below fails on
+    // the old card: the write goes out with no dialog.
+    EntityDto latch() => EntityDto(
+      options: const [],
+      name: 'Latch',
+      platform: 'switch',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [
+        _fixedAction('turn_on', 'latch_on'),
+        _fixedAction('turn_off', 'latch_off'),
+        _fixedAction('press', 'latch_press'),
+        _fixedAction('toggle', 'latch_toggle'),
+      ],
+      variants: const [],
+    );
+
+    Future<FakeBleService> pump(WidgetTester tester) async {
+      final ble = FakeBleService();
+      await tester.pumpWidget(
+        _wrap(
+          latch(),
+          codec: FakeSpecCodec(encoded: Uint8List.fromList([1])),
+          ble: ble,
+          onLockDevice: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      return ble;
+    }
+
+    // On is in the list too: it went out unprompted, though nothing says
+    // On is the direction that leaves an unrecognised bolt locked. Fails
+    // on the old card: no dialog, and the write goes out at once.
+    for (final (label, dialogTitle, confirm) in [
+      ('On', 'Send "Turn on" to this lock?', 'Turn on'),
+      ('Off', 'Send "Turn off" to this lock?', 'Turn off'),
+      ('Press', 'Send "Latch" to this lock?', 'Latch'),
+      ('Toggle', 'Send "Toggle" to this lock?', 'Toggle'),
+    ]) {
+      testWidgets('$label asks, and cancelling sends nothing', (tester) async {
+        final ble = await pump(tester);
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        expect(find.text(dialogTitle), findsOneWidget);
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(ble.writes, isEmpty);
+
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, confirm));
+        await tester.pumpAndSettle();
+        expect(ble.writes, hasLength(1));
+      });
+    }
+  });
+
+  testWidgets('the encode is scoped to the service the write goes to', (
+    tester,
+  ) async {
+    // A characteristic UUID can repeat under two services with different
+    // command tables; unscoped, the codec answered from the first twin.
+    // Fails on the old card: serviceUuid was null.
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester.pumpWidget(
+      _wrap(
+        EntityDto(
+          options: const [],
+          name: 'Plug Outlet',
+          platform: 'switch',
+          canNotify: false,
+          hasFormat: false,
+          onWhenNonzero: false,
+          actions: [
+            _fixedAction('turn_on', 'turn_on'),
+            _fixedAction('turn_off', 'turn_off'),
+          ],
+          variants: const [],
+        ),
+        codec: codec,
+        ble: FakeBleService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('On'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.single.serviceUuid, _cmdService);
   });
 
   testWidgets('a switch with readable state renders a toggle that sends', (

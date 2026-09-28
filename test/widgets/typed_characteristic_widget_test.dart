@@ -211,4 +211,102 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(RawCharacteristicWidget), findsOneWidget);
   });
+
+  group('writable with a format but nothing sendable keeps a write path', () {
+    // Ember's Mug Name, Chef iQ's Volume: read+write, a `format:` block, no
+    // commands. The reader alone answered, so matching the spec REMOVED the
+    // hex write box the unmatched browser draws. Fails on the old router:
+    // no 'Write hex' field.
+    Future<FakeBleService> pump(
+      WidgetTester tester,
+      CharacteristicDto specChar, {
+      bool canNotify = false,
+    }) async {
+      final ble = FakeBleService();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(ble),
+            specCodecProvider.overrideWithValue(
+              FakeSpecCodec(decoded: const []),
+            ),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: _widget(
+                  specChar,
+                  BleDiscoveredCharacteristic(
+                    uuid: 'c',
+                    canRead: true,
+                    canWrite: true,
+                    canNotify: canNotify,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return ble;
+    }
+
+    const formatOnly = CharacteristicDto(
+      uuid: 'c',
+      name: 'Mug Name',
+      canRead: true,
+      canWrite: true,
+      canNotify: true,
+      commands: [],
+      formatFields: [
+        FormatFieldDto(name: 'x', fieldType: 'uint8', offset: 0, length: 1),
+      ],
+    );
+
+    testWidgets('no commands: the reading plus a hex write row', (
+      tester,
+    ) async {
+      final ble = await pump(tester, formatOnly, canNotify: true);
+      expect(find.byType(DecodedValueWidget), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Write hex'), findsOneWidget);
+      // Write-only: the decoded view owns the one read and the one notify
+      // subscription; a second reader would double both.
+      expect(ble.reads, hasLength(1));
+      expect(ble.subscriptions, hasLength(1));
+      expect(find.byType(TypedCommandWidget), findsNothing);
+    });
+
+    testWidgets('only unencodable commands: the note and a hex write row', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        const CharacteristicDto(
+          uuid: 'c',
+          name: 'Control',
+          canRead: true,
+          canWrite: true,
+          canNotify: false,
+          commands: [
+            CommandDto(
+              name: 'set_proto',
+              description: '',
+              parameters: [],
+              isFixed: true,
+              isEncodable: false,
+              unsupportedEncoding: 'protobuf',
+              advanced: false,
+            ),
+          ],
+          formatFields: [
+            FormatFieldDto(name: 'x', fieldType: 'uint8', offset: 0, length: 1),
+          ],
+        ),
+      );
+      expect(find.byType(DecodedValueWidget), findsOneWidget);
+      expect(find.textContaining('cannot send yet'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Write hex'), findsOneWidget);
+    });
+  });
 }

@@ -166,6 +166,52 @@ void main() {
     expect(statusReads(), 2);
   });
 
+  testWidgets('the card\'s own headline re-reads after its write', (
+    tester,
+  ) async {
+    // Gerbing's Heat Level: read+write, no notify. Only the GATT browser's
+    // reader listened for writes, so the headline kept its first read (40)
+    // for the whole session after the user set a new value. The write goes
+    // to a different service than the state is read from, so this also
+    // covers the card bumping its own state service. Fails on the old
+    // card: the headline still says 40.
+    final device = <String, List<int>>{
+      _stateChar: [40],
+    };
+    final ble = FakeBleService(readValues: device);
+    final codec = FakeSpecCodec(
+      decodedFor: (_, bytes) => [
+        DecodedValueDto(
+          name: 'heat_percent',
+          valueType: 'uint',
+          display: '${bytes.first}',
+          uintValue: bytes.first,
+          rawNumber: bytes.first.toDouble(),
+          decodedNumber: bytes.first.toDouble(),
+          decodedText: '${bytes.first}',
+          decimals: 0,
+        ),
+      ],
+      entityWrite: EntityWriteDto(
+        serviceUuid: 'cmd',
+        characteristicUuid: _stateChar,
+        bytes: Uint8List.fromList([80]),
+      ),
+    );
+    await tester.pumpWidget(_wrap(_heatEntity(), codec: codec, ble: ble));
+    await tester.pumpAndSettle();
+    expect(find.text('40'), findsOneWidget);
+
+    // The device takes the value; its next read reports it.
+    device[_stateChar] = [80];
+    await tester.drag(find.byType(Slider), const Offset(400, 0));
+    await tester.pumpAndSettle();
+
+    expect(ble.writes, hasLength(1));
+    expect(find.text('40'), findsNothing);
+    expect(find.text('80'), findsOneWidget);
+  });
+
   testWidgets('shows the live reading and a slider bounded by the spec', (
     tester,
   ) async {

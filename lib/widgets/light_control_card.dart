@@ -3,8 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/color_names.dart';
 import '../core/error_text.dart';
+import '../core/group_actions.dart';
 import '../core/log.dart';
 import '../core/unit_display.dart';
 import '../providers/device_spec_match_provider.dart';
@@ -12,29 +12,8 @@ import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 import 'decoded_value_widget.dart';
 import 'entity_value.dart';
+import 'light_swatches.dart';
 import 'unclaimed_actions.dart';
-
-/// Preset swatches offered by the color picker. Plain RGB values sent
-/// verbatim; the device's own gamma/order handling is the spec template's
-/// business.
-const _swatches = <Color>[
-  Color(0xFFFFFFFF), // white
-  Color(0xFFFFE4B5), // warm white
-  Color(0xFFFF0000),
-  Color(0xFFFF6600),
-  Color(0xFFFFAA00),
-  Color(0xFFFFFF00),
-  Color(0xFFAAFF00),
-  Color(0xFF00FF00),
-  Color(0xFF00FFAA),
-  Color(0xFF00FFFF),
-  Color(0xFF00AAFF),
-  Color(0xFF0000FF),
-  Color(0xFF6600FF),
-  Color(0xFFAA00FF),
-  Color(0xFFFF00FF),
-  Color(0xFFFF0066),
-];
 
 /// A spec-declared `light` entity as working controls: power, brightness,
 /// color — whichever subset of roles actually resolved to sendable commands.
@@ -136,8 +115,8 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
       _setBrightness != null ||
       (_setColor?.userParams.contains('brightness') ?? false);
 
-  double get _brightnessMin => _setBrightness?.min ?? 0;
-  double get _brightnessMax => _setBrightness?.max ?? 255;
+  double get _brightnessMin => _setBrightness?.min ?? kUndeclaredBrightnessMin;
+  double get _brightnessMax => _setBrightness?.max ?? kUndeclaredBrightnessMax;
 
   /// The unit the spec declares on the parameter the slider sends, spelled
   /// the way the typed command card spells it — so the two cards for one
@@ -190,7 +169,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
   /// either fills the spec's own default or fails the send visibly with
   /// ParameterMissing — both honest answers, unlike a zero nobody chose.
   Map<String, double> _paramsFor(EntityActionDto action) {
-    final color = _color ?? _swatches.first;
+    final color = _color ?? lightSwatches.first;
     final values = <String, double>{};
     for (final p in action.userParams) {
       final value = switch (p) {
@@ -228,6 +207,9 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
       final container = ProviderScope.containerOf(context, listen: false);
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
+        // Scoped to the write's service: a twin UUID under another service
+        // must not lend this send its command table.
+        serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         commandName: commandName,
         params: _paramsFor(action),
@@ -239,6 +221,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
         serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         bytes: bytes.toList(),
+        stateServiceUuid: widget.stateServiceUuid,
       );
       if (!mounted) return;
       setState(() {
@@ -492,8 +475,8 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final swatch in _swatches)
-                  _SwatchButton(
+                for (final swatch in lightSwatches)
+                  SwatchButton(
                     color: swatch,
                     selected: _color == swatch,
                     enabled: !_sending,
@@ -548,66 +531,5 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
       false => _assumedOn != null ? 'Off (sent)' : 'Off',
       null => 'Ready',
     }, style: style);
-  }
-}
-
-class _SwatchButton extends StatelessWidget {
-  final Color color;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _SwatchButton({
-    required this.color,
-    required this.selected,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    // Dark checkmark on light swatches, light on dark ones.
-    final luminance = color.computeLuminance();
-    // Merged into ONE node: the InkWell inside publishes its own unlabelled
-    // tappable node, so the swatch was announced twice — once by colour name,
-    // once as a nameless button. Merging keeps the InkWell's tap action on the
-    // node the label rides. Same fix network_light_card already carries for its
-    // network twin of this swatch.
-    return MergeSemantics(
-      child: Semantics(
-        label: colorSwatchName(color),
-        button: true,
-        selected: selected,
-        enabled: enabled,
-        child: _swatch(scheme, luminance),
-      ),
-    );
-  }
-
-  Widget _swatch(ColorScheme scheme, double luminance) {
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(19),
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-            width: selected ? 3 : 1,
-          ),
-        ),
-        child: selected
-            ? Icon(
-                Icons.check,
-                size: 18,
-                color: luminance > 0.5 ? Colors.black87 : Colors.white,
-              )
-            : null,
-      ),
-    );
   }
 }

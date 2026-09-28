@@ -9,6 +9,7 @@ import '../models/ble_discovered_service.dart';
 import '../providers/ble_provider.dart';
 import '../core/error_text.dart';
 import '../core/mono_text.dart';
+import 'decoded_value_widget.dart';
 
 /// Raw characteristic widget — shows hex values and provides basic read/write.
 /// This is the fallback for characteristics not matched to a device spec;
@@ -19,11 +20,18 @@ class RawCharacteristicWidget extends ConsumerStatefulWidget {
   final String serviceUuid;
   final BleDiscoveredCharacteristic characteristic;
 
+  /// Draw only the hex write row: no read, no notify subscription, no value.
+  /// For a spec-matched characteristic whose reading a [DecodedValueWidget]
+  /// already owns but whose spec gives no sendable command — a second
+  /// reader there would double the read and the CCCD subscription.
+  final bool writeOnly;
+
   const RawCharacteristicWidget({
     super.key,
     required this.deviceId,
     required this.serviceUuid,
     required this.characteristic,
+    this.writeOnly = false,
   });
 
   @override
@@ -66,6 +74,7 @@ class _RawCharacteristicWidgetState
   @override
   void initState() {
     super.initState();
+    if (widget.writeOnly) return;
     if (widget.characteristic.canRead) {
       _read();
     }
@@ -94,6 +103,10 @@ class _RawCharacteristicWidgetState
         widget.serviceUuid,
         widget.characteristic.uuid,
       );
+      // Applied in arrival order, with no arrival-sequence guard like
+      // DecodedValueWidget's: there is no async decode here to reorder
+      // results, and a read reply landing after a notification left the
+      // peripheral after it too, so it is the newer value, not a stale one.
       if (mounted) {
         setState(() {
           _value = value;
@@ -140,15 +153,21 @@ class _RawCharacteristicWidgetState
     });
 
     try {
-      final bleService = ref.read(bleServiceProvider);
-      // The service picks write-with/without-response based on the
+      // Through writeServiceCommand, not the BLE service directly: the
+      // write-only row sits under a DecodedValueWidget of the same service,
+      // and a raw write that skipped the bump left that reading on its first
+      // read — the very value the bytes just changed. The container is taken
+      // before the await so the bump still lands if this row unmounts.
+      // The BLE service picks write-with/without-response from the
       // characteristic's advertised properties, so control chars that are
       // write-without-response only are handled correctly.
-      await bleService.writeCharacteristic(
-        widget.deviceId,
-        widget.serviceUuid,
-        widget.characteristic.uuid,
-        bytes,
+      final container = ProviderScope.containerOf(context, listen: false);
+      await writeServiceCommand(
+        container,
+        deviceId: widget.deviceId,
+        serviceUuid: widget.serviceUuid,
+        charUuid: widget.characteristic.uuid,
+        bytes: bytes,
       );
       if (mounted) {
         setState(() {
@@ -227,6 +246,9 @@ class _RawCharacteristicWidgetState
   @override
   Widget build(BuildContext context) {
     final char = widget.characteristic;
+    if (widget.writeOnly) {
+      return char.canWrite ? _buildWriteRow() : const SizedBox.shrink();
+    }
     final properties = <String>[];
     if (char.canRead) properties.add('R');
     if (char.canWrite) properties.add('W');

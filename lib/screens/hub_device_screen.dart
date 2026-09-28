@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
+import '../core/hue_bridge_id.dart';
 import '../models/network_device.dart';
 import '../providers/hub_control_provider.dart';
 import '../providers/network_control_provider.dart';
@@ -61,11 +62,10 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   /// The id the sighting carried, which is what any stored pairing and pin
   /// for this device are keyed by when the probe never got as far as
   /// confirming one.
-  String? get _advertisedBridgeId {
-    final advertised = widget.device.txt['bridgeid'];
-    if (advertised == null || advertised.length != 16) return null;
-    return advertised.toUpperCase();
-  }
+  /// Through the shared rule, so this and the Saved screen's Remove cannot
+  /// drift into clearing different keys.
+  String? get _advertisedBridgeId =>
+      advertisedHueBridgeId(widget.device.txt['bridgeid']);
 
   /// What "Forget this bridge" acts on. The resolved id when there is one;
   /// otherwise the advertised id, because a load that failed its identity
@@ -85,8 +85,11 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   /// role → reading, keyed by "entity/childId".
   final Map<String, Map<String, NetworkReadingDto>> _readings = {};
 
-  /// "entity/childId" a send is in flight for, disabling that child's card.
-  String? _sending;
+  /// Every "entity/childId" a send is in flight for, disabling those cards.
+  /// A set, not one slot: tapping a second light overwrote the first's key,
+  /// so the first card re-enabled mid-write (and could be sent again), then
+  /// its finally nulled the slot and re-enabled the second mid-write too.
+  final Set<String> _sending = {};
   bool _loading = true;
   String? _error;
 
@@ -268,7 +271,7 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
   }) async {
     final key = '${entity.name}/${child.id}';
     setState(() {
-      _sending = key;
+      _sending.add(key);
       _error = null;
     });
     try {
@@ -292,8 +295,25 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       );
       await client.send(widget.device.host, _bridgeId!, request);
       // The reply acknowledges the request; state comes from re-reading the
-      // one enumerating GET.
-      await _refreshState();
+      // one enumerating GET. Its own catch, because by here the bridge HAS
+      // taken the write: sharing the one below called a failed re-read "did
+      // not accept that. Try again." — wrong, and a retry writes twice.
+      try {
+        await _refreshState();
+      } on HubAuthException {
+        rethrow;
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _error = friendlyErrorText(
+            e,
+            context: 'hub control read-back',
+            fallback:
+                'The bridge took that, but the app could not read back what '
+                'it did — the lights here may be out of date.',
+          );
+        });
+      }
     } on HubAuthException {
       if (!mounted) return;
       setState(() {
@@ -313,7 +333,7 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
         );
       });
     } finally {
-      if (mounted) setState(() => _sending = null);
+      if (mounted) setState(() => _sending.remove(key));
     }
   }
 
@@ -401,7 +421,7 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
       _error = friendlyErrorText(
         e,
         context: 'hub control',
-        fallback: 'Could not read the lights. Pull refresh to retry.',
+        fallback: 'Could not read the lights. Tap Refresh to try again.',
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -547,7 +567,7 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
     final turnOn = _actionFor(entity, 'turn_on');
     final turnOff = _actionFor(entity, 'turn_off');
     final setBrightness = _actionFor(entity, 'set_brightness');
-    final busy = _sending == '${entity.name}/${child.id}';
+    final busy = _sending.contains('${entity.name}/${child.id}');
 
     return HubChildLightCard(
       label: child.label,

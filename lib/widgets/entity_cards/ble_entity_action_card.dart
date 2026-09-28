@@ -166,6 +166,9 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
       final container = ProviderScope.containerOf(context, listen: false);
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
+        // Scoped to the write's service: a twin UUID under another service
+        // must not lend this send its command table.
+        serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         commandName: commandName,
         params: params,
@@ -177,6 +180,7 @@ class _BleEntityActionCardState extends ConsumerState<BleEntityActionCard> {
         serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         bytes: bytes.toList(),
+        stateServiceUuid: widget.stateServiceUuid,
       );
       if (!mounted) return;
       setState(() {

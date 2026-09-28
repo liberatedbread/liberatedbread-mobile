@@ -51,6 +51,38 @@ class _FailingStore implements SettingsStore {
   Future<Map<String, String>> readAll() async => const {};
 }
 
+/// A settings store whose next [failures] reads throw and whose later reads
+/// answer from [values]: a keychain that was locked on the first send and
+/// unlocked by the time the user tried again.
+///
+/// [failures] is required, and settable mid-test, because each caller counts
+/// the reads it expects to fail: a hidden default spent itself on whichever
+/// read came first, so a test could not tell which read it had locked.
+class _LockedThenUnlockedStore implements SettingsStore {
+  final Map<String, String> values;
+  int failures;
+  int reads = 0;
+
+  _LockedThenUnlockedStore(this.values, {required this.failures});
+
+  @override
+  Future<String?> read(String key) async {
+    reads++;
+    if (failures > 0) {
+      failures--;
+      throw StateError('keystore locked');
+    }
+    return values[key];
+  }
+
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+  @override
+  Future<Map<String, String>> readAll() async => Map.of(values);
+}
+
 void main() {
   const press = HttpRequestDto(
     method: 'POST',
@@ -800,5 +832,67 @@ void main() {
         ),
       );
     });
+
+    test(
+      'an unreadable pin is read again on the next send, not latched',
+      () async {
+        // The registration is once per sender, and the pin read it makes used to
+        // be the only one: a keychain locked on the first send refused every
+        // later handshake from that screen, under a message telling the user to
+        // unlock the phone and try again — which could not work until the
+        // screen was closed. Fails on the old code: the second send is refused
+        // as pinUnreadable again.
+        final pinned = certificateFingerprint(_FakeCert('real'));
+        // Locked from the start: the registration's own pin read fails.
+        final store = _LockedThenUnlockedStore({
+          'tls.pin.envoy@10.0.0.9': pinned,
+        }, failures: 1);
+        final trust = TlsTrust(CertificatePinStore(store));
+        final verdicts = <List<bool>>[];
+        late final HttpControlClient client;
+        client = HttpControlClient(
+          trust: trust,
+          httpsClient: MockClient((request) async {
+            final real = client.debugEvaluateCertificate(
+              _FakeCert('real'),
+              '10.0.0.9',
+              443,
+            );
+            final other = client.debugEvaluateCertificate(
+              _FakeCert('other'),
+              '10.0.0.9',
+              443,
+            );
+            verdicts.add([real, other]);
+            if (!real) {
+              throw const HandshakeException('CERTIFICATE_VERIFY_FAILED');
+            }
+            return http.Response('ok', 200);
+          }),
+        );
+        await client.useTlsPolicy(
+          host: '10.0.0.9',
+          identity: 'envoy@10.0.0.9',
+          policy: TlsPolicy.trustOnFirstUse,
+        );
+
+        // Still locked: the first send is refused on the store's account, and
+        // its re-read fails too (one more failure, the registration having
+        // spent the first), so it stays refused.
+        store.failures = 1;
+        final first = await client
+            .send('10.0.0.9', 443, secure)
+            .then<Object?>((_) => null, onError: (Object e) => e);
+        expect(first, isA<ControlCertificatePinUnreadableException>());
+
+        // Unlocked: the SAME registration, no new useTlsPolicy. The pin is read
+        // again and decides — the pinned certificate passes, another does not,
+        // and nothing was re-pinned by first-contact trust along the way.
+        expect(await client.send('10.0.0.9', 443, secure), 'ok');
+        expect(verdicts.last, [true, false]);
+        expect(store.values['tls.pin.envoy@10.0.0.9'], pinned);
+        expect(trust.isUnreadable('envoy@10.0.0.9'), isFalse);
+      },
+    );
   });
 }

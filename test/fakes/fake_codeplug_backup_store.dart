@@ -21,15 +21,21 @@ class FakeCodeplugBackupStore implements CodeplugBackupStore {
   final List<int> _order = [];
   int _nextId = 0;
 
-  /// When set, a save prunes each model to its newest [keepPerModel], as
-  /// [CodeplugBackupStore.keepPerModel] makes the real store do.
-  final int? keepPerModel;
+  /// When true, a save prunes each model the way the real store's _prune
+  /// does: past [CodeplugBackupStore.keepPerModel] newest, every backup but
+  /// the very oldest goes. A fake that dropped the oldest first pinned a
+  /// restore the real store can never face, and left untested the one it
+  /// can (the second-oldest, deleted by the pre-restore save).
+  ///
+  /// It does not copy the real store's skipping of an image identical to
+  /// the newest backup: a screen test's saves are told apart by count.
+  final bool prunes;
 
   /// [existing] are backups already on "disk" before the test starts, oldest
   /// first.
   FakeCodeplugBackupStore({
     List<RadioCodeplug> existing = const [],
-    this.keepPerModel,
+    this.prunes = false,
   }) {
     for (final codeplug in existing) {
       _add(codeplug);
@@ -56,15 +62,18 @@ class FakeCodeplugBackupStore implements CodeplugBackupStore {
   Future<CodeplugBackup> save(RadioCodeplug codeplug) async {
     saved.add(codeplug);
     final entry = _entry(_add(codeplug));
-    final keep = keepPerModel;
-    if (keep != null) {
+    if (prunes) {
+      const keep = CodeplugBackupStore.keepPerModel;
+      // Oldest first.
       final ofModel = [
         for (final id in _order)
           if (_byId[id]!.modelId == codeplug.modelId) id,
       ];
-      for (final id in ofModel.take(ofModel.length - keep)) {
-        _byId.remove(id);
-        _order.remove(id);
+      if (ofModel.length > keep + 1) {
+        for (final id in ofModel.sublist(1, ofModel.length - keep)) {
+          _byId.remove(id);
+          _order.remove(id);
+        }
       }
     }
     return entry;

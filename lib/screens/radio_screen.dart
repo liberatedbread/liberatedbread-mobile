@@ -148,8 +148,9 @@ class _TxUnlockTile extends ConsumerWidget {
       title: const Text('Widen transmit range'),
       subtitle: Text(
         enabled
-            ? 'On for this radio. Suggestions in the expanded range are '
-                  'marked, and plans built with it are flagged.'
+            ? 'Suggestions include the expanded range, marked, and plans '
+                  'built with it are flagged. The radio itself is widened '
+                  'from its device screen.'
             : 'Off. Suggestions are limited to what this radio transmits on '
                   'as it left the factory.',
       ),
@@ -167,7 +168,15 @@ class _TxUnlockTile extends ConsumerWidget {
     // Turning it ON always asks, every time, rather than remembering that
     // somebody once agreed: the acknowledgement is about this radio and
     // these ranges.
-    final acknowledged = await showTxUnlockDialog(context, profile);
+    // writesRadio: false — this switch changes no radio, only what
+    // suggestions offer, and the dialog must not say the stored limits are
+    // widened, read back and backed up: shown with those words it told the
+    // operator their radio was widened when nothing had touched it.
+    final acknowledged = await showTxUnlockDialog(
+      context,
+      profile,
+      writesRadio: false,
+    );
     if (acknowledged) await notifier.setEnabled(profile, true);
   }
 }

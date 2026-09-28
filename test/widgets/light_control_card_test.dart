@@ -183,6 +183,8 @@ void main() {
     expect(codec.encodeCalls, hasLength(1));
     final call = codec.encodeCalls.single;
     expect(call.commandName, 'set_rgb_color');
+    // Scoped to the write's service, not whichever twin UUID comes first.
+    expect(call.serviceUuid, _cmdService);
     expect(call.params['red'], 255.0);
     expect(call.params['green'], 0.0);
     expect(call.params['blue'], 0.0);

@@ -10,28 +10,28 @@ import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/color_names.dart';
+import 'package:liberated_bread_mobile/widgets/light_swatches.dart';
 
 void main() {
   test('the shipped swatch row gets sensible names', () {
-    // Exactly the preset list both light cards carry, in order.
-    const swatches = <int>[
-      0xFFFFFFFF, 0xFFFFE4B5, 0xFFFF0000, 0xFFFF6600, //
-      0xFFFFAA00, 0xFFFFFF00, 0xFFAAFF00, 0xFF00FF00,
-      0xFF00FFAA, 0xFF00FFFF, 0xFF00AAFF, 0xFF0000FF,
-      0xFF6600FF, 0xFFAA00FF, 0xFFFF00FF, 0xFFFF0066,
-    ];
-    final names = [for (final c in swatches) colorSwatchName(Color(c))];
+    // The list both light cards carry, not a copy of it: a hand-kept copy
+    // went on checking the old row after the cards' row changed.
+    final names = [for (final c in lightSwatches) colorSwatchName(c)];
 
-    expect(names.first, 'White');
-    expect(
-      names[1],
-      'Warm white',
-      reason: 'not "orange" — nobody calls it that',
-    );
-    expect(names[2], 'Red');
-    expect(names[7], 'Green');
-    expect(names[9], 'Cyan');
-    expect(names[11], 'Blue');
+    // The primaries are pinned by colour, so a reordered row still checks
+    // each one — and each must actually be offered.
+    const pinned = <int, String>{
+      0xFFFFFFFF: 'White',
+      0xFFFFE4B5: 'Warm white', // not "orange" — nobody calls it that
+      0xFFFF0000: 'Red',
+      0xFF00FF00: 'Green',
+      0xFF00FFFF: 'Cyan',
+      0xFF0000FF: 'Blue',
+    };
+    for (final MapEntry(key: argb, value: name) in pinned.entries) {
+      expect(lightSwatches, contains(Color(argb)));
+      expect(colorSwatchName(Color(argb)), name);
+    }
 
     // Every swatch gets a name, and no two adjacent swatches share one —
     // a row where three buttons all announce "blue" is no better labelled

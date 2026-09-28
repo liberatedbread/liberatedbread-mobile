@@ -428,6 +428,24 @@ heading.
 
 ### Fixed
 
+- **Forgetting a device forgets it, and only it.** Removing a saved Hue
+  bridge now clears its pairing (username, client key, TLS pin, scheme),
+  and removing any device no longer clears the pin and credentials stored
+  under its old address, which DHCP may have given to another device.
+- **Controls that did not do what they showed.** The Radio tab's unlock
+  switch no longer warns that it changes the radio when it changes nothing;
+  the number dialog pre-fills the exact reading (Send without editing sends
+  the same value), and an infinite or NaN reading no longer breaks the
+  screen; the garage-door slider moves while dragged; a lock's switch asks
+  before any send not known to leave it locked; entity cards and raw
+  writes re-read what they changed.
+- **Bluetooth.** A background rediscovery no longer stops a scan the user
+  just started; on Linux a direct-ATT link's MTU is no longer reported as
+  512 when unknown; a notify recorder left behind by an abandoned
+  subscription is detached.
+- **Test tooling.** The Android phone runner no longer uninstalls the app
+  (and its data) without an explicit opt-in, and the local coverage audit
+  no longer accepts a leftover discovery report CI would reject.
 - **The default spec pack installs again.** It had grown to 203 specs and
   4.8 MB, past the app's caps of 128 specs and 4 MB, so every install from
   the default URL failed as "not a valid spec-pack manifest". The caps are

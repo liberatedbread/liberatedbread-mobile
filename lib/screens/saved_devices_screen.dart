@@ -11,6 +11,8 @@ import '../models/radio_target.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_group_provider.dart';
+import '../providers/device_spec_match_provider.dart' show parseSpecKey;
+import '../providers/hub_control_provider.dart' show hubCredentialStoreProvider;
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
 import '../providers/panel_resolution_cache_provider.dart';
@@ -213,6 +215,13 @@ class SavedDevicesScreen extends ConsumerWidget {
       // …and every identity it was ever keyed under (host changes re-key it),
       // so a pin/credential left under an old host key is cleared too.
       recordedIdentities: saved.credentialIdentities,
+      // A Hue bridge's whitelist username, client key, TLS pin and scheme,
+      // filed under the bridgeid it advertised. forgetNetworkDevice took
+      // these but this caller passed neither, so Remove said "Removed" and
+      // a re-added bridge silently reused the stale pairing (or kept
+      // refusing a factory-reset one on its old pin).
+      hub: ref.read(hubCredentialStoreProvider),
+      bridgeId: saved.txt['bridgeid'],
     );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }
@@ -367,15 +376,16 @@ class _NetworkSavedTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final specKey = device.specKey;
-    final parts = specKey?.split('|');
-    final controls = parts != null && parts.length == 2
+    // Through the one inverse of specKeyOf: a hand split demanding exactly
+    // two parts left a row whose manufacturer holds a `|` with no controls.
+    final parts = parseSpecKey(device.specKey);
+    final controls = parts != null
         ? ref
               .watch(
                 networkControlsProvider(
                   NetworkControlRequest(
-                    deviceName: parts[0],
-                    manufacturer: parts[1],
+                    deviceName: parts.deviceName,
+                    manufacturer: parts.manufacturer,
                     ssdpTargets: device.ssdpTargets,
                   ),
                 ),
@@ -409,10 +419,10 @@ class _NetworkSavedTile extends ConsumerWidget {
 
   /// Opens the transport chooser for a saved robot.
   ///
-  /// The screen needs the stored credentials: without them it can only offer
-  /// Home Assistant, because the direct and rest980 paths need the robot's
-  /// local password, and that is the state the one existing caller (the
-  /// adoption flow) leaves it in.
+  /// The screen gets the stored credentials. A robot adopted through Home
+  /// Assistant has credentials with no password, so the screen offers only
+  /// the HA section — re-picking its entity still works; the direct and
+  /// rest980 paths need the local password this phone does not hold.
   Future<void> _chooseTransport(
     BuildContext context,
     WidgetRef ref,
@@ -440,14 +450,17 @@ class _NetworkSavedTile extends ConsumerWidget {
     }
     if (!context.mounted) return;
     if (stored == null) {
-      // Adopted through Home Assistant, or the password was cleared: the
-      // robot is still drivable, just not directly, and saying so beats a
-      // screen with two sections that cannot work.
+      // Nothing usable stored: no password and no Home Assistant entity. A
+      // robot adopted through HA holds an entity, so it goes on to the
+      // chooser below, which offers it only the HA section. The text used
+      // to say this robot "can only be reached through Home Assistant" —
+      // the one path it does not have. Tapping the row is what reaches the
+      // adoption wizard (openNetworkControls), so say that.
       messenger.showSnackBar(
         const SnackBar(
           content: Text(
-            'This robot has no stored password on this phone, so it can only '
-            'be reached through Home Assistant.',
+            'This robot is not set up on this phone yet: no password and no '
+            'Home Assistant link. Tap it to set it up.',
           ),
         ),
       );

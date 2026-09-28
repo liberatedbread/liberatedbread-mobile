@@ -10,6 +10,7 @@
 # Usage:
 #   ./scripts/run-android-device-tests.sh                # hardware suite, first attached phone
 #   ./scripts/run-android-device-tests.sh --all          # ...then ci_all_test.dart in mock mode
+#   ./scripts/run-android-device-tests.sh --all --allow-keychain-wipe  # ...including the keychain suite, which WIPES the app's secure storage
 #   ./scripts/run-android-device-tests.sh --device <serial-or-name>
 #   ./scripts/run-android-device-tests.sh --list         # attached phones, then exit
 #   ./scripts/run-android-device-tests.sh --if-present   # exit 0 (not 2) when no phone is attached
@@ -23,6 +24,11 @@
 # takes the WifiManager multicast lock itself. The permissions the suite
 # needs (Bluetooth / nearby devices, and location on older Android) are
 # requested by the app on first launch — answer the prompts on the phone.
+#
+# The test APK has the app's own applicationId and debug key, so it REPLACES
+# a `run-android.sh` install on the phone and runs against that install's
+# saved devices, credentials, pins and accepted Terms. It is never uninstalled
+# afterwards (--no-uninstall), which would have deleted all of that.
 #
 # Exit codes: 0 all green; 1 a test failed or a build failed; 2 no phone
 # attached (0 with --if-present).
@@ -47,11 +53,12 @@ source "$SCRIPT_DIR/regen-spec-index.sh"
 # shellcheck source=ensure-gradle-jdk.sh
 source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
 
-usage() { sed -n '5,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '5,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 DEVICE_ID=""
 LIST_ONLY=false
 RUN_ALL=false
+ALLOW_KEYCHAIN_WIPE=false
 IF_PRESENT=false
 EXPECT_LAN=false
 LIVE_BLE_NAME=""
@@ -67,6 +74,7 @@ while (( $# > 0 )); do
       DEVICE_ID="$2"; shift 2 ;;
     --list)               LIST_ONLY=true; shift ;;
     --all)                RUN_ALL=true; shift ;;
+    --allow-keychain-wipe) ALLOW_KEYCHAIN_WIPE=true; shift ;;
     --if-present)         IF_PRESENT=true; shift ;;
     --expect-lan-devices) EXPECT_LAN=true; shift ;;
     --live-ble-name)
@@ -84,6 +92,13 @@ while (( $# > 0 )); do
     *)                    err "unknown argument: $1"; usage >&2; exit 2 ;;
   esac
 done
+
+# As in the iOS runner: the opt-in only reaches keychain_accessibility_test.dart
+# through the --all aggregate, and passed alone it would say nothing.
+if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" && "$RUN_ALL" != "true" ]]; then
+  err "--allow-keychain-wipe does nothing without --all: keychain_accessibility_test.dart runs only in the mock-mode aggregate."
+  exit 2
+fi
 
 for cmd in flutter python3; do
   if ! command -v "$cmd" &>/dev/null; then
@@ -118,6 +133,7 @@ if (( pick_rc != 0 )); then
   exit "$pick_rc"
 fi
 log "Android phone: $DEVICE"
+warn "The test build REPLACES any installed ca.pigscanfly.liberatedbread debug build on this phone and runs against its saved data."
 
 regen_frb_bindings
 regen_spec_index
@@ -140,8 +156,12 @@ status=0
 
 log "Hardware suite: integration_test/device_hardware_test.dart"
 log "(watch the phone: the first launch asks for Bluetooth / nearby-devices permission, and the suite waits for the answer)"
+# --no-uninstall: `flutter test -d` uninstalls the app when the run ends by
+# default, and the app it removes is the operator's own install (same id,
+# same key): saved devices, secure-storage credentials, pins and Terms gone.
 if ! flutter test integration_test/device_hardware_test.dart \
     -d "$DEVICE" \
+    --no-uninstall \
     --timeout "$TEST_TIMEOUT" \
     "${DEFINES[@]}" \
     "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; then
@@ -151,10 +171,25 @@ fi
 
 if [[ "$RUN_ALL" == "true" ]]; then
   log "CI aggregate in mock mode: integration_test/ci_all_test.dart"
+  # keychain_accessibility_test.dart's fresh-install case runs the store's
+  # sweep, deleteAll with no constraint, against this install's secure
+  # storage. LB_PHYSICAL_PHONE tells the suite it is on a phone (the emulator
+  # lanes never define it), and it refuses unless LB_KEYCHAIN_WIPE_OK is set,
+  # which only --allow-keychain-wipe does here.
+  wipe_define=()
+  if [[ "$ALLOW_KEYCHAIN_WIPE" == "true" ]]; then
+    warn "--allow-keychain-wipe: keychain_accessibility_test.dart WILL DELETE every secure-storage item of ca.pigscanfly.liberatedbread on this phone."
+    wipe_define=(--dart-define=LB_KEYCHAIN_WIPE_OK=true)
+  else
+    log "keychain_accessibility_test.dart will skip on the phone (its fresh-install case wipes the app's secure storage); pass --allow-keychain-wipe on a phone whose credentials are disposable."
+  fi
   if ! flutter test integration_test/ci_all_test.dart \
       -d "$DEVICE" \
+      --no-uninstall \
       --timeout "$TEST_TIMEOUT" \
       --dart-define=LIBERATED_BREAD_MOCK=true \
+      --dart-define=LB_PHYSICAL_PHONE=true \
+      "${wipe_define[@]+"${wipe_define[@]}"}" \
       "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; then
     err "Mock-mode aggregate failed on the phone."
     status=1

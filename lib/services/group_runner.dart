@@ -373,10 +373,21 @@ class GroupRunner {
     String? specYaml,
     List<BleDiscoveredService> services,
   ) async {
+    // The same narrowing the write path applies: a family spec binding one
+    // reading per variant on a shared characteristic otherwise decoded the
+    // snapshot in whichever variant's format was declared first, while the
+    // device screen read the matched variant's.
+    final matchedVariants = specYaml == null
+        ? null
+        : await _matchedVariants(member, specYaml, services);
     final List<GroupRead> reads;
     switch (op) {
       case GroupOp.readBattery:
-        reads = resolveBatteryReads(spec: spec, services: services);
+        reads = resolveBatteryReads(
+          spec: spec,
+          services: services,
+          matchedVariants: matchedVariants,
+        );
         if (reads.isEmpty) {
           return GroupRunEvent(
             deviceId: member.id,
@@ -392,7 +403,11 @@ class GroupRunner {
             detail: 'No spec matched this device',
           );
         }
-        reads = resolveSensorReads(spec: spec, services: services);
+        reads = resolveSensorReads(
+          spec: spec,
+          services: services,
+          matchedVariants: matchedVariants,
+        );
         if (reads.isEmpty) {
           return GroupRunEvent(
             deviceId: member.id,

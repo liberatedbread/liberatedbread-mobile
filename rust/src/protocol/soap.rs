@@ -183,12 +183,13 @@ pub fn render_state_request(
     spec: &DeviceSpec,
     state_command: &str,
 ) -> Result<SoapRequest, ProtocolError> {
-    let endpoint =
-        find_endpoint(spec, state_command).ok_or_else(|| ProtocolError::CommandNotFound {
+    let endpoint = super::http::live_endpoint(spec, state_command).ok_or_else(|| {
+        ProtocolError::CommandNotFound {
             uuid: "http_endpoints".to_string(),
             command: state_command.to_string(),
-        })?;
-    let service = endpoint_service(&endpoint).ok_or_else(|| {
+        }
+    })?;
+    let service = endpoint_service(endpoint).ok_or_else(|| {
         ProtocolError::UnsupportedCommandEncoding(format!(
             "endpoint '{state_command}' declares no service, so its SOAPACTION cannot be built"
         ))
@@ -211,18 +212,6 @@ pub fn render_state_request(
         // element; harmless, but the published examples do not carry one.
         body: body.replace("\n\n", "\n").trim().to_string(),
     })
-}
-
-/// The `http_endpoints` entry named `name`, out of the untyped extension
-/// block. Endpoints stay untyped because only two keys are read here and the
-/// catalogue's endpoint entries vary widely.
-fn find_endpoint(spec: &DeviceSpec, name: &str) -> Option<serde_yaml::Value> {
-    spec.extensions
-        .get("http_endpoints")?
-        .as_sequence()?
-        .iter()
-        .find(|entry| entry.get("name").and_then(|n| n.as_str()) == Some(name))
-        .cloned()
 }
 
 /// An endpoint's service URN: the declared `service` key, or — for a spec
@@ -448,6 +437,28 @@ entities:
             .iter()
             .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
             .collect()
+    }
+
+    /// SOAP kept its own `http_endpoints` lookup without the sunset rule the
+    /// HTTP one applies, so a removed endpoint still rendered as a state read
+    /// here while the same entry was invisible to HTTP.
+    #[test]
+    fn a_sunset_endpoint_is_not_rendered_as_a_state_read() {
+        let endpoints = |status: &str| {
+            format!(
+                "{SPEC}http_endpoints:\n  - name: \"GetCookerState\"\n    \
+                 service: \"urn:Test:service:basicevent:1\"\n    \
+                 path: \"/upnp/control/basicevent1\"\n    status: \"{status}\"\n"
+            )
+        };
+        let live = parse_device_spec(&endpoints("active")).expect("fixture parses");
+        assert!(render_state_request(&live, "GetCookerState").is_ok());
+        let sunset = parse_device_spec(&endpoints("sunset")).expect("fixture parses");
+        let err = render_state_request(&sunset, "GetCookerState").unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::CommandNotFound { command, .. } if command == "GetCookerState"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

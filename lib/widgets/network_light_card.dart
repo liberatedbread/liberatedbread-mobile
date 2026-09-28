@@ -7,31 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/color_names.dart';
 import '../core/error_text.dart';
+import '../core/group_actions.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import 'light_swatches.dart';
 import 'unclaimed_actions.dart';
-
-/// Preset swatches, matching the BLE light card so a colour means the same on
-/// either screen. Plain RGB, sent verbatim; the device's gamma is its business.
-const _swatches = <Color>[
-  Color(0xFFFFFFFF),
-  Color(0xFFFFE4B5),
-  Color(0xFFFF0000),
-  Color(0xFFFF6600),
-  Color(0xFFFFAA00),
-  Color(0xFFFFFF00),
-  Color(0xFFAAFF00),
-  Color(0xFF00FF00),
-  Color(0xFF00FFAA),
-  Color(0xFF00FFFF),
-  Color(0xFF00AAFF),
-  Color(0xFF0000FF),
-  Color(0xFF6600FF),
-  Color(0xFFAA00FF),
-  Color(0xFFFF00FF),
-  Color(0xFFFF0066),
-];
 
 /// A LIFX `light` entity as working controls: power, colour, brightness,
 /// colour temperature and — on a multizone strip — per-zone colour.
@@ -107,7 +88,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
 
   /// Local control positions, seeded from the first live read; after the user
   /// touches a control their position wins.
-  Color _color = _swatches.first;
+  Color _color = lightSwatches.first;
   double _brightness = 255;
   double _kelvin = 3500;
   bool _seeded = false;
@@ -146,6 +127,38 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     'set_zone_color',
   };
 
+  /// The part of [_claimedRoles] this build actually draws, which is what
+  /// [UnclaimedActions] must be told. Claiming the whole table hid a role
+  /// the card then drew nowhere, with nothing on screen saying so: Yeelight
+  /// Cube's packed-`rgb` set_color and MiLight's `hue` get no swatches (see
+  /// [_carriesRgb]), and a lone turn_on or turn_off gets no switch. Handed
+  /// on, the first two are named in the "no control here yet" note and a
+  /// lone power role becomes a button. [_claimedRoles] stays the full list,
+  /// the lexical contract claimed_roles_consistency_test checks.
+  ///
+  /// set_color counts only when it carries rgb itself: a swatch with no
+  /// zone selected sends set_color, so a zone action carrying rgb drew no
+  /// set_color control — and on the generic path no zone can be selected
+  /// at all (see [_zonesReachable]).
+  Set<String> _drawnRoles({required bool hasToggle}) {
+    return {
+      for (final role in _claimedRoles)
+        if (switch (role) {
+          'turn_on' || 'turn_off' => hasToggle,
+          'set_color' => _carriesRgb(_setColor),
+          'set_zone_color' => _zonesReachable,
+          _ => true,
+        })
+          role,
+    };
+  }
+
+  /// Whether set_zone_color has a control: the zone row, whose colours only
+  /// the LIFX zone read supplies. On the generic path the row never draws,
+  /// so the swatches sent set_color there whatever the zone action carried
+  /// — a set_color that, if it existed, did not take rgb.
+  bool get _zonesReachable => widget.isLifx && _carriesRgb(_setZoneColor);
+
   /// Whether a colour action can carry what the swatches send. LIFX renders
   /// its own bytes. On the generic path the card sends red/green/blue (and
   /// brightness, and a zone), so the action must own exactly those names: a
@@ -177,11 +190,14 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
 
   /// The brightness slider's range: LIFX's 0..255 on its own path; on the
   /// generic path whatever the resolved action declares (Kasa's 1..100),
-  /// falling back to 0..255 when the spec states no bounds.
-  double get _brightnessMin =>
-      widget.isLifx ? 0 : (_setBrightness?.min ?? 0).toDouble();
-  double get _brightnessMax =>
-      widget.isLifx ? 255 : (_setBrightness?.max ?? 255).toDouble();
+  /// falling back to the shared undeclared range (group_actions.dart's, so
+  /// a group percentage and this slider agree) when the spec states none.
+  double get _brightnessMin => widget.isLifx
+      ? 0
+      : _setBrightness?.min?.toDouble() ?? kUndeclaredBrightnessMin;
+  double get _brightnessMax => widget.isLifx
+      ? 255
+      : _setBrightness?.max?.toDouble() ?? kUndeclaredBrightnessMax;
 
   @override
   void initState() {
@@ -210,6 +226,26 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         widget.initialBrightness != old.initialBrightness) {
       _brightness = widget.initialBrightness!;
     }
+  }
+
+  /// After a generic send, take the screen's reading over the card's own
+  /// assumption — whether or not the reading CHANGED.
+  ///
+  /// The screen's sender catches every failure itself (its banner says
+  /// what went wrong) and never rethrows, so on this path the card cannot
+  /// tell a refused command from an accepted one. It used to assume the
+  /// position it sent regardless, and [didUpdateWidget] only takes a
+  /// reading that moved: a refused Off left the poll saying On, unchanged,
+  /// so the card read Off — and the slider kept its dragged value — for as
+  /// long as the screen stayed open. The sender awaits its own read-back,
+  /// so by here the reading is as fresh as the screen has; if the rebuild
+  /// carrying it is still to come, [didUpdateWidget] takes it then,
+  /// because that one did change. With no reading at all the assumption is
+  /// the best there is.
+  void _reseedFromPoll(bool? assumeOn) {
+    _assumedOn = widget.initialOn ?? assumeOn ?? _assumedOn;
+    final brightness = widget.initialBrightness;
+    if (brightness != null) _brightness = brightness;
   }
 
   Map<String, double> _colorParams({double? brightnessOverride}) {
@@ -284,7 +320,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       setState(() {
         _sending = false;
         _sendingRole = null;
-        if (assumeOn != null) _assumedOn = assumeOn;
+        if (widget.isLifx) {
+          if (assumeOn != null) _assumedOn = assumeOn;
+        } else {
+          _reseedFromPoll(assumeOn);
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -388,7 +428,8 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     // Asked here rather than left to the widget so the gap above it appears
     // only when there is something to separate: a light that draws every role
     // it resolved must be the same height it always was.
-    final hasUnclaimed = resolved.any((a) => !_claimedRoles.contains(a.role));
+    final claimed = _drawnRoles(hasToggle: hasToggle);
+    final hasUnclaimed = resolved.any((a) => !claimed.contains(a.role));
 
     return Card(
       margin: EdgeInsets.zero,
@@ -524,14 +565,14 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
               const SizedBox(height: 10),
               _zoneRow(scheme, text),
             ],
-            if (_carriesRgb(_setColor) || _carriesRgb(_setZoneColor)) ...[
+            if (_carriesRgb(_setColor) || _zonesReachable) ...[
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final swatch in _swatches)
-                    _SwatchButton(
+                  for (final swatch in lightSwatches)
+                    SwatchButton(
                       color: swatch,
                       selected: _color == swatch,
                       enabled: !_sending,
@@ -547,7 +588,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
               const SizedBox(height: 10),
               UnclaimedActions(
                 actions: resolved,
-                claimed: _claimedRoles,
+                claimed: claimed,
                 // The card's own sender, so an unclaimed role rides the same
                 // codec, the same error text and the same busy state as a
                 // swatch or a slider does — but NOT the same assumed position.
@@ -556,6 +597,11 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                 // assumption left by an earlier On tap would keep the card
                 // reading "On (sent)" for a light this send just turned off.
                 onSend: (role) {
+                  // A lone On or Off (the other side did not resolve, so
+                  // there is no switch) does say where it leaves the light.
+                  if (role == 'turn_on' || role == 'turn_off') {
+                    return _send(role, const {}, assumeOn: role == 'turn_on');
+                  }
                   setState(() => _assumedOn = null);
                   return _send(role, const {});
                 },
@@ -673,64 +719,5 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
       false => 'Off',
       null => 'Ready',
     }, style: style);
-  }
-}
-
-class _SwatchButton extends StatelessWidget {
-  final Color color;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _SwatchButton({
-    required this.color,
-    required this.selected,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final luminance = color.computeLuminance();
-    // Merged into ONE node: the InkWell inside publishes its own unlabelled
-    // tappable node, so the swatch was announced twice — once by colour
-    // name, once as a nameless button. Merging keeps the InkWell's tap
-    // action on the node the label rides.
-    return MergeSemantics(
-      child: Semantics(
-        label: colorSwatchName(color),
-        button: true,
-        selected: selected,
-        enabled: enabled,
-        child: _swatch(scheme, luminance),
-      ),
-    );
-  }
-
-  Widget _swatch(ColorScheme scheme, double luminance) {
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(19),
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-            width: selected ? 3 : 1,
-          ),
-        ),
-        child: selected
-            ? Icon(
-                Icons.check,
-                size: 18,
-                color: luminance > 0.5 ? Colors.black87 : Colors.white,
-              )
-            : null,
-      ),
-    );
   }
 }

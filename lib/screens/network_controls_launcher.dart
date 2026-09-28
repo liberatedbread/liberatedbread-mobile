@@ -87,14 +87,15 @@ Future<bool> _adopted({
   required NetworkControls controls,
 }) async {
   final blid = device.txt['blid'];
+  // Keyed on the spec's protocol_handler, as NetworkDeviceScreen and the
+  // saved-devices row key it — not on the `mqtt` transport, which Hisense,
+  // Dyson and Bambu devices ride too: one of those announcing a `blid` key
+  // was sent to the Roomba wizard here, while the control screen (rightly)
+  // did not treat it as a robot.
   final isRoomba =
       blid != null &&
       blid.isNotEmpty &&
-      controls.entities.any(
-        (entity) =>
-            entity.transport == roombaTransport ||
-            entity.actions.any((a) => a.transport == roombaTransport),
-      );
+      controls.capabilities?.protocolHandler == roombaProtocolHandler;
   if (!isRoomba) return true;
 
   final store = ref.read(roombaCredentialStoreProvider);

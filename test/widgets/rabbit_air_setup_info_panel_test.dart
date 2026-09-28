@@ -141,26 +141,29 @@ void main() {
     await tester.pump();
   }
 
-  Widget wrap({List<BleDiscoveredService> services = const [_rabbitService]}) =>
-      ProviderScope(
-        overrides: [
-          bleServiceProvider.overrideWithValue(ble),
-          specCodecProvider.overrideWithValue(codec),
-          rabbitAirSpecSurfaceProvider.overrideWith(
-            (ref) async => (specYaml: 'yaml', entities: entities),
-          ),
-        ],
-        child: MaterialApp(
-          home: Scaffold(
-            body: RabbitAirSetupInfoPanel(
-              device: device,
-              services: services,
-              pollInterval: const Duration(seconds: 5),
-              responseTimeout: const Duration(seconds: 1),
-            ),
-          ),
+  Widget wrap({
+    List<BleDiscoveredService> services = const [_rabbitService],
+    Duration pollInterval = const Duration(seconds: 5),
+    Duration responseTimeout = const Duration(seconds: 1),
+  }) => ProviderScope(
+    overrides: [
+      bleServiceProvider.overrideWithValue(ble),
+      specCodecProvider.overrideWithValue(codec),
+      rabbitAirSpecSurfaceProvider.overrideWith(
+        (ref) async => (specYaml: 'yaml', entities: entities),
+      ),
+    ],
+    child: MaterialApp(
+      home: Scaffold(
+        body: RabbitAirSetupInfoPanel(
+          device: device,
+          services: services,
+          pollInterval: pollInterval,
+          responseTimeout: responseTimeout,
         ),
-      );
+      ),
+    ),
+  );
 
   setUp(() {
     answered = 0;
@@ -315,6 +318,80 @@ void main() {
     expect(find.text('Try again'), findsOneWidget);
     expect(find.text('4320 min'), findsOneWidget);
     expect(find.text('abcdef1234_000000000000000000'), findsOneWidget);
+
+    await unmount(tester);
+  });
+
+  testWidgets('a first poll that times out starts no poll timer', (
+    tester,
+  ) async {
+    // _poll swallows its own failure, so _start carried on after a first
+    // cmd 4 that timed out and armed the timer anyway: the error card
+    // stayed up while polls kept writing and readings kept updating under
+    // it. Fails on the old panel: a second cmd 4 goes out at the interval.
+    await tester.pumpWidget(wrap());
+    await answerNewWrites(tester); // cmd 255 answered; cmd 4 is not
+    await tester.pump(const Duration(seconds: 2)); // cmd 4 times out
+    await tester.pumpAndSettle();
+    expect(find.text('Try again'), findsOneWidget);
+
+    List<Object?> cmds() => [
+      for (final w in ble.writes)
+        (jsonDecode(utf8.decode(w.value.sublist(2))) as Map)['cmd'],
+    ];
+    expect(cmds(), [255, 4]);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(cmds(), [255, 4], reason: 'no timer behind a failed first poll');
+    expect(find.text('Try again'), findsOneWidget);
+
+    await unmount(tester);
+  });
+
+  testWidgets('polls never overlap, and a queued poll cannot clear the '
+      'error a failed one raised', (tester) async {
+    // The production interval (5 s) is shorter than the exchange timeout
+    // (7 s), and a periodic timer fired regardless of the poll in flight:
+    // the client queued the extra polls behind the stuck one, and when that
+    // one timed out (stopping the timer, raising the error card) the next
+    // queued poll went out, got answered, and cleared the card — no timer
+    // running, readings frozen, nothing saying so. Fails on the old panel:
+    // a third cmd 4 goes out and 'Try again' disappears.
+    await tester.pumpWidget(
+      wrap(
+        pollInterval: const Duration(seconds: 1),
+        responseTimeout: const Duration(seconds: 3),
+      ),
+    );
+    await answerNewWrites(tester); // cmd 255
+    await answerNewWrites(tester); // cmd 4
+    await tester.pumpAndSettle();
+    expect(find.text('4320 min'), findsOneWidget);
+
+    List<Object?> cmds() => [
+      for (final w in ble.writes)
+        (jsonDecode(utf8.decode(w.value.sublist(2))) as Map)['cmd'],
+    ];
+
+    await tester.pump(const Duration(seconds: 1)); // poll goes out, unanswered
+    await tester.pump(const Duration(seconds: 3)); // ...and times out
+    await tester.pump();
+    expect(find.text('Try again'), findsOneWidget);
+
+    // Anything still queued behind the failed poll gets its answer now.
+    await answerNewWrites(tester);
+    await tester.pump(const Duration(seconds: 5));
+    await answerNewWrites(tester);
+    await tester.pumpAndSettle();
+
+    expect(cmds(), [255, 4, 4], reason: 'one poll in flight at a time');
+    expect(
+      find.text('Try again'),
+      findsOneWidget,
+      reason: 'polling stopped, so the error card must stay up',
+    );
 
     await unmount(tester);
   });

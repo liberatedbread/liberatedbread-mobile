@@ -202,6 +202,15 @@ class TlsTrust {
   /// substitution the pin exists to catch. So it refuses instead.
   final Set<String> _unreadable = <String>{};
 
+  /// Whether [identity]'s pin could not be read at the last [prepare].
+  ///
+  /// Asked by a connector that prepares ONCE and then reuses the answer (the
+  /// shared HTTP client registers a device when its sender first sends): a
+  /// locked keychain at that moment would otherwise refuse every later
+  /// handshake for the life of the screen, while the refusal's own message
+  /// tells the user to unlock the phone and try again.
+  bool isUnreadable(String identity) => _unreadable.contains(identity);
+
   /// Whether the last handshake with [host] was refused BY THIS POLICY rather
   /// than by the network.
   bool refused(String host) => _refused.containsKey(host);

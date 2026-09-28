@@ -367,7 +367,12 @@ run_suite() {
   local logfile="$LOG_DIR/$name-$stamp.log"
 
   if [[ "$LAUNCHER" == "flutter" ]]; then
-    flutter test "$suite" -d "$UDID" --timeout "$TEST_TIMEOUT" "$@" \
+    # --no-uninstall: flutter's default removes the app when the run ends,
+    # which drops its SharedPreferences but not its keychain; the next real
+    # launch then counts as a fresh install and reconcileInstall wipes the
+    # keychain --allow-keychain-wipe exists to protect.
+    flutter test "$suite" -d "$UDID" --no-uninstall \
+      --timeout "$TEST_TIMEOUT" "$@" \
       "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" 2>&1 | tee "$logfile"
     return "${PIPESTATUS[0]}"
   fi

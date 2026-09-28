@@ -14,7 +14,6 @@
 // before the emulated adapter existed, only ever ran on a phone.
 
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show AndroidScanMode, FlutterBluePlus;
@@ -978,6 +977,22 @@ void main() {
     });
 
     test(
+      'a BlueZ link stuck at 23 on Linux reads as the 512 requested',
+      () async {
+        // flutter_blue_plus_linux never reports what BlueZ negotiated; the
+        // direct-ATT exemption (direct_att_router_test) must not have taken
+        // this heuristic away from the links that need it.
+        service
+          ..isLinux = true
+          ..isApple = false;
+        ble.add(EmulatedPeripheral.bulb(id: _bulbId, mtu: 23));
+        await service.connect(_bulbId);
+
+        expect(await service.mtu(_bulbId), 512);
+      },
+    );
+
+    test(
       'falls back to the 23-byte BLE floor for an unconnected device',
       () async {
         expect(await service.mtu('FF:FF:FF:FF:FF:FF'), 23);
@@ -1142,6 +1157,37 @@ void main() {
         expect(ble.platformCalls, contains('stopScan'));
       },
     );
+
+    test('leaves alone a scan the user started during the window', () async {
+      // The user backs out to Nearby while a saved device is being resolved:
+      // scan()'s startScan replaces the rediscovery scan inside fbp, and the
+      // isScanning=false that replacement emits woke the rediscovery wait,
+      // whose unconditional stopScan then queued behind the new startScan and
+      // killed it — the Nearby tab "searching" with nothing arriving.
+      appleRediscoveryWindow = const Duration(milliseconds: 400);
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId))
+        ..unknownToSystem = true
+        ..advertising = false;
+      ble.add(EmulatedPeripheral.bulb(id: _lampId));
+
+      final connecting = service
+          .connect(_bulbId)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(ble.platformCalls.where((c) => c == 'startScan'), hasLength(1));
+      final scan = service
+          .scan(timeout: null, intensity: ScanIntensity.ambient)
+          .listen((_) {});
+
+      expect(await connecting, isA<BleDeviceUnheardException>());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        FlutterBluePlus.isScanningNow,
+        isTrue,
+        reason: "the user's scan must survive the rediscovery's cleanup",
+      );
+      await scan.cancel();
+    });
 
     test('does not scan on a non-Apple platform', () async {
       // Android resolves an address without the system's help, so a scan here
@@ -1931,46 +1977,39 @@ void main() {
       },
     );
 
-    test(
-      'keeps the subscription alive when the Linux backend never confirms '
-      'the CCCD write',
-      () async {
-        // flutter_blue_plus_linux applies StartNotify synchronously and never
-        // emits the descriptor-written event flutter_blue_plus waits for, so
-        // every setNotifyValue times out AFTER succeeding. isSpuriousLinuxNotify-
-        // Timeout is what turns that into a warning instead of a dead
-        // subscription — this is that path, running for real.
-        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
-        bulb.confirmsCccdWrites = false;
-        await service.connect(_bulbId);
+    test('keeps the subscription alive when the Linux backend never confirms '
+        'the CCCD write', () async {
+      // flutter_blue_plus_linux applies StartNotify synchronously and never
+      // emits the descriptor-written event flutter_blue_plus waits for, so
+      // every setNotifyValue times out AFTER succeeding. isSpuriousLinuxNotify-
+      // Timeout is what turns that into a warning instead of a dead
+      // subscription — this is that path, running for real.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      bulb.confirmsCccdWrites = false;
+      // Linux behaviour on whatever host runs this, so the tolerance is
+      // tested on the Mac too rather than skipped there.
+      service.isLinux = true;
+      await service.connect(_bulbId);
 
-        final received = <List<int>>[];
-        final sub = service
-            .subscribeCharacteristic(
-              _bulbId,
-              EmulatedUuids.batteryService,
-              EmulatedUuids.batteryLevel,
-            )
-            .listen(received.add);
+      final received = <List<int>>[];
+      final sub = service
+          .subscribeCharacteristic(
+            _bulbId,
+            EmulatedUuids.batteryService,
+            EmulatedUuids.batteryLevel,
+          )
+          .listen(received.add);
 
-        // The service shortens the Linux confirmation wait to 3s; wait it out.
-        await Future<void>.delayed(const Duration(milliseconds: 3500));
-        bulb.pushNotification(EmulatedUuids.batteryLevel, [77]);
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        await sub.cancel();
+      // The service shortens the Linux confirmation wait to 3s; wait it out.
+      await Future<void>.delayed(const Duration(milliseconds: 3500));
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [77]);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
 
-        expect(received, [
-          [77],
-        ]);
-      },
-      timeout: const Timeout(Duration(seconds: 30)),
-      // The tolerance is deliberately Linux-only (see
-      // isSpuriousLinuxNotifyTimeout), so on any other host this same setup
-      // correctly produces a failed subscription instead.
-      skip: Platform.isLinux
-          ? null
-          : 'the spurious-timeout tolerance only applies on Linux',
-    );
+      expect(received, [
+        [77],
+      ]);
+    }, timeout: const Timeout(Duration(seconds: 30)));
   });
 
   group('recentNotifications', () {
@@ -2091,6 +2130,63 @@ void main() {
         reason: 'the push after the last cancel must not be buffered',
       );
     });
+
+    test(
+      'a subscription abandoned mid-enable leaves no recorder behind',
+      () async {
+        // The last cancel lands while the CCCD write is still unacknowledged (a
+        // slow peripheral; a pairing prompt the user walked away from). The
+        // release has already run its detach — on a recorder not yet attached
+        // — and taken the share out of the map, so a recorder the enable
+        // attached afterwards was reachable by nothing: it buffered every
+        // later read for the key, and a successor's own recorder made every
+        // push land twice.
+        final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId))
+          ..cccdConfirmDelay = const Duration(milliseconds: 100);
+        await service.connect(_bulbId);
+        List<List<int>> ring() => service.recentNotifications(
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        );
+
+        final abandoned = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await abandoned.cancel();
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+
+        // fbp delivers read results on onValueReceived too.
+        await service.readCharacteristic(
+          _bulbId,
+          EmulatedUuids.batteryService,
+          EmulatedUuids.batteryLevel,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(ring(), isEmpty, reason: 'nobody is subscribed');
+
+        bulb.cccdConfirmDelay = null;
+        final next = service
+            .subscribeCharacteristic(
+              _bulbId,
+              EmulatedUuids.batteryService,
+              EmulatedUuids.batteryLevel,
+            )
+            .listen((_) {});
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(ring(), [
+          [84],
+        ], reason: 'one push, one entry');
+        await next.cancel();
+      },
+    );
 
     test('disconnecting clears the buffer', () async {
       // The ring is per-connection: a stale push replayed into the next link

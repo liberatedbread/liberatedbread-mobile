@@ -71,6 +71,13 @@ class _RabbitAirSetupInfoPanelState
   RabbitAirBleClient? _client;
   Timer? _pollTimer;
 
+  /// Bumped by every [_start] and by a failed poll: a poll that began under
+  /// an older generation lands on a conversation that has since been torn
+  /// down or given up on, and must not touch the view. Without it a queued
+  /// poll that succeeded after an earlier one failed cleared the error card
+  /// while no timer ran, leaving frozen readings that looked live.
+  int _generation = 0;
+
   /// The per-connection setup-envelope id counter, from 0.
   int _nextId = 0;
 
@@ -104,6 +111,7 @@ class _RabbitAirSetupInfoPanelState
   Future<void> _start() async {
     _pollTimer?.cancel();
     _pollTimer = null;
+    final generation = ++_generation;
     final old = _client;
     _client = null;
     if (old != null) await old.disconnect();
@@ -126,15 +134,17 @@ class _RabbitAirSetupInfoPanelState
     try {
       await client.attach(widget.device.id, services: widget.services);
       await _readInfo();
-      await _poll();
-      if (!mounted) return;
+      // [_poll] swallows its own failure (it is also the timer's body), so a
+      // first poll that timed out used to fall through to here: the error
+      // card went up AND the timer started, and readings then updated live
+      // under a card saying the purifier had stopped answering. It has
+      // already raised the error state when it says false.
+      if (!await _poll(generation) || !mounted) return;
+      if (generation != _generation) return;
       setState(() => _loading = false);
-      _pollTimer = Timer.periodic(
-        widget.pollInterval,
-        (_) => unawaited(_poll()),
-      );
+      _schedulePoll(generation);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _loading = false;
         _error = friendlyErrorText(
@@ -179,15 +189,35 @@ class _RabbitAirSetupInfoPanelState
     }
   }
 
+  /// Arm the next poll one interval after the previous one finished. A
+  /// periodic timer fired every interval regardless, and the interval (5 s)
+  /// is shorter than the exchange timeout (7 s): against a slow purifier the
+  /// client's queue grew polls without bound, each waiting out the one
+  /// ahead of it.
+  void _schedulePoll(int generation) {
+    _pollTimer?.cancel();
+    _pollTimer = Timer(widget.pollInterval, () async {
+      _pollTimer = null;
+      if (await _poll(generation) && mounted && generation == _generation) {
+        _schedulePoll(generation);
+      }
+    });
+  }
+
   /// Poll the live state (cmd 4) and re-decode every entity — the same
   /// flattening and decoding the controls panel runs on its LAN replies. A
-  /// failed poll stops the timer and raises the error state; the last good
-  /// readings stay on screen.
-  Future<void> _poll() async {
+  /// failed poll stops polling and raises the error state; the last good
+  /// readings stay on screen. Says whether the poll succeeded, so the next
+  /// one is armed only behind a good read. A poll whose [generation] is no
+  /// longer current (a retry restarted, or the panel gave up) says false
+  /// and leaves the view alone.
+  Future<bool> _poll(int generation) async {
+    bool stale() => !mounted || generation != _generation;
     try {
       final reply = await _exchange(4);
       final decoded = jsonDecode(reply);
       final data = decoded is Map ? decoded['data'] : null;
+      if (stale()) return false;
       if (data is Map) {
         _model = switch (data['model']) {
           final int m => m,
@@ -196,21 +226,32 @@ class _RabbitAirSetupInfoPanelState
       }
       final returned = rabbitAirStateFields(reply);
       final surface = ref.read(rabbitAirSpecSurfaceProvider).valueOrNull;
+      final readings = <String, NetworkReadingDto?>{};
       if (surface != null) {
         final codec = ref.read(specCodecProvider);
         for (final entity in surface.entities) {
-          _readings[entity.name] = await codec.readNetworkEntity(
+          readings[entity.name] = await codec.readNetworkEntity(
             specYaml: surface.specYaml,
             entityName: entity.name,
             returned: returned,
           );
         }
       }
-      if (mounted) setState(() {});
+      if (stale()) return false;
+      // A good poll retires any earlier failure's card, so a purifier that
+      // recovered does not keep saying it stopped answering.
+      setState(() {
+        _readings.addAll(readings);
+        _error = null;
+      });
+      return true;
     } catch (e) {
+      if (stale()) return false;
       _pollTimer?.cancel();
       _pollTimer = null;
-      if (!mounted) return;
+      // Retire this generation so nothing still in flight under it can
+      // clear the card this failure raises.
+      _generation++;
       setState(() {
         _loading = false;
         _error = friendlyErrorText(
@@ -219,6 +260,7 @@ class _RabbitAirSetupInfoPanelState
           fallback: 'The purifier stopped answering. Try again.',
         );
       });
+      return false;
     }
   }
 

@@ -195,7 +195,7 @@ class NetworkCommandSender {
     // PlatformException from a locked keystore and every later send from this
     // sender rendered with no credentials, failing forever while the card
     // showed the value as held. The memo is cleared in the handler, the way
-    // `_tlsReady`'s sibling does, so the next send asks again.
+    // `_ecp2Opening` clears itself, so the next send asks again.
     return _credentialsRead ??= reader().catchError((Object e) {
       Log.net.debug('credential store unreadable for $host: $e');
       _credentialsRead = null;
@@ -818,27 +818,16 @@ class NetworkCommandSender {
     // expression resolved to a bare `device@<ip>` for both of them — the
     // DHCP-lease keying its own comment said it was avoiding.
     final identity = identityFor(mac: deviceMac, host: host);
-    // Memoized so the pin is read once, but NOT latched on failure: the read
-    // goes to the platform keychain, and one PlatformException (a locked
-    // keystore on a backgrounded app, a missing keyring on desktop) would
-    // otherwise complete this future with an error that every later send on
-    // this sender awaits and rethrows — every button on the screen dead over a
-    // storage blip. `_policies[host]` is written before the read anyway, so
-    // the send can proceed. Same shape as `_ecp2Opening` below, which clears
-    // itself in both arms.
-    _tlsReady ??= _http
-        .useTlsPolicy(
-          host: host,
-          identity: identity,
-          policy: TlsPolicy.parse(capabilities?.tlsVerification),
-        )
-        .catchError((Object e) {
-          Log.net.warning(
-            'could not load the certificate pin for $host',
-            error: e,
-          );
-          _tlsReady = null;
-        });
+    // Memoized: the registration is once per sender. A pin that could not be
+    // read here does not latch — `useTlsPolicy` never throws (the policy is
+    // published either way and fails closed), and the client re-reads an
+    // unreadable pin before each https handshake, so unlocking the phone and
+    // trying again works without leaving the screen.
+    _tlsReady ??= _http.useTlsPolicy(
+      host: host,
+      identity: identity,
+      policy: TlsPolicy.parse(capabilities?.tlsVerification),
+    );
     await _tlsReady;
 
     final port = controlPort;

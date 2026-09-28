@@ -47,6 +47,15 @@ class SwitchControlCard extends ConsumerStatefulWidget {
   /// As a lock it says Lock/Unlock, and unlocking asks first.
   final bool isLock;
 
+  /// Whether the DEVICE is a lock, whatever this switch is. [isLock] is the
+  /// panel's guess at the bolt from the entity's name, and it only picks the
+  /// Lock/Unlock labels: a bolt named 'Latch' failed the guess, and a
+  /// `press` or `toggle` on any lock switch went straight to the wire,
+  /// though every other momentary action on a lock asks first (see
+  /// [confirmLockAction]). On a lock device those, and an On or Off on any
+  /// switch but the recognised bolt, ask before they send.
+  final bool onLockDevice;
+
   const SwitchControlCard({
     super.key,
     required this.deviceId,
@@ -54,6 +63,7 @@ class SwitchControlCard extends ConsumerStatefulWidget {
     required this.entity,
     required this.specYaml,
     this.isLock = false,
+    this.onLockDevice = false,
   });
 
   @override
@@ -87,6 +97,7 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
   Future<void> _sendRole(String role) async {
     final action = _action(role);
     if (action == null) return;
+    if (!await _confirmOnLock(UnclaimedActions.labelFor(role))) return;
     // An unclaimed role promises nothing about the resulting position —
     // `toggle` inverts whatever the device holds — so an assumption left by
     // an earlier tap would keep reporting "On (sent)" for a switch that this
@@ -101,11 +112,36 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
     EntityActionDto action, {
     required bool on,
   }) async {
-    if (widget.isLock && !on) {
-      final confirmed = await confirmUnlock(context, widget.entity.name);
-      if (!confirmed || !mounted) return;
+    if (widget.isLock) {
+      // The recognised bolt: Lock is known to leave it locked, so only
+      // Unlock asks, and in those words.
+      if (!on) {
+        final confirmed = await confirmUnlock(context, widget.entity.name);
+        if (!confirmed || !mounted) return;
+      }
+    } else if (!await _confirmOnLock(on ? 'Turn on' : 'Turn off')) {
+      // Any other switch on a lock asks both ways: which of On or Off
+      // retracts a bolt this card could not recognise (a 'Latch') is not
+      // something the spec says, so On went out unprompted though this
+      // card's own rule is that a send not known to lock asks first.
+      return;
     }
     await _send(action, assume: on);
+  }
+
+  /// Whether a send that is not known to leave a lock locked may go: always
+  /// off a lock, and on one only once the user says so. Names what will be
+  /// sent rather than calling it an unlock (see [confirmLockAction]).
+  Future<bool> _confirmOnLock(String label) async {
+    if (!widget.onLockDevice && !widget.isLock) return true;
+    final confirmed = await confirmLockAction(context, label);
+    return confirmed && mounted;
+  }
+
+  /// [_send] for the momentary Press, asked first on a lock.
+  Future<void> _sendPress(EntityActionDto press) async {
+    if (!await _confirmOnLock(widget.entity.name)) return;
+    await _send(press);
   }
 
   Future<void> _send(EntityActionDto action, {bool? assume}) async {
@@ -124,6 +160,10 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
       final container = ProviderScope.containerOf(context, listen: false);
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
+        // Scoped to the service the write goes to: a characteristic UUID
+        // can repeat under another service with its own command table, and
+        // an unscoped encode answers from whichever twin comes first.
+        serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         commandName: commandName,
         params: const {},
@@ -135,6 +175,7 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
         serviceUuid: action.serviceUuid,
         charUuid: action.characteristicUuid,
         bytes: bytes.toList(),
+        stateServiceUuid: widget.stateServiceUuid,
       );
       if (!mounted) return;
       setState(() {
@@ -302,7 +343,7 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                     OutlinedButton.icon(
                       onPressed: _sendingRole != null
                           ? null
-                          : () => _send(press),
+                          : () => _sendPress(press),
                       icon: const Icon(Icons.touch_app, size: 16),
                       label: const Text('Press'),
                     ),

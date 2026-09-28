@@ -17,25 +17,37 @@ import '../models/radio_profile.dart';
 /// once, plainly, in the operator's own words rather than burying it in a
 /// settings subtitle nobody reads.
 ///
+/// [writesRadio] says which of two things the acknowledgement stands in
+/// front of. True (the device screen) widens the radio's stored limits,
+/// read back and backed up. False (the Radio tab's switch) changes no radio
+/// at all — it only lets suggestions and plans reach the expanded range —
+/// so the dialog says that instead: shown with the device screen's words,
+/// that switch told the operator their radio was widened when nothing had
+/// touched it. The warning and the acknowledgement are the same either
+/// way, and live here once so the two cannot drift.
+///
 /// Returns false for a cancel, a back gesture, or a profile that has no
 /// documented software path at all.
 Future<bool> showTxUnlockDialog(
   BuildContext context,
-  RadioProfile profile,
-) async {
+  RadioProfile profile, {
+  bool writesRadio = true,
+}) async {
   if (!profile.txUnlock.supported) return false;
 
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (context) => _TxUnlockDialog(profile: profile),
+    builder: (context) =>
+        _TxUnlockDialog(profile: profile, writesRadio: writesRadio),
   );
   return confirmed ?? false;
 }
 
 class _TxUnlockDialog extends StatefulWidget {
   final RadioProfile profile;
+  final bool writesRadio;
 
-  const _TxUnlockDialog({required this.profile});
+  const _TxUnlockDialog({required this.profile, required this.writesRadio});
 
   @override
   State<_TxUnlockDialog> createState() => _TxUnlockDialogState();
@@ -48,23 +60,34 @@ class _TxUnlockDialogState extends State<_TxUnlockDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final unlock = widget.profile.txUnlock;
+    final name = widget.profile.displayName;
+    final writesRadio = widget.writesRadio;
 
     return AlertDialog(
-      title: const Text('Widen the transmit range?'),
+      title: Text(
+        writesRadio ? 'Widen the transmit range?' : 'Suggest the wider range?',
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'This changes the frequency limits stored in your '
-              '${widget.profile.displayName}, the same way CHIRP and the '
-              "manufacturer's own software can.",
+              writesRadio
+                  ? 'This changes the frequency limits stored in your '
+                        "$name, the same way CHIRP and the manufacturer's "
+                        'own software can.'
+                  : 'This does not change your $name. It lets suggestions '
+                        'and plans include channels in its expanded range, '
+                        'for a radio already widened from its device screen '
+                        'or with other software.',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),
             Text(
-              'It would be able to transmit on:',
+              writesRadio
+                  ? 'It would be able to transmit on:'
+                  : 'Suggestions may then include:',
               style: theme.textTheme.labelLarge,
             ),
             const SizedBox(height: 4),
@@ -85,7 +108,9 @@ class _TxUnlockDialogState extends State<_TxUnlockDialog> {
               'communications.',
               style: theme.textTheme.bodyMedium,
             ),
-            if (!unlock.verified) ...[
+            // The read-back and backup describe a write; with no write
+            // there is nothing to confirm on hardware.
+            if (writesRadio && !unlock.verified) ...[
               const SizedBox(height: 12),
               Text(
                 'This radio\'s limits have not been confirmed on hardware '

@@ -193,6 +193,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Regression: this switch showed the device screen's dialog, which
+      // says the radio's stored limits are changed, read back and backed
+      // up. Nothing here touches the radio; it changes suggestions only.
+      expect(find.textContaining('changes the frequency limits'), findsNothing);
+      expect(find.textContaining('reads the existing limits'), findsNothing);
+      expect(
+        find.textContaining('does not change your ${uv5rProfile.displayName}'),
+        findsOneWidget,
+      );
+
       final checkbox = find.byType(CheckboxListTile);
       await tester.ensureVisible(checkbox);
       await tester.pumpAndSettle();
@@ -202,7 +212,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(store.values[TxUnlockNotifier.key], contains(uv5rProfile.id));
-      expect(find.textContaining('On for this radio'), findsOneWidget);
+      expect(
+        find.textContaining('Suggestions include the expanded range'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('widened from its device screen'),
+        findsOneWidget,
+      );
     });
   });
 

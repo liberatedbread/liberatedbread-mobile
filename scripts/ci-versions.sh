@@ -240,6 +240,38 @@ ci_versions_print() {
   done
 }
 
+# The flutter_rust_bridge pin, as the two OTHER files that must carry it say.
+#
+# FRB is one decision written in three places: ci.yml's FRB_VERSION (the
+# codegen), pubspec.yaml (the Dart runtime) and rust/Cargo.toml (the crate,
+# `=`-pinned). The codegen alone moving fails the bindings gate, and the Dart
+# runtime alone moving throws at RustLib.init; the crate alone moving is only a
+# lazy assert in the FFI handler, which neither `cargo test` nor the host
+# suites reach. That is PR #18 in .github/dependabot.yml: every job green but
+# the device jobs, where it surfaced as a silently dropped test result. The
+# bot is told to leave FRB alone, but a hand bump of one file was still caught
+# only by that symptom. Prints one `file: problem` line per disagreement.
+_ci_frb_pin_problems() {
+  local root want pub cargo
+  root="$(cd "$(dirname "$CI_WORKFLOW")/../.." && pwd)" || return 0
+  want="$CI_FRB_VERSION"
+  # Exactly `  flutter_rust_bridge: X.Y.Z` under dependencies: a caret range
+  # would let pub resolve a runtime the pinned codegen never generated for.
+  pub="$(awk '/^[^[:space:]#]/ { indeps = ($0 ~ /^dependencies:/) }
+              indeps && /^  flutter_rust_bridge:/ {
+                sub(/^  flutter_rust_bridge:[[:space:]]*/, "")
+                sub(/[[:space:]]*#.*$/, ""); gsub(/["'"'"']/, ""); print; exit
+              }' "$root/pubspec.yaml" 2>/dev/null)"
+  if [ "$pub" != "$want" ]; then
+    echo "pubspec.yaml: flutter_rust_bridge is '${pub:-missing}', not exactly '$want'"
+  fi
+  cargo="$(sed -n 's/^flutter_rust_bridge[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
+    "$root/rust/Cargo.toml" 2>/dev/null | head -n 1)"
+  if [ "$cargo" != "=$want" ]; then
+    echo "rust/Cargo.toml: flutter_rust_bridge is '${cargo:-missing}', not '=$want'"
+  fi
+}
+
 # Sourced: define the variables. Executed: print them.
 #
 # `--strict` additionally FAILS on any fallback. The fallbacks exist so that a
@@ -262,6 +294,14 @@ if [ "${BASH_SOURCE[0]:-}" = "${0}" ]; then
   if [ "$strict" -eq 1 ] && [ "$CI_VERSIONS_STALE" -gt 0 ]; then
     echo "::error file=scripts/ci-versions.sh::${CI_VERSIONS_STALE} fallback(s) in this script no longer match .github/workflows/ci.yml: ${CI_VERSIONS_STALE_KEYS% }. The fallback is what provisions a machine that cannot read the workflow, so a drifted one installs something CI never uses — which is how CI_LINUX_DESKTOP_PACKAGES came to be missing dbus and python3-dbus-next. Copy each value from the env: block into the matching _ci_set call above." >&2
     exit 1
+  fi
+  if [ "$strict" -eq 1 ]; then
+    frb_problems="$(_ci_frb_pin_problems)"
+    if [ -n "$frb_problems" ]; then
+      printf '%s\n' "$frb_problems" >&2
+      echo "::error file=.github/workflows/ci.yml::flutter_rust_bridge is pinned in ci.yml (FRB_VERSION=${CI_FRB_VERSION}), pubspec.yaml and rust/Cargo.toml, and they disagree (above). A crate that moved alone was caught only as a dropped device-job result (PR #18, .github/dependabot.yml). Move all three pins at once." >&2
+      exit 1
+    fi
   fi
   if [ "$strict" -eq 1 ] && [ "$CI_VERSIONS_FALLBACKS" -gt 0 ]; then
     echo "::error file=.github/workflows/ci.yml::${CI_VERSIONS_FALLBACKS} pinned value(s) could not be read out of this workflow's top-level env: block (each is named on stderr above), so scripts/setup.sh and .claude/hooks/session-start.sh would provision dev environments from stale hardcoded defaults while CI used the real ones. Add the key back to that env: block, or update the reader in scripts/ci-versions.sh." >&2

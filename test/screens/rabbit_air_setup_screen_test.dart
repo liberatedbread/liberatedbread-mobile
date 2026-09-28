@@ -7,6 +7,8 @@
 
 import 'dart:typed_data';
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -239,5 +241,36 @@ void main() {
 
     expect(service.begun, ['01', '01']);
     expect(find.text('Choose your home Wi-Fi'), findsOneWidget);
+  });
+
+  // A found row tapped mid-scan stops the scan, and its cancelled
+  // subscription never fires onDone. A failed begin then returned to the
+  // scanning view with the spinner up for a scan that was no longer running
+  // and Scan again hidden, so a purifier that had dropped out of setup mode
+  // could only be looked for again by leaving the screen.
+  testWidgets('a failed begin mid-scan comes back able to scan again', (
+    tester,
+  ) async {
+    final hold = Completer<void>();
+    addTearDown(() {
+      if (!hold.isCompleted) hold.complete();
+    });
+    ble = FakeBleService(devicesToEmit: [setupDevice], scanHold: hold);
+    service.failNextBegin = true;
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Find the purifier'));
+    // Pumps, not a settle: the scan is held open, so its spinner never stops.
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    await tester.tap(find.text('RabbitAirSetup-789A'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('did not answer'), findsOneWidget);
+    expect(find.text('Scan again'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 }

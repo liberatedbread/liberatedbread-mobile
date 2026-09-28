@@ -71,7 +71,15 @@ class BaofengBleProgrammer implements RadioProgrammer, RadioWritePreflight {
   final BleService _ble;
   final BleTiming timing;
 
-  BaofengBleProgrammer(this._ble, {this.timing = const BleTiming()});
+  /// The one encode path the demo programmer shares, so what the demo
+  /// shows is what this radio would be sent, not a copy that drifts.
+  final CodeplugEncoder encoder;
+
+  BaofengBleProgrammer(
+    this._ble, {
+    this.timing = const BleTiming(),
+    this.encoder = const CodeplugEncoder(),
+  });
 
   @override
   bool supports(RadioProfile profile) =>
@@ -158,14 +166,7 @@ class BaofengBleProgrammer implements RadioProgrammer, RadioWritePreflight {
   }) async* {
     // Refused before the encode, so the reason given is the real one.
     await checkCanWrite(profile);
-    final image = await rust.radioEncodeChannels(
-      image: base.image,
-      channels: [
-        for (var i = 0; i < channels.length; i++)
-          channelToDto(channels[i], slot: i + 1),
-      ],
-      modelId: profile.id,
-    );
+    final image = await encoder.encode(base, profile, channels);
     yield* restoreCodeplug(
       deviceId: deviceId,
       profile: profile,

@@ -20,11 +20,18 @@ library;
 /// Keyed lower-case; the value is what a person should see. Kept small and
 /// literal — this is not a unit-conversion table, and nothing here changes a
 /// magnitude.
+///
+/// Also the ONE alias table for Home Assistant (normalizeHaUnit reads it):
+/// these spellings are HA's by design, and two hand-kept copies had already
+/// drifted — a spelling in one only would show `21.4 °C` on the card while
+/// HA registered the raw unit and dropped the temperature class.
 const Map<String, String> _displaySpellings = {
   'c': '°C',
   'degc': '°C',
+  '°c': '°C',
   'f': '°F',
   'degf': '°F',
+  '°f': '°F',
   'lux': 'lx',
   'percent': '%',
   'pct': '%',

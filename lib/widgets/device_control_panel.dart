@@ -970,6 +970,9 @@ class _ControlsSectionState extends State<_ControlsSection>
                     (control.entity.key == 'lock' ||
                         control.entity.deviceClass == 'lock' ||
                         control.entity.name == 'Lock'),
+                // The bolt guess above only picks labels; whether a press,
+                // a toggle or an Off asks first must not hang on a name.
+                onLockDevice: category == DeviceCategory.lock,
               ),
             },
             const SizedBox(height: 10),

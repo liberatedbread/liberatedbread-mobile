@@ -154,6 +154,59 @@ void main() {
     expect(find.textContaining('Nothing recorded'), findsOneWidget);
   });
 
+  // Clear left the category view filter set while its chip vanished with
+  // the records, so every new line was hidden and nothing on screen could
+  // untick the filter.
+  testWidgets('clear drops the view filter along with the records', (
+    tester,
+  ) async {
+    Log.minLevel = LogLevel.debug;
+    Log.ble.info('adapter on');
+    Log.net.info('scan started');
+    await pump(tester);
+
+    // The capture row lists every category first; the view chip is last.
+    await tester.tap(find.widgetWithText(FilterChip, 'ble').last);
+    await tester.pumpAndSettle();
+    expect(find.text('scan started'), findsNothing);
+
+    await tester.tap(find.byTooltip('Clear'));
+    await tester.pumpAndSettle();
+    Log.net.info('scan finished');
+    await tester.tap(find.byTooltip('Refresh'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('scan finished'), findsOneWidget);
+  });
+
+  // The same orphaned filter without a Clear: the ring can evict a selected
+  // category's last record. Its view chip has to stay so it can be unticked.
+  testWidgets('an active filter keeps its chip once its records are gone', (
+    tester,
+  ) async {
+    Log.minLevel = LogLevel.debug;
+    Log.ble.info('adapter on');
+    Log.net.info('scan started');
+    await pump(tester);
+    final captureChips = tester
+        .widgetList(find.widgetWithText(FilterChip, 'ble'))
+        .length;
+
+    await tester.tap(find.widgetWithText(FilterChip, 'ble').last);
+    await tester.pumpAndSettle();
+    // Gone the way eviction takes them: the buffer drops them, the screen's
+    // filter is untouched.
+    Log.buffer!.clear();
+    Log.net.info('scan finished');
+    await tester.tap(find.byTooltip('Refresh'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilterChip, 'ble'), findsNWidgets(captureChips));
+    await tester.tap(find.widgetWithText(FilterChip, 'ble').last);
+    await tester.pumpAndSettle();
+    expect(find.text('scan finished'), findsOneWidget);
+  });
+
   testWidgets('says so when recording is off rather than looking empty', (
     tester,
   ) async {

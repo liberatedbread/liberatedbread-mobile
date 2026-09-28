@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart'
+    show DeviceIdentifier, FlutterBluePlusPlatform;
 import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
 import '../core/error_text.dart';
@@ -13,6 +15,7 @@ import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import 'ble_service.dart';
+import 'direct_att/direct_att_router.dart' show DirectAttRouter;
 
 /// Map a flutter_blue_plus connection state to our internal enum.
 /// Extracted as a top-level function so it can be unit-tested without
@@ -561,6 +564,13 @@ class RealBleService
   /// every job in .github/workflows/ci.yml.
   @visibleForTesting
   bool isApple = Platform.isIOS || Platform.isMacOS;
+
+  /// Whether this is Linux, for the stuck-default MTU heuristic in
+  /// [connect] and the notify timeout in [_setNotifyValue]. Injectable for
+  /// the same reason as [isApple]: the router suite emulates the Linux
+  /// stack on a Mac too, and its MTU cases are dead code there otherwise.
+  @visibleForTesting
+  bool isLinux = Platform.isLinux;
 
   /// The adapter state once the platform has actually reported one.
   ///
@@ -1199,7 +1209,15 @@ class RealBleService
       } catch (error) {
         Log.ble.debug('rediscovery scan for $deviceId failed: $error');
       } finally {
-        await FlutterBluePlus.stopScan().catchError((Object _) {});
+        // Only while no scan() has taken the radio over. A scan started in
+        // the window replaced this one inside fbp's startScan (its isScanning
+        // false is what woke the wait above), and an unconditional stop here
+        // would queue behind that startScan and kill the user's new scan —
+        // leaving a continuous scan's screen "searching" with nothing
+        // arriving. The same ownership rule as the refresh callback's.
+        if (_scanSubscription == null) {
+          await FlutterBluePlus.stopScan().catchError((Object _) {});
+        }
       }
     }
 
@@ -1329,11 +1347,19 @@ class RealBleService
     // device so mtu() answers with the 512 this connect just requested
     // (verified live against the JY25CUT curtain). Keyed on the post-connect
     // observation rather than on the platform alone: a Linux backend that
-    // does report real values (the emulated test adapter today, a fixed
-    // flutter_blue_plus_linux tomorrow) is never flagged, and on Android a
-    // 23 is a real answer (requestMtu ran and was refused) that callers must
-    // size real writes for.
-    if (Platform.isLinux && device.mtuNow <= 23) {
+    // does report real values above 23 (the emulated test adapter today, a
+    // fixed flutter_blue_plus_linux tomorrow) is never flagged, and on
+    // Android a 23 is a real answer (requestMtu ran and was refused) that
+    // callers must size real writes for. A link the direct-ATT router serves
+    // is exempt outright: its 23 is the MTU it really negotiated (a peer
+    // that refused Exchange MTU, or offered 23), and reading it as 512 would
+    // size writes the ATT client refuses past mtu-3 — on exactly the cheap
+    // firmware the direct path exists for.
+    final platform = FlutterBluePlusPlatform.instance;
+    final reportsTruthfully =
+        platform is DirectAttRouter &&
+        platform.reportsNegotiatedMtu(DeviceIdentifier(deviceId));
+    if (isLinux && !reportsTruthfully && device.mtuNow <= 23) {
       _mtuUnknown.add(deviceId);
     } else {
       _mtuUnknown.remove(deviceId);
@@ -1820,6 +1846,14 @@ class RealBleService
       // setNotifyValue throws — a no-op teardown is acceptable here.
       try {
         final char = await enabled;
+        // Finds nothing today: the enable attaches only while interest > 0,
+        // and this release zeroed it before parking here, so no recorder can
+        // appear on this share after the detach above. A backstop for a
+        // future attach that skips that guard — such a recorder would be
+        // reachable by nothing once the share is out of the map, and would
+        // fill the ring with every later read for this key while nobody is
+        // subscribed. Idempotent, so it costs nothing when there is none.
+        await claimed.detachRecorder();
         // While this release was parked on the in-flight enable, a successor
         // subscription may have claimed the characteristic under a fresh
         // share. Its enable is queued behind ours on fbp's mutex, so a
@@ -1877,10 +1911,18 @@ class RealBleService
             // enter one physical notification N times and evict the buffer N
             // times faster: with six sensor tiles on a characteristic, the
             // 16-deep ring would hold under three real pushes. Torn down
-            // with the share in releaseInterest/_expireNotifyShares.
-            claimed.recorder ??= char.onValueReceived.listen(
-              (value) => _recordRecent(deviceId, serviceUuid, charUuid, value),
-            );
+            // with the share in releaseInterest/_expireNotifyShares — which
+            // is why a share abandoned or expired DURING the enable (a slow
+            // CCCD ack, a pairing prompt the user walked away from) gets
+            // none: both teardowns have already run their detach, and a
+            // recorder attached now would be orphaned for the process's
+            // life.
+            if (!claimed.dead && claimed.interest > 0) {
+              claimed.recorder ??= char.onValueReceived.listen(
+                (value) =>
+                    _recordRecent(deviceId, serviceUuid, charUuid, value),
+              );
+            }
             return char;
           }();
           final char = await claimed.enable!;
@@ -2117,7 +2159,6 @@ class RealBleService
     BluetoothCharacteristic char, {
     required bool enable,
   }) async {
-    final isLinux = Platform.isLinux;
     try {
       await char.setNotifyValue(enable, timeout: isLinux ? 3 : 15);
     } catch (e) {

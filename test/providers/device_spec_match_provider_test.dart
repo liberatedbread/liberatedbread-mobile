@@ -117,6 +117,20 @@ SpecMatchRequest _req({
 );
 
 void main() {
+  // The readers used to split by hand and demand exactly two parts, so a
+  // manufacturer containing '|' was saved fine and then resolved no
+  // controls on every read.
+  test('parseSpecKey inverts specKeyOf, even with a | in the manufacturer', () {
+    final plain = parseSpecKey(specKeyOf('Bulb', 'Acme'));
+    expect(plain?.deviceName, 'Bulb');
+    expect(plain?.manufacturer, 'Acme');
+    final barred = parseSpecKey(specKeyOf('Bulb', 'Acme | Co'));
+    expect(barred?.deviceName, 'Bulb');
+    expect(barred?.manufacturer, 'Acme | Co');
+    expect(parseSpecKey(null), isNull);
+    expect(parseSpecKey('no-separator'), isNull);
+  });
+
   group('rank + evidence policy (pure)', () {
     final nameOnly = _match(_spec, byNamePrefix: true);
     final uuidOnly = _match(

@@ -6,6 +6,8 @@
 // credential and the child id, every write is followed by a re-read, and
 // error type 1 flips the screen back to pairing with its reason stated.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -110,6 +112,14 @@ class _StubHubClient extends HubHttpClient {
   /// writes — how the initial-load auth-failure path is exercised.
   bool errorOnGet = false;
 
+  /// When set, every write waits on it — two sends held in flight at once.
+  Completer<void>? putGate;
+
+  /// When set, the first GET after a write fails with it: the bridge took
+  /// the write, then the re-read failed.
+  Object? getErrorAfterPut;
+  bool _putSeen = false;
+
   /// The `/api/config` identity the screen probes for on every load. An
   /// advertised bridgeid is only a claim — it scopes the credential and the
   /// pin — so the screen confirms it against the device itself, and a stub
@@ -143,6 +153,14 @@ class _StubHubClient extends HubHttpClient {
   ) async {
     sent.add(request);
     sentBridgeIds.add(bridgeId);
+    if (request.method != 'GET') {
+      _putSeen = true;
+      await putGate?.future;
+    } else if (_putSeen && getErrorAfterPut != null) {
+      final error = getErrorAfterPut!;
+      getErrorAfterPut = null;
+      return Future<String>.error(error);
+    }
     final error = sendError;
     if (error != null && (errorOnGet || request.method != 'GET')) {
       sendError = null;
@@ -267,6 +285,58 @@ void main() {
     // PUT then a fresh GET: the reply was an acknowledgement, not state.
     final methods = client.sent.map((r) => r.method).toList();
     expect(methods, ['GET', 'PUT', 'GET']);
+  });
+
+  // The in-flight marker was one slot: tapping a second light moved it, so
+  // the first card re-enabled mid-write and could be sent again.
+  testWidgets('two lights in flight at once both stay busy', (tester) async {
+    await store.saveCredentials(
+      _bridgeId,
+      const HubCredentials(username: 'testuser'),
+    );
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    client.putGate = Completer<void>();
+
+    await tester.tap(find.byType(Switch).last);
+    await tester.pump();
+    // Hallway is busy; Kitchen counter's switch is the one left.
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+
+    expect(find.byType(Switch), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(HubChildLightCard),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNWidgets(2),
+    );
+
+    client.putGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(Switch), findsNWidgets(2));
+  });
+
+  // By the re-read the bridge has taken the write. Sharing one catch called
+  // a failed re-read "did not accept that. Try again." — a retry writes
+  // twice.
+  testWidgets('a failed re-read after a write is not called a refusal', (
+    tester,
+  ) async {
+    await store.saveCredentials(
+      _bridgeId,
+      const HubCredentials(username: 'testuser'),
+    );
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    client.getErrorAfterPut = Exception('re-read timed out');
+
+    await tester.tap(find.byType(Switch).last);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('did not accept'), findsNothing);
+    expect(find.textContaining('could not read back'), findsOneWidget);
   });
 
   testWidgets('a brightness commit sends the rounded value', (tester) async {

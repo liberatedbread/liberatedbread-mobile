@@ -2178,6 +2178,11 @@ fn every_state_topic_in_the_catalogue_resolves_or_is_a_known_backlog_item() {
 /// declared defaults disagree — and this pins that no name a path actually
 /// uses is one of them, so the refusal never costs a real read.
 ///
+/// The same holds for a declared `source`: `http::spec_wide_credential`
+/// answers a bare path's placeholder from the credential store only while
+/// every command naming it agrees on where it comes from, so two sources for
+/// one path placeholder would silently cost that read its credential.
+///
 /// Only names a PATH uses: a byte-stream spec reuses names freely and
 /// correctly (the Brother QL's `flags` is a different bit field in each ESC
 /// command, and nothing ever resolves it spec-wide).
@@ -2217,6 +2222,7 @@ fn a_path_placeholder_means_one_thing_within_a_spec() {
         placeholders_in_paths(&raw, &mut in_paths);
         let file = path.file_name().unwrap().to_string_lossy().to_string();
         let mut seen: std::collections::BTreeMap<&str, BTreeSet<String>> = Default::default();
+        let mut sources: std::collections::BTreeMap<&str, BTreeSet<&str>> = Default::default();
         for command in spec.commands.values() {
             for (name, parameter) in &command.parameters {
                 if !in_paths.contains(name.as_str()) {
@@ -2224,6 +2230,9 @@ fn a_path_placeholder_means_one_thing_within_a_spec() {
                 }
                 if let Some(default) = parameter.default.as_ref() {
                     seen.entry(name).or_default().insert(format!("{default:?}"));
+                }
+                if let Some(source) = parameter.source.as_deref() {
+                    sources.entry(name).or_default().insert(source);
                 }
             }
         }
@@ -2233,6 +2242,11 @@ fn a_path_placeholder_means_one_thing_within_a_spec() {
                 conflicts.push(format!("{file}: {name} defaults to {defaults:?}"));
             }
         }
+        for (name, declared) in sources {
+            if declared.len() > 1 {
+                conflicts.push(format!("{file}: {name} is sourced from {declared:?}"));
+            }
+        }
     }
     assert!(
         checked > 0,
@@ -2240,8 +2254,9 @@ fn a_path_placeholder_means_one_thing_within_a_spec() {
     );
     assert!(
         conflicts.is_empty(),
-        "one path placeholder, two declared defaults — spec_wide_default will \
-         refuse it, and any bare path naming it can no longer be issued:\n  {}",
+        "one path placeholder, two declared defaults or sources — \
+         spec_wide_default / spec_wide_credential will refuse it, and any bare \
+         path naming it can no longer be issued:\n  {}",
         conflicts.join("\n  ")
     );
 }

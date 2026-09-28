@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
 import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart';
+import 'package:liberated_bread_mobile/services/radio_codec.dart';
 import 'package:liberated_bread_mobile/services/radio_programmer.dart';
 import 'package:liberated_bread_mobile/services/real_ble_service.dart';
 import 'package:liberated_bread_mobile/src/rust/api/radio_api.dart' as rust;
@@ -460,6 +461,41 @@ void main() {
     );
 
     test(
+      'encodes through the shared CodeplugEncoder',
+      () async {
+        // Regression: the driver built its own DTO list and called the codec
+        // itself, a copy of the encoder the demo programmer uses, so a change
+        // to one left the demo showing bytes this radio would never be sent.
+        if (!rustReady) return markTestSkipped('host Rust library unavailable');
+        await radio();
+        final encoder = _SpyEncoder();
+        programmer = BaofengBleProgrammer(
+          service,
+          timing: _fast,
+          encoder: encoder,
+        );
+        final base = await read(uv5rMiniProfile);
+        const channels = [
+          RadioChannel(name: 'W1AW', rxFreqHz: 146940000, txFreqHz: 146340000),
+        ];
+
+        await programmer
+            .writeChannels(
+              deviceId: _deviceId,
+              profile: uv5rMiniProfile,
+              base: base,
+              channels: channels,
+            )
+            .drain<void>();
+
+        expect(encoder.calls, hasLength(1));
+        expect(encoder.calls.single.profile, uv5rMiniProfile);
+        expect(encoder.calls.single.channels, channels);
+      },
+      timeout: const Timeout(Duration(seconds: 120)),
+    );
+
+    test(
       'uses the larger block size the tunnel expects',
       () async {
         if (!rustReady) return markTestSkipped('host Rust library unavailable');
@@ -718,4 +754,19 @@ void main() {
       timeout: const Timeout(Duration(seconds: 120)),
     );
   });
+}
+
+/// The real encoder, noting what it was asked.
+class _SpyEncoder extends CodeplugEncoder {
+  final calls = <({RadioProfile profile, List<RadioChannel> channels})>[];
+
+  @override
+  Future<Uint8List> encode(
+    RadioCodeplug base,
+    RadioProfile profile,
+    List<RadioChannel> channels,
+  ) {
+    calls.add((profile: profile, channels: channels));
+    return super.encode(base, profile, channels);
+  }
 }

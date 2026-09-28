@@ -250,7 +250,7 @@ void main() {
     );
   });
 
-  test('the keychain suite refuses a physical iPhone unless opted in', () {
+  test('the keychain suite refuses a physical phone unless opted in', () {
     // keychain_accessibility_test.dart's fresh-install case runs the store's
     // sweep — deleteAll, no accessibility constraint — against the keychain
     // of whatever runs it, and a phone's keychain outlives the app. The
@@ -290,6 +290,59 @@ void main() {
       RegExp(r'LB_KEYCHAIN_WIPE_OK=true').allMatches(runner).length,
       1,
       reason: 'a second site handing out the define would bypass the flag',
+    );
+
+    // The Android half. An Android phone is not recognisable from inside
+    // the suite the way the Simulator is, so its runner has to SAY it is
+    // on a phone; a suite that stopped reading LB_PHYSICAL_PHONE, or a
+    // runner that stopped defining it, put a phone back on the emulator's
+    // "harmless, run it" path, and `run-android-device-tests.sh --all` then
+    // wiped the operator's own install (same applicationId, same key).
+    expect(
+      suite,
+      contains("bool.fromEnvironment('LB_PHYSICAL_PHONE')"),
+      reason: 'the Android phone guard keys off the runner saying so',
+    );
+    final android = stripHashComments(
+      readRepoFile(
+        'scripts/run-android-device-tests.sh',
+        consequence: 'the Android opt-in flag cannot be checked',
+      ),
+    );
+    expect(
+      android,
+      contains('--dart-define=LB_PHYSICAL_PHONE=true'),
+      reason: 'the aggregate on a phone must say it is on a phone',
+    );
+    expect(
+      android,
+      contains('--allow-keychain-wipe) ALLOW_KEYCHAIN_WIPE=true'),
+      reason: 'the opt-in is the flag, and only the flag sets it',
+    );
+    expect(
+      RegExp(r'ALLOW_KEYCHAIN_WIPE=true').allMatches(android).length,
+      1,
+      reason: 'a default or second assignment would opt every run in',
+    );
+    expect(
+      RegExp(r'LB_KEYCHAIN_WIPE_OK=true').allMatches(android).length,
+      1,
+      reason: 'a second site handing out the define would bypass the flag',
+    );
+    // ...and that one site sits inside the flag's branch, not beside it.
+    final gate = android.indexOf(
+      'if [[ "\$ALLOW_KEYCHAIN_WIPE" == "true" ]]; then',
+    );
+    expect(gate, isNonNegative, reason: 'the wipe define must be gated');
+    final define = android.indexOf('--dart-define=LB_KEYCHAIN_WIPE_OK=true');
+    final branchEnd = android.indexOf(
+      RegExp(r'^\s*(else|fi)\b', multiLine: true),
+      gate,
+    );
+    expect(
+      define > gate && define < branchEnd,
+      isTrue,
+      reason: 'the define must be handed out only when the flag was passed',
     );
   });
 

@@ -17,7 +17,11 @@ Future<void> _acknowledge(WidgetTester tester) async {
 }
 
 /// Opens the dialog and records what it answered.
-Future<bool?> _show(WidgetTester tester, RadioProfile profile) async {
+Future<bool?> _show(
+  WidgetTester tester,
+  RadioProfile profile, {
+  bool writesRadio = true,
+}) async {
   bool? answer;
   await tester.pumpWidget(
     MaterialApp(
@@ -25,7 +29,11 @@ Future<bool?> _show(WidgetTester tester, RadioProfile profile) async {
         body: Builder(
           builder: (context) => TextButton(
             onPressed: () async {
-              answer = await showTxUnlockDialog(context, profile);
+              answer = await showTxUnlockDialog(
+                context,
+                profile,
+                writesRadio: writesRadio,
+              );
             },
             child: const Text('open'),
           ),
@@ -62,6 +70,26 @@ void main() {
     expect(find.textContaining('public safety'), findsOneWidget);
     expect(find.textContaining('solely responsible'), findsOneWidget);
     expect(find.textContaining('MARS'), findsOneWidget);
+  });
+
+  testWidgets('without a write it says the radio is untouched, and keeps '
+      'the same warning', (tester) async {
+    // The Radio tab's switch changes only what suggestions offer. It kept
+    // its own copy of this dialog so as not to claim a write, and with it a
+    // second copy of the lawful-use warning free to drift from this one.
+    await _show(tester, uv5rProfile, writesRadio: false);
+    expect(find.text('Suggest the wider range?'), findsOneWidget);
+    expect(
+      find.textContaining('does not change your ${uv5rProfile.displayName}'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('changes the frequency limits'), findsNothing);
+    expect(find.textContaining('reads the existing limits'), findsNothing);
+    expect(find.textContaining('130.000'), findsOneWidget);
+    expect(find.textContaining('public safety'), findsOneWidget);
+    expect(find.textContaining('solely responsible'), findsOneWidget);
+    final enable = find.widgetWithText(FilledButton, 'Enable');
+    expect(tester.widget<FilledButton>(enable).onPressed, isNull);
   });
 
   testWidgets('cannot be confirmed until the box is ticked', (tester) async {

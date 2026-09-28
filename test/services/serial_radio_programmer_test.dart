@@ -361,6 +361,36 @@ void main() {
       expect(channels[0].txFreqHz, 146340000);
     });
 
+    test('encodes through the shared CodeplugEncoder', () async {
+      // Regression: the driver built its own DTO list and called the codec
+      // itself, a copy of the encoder the demo programmer uses, so a change
+      // to one (a slot base, a new family) left the demo showing bytes this
+      // radio would never be sent.
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final r = rig();
+      final encoder = _SpyEncoder();
+      final programmer = SerialRadioProgrammer(
+        r.ports,
+        timing: _fast,
+        encoder: encoder,
+      );
+      final base = await read(programmer);
+      await programmer
+          .writeChannels(
+            deviceId: EmulatedSerialPortService.cable.id,
+            profile: uv5rProfile,
+            base: base,
+            channels: plan,
+          )
+          .drain<void>();
+
+      expect(encoder.calls, hasLength(1));
+      expect(encoder.calls.single.profile, uv5rProfile);
+      expect(encoder.calls.single.channels, plan);
+      final after = await read(programmer);
+      expect(after.image, encoder.results.single);
+    });
+
     test('refuses a radio other than the one that was read', () async {
       if (!rustReady) return markTestSkipped('host Rust library unavailable');
       final r = rig();
@@ -818,4 +848,22 @@ class _DeafLink implements SerialLink {
 
   @override
   Future<void> close() => inner.close();
+}
+
+/// The real encoder, noting what it was asked and what it answered.
+class _SpyEncoder extends CodeplugEncoder {
+  final calls = <({RadioProfile profile, List<RadioChannel> channels})>[];
+  final results = <Uint8List>[];
+
+  @override
+  Future<Uint8List> encode(
+    RadioCodeplug base,
+    RadioProfile profile,
+    List<RadioChannel> channels,
+  ) async {
+    calls.add((profile: profile, channels: channels));
+    final image = await super.encode(base, profile, channels);
+    results.add(image);
+    return image;
+  }
 }

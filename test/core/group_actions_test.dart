@@ -727,6 +727,31 @@ void main() {
     });
   });
 
+  test('battery reads narrow to the matched variant before the dedupe', () {
+    final spec = _spec(
+      entities: [
+        for (final variant in const ['A', 'B'])
+          _entity(
+            'Battery',
+            platform: 'sensor',
+            deviceClass: 'battery',
+            stateCharacteristic: _stateChar,
+            hasFormat: true,
+            valueField: 'battery_${variant.toLowerCase()}',
+            variants: [variant],
+          ),
+      ],
+    );
+    final reads = resolveBatteryReads(
+      spec: spec,
+      services: [
+        _discovered(charUuid: _stateChar, canRead: true, canWrite: false),
+      ],
+      matchedVariants: const ['B'],
+    );
+    expect(reads.single.entity!.valueField, 'battery_b');
+  });
+
   group('resolveSensorReads', () {
     test('caps the snapshot and dedupes variant bindings by name', () {
       final spec = _spec(
@@ -757,6 +782,52 @@ void main() {
       expect(
         [for (final r in reads) r.label],
         ['Reading 0', 'Reading 1', 'Reading 2', 'Reading 3'],
+      );
+    });
+
+    // Two variants bind the same-named reading to ONE characteristic in
+    // different formats (the dialect split the write path was narrowed
+    // for). Without narrowing, the first-declared variant claimed the name
+    // and the group decoded variant B's bytes with A's format.
+    test('narrows to the matched variant before the name dedupe', () {
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Temperature',
+            platform: 'sensor',
+            stateCharacteristic: _stateChar,
+            hasFormat: true,
+            valueField: 'temp_a',
+            variants: const ['A'],
+          ),
+          _entity(
+            'Temperature',
+            platform: 'sensor',
+            stateCharacteristic: _stateChar,
+            hasFormat: true,
+            valueField: 'temp_b',
+            variants: const ['B'],
+          ),
+        ],
+      );
+      final services = [
+        _discovered(charUuid: _stateChar, canRead: true, canWrite: false),
+      ];
+      expect(
+        resolveSensorReads(
+          spec: spec,
+          services: services,
+          matchedVariants: const ['B'],
+        ).single.entity!.valueField,
+        'temp_b',
+      );
+      expect(
+        resolveSensorReads(
+          spec: spec,
+          services: services,
+        ).single.entity!.valueField,
+        'temp_a',
+        reason: 'no narrowing keeps the shipped first-wins behaviour',
       );
     });
 

@@ -121,8 +121,27 @@ String specKeyFor(DeviceSpecDto spec) =>
 /// [specKeyFor] for a caller that has the two fields but not a whole spec —
 /// a catalogue entry, or a key being rebuilt from a saved record. One
 /// definition of the key, two ways in.
+///
+/// The format is lossy for a deviceName containing `|`: [parseSpecKey]
+/// splits on the first one, so such a name cannot round-trip (a
+/// manufacturer containing `|` can).
 String specKeyOf(String deviceName, String manufacturer) =>
     '$deviceName|$manufacturer';
+
+/// The inverse of [specKeyOf], or null for a null key or one with no `|`.
+///
+/// One definition, because the readers each split by hand and demanded
+/// exactly two parts: a manufacturer containing `|` was written fine and
+/// then silently resolved no controls on every read.
+({String deviceName, String manufacturer})? parseSpecKey(String? key) {
+  if (key == null) return null;
+  final bar = key.indexOf('|');
+  if (bar < 0) return null;
+  return (
+    deviceName: key.substring(0, bar),
+    manufacturer: key.substring(bar + 1),
+  );
+}
 
 /// The parsed catalogue indexed by [specKeyFor], for resolving stored keys
 /// back to (spec, yaml) pairs.

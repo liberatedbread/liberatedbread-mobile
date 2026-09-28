@@ -7,6 +7,7 @@
 import '../models/ha_sensor.dart';
 import '../services/spec_codec.dart';
 import 'decoded_number.dart';
+import 'unit_display.dart';
 import 'value_format.dart';
 
 /// Stable Home Assistant `unique_id` for one decoded field of one
@@ -42,32 +43,21 @@ const Map<String, Set<String>> _deviceClassUnits = {
   'signal_strength': {'dB', 'dBm'},
 };
 
-/// Spellings of a unit that mean the same thing to Home Assistant.
+/// Spellings HA needs beyond the display ones.
 ///
 /// Specs write temperature units as `C`, `°C` and `degC` across the
-/// catalogue; HA only knows the middle one. Normalising here rather than
-/// asking every spec author to agree keeps the catalogue tolerant and the
-/// registration valid.
-const Map<String, String> _unitAliases = {
-  'c': '°C',
-  'degc': '°C',
-  '°c': '°C',
-  'f': '°F',
-  'degf': '°F',
-  '°f': '°F',
-  'k': 'K',
-  'lux': 'lx',
-  'percent': '%',
-  'pct': '%',
-};
+/// catalogue; HA only knows the middle one. The shared spellings live in
+/// [displayUnit]'s table so the card and the HA registration cannot drift
+/// apart; only what a reader should see verbatim but HA must not stays here
+/// (`k` is not unambiguous enough to rewrite on a card).
+const Map<String, String> _haOnlyAliases = {'k': 'K'};
 
 /// [unit] in the spelling Home Assistant expects, or null when the spec gave
 /// none.
 String? normalizeHaUnit(String? unit) {
-  if (unit == null) return null;
-  final trimmed = unit.trim();
-  if (trimmed.isEmpty) return null;
-  return _unitAliases[trimmed.toLowerCase()] ?? trimmed;
+  final shown = displayUnit(unit);
+  if (shown == null) return null;
+  return _haOnlyAliases[shown.toLowerCase()] ?? shown;
 }
 
 /// Units that are safe to assume when a spec names none.

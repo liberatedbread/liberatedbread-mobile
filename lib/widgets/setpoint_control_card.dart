@@ -140,6 +140,9 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
         serviceUuid: write.serviceUuid,
         charUuid: write.characteristicUuid,
         bytes: write.bytes.toList(),
+        // And this card's own reading, which listens under its state
+        // service: without it the headline kept its pre-write value.
+        stateServiceUuid: widget.stateServiceUuid,
       );
       if (!mounted) return;
       setState(() {
@@ -198,6 +201,9 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
             .read(specCodecProvider)
             .encodeCommand(
               specYaml: widget.specYaml,
+              // Scoped to the write's service: a twin UUID under another
+              // service must not lend this send its command table.
+              serviceUuid: action.serviceUuid,
               charUuid: action.characteristicUuid,
               commandName: commandName,
               params: const {},

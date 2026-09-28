@@ -171,9 +171,10 @@ class CodeplugDecoder {
 
 /// Turns channels into an image, dispatching on the radio's family.
 ///
-/// The same calls the two real drivers make, in one place, so a third
-/// caller -- the demo programmer -- encodes exactly what a radio would be
-/// sent rather than a copy that drifts. A class for the reason
+/// The one encode path: both real drivers and the demo programmer call it,
+/// so the slot numbering and the family dispatch live here alone and the
+/// demo encodes exactly what a radio would be sent rather than a copy that
+/// drifts. A class for the reason
 /// [CodeplugDecoder] is one: the codecs are native, and a test that must not
 /// cross into them swaps in a subclass.
 class CodeplugEncoder {

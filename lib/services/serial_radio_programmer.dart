@@ -60,7 +60,15 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
   final SerialPortService _ports;
   final SerialTiming timing;
 
-  SerialRadioProgrammer(this._ports, {this.timing = const SerialTiming()});
+  /// The one encode path the demo programmer shares, so what the demo
+  /// shows is what this radio would be sent, not a copy that drifts.
+  final CodeplugEncoder encoder;
+
+  SerialRadioProgrammer(
+    this._ports, {
+    this.timing = const SerialTiming(),
+    this.encoder = const CodeplugEncoder(),
+  });
 
   @override
   bool supports(RadioProfile profile) =>
@@ -131,14 +139,7 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
     required List<RadioChannel> channels,
   }) async* {
     if (!supports(profile)) throw const RadioUnsupportedException();
-    final updated = await rust.uv5REncodeChannels(
-      image: base.image,
-      channels: [
-        for (var i = 0; i < channels.length; i++)
-          channelToDto(channels[i], slot: i + 1),
-      ],
-      modelId: profile.id,
-    );
+    final updated = await encoder.encode(base, profile, channels);
     yield* writeImage(
       deviceId: deviceId,
       profile: profile,

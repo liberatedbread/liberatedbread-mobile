@@ -78,28 +78,35 @@ void main() {
             'exist there.'
       : null;
 
-  /// Why this suite refuses a physical iPhone unless told otherwise.
+  /// Why this suite refuses an operator's phone unless told otherwise.
   ///
   /// The fresh-install case below drives SecureSettingsStore.reconcileInstall,
   /// whose sweep is `deleteAll` with NO accessibility constraint: every
-  /// keychain item under this bundle id. The Simulator's keychain is
-  /// disposable. A phone's is not — the keychain outlives the app (F-008), so
-  /// on the phone its operator has used the shipping app on, "every item
-  /// under ca.pigscanfly.liberatedbread" is their credentials, and the Terms
-  /// gate is re-raised on top. `run-ios-device-tests.sh --all` used to run
-  /// this on the paired phone with no warning. The runner now opts in with
-  /// --allow-keychain-wipe, which sets LB_KEYCHAIN_WIPE_OK; Android keeps
-  /// running it as before (an emulator or a debug-keystore app, not a
-  /// keychain that outlives the install).
+  /// secure-storage item under this app id. A Simulator's or emulator's store
+  /// is disposable. A phone's is not: on the phone its operator has used the
+  /// shipping app on, that is their credentials and TLS pins, and the Terms
+  /// gate is re-raised on top.
+  ///
+  /// iPhone: the keychain outlives the app (F-008), and the Simulator is told
+  /// apart at runtime by SIMULATOR_DEVICE_NAME. Android: the device runner
+  /// installs its test APK over the operator's own debug install (one
+  /// applicationId, one debug key), so the wipe reaches their data too; that
+  /// runner defines LB_PHYSICAL_PHONE, which the CI emulator and Test Lab
+  /// lanes do not. Both runners opt in with --allow-keychain-wipe, which sets
+  /// LB_KEYCHAIN_WIPE_OK. `run-android-device-tests.sh --all` used to run
+  /// this on the phone with no warning.
+  final physicalIphone =
+      Platform.isIOS && Platform.environment['SIMULATOR_DEVICE_NAME'] == null;
+  final physicalAndroid =
+      Platform.isAndroid && const bool.fromEnvironment('LB_PHYSICAL_PHONE');
   final onAPhone =
-      !Platform.isIOS ||
-          Platform.environment['SIMULATOR_DEVICE_NAME'] != null ||
+      !(physicalIphone || physicalAndroid) ||
           const bool.fromEnvironment('LB_KEYCHAIN_WIPE_OK')
       ? null
-      : 'refusing a physical iPhone: the fresh-install case wipes every '
-            'keychain item under this bundle id — the shipping app\'s '
-            'credentials, which outlive the app. Run the device runner with '
-            '--allow-keychain-wipe on a phone whose credentials are disposable.';
+      : 'refusing a physical phone: the fresh-install case wipes every '
+            'secure-storage item under this app id — the installed app\'s '
+            'credentials. Run the device runner with --allow-keychain-wipe on '
+            'a phone whose credentials are disposable.';
 
   /// Why the desktop Linux (and Windows) targets skip it too.
   ///

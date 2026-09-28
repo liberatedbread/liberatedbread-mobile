@@ -16,6 +16,7 @@ import '../models/network_device.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/three_d_printer_icon.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/device_spec_match_provider.dart' show specKeyOf;
 import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/network_scan_provider.dart';
@@ -471,9 +472,11 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               // identity and category ride along — they are what the TVs
               // auto-group buckets by.
               final category = guess?.category?.wireName;
+              // specKeyOf, not a hand-built key: the readers parse it back
+              // with its inverse, and a copy of the format here drifts.
               final specKey = guess == null
                   ? null
-                  : '${guess.deviceName}|${guess.manufacturer}';
+                  : specKeyOf(guess.deviceName, guess.manufacturer);
               // then(_, onError:) rather than a bare unawaited: the saved
               // record is a convenience — the controls open either way — but
               // the write is SharedPreferences, which throws on a full or

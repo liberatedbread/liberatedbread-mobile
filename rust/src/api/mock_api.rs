@@ -5,7 +5,6 @@
 //! Used by the Flutter mock BLE service when running in demo mode.
 
 use crate::mock::simulator::MockDeviceState;
-use crate::spec::parser::parse_device_spec;
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 
@@ -53,8 +52,11 @@ pub fn mock_read_characteristic(
     // parsed while holding it, and the lock is process-wide: a demo device
     // whose spec is large (the catalogue's biggest is 123 KB) blocked every
     // other mock read for the length of a full YAML parse, once per read,
-    // with a screenful of sensor tiles all reading at once.
-    let format = match parse_device_spec(&spec_yaml) {
+    // with a screenful of sensor tiles all reading at once. It goes through
+    // the shared spec cache, so a polling tile no longer pays a full YAML
+    // parse on every read; a broken spec is never cached and still reaches
+    // the warn-once path below.
+    let format = match crate::protocol::dispatch::parse_or_cached(&spec_yaml) {
         Ok(spec) => spec
             .find_decodable_characteristic(&char_uuid)
             .and_then(|(_, characteristic)| characteristic.format.clone()),

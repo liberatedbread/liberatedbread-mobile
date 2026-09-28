@@ -1578,16 +1578,36 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       await _sender.sendAction(action, {
         for (final param in action.instanceParams) param.param: child.id,
       }, description: _description);
-      await _refreshState();
+      // Its own catch, as in [_send]: by here the strip HAS taken the
+      // toggle. Sharing the catch below reported a timed-out re-read as
+      // "did not accept that. Try again." — wrong, and a retry would send
+      // the toggle a second time.
+      try {
+        await _refreshState();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          if (e is ControlRefusedException) _controlRefused = true;
+          _error = friendlyErrorText(
+            e,
+            context: 'device control read-back',
+            fallback:
+                'The outlet took that, but the app could not read back what '
+                'it did — the values here may be out of date.',
+          );
+        });
+      }
     } catch (e) {
       if (!mounted) return;
-      setState(
-        () => _error = friendlyErrorText(
+      setState(() {
+        // As in [_send]: a refusal is a device setting the screen explains.
+        if (e is ControlRefusedException) _controlRefused = true;
+        _error = friendlyErrorText(
           e,
           context: 'device control',
           fallback: 'The outlet did not accept that. Try again.',
-        ),
-      );
+        );
+      });
     } finally {
       if (mounted) setState(() => _sending.remove(key));
     }
@@ -2802,10 +2822,33 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   /// A number rendered the way it will be sent: whole when it is whole, one
-  /// decimal otherwise (the finest step the specs declare).
-  static String _trimNumber(double value) => value == value.roundToDouble()
+  /// decimal otherwise (the finest step the specs declare). Non-finite
+  /// values print as themselves: Rust's f64 parse takes "inf" and "NaN", so
+  /// a device can report either, and `round()` threw on Infinity mid-build —
+  /// the whole screen became an error page over one odd reading.
+  static String _trimNumber(double value) => !value.isFinite
+      ? value.toString()
+      : value == value.roundToDouble()
       ? value.round().toString()
       : value.toStringAsFixed(1);
+
+  /// [value] without loss: whole numbers without a ".0", anything else as
+  /// Dart's shortest round-trip text. For a value a person typed or will
+  /// send unedited — [_trimNumber] is for slider positions, which are noisy
+  /// doubles, and pre-filling the entry dialog with a rounded reading made
+  /// a no-edit Send move a 21.25 setpoint to 21.3 (or, rounded to whole
+  /// numbers as it once was, 21.5 to 22).
+  ///
+  /// Dart's toString is already the SHORTEST text that parses back to the
+  /// same double: a reading computed as 0.1 * 213 prints '21.3'. A longer
+  /// tail such as '21.299999999999997' means the device's value really is
+  /// that double, and anything shorter would send a different number on a
+  /// no-edit Send. Non-finite values print as themselves rather than throw
+  /// from `round()`; nothing sends one ([_editNumber] refuses them).
+  static String _exactNumber(double value) =>
+      value.isFinite && value == value.roundToDouble()
+      ? value.round().toString()
+      : value.toString();
 
   /// Slider detents from the declared step, capped so a wide range with a
   /// tiny step does not build thousands of divisions.
@@ -2825,26 +2868,37 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       context: context,
       builder: (context) => _NumberEntryDialog(
         title: 'Set ${entity.name}',
-        initial: _readings[entity.name]?.number?.toStringAsFixed(0) ?? '',
+        initial: switch (_readings[entity.name]?.number) {
+          // Finite only: an "Infinity" pre-fill is a value the dialog would
+          // then refuse, so offer an empty field instead.
+          final double n when n.isFinite => _exactNumber(n),
+          _ => '',
+        },
         unit: displayUnit(entity.unit),
+        // Unrounded too: a 0.5-1.5 range read "Between 1 and 2", and the 2
+        // it invited was then refused.
         helperText: switch ((min, max)) {
           (final double lo, final double hi) =>
-            'Between ${lo.toStringAsFixed(0)} and ${hi.toStringAsFixed(0)}',
-          (final double lo, null) => 'At least ${lo.toStringAsFixed(0)}',
+            'Between ${_exactNumber(lo)} and ${_exactNumber(hi)}',
+          (final double lo, null) => 'At least ${_exactNumber(lo)}',
           _ => null,
         },
       ),
     );
     if (entered == null || entered.isEmpty || !mounted) return;
     final value = double.tryParse(entered);
+    // Not finite is refused too: "Infinity" and "NaN" parse, NaN slips past
+    // every bound comparison, and neither is a value any device accepts.
     if (value == null ||
+        !value.isFinite ||
         (min != null && value < min) ||
         (max != null && value > max)) {
       setState(() => _error = 'That is not a value the device accepts.');
       return;
     }
-    // As the slider path sends it: 21.5 stays 21.5, not '22'.
-    await _send(entity, action, value: _trimNumber(value));
+    // What was typed, unrounded: 21.5 stays 21.5, not '22', and 21.25 stays
+    // 21.25 rather than the slider's one-decimal '21.3'.
+    await _send(entity, action, value: _exactNumber(value));
   }
 
   /// A cover — the garage-door shape: three motion buttons that are always
@@ -2866,6 +2920,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final positionValue = reading?.number;
+    // Where the finger is during a drag, as the number and fan sliders keep
+    // it. The slider drew only the live reading with a no-op onChanged, so
+    // the thumb sat still while dragged and a garage door was sent to a
+    // position the user never saw. The next decode clears it.
+    final pendingPosition = _pendingSetpoints[entity.name];
     final positionMin = position?.min ?? 0;
     final positionMax = position?.max ?? 1;
 
@@ -2927,10 +2986,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               // and this one drives a garage door.
               semanticFormatterCallback: (v) =>
                   '${entity.name} position ${_trimNumber(v)}',
-              value: positionValue.clamp(positionMin, positionMax),
+              value: (pendingPosition ?? positionValue).clamp(
+                positionMin,
+                positionMax,
+              ),
               min: positionMin,
               max: positionMax,
-              onChanged: (busy || _lockedFor(position)) ? null : (_) {},
+              onChanged: (busy || _lockedFor(position))
+                  ? null
+                  : (value) =>
+                        setState(() => _pendingSetpoints[entity.name] = value),
               onChangeEnd: (busy || _lockedFor(position))
                   ? null
                   : (value) => unawaited(

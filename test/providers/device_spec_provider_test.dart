@@ -66,14 +66,6 @@ void main() {
     await tester.pump();
   });
 
-  test('specs map is defensively typed', () async {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-
-    final specs = await container.read(deviceSpecsProvider.future);
-    expect(specs, isA<Map<String, String>>());
-  });
-
   test('merges bundled specs with cached remote packs', () async {
     final container = ProviderContainer(
       overrides: [

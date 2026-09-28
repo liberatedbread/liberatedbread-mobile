@@ -1,7 +1,5 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -41,36 +39,19 @@ class DeviceSetupHelp {
 final deviceSetupHelpProvider = FutureProvider.autoDispose
     .family<DeviceSetupHelp?, ScanIdentity>((ref, identity) async {
       final codec = ref.watch(specCodecProvider);
-      final catalogue = await ref.watch(specCatalogueProvider.future);
-      final identities = await ref.watch(specIdentitiesProvider.future);
-      if (identities.isEmpty) return null;
-
-      final List<ScanMatch> matches;
-      try {
-        matches = await catalogue.matchScanned(
-          ScannedDeviceDto(
-            name: identity.name,
-            serviceUuids: identity.serviceUuids,
-            companyIds: Uint16List.fromList(identity.companyIds),
-            manufacturerData: manufacturerRecordsOf(identity.manufacturerData),
-            macAddress: identity.macAddress,
-          ),
-        );
-      } catch (e) {
-        Log.spec.warning(
-          'setup-help matching failed for "${identity.name}"',
-          error: e,
-        );
-        return null;
-      }
-
+      // Everything watched before the first await.
+      final catalogueFuture = ref.watch(specCatalogueProvider.future);
+      // The scan row's own guess, not a second copy of its matcher call: the
+      // copy had to be kept in step by hand (manufacturerData already had to
+      // be added to both), and a field reaching only one would have the help
+      // screen match on different evidence than the row whose name it shows.
+      // [ScanGuess] also collapses a pack's copy of a bundled spec onto the
+      // pack copy, so the steps shown are the ones the pack exists to correct.
+      final guessFuture = ref.watch(scanGuessProvider(identity).future);
+      final catalogue = await catalogueFuture;
+      final guess = await guessFuture;
       // Only offer help when the match names a product; a bare OUI tie could
-      // point the reset steps at the wrong device. Through [ScanGuess] with
-      // the identities, as the scan row is: it collapses a pack's copy of a
-      // bundled spec onto the pack copy, and reading `matches.first` instead
-      // showed the BUNDLED copy's setup steps under the row the pack copy
-      // named — the stale instructions the pack exists to correct.
-      final guess = ScanGuess.fromMatches(matches, identities: identities);
+      // point the reset steps at the wrong device.
       if (guess == null || !guess.namesAProduct) return null;
 
       // `specIndex` is the position in the identities list, which is the

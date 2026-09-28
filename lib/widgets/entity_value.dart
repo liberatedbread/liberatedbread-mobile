@@ -11,6 +11,7 @@ import '../core/hex.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import 'decoded_value_widget.dart' show serviceWritesProvider, serviceWriteKey;
 
 // The model half (EntityLiveValue and its status enum) lives in core so
 // non-widget consumers share the same value-picking rules; re-exported here
@@ -73,6 +74,11 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
   int _arrivalSeq = 0;
   int _appliedSeq = 0;
 
+  /// Whether discovery says the state characteristic can be read: null
+  /// until [_seed] asks, or when it could not. Gates the after-write
+  /// re-read, which a notify-only characteristic would only fail.
+  bool? _stateReadable;
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +122,7 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
     final generation = ++_generation;
     _arrivalSeq = 0;
     _appliedSeq = 0;
+    _stateReadable = null;
     final stateChar = widget.entity.stateCharacteristic;
     if (stateChar == null || !widget.entity.hasFormat) {
       _value = EntityLiveValue(
@@ -157,6 +164,7 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
           .expand((s) => s.characteristics)
           .where((c) => normalizeUuid(c.uuid) == target)
           .firstOrNull;
+      if (generation == _generation) _stateReadable = char?.canRead;
       if (widget.entity.canNotify &&
           char != null &&
           !char.canRead &&
@@ -176,7 +184,14 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
     super.dispose();
   }
 
-  Future<void> _read(String stateChar, int generation) async {
+  /// [afterWrite] marks the re-read a command in this service triggers: its
+  /// failure keeps a reading already on screen instead of turning a good
+  /// card into an error over one missed read.
+  Future<void> _read(
+    String stateChar,
+    int generation, {
+    bool afterWrite = false,
+  }) async {
     // What had arrived when the read went out: a failure is not news once
     // something newer than that has been applied.
     final issuedAt = _arrivalSeq;
@@ -190,6 +205,7 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
       if (!mounted || generation != _generation) return;
       // A late failure must not mark a newer live reading as an error.
       if (_appliedSeq > issuedAt) return;
+      if (afterWrite && _value.decoded.isNotEmpty) return;
       setState(() {
         _value = EntityLiveValue(
           entity: widget.entity,
@@ -277,5 +293,24 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.builder(context, _value);
+  Widget build(BuildContext context) {
+    // Re-read once a command in this service lands. The cards write through
+    // [writeServiceCommand], which bumps this; only the GATT browser's
+    // reader listened, so a card's own headline (Gerbing's Heat Level:
+    // read+write, no notify) kept its first read after the user set a new
+    // value. Skipped for a characteristic discovery says cannot be read —
+    // a notify-only one hears about the change from the device itself.
+    ref.listen(
+      serviceWritesProvider(
+        serviceWriteKey(widget.deviceId, widget.serviceUuid),
+      ),
+      (_, _) {
+        final stateChar = widget.entity.stateCharacteristic;
+        if (stateChar == null || !widget.entity.hasFormat) return;
+        if (_stateReadable == false) return;
+        unawaited(_read(stateChar, _generation, afterWrite: true));
+      },
+    );
+    return widget.builder(context, _value);
+  }
 }

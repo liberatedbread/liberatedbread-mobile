@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/device_category.dart';
 import '../core/hex.dart';
+import '../core/hue_bridge_id.dart';
 import '../services/spec_choice_store.dart';
 import '../services/saved_designs_store.dart';
 import '../services/panel_resolution_cache.dart';
 import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
+import '../services/hub_credential_store.dart';
 import '../services/saved_device_store.dart';
 import '../services/saved_network_device_store.dart';
 import '../services/device_credential_store.dart';
@@ -179,6 +181,8 @@ Future<void> forgetNetworkDevice({
   RabbitAirKeyStore? rabbitAir,
   String? blid,
   String? hostname,
+  HubCredentialStore? hub,
+  String? bridgeId,
   SpecChoiceStore? specChoices,
   SavedDesignsStore? savedDesigns,
   PanelResolutionCache? panelResolutions,
@@ -208,20 +212,30 @@ Future<void> forgetNetworkDevice({
   // under, captured at write time exactly so this path stops re-deriving it
   // from the saved record's possibly-lagging view of the mac (a record
   // saved from an SSDP-only sighting, controlled from a mac-bearing scan,
-  // left a mac-keyed pin nothing could erase). Both derived forms still
-  // clear alongside it — records predate the field, and forgetting is
-  // idempotent: this is the recovery path the user reached by pressing
-  // Remove, where over-forgetting costs at most the re-pair they were
-  // asking for and under-forgetting leaves a pin nothing can erase.
-  final identities = <String>{
+  // left a mac-keyed pin nothing could erase). A mac-derived form clears
+  // alongside it — a mac names this device and nothing else, so over-
+  // forgetting there costs at most the re-pair the user asked for.
+  //
+  // The HOST-derived form is only for legacy records, which predate the
+  // recorded identities and so cannot say what they wrote under. For any
+  // other record the cached address is just the last lease: DHCP may have
+  // handed it to another device since, and clearing `host:<ip>` then
+  // wiped THAT device's pin and credentials — a stranger's television
+  // asking to be paired again because this one was removed. A record that
+  // really wrote under its host recorded that identity, so the sweep
+  // below still reaches it.
+  final recorded = <String>{
     if (recordedIdentity != null && recordedIdentity.isNotEmpty)
       recordedIdentity,
     // Every identity the record accumulated over its life — the key it is
     // currently under plus any it was re-keyed away from (a host-only device
     // that changed DHCP host), so material left under an old key is cleared too.
     ...recordedIdentities.where((i) => i.isNotEmpty),
-    identityFor(mac: deviceMac, host: host),
-    identityFor(host: host),
+  };
+  final identities = <String>{
+    ...recorded,
+    if (deviceMac != null && deviceMac.isNotEmpty) identityFor(mac: deviceMac),
+    if (recorded.isEmpty) identityFor(host: host),
   };
   for (final identity in identities) {
     await trust.forget(identity, host: host);
@@ -232,11 +246,12 @@ Future<void> forgetNetworkDevice({
     // see to correct.
     await credentials.forget(identity);
   }
-  // The two bespoke stores sit OUTSIDE that sweep on purpose — they key by a
+  // The three bespoke stores sit OUTSIDE that sweep on purpose — they key by a
   // device-issued id, not by the identity above (device_credential_store.dart
   // says so) — which is exactly how Remove came to leave a Roomba's local
   // password and a Rabbit Air's AES user key in the keychain while the
-  // SnackBar said "Removed". Both are long-lived LAN secrets with no other
+  // SnackBar said "Removed" (and a Hue bridge's whitelist username and
+  // certificate pin, below). All are long-lived LAN secrets with no other
   // way out: re-saving the device silently reused them, and a purifier that
   // was factory-reset (which mints a new key) had no path to drop the stale
   // one. The stores are optional only because the caller resolves them from
@@ -272,6 +287,14 @@ Future<void> forgetNetworkDevice({
       await rabbitAir.forget(scope);
     }
   }
+  // A Hue bridge's pairing lives in HubCredentialStore under its bridgeid
+  // (`txt['bridgeid']`): the whitelist username, the Entertainment client
+  // key, the cert pin and the scheme. Left behind, re-adding the bridge
+  // silently reused the stale credential, and a pin from before a factory
+  // reset kept refusing the bridge — with the hub screen's own menu the
+  // only way out while Remove had said "Removed".
+  final hueBridgeId = advertisedHueBridgeId(bridgeId);
+  if (hueBridgeId != null) await hub?.forget(hueBridgeId);
 }
 
 /// How a network device's id is spelled inside [DeviceGroup.deviceIds].
@@ -475,14 +498,14 @@ final groupMembersProvider = FutureProvider.autoDispose
         final device = savedNetworkById[networkDeviceIdOf(id)];
         if (device == null || !isGroupable(device.category)) continue;
         networkIds.add(id);
-        final parts = device.specKey?.split('|');
+        final parts = parseSpecKey(device.specKey);
         controlsFutures.add(
-          parts != null && parts.length == 2
+          parts != null
               ? ref.watch(
                   networkControlsProvider(
                     NetworkControlRequest(
-                      deviceName: parts[0],
-                      manufacturer: parts[1],
+                      deviceName: parts.deviceName,
+                      manufacturer: parts.manufacturer,
                       ssdpTargets: device.ssdpTargets,
                     ),
                   ).future,

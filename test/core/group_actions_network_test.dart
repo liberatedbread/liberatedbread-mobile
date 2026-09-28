@@ -15,6 +15,8 @@ NetworkActionDto _action(
   String role, {
   String transport = 'http',
   List<String> userParams = const [],
+  double? min = 0,
+  double? max = 100,
 }) => NetworkActionDto(
   role: role,
   commandName: 'cmd_$role',
@@ -23,8 +25,8 @@ NetworkActionDto _action(
   readBack: const [],
   credentials: const [],
   instanceParams: const [],
-  min: 0,
-  max: 100,
+  min: min,
+  max: max,
 );
 
 NetworkEntityDto _entity({
@@ -209,5 +211,30 @@ void main() {
       brightnessPercent: 50,
     );
     expect(plan.direct.single.values, {'brightness': '50'});
+  });
+
+  // The group path used to default a missing max to 100 while the device
+  // screen's card defaulted to 255, so a group 50% sent 50 and landed a
+  // 0..255 device at about 20%.
+  test('a brightness with no declared bounds spans the card\'s 0..255', () {
+    final plan = resolveNetworkGroupPlan(
+      op: GroupOp.setBrightness,
+      entities: [
+        _entity(
+          platform: 'light',
+          actions: [
+            _action(
+              'set_brightness',
+              userParams: const ['brightness'],
+              min: null,
+              max: null,
+            ),
+          ],
+        ),
+      ],
+      brightnessPercent: 50,
+    );
+    expect(plan.direct.single.values, {'brightness': '128'});
+    expect(brightnessFromPercent(null, null, 50), 128);
   });
 }

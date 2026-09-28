@@ -559,6 +559,17 @@ fn resolve_param(
     crate::protocol::resolve_parameter(command, command_name, param, values)
 }
 
+/// The `http_endpoints` entry named `name`, unless it is marked `sunset`.
+///
+/// The one lookup every transport reading `http_endpoints` goes through, so
+/// the sunset rule has one answer: `status` is a property of the entry, not of
+/// HTTP. SOAP kept its own copy of the name lookup without the rule, so a
+/// sunset SOAP endpoint still rendered where the HTTP one was dropped.
+pub fn live_endpoint<'a>(spec: &'a DeviceSpec, name: &str) -> Option<&'a serde_yaml::Value> {
+    spec.http_endpoint(name)
+        .filter(|e| e.get("status").and_then(|s| s.as_str()) != Some("sunset"))
+}
+
 /// The request an `http_endpoints` entry describes: its method and path.
 ///
 /// The join `options_source`/`state_source` make by `command` name. Returns
@@ -566,16 +577,7 @@ fn resolve_param(
 /// `sunset` — a query source pointing at a removed endpoint is a list that
 /// can never load, and resolving it would put that dead list on screen.
 pub fn endpoint_request(spec: &DeviceSpec, name: &str) -> Option<(String, String)> {
-    let endpoint = spec
-        .extensions
-        .get("http_endpoints")?
-        .as_sequence()?
-        .iter()
-        .find(|entry| entry.get("name").and_then(|n| n.as_str()) == Some(name))?
-        .clone();
-    if endpoint.get("status").and_then(|s| s.as_str()) == Some("sunset") {
-        return None;
-    }
+    let endpoint = live_endpoint(spec, name)?;
     let method = endpoint.get("method")?.as_str()?;
     let path = endpoint.get("path")?.as_str()?;
     Some((method.to_string(), path.to_string()))
@@ -619,14 +621,25 @@ pub fn spec_wide_default(spec: &DeviceSpec, param: &str) -> Option<String> {
 /// — and a stored credential is filed under the CREDENTIAL's name, so without
 /// this the read fails on a value the app is holding.
 ///
-/// Sound for the same reason and pinned by the same guard: a parameter name
-/// means one thing within a spec.
+/// Sound only while the name means one thing within the spec, so, like
+/// [`spec_wide_default`], it answers only then: every command that declares a
+/// `source:` for the name must declare the SAME one. Taking the first
+/// `credential:` found put whichever stored secret the first command named
+/// into the URL, and a name sourced from state in one command and from a
+/// credential in another still answered with the credential. On any
+/// disagreement the placeholder is reported missing instead.
 pub fn spec_wide_credential<'a>(spec: &'a DeviceSpec, param: &str) -> Option<&'a str> {
-    spec.commands
+    let mut declared = spec
+        .commands
         .values()
         .filter_map(|command| command.parameters.get(param))
-        .filter_map(|p| p.source.as_deref())
-        .find_map(|source| source.strip_prefix("credential:"))
+        .filter_map(|p| p.source.as_deref());
+    let first = declared.next()?;
+    if !declared.all(|other| other == first) {
+        return None;
+    }
+    first
+        .strip_prefix("credential:")
         .filter(|name| !name.is_empty())
 }
 
@@ -1954,6 +1967,53 @@ commands:
         assert_eq!(
             render_request(&spec, "two", &values(&[])).unwrap().path,
             "/b/2"
+        );
+    }
+
+    /// `spec_wide_credential` took the FIRST `credential:` source by command
+    /// order, so a name sourced from two stored secrets filled a bare path
+    /// with whichever the first command named — the wrong secret in a URL —
+    /// and a state source beside a credential one was skipped, not a conflict.
+    #[test]
+    fn a_name_sourced_two_ways_is_not_guessed_into_a_path() {
+        let spec = parse_device_spec(
+            r#"
+device:
+  name: "Two Sources"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "tv"
+commands:
+  one:
+    transport: "http"
+    method: "POST"
+    path: "/a/{id}"
+    parameters:
+      id: { type: "string", source: "credential:appliance_id" }
+      mixed: { type: "string", source: "state:mixed" }
+      same: { type: "string", source: "credential:token" }
+  two:
+    transport: "http"
+    method: "POST"
+    path: "/b/{id}"
+    parameters:
+      id: { type: "string", source: "credential:serial" }
+      mixed: { type: "string", source: "credential:mixed_secret" }
+      same: { type: "string", source: "credential:token" }
+"#,
+        )
+        .expect("fixture parses");
+        assert_eq!(spec_wide_credential(&spec, "id"), None);
+        assert_eq!(spec_wide_credential(&spec, "mixed"), None);
+        // Agreement is still an answer.
+        assert_eq!(spec_wide_credential(&spec, "same"), Some("token"));
+        let stored = values(&[("appliance_id", "A1"), ("serial", "S9")]);
+        let err = fill_path(&spec, "/state/{id}", &stored, "/state/{id}")
+            .expect_err("a conflicting source must not pick a secret");
+        assert!(
+            matches!(&err, ProtocolError::ParameterMissing(n) if n == "/state/{id}.id"),
+            "unexpected error: {err}"
         );
     }
 
