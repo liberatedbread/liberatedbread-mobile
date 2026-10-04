@@ -811,7 +811,7 @@ jobs:
             build-tools;${{ env.ANDROID_BUILD_TOOLS }}
             cmake;${{ env.ANDROID_CMAKE }}
             ndk;${{ env.FLUTTER_NDK_VERSION }}
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
       - name: Write android/local.properties
         run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
@@ -978,7 +978,7 @@ jobs:
       # above), setup-gradle touches only GRADLE_USER_HOME: it does not install
       # or replace platform-tools, so it cannot disturb the adb/emulator setup
       # that made setup-android unusable in this job.
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
       # Warm up the native build BEFORE the emulator step.
       #
       # This step — not the --timeout flag further down — is what fixes the
