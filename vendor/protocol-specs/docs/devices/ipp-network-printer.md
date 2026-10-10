@@ -18,8 +18,10 @@ no vendor software.
 
 ## Status over IPP
 
-`POST http://<ip>:631/<rp>` with `Content-Type: application/ipp` (TLS on the
-same port for `_ipps._tcp`, self-signed — pin on first use). The body is an
+`POST http://<ip>:<port>/<rp>` with `Content-Type: application/ipp`, where
+`<port>` is the one the service advertises (631 by default) and `<rp>` the TXT
+`rp` key (an empty `rp` is `/`; no `rp` at all falls back to `ipp/print`). TLS
+on the same port for `_ipps._tcp`, self-signed — pin on first use. The body is an
 RFC 8010 Get-Printer-Attributes request (operation `0x000B`) asking for
 `printer-state`, `printer-state-reasons`, `printer-state-message`,
 `printer-make-and-model`, the `marker-*` supply attributes, `media-ready` and
