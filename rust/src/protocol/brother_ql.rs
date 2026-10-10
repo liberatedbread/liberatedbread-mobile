@@ -167,22 +167,18 @@ impl Default for JobOptions {
 /// 12 mm round die-cut (DK-11219), whose table entry says 35 (labels.py
 /// `d12`, feed_margin=35).
 pub fn spec_feed_margin_dots(spec: &DeviceSpec, media: Media) -> Option<u16> {
-    let table = image_feature(spec)?
-        .extensions
-        .get("media")?
-        .as_sequence()?;
-    let num =
-        |entry: &serde_yaml::Value, key: &str| entry.get(key).and_then(serde_yaml::Value::as_u64);
-    let entry = table.iter().find(|entry| {
-        num(entry, "media_type_code") == Some(u64::from(media.media_type.wire()))
-            && num(entry, "width_mm") == Some(u64::from(media.width_mm))
-            && num(entry, "length_mm").unwrap_or(0) == u64::from(media.length_mm)
+    // The typed table on the feature (`Feature::media`), read one entry at a
+    // time: an entry that does not parse — a malformed margin included — is
+    // dropped there, so it is no statement about this roll and the caller
+    // falls back rather than sending a truncated number.
+    let entry = image_feature(spec)?.media.iter().find(|entry| {
+        entry.media_type_code == Some(u32::from(media.media_type.wire()))
+            && entry.width_mm == f64::from(media.width_mm)
+            && entry.length_mm.unwrap_or(0.0) == f64::from(media.length_mm)
     })?;
-    match entry.get("feed_margin_dots") {
+    match entry.feed_margin_dots {
         None => Some(0),
-        // A malformed margin (not a u16) is no statement about this roll;
-        // fall back rather than send a truncated number.
-        Some(v) => v.as_u64().and_then(|n| u16::try_from(n).ok()),
+        Some(n) => u16::try_from(n).ok(),
     }
 }
 

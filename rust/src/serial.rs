@@ -308,13 +308,18 @@ mod tests {
         // The radio reads while we write, not after: [write] drains the
         // port, and on macOS tcdrain on a pseudo-terminal waits until the
         // far end has taken the bytes (a cable's driver drains on its own).
+        // The thread hands the radio end back rather than dropping it: a
+        // closed pty master makes the near end's drain fail with EIO, so if
+        // it closed the moment it had the bytes, a write still inside its
+        // flush would lose the race (seen under load on CI's coverage run).
         let radio = std::thread::spawn(move || {
             let mut got = [0u8; 4];
             radio.read_exact(&mut got).unwrap();
-            got
+            (radio, got)
         });
         write(port, &[0x53, 0x00, 0x40, 0x40]).unwrap();
-        assert_eq!(radio.join().unwrap(), [0x53, 0x00, 0x40, 0x40]);
+        let (_radio, got) = radio.join().unwrap();
+        assert_eq!(got, [0x53, 0x00, 0x40, 0x40]);
         close(port).unwrap();
     }
 

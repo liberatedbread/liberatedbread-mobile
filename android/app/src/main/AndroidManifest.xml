@@ -47,7 +47,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -61,9 +61,39 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- The VIEW filter below hands this activity content:// URIs.
+                 Flutter would otherwise push each one as a named route —
+                 which this app does not have, so it throws. Shared files
+                 arrive over the share_in channel instead. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- launchMode is singleTask because of these two filters: a
+                 share from another app arrives without NEW_TASK, and
+                 singleTop would start a second MainActivity (and a second
+                 Flutter engine, fighting the first over BLE) in the sender's
+                 task. singleTask routes it to the running one's onNewIntent.
+                 Printing: another app shares a photo or a PDF here ("Share →
+                 Liberated Bread"), or opens one with it, to print it on a
+                 label printer or through the system print dialog. The bytes
+                 are copied in MainActivity; nothing is read without the
+                 user choosing this app for it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+                <data android:mimeType="application/pdf"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="image/*"/>
+                <data android:mimeType="application/pdf"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
