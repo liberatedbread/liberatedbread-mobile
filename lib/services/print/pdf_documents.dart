@@ -70,6 +70,9 @@ Future<Uint8List> textDocumentPdf({
     pw.MultiPage(
       pageFormat: format,
       margin: const pw.EdgeInsets.all(40),
+      // MultiPage stops at 20 pages by default and throws past it; a full
+      // diagnostics log runs longer than that.
+      maxPages: 1000,
       build: (context) => [
         pw.Text(pdfSafe(title), style: pw.TextStyle(font: bold, fontSize: 18)),
         if (subtitle != null) ...[

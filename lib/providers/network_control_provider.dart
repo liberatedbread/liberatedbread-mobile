@@ -401,13 +401,17 @@ final networkControlsProvider = FutureProvider.autoDispose
         // surface rather than letting the empty-entity check drop it to the
         // details sheet. Only a raw-stream printer is admitted here: that is
         // the transport this network path can carry.
-        final rasterPrint = await codec.rasterPrintForSpec(specYaml: spec.yaml);
+        //
+        // An IPP printer binds no entities either: its surface is one
+        // Get-Printer-Attributes request the status screen makes itself.
+        // Both are asked of every device, so together rather than in turn.
+        final (rasterPrint, ippStatus) = await (
+          codec.rasterPrintForSpec(specYaml: spec.yaml),
+          codec.ippStatusSupported(specYaml: spec.yaml),
+        ).wait;
         final rasterPrintHandler = rasterPrint?.transport == 'raw_stream'
             ? rasterPrint!.handler
             : null;
-        // An IPP printer binds no entities either: its surface is one
-        // Get-Printer-Attributes request the status screen makes itself.
-        final ippStatus = await codec.ippStatusSupported(specYaml: spec.yaml);
         if (surface.entities.isEmpty &&
             rasterPrintHandler == null &&
             !ippStatus) {

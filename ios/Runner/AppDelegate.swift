@@ -82,7 +82,17 @@ final class ShareInHandler: NSObject, FlutterPlugin, FlutterSceneLifeCycleDelega
   private func read(_ url: URL) -> [String: Any]? {
     guard url.isFileURL else { return nil }
     let scoped = url.startAccessingSecurityScopedResource()
-    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    defer {
+      if scoped { url.stopAccessingSecurityScopedResource() }
+      removeInboxCopy(url)
+    }
+    // The size first: a large video "opened in" would otherwise be read
+    // whole into memory only to be refused.
+    if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+      size > ShareInHandler.maxBytes
+    {
+      return nil
+    }
     guard let data = try? Data(contentsOf: url), !data.isEmpty,
       data.count <= ShareInHandler.maxBytes
     else { return nil }
@@ -93,5 +103,21 @@ final class ShareInHandler: NSObject, FlutterPlugin, FlutterSceneLifeCycleDelega
       "mime": mime,
       "name": url.lastPathComponent,
     ]
+  }
+
+  /// iOS copies a file "opened in" this app into Documents/Inbox, and never
+  /// removes it: the bytes are in memory by now, so the copy goes. Only that
+  /// copy — a file opened in place elsewhere is the user's, not ours.
+  private func removeInboxCopy(_ url: URL) {
+    guard
+      let documents = FileManager.default.urls(
+        for: .documentDirectory, in: .userDomainMask
+      ).first
+    else { return }
+    let inbox = documents.appendingPathComponent("Inbox", isDirectory: true)
+      .standardizedFileURL.resolvingSymlinksInPath().path
+    let file = url.standardizedFileURL.resolvingSymlinksInPath().path
+    guard file.hasPrefix(inbox + "/") else { return }
+    try? FileManager.default.removeItem(atPath: file)
   }
 }

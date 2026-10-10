@@ -68,4 +68,23 @@ void main() {
     expect(file.bytes, [9]);
     expect(file.name, isNull);
   });
+
+  // Before the fix the handler went in when the home shell mounted, so a
+  // share while the terms screen was up reached no handler and was lost.
+  test('a share with nobody listening is held for the listener', () async {
+    final service = ShareInService();
+    addTearDown(service.dispose);
+    await messenger.handlePlatformMessage(
+      _channel.name,
+      _channel.codec.encodeMethodCall(
+        MethodCall('shared', {
+          'bytes': Uint8List.fromList([7]),
+        }),
+      ),
+      (_) {},
+    );
+    final held = service.takeWaiting();
+    expect(held!.bytes, [7]);
+    expect(service.takeWaiting(), isNull, reason: 'handed over once');
+  });
 }

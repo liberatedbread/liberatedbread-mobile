@@ -50,6 +50,7 @@ Future<void> runImageWritePlan(
   String deviceId,
   ImageWritePlanDto plan, {
   Duration subscribeSettle = const Duration(milliseconds: 250),
+  Duration pollReplyTimeout = const Duration(seconds: 5),
 }) async {
   final poll = plan.completionPoll;
   if (plan.replyWaits.isEmpty && poll == null) {
@@ -87,7 +88,21 @@ Future<void> runImageWritePlan(
     }
     for (var i = 0; i < plan.writes.length; i++) {
       if (poll != null && poll.beforeWrite == i) {
-        await _pollUntilDone(ble, deviceId, plan.serviceUuid, poll, replies);
+        await _pollUntilDone(
+          ble,
+          deviceId,
+          plan.serviceUuid,
+          poll,
+          replies,
+          // A refusal mid-page (lid open, out of labels) comes as the same
+          // error replies the plan's waits name; stop on it, not on the
+          // poll's overall deadline.
+          errors: {
+            for (final w in plan.replyWaits)
+              for (final e in w.errorPrefixes) e.join(','): e,
+          }.values.toList(),
+          replyTimeout: pollReplyTimeout,
+        );
       }
       final write = plan.writes[i];
       await ble.writeCharacteristic(
@@ -132,8 +147,10 @@ Future<void> _pollUntilDone(
   String deviceId,
   String serviceUuid,
   CompletionPollDto poll,
-  _ReplyBuffer replies,
-) async {
+  _ReplyBuffer replies, {
+  required List<List<int>> errors,
+  required Duration replyTimeout,
+}) async {
   final deadline = DateTime.now().add(Duration(milliseconds: poll.timeoutMs));
   while (true) {
     await ble.writeCharacteristic(
@@ -146,13 +163,21 @@ Future<void> _pollUntilDone(
     if (remaining <= Duration.zero) {
       throw TimeoutException('the device never reported done', remaining);
     }
-    final reply = await replies.take(
-      poll.replyPrefix,
-      // The whole field the verdict is read from, not just the prefix: a
-      // reply split across notifications must not be judged half-arrived.
-      minLength: poll.doneOffset + poll.doneBytes.length,
-      timeout: remaining,
-    );
+    final List<int> reply;
+    try {
+      reply = await replies.take(
+        poll.replyPrefix,
+        errors: errors,
+        // The whole field the verdict is read from, not just the prefix: a
+        // reply split across notifications must not be judged half-arrived.
+        minLength: poll.doneOffset + poll.doneBytes.length,
+        // One lost notification costs one re-ask, not the whole budget.
+        timeout: remaining < replyTimeout ? remaining : replyTimeout,
+      );
+    } on TimeoutException {
+      if (!DateTime.now().isBefore(deadline)) rethrow;
+      continue;
+    }
     if (_carries(reply, poll.doneOffset, poll.doneBytes)) return;
     await Future<void>.delayed(Duration(milliseconds: poll.intervalMs));
   }

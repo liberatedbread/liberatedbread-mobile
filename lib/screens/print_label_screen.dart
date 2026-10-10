@@ -77,6 +77,10 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
 
   Timer? _debounce;
 
+  /// An edit has scheduled a render that has not started: the preview on
+  /// screen is the label before that edit, so it must not be printed.
+  bool _renderPending = false;
+
   /// Bumped per render so a slow render cannot overwrite a newer one.
   int _renderEpoch = 0;
 
@@ -133,12 +137,16 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
   void _scheduleRender() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 150), _render);
+    if (mounted && !_renderPending) setState(() => _renderPending = true);
   }
 
   Future<void> _render() async {
     final epoch = ++_renderEpoch;
     final codec = ref.read(specCodecProvider);
-    setState(() => _rendering = true);
+    setState(() {
+      _rendering = true;
+      _renderPending = false;
+    });
     try {
       final photo = _photo;
       final isPhoto = _mode == _Mode.photo && photo != null;
@@ -186,7 +194,9 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
 
   Future<void> _print() async {
     final preview = _preview;
-    if (preview == null || !_hasContent) return;
+    if (preview == null || !_hasContent || _rendering || _renderPending) {
+      return;
+    }
     setState(() {
       _printing = true;
       _error = null;
@@ -525,7 +535,11 @@ class _PrintLabelScreenState extends ConsumerState<PrintLabelScreen> {
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed:
-                  _preview != null && _hasContent && !_printing && !_rendering
+                  _preview != null &&
+                      _hasContent &&
+                      !_printing &&
+                      !_rendering &&
+                      !_renderPending
                   ? () => unawaited(_print())
                   : null,
               icon: _printing

@@ -255,4 +255,73 @@ void main() {
       expect(ble.written.map((w) => w[2]), [0xC1, 0xC1, 0x21]);
     },
   );
+
+  CompletionPollDto statusPoll() => CompletionPollDto(
+    beforeWrite: 1,
+    request: _w(0xA3),
+    characteristicUuid: _char,
+    replyPrefix: _b([0x55, 0x55, 0xB3]),
+    doneOffset: 4,
+    doneBytes: _b([0x00, 0x01]),
+    intervalMs: 1,
+    timeoutMs: 2000,
+  );
+
+  // Before the fix one lost status reply held the poll for its whole budget
+  // and then failed the job.
+  test('a lost status reply is asked for again, not waited out', () async {
+    final ble = _ScriptedPrinter.create({
+      0xE3: [
+        [0x55, 0x55, 0xE4, 0x01, 0x01, 0xE4, 0xAA, 0xAA],
+      ],
+      0xA3: [
+        [],
+        [0x55, 0x55, 0xB3, 0x04, 0x00, 0x01, 0x64, 0x64, 0x00, 0xAA, 0xAA],
+      ],
+    });
+    final watch = Stopwatch()..start();
+    await runImageWritePlan(
+      subscribeSettle: Duration.zero,
+      pollReplyTimeout: const Duration(milliseconds: 50),
+      ble,
+      'dev',
+      ImageWritePlanDto(
+        serviceUuid: 'srv',
+        writes: [_w(0xE3), _w(0xF3)],
+        nextFrameIndex: 0,
+        replyWaits: [_wait(0, 0xE4)],
+        completionPoll: statusPoll(),
+      ),
+    );
+    expect(ble.written.map((w) => w[2]), [0xE3, 0xA3, 0xA3, 0xF3]);
+    expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+  });
+
+  // Before the fix the poll ignored the plan's error replies, so a printer
+  // that stopped mid-page (lid open) was waited on until the deadline.
+  test('an error reply during the status poll is the device refusing', () {
+    final ble = _ScriptedPrinter.create({
+      0xE3: [
+        [0x55, 0x55, 0xE4, 0x01, 0x01, 0xE4, 0xAA, 0xAA],
+      ],
+      0xA3: [
+        [0x55, 0x55, 0xDB, 0x01, 0x01, 0xDB, 0xAA, 0xAA],
+      ],
+    });
+    expect(
+      runImageWritePlan(
+        subscribeSettle: Duration.zero,
+        ble,
+        'dev',
+        ImageWritePlanDto(
+          serviceUuid: 'srv',
+          writes: [_w(0xE3), _w(0xF3)],
+          nextFrameIndex: 0,
+          replyWaits: [_wait(0, 0xE4)],
+          completionPoll: statusPoll(),
+        ),
+      ),
+      throwsA(isA<DeviceRefusedException>()),
+    );
+  });
 }

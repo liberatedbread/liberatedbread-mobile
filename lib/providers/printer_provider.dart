@@ -40,17 +40,19 @@ class SavedPrinter {
 final savedPrintersProvider = FutureProvider.autoDispose<List<SavedPrinter>>((
   ref,
 ) async {
+  // Every watch before the first await: a watch after one is unsound.
   final saved = ref.watch(savedDevicesProvider);
   final savedNetwork = ref.watch(savedNetworkDevicesProvider);
+  final codec = ref.watch(specCodecProvider);
+  final catalogueFuture = ref.watch(specCatalogueProvider.future);
   final candidates = [
     ...saved.where((d) => d.category == 'printer' && d.specKey != null),
     ...savedNetwork.where((d) => d.category == 'printer' && d.specKey != null),
   ];
   if (candidates.isEmpty) return const [];
 
-  final catalogue = await ref.watch(specCatalogueProvider.future);
+  final catalogue = await catalogueFuture;
   final byKey = specEntriesByKey(catalogue.specs);
-  final codec = ref.watch(specCodecProvider);
   final printers = <SavedPrinter>[];
   for (final device in candidates) {
     final (key, name) = switch (device) {

@@ -144,6 +144,28 @@ void main() {
     expect(find.text('2 labels sent.'), findsOneWidget);
   });
 
+  // Before the fix Print stayed enabled for the 150 ms between an edit and
+  // its render, and printed the label from before the edit.
+  testWidgets('an edit not yet rendered cannot be printed', (tester) async {
+    final target = _RecordingTarget();
+    await _pump(tester, target);
+    await tester.enterText(find.byKey(const ValueKey('label-line-0')), 'Oats');
+    await _settleRender(tester);
+
+    await tester.enterText(find.byKey(const ValueKey('label-line-0')), 'Rye');
+    await tester.pump();
+    FilledButton print() => tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('Print'),
+        matching: find.byType(FilledButton),
+      ),
+    );
+    expect(print().onPressed, isNull, reason: 'the preview still says Oats');
+
+    await _settleRender(tester);
+    expect(print().onPressed, isNotNull);
+  });
+
   testWidgets('an empty label cannot be printed', (tester) async {
     final target = _RecordingTarget();
     await _pump(tester, target);

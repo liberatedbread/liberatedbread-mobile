@@ -33,13 +33,29 @@ class ShareInService {
 
   final _incoming = StreamController<SharedFile>.broadcast();
 
+  /// A share that arrived while nobody was listening — the terms screen was
+  /// up — held for the listener that comes later. Only the latest is kept.
+  SharedFile? _waiting;
+
   ShareInService() {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'shared') {
         final file = _decode(call.arguments);
-        if (file != null) _incoming.add(file);
+        if (file == null) return;
+        if (_incoming.hasListener) {
+          _incoming.add(file);
+        } else {
+          _waiting = file;
+        }
       }
     });
+  }
+
+  /// The share held while nobody was listening, once.
+  SharedFile? takeWaiting() {
+    final file = _waiting;
+    _waiting = null;
+    return file;
   }
 
   /// Shares that arrive while the app is running.

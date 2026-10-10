@@ -53,9 +53,9 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * A share while the app is already running (launchMode singleTop reuses
-     * this activity): hand it straight to Dart, or hold it if the engine has
-     * not asked yet.
+     * A share while the app is already running (launchMode singleTask routes
+     * it to this activity, from whichever app sent it): hand it straight to
+     * Dart, or hold it if the engine has not asked yet.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

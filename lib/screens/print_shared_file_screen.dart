@@ -140,6 +140,10 @@ class _ShareInListenerState extends ConsumerState<ShareInListener> {
     super.initState();
     final service = ref.read(shareInServiceProvider);
     _subscription = service.incoming.listen(_open);
+    final waiting = service.takeWaiting();
+    if (waiting != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _open(waiting));
+    }
     unawaited(
       service.initialShare().then((file) {
         if (file != null) _open(file);

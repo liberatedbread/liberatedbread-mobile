@@ -60,9 +60,13 @@ class _IppPrinterScreenState extends ConsumerState<IppPrinterScreen> {
   bool _loading = true;
 
   /// The IPP resource: the TXT `rp`, or IPP Everywhere's default.
+  /// The IPP resource, without its leading slash: the TXT `rp` key. An `rp`
+  /// that is present but empty is the root resource; only a record with no
+  /// `rp` at all falls back to the IPP Everywhere default.
   String get _resource {
     final rp = widget.device.txt['rp']?.trim();
-    return (rp == null || rp.isEmpty) ? 'ipp/print' : rp;
+    if (rp == null) return 'ipp/print';
+    return rp.startsWith('/') ? rp.substring(1) : rp;
   }
 
   /// Whether the printer advertised plain IPP at all; one seen only as a raw
@@ -95,7 +99,13 @@ class _IppPrinterScreenState extends ConsumerState<IppPrinterScreen> {
     final client = ref.read(ippStatusClientProvider);
     try {
       final body = await codec.ippStatusRequest(
-        printerUri: 'ipp://${widget.device.host}:$_ippPort/$_resource',
+        // Built by Uri so an IPv6 literal gets its brackets.
+        printerUri: Uri(
+          scheme: 'ipp',
+          host: widget.device.host,
+          port: _ippPort,
+          path: '/$_resource',
+        ).toString(),
         requestId: 1,
       );
       final result = await client.fetch(

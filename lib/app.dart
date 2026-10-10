@@ -10,6 +10,7 @@ import 'providers/startup_warmup.dart';
 import 'screens/home_shell.dart';
 import 'screens/print_shared_file_screen.dart';
 import 'screens/terms_screen.dart';
+import 'services/share_in_service.dart';
 
 class LiberatedBreadApp extends StatelessWidget {
   const LiberatedBreadApp({super.key});
@@ -52,6 +53,11 @@ class _TermsGateState extends ConsumerState<_TermsGate> {
     // and registry loads. Without this they began when the first scan result
     // arrived, which is the worst moment for them.
     warmStartupCaches(ref);
+    // The share handler goes in now, not when the home shell mounts: a file
+    // shared while the terms are up would otherwise reach a channel with no
+    // Dart handler and be lost. The service holds it until the listener is
+    // there.
+    ref.read(shareInServiceProvider);
   }
 
   Future<void> _accept() async {

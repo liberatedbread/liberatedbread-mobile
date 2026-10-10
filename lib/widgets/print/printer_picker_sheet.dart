@@ -137,7 +137,14 @@ Future<LabelPrintTarget> _targetFor(WidgetRef ref, SavedPrinter printer) async {
   }
   final network = printer.network!;
   final transport = ref.read(brotherQlPrintServiceProvider);
-  final port = network.port ?? 9100;
+  // The order LabelPrinterScreen uses: the spec's raw-stream port first. The
+  // saved `port` is whichever mDNS service answered last — a QL advertises
+  // _ipp._tcp on 631 as well as its 9100 stream, and 631 takes no raster.
+  final capabilities = await codec.networkCapabilities(
+    specYaml: printer.specYaml,
+  );
+  final port =
+      capabilities.defaultPort ?? network.ssdpPort ?? network.port ?? 9100;
   final status = await readBrotherStatus(
     codec: codec,
     transport: transport,

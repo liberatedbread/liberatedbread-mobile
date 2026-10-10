@@ -47,7 +47,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -72,7 +72,12 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Printing: another app shares a photo or a PDF here ("Share →
+            <!-- launchMode is singleTask because of these two filters: a
+                 share from another app arrives without NEW_TASK, and
+                 singleTop would start a second MainActivity (and a second
+                 Flutter engine, fighting the first over BLE) in the sender's
+                 task. singleTask routes it to the running one's onNewIntent.
+                 Printing: another app shares a photo or a PDF here ("Share →
                  Liberated Bread"), or opens one with it, to print it on a
                  label printer or through the system print dialog. The bytes
                  are copied in MainActivity; nothing is read without the
