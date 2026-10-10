@@ -420,7 +420,7 @@ services:
                 type: "uint8"
                 min: 1
                 max: 4
-                labels: ["advanced 1", "basic", "printer info", "advanced 2"]
+                labels: ["advanced 1", "basic", "unknown", "advanced 2"]
                 default: 1
                 description: "Heartbeat variant."
               checksum:
@@ -555,7 +555,8 @@ protocol_details:
       A page is sent as rows across the head, top of the feed first, row
       index from 0. A wire row is head_dots/8 = 12 bytes on the D110, MSB of
       byte 0 = head dot 0, 1 = black. Consecutive identical rows are sent
-      once with a repeat count. Three packet shapes, row and index fields
+      once with a repeat count; repeat is one byte, so a run longer than 255
+      rows is split into packets of at most 255. Three packet shapes, row and index fields
       u16 big-endian:
         0x84 PrintEmptyRow: data = [row u16][repeat u8] — len 3; the rows are
           all white.
@@ -577,8 +578,8 @@ protocol_details:
       4 bytes (8 or 10 on some firmware). The counter is the number of
       COPIES finished in the job so far — cumulative across pages, not a
       page index. After each page's page_end a client polls print_status
-      about every 300 ms until the counter equals the running total of the
-      set_print_quantity values it has sent, before the next print_clear or
+      about every 300 ms until the counter reaches (is at least) the running
+      total of the set_print_quantity values it has sent, before the next print_clear or
       the final print_end; niimbluelib gives up after 5 s without a reply.
       (One page at quantity 3 is done at 3, not 1.)
     print_direction: >

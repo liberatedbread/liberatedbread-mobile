@@ -80,7 +80,7 @@ device:
         mdns:
           service_type: "_ipp._tcp.local."
           port: 631
-          # The deliberate catch-all for the shared printer service types: an
+          # The deliberate catch-all for the shared printer service types: a
           # platform spec that recognises any printer by these standard
           # types, but stands aside for any product spec that narrows the SAME
           # type with a txt_match (e.g. brother-ql-1110nwb). No txt_match here:
@@ -197,9 +197,11 @@ http_endpoints:
     status: "active"
     description: >
       IPP operation 0x000B on the printer's IPP resource. The path is the TXT
-      `rp` key ("/" + rp), "ipp/print" when the printer advertises none —
-      the IPP Everywhere default. Plain HTTP on port 631 for _ipp._tcp; TLS
-      on the same port for _ipps._tcp, where printers present a self-signed
+      `rp` key ("/" + rp); an rp present but empty is the root resource "/",
+      and "ipp/print" (the IPP Everywhere default) applies only when the
+      record has no rp key at all. The port is the one the service's SRV
+      record advertises (631 by default). Plain HTTP for _ipp._tcp; TLS on
+      the advertised port for _ipps._tcp, where printers present a self-signed
       certificate, so a client pins it on first use rather than trusting a
       CA. Read-only: nothing about the printer changes.
     request_body:
@@ -262,8 +264,14 @@ protocol_details:
       enum (i32 BE), 0x41 textWithoutLanguage, 0x42 nameWithoutLanguage, 0x44
       keyword, 0x45 uri, 0x49 mimeMediaType, 0x35/0x36 text/nameWithLanguage
       ([u16 language length][language][u16 text length][text]); 0x10-0x1F
-      are out-of-band and carry no value. A collection (0x34 ... 0x37) is
-      skipped value by value.
+      are out-of-band: the u16 value-length is still present and is 0, with
+      no value bytes after it. A collection (0x34 begCollection ... 0x37
+      endCollection) is skipped value by value: every TLV inside it,
+      including the 0x4A memberAttrName values and any nested collection's
+      own 0x34/0x37, has an empty name, so a reader that treats each
+      empty-name TLV as one more value of the attribute it is on, and only
+      a named TLV as a new attribute, passes over any depth of nesting
+      without counting 0x37s.
 
 helpful_urls:
   - url: "https://developer.apple.com/bonjour/printing-specification/"

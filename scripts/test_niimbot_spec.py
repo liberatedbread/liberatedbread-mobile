@@ -154,10 +154,14 @@ def test_the_documented_indexed_row_is_reproduced(spec: dict) -> None:
 
 
 def test_row_packet_shapes(spec: dict) -> None:
-    head = 96
-    blank = bytes(12)
+    head = next(f for f in spec["features"] if f["type"] == "image_upload")["print_geometry"][
+        "head_dots"
+    ]
+    row_bytes = head // 8
+    blank = bytes(row_bytes)
     assert row_packet(0, blank, 5, head) == envelope(0x84, [0, 0, 5])
-    full = bytes([0xFF] * 12)
+    full = bytes([0xFF] * row_bytes)
     packet = row_packet(1, full, 1, head)
-    assert packet[2] == 0x85 and packet[3] == 18
-    assert packet[6:9] == [32, 32, 32]
+    # [row u16][counts x3][repeat][row bytes]; every chunk is all black.
+    assert packet[2] == 0x85 and packet[3] == 6 + row_bytes
+    assert packet[6:9] == [row_bytes // 3 * 8] * 3
