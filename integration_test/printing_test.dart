@@ -397,6 +397,24 @@ Uint8List _ippReply() {
   return b.toBytes();
 }
 
+/// The composer's own list: the first Scrollable under the screen. It is
+/// the ListView itself (its TextFields' scrollables sit below it), and it is
+/// built whatever the screen size, unlike any one field in it — on a phone
+/// most of the lazy list is below the fold and not built at all.
+final _composerList = find
+    .descendant(
+      of: find.byType(PrintLabelScreen),
+      matching: find.byType(Scrollable),
+    )
+    .first;
+
+/// Scroll the composer until [target] is built and on screen. Every field
+/// the tests type into goes through this: on a phone the soft keyboard that
+/// enterText raises takes ~300 pt of the list's viewport, and a field the
+/// lazy list then no longer builds cannot be found at all.
+Future<void> _scrollTo(WidgetTester tester, Finder target) =>
+    tester.scrollUntilVisible(target, 200, scrollable: _composerList);
+
 Future<void> _settle(WidgetTester tester, {int rounds = 20}) async {
   for (var i = 0; i < rounds; i++) {
     await tester.pump(const Duration(milliseconds: 100));
@@ -446,10 +464,12 @@ void main() {
       await _settle(tester);
       expect(find.textContaining('62mm continuous'), findsOneWidget);
 
+      await _scrollTo(tester, find.byKey(const ValueKey('label-line-0')));
       await tester.enterText(
         find.byKey(const ValueKey('label-line-0')),
         'Hello',
       );
+      await _scrollTo(tester, find.byKey(const ValueKey('label-qr')));
       await tester.enterText(
         find.byKey(const ValueKey('label-qr')),
         'https://liberatedbread.example/p/1',
@@ -460,18 +480,7 @@ void main() {
       final job = printer.nextJob;
       // The composer is a lazy ListView: scroll until its Print button is
       // built, then tap it.
-      await tester.scrollUntilVisible(
-        find.text('Print'),
-        200,
-        // The composer's list: the nearest scrollable around one of its
-        // fields (a TextField has scrollables of its own, below it).
-        scrollable: find
-            .ancestor(
-              of: find.byKey(const ValueKey('label-qr')),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
+      await _scrollTo(tester, find.text('Print'));
       await tester.tap(find.text('Print'));
       final bytes = await job.timeout(const Duration(seconds: 20));
       await _settle(tester, rounds: 5);
@@ -570,22 +579,14 @@ void main() {
       // this protocol has not been run on hardware.
       expect(find.textContaining("hasn't been tried"), findsOneWidget);
 
+      await _scrollTo(tester, find.byKey(const ValueKey('label-line-0')));
       await tester.enterText(
         find.byKey(const ValueKey('label-line-0')),
         'Spices',
       );
       await _settle(tester);
       await _screenshot(tester, 'niimbot-composer');
-      await tester.scrollUntilVisible(
-        find.text('Print'),
-        200,
-        scrollable: find
-            .ancestor(
-              of: find.byKey(const ValueKey('label-qr')),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
+      await _scrollTo(tester, find.text('Print'));
       await tester.tap(find.text('Print'));
       for (
         var i = 0;
