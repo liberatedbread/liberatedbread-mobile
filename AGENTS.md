@@ -48,7 +48,7 @@ Don't move either "back" to match the rule above.
 
 ```bash
 ./scripts/test.sh          # local CI mirror (format, analyze, flutter test, clippy)
-flutter test --exclude-tags=netdisco   # Dart unit + widget tests (builds host Rust lib on demand)
+flutter test --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware   # Dart unit + widget tests (builds host Rust lib on demand)
 cd rust && cargo test      # Rust unit tests
 flutter analyze --fatal-infos
 cd rust && cargo clippy --all-targets -- -D warnings
