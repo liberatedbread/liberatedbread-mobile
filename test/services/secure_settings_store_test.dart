@@ -108,6 +108,27 @@ void main() {
       );
     });
 
+    // flutter_secure_storage's Android reset (resetOnError, which the test
+    // above pins) wipes the store and then answers the FAILED call with a
+    // literal string. Taken as data it became a TLS pin that refused every
+    // later handshake, or a credential sent to a device.
+    test('a read answered by the reset sentinel is "nothing stored"', () async {
+      final storage = _RecordingStorage()
+        ..values['tls_pin:mac:aa'] = SecureSettingsStore.androidResetSentinel
+        ..values['ha_token'] = 'secret';
+      final store = SecureSettingsStore(storage);
+      expect(await store.read('tls_pin:mac:aa'), isNull);
+      expect(await store.read('ha_token'), 'secret');
+    });
+
+    test(
+      'a readAll answered by the reset sentinel is an empty store',
+      () async {
+        final store = SecureSettingsStore(_ResetReadAllStorage());
+        expect(await store.readAll(), isEmpty);
+      },
+    );
+
     test('readAll goes through the unscoped store', () async {
       final scoped = _RecordingStorage();
       final sweeping = _RecordingStorage();
@@ -507,6 +528,26 @@ class _RecordingStorage extends FlutterSecureStorage {
     MacOsOptions? mOptions,
     WindowsOptions? wOptions,
   }) async => deleteAllCalls++;
+}
+
+/// readAll as the Android plugin answers it after a reset: the method
+/// channel returns the sentinel String and the plugin's own
+/// `invokeMethod<Map>` cast throws.
+class _ResetReadAllStorage extends FlutterSecureStorage {
+  _ResetReadAllStorage() : super();
+
+  @override
+  Future<Map<String, String>> readAll({
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async => (_channelAnswer() as Map?)?.cast<String, String>() ?? {};
+
+  /// What the method channel hands back for readAll after a reset.
+  Object? _channelAnswer() => SecureSettingsStore.androidResetSentinel;
 }
 
 /// Never answers, like an unregistered platform channel.

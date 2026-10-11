@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/device_category.dart';
 import '../core/hex.dart';
 import '../core/hue_bridge_id.dart';
-import '../services/spec_choice_store.dart';
 import '../services/saved_designs_store.dart';
 import '../services/panel_resolution_cache.dart';
 import '../services/device_group_store.dart';
@@ -113,11 +112,15 @@ final deviceGroupsProvider =
 /// credential stores are: the caller resolves them from its ref.
 Future<void> _forgetDevicePreferences(
   String deviceId, {
-  SpecChoiceStore? specChoices,
+  SpecChoicesNotifier? specChoices,
   SavedDesignsStore? savedDesigns,
   PanelResolutionCache? panelResolutions,
 }) async {
-  await specChoices?.remove(deviceId);
+  // Through the notifier, not the store: the choice is also held in
+  // [specChoicesProvider]'s state, which the matcher reads, so clearing
+  // only the stored copy let a device re-added in the same session come
+  // back with the very choice it was removed over.
+  await specChoices?.clear(deviceId);
   await savedDesigns?.clear(deviceId);
   await panelResolutions?.forget(deviceId);
 }
@@ -138,7 +141,7 @@ Future<void> forgetDevice({
   required String deviceId,
   RabbitAirKeyStore? rabbitAir,
   DirectAttRouter? directAtt,
-  SpecChoiceStore? specChoices,
+  SpecChoicesNotifier? specChoices,
   SavedDesignsStore? savedDesigns,
   PanelResolutionCache? panelResolutions,
 }) async {
@@ -183,7 +186,7 @@ Future<void> forgetNetworkDevice({
   String? hostname,
   HubCredentialStore? hub,
   String? bridgeId,
-  SpecChoiceStore? specChoices,
+  SpecChoicesNotifier? specChoices,
   SavedDesignsStore? savedDesigns,
   PanelResolutionCache? panelResolutions,
 }) async {

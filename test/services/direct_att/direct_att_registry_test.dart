@@ -6,9 +6,11 @@
 
 import 'dart:io' show Platform;
 
+import 'package:bluez/bluez.dart';
 import 'package:flutter_blue_plus_linux/flutter_blue_plus_linux.dart';
 import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/services/direct_att/bluez_view.dart';
 import 'package:liberated_bread_mobile/services/direct_att/direct_att_registry.dart';
 import 'package:liberated_bread_mobile/services/direct_att/direct_att_router.dart';
 import 'package:liberated_bread_mobile/services/settings_store.dart';
@@ -120,6 +122,11 @@ void main() {
       final router = installDirectAttRouter(
         store,
         environment: {'LB_DIRECT_ATT': '$_meter, not-an-address'},
+        // Never the machine's bus: the install warms its BlueZ view up at
+        // once, and the default one connects the real system D-Bus — which
+        // a unit test must not reach, and which fails it outright where
+        // there is none (a container, a CI image without dbus).
+        bluez: BluezView(client: _NoBusBlueZClient.new),
       );
       expect(router, isNotNull);
       expect(router!.inner, same(bluez));
@@ -135,3 +142,15 @@ void main() {
 }
 
 final class _OtherPlatform extends FlutterBluePlusPlatform {}
+
+/// A BlueZ client with no daemon behind it: connecting fails the way an
+/// unreachable bus does, and nothing ever opens a socket (the bus the base
+/// class constructs connects lazily, on a first call this never makes).
+class _NoBusBlueZClient extends BlueZClient {
+  @override
+  Future<void> connect() async =>
+      throw StateError('no system bus in a unit test');
+
+  @override
+  Future<void> close() async {}
+}

@@ -188,12 +188,30 @@ fn a_rendered_command_encrypts_onto_the_wire_and_back() {
     assert_eq!(decoded, request.json);
 }
 
+/// `{"id":1,"cmd":9,"ts":1}` under [`KEY_HEX`] with the IV 00 01 .. 0f,
+/// framed ciphertext || IV — made by OpenSSL, so it is a known answer from
+/// outside this crate. Fixed rather than a fresh encrypt: a random IV makes
+/// the wrong-key decrypt a random block, which passes PKCS7 about once in
+/// 256 runs. This one is checked to fail padding under `other_key` below.
+const FIXED_DATAGRAM_HEX: &str = "5397c555fd41d48e5ccdf0ee89e2cb48\
+                                  f7b2a2c64209ff963b4cfcef66ed32c5\
+                                  000102030405060708090a0b0c0d0e0f";
+
+fn fixed_datagram() -> Vec<u8> {
+    (0..FIXED_DATAGRAM_HEX.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&FIXED_DATAGRAM_HEX[i..i + 2], 16).unwrap())
+        .collect()
+}
+
 #[test]
 fn a_wrong_key_or_garbage_datagram_is_rejected_not_misread() {
-    let request =
-        render_network_rabbit_air_state_request(spec_yaml(), "get_state".to_string(), 1, 100)
-            .unwrap();
-    let datagram = rabbit_air_encrypt_datagram(KEY_HEX.to_string(), request.json).unwrap();
+    let datagram = fixed_datagram();
+    assert_eq!(
+        rabbit_air_decrypt_datagram(KEY_HEX.to_string(), datagram.clone()).unwrap(),
+        r#"{"id":1,"cmd":9,"ts":1}"#,
+        "the known-answer datagram decrypts under the right key"
+    );
 
     let other_key = "fedcba98765432100123456789abcdef";
     assert!(rabbit_air_decrypt_datagram(other_key.to_string(), datagram.clone()).is_err());

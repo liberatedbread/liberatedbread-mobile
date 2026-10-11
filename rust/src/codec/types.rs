@@ -19,6 +19,22 @@ pub(crate) fn bytes_to_hex(bytes: &[u8], sep: &str) -> String {
         .join(sep)
 }
 
+/// Text from a fixed-size string field: everything before the first NUL.
+///
+/// Firmware fills a fixed buffer C-style — the text, a terminator, then
+/// whatever the buffer held before (`CHEF iQ\0\xff\xff…`). Trimming only
+/// TRAILING NULs kept that tail: it failed UTF-8 and the whole field fell
+/// back to hex, or it was valid and shown after an embedded NUL. Bytes that
+/// are not UTF-8 before the terminator still fall back to space-separated hex
+/// of the whole field, so the UI shows something legible for a device that
+/// lies about its encoding.
+pub(crate) fn decode_c_string(bytes: &[u8]) -> String {
+    let text = bytes.split(|b| *b == 0).next().unwrap_or_default();
+    std::str::from_utf8(text)
+        .map(str::to_string)
+        .unwrap_or_else(|_| bytes_to_hex(bytes, " "))
+}
+
 /// A decoded value from a characteristic read.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DecodedValue {
@@ -281,10 +297,7 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
             // device that lies about its encoding. Callers that need to
             // distinguish real text from the fallback must check the bytes
             // themselves — the DecodedValue variant alone cannot tell them.
-            let s = std::str::from_utf8(slice)
-                .map(|s| s.trim_end_matches('\0').to_string())
-                .unwrap_or_else(|_| bytes_to_hex(slice, " "));
-            Ok(DecodedValue::String(s))
+            Ok(DecodedValue::String(decode_c_string(slice)))
         }
         ValueType::Varint => {
             // Unsigned LEB128. Format fields rarely declare varint, but keep
@@ -1471,6 +1484,39 @@ mod tests {
         assert_eq!(
             decode_field(b"EMBER", &field).unwrap(),
             DecodedValue::String("EMBER".into())
+        );
+    }
+
+    /// A fixed buffer filled C-style: the name, its terminator, then whatever
+    /// the buffer held before. The text ends at the first NUL; the tail used
+    /// to fail UTF-8 and turn the whole field into hex, or (when it happened
+    /// to be valid) to be shown after an embedded NUL.
+    #[test]
+    fn decode_string_ends_at_its_first_nul() {
+        let field = FormatField {
+            offset: 0,
+            length: 12,
+            name: "device_name".into(),
+            field_type: ValueType::String,
+            ..Default::default()
+        };
+        for (bytes, want) in [
+            (&b"CHEF iQ\0\xff\xff\xff\xff"[..], "CHEF iQ"),
+            (&b"ABC\0leftover"[..], "ABC"),
+            (&b"\0\0\0\0\0\0\0\0\0\0\0\0"[..], ""),
+            (&b"Mug Name"[..], "Mug Name"),
+        ] {
+            assert_eq!(
+                decode_field(bytes, &field).unwrap(),
+                DecodedValue::String(want.into()),
+                "{bytes:?}"
+            );
+        }
+        // Not UTF-8 BEFORE the terminator is still the hex fallback, of the
+        // whole field so nothing the device sent is hidden.
+        assert_eq!(
+            decode_field(b"\xffAB\0", &field).unwrap(),
+            DecodedValue::String("ff 41 42 00".into())
         );
     }
 

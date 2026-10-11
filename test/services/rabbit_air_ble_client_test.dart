@@ -206,6 +206,36 @@ void main() {
     expect(await second, [3, 4]);
   });
 
+  // The reply's completer exists from before the first write, but nothing
+  // listened to it until every chunk was written. A disconnect (or a notify
+  // failure) inside that window failed it with no listener: an uncaught
+  // async error — a failed test here, PlatformDispatcher.onError in the app.
+  test('a disconnect while the command is still being written fails the '
+      'command, not the zone', () async {
+    final writes = Completer<void>();
+    notifications = StreamController<List<int>>.broadcast();
+    ble = FakeBleService(
+      servicesToReturn: const [_rabbitService],
+      notifyStream: notifications.stream,
+      writeGate: writes.future,
+    );
+    client = RabbitAirBleClient(
+      ble,
+      FakeSpecCodec(),
+      responseTimeout: const Duration(milliseconds: 500),
+    );
+    await client.connect('01');
+
+    final command = client.sendCommand([1]);
+    final failed = expectLater(command, throwsA(isA<RabbitAirBleException>()));
+    await Future<void>.delayed(Duration.zero);
+    await client.disconnect();
+    // Let the failed completer's error propagate before anything listens.
+    await Future<void>.delayed(Duration.zero);
+    writes.complete();
+    await failed;
+  });
+
   test('an unanswered command throws after the response window', () async {
     setUpClient(responseTimeout: const Duration(milliseconds: 50));
     await client.connect('01');
