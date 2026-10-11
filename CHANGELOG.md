@@ -447,10 +447,10 @@ heading.
   written fails that command instead of raising an uncaught error.
 - **Tests and CI:** two Rabbit Air crypto tests no longer fail about one run in
   256 (a fixed, OpenSSL-made datagram replaces a random IV); a direct-ATT unit
-  test no longer connects to the machine's real D-Bus; the emulator selftest
-  no longer counts a zombie as a survivor; the network-discovery job builds
-  and requires the Rust library its hub test needs instead of letting it skip;
-  `test.sh` shows a skipped spec validation instead of discarding the warning.
+  test no longer connects to the machine's real D-Bus; the network-discovery
+  job builds and requires the Rust library its hub test needs instead of
+  letting it skip; `test.sh` shows a skipped spec validation instead of
+  discarding the warning.
 - **Forgetting a device forgets it, and only it.** Removing a saved Hue
   bridge now clears its pairing (username, client key, TLS pin, scheme),
   and removing any device no longer clears the pin and credentials stored
