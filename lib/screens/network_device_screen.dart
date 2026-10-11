@@ -1513,10 +1513,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        // The device never took the setpoint, so the slider goes back to
-        // what it last reported. Held, it drew a garage door at 30% while
-        // the door had not moved, until some later read happened to land.
-        _pendingSetpoints.remove(entity.name);
+        // A refused setpoint goes back to what the device last reported.
+        // Held, it drew a garage door at 30% while the door had not moved,
+        // until some later read happened to land. Only this send's own
+        // value (a value-less open or stop failing says nothing about it),
+        // and not on a timeout: the device may have taken it after all.
+        if (value != null && e is! ControlTimeoutException) {
+          _pendingSetpoints.remove(entity.name);
+        }
         // A refusal is a device setting, not a transient failure: remember it
         // so the screen can explain the gate instead of leaving the user to
         // read one error at a time.

@@ -4267,59 +4267,73 @@ void main() {
       expect(double.parse(call.values['position']!), closeTo(held, 1e-9));
     });
 
-    testWidgets('a refused position puts the cover slider back', (
-      tester,
-    ) async {
-      final cover = utilityEntities.firstWhere((e) => e.platform == 'cover');
-      final withPosition = NetworkEntityDto(
-        isInstanced: cover.isInstanced,
-        name: cover.name,
-        platform: cover.platform,
-        deviceClass: cover.deviceClass,
-        stateCommand: cover.stateCommand,
-        valueField: cover.valueField,
-        options: cover.options,
-        actions: [
-          ...cover.actions,
-          const NetworkActionDto(
-            credentials: [],
-            instanceParams: [],
-            role: 'set_cover_position',
-            transport: 'soap',
-            commandName: 'door_position',
-            userParams: ['position'],
-            min: 0,
-            max: 100,
-            readBack: [],
-          ),
-        ],
-      );
-      await pumpUtility(
-        tester,
-        entities: [withPosition],
-        reading: (entity, ret) => const NetworkReadingDto(
-          kind: NetworkReadingKind.number,
-          number: 20,
-          raw: '20',
-        ),
-      );
-      final render = codec.networkRequest!;
-      codec.networkRequest = (name, values) => name == 'door_position'
-          ? throw StateError('refused')
-          : render(name, values);
+    // A refused position goes back to the last reading; a timed-out one may
+    // have reached the door, so the slider keeps what was sent.
+    for (final (label, error, rollsBack) in [
+      ('refused', StateError('refused'), true),
+      ('timed out', const ControlTimeoutException(), false),
+    ]) {
+      testWidgets(
+        'a $label position ${rollsBack ? 'puts the cover slider back' : 'keeps the slider where it was sent'}',
+        (tester) async {
+          final cover = utilityEntities.firstWhere(
+            (e) => e.platform == 'cover',
+          );
+          final withPosition = NetworkEntityDto(
+            isInstanced: cover.isInstanced,
+            name: cover.name,
+            platform: cover.platform,
+            deviceClass: cover.deviceClass,
+            stateCommand: cover.stateCommand,
+            valueField: cover.valueField,
+            options: cover.options,
+            actions: [
+              ...cover.actions,
+              const NetworkActionDto(
+                credentials: [],
+                instanceParams: [],
+                role: 'set_cover_position',
+                transport: 'soap',
+                commandName: 'door_position',
+                userParams: ['position'],
+                min: 0,
+                max: 100,
+                readBack: [],
+              ),
+            ],
+          );
+          await pumpUtility(
+            tester,
+            entities: [withPosition],
+            reading: (entity, ret) => const NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: 20,
+              raw: '20',
+            ),
+          );
+          final render = codec.networkRequest!;
+          codec.networkRequest = (name, values) =>
+              name == 'door_position' ? throw error : render(name, values);
 
-      final slider = find.byType(Slider);
-      await tester.drag(slider, const Offset(40, 0));
-      await tester.pumpAndSettle();
+          final slider = find.byType(Slider);
+          final gesture = await tester.startGesture(tester.getCenter(slider));
+          await tester.pump();
+          await gesture.moveBy(const Offset(40, 0));
+          await tester.pump();
+          final sent = tester.widget<Slider>(slider).value;
+          await gesture.up();
+          await tester.pumpAndSettle();
 
-      expect(
-        codec.renderNetworkCommandCalls.where(
-          (c) => c.commandName == 'door_position',
-        ),
-        isNotEmpty,
+          expect(
+            codec.renderNetworkCommandCalls.where(
+              (c) => c.commandName == 'door_position',
+            ),
+            isNotEmpty,
+          );
+          expect(tester.widget<Slider>(slider).value, rollsBack ? 20 : sent);
+        },
       );
-      expect(tester.widget<Slider>(slider).value, 20);
-    });
+    }
 
     testWidgets('a bounded number renders a slider, not the edit dialog', (
       tester,
