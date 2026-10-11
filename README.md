@@ -281,7 +281,7 @@ What does and doesn't work there:
 ./scripts/test.sh
 
 # Or individually:
-flutter test --exclude-tags=netdisco   # Dart unit + widget tests (see CONTRIBUTING)
+flutter test --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware   # Dart unit + widget tests (see CONTRIBUTING)
 cd rust && cargo test              # Rust unit tests
 
 # Integration tests (needs a device/emulator). ci_all_test.dart bundles the
@@ -346,7 +346,7 @@ the built library against cargo's own record of what went into it and runs
 re-running the tests tests the edit:
 
 ```bash
-flutter test --exclude-tags=netdisco
+flutter test --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware
 ./scripts/ensure-rust-lib.sh   # or build it yourself, ahead of time
 ```
 

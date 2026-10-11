@@ -26,7 +26,7 @@ By participating you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ```bash
 flutter pub get
-flutter test --exclude-tags=netdisco   # see "netdisco" below for why
+flutter test --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware   # see "netdisco" below for why
 ```
 
 ### Rust

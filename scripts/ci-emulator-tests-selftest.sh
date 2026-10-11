@@ -141,7 +141,11 @@ if command -v timeout >/dev/null 2>&1; then
       fail "no second attempt after a hung one"
     fi
     hung="$(cat "$WORK/hung.pid" 2>/dev/null || true)"
-    if [ -n "$hung" ] && kill -0 "$hung" 2>/dev/null; then
+    # A zombie is dead, though kill -0 still finds it: the killed stub is
+    # orphaned to PID 1, and in a container whose PID 1 is not an init that
+    # reaps (a Claude Code cloud session's is not) it stays a zombie.
+    if [ -n "$hung" ] && kill -0 "$hung" 2>/dev/null &&
+      [[ "$(ps -o stat= -p "$hung" 2>/dev/null)" != Z* ]]; then
       fail "the hung attempt survived the timeout (pid $hung still running)"
       kill -KILL "$hung" 2>/dev/null
     else

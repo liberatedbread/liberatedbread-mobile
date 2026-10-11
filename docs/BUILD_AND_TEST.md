@@ -471,7 +471,7 @@ flutter devices
 # Run all tests. A bare `flutter test` runs the netdisco suites, which bind
 # ports 5353/1900 (./scripts/ci-netdisco-tests.sh runs those on purpose).
 # ./scripts/test.sh and CI also exclude live_ble,live_radio,live_wifi,hardware
-flutter test --exclude-tags=netdisco
+flutter test --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware
 
 # Run specific test file
 flutter test test/models/iot_device_test.dart
@@ -480,7 +480,7 @@ flutter test test/models/iot_device_test.dart
 flutter test test/models/
 
 # Run with coverage
-flutter test --coverage --exclude-tags=netdisco
+flutter test --coverage --exclude-tags=netdisco,live_ble,live_radio,live_wifi,hardware
 
 # View coverage report (requires lcov)
 genhtml coverage/lcov.info -o coverage/html

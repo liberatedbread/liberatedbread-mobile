@@ -685,9 +685,10 @@ fn decode_channel(record: &[u8], name: &[u8], power_levels: &[Power]) -> Option<
 /// A copy of `image` with `channels` in slots 1 up and every later slot
 /// cleared — which is what "write this plan" means.
 ///
-/// Everything outside the records and names survives. So do the parts of an
-/// occupied record the app does not model — its busy-channel lockout,
-/// signal code and PTT-ID — which is what the vendor software keeps too.
+/// Everything outside the records and names survives. So does every bit of
+/// an occupied record the app does not model — its busy-channel lockout,
+/// signal code and PTT-ID among them — which is what the vendor software
+/// keeps too.
 pub fn encode_channels(
     image: &[u8],
     channels: &[ChannelRecord],
@@ -729,7 +730,16 @@ fn encode_channel(
     let previous: [u8; RECORD_LEN] = image[record_range(slot)].try_into().expect("record length");
     let occupied = previous[0] != 0xFF;
 
-    let mut record = [0u8; RECORD_LEN];
+    // An occupied record is edited in place, so every bit the app does not
+    // model survives: the signal code and the bits around it in 12, all of
+    // 13, the top of 14, and the lockout, PTT-ID and unnamed bits of 15.
+    // Rebuilt from zeros, a channel read and written back unchanged came out
+    // different -- and the write plan then rewrote a radio nobody edited.
+    let mut record = if occupied {
+        previous
+    } else {
+        [0u8; RECORD_LEN]
+    };
     encode_frequency(channel.rx_freq_hz, &mut record[0..4])?;
     if channel.rx_only {
         record[4..8].fill(0xFF);
@@ -739,16 +749,11 @@ fn encode_channel(
     record[8..10].copy_from_slice(&encode_tone(channel.rx_tone)?.to_le_bytes());
     record[10..12].copy_from_slice(&encode_tone(channel.tx_tone)?.to_le_bytes());
 
-    // Kept from an occupied slot: the signal code (low nibble of 12), busy
-    // channel lockout (bit 3 of 15) and PTT-ID (bits 0-1 of 15).
-    if occupied {
-        record[12] = previous[12] & 0x0F;
-        record[15] = previous[15] & 0x0B;
-    }
     // The channel's own index while its level holds, else its level afresh
     // (see `power_bits`) -- never the slot's, which belonged to whatever was
     // there before: a Low channel moved onto a mid record went out mid.
-    record[14] = power_bits(channel, model.power_levels, held);
+    record[14] = (record[14] & !POWER_MASK) | power_bits(channel, model.power_levels, held);
+    record[15] &= !(0x40 | 0x04);
     if !channel.narrow {
         record[15] |= 0x40;
     }
@@ -1171,6 +1176,42 @@ mod tests {
             encode_channels(&image, &[channel("B", 446_000_000, 446_000_000)], &UV5R).unwrap();
         assert_eq!(rewritten[range.start + 12] & 0x0F, 0x05);
         assert_eq!(rewritten[range.start + 15] & 0x0B, 0x0A);
+    }
+
+    #[test]
+    fn an_unedited_plan_writes_back_byte_for_byte() {
+        let mut image =
+            encode_channels(&blank(), &[channel("A", 446_000_000, 446_000_000)], &UV5R).unwrap();
+        let range = record_range(0);
+        // Bits no field of ChannelRecord speaks for, in every byte that has them.
+        image[range.start + 12] |= 0x10 | 0x05;
+        image[range.start + 13] = 0x01;
+        image[range.start + 14] |= 0xE0;
+        image[range.start + 15] |= 0x80 | 0x30;
+
+        let channels: Vec<_> = decode_channels(&image, &UV5R)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        let rewritten = encode_channels(&image, &channels, &UV5R).unwrap();
+        assert_eq!(rewritten[range.clone()], image[range]);
+        assert_eq!(rewritten, image);
+    }
+
+    #[test]
+    fn a_rewrite_still_sets_the_modelled_bits() {
+        let image =
+            encode_channels(&blank(), &[channel("A", 146_520_000, 146_520_000)], &UV5R).unwrap();
+        let mut narrow_skipped = channel("A", 146_520_000, 146_520_000);
+        narrow_skipped.narrow = true;
+        narrow_skipped.skip = true;
+        let rewritten = encode_channels(&image, &[narrow_skipped], &UV5R).unwrap();
+        let decoded = decode_channels(&rewritten, &UV5R).unwrap()[0]
+            .clone()
+            .unwrap();
+        assert!(decoded.narrow);
+        assert!(decoded.skip);
     }
 
     #[test]
