@@ -185,6 +185,10 @@ class SecureSettingsStore implements SettingsStore {
   Future<String?> read(String key) async {
     final value = await _storage.read(key: key);
     if (value != androidResetSentinel) return value;
+    // The text alone is ambiguous — a stored secret could read exactly so
+    // (and on every other platform nothing else produces it). A reset leaves
+    // the store empty, so a key still held is a real value.
+    if (await _stillHeld(key)) return value;
     // Not this key's value: the store was just wiped, so the truth is that
     // nothing is stored under it. Read as a pin it refused every later
     // handshake; read as a credential it was sent to the device.
@@ -193,6 +197,16 @@ class SecureSettingsStore implements SettingsStore {
       'every stored secret has to be entered again',
     );
     return null;
+  }
+
+  Future<bool> _stillHeld(String key) async {
+    try {
+      return await _storage.containsKey(key: key);
+    } catch (_) {
+      // Any failure here is the plugin failing again — another reset, whose
+      // sentinel also fails containsKey's bool cast. Nothing is held.
+      return false;
+    }
   }
 
   @override
