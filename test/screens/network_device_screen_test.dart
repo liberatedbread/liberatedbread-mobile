@@ -4267,6 +4267,60 @@ void main() {
       expect(double.parse(call.values['position']!), closeTo(held, 1e-9));
     });
 
+    testWidgets('a refused position puts the cover slider back', (
+      tester,
+    ) async {
+      final cover = utilityEntities.firstWhere((e) => e.platform == 'cover');
+      final withPosition = NetworkEntityDto(
+        isInstanced: cover.isInstanced,
+        name: cover.name,
+        platform: cover.platform,
+        deviceClass: cover.deviceClass,
+        stateCommand: cover.stateCommand,
+        valueField: cover.valueField,
+        options: cover.options,
+        actions: [
+          ...cover.actions,
+          const NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
+            role: 'set_cover_position',
+            transport: 'soap',
+            commandName: 'door_position',
+            userParams: ['position'],
+            min: 0,
+            max: 100,
+            readBack: [],
+          ),
+        ],
+      );
+      await pumpUtility(
+        tester,
+        entities: [withPosition],
+        reading: (entity, ret) => const NetworkReadingDto(
+          kind: NetworkReadingKind.number,
+          number: 20,
+          raw: '20',
+        ),
+      );
+      final render = codec.networkRequest!;
+      codec.networkRequest = (name, values) => name == 'door_position'
+          ? throw StateError('refused')
+          : render(name, values);
+
+      final slider = find.byType(Slider);
+      await tester.drag(slider, const Offset(40, 0));
+      await tester.pumpAndSettle();
+
+      expect(
+        codec.renderNetworkCommandCalls.where(
+          (c) => c.commandName == 'door_position',
+        ),
+        isNotEmpty,
+      );
+      expect(tester.widget<Slider>(slider).value, 20);
+    });
+
     testWidgets('a bounded number renders a slider, not the edit dialog', (
       tester,
     ) async {
