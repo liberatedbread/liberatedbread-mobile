@@ -811,7 +811,7 @@ jobs:
             build-tools;${{ env.ANDROID_BUILD_TOOLS }}
             cmake;${{ env.ANDROID_CMAKE }}
             ndk;${{ env.FLUTTER_NDK_VERSION }}
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
       - name: Write android/local.properties
         run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
@@ -848,7 +848,7 @@ jobs:
       # Uploaded before the release build so a release-only failure still leaves
       # the debug APK downloadable for triage.
       # Best-effort upload: continue-on-error (deliberate, survives artifact-quota hits) would neutralize if-no-files-found: error anyway, so warn.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         continue-on-error: true
         with:
           name: app-debug-mock.apk
@@ -978,7 +978,7 @@ jobs:
       # above), setup-gradle touches only GRADLE_USER_HOME: it does not install
       # or replace platform-tools, so it cannot disturb the adb/emulator setup
       # that made setup-android unusable in this job.
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
       # Warm up the native build BEFORE the emulator step.
       #
       # This step — not the --timeout flag further down — is what fixes the
@@ -1080,7 +1080,7 @@ jobs:
       # passing one.
       - name: Upload emulator logcat
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: emulator-logcat-api${{ matrix.api-level }}
           path: |
@@ -1437,7 +1437,7 @@ jobs:
       # below, which tees from the workspace root.
       - name: Upload simulator log and crash reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ios-simulator-diagnostics
           path: |
