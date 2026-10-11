@@ -1064,7 +1064,14 @@ void main() {
     await tester.pumpWidget(
       _wrap(ble: FakeBleService(), codec: FakeSpecCodec(), spec: spec),
     );
-    final slider = tester.widget<Slider>(find.byType(Slider));
+    // No target yet: the thumb rests at the bottom, which is not a speed.
+    // Old code announced 'Speed 0.00 mph' under a headline of '—'.
+    var slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.semanticFormatterCallback!(0), 'Speed not set');
+
+    await tester.drag(find.byType(Slider), const Offset(60, 0));
+    await tester.pumpAndSettle();
+    slider = tester.widget<Slider>(find.byType(Slider));
     expect(slider.semanticFormatterCallback!(3), 'Speed 3.00 mph');
   });
 

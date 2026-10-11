@@ -807,9 +807,12 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
               Slider(
                 // The spec's unit and precision, as the visible label shows
                 // them — not a hardcoded one-decimal 'km/h' that announced an
-                // mph pad in the wrong unit.
-                semanticFormatterCallback: (v) =>
-                    'Speed ${_fmtSpeed(speed, v)}',
+                // mph pad in the wrong unit. With no target the thumb's
+                // resting place is not a speed, so it is not announced as one
+                // (the headline's '—', said aloud).
+                semanticFormatterCallback: (v) => shownSpeed == null
+                    ? 'Speed not set'
+                    : 'Speed ${_fmtSpeed(speed, v)}',
                 min: speed.minDisplay,
                 max: speed.maxDisplay,
                 // Discrete [_speedStep] stops where the range allows; null past
