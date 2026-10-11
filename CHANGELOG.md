@@ -70,6 +70,16 @@ heading.
 
 ### Security
 
+- **A smart lock is never in a group's "Turn all off".** The spec schema has
+  no lock platform, so SESAME's and Yale's bolts are switches whose Off is
+  `unlock`. The device screen asks before any switch on a lock moves; a group
+  run cannot ask, and sent it. Lock devices, and any switch keyed or classed
+  `lock` on any device, now bind no group command; their batteries still read.
+- **An Android secure-storage reset is no longer read back as a secret.**
+  When a read fails, flutter_secure_storage's `resetOnError` wipes every
+  stored secret and answers with the text "Data has been reset", which was
+  then used as a TLS pin (refusing every later handshake) or sent to a device
+  as a credential. It now reads as nothing stored.
 - **Home Assistant token no longer leaks into logs.** A corrupt stored config
   was logged via `'$e'`, and `FormatException.toString()` quotes a window of
   its source — which here was the *decrypted* config, exposing 36 contiguous
@@ -428,6 +438,19 @@ heading.
 
 ### Fixed
 
+- **Forgetting a device forgets the spec you picked for it, in this session
+  too.** The stored choice was cleared but the in-memory one was not, so a
+  device re-added before a restart came back on the spec it was removed over.
+- **A device name padded out to a fixed buffer reads as text.** A string field
+  ends at its first NUL: `CHEF iQ` followed by `ff ff …` no longer shows as hex.
+- **Rabbit Air over Bluetooth:** a disconnect while a command is still being
+  written fails that command instead of raising an uncaught error.
+- **Tests and CI:** two Rabbit Air crypto tests no longer fail about one run in
+  256 (a fixed, OpenSSL-made datagram replaces a random IV); a direct-ATT unit
+  test no longer connects to the machine's real D-Bus; the emulator selftest
+  no longer counts a zombie as a survivor; the network-discovery job builds
+  and requires the Rust library its hub test needs instead of letting it skip;
+  `test.sh` shows a skipped spec validation instead of discarding the warning.
 - **Forgetting a device forgets it, and only it.** Removing a saved Hue
   bridge now clears its pairing (username, client key, TLS pin, scheme),
   and removing any device no longer clears the pin and credentials stored
