@@ -174,9 +174,12 @@ plugins have, which RealBleService is written against:
   phone.
 - **Anything off Linux.** The router is never installed there.
 
-One Linux papercut it leaves alone: RealBleService treats a reported MTU of
-23 right after connect as "unknown" and assumes 512, for BlueZ and direct
-links alike.
+One Linux papercut it narrows rather than removes: RealBleService treats a
+reported MTU of 23 right after connect as "unknown" and assumes 512, because
+flutter_blue_plus_linux never reports one. A link the router serves is exempt
+— its 23 is the MTU it really negotiated, and `mtu()` asks the router again
+at read time, so a device taken over mid-discovery reads true too — but a
+device still on BlueZ keeps the assumption.
 
 ## Testing
 

@@ -193,14 +193,16 @@ final bleSetupModeMatchProvider = FutureProvider.autoDispose
       final link = ref.keepAlive();
       final expiry = Timer(const Duration(minutes: 5), link.close);
       ref.onDispose(expiry.cancel);
+      // Every watch before the first await, as the scan and catalogue
+      // providers do: a watch taken after one throws when the scope was
+      // disposed meanwhile (a screen closed, a test ended).
+      final codec = ref.watch(specCodecProvider);
       final devices = await ref.watch(bleAdoptableDevicesProvider.future);
       if (devices.isEmpty) return null;
-      final index = await ref
-          .watch(specCodecProvider)
-          .matchBleProvisioningName(
-            profiles: devices.map((d) => d.profile).toList(),
-            advertisedName: advertisedName,
-          );
+      final index = await codec.matchBleProvisioningName(
+        profiles: devices.map((d) => d.profile).toList(),
+        advertisedName: advertisedName,
+      );
       return index == null ? null : devices[index];
     });
 

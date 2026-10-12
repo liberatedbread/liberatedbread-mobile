@@ -35,7 +35,12 @@ class _ScriptedBroker implements MqttSocket {
   @override
   Future<void> close() async {
     closed = true;
-    if (!_out.isClosed) await _out.close();
+    if (_out.isClosed) return;
+    // A real socket's close() completes on its own; a StreamController's only
+    // once its done event reaches a listener, and a session closed before it
+    // ever subscribed has none. Do not wait on a listener that never comes.
+    final done = _out.close();
+    if (_out.hasListener) await done;
   }
 
   void send(List<int> bytes) => _out.add(Uint8List.fromList(bytes));
@@ -107,6 +112,50 @@ void main() {
     );
     return (session, broker);
   }
+
+  test('a close() during the dial is honoured, not overtaken', () async {
+    // The device screen pops while the TLS handshake is still in flight.
+    // close() then finds no socket; the dial that completes afterwards must
+    // not go on to log in, install the keepalive and hold the device's one
+    // client slot for a session nobody references.
+    final broker = _ScriptedBroker();
+    final dialled = Completer<void>();
+    final release = Completer<void>();
+    final session = MqttSession(
+      codec: codec,
+      connect: (host, port, timeout) async {
+        dialled.complete();
+        await release.future;
+        return broker;
+      },
+    );
+    addTearDown(session.dispose);
+
+    final connecting = session.connect(
+      '10.0.0.5',
+      8883,
+      clientId: 'blid',
+      username: 'blid',
+      password: 'secret',
+    );
+    await dialled.future;
+    await session.close();
+    release.complete();
+
+    await expectLater(
+      connecting,
+      throwsA(
+        isA<MqttConnectionException>().having(
+          (e) => e.message,
+          'message',
+          contains('closed while connecting'),
+        ),
+      ),
+    );
+    expect(session.isConnected, isFalse);
+    expect(broker.written, isEmpty, reason: 'the password was never sent');
+    expect(broker.closed, isTrue, reason: 'the late socket was released');
+  });
 
   test(
     'a CONNECT that cannot be rendered never opens or strands a socket',
