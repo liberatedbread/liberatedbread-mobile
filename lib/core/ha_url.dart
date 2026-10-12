@@ -1,6 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:io' show InternetAddress, InternetAddressType;
+
 // Classification of Home Assistant base URLs, used by the setup screen to
 // decide which remote-access hint to show (e.g. suggest Tailscale for
 // LAN-only addresses).
@@ -44,7 +46,10 @@ HaUrlKind classifyHaUrl(String input) {
     return HaUrlKind.tailscale;
   }
   if (host.endsWith('.local')) return HaUrlKind.mdnsLocal;
-  if (isPrivateIpv4(host) || host == 'localhost' || _isHomeNetworkName(host)) {
+  if (isPrivateIpv4(host) ||
+      _isPrivateIpv6(host) ||
+      host == 'localhost' ||
+      _isHomeNetworkName(host)) {
     return HaUrlKind.privateLan;
   }
   return uri.scheme == 'https' ? HaUrlKind.publicHttps : HaUrlKind.publicHttp;
@@ -72,6 +77,20 @@ bool isPrivateIpv4(String host) {
   if (a == 192 && b == 168) return true;
   if (a == 169 && b == 254) return true;
   return false;
+}
+
+/// True for IPv6 literals that never leave the home network: loopback
+/// (`::1`), link-local (`fe80::/10`) and unique-local (`fc00::/7`). An
+/// `fd00::` Home Assistant used to be classed as public: told to check its
+/// port forwarding when it failed, and warned about plain HTTP over the
+/// internet on its own LAN.
+bool _isPrivateIpv6(String host) {
+  final address = InternetAddress.tryParse(host);
+  if (address == null || address.type != InternetAddressType.IPv6) {
+    return false;
+  }
+  if (address.isLoopback || address.isLinkLocal) return true;
+  return (address.rawAddress[0] & 0xfe) == 0xfc;
 }
 
 /// A name only the home network's resolver answers: a single label with no

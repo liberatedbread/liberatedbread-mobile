@@ -60,6 +60,10 @@ other ref as its bare SHA.
      `LB_RELEASE_UNTAGGED=1` overrides for a throwaway build.
    - **Uncommitted changes.** `-dirty` names no commit, and an untracked
      source file leaves no trace at all. `LB_RELEASE_DIRTY=1` overrides.
+  4. **An Android build without `android/key.properties`.** Gradle would fall
+     back to the debug signing config with only a warning, and Play rejects a
+     debug-signed bundle. `LB_RELEASE_DEBUG_SIGNED=1` overrides for a local
+     smoke test of the build itself.
    - **The tag disagrees with `pubspec.yaml`.** One version in the listing,
      another in every bug report. No override: fix the tag.
    - **Untracked or ignored files under `device-specs/devices/` or

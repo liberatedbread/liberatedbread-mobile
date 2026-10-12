@@ -221,6 +221,14 @@ void main() {
       await _pumpUntil(tester, find.text('ACME_Living_Room'));
       await tester.tap(find.text('ACME_Living_Room'));
       await _pumpUntil(tester, find.text('Control Service'));
+      // The cards mount a frame before the match resolves, and the match
+      // then folds this one through a post-frame collapse. Let that settle
+      // before tapping: ExpansionTile binds its header's onTap to collapse
+      // or expand as it builds, so a tap in the one frame between that
+      // collapse and the rebuild runs the stale collapse — a no-op — and
+      // the tile stays shut. Seen only under load, where that frame is the
+      // one _pumpUntil returns in.
+      await _pumpAWhile(tester, rounds: 4);
 
       // Both labels come from the example bulb spec in the vendored
       // catalogue (device-specs/examples/example-bulb.yaml), reached by
@@ -234,12 +242,18 @@ void main() {
             'generic "Service" label',
       );
       // The light card draws this service's controls, so its generic card
-      // starts folded; open it to reach the typed command buttons.
-      await tester.tap(find.text('Control Service'));
-      await _pumpAWhile(tester, rounds: 4);
+      // starts folded; open it to reach the typed command buttons. Checked
+      // against the BUTTON and tapped again if it is not there: the
+      // command's name alone also shows mid-fold, while the tile's children
+      // are still animating away.
+      final powerOn = find.widgetWithText(ElevatedButton, 'Power on');
+      for (var i = 0; i < 5 && powerOn.evaluate().isEmpty; i++) {
+        await tester.tap(find.text('Control Service'));
+        await _pumpAWhile(tester, rounds: 8);
+      }
       expect(
-        find.text('Power on'),
-        findsWidgets,
+        powerOn,
+        findsOneWidget,
         reason: 'typed command buttons only exist when a spec matched',
       );
 
@@ -267,7 +281,6 @@ void main() {
       // between ensureVisible and the tap re-laid the list, the tap hit the
       // item that moved under it, nothing was sent, and the wait for "Sent"
       // ran out its 90 s (only under the full suite's load).
-      final powerOn = find.widgetWithText(ElevatedButton, 'Power on');
       for (var i = 0; i < 20 && powerOn.hitTestable().evaluate().isEmpty; i++) {
         await tester.ensureVisible(powerOn);
         await _pumpAWhile(tester, rounds: 4);

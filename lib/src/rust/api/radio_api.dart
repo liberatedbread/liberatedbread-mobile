@@ -209,6 +209,12 @@ Future<Uint8List> uv5RWriteCommand({
   data: data,
 );
 
+/// The CHIRP models `firmware` names, in CHIRP's order
+/// (`uv5r::firmware_models`): what a refusal from [`uv5r_check_firmware`]
+/// can tell the user to choose instead. Empty for a string naming none.
+Future<List<String>> uv5RFirmwareModels({required String firmware}) =>
+    RustLib.instance.api.crateApiRadioApiUv5RFirmwareModels(firmware: firmware);
+
 /// The firmware string an image carries.
 Future<String> uv5RFirmware({required List<int> image}) =>
     RustLib.instance.api.crateApiRadioApiUv5RFirmware(image: image);

@@ -762,10 +762,14 @@ class SpecPackService {
         'install failed: none of the ${manifest.specs.length} '
         'spec(s) could be downloaded — ${_summarize(failures)}',
       );
-      return const InstallFailed(
+      // The reasons travel with the error. A pack every spec of which the
+      // validator or the security floor refused used to read as a download
+      // failure, sending the user to check their connection and the URL.
+      return InstallFailed(
         SpecPackError(
           SpecPackErrorKind.noSpecsInstalled,
-          'None of the specs in the manifest could be downloaded.',
+          'None of the specs in the manifest could be installed: '
+          '${_summarize(failures)}.',
         ),
       );
     }

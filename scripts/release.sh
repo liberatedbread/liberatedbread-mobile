@@ -18,6 +18,8 @@
 # untagged HEAD and a dirty tree. A throwaway build can override either:
 #   LB_RELEASE_UNTAGGED=1   no tag on HEAD: the stamp is a bare commit SHA
 #   LB_RELEASE_DIRTY=1      uncommitted changes: tracked edits stamp `-dirty`
+#   LB_RELEASE_DEBUG_SIGNED=1  android without key.properties: a debug-signed
+#                           bundle Play will refuse, for a local smoke test
 # Stray files in the bundled spec directories have no override, because the
 # stamp cannot see them at all (see below).
 #
@@ -160,6 +162,20 @@ log "Build stamp: $STAMP (version $VERSION)"
 
 case "$TARGET" in
   android)
+    # Without android/key.properties, build.gradle falls back to the debug
+    # signing config with only a Gradle warning, and Play refuses the result:
+    # a full build for a bundle that cannot be uploaded. Say so first.
+    if [[ ! -f android/key.properties ]]; then
+      if [[ "${LB_RELEASE_DEBUG_SIGNED:-0}" == "1" ]]; then
+        warn "LB_RELEASE_DEBUG_SIGNED=1: android/key.properties is missing, so"
+        warn "the bundle will carry the debug signature. Play will reject it."
+      else
+        err "android/key.properties is missing: the bundle would be signed with"
+        err "the debug key, which Play rejects. Create it per docs/RELEASE.md, or"
+        err "set LB_RELEASE_DEBUG_SIGNED=1 for a throwaway build."
+        exit 1
+      fi
+    fi
     # Minutes since the epoch: rises with every build, and stays far below
     # Play's versionCode ceiling of 2,100,000,000.
     BUILD_NUMBER="$(($(date -u +%s) / 60))"

@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -158,6 +159,29 @@ void main() {
       final listings = await _answering(fixture).fetchByState('CT');
       final dcs = listings.firstWhere((l) => l.callsign == 'WT2EST');
       expect(dcs.channel.txTone, const ToneSetting.dcs(23));
+    });
+
+    test('a tone outside the radios\' tables is carrier squelch, not a '
+        'write failure', () async {
+      // A directory cell the codec cannot encode (a DCS code no Baofeng
+      // table holds, a CTCSS off the standard list) used to ride into the
+      // plan and fail the write in the codec, after the radio had been read
+      // and backed up, as a bare "did not finish".
+      final rows = (jsonDecode(fixture) as Map<String, dynamic>);
+      for (final row in rows['results'] as List) {
+        final r = row as Map<String, dynamic>;
+        if (r['Callsign'] == 'WT2EST') r['PL'] = 'D024';
+        if (r['Callsign'] == 'WT3EST') r['PL'] = '99.9';
+      }
+      final listings = await _answering(jsonEncode(rows)).fetchByState('CT');
+      expect(
+        listings.firstWhere((l) => l.callsign == 'WT2EST').channel.txTone,
+        ToneSetting.none,
+      );
+      expect(
+        listings.firstWhere((l) => l.callsign == 'WT3EST').channel.txTone,
+        ToneSetting.none,
+      );
     });
 
     test('treats CSQ and blank as no tone', () async {

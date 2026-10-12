@@ -233,7 +233,16 @@ pub(crate) fn decode_bcd(bytes: &[u8]) -> Option<u32> {
 }
 
 /// Encode hertz into the same field.
+///
+/// Refused rather than rounded when finer than the ten hertz the field
+/// holds: a channel written 5 Hz off what the plan says reads back as a
+/// different channel, and nothing upstream checks the step.
 pub(crate) fn encode_bcd(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
+    if !hz.is_multiple_of(10) {
+        return Err(ProtocolError::MalformedReply(format!(
+            "{hz} Hz is finer than the 10 Hz this radio stores"
+        )));
+    }
     let mut tens = hz / 10;
     if tens > 99_999_999 {
         return Err(ProtocolError::MalformedReply(format!(
@@ -730,6 +739,14 @@ mod tests {
             encode_bcd(hz, &mut field).unwrap();
             assert_eq!(decode_bcd(&field), Some(hz), "{hz} Hz did not survive");
         }
+    }
+
+    #[test]
+    fn a_frequency_finer_than_ten_hertz_is_refused_not_rounded() {
+        let mut field = [0u8; 4];
+        let err = encode_bcd(146_520_005, &mut field).unwrap_err();
+        assert!(err.to_string().contains("finer than the 10 Hz"), "{err}");
+        assert_eq!(field, [0u8; 4], "nothing was written");
     }
 
     #[test]

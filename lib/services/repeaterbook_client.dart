@@ -320,10 +320,15 @@ class RepeaterBookClient implements RepeaterSource {
       return ToneSetting.none;
     }
 
+    // Only a tone the radios' tables hold. A directory cell outside them (a
+    // mistyped DCS code, a CTCSS no Baofeng offers) used to ride into the
+    // plan and fail in the codec at write time — after the radio had been
+    // read and backed up — as a bare "did not finish". Carrier squelch is
+    // the honest fallback: the card still shows the directory's notes.
     if (upper.startsWith('D')) {
       final digits = RegExp(r'\d+').firstMatch(upper)?.group(0);
       final code = digits == null ? null : int.tryParse(digits);
-      if (code == null || code <= 0) return ToneSetting.none;
+      if (code == null || !dcsCodes.contains(code)) return ToneSetting.none;
       return ToneSetting.dcs(code, inverted: upper.endsWith('I'));
     }
 
@@ -333,7 +338,9 @@ class RepeaterBookClient implements RepeaterSource {
     // tenths of a Hz this app stores are that divided by 100000.
     if (hz == null || hz <= 0) return ToneSetting.none;
     final tenths = hz ~/ 100000;
-    return tenths > 0 ? ToneSetting.ctcss(tenths) : ToneSetting.none;
+    return ctcssTonesTenthHz.contains(tenths)
+        ? ToneSetting.ctcss(tenths)
+        : ToneSetting.none;
   }
 
   static double? _numField(Map<String, dynamic> row, List<String> names) {

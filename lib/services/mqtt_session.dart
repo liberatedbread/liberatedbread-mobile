@@ -414,6 +414,12 @@ class MqttSession {
   /// stripped by the stale decode.
   int _generation = 0;
 
+  /// What connect() reports when close() overtook it. A connection failure,
+  /// not a refusal: nothing about the credentials was decided.
+  static const _closedWhileConnecting = MqttConnectionException(
+    'The session was closed while connecting.',
+  );
+
   /// The tail of the chunk-processing chain.
   ///
   /// `Stream.listen` does not await an async callback, so without this two
@@ -466,6 +472,15 @@ class MqttSession {
   }) async {
     if (_socket != null) return;
 
+    // A close() that lands while this method is suspended below — the screen
+    // that asked for the session was popped during a slow TLS handshake —
+    // finds no socket to shut and retires the generation instead. Each await
+    // checks for that: carrying on would set the socket, send the
+    // credentials, install the keepalive and hold the device's client slot
+    // for a session nothing references any more. A Roomba serves one local
+    // client at a time, so that orphan locked the robot until it evicted us.
+    final generation = _generation;
+
     // Rendered BEFORE the socket opens, so nothing is awaited between
     // `_socket = socket` and the try that releases it. Rendered after, a
     // render failure (an over-length credential the codec refuses) left the
@@ -478,8 +493,17 @@ class MqttSession {
       username: username,
       password: password,
     );
+    if (generation != _generation) throw _closedWhileConnecting;
 
     final socket = await _connect(host, port, connectTimeout);
+    if (generation != _generation) {
+      try {
+        await socket.close();
+      } catch (_) {
+        // Already gone.
+      }
+      throw _closedWhileConnecting;
+    }
     _socket = socket;
     _failed = false;
     _connected = Completer<void>();

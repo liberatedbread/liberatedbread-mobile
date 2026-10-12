@@ -4,7 +4,7 @@
 // DirectAttRegistry (which devices the Linux router sends direct) and
 // installDirectAttRouter's guards (when it wraps the platform at all).
 
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:flutter_blue_plus_linux/flutter_blue_plus_linux.dart';
 import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart';
@@ -28,6 +28,22 @@ class _BrokenStore implements SettingsStore {
   Future<void> delete(String key) async => throw StateError('broken');
   @override
   Future<Map<String, String>> readAll() async => throw StateError('broken');
+}
+
+/// `true` off Linux, a reason on a Linux host with no system bus, else null.
+final Object? _skipWithoutLinuxSystemBus = !Platform.isLinux
+    ? true
+    : _systemBusPresent
+    ? null
+    : 'no system D-Bus socket: package:dbus surfaces the missing bus as an '
+          'unhandled async error that installDirectAttRouter cannot catch';
+
+bool get _systemBusPresent {
+  final address =
+      Platform.environment['DBUS_SYSTEM_BUS_ADDRESS'] ??
+      'unix:path=/var/run/dbus/system_bus_socket';
+  final path = RegExp(r'unix:path=([^,;]+)').firstMatch(address)?.group(1);
+  return path != null && File(path).existsSync();
 }
 
 void main() {
@@ -95,7 +111,12 @@ void main() {
   });
 
   // The router is Linux's by design: anywhere else installing it is a no-op.
-  group('installDirectAttRouter', skip: !Platform.isLinux, () {
+  // And it needs bluetoothd's bus: installing it warms a BlueZ client up
+  // over the system D-Bus, and package:dbus reports a missing bus socket as
+  // an unhandled asynchronous error from a signal stream's onListen, which
+  // no try/catch in BluezView.warmUp can reach. CI's runners have the bus; a
+  // bare container does not, and must skip rather than fail.
+  group('installDirectAttRouter', skip: _skipWithoutLinuxSystemBus, () {
     final store = Future<SettingsStore>.value(InMemorySettingsStore());
 
     test('does nothing when told LB_DIRECT_ATT=off', () {

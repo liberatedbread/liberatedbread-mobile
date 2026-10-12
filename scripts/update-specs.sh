@@ -637,7 +637,16 @@ fi
 # vendored content back finds nothing. Fine while iterating, worth saying.
 local_source=0
 case "$REMOTE" in
-  *://*|git@*) ;;
+  *://*|git@*)
+    # A remote branch other than main is the trap AGENTS.md describes:
+    # upstream squash-merges, so the branch tip this pull records vanishes
+    # when the PR lands, and every later pull degrades into a full-tree
+    # squash. Fine for UNCOMMITTED iteration, never for a committed refresh.
+    if [ "$REF" != "main" ]; then
+      warn "pulling upstream's '$REF', not main: its tip disappears when the PR"
+      warn "squash-merges and the split commit recorded here will dangle."
+      warn "Do not commit this refresh; re-pull main once the spec PR lands."
+    fi ;;
   *) local_source=1
      warn "pulling from a local checkout ($REMOTE) — the recorded upstream"
      warn "commit will not exist for anyone else until that branch is pushed." ;;
@@ -743,10 +752,13 @@ source "$SCRIPT_DIR/regen-spec-index.sh" || exit 1
 regen_spec_index || exit 1
 
 # Rewrite the iOS Bonjour allow-list from the catalogue. Unlike the index this
-# output is COMMITTED — it ships in the iOS bundle — so it lands in the working
-# tree beside the subtree squash and goes into the same commit. Doing it here is
-# what makes a new Wi-Fi spec discoverable on iOS without anyone remembering to
-# edit a plist. See scripts/regen-bonjour-services.sh.
+# output is COMMITTED — it ships in the iOS bundle. The subtree pull above has
+# already written its squash and merge commits, so a changed plist is left
+# MODIFIED in the working tree for the caller to commit (the trailer below
+# says so): test/platform/ios_bonjour_catalogue_test.dart fails the unit job
+# until it is. Doing it here is what makes a new Wi-Fi spec discoverable on
+# iOS without anyone remembering to edit a plist. See
+# scripts/regen-bonjour-services.sh.
 # shellcheck source=regen-bonjour-services.sh
 source "$SCRIPT_DIR/regen-bonjour-services.sh" || exit 1
 # `|| exit 1` like every other generated artefact here, and for the reason that
@@ -763,5 +775,8 @@ regen_bonjour_services || exit 1
 if [ "$changed" -eq 1 ]; then
   log "Now run ./scripts/test.sh — the catalogue feeds the matcher, the iOS"
   log "Bonjour list and the registries, and each has a test that reads it."
-  log "If the Bonjour list above changed, commit ios/Runner/Info.plist too."
+  if ! git diff --quiet -- ios/Runner/Info.plist; then
+    warn "ios/Runner/Info.plist changed (the Bonjour list follows the catalogue)"
+    warn "and is NOT in the subtree commit: commit it alongside."
+  fi
 fi

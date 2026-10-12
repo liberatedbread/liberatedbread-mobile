@@ -18,8 +18,15 @@ void main() {
       'http://homeassistant:8123': HaUrlKind.privateLan,
       'ha:8123': HaUrlKind.privateLan,
       'http://ha.home.arpa:8123': HaUrlKind.privateLan,
-      // An IPv6 literal is not a bare name.
+      // An IPv6 literal is not a bare name; a global one is public.
       'http://[2001:db8::1]:8123': HaUrlKind.publicHttp,
+      // IPv6 that never leaves the LAN: loopback, link-local, unique-local.
+      'http://[::1]:8123': HaUrlKind.privateLan,
+      'http://[fe80::1]:8123': HaUrlKind.privateLan,
+      'http://[fd00::1]:8123': HaUrlKind.privateLan,
+      'http://[fc00:1234::5]:8123': HaUrlKind.privateLan,
+      // fc00::/7 ends at fdff::; fe00:: is not unique-local.
+      'http://[fe00::1]:8123': HaUrlKind.publicHttp,
       // Not private: outside 172.16/12.
       'http://172.32.0.1': HaUrlKind.publicHttp,
       // mDNS.
