@@ -4,7 +4,7 @@
 // DirectAttRegistry (which devices the Linux router sends direct) and
 // installDirectAttRouter's guards (when it wraps the platform at all).
 
-import 'dart:io' show File, Platform;
+import 'dart:io' show FileSystemEntity, FileSystemEntityType, Platform;
 
 import 'package:flutter_blue_plus_linux/flutter_blue_plus_linux.dart';
 import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart';
@@ -43,7 +43,12 @@ bool get _systemBusPresent {
       Platform.environment['DBUS_SYSTEM_BUS_ADDRESS'] ??
       'unix:path=/var/run/dbus/system_bus_socket';
   final path = RegExp(r'unix:path=([^,;]+)').firstMatch(address)?.group(1);
-  return path != null && File(path).existsSync();
+  // By type, not File.existsSync(): the bus is a Unix-domain socket, and
+  // only typeSync is documented to answer for one (it does on Dart 3.12
+  // either way, but a skip that silently emptied this group on CI is the
+  // one failure mode this guard must never have).
+  return path != null &&
+      FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound;
 }
 
 void main() {
