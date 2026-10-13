@@ -480,7 +480,8 @@ heading.
   test no longer connects to the machine's real D-Bus; the network-discovery
   job builds and requires the Rust library its hub test needs instead of
   letting it skip; `test.sh` shows a skipped spec validation instead of
-  discarding the warning.
+  discarding the warning; the emulator-runner selftest waits for a killed
+  stub to finish dying instead of reading it mid-exit as a survivor.
 - **Forgetting a device forgets it, and only it.** Removing a saved Hue
   bridge now clears its pairing (username, client key, TLS pin, scheme),
   and removing a device identified by its MAC no longer clears the pin and
