@@ -143,7 +143,7 @@ class SavedDevicesScreen extends ConsumerWidget {
       // The per-device preferences keyed by this id. A re-saved device gets
       // the same id back, so without these a removal left the old spec
       // choice, LED designs and panel size to reappear under it.
-      specChoices: ref.read(specChoiceStoreProvider),
+      specChoices: ref.read(specChoicesProvider.notifier),
       savedDesigns: ref.read(savedDesignsStoreProvider),
       panelResolutions: ref.read(panelResolutionCacheProvider),
     );

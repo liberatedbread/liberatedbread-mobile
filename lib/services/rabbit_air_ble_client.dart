@@ -234,6 +234,12 @@ class RabbitAirBleClient implements RabbitAirBleLink {
     _buffer.clear();
     final pending = Completer<List<int>>();
     _pending = pending;
+    // Listened to now, not only at the `await` below the writes: a
+    // disconnect or a notify failure while a chunk is still being written
+    // fails this completer first, and an error with no listener is an
+    // uncaught one. The await still receives it; a write that throws
+    // instead leaves it handled rather than dangling.
+    unawaited(pending.future.then<void>((_) {}, onError: (Object _) {}));
     try {
       for (final chunk in chunks) {
         await _ble.writeCharacteristic(deviceId, serviceUuid, charUuid, chunk);

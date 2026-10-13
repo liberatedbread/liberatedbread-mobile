@@ -10,6 +10,7 @@ import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_radio_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
+import 'package:liberated_bread_mobile/providers/spec_choice_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/screens/roomba_transport_screen.dart';
@@ -191,6 +192,13 @@ void main() {
 
     await tester.pumpWidget(_wrap());
     await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SavedDevicesScreen)),
+      listen: false,
+    );
+    // Read before the forget, so the notifier holds the choice in memory —
+    // as it does in a session that has matched the device.
+    expect(container.read(specChoicesProvider), contains('aa'));
 
     await tester.tap(find.byTooltip('Forget Probe One'));
     await tester.pumpAndSettle();
@@ -198,6 +206,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(SpecChoiceStore(_prefs).load(), {'bb': 'Right Bulb|Acme'});
+    // And the copy the matcher actually reads: clearing only the stored one
+    // let the device, re-added in the same session, come back on the spec
+    // it was removed over.
+    expect(container.read(specChoicesProvider), {'bb': 'Right Bulb|Acme'});
     expect(_prefs.getString('saved_designs_v1:aa'), isNull);
     expect(PanelResolutionCache(_prefs).get('aa'), isNull);
   });

@@ -33,9 +33,13 @@ NetworkEntityDto _entity({
   String platform = 'switch',
   String stateCommand = '',
   String? transport,
+  String? key,
+  String? deviceClass,
   List<NetworkActionDto> actions = const [],
 }) => NetworkEntityDto(
   name: 'Power',
+  key: key,
+  deviceClass: deviceClass,
   platform: platform,
   stateCommand: stateCommand,
   transport: transport,
@@ -51,6 +55,22 @@ void main() {
         _entity(actions: [_action('turn_on'), _action('turn_off')]),
       ]);
       expect(ops, {GroupOp.turnOn, GroupOp.turnOff});
+    });
+
+    test('a switch marked as a lock binds no group command', () {
+      // "Turn all off" on a lock's switch is an unlock nobody confirmed.
+      for (final marked in [
+        _entity(
+          key: 'lock',
+          actions: [_action('turn_on'), _action('turn_off')],
+        ),
+        _entity(
+          deviceClass: 'lock',
+          actions: [_action('turn_on'), _action('turn_off')],
+        ),
+      ]) {
+        expect(supportedNetworkGroupOps([marked]), isEmpty);
+      }
     });
 
     test('a toggle counts toward turn-off ONLY with a readable state', () {

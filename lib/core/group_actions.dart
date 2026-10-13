@@ -11,8 +11,16 @@
 // three commands and one role. Working role-first is also what makes bulk
 // sends safe by construction: the Rust side only resolves roles into
 // [EntityActionDto]s, so `advanced: true` commands (factory_reset, calibration
-// modes) and lock verbs are unreachable from a group operation — there is no
-// blacklist to keep current.
+// modes) are unreachable from a group operation — there is no blacklist to
+// keep current.
+//
+// Lock verbs are the exception roles cannot carry. The schema has no lock
+// platform, so a lock's bolt is a `switch` whose turn_off IS unlock (SESAME,
+// Yale), and every switch on a lock asks first on the device screen because
+// which way retracts a bolt is not something a spec states. A group run has
+// nobody to ask, so a lock's switches — and any switch marked as a lock,
+// whatever device it is on — never bind a group command ([_isLockControl]).
+// Locks stay groupable for what is safe in bulk: reading their batteries.
 //
 // The shape mirrors `detectAlertActions` in find_device.dart: pure functions
 // over (spec, discovered services) that return ready-to-send descriptors, with
@@ -25,6 +33,7 @@ import 'package:flutter/material.dart';
 import '../models/ble_discovered_service.dart';
 import '../services/spec_codec.dart';
 import 'decoded_number.dart';
+import 'device_category.dart';
 import 'entity_live_value.dart';
 import 'find_device.dart' show discoveredPairKey, discoveredWritablePairs;
 import 'hex.dart';
@@ -174,10 +183,12 @@ Iterable<({EntityDto entity, EntityActionDto action})> _controlActions(
   DeviceSpecDto spec, {
   List<String>? matchedVariants,
 }) sync* {
+  if (DeviceCategory.parse(spec.category) == DeviceCategory.lock) return;
   final unnarrowed = matchedVariants == null || matchedVariants.isEmpty;
   final scopedNames = <String>{};
   for (final entity in spec.entities) {
     if (entity.platform != 'light' && entity.platform != 'switch') continue;
+    if (_isLockControl(entity.key, entity.deviceClass)) continue;
     if (!entityIsForVariants(entity, matchedVariants)) continue;
     if (unnarrowed &&
         entity.variants.isNotEmpty &&
@@ -502,7 +513,17 @@ bool _groupSendable(NetworkActionDto action) =>
 /// no-drift reason as [_controlActions].
 Iterable<NetworkEntityDto> _networkControlEntities(
   List<NetworkEntityDto> entities,
-) => entities.where((e) => e.platform == 'light' || e.platform == 'switch');
+) => entities.where(
+  (e) =>
+      (e.platform == 'light' || e.platform == 'switch') &&
+      !_isLockControl(e.key, e.deviceClass),
+);
+
+/// Whether a switch is marked as a lock: the entity key or device class the
+/// device screen also reads a bolt from. Never a group command — see the
+/// header.
+bool _isLockControl(String? key, String? deviceClass) =>
+    key == 'lock' || deviceClass == 'lock';
 
 NetworkActionDto? _networkAction(NetworkEntityDto entity, String role) {
   for (final action in entity.actions) {

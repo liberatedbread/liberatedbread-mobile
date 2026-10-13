@@ -108,6 +108,42 @@ void main() {
       );
     });
 
+    // flutter_secure_storage's Android reset (resetOnError, which the test
+    // above pins) wipes the store and then answers the FAILED call with a
+    // literal string. Taken as data it became a TLS pin that refused every
+    // later handshake, or a credential sent to a device.
+    test('a read answered by the reset sentinel is "nothing stored"', () async {
+      final storage = _ResetOnReadStorage({'tls_pin:mac:aa'})
+        ..values['ha_token'] = 'secret';
+      final store = SecureSettingsStore(storage);
+      expect(await store.read('ha_token'), 'secret');
+      expect(await store.read('tls_pin:mac:aa'), isNull);
+      // The reset took everything with it, as the plugin's deleteAll does.
+      expect(await store.read('ha_token'), isNull);
+    });
+
+    // The sentinel's text is only a signal while the store is empty: a value
+    // genuinely stored as that text is still held after the read.
+    test(
+      'a stored value that happens to read as the sentinel is kept',
+      () async {
+        final storage = _RecordingStorage()
+          ..values['device_cred:x'] = SecureSettingsStore.androidResetSentinel;
+        expect(
+          await SecureSettingsStore(storage).read('device_cred:x'),
+          SecureSettingsStore.androidResetSentinel,
+        );
+      },
+    );
+
+    test(
+      'a readAll answered by the reset sentinel is an empty store',
+      () async {
+        final store = SecureSettingsStore(_ResetReadAllStorage());
+        expect(await store.readAll(), isEmpty);
+      },
+    );
+
     test('readAll goes through the unscoped store', () async {
       final scoped = _RecordingStorage();
       final sweeping = _RecordingStorage();
@@ -486,6 +522,17 @@ class _RecordingStorage extends FlutterSecureStorage {
   }) async => deleteCalls.add(key);
 
   @override
+  Future<bool> containsKey({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async => values.containsKey(key);
+
+  @override
   Future<Map<String, String>> readAll({
     IOSOptions? iOptions,
     AndroidOptions? aOptions,
@@ -507,6 +554,48 @@ class _RecordingStorage extends FlutterSecureStorage {
     MacOsOptions? mOptions,
     WindowsOptions? wOptions,
   }) async => deleteAllCalls++;
+}
+
+/// The Android plugin's reset, as a read of one of [failing] sees it: the
+/// call fails, the store is wiped, and the sentinel comes back as the value.
+class _ResetOnReadStorage extends _RecordingStorage {
+  _ResetOnReadStorage(this.failing);
+  final Set<String> failing;
+
+  @override
+  Future<String?> read({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (!failing.contains(key)) return values[key];
+    values.clear();
+    return SecureSettingsStore.androidResetSentinel;
+  }
+}
+
+/// readAll as the Android plugin answers it after a reset: the method
+/// channel returns the sentinel String and the plugin's own
+/// `invokeMethod<Map>` cast throws.
+class _ResetReadAllStorage extends FlutterSecureStorage {
+  _ResetReadAllStorage() : super();
+
+  @override
+  Future<Map<String, String>> readAll({
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async => (_channelAnswer() as Map?)?.cast<String, String>() ?? {};
+
+  /// What the method channel hands back for readAll after a reset.
+  Object? _channelAnswer() => SecureSettingsStore.androidResetSentinel;
 }
 
 /// Never answers, like an unregistered platform channel.

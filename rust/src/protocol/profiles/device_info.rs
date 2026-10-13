@@ -6,7 +6,7 @@
 //! All characteristics are read-only UTF-8 strings, except System ID
 //! which is 8 bytes decoded as hex.
 
-use crate::codec::types::{bytes_to_hex, DecodedValue, DecodedValues};
+use crate::codec::types::{bytes_to_hex, decode_c_string, DecodedValue, DecodedValues};
 use crate::error::ProtocolError;
 use crate::protocol::traits::DeviceProtocol;
 use std::collections::HashMap;
@@ -53,11 +53,9 @@ impl DeviceProtocol for DeviceInfoProtocol {
             // inside DecodedValue::String — the SIG says these fields are
             // UTF-8, but real hardware lies, and showing hex beats erroring
             // out of the whole Device Information card. Same fallback as
-            // codec::types::decode_field's String arm.
-            let s = std::str::from_utf8(bytes)
-                .map(|s| s.trim_end_matches('\0').to_string())
-                .unwrap_or_else(|_| bytes_to_hex(bytes, " "));
-            DecodedValue::String(s)
+            // codec::types::decode_field's String arm, and the same cut at
+            // the first NUL for a name padded out to a fixed buffer.
+            DecodedValue::String(decode_c_string(bytes))
         };
 
         let mut result = DecodedValues::new();
@@ -124,6 +122,15 @@ mod tests {
     fn decode_strips_null_terminator() {
         let proto = DeviceInfoProtocol::new();
         let values = proto.decode_value("2a29", b"Acme\0\0").unwrap();
+        assert_eq!(values["value"], DecodedValue::String("Acme".to_string()));
+    }
+
+    #[test]
+    fn decode_ignores_a_fixed_buffer_tail_after_the_terminator() {
+        // Padding that is not NUL (erased flash reads 0xff) used to fail
+        // UTF-8 and turn a readable name into hex.
+        let proto = DeviceInfoProtocol::new();
+        let values = proto.decode_value("2a29", b"Acme\0\xff\xff").unwrap();
         assert_eq!(values["value"], DecodedValue::String("Acme".to_string()));
     }
 

@@ -225,11 +225,19 @@ pub fn parse_user_key(hex: &str) -> Result<[u8; USER_KEY_LEN], ProtocolError> {
 pub fn encrypt(key: &[u8; USER_KEY_LEN], plaintext: &[u8]) -> Vec<u8> {
     let mut iv = [0u8; IV_LEN];
     getrandom::fill(&mut iv).expect("the OS has a CSPRNG");
+    encrypt_with_iv(key, &iv, plaintext)
+}
+
+/// [`encrypt`] under a caller-chosen IV. Private: the wire always takes a
+/// fresh random one. It exists so a test can pin a known-answer vector — a
+/// random IV makes every ciphertext different, and a wrong-key decrypt of one
+/// passes PKCS7 by chance about once in 256 runs.
+fn encrypt_with_iv(key: &[u8; USER_KEY_LEN], iv: &[u8; IV_LEN], plaintext: &[u8]) -> Vec<u8> {
     let ciphertext =
-        Aes128CbcEncryptor::new(key.into(), &iv.into()).encrypt_padded_vec::<Pkcs7>(plaintext);
+        Aes128CbcEncryptor::new(key.into(), iv.into()).encrypt_padded_vec::<Pkcs7>(plaintext);
     let mut out = Vec::with_capacity(ciphertext.len() + IV_LEN);
     out.extend_from_slice(&ciphertext);
-    out.extend_from_slice(&iv);
+    out.extend_from_slice(iv);
     out
 }
 
@@ -506,9 +514,45 @@ entities:
         assert_eq!(decrypt(&key(), &datagram).unwrap(), plaintext);
     }
 
+    /// `{"id":1,"cmd":9,"ts":1}` under [`KEY_HEX`] and the IV 00 01 .. 0f,
+    /// as the spec frames it (ciphertext || IV). Produced by OpenSSL, not by
+    /// this module, so it pins interoperability rather than self-consistency:
+    /// `openssl enc -aes-128-cbc -K <KEY_HEX> -iv 000102030405060708090a0b0c0d0e0f`.
+    const VECTOR_PLAINTEXT: &[u8] = br#"{"id":1,"cmd":9,"ts":1}"#;
+    const VECTOR_IV: [u8; IV_LEN] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f,
+    ];
+    const VECTOR_DATAGRAM_HEX: &str = "5397c555fd41d48e5ccdf0ee89e2cb48\
+                                       f7b2a2c64209ff963b4cfcef66ed32c5\
+                                       000102030405060708090a0b0c0d0e0f";
+
+    fn vector_datagram() -> Vec<u8> {
+        (0..VECTOR_DATAGRAM_HEX.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&VECTOR_DATAGRAM_HEX[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn encryption_matches_an_independent_implementation() {
+        assert_eq!(
+            encrypt_with_iv(&key(), &VECTOR_IV, VECTOR_PLAINTEXT),
+            vector_datagram()
+        );
+        assert_eq!(
+            decrypt(&key(), &vector_datagram()).unwrap(),
+            VECTOR_PLAINTEXT
+        );
+    }
+
     #[test]
     fn a_wrong_key_or_garbage_datagram_is_rejected() {
-        let datagram = encrypt(&key(), br#"{"id":1,"cmd":9,"ts":1}"#);
+        // A fixed datagram, not a fresh encrypt(): with a random IV the
+        // wrong-key decrypt is a random block, which passes PKCS7 about once
+        // in 256 runs and failed this test by chance. This one is checked
+        // (by OpenSSL too) to come out with bad padding under the wrong key.
+        let datagram = vector_datagram();
         let wrong_key = [0xFFu8; USER_KEY_LEN];
         assert!(matches!(
             decrypt(&wrong_key, &datagram),
