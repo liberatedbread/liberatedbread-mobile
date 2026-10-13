@@ -234,12 +234,36 @@ void main() {
             'generic "Service" label',
       );
       // The light card draws this service's controls, so its generic card
-      // starts folded; open it to reach the typed command buttons.
-      await tester.tap(find.text('Control Service'));
-      await _pumpAWhile(tester, rounds: 4);
+      // folds; open it to reach the typed command buttons. Driven by the
+      // tile's OWN state, not by whether a button is on screen: the cards
+      // mount a frame before the match resolves, the match then collapses
+      // this one from a post-frame callback, and for the 200 ms of that
+      // animation the children are still on stage while the tile is
+      // already shut. Tapped again when a tap did nothing: ExpansionTile
+      // binds its header's onTap to collapse or expand as it builds, so a
+      // tap in the one frame between that collapse and the rebuild runs
+      // the stale collapse, a no-op. Both only ever showed under load.
+      final controlTile = find.ancestor(
+        of: find.text('Control Service'),
+        matching: find.byType(ExpansionTile),
+      );
+      bool controlOpen() =>
+          tester.widget<ExpansionTile>(controlTile).controller?.isExpanded ??
+          false;
+      Future<void> openControlService() async {
+        for (var i = 0; i < 5 && !controlOpen(); i++) {
+          await tester.tap(find.text('Control Service'));
+          await _pumpAWhile(tester, rounds: 8);
+        }
+        expect(controlOpen(), isTrue, reason: 'the Control Service tile');
+      }
+
+      await openControlService();
+      final powerOn = find.widgetWithText(ElevatedButton, 'Power on');
+      await _pumpUntil(tester, powerOn);
       expect(
-        find.text('Power on'),
-        findsWidgets,
+        powerOn,
+        findsOneWidget,
         reason: 'typed command buttons only exist when a spec matched',
       );
 
@@ -267,8 +291,11 @@ void main() {
       // between ensureVisible and the tap re-laid the list, the tap hit the
       // item that moved under it, nothing was sent, and the wait for "Sent"
       // ran out its 90 s (only under the full suite's load).
-      final powerOn = find.widgetWithText(ElevatedButton, 'Power on');
       for (var i = 0; i < 20 && powerOn.hitTestable().evaluate().isEmpty; i++) {
+        // Reopened if a later rebuild folded it again (the reads above
+        // re-laid the list), before scrolling to a button that would
+        // otherwise not be there to scroll to.
+        await openControlService();
         await tester.ensureVisible(powerOn);
         await _pumpAWhile(tester, rounds: 4);
       }

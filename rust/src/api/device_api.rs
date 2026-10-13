@@ -2576,8 +2576,8 @@ pub struct HttpRequestDto {
     /// credential-sourced one from the same stored value a body placeholder
     /// reads. The sender puts every one on the wire as given; a
     /// `Content-Type` here wins over the one it would infer from the body.
-    /// Empty for every command that declares none, which is the whole
-    /// catalogue as vendored (Vizio SmartCast's `AUTH` is the first user).
+    /// Empty for every command that declares none; Vizio SmartCast's `AUTH`
+    /// was the first user, Sony Bravia and the Harmony hub followed.
     /// Defaulted on the Dart side so the many callers that build a request
     /// by hand — an ECP keypress, a Hue config read — need not name it.
     #[frb(default = "const []")]

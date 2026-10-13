@@ -55,7 +55,15 @@ class _FakePlugin {
           return devices;
         case 'create':
           created.add((call.arguments as Map)['deviceId']);
-          return grant ? _portChannelName : null;
+          // As UsbSerialPlugin.openDevice reports a refusal: result.error,
+          // never a null.
+          if (!grant) {
+            throw PlatformException(
+              code: 'UsbSerialPlugin',
+              message: 'Failed to acquire permissions.',
+            );
+          }
+          return _portChannelName;
       }
       return null;
     });
@@ -180,6 +188,26 @@ void main() {
     expect(params['stopBits'], 1);
     expect(params['parity'], 0);
     expect(methods, containsAll(['setDTR', 'setRTS']));
+    await link.close();
+  });
+
+  test('an input stream that fails fails the next read at once', () async {
+    // A yanked cable surfaces as an error on the port's input stream. A
+    // reader used to learn of it only by waiting out its timeout, and then
+    // reported silence instead of the cause.
+    final link = await service.open(cable, baudRate: 9600);
+    plugin.input!.error(code: 'UsbSerialPlugin', message: 'device gone');
+    await pumpEventQueue();
+    final started = DateTime.now();
+    await expectLater(
+      link.read(4, timeout: const Duration(seconds: 30)),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(
+      DateTime.now().difference(started),
+      lessThan(const Duration(seconds: 5)),
+      reason: 'the timeout was not waited out',
+    );
     await link.close();
   });
 

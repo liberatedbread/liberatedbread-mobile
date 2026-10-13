@@ -144,12 +144,24 @@ if command -v timeout >/dev/null 2>&1; then
     # A zombie is dead, though kill -0 still finds it: the killed stub is
     # orphaned to PID 1, and in a container whose PID 1 is not an init that
     # reaps (a Claude Code cloud session's is not) it stays a zombie.
-    if [ -n "$hung" ] && kill -0 "$hung" 2>/dev/null &&
-      [[ "$(ps -o stat= -p "$hung" 2>/dev/null)" != Z* ]]; then
+    # Polled, not read once: the stub is the runner's grandchild, the KILL
+    # reaches it asynchronously, and the runner has exited before the kernel
+    # is done with it. With test.sh's other legs loading the machine that
+    # window was long enough to read a dying process as a surviving one.
+    gone=0
+    for _ in $(seq 1 50); do
+      if [ -z "$hung" ] || ! kill -0 "$hung" 2>/dev/null ||
+        [[ "$(ps -o stat= -p "$hung" 2>/dev/null)" == Z* ]]; then
+        gone=1
+        break
+      fi
+      sleep 0.1
+    done
+    if [ "$gone" -eq 1 ]; then
+      pass "the hung attempt is gone once the timeout fires"
+    else
       fail "the hung attempt survived the timeout (pid $hung still running)"
       kill -KILL "$hung" 2>/dev/null
-    else
-      pass "the hung attempt is gone once the timeout fires"
     fi
   fi
 else

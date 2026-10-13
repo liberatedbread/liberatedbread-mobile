@@ -129,8 +129,9 @@ pub fn required_credentials(spec: &DeviceSpec) -> Vec<CredentialRequirement> {
     // scheme; scanning only `spec.commands` meant a BLE control naming a
     // stored password resolved fine, prompted for nothing, and then failed
     // every send with ParameterMissing, which reads as a broken device
-    // rather than an unpaired one. No vendored spec declares one today
-    // (idotmatrix's `verify_password` is the shape it is written for), so
+    // rather than an unpaired one. The BIO-key TouchLock is the one vendored
+    // spec declaring them (`source: credential:` on `bytes` parameters), and
+    // its commands are refused as unencodable before any prompt, so today
     // this is the join being whole rather than a fix to a visible symptom.
     //
     // `needed_by` names the command as the spec spells it. A name repeated

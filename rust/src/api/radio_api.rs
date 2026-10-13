@@ -529,6 +529,15 @@ pub fn uv5r_write_command(addr: u16, data: Vec<u8>) -> anyhow::Result<Vec<u8>> {
     Ok(uv5r::write_command(addr, &data)?)
 }
 
+/// The CHIRP models `firmware` names, in CHIRP's order
+/// (`uv5r::firmware_models`): what a refusal from [`uv5r_check_firmware`]
+/// can tell the user to choose instead. Empty for a string naming none.
+pub fn uv5r_firmware_models(firmware: String) -> Vec<String> {
+    uv5r::firmware_models(&firmware)
+        .map(str::to_string)
+        .collect()
+}
+
 /// The firmware string an image carries.
 pub fn uv5r_firmware(image: Vec<u8>) -> anyhow::Result<String> {
     Ok(uv5r::firmware(&image)?)
@@ -648,6 +657,13 @@ mod tests {
     //! Dart's `radio_api_test.dart`.
     use super::*;
     use crate::protocol::radio::uv5r::image_with_firmware;
+
+    #[test]
+    fn firmware_models_are_chirp_names_in_chirp_order() {
+        assert_eq!(uv5r_firmware_models("N5R2".into()), ["UV-5R", "UV-82HP"]);
+        assert_eq!(uv5r_firmware_models("BFP3V3 F".into()), ["BF-F8HP"]);
+        assert!(uv5r_firmware_models("".into()).is_empty());
+    }
 
     fn dto(slot: u16, name: &str, hz: u32) -> RadioChannelDto {
         RadioChannelDto {

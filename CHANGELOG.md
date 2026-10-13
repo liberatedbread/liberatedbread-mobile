@@ -30,7 +30,7 @@ heading.
   `device.host_compatibility`) goes direct from its first connection, with no
   stall at all. `LB_DIRECT_ATT=<mac>` routes a device direct from the start;
   `LB_DIRECT_ATT=off` leaves the stock BlueZ backend in place (without the
-  two Linux fixes below either). Linux only, and built to be deleted
+  three Linux fixes below either). Linux only, and built to be deleted
   when BlueZ changes — see docs/LINUX_DIRECT_ATT.md.
 - **Baofeng handhelds are devices the app programs.** A Radio tab plans
   channels with or without a radio in the room: pick a model, and *Suggest
@@ -49,8 +49,9 @@ heading.
   and the tab says so. The UV-82HP (three power levels) is its own model: a
   cable session checks the radio's firmware string and refuses one that is
   not the chosen model — a UV-82HP picked as a UV-5R/UV-82, or the reverse —
-  before a byte is read or written, so a power level never lands on the
-  wrong index. A firmware string CHIRP lists under both models (N5R2) may be
+  before its memory is read or written, so a power level never lands on
+  the wrong index. The same check refuses a tri-power radio (a BF-F8HP)
+  picked as a two-level model. A firmware string CHIRP lists under both models (N5R2) may be
   either. A restore is checked too; a UV-82HP backup saved while the radio
   was picked as a UV-5R is offered under the UV-82HP, so it can still go
   back. The UV-5R family's transmit limits can be widened and put back,
@@ -59,7 +60,7 @@ heading.
 - **Every build says which commit it is.** `scripts/release.sh android|ios`
   builds the store artefact with a clock-derived build number and stamps it
   with `git describe` (`v0.1.0`, `v0.1.0-3-g1a2b3c4`, `-dirty`); the ad-hoc
-  TestFlight workflow carries the same stamp. Diagnostics shows it at the top
+  IPA workflow carries the same stamp. Diagnostics shows it at the top
   and every copied bug report leads with it, and the version the app reports
   to Home Assistant and in its User-Agent is now that stamp — `dev build` for
   anything not built through the script, where it used to say `0.1.0`. The
@@ -438,6 +439,35 @@ heading.
 
 ### Fixed
 
+- **A Roomba screen closed during its TLS handshake no longer leaves a
+  ghost session on the robot.** Closing the session while the socket was
+  still connecting found nothing to shut, and the connect that finished
+  afterwards logged in, held the robot's one local client slot and kept
+  pinging it until the robot evicted it. A connect now checks, after each
+  wait, that nothing closed it meanwhile.
+- **Radios.** Refusing the USB permission prompt on Android now says to
+  allow it, where it read "The radio did not finish" (the plugin reports a
+  refusal as an error, not the empty answer the app expected); a cable
+  yanked mid-session fails the next read at once instead of after its
+  timeout. A tri-power radio (a BF-F8HP) picked as a two-level model is
+  refused by its firmware string, as a UV-82HP already was, and the
+  refusal names the model CHIRP matched and the profile to choose. A
+  directory tone no Baofeng table holds (a mistyped DCS code, a CTCSS off
+  the standard list) is imported as carrier squelch rather than failing
+  the write in the codec after the radio was read and backed up. A
+  frequency finer than the 10 Hz the UV-17Pro family stores is refused
+  rather than silently truncated, as the UV-5R family's already was.
+- **Home Assistant on an IPv6-only LAN.** A unique-local (`fd00::/8`),
+  link-local or loopback IPv6 address is classed as the home network, not
+  as a public address to be warned about and told to check its port
+  forwarding.
+- **A spec pack every spec of which was refused says why.** It read as a
+  download failure ("check your connection"); the install result now
+  carries each spec's reason — not a valid spec, or weakens the built-in it
+  replaces.
+- **Linux: a device the direct-ATT path took over mid-discovery reports its
+  real MTU.** It was flagged "unknown" while BlueZ still held the link and
+  kept reading as 512 after the hand-over.
 - **Forgetting a device forgets the spec you picked for it, in this session
   too.** The stored choice was cleared but the in-memory one was not, so a
   device re-added before a restart came back on the spec it was removed over.
@@ -450,11 +480,13 @@ heading.
   test no longer connects to the machine's real D-Bus; the network-discovery
   job builds and requires the Rust library its hub test needs instead of
   letting it skip; `test.sh` shows a skipped spec validation instead of
-  discarding the warning.
+  discarding the warning; the emulator-runner selftest waits for a killed
+  stub to finish dying instead of reading it mid-exit as a survivor.
 - **Forgetting a device forgets it, and only it.** Removing a saved Hue
   bridge now clears its pairing (username, client key, TLS pin, scheme),
-  and removing any device no longer clears the pin and credentials stored
-  under its old address, which DHCP may have given to another device.
+  and removing a device identified by its MAC no longer clears the pin and
+  credentials stored under its old address, which DHCP may have given to
+  another device.
 - **Controls that did not do what they showed.** The Radio tab's unlock
   switch no longer warns that it changes the radio when it changes nothing;
   the number dialog pre-fills the exact reading (Send without editing sends
@@ -467,8 +499,8 @@ heading.
   512 when unknown; a notify recorder left behind by an abandoned
   subscription is detached.
 - **Test tooling.** The Android phone runner no longer uninstalls the app
-  (and its data) without an explicit opt-in, and puts the real app back over
-  its test build afterwards, data kept, so the home-screen icon no longer
+  (and its data) when the run ends, and puts the real app back over its
+  test build afterwards, data kept, so the home-screen icon no longer
   reruns the suite (or its keychain wipe); the iOS runner warns that it
   cannot. The local coverage audit no longer accepts a leftover discovery
   report CI would reject.

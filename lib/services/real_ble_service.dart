@@ -1355,11 +1355,7 @@ class RealBleService
     // that refused Exchange MTU, or offered 23), and reading it as 512 would
     // size writes the ATT client refuses past mtu-3 — on exactly the cheap
     // firmware the direct path exists for.
-    final platform = FlutterBluePlusPlatform.instance;
-    final reportsTruthfully =
-        platform is DirectAttRouter &&
-        platform.reportsNegotiatedMtu(DeviceIdentifier(deviceId));
-    if (isLinux && !reportsTruthfully && device.mtuNow <= 23) {
+    if (isLinux && !_reportsNegotiatedMtu(deviceId) && device.mtuNow <= 23) {
       _mtuUnknown.add(deviceId);
     } else {
       _mtuUnknown.remove(deviceId);
@@ -2076,6 +2072,14 @@ class RealBleService
   /// the 512 the connect requested rather than the meaningless default.
   final Set<String> _mtuUnknown = {};
 
+  /// Whether the link to [deviceId] is one the Linux direct-ATT router
+  /// serves, whose reported MTU is the one it negotiated.
+  bool _reportsNegotiatedMtu(String deviceId) {
+    final platform = FlutterBluePlusPlatform.instance;
+    return platform is DirectAttRouter &&
+        platform.reportsNegotiatedMtu(DeviceIdentifier(deviceId));
+  }
+
   /// How long [mtu] waits on Apple platforms for the negotiated value.
   ///
   /// iOS reports the MTU a few ticks after connect resolves — the darwin
@@ -2117,7 +2121,14 @@ class RealBleService
     // the requestMtu call that owns the platform knowledge, so every caller
     // sizing writes gets the same answer — see connect() for why a flagged
     // device's stuck default reads as "the 512 we requested".
-    if (reported <= 23 && _mtuUnknown.contains(deviceId)) return 512;
+    // The router is asked again here, not only at connect: a device it took
+    // over mid-discovery was flagged while BlueZ still held the link, and the
+    // direct link that replaced it reports the MTU it really negotiated.
+    if (reported <= 23 &&
+        _mtuUnknown.contains(deviceId) &&
+        !_reportsNegotiatedMtu(deviceId)) {
+      return 512;
+    }
     return reported;
   }
 

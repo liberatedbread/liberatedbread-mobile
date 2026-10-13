@@ -392,26 +392,55 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
 ///
 /// The UV-82HP answers the same ident as the two-level UV-82, and its Low is
 /// the index the UV-5R's table has no entry for: read as a UV-5R its Med
-/// shows as Low, and a Low written as a UV-5R's is its Med. Only the
+/// shows as Low, and a Low written as a UV-5R's is its Med. The same holds
+/// for any tri-power radio (a BF-F8HP) picked as a two-level model. Only the
 /// firmware string tells them apart, so the choice is checked against it
-/// before anything is read or written.
+/// before the codeplug is read or written. (The probe that fetches the
+/// string reads three fixed blocks of identification; it changes nothing.)
 Future<void> _checkModel(RadioProfile profile, String firmware) async {
   try {
     await rust.uv5RCheckFirmware(modelId: profile.id, firmware: firmware);
   } catch (error) {
     Log.radio.warning('model does not match firmware', error: error);
     final said = firmware.isEmpty ? 'reports no firmware' : 'is $firmware';
+    // What CHIRP calls the radio this firmware names, and the profile here
+    // that programs it — the one to tell the user to pick.
+    final named = await rust.uv5RFirmwareModels(firmware: firmware);
+    final suggested = _profileForChirpModels(named);
+    final choose = suggested == null
+        ? 'Choose the model it is and try again.'
+        : 'Choose ${suggested.displayName} and try again.';
+    final what = named.isEmpty
+        ? 'a radio with three power levels'
+        : 'CHIRP\'s ${named.join(' or ')}, a radio with three power levels';
     throw RadioUnsupportedException(
       profile == uv82hpProfile
           ? 'This radio\'s firmware $said, which is not a UV-82HP\'s, so '
                 'its power levels may not be the UV-82HP\'s three. Nothing '
-                'was read or written. Choose the model it is.'
-          : 'This radio\'s firmware $said: a UV-82HP, which has three power '
-                'levels where the ${profile.displayName} has '
-                '${profile.powerLevels.length}. Nothing was read or '
-                'written. Choose ${uv82hpProfile.displayName} and try again.',
+                'on the radio was changed. $choose'
+          : 'This radio\'s firmware $said: $what, where the '
+                '${profile.displayName} has ${profile.powerLevels.length}, '
+                'so a Low written as the ${profile.displayName}\'s would be '
+                'its Med. Nothing on the radio was changed. $choose',
     );
   }
+}
+
+/// The profile that programs the radio CHIRP's model names describe, when
+/// exactly one does: the HP and the F8HP are their own; the two-level models
+/// all program as the UV-5R profile. None for a tri-power radio this app has
+/// no profile for (the KT-980HP), or for names that disagree.
+RadioProfile? _profileForChirpModels(List<String> chirpModels) {
+  final profiles = {
+    for (final model in chirpModels)
+      switch (model) {
+        'UV-82HP' => uv82hpProfile,
+        'BF-F8HP' => bfF8hpProfile,
+        'UV-5R' || 'UV-82' || 'F-11' || 'UV-6' || 'UV-82X3' => uv5rProfile,
+        _ => null,
+      },
+  };
+  return profiles.length == 1 ? profiles.single : null;
 }
 
 const int _ack = 0x06;

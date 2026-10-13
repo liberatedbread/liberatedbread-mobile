@@ -232,9 +232,14 @@ pub fn firmware_models(firmware: &str) -> impl Iterator<Item = &'static str> + '
 /// CHIRP's name for [`UV82HP`], as [`CHIRP_BASETYPES`] lists it.
 const CHIRP_UV82HP: &str = "UV-82HP";
 
+/// The CHIRP models whose records index `UV5R_POWER_LEVELS3` (`_tri_power`):
+/// High, Med, Low, with Low at the index a two-level table has no entry for.
+const CHIRP_TRI_POWER: &[&str] = &["KT-980HP", "BF-F8HP", CHIRP_UV82HP];
+
 /// Whether a radio reporting `firmware` may be programmed as `model`, as far
 /// as the UV-82HP goes -- the one model here whose table no ident can tell
-/// from another's.
+/// from another's -- and, by the same rule, any tri-power radio picked as a
+/// two-level one.
 ///
 /// A firmware string only the UV-82HP's list matches (`N82-3`, `N823`) is
 /// programmed only as [`UV82HP`], and one the HP's list does not match is
@@ -255,12 +260,18 @@ pub fn check_firmware(
     let is_hp = model.id == UV82HP.id;
     let hp_named = named.contains(&CHIRP_UV82HP);
     let other_named = named.iter().any(|&m| m != CHIRP_UV82HP);
+    // The HP's rule, for the other tri-power radios: a firmware string that
+    // names only three-level models (`BFP3V3 F` is a BF-F8HP and nothing
+    // else) programmed as a two-level model writes every Low as index 1 --
+    // that radio's Med. A string in a two-level list as well (`N5RV`, the
+    // UV-5R's and the F8HP's) stays either, as CHIRP programs a live radio.
+    let only_tri_power = !named.is_empty() && named.iter().all(|m| CHIRP_TRI_POWER.contains(m));
     let refuse = if named.is_empty() {
         is_hp && strict
     } else if is_hp {
         !hp_named
     } else {
-        !other_named
+        !other_named || (model.power_levels.len() < 3 && only_tri_power)
     };
     if refuse {
         let named = if named.is_empty() {
@@ -626,17 +637,6 @@ fn decode_text(raw: &[u8]) -> String {
         .to_string()
 }
 
-/// A frequency in the same four-byte field the newer family uses, refused
-/// rather than rounded when it is finer than the ten hertz the field holds.
-fn encode_frequency(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
-    if !hz.is_multiple_of(10) {
-        return Err(ProtocolError::MalformedReply(format!(
-            "{hz} Hz is finer than the 10 Hz this radio stores"
-        )));
-    }
-    encode_bcd(hz, out)
-}
-
 /// The channels in an image, one entry per slot, `None` for an empty one.
 ///
 /// A slot whose frequency is not valid BCD also reads as `None`: there is
@@ -740,11 +740,11 @@ fn encode_channel(
     } else {
         [0u8; RECORD_LEN]
     };
-    encode_frequency(channel.rx_freq_hz, &mut record[0..4])?;
+    encode_bcd(channel.rx_freq_hz, &mut record[0..4])?;
     if channel.rx_only {
         record[4..8].fill(0xFF);
     } else {
-        encode_frequency(channel.tx_freq_hz, &mut record[4..8])?;
+        encode_bcd(channel.tx_freq_hz, &mut record[4..8])?;
     }
     record[8..10].copy_from_slice(&encode_tone(channel.rx_tone)?.to_le_bytes());
     record[10..12].copy_from_slice(&encode_tone(channel.tx_tone)?.to_le_bytes());
@@ -1478,6 +1478,31 @@ mod tests {
         // Read from where the image keeps it, as CHIRP reads 0x1838..0x1846.
         let image = image_with_firmware("N82-3");
         assert_eq!(names(&firmware(&image).unwrap()), ["UV-82HP"]);
+    }
+
+    #[test]
+    fn a_two_level_choice_is_refused_for_a_firmware_that_is_only_tri_power() {
+        // CHIRP BASETYPE_F8HP / BASETYPE_KT980HP strings that no two-level
+        // list carries: written as a UV-5R, every Low would land on index
+        // 1, the radio's Med -- the HP case with a different name on it.
+        for firmware in ["BFP3V3 F", "N5R-3", "F5R3", "BFT", "BFP3V3 B"] {
+            let err = check_firmware(&UV5R, firmware, true).unwrap_err();
+            assert!(err.to_string().contains("CHIRP's"), "{err}");
+            assert!(check_firmware(&UV5R, firmware, false).is_err());
+            // The tri-power models take it, as before.
+            assert!(check_firmware(&BF_F8HP, firmware, false).is_ok());
+            assert!(check_firmware(&AR152, firmware, false).is_ok());
+        }
+        // N5RV is in the UV-5R's list and the F8HP's: either, as CHIRP.
+        for strict in [false, true] {
+            assert!(check_firmware(&UV5R, "N5RV", strict).is_ok());
+            assert!(check_firmware(&BF_F8HP, "N5RV", strict).is_ok());
+        }
+        // Nothing changes for a two-level firmware or an unknown one.
+        assert!(check_firmware(&UV5R, "BFB297", true).is_ok());
+        assert!(check_firmware(&UV5R, "N82-2", true).is_ok());
+        assert!(check_firmware(&UV5R, "", true).is_ok());
+        assert!(check_firmware(&UV5R, "XYZ", true).is_ok());
     }
 
     #[test]
