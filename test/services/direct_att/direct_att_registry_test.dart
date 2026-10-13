@@ -4,11 +4,13 @@
 // DirectAttRegistry (which devices the Linux router sends direct) and
 // installDirectAttRouter's guards (when it wraps the platform at all).
 
-import 'dart:io' show FileSystemEntity, FileSystemEntityType, Platform;
+import 'dart:io' show Platform;
 
+import 'package:bluez/bluez.dart';
 import 'package:flutter_blue_plus_linux/flutter_blue_plus_linux.dart';
 import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/services/direct_att/bluez_view.dart';
 import 'package:liberated_bread_mobile/services/direct_att/direct_att_registry.dart';
 import 'package:liberated_bread_mobile/services/direct_att/direct_att_router.dart';
 import 'package:liberated_bread_mobile/services/settings_store.dart';
@@ -28,27 +30,6 @@ class _BrokenStore implements SettingsStore {
   Future<void> delete(String key) async => throw StateError('broken');
   @override
   Future<Map<String, String>> readAll() async => throw StateError('broken');
-}
-
-/// `true` off Linux, a reason on a Linux host with no system bus, else null.
-final Object? _skipWithoutLinuxSystemBus = !Platform.isLinux
-    ? true
-    : _systemBusPresent
-    ? null
-    : 'no system D-Bus socket: package:dbus surfaces the missing bus as an '
-          'unhandled async error that installDirectAttRouter cannot catch';
-
-bool get _systemBusPresent {
-  final address =
-      Platform.environment['DBUS_SYSTEM_BUS_ADDRESS'] ??
-      'unix:path=/var/run/dbus/system_bus_socket';
-  final path = RegExp(r'unix:path=([^,;]+)').firstMatch(address)?.group(1);
-  // By type, not File.existsSync(): the bus is a Unix-domain socket, and
-  // only typeSync is documented to answer for one (it does on Dart 3.12
-  // either way, but a skip that silently emptied this group on CI is the
-  // one failure mode this guard must never have).
-  return path != null &&
-      FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound;
 }
 
 void main() {
@@ -116,12 +97,7 @@ void main() {
   });
 
   // The router is Linux's by design: anywhere else installing it is a no-op.
-  // And it needs bluetoothd's bus: installing it warms a BlueZ client up
-  // over the system D-Bus, and package:dbus reports a missing bus socket as
-  // an unhandled asynchronous error from a signal stream's onListen, which
-  // no try/catch in BluezView.warmUp can reach. CI's runners have the bus; a
-  // bare container does not, and must skip rather than fail.
-  group('installDirectAttRouter', skip: _skipWithoutLinuxSystemBus, () {
+  group('installDirectAttRouter', skip: !Platform.isLinux, () {
     final store = Future<SettingsStore>.value(InMemorySettingsStore());
 
     test('does nothing when told LB_DIRECT_ATT=off', () {
@@ -146,6 +122,11 @@ void main() {
       final router = installDirectAttRouter(
         store,
         environment: {'LB_DIRECT_ATT': '$_meter, not-an-address'},
+        // Never the machine's bus: the install warms its BlueZ view up at
+        // once, and the default one connects the real system D-Bus — which
+        // a unit test must not reach, and which fails it outright where
+        // there is none (a container, a CI image without dbus).
+        bluez: BluezView(client: _NoBusBlueZClient.new),
       );
       expect(router, isNotNull);
       expect(router!.inner, same(bluez));
@@ -161,3 +142,15 @@ void main() {
 }
 
 final class _OtherPlatform extends FlutterBluePlusPlatform {}
+
+/// A BlueZ client with no daemon behind it: connecting fails the way an
+/// unreachable bus does, and nothing ever opens a socket (the bus the base
+/// class constructs connects lazily, on a first call this never makes).
+class _NoBusBlueZClient extends BlueZClient {
+  @override
+  Future<void> connect() async =>
+      throw StateError('no system bus in a unit test');
+
+  @override
+  Future<void> close() async {}
+}

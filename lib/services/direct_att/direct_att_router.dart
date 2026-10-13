@@ -965,9 +965,16 @@ final class DirectAttRouter extends FlutterBluePlusPlatform {
 /// `LB_DIRECT_ATT=<mac>[,<mac>...]` routes those devices direct from the
 /// first connection, for a user who already knows BlueZ cannot enumerate
 /// them.
+///
+/// [bluez] defaults to a view of the system bus bluetoothd serves; a test
+/// passes one on a client of its own, or the install connects the machine's
+/// real D-Bus (and fails the test outright where there is none: package:bluez
+/// reports a missing bus through an unhandled stream error, which no
+/// try/catch around `connect()` sees).
 DirectAttRouter? installDirectAttRouter(
   Future<SettingsStore> store, {
   Map<String, String>? environment,
+  BluezView? bluez,
 }) {
   if (!Platform.isLinux) return null;
   final setting = (environment ?? Platform.environment)['LB_DIRECT_ATT']
@@ -995,23 +1002,23 @@ DirectAttRouter? installDirectAttRouter(
       Log.ble.warning('LB_DIRECT_ATT: "$id" is not a Bluetooth address');
     }
   }
-  final bluez = BluezView();
+  final view = bluez ?? BluezView();
   late final DirectAttRouter router;
   final direct = DirectAttPlatform(
     const L2capAttChannelFactory(),
-    isRandomAddress: bluez.isRandom,
+    isRandomAddress: view.isRandom,
     onBusy: (id) => router.evictFromBluez(id),
   );
   router = DirectAttRouter(
     inner: current,
     direct: direct,
     registry: DirectAttRegistry(store, forced: forced),
-    knownDeviceSightings: bluez.sightings,
+    knownDeviceSightings: view.sightings,
   );
   FlutterBluePlusPlatform.instance = router;
   // Connected now, not at the first scan: its object cache has to be in
   // place before that scan's first sighting arrives.
-  unawaited(bluez.warmUp());
+  unawaited(view.warmUp());
   Log.ble.info(
     'Linux Bluetooth: BlueZ, with a direct ATT path for peripherals it '
     'cannot enumerate'

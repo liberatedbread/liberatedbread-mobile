@@ -35,6 +35,7 @@ EntityActionDto _action(
 EntityDto _entity(
   String name, {
   String? platform,
+  String? key,
   String? deviceClass,
   String? stateCharacteristic,
   bool hasFormat = false,
@@ -48,6 +49,7 @@ EntityDto _entity(
   options: const [],
   name: name,
   platform: platform,
+  key: key,
   deviceClass: deviceClass,
   stateCharacteristic: stateCharacteristic,
   canNotify: false,
@@ -64,7 +66,9 @@ EntityDto _entity(
 DeviceSpecDto _spec({
   List<EntityDto> entities = const [],
   List<ServiceDto> services = const [],
+  String? category,
 }) => DeviceSpecDto(
+  category: category,
   nameMatchers: const [],
   platformFallbackTypes: const [],
   txtMatchGroups: const [],
@@ -162,6 +166,65 @@ void main() {
         ],
       );
       expect(supportedGroupOps(spec), isEmpty);
+    });
+
+    // The schema has no lock platform: SESAME's and Yale's bolts are
+    // switches whose turn_off is `unlock`. The device screen asks before any
+    // switch on a lock moves; a group run cannot ask, so it must not send.
+    test('a lock\'s switches are not group commands; its battery is', () {
+      final spec = _spec(
+        category: 'lock',
+        entities: [
+          _entity(
+            'Lock',
+            platform: 'switch',
+            actions: [
+              _action('turn_on', commandName: 'lock'),
+              _action('turn_off', commandName: 'unlock'),
+            ],
+          ),
+          _entity(
+            'Battery',
+            platform: 'sensor',
+            deviceClass: 'battery',
+            stateCharacteristic: _stateChar,
+            hasFormat: true,
+          ),
+        ],
+      );
+      expect(supportedGroupOps(spec), {GroupOp.readBattery});
+      expect(
+        resolveGroupWrites(
+          op: GroupOp.turnOff,
+          spec: spec,
+          services: [_discovered()],
+        ),
+        isEmpty,
+      );
+    });
+
+    test('a switch marked as a lock is skipped on any device', () {
+      final spec = _spec(
+        entities: [
+          _entity(
+            'Lock Remotes',
+            platform: 'switch',
+            key: 'lock',
+            actions: [_action('turn_off', commandName: 'unlock_remotes')],
+          ),
+          _entity(
+            'Light',
+            platform: 'light',
+            actions: [_action('turn_off', commandName: 'light_off')],
+          ),
+        ],
+      );
+      final writes = resolveGroupWrites(
+        op: GroupOp.turnOff,
+        spec: spec,
+        services: [_discovered()],
+      );
+      expect(writes.map((w) => w.commandName), ['light_off']);
     });
 
     test('roles on non light/switch platforms are not group commands', () {

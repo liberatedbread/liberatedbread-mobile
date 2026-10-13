@@ -25,10 +25,19 @@ class SecureSettingsStore implements SettingsStore {
   // strand every already-stored value (the token/webhook id would
   // read back as null). That backend is a known read-failure source
   // (a rotated/invalidated key throws on read), so we pair it with
-  // `resetOnError: true`: an entry that can no longer be decrypted is
-  // dropped and read returns null instead of throwing. Valid entries
-  // are untouched, so existing reads keep working while a corrupt one
+  // `resetOnError: true`, so a store that can no longer be decrypted
   // self-heals into "not configured" and lets the user re-register.
+  //
+  // What "reset" means in the plugin (9.2.4, FlutterSecureStoragePlugin
+  // MethodRunner.run) is broader than the name: ANY exception in ANY call
+  // runs deleteAll() — every secret this app holds, not the one entry that
+  // failed — and then answers the call with the literal string
+  // [androidResetSentinel] as its result. The wipe is the self-heal: with
+  // the keystore key gone nothing in the file is readable anyway, and
+  // without it every later call would throw too, including the write that
+  // re-registers. But the RESULT must never be taken for data: read() hands
+  // the sentinel back as the stored value (a TLS pin, a credential), and
+  // readAll() fails its own cast. [read] and [readAll] translate it.
   static const AndroidOptions androidOptions = AndroidOptions(
     encryptedSharedPreferences: true,
     resetOnError: true,
@@ -167,8 +176,38 @@ class SecureSettingsStore implements SettingsStore {
              mOptions: macOsOptions,
            );
 
+  /// What flutter_secure_storage's Android plugin returns, as the RESULT of
+  /// whatever call failed, after `resetOnError` has wiped the store. See
+  /// [androidOptions].
+  static const String androidResetSentinel = 'Data has been reset';
+
   @override
-  Future<String?> read(String key) => _storage.read(key: key);
+  Future<String?> read(String key) async {
+    final value = await _storage.read(key: key);
+    if (value != androidResetSentinel) return value;
+    // The text alone is ambiguous — a stored secret could read exactly so
+    // (and on every other platform nothing else produces it). A reset leaves
+    // the store empty, so a key still held is a real value.
+    if (await _stillHeld(key)) return value;
+    // Not this key's value: the store was just wiped, so the truth is that
+    // nothing is stored under it. Read as a pin it refused every later
+    // handshake; read as a credential it was sent to the device.
+    Log.app.warning(
+      'secure storage failed reading "$key" and was reset; '
+      'every stored secret has to be entered again',
+    );
+    return null;
+  }
+
+  Future<bool> _stillHeld(String key) async {
+    try {
+      return await _storage.containsKey(key: key);
+    } catch (_) {
+      // Any failure here is the plugin failing again — another reset, whose
+      // sentinel also fails containsKey's bool cast. Nothing is held.
+      return false;
+    }
+  }
 
   @override
   Future<void> write(String key, String value) =>
@@ -182,7 +221,20 @@ class SecureSettingsStore implements SettingsStore {
   Future<void> delete(String key) => _sweeping.delete(key: key);
 
   @override
-  Future<Map<String, String>> readAll() => _sweeping.readAll();
+  Future<Map<String, String>> readAll() async {
+    try {
+      return await _sweeping.readAll();
+    } on TypeError {
+      // The plugin's reset answers readAll with [androidResetSentinel], a
+      // String where its own `invokeMethod<Map>` expects a map, and the cast
+      // fails here rather than in the plugin. The store is empty now.
+      Log.app.warning(
+        'secure storage failed listing its entries and was reset; '
+        'every stored secret has to be entered again',
+      );
+      return <String, String>{};
+    }
+  }
 
   /// A hung keychain must not become an app that never launches, so the wipe
   /// is bounded as well as caught. deleteAll() goes over a platform channel,

@@ -222,7 +222,8 @@ void _ensureHostBuild() {
 /// skipped green and nothing said why; the reasons are now printed.
 ///
 /// With LB_REQUIRE_RUST_LIB=1 (set by scripts/test.sh and the CI unit-test
-/// step, both of which have already built the library) either case throws a
+/// and network-discovery steps, all of which have already built the library)
+/// either case throws a
 /// [StateError] naming each candidate's error instead, so a library that is
 /// present but unloadable fails the run rather than shrinking it.
 Future<bool> initHostRustLib() async {

@@ -114,7 +114,10 @@ while [ $# -gt 0 ]; do
 done
 
 log()  { printf '\033[1;32m[update-specs]\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[update-specs]\033[0m %s\n' "$*"; }
+# Warnings on stderr: scripts/test.sh runs `--check > /dev/null` to keep the
+# success line out of its log, and on stdout a "skipping the schema check"
+# vanished with it — a local mirror that silently validated nothing.
+warn() { printf '\033[1;33m[update-specs]\033[0m %s\n' "$*" >&2; }
 
 # The newest `git subtree ... --squash` commit in this history. `--grep` alone
 # cannot find it: it matches anywhere in a message, so a squash-merged PR whose
