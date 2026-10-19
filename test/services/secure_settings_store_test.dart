@@ -136,6 +136,17 @@ void main() {
       },
     );
 
+    // The Android plugin runs calls in order on one thread: a write queued
+    // behind the failing read lands after the wipe and before the check, so
+    // the key is held again -- by the new value, not by the sentinel.
+    test('a write racing the reset is read back, not the sentinel', () async {
+      final storage = _ResetOnReadStorage({'tls_pin:mac:aa'}, once: true);
+      final store = SecureSettingsStore(storage);
+      final read = store.read('tls_pin:mac:aa');
+      await store.write('tls_pin:mac:aa', 'real-pin');
+      expect(await read, 'real-pin');
+    });
+
     test(
       'a readAll answered by the reset sentinel is an empty store',
       () async {
@@ -559,8 +570,11 @@ class _RecordingStorage extends FlutterSecureStorage {
 /// The Android plugin's reset, as a read of one of [failing] sees it: the
 /// call fails, the store is wiped, and the sentinel comes back as the value.
 class _ResetOnReadStorage extends _RecordingStorage {
-  _ResetOnReadStorage(this.failing);
+  _ResetOnReadStorage(this.failing, {this.once = false});
   final Set<String> failing;
+
+  /// Fail each key's first read only, as one corrupted entry would.
+  final bool once;
 
   @override
   Future<String?> read({
@@ -573,6 +587,7 @@ class _ResetOnReadStorage extends _RecordingStorage {
     WindowsOptions? wOptions,
   }) async {
     if (!failing.contains(key)) return values[key];
+    if (once) failing.remove(key);
     values.clear();
     return SecureSettingsStore.androidResetSentinel;
   }
