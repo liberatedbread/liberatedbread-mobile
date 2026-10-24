@@ -51,10 +51,11 @@ NetworkEntityDto _powerEntity({
 NetworkGroupMember _member(
   List<NetworkEntityDto> entities, {
   String? specYaml = 'yaml',
+  String? category = 'tv',
 }) => NetworkGroupMember(
   memberId: 'net:hn:tv.local',
   name: 'Living Room TV',
-  category: 'tv',
+  category: category,
   record: SavedNetworkDevice(
     id: 'hn:tv.local',
     name: 'Living Room TV',
@@ -246,6 +247,27 @@ void main() {
     final last = await lastEventOf(events);
     expect(last.status, GroupDeviceStatus.skipped);
     expect(last.detail, "Not supported by this device's spec");
+  });
+
+  /// The BLE path skips a whole lock-category device; the network path only
+  /// skipped switches keyed or classed `lock`. A lock whose bolt is a plain
+  /// "Power" switch — turn_off being unlock — was unlocked by "all off".
+  test('a lock-category member supports no op and is sent nothing', () async {
+    final lock = _member([_powerEntity()], category: 'lock');
+    expect(lock.ops, isEmpty);
+
+    final received = <http.Request>[];
+    final events = runner(
+      FakeSpecCodec(),
+      MockClient((request) async {
+        received.add(request);
+        return http.Response('', 200);
+      }),
+    ).run(GroupOp.turnOff, [lock], stop: StopSignal());
+    final last = await lastEventOf(events);
+    expect(last.status, GroupDeviceStatus.skipped);
+    expect(last.detail, "Not supported by this device's spec");
+    expect(received, isEmpty);
   });
 
   test('read ops sit Wi-Fi members out with a reason', () async {
