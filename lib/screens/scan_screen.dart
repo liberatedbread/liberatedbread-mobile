@@ -147,6 +147,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   // until the user turns Bluetooth on, and [_adapterSub] restarts the scan
   // when they do — so the screen says that, in neutral colours.
   bool _bluetoothOff = false;
+  // Set with [_bluetoothOff] when there is no radio at all (a
+  // [BleNoRadioException]: a desktop or simulator without one). Still nothing
+  // to retry, but nothing to turn on either, so the screen must not promise
+  // the scan will start again by itself.
+  bool _noRadio = false;
   late final BleService _bleService;
   // Owned scan subscription so a device tap (or dispose) can cancel the active
   // scan instead of leaving it running behind the pushed route.
@@ -262,6 +267,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _permissionDenied = true;
       _error = null;
       _bluetoothOff = false;
+      _noRadio = false;
     });
   }
 
@@ -429,6 +435,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _pausedByUser = false;
       _error = null;
       _bluetoothOff = false;
+      _noRadio = false;
       _permissionDenied = false;
       // Devices found so far are kept. They age out on their own now (see
       // DeviceManager.forgetAfter), so a restart — a retry, a return from the
@@ -475,8 +482,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
                 _permissionDenied = true;
                 _error = null;
                 _bluetoothOff = false;
+                _noRadio = false;
               } else {
                 _bluetoothOff = e is BleUnavailableException;
+                _noRadio = e is BleNoRadioException;
                 _error = friendlyErrorText(
                   e,
                   context: 'BLE scan',
@@ -751,6 +760,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// screen never needs a separate progress caption.
   String get _headline {
     if (_permissionDenied) return 'Bluetooth permission needed';
+    if (_noRadio) return 'Bluetooth unavailable';
     if (_bluetoothOff) return 'Bluetooth is off';
     if (_error != null) return 'Scan failed';
     if (_deviceManager.count > 0) {
@@ -777,6 +787,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         _ => 'Grant Bluetooth access so the app can scan for devices.',
       };
     }
+    // The exception's own message: there is no switch to name.
+    if (_noRadio) return _error!;
     // True, not hopeful: [_adapterSub] restarts the scan the moment the radio
     // reports ready.
     if (_bluetoothOff) {
