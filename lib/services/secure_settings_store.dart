@@ -187,8 +187,10 @@ class SecureSettingsStore implements SettingsStore {
     if (value != androidResetSentinel) return value;
     // The text alone is ambiguous — a stored secret could read exactly so
     // (and on every other platform nothing else produces it). A reset leaves
-    // the store empty, so a key still held is a real value.
-    if (await _stillHeld(key)) return value;
+    // the store empty, so a key still held is a real value -- read again
+    // rather than return this answer: a write that landed between the reset
+    // and the check holds the key too, and its value is the one to return.
+    if (await _stillHeld(key)) return _storage.read(key: key);
     // Not this key's value: the store was just wiped, so the truth is that
     // nothing is stored under it. Read as a pin it refused every later
     // handshake; read as a credential it was sent to the device.
