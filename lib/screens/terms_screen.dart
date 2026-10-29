@@ -95,6 +95,17 @@ class TermsScreen extends StatelessWidget {
                     "manufacturer's own instructions and safety guidance.",
                     style: text.bodyMedium,
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Nothing here is for life-or-death use. A reading or a '
+                    'control can be wrong, late or missing. Sync a glucose '
+                    "meter's history to see which breakfast spikes you if "
+                    'you like; never let a number from this app decide an '
+                    'insulin dose. The same goes for blood pressure, oxygen, '
+                    'gas alarms, doors and anything that moves: the '
+                    "device's own display, alarm and instructions govern.",
+                    style: text.bodyMedium,
+                  ),
                 ],
               ),
             ),

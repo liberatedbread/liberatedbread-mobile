@@ -18,6 +18,16 @@ plugs, printers, TVs — so the app discovers devices on the local network
 (mDNS/DNS-SD and SSDP/UPnP) alongside the BLE scan and drives them over HTTP and
 SOAP, all from the same YAML device specs.
 
+> **Not for anything life-or-death.** The app shows what a reverse-engineered
+> spec decodes and sends what it encodes, and either can be wrong, late or
+> missing. Sync a glucose meter's history to see which breakfast spikes you;
+> never let a number that came through this app decide an insulin dose. The
+> same holds for blood pressure and SpO2 readings, gas alarms, motorised doors
+> and anything on wheels: the device's own display, alarm and instructions
+> govern. Specs for such devices carry a `safety_advisory`, which the app shows
+> as a banner (and, where the spec asks, a one-time acknowledgement) before the
+> controls. The first-launch gate and the About screen say the same thing.
+
 ## Architecture Overview
 
 ```
