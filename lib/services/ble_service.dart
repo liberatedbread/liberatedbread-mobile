@@ -50,6 +50,22 @@ class BleUnavailableException implements UserFacingException {
   String toString() => message;
 }
 
+/// Raised on the [BleService.scan] stream when there is no Bluetooth radio to
+/// turn on: the platform reports the adapter as unavailable (a desktop or
+/// simulator without one), not merely off.
+///
+/// A [BleUnavailableException] still — nothing to retry, every check for an
+/// unusable radio holds — but with its own message, because "turn it on" sends
+/// the user looking for a switch that does not exist, and the scan screen's
+/// "will start again by itself" is a promise nothing will keep.
+class BleNoRadioException extends BleUnavailableException {
+  const BleNoRadioException([
+    super.message =
+        'No Bluetooth adapter is available on this device, so it cannot '
+        'scan for devices.',
+  ]);
+}
+
 /// Raised when a peripheral refuses a GATT operation because the link has not
 /// been paired (bonded) yet.
 ///

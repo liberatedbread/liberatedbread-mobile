@@ -608,6 +608,25 @@ void main() {
       expect(find.byType(FloatingActionButton), findsNothing);
     });
 
+    testWidgets('no radio at all is "unavailable", with no promise', (
+      tester,
+    ) async {
+      // A Linux desktop or simulator without an adapter: there is no switch
+      // to turn on, and nothing will restart the scan by itself, so the
+      // screen must not say either. Nor a red "Scan failed" with a Retry
+      // that could only fail again.
+      final fake = FakeBleService(scanError: const BleNoRadioException());
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bluetooth unavailable'), findsOneWidget);
+      expect(find.text('Bluetooth is off'), findsNothing);
+      expect(find.text('Scan failed'), findsNothing);
+      expect(find.textContaining('start again by itself'), findsNothing);
+      expect(find.textContaining('No Bluetooth adapter'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+    });
+
     testWidgets('does not resurrect a scan the user stopped', (tester) async {
       // Broadcast: matches fbp's adapterState, and a single-subscription
       // controller that never gains a listener hangs its own close() in

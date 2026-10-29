@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import '../core/device_category.dart';
 import '../core/error_text.dart';
 import '../core/group_actions.dart';
 import '../core/hex.dart';
@@ -45,7 +46,9 @@ class GroupMember {
 /// controls (null/empty when the spec no longer resolves — the member still
 /// appears, and the runner reports the honest skip), and [ops] what those
 /// entities support, from the same [supportedNetworkGroupOps] the op
-/// buttons read.
+/// buttons read — none at all for a lock-category device, the network half of
+/// the BLE path's whole-device lock skip: a lock's bolt need not be keyed or
+/// classed as one, and its turn_off is unlock.
 class NetworkGroupMember {
   /// The namespaced member id (`net:<store id>`), which is how this member
   /// is keyed in [DeviceGroup.deviceIds] and in [GroupRunEvent.deviceId].
@@ -72,7 +75,9 @@ class NetworkGroupMember {
     this.specYaml,
     this.capabilities,
     this.entities = const [],
-  }) : ops = supportedNetworkGroupOps(entities);
+  }) : ops = DeviceCategory.parse(category) == DeviceCategory.lock
+           ? const <GroupOp>{}
+           : supportedNetworkGroupOps(entities);
 }
 
 /// Where one member is in the run. `queued` is the UI's initial row state;

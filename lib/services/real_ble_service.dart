@@ -47,8 +47,11 @@ BleConnectionState mapConnectionState(BluetoothConnectionState state) {
 /// restricted CoreBluetooth authorization through the adapter state rather than
 /// by failing `startScan`. Collapsing it into [BleUnavailableException] would
 /// tell the user to "turn Bluetooth on" — the wrong setting, and one that looks
-/// already-correct to them, leaving no way out of the empty state. Every other
-/// non-`on` state keeps the previous radio-unavailable treatment.
+/// already-correct to them, leaving no way out of the empty state.
+/// [BluetoothAdapterState.unavailable] — no radio at all, as on a desktop or
+/// simulator without one — is a [BleNoRadioException], for the same reason:
+/// "turn it on" names a switch that is not there. Every other non-`on` state
+/// keeps the previous radio-unavailable treatment.
 ///
 /// Extracted as a pure top-level function so the mapping can be unit-tested
 /// without a real Bluetooth adapter (FlutterBluePlus's API is static, so the
@@ -62,9 +65,10 @@ UserFacingException? adapterStateError(BluetoothAdapterState state) {
     case BluetoothAdapterState.off:
     case BluetoothAdapterState.turningOff:
     case BluetoothAdapterState.turningOn:
-    case BluetoothAdapterState.unavailable:
     case BluetoothAdapterState.unknown:
       return const BleUnavailableException();
+    case BluetoothAdapterState.unavailable:
+      return const BleNoRadioException();
   }
 }
 

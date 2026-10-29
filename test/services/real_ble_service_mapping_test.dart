@@ -69,10 +69,22 @@ void main() {
       expect(error!.message.toLowerCase(), contains('turned off'));
     });
 
+    test('unavailable -> no radio, NOT "turned off"', () {
+      // A desktop or simulator with no adapter reports `unavailable`. Telling
+      // that user to turn Bluetooth on — and the scan screen promising the
+      // scan will start again by itself — names a switch that does not exist.
+      // Still a BleUnavailableException, so nothing offers a Retry.
+      final error = adapterStateError(BluetoothAdapterState.unavailable);
+      expect(error, isA<BleNoRadioException>());
+      expect(error, isA<BleUnavailableException>());
+      expect(error!.message.toLowerCase(), isNot(contains('turned off')));
+      expect(error.message.toLowerCase(), contains('no bluetooth adapter'));
+    });
+
     test('every other non-on state keeps the radio-unavailable treatment', () {
       // Behaviour-preserving: before the unauthorized case was split out, ANY
       // state other than `on` produced BleUnavailableException. Only
-      // `unauthorized` changed.
+      // `unauthorized` changed; `unavailable` is a subtype of it.
       for (final state in const [
         BluetoothAdapterState.unknown,
         BluetoothAdapterState.unavailable,
