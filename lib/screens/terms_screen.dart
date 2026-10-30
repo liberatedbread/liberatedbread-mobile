@@ -97,8 +97,9 @@ class TermsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Nothing here is for life-or-death use. A reading or a '
-                    'control can be wrong, late or missing. Sync a glucose '
+                    'Use caution with everything here, and do not rely on it '
+                    'for anything safety-critical. A reading or a control can '
+                    'be wrong, late or missing. Sync a glucose '
                     "meter's history to see which breakfast spikes you if "
                     'you like; never let a number from this app decide an '
                     'insulin dose. The same goes for blood pressure, oxygen, '

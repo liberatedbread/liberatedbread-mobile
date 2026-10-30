@@ -93,8 +93,9 @@ heading.
 
 ### Changed
 
-- **The first-launch gate and the About screen say that nothing in the app
-  is for life-or-death use.** A reading or a control can be wrong, late or
+- **The first-launch gate and the About screen ask for caution with
+  everything in the app, and say not to rely on it for anything
+  safety-critical.** A reading or a control can be wrong, late or
   missing: sync a glucose meter's history to see which breakfast spikes you,
   never to decide an insulin dose, and the same for blood pressure, oxygen,
   gas alarms, doors and anything that moves. `AppConstants.termsVersion` is

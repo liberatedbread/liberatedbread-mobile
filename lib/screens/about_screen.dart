@@ -34,8 +34,9 @@ class AboutScreen extends StatelessWidget {
           Text(
             'Independent and unofficial. Liberated Bread talks to your devices '
             'directly, over Bluetooth and your own Wi-Fi network, and is not '
-            'affiliated with any device maker. Nothing here is for '
-            'life-or-death use: a reading or a control can be wrong, late or '
+            'affiliated with any device maker. Use caution with everything '
+            'here, especially anything safety-critical: a reading or a '
+            'control can be wrong, late or '
             'missing, so never let one decide a medication dose or stand in '
             "for a device's own alarm.",
             style: text.bodyMedium?.copyWith(

@@ -55,9 +55,10 @@ class AppConstants {
   /// Bumping this re-shows the first-launch gate when the disclaimer materially
   /// changes.
   ///
-  /// 2: the gate gained the "nothing here is for life-or-death use" paragraph
-  /// (no insulin dose from a synced glucose reading, no gas alarm by
-  /// notification). An install that accepted version 1 is shown it once.
+  /// 2: the gate gained the "use caution, especially for anything
+  /// safety-critical" paragraph (no insulin dose from a synced glucose
+  /// reading, no gas alarm by notification). An install that accepted
+  /// version 1 is shown it once.
   static const int termsVersion = 2;
 
   /// SharedPreferences key holding the highest [termsVersion] the user has

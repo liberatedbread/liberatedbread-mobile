@@ -324,10 +324,11 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > This is independent, community-maintained software provided as-is. Please read the in-app terms and
 > the disclaimer at https://liberatedbread.com/disclaimer/ before use — some
 > supported devices (for example light-based beauty devices) can cause harm if
-> used incorrectly; always follow the manufacturer's own safety guidance. It is
-> not a medical or life-safety tool: a reading it shows is a personal log, never
-> a basis for a medication dose, and an alarm's own buzzer, not a notification,
-> is what warns you.
+> used incorrectly; always follow the manufacturer's own safety guidance. Treat
+> every reading and control with care, and do not rely on the app for anything
+> safety-critical: a reading it shows is a personal log, never a basis for a
+> medication dose, and an alarm's own buzzer, not a notification, is what warns
+> you.
 
 **Keywords (≤100 chars, comma-separated):**
 > smart home,bluetooth,local network,LAN,IoT,device control,remote,home
