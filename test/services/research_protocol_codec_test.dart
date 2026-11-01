@@ -158,7 +158,7 @@ void main() {
       expect(values.single.valueType, 'float');
       expect(values.single.rawNumber, closeTo(0.1446, 0.00005));
       expect(values.single.decodedNumber, closeTo(0.1446, 0.00005));
-      expect(values.single.decodedText, isNot('0'));
+      expect(values.single.decodedText, '0.144641');
       expect(values.single.unit, isNull);
     },
   );

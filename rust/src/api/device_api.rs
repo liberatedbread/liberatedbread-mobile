@@ -6148,7 +6148,10 @@ pub(crate) fn decode_with_protocol(
                         && m.scale.is_none()
                         && m.value_offset.is_none()
                     {
-                        dto.decoded_text = Some(value.display());
+                        dto.decoded_text = Some(crate::codec::number::render(
+                            raw,
+                            crate::codec::number::MAX_DECIMALS,
+                        ));
                         dto.decimals = Some(crate::codec::number::MAX_DECIMALS);
                     } else {
                         dto.decoded_text = Some(semantics.render(raw));
