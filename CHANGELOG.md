@@ -70,6 +70,10 @@ heading.
 
 ### Security
 
+- **Tokio 1.53.1 -> 1.54.1.** Picks up the fix for the `AsyncFd` I/O-safety
+  advisory RUSTSEC-2026-0386. `cargo audit` is clean of known vulnerabilities;
+  only the already-known unmaintained `unsafe-libyaml` warning remains.
+
 - **A smart lock is never in a group's "Turn all off".** The spec schema has
   no lock platform, so SESAME's and Yale's bolts are switches whose Off is
   `unlock`. The device screen asks before any switch on a lock moves; a group
