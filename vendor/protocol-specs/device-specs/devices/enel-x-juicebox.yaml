@@ -1,0 +1,874 @@
+# Enel X Way JuiceBox EV chargers (JuiceNet UDP telemetry) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor firmware or app code):
+#   - JuiceRescue/juicepassproxy (Apache-2.0): juicebox_message.py, juicebox_crc.py,
+#     juicebox_telnet.py, juicebox_udpcupdater.py, test_message.py, README.MD
+#   - philipkocanda/juicebox-protocol (MIT; archived): the CMD grammar and hash
+#   - JuiceRescue/JuiceboxRescueWiki: "How the communication Works", "Juicebox
+#     Console Commands", "Directory API", "Firmware Versions", "Hardware Versions",
+#     "FAQs", "Common problems using juicepassproxy"
+#   - juicepassproxy issues #39 and #52 (field and command semantics), #73 and
+#     #116 (the encrypted v09e / v08 split), home-assistant/core issue #86588
+#   - Silicon Labs Gecko OS 4.2 command reference (udp_client, stream_list,
+#     stream_close, save, reboot, network_lookup)
+#   - Enel X "Next Gen JuiceBox" user manual (32A/40A/48A) and the 2019
+#     JuiceBox user manual — Wi-Fi setup AP, setup page, LED table
+#   - Electrek, 2024-10-02: Enel X Way North America shutdown announcement
+
+device:
+  name: "Enel X Way JuiceBox (JuiceBox 32/40/48, Pro 32/40/75) — JuiceNet UDP"
+  manufacturer: "Enel X Way North America (formerly eMotorWerks); exited the US and Canada 2024-10-11"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every frame below is
+      generated from the hash rule transcribed from juicepassproxy, and the
+      transcription reproduces that project's own published vectors (CMD
+      frames captured from the Enel X servers and telemetry with the unit ID
+      replaced); scripts/test_enel_x_juicebox_spec.py holds it to them.
+  protocol: "wifi"
+  transport: "udp"
+  category: "energy"
+  type: "ev-charger"
+  notes: >
+    The JuiceBox is a Level 2 (240 V, 32-48 A) EV charger whose "smart"
+    half — the Enel X Way app, charge scheduling, and above all changing the
+    charging current — ran through Enel X's JuiceNet cloud. Enel X Way
+    announced on 2024-10-02 that it was leaving the US and Canadian markets
+    and switched the apps and servers off on 2024-10-11. Every unit still
+    charges at the current it was last set to; nothing can change that
+    setting any more unless something on the LAN takes the server's place.
+
+    That is possible because the charger never needed the cloud to be
+    clever. It opens one UDP "stream" to a configured host and port and
+    sends a short ASCII status line every 9-30 seconds. The server answers
+    each line with a CMD line carrying two current limits, the time of day
+    and a counter, protected by a three-character base-35 hash. A host on
+    the LAN that receives those datagrams can read current, voltage, energy
+    and plug status, and by replying can set the online limit (including 0
+    to pause charging) and the offline limit the unit falls back to.
+
+    Getting the datagrams takes one of three re-pointing routes: override
+    the DNS name the charger resolves, redirect its UDP at the router, or
+    tell its ZentriOS / Gecko OS Wi-Fi module over the telnet console on
+    TCP 2000 to open the stream to a different host. All three are in
+    `setup.methods`.
+
+    What this spec cannot do: decode the ENCRYPTED variants. In June 2024
+    (generation 2, "v09e") and again from mid-November 2024 (generation 1,
+    "v08", on a new server juicenet-udp-prod4-exw.enelx.com:9004) Enel X's
+    directory server began telling some units to encrypt their UDP. The
+    cipher is unknown. A unit that boots without reaching
+    directory-api.emotorwerks.com stays on the plaintext v09u / v07
+    protocol, which is one more reason the DNS-override route is first.
+
+    Generation 1 units (metal four-screw chassis, 2016-2019, ZentriOS,
+    protocol v07) and generation 2 units (plastic chassis, 2020 on, Gecko OS
+    on a WGM160P module, protocol v09u) share the grammar; the differences
+    are field presence and digit widths and are called out per field.
+    Pre-2016 "legacy" units (cylinder / non-four-screw metal) do not run
+    the Zentri stack and are not covered.
+
+  safety_advisory:
+    severity: "warning"
+    summary: "Setting the charging current above what the circuit was wired for can overheat wiring and trip or defeat protection."
+    detail: >
+      The CMD reply tells the charger how many amperes it may draw from a
+      240 V circuit. The charger clamps that to its own rating (the `m`
+      field) but NOT to the wiring behind it: a 40 A unit on a 40 A breaker
+      must be held to 32 A (the 80 % continuous-load rule the Enel X app
+      enforced through its "Maximum Capacity" setting), and two units
+      sharing a circuit must share that figure between them. Never set
+      either limit above the circuit's continuous rating; when unsure, set
+      it no higher than the value the unit is already reporting in `C`
+      (offline limit), which is the installer's last setting. The offline
+      limit is written to EEPROM, so change it rarely. This is a third-party
+      reconstruction unaffiliated with Enel X; the installation manual and
+      your electrician's wiring rating govern.
+    acknowledge_required: true
+    advisory_url: "https://support-emobility.enelx.com/content/dam/support-hub/canada-en/JuiceBox-Manual-JuiceBox-32A-40A-48A.pdf"
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/JuiceRescue/juicepassproxy"
+    license: "Apache-2.0"
+    notes: >
+      Never published by eMotorWerks or Enel X. The grammar and hash were
+      worked out from captures by the Home Assistant community (issue
+      #86588, 2023) and consolidated in philipkocanda/juicebox-protocol and
+      juicepassproxy, which is the working reference client. The telnet
+      console is the stock Zentri / Silicon Labs module command API, which
+      Silicon Labs documents.
+
+  identification:
+    default_port: 2000
+    notes: >
+      The charger listens on nothing a client speaks the protocol to — it
+      is a UDP CLIENT. TCP 2000 is the Wi-Fi module's telnet console, which
+      is how a unit's UDP target is read and re-pointed; it answers on
+      generation 1 units and on generation 2 units whose firmware has it
+      enabled (firmware 1.0.69 ships with it off and re-disables it). The
+      28-digit unit ID that leads every datagram is printed above the
+      serial number on the enclosure label.
+
+  discovery:
+    none: >
+      The charger advertises nothing — no mDNS, no SSDP, no broadcast — and
+      answers no request. It is the one that connects: it resolves its
+      configured server name and streams UDP datagrams to it. A receiving
+      host therefore learns the charger's LAN address from the source of
+      the first datagram and its identity from the 28-digit ID the datagram
+      begins with. There is nothing to scan for; a client is "discovered
+      by" the charger once one of the setup routes has pointed the stream
+      at it. (On generation 1, TCP 2000 answering a telnet connection is a
+      usable probe for "is this a JuiceBox", but it is not advertised.)
+    identity:
+      stable_keys: ["serial"]
+      display: "serial"
+      notes: >
+        `serial` is the 28-digit unit ID that opens every datagram (the
+        `JuiceBox ID` the app showed). The LAN address is DHCP-assigned
+        and may change; key on the ID.
+    static_ip_required: true
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Two things have to be true before a LAN host sees anything: the
+      charger is on the Wi-Fi network, and its UDP stream points at that
+      host instead of at Enel X. Each method below is one route to the
+      second state and begins with the first as a stage, because a unit
+      bought second-hand or moved house needs it too. Pick ONE method.
+
+      Ordering: the DNS override is first because almost any home DNS
+      server (router, Pi-hole, AdGuard) can do it, it survives reboots, and
+      the same override blocks the directory server that would otherwise
+      switch the unit to the undecodable encrypted protocol. The router
+      redirect does the same without touching DNS but needs a router with
+      destination-NAT rules. The telnet route needs no router feature at all
+      but the change is undone whenever the module re-opens the stream
+      (minutes, or the next reboot), so a client has to keep re-applying
+      it, and it does nothing to stop the directory server enabling
+      encryption.
+
+      All three are "medium": juicepassproxy's users run them daily and the
+      project's README and wiki describe them, but nothing here was replayed
+      by this project.
+    methods:
+      - type: "none"
+        name: "DNS override of the Enel X server name"
+        role: "primary"
+        verified: false
+        description: >
+          Nothing is changed on the charger. The LAN's DNS server answers
+          the charger's lookup of its JuiceNet server name (`list` on the
+          console shows which; jbv1.emotorwerks.com or one of the
+          juicenet-udp-prod*.enelx.com names) with the LAN host's address,
+          and answers directory-api.emotorwerks.com with an unroutable
+          address so the unit cannot be switched to encrypted mode. The
+          charger keeps sending to the same port it always did (8042 on the
+          fallback name, 8047 or 9004 on the production names), so the LAN
+          host listens on that port. Both the charger and the host should
+          hold fixed LAN addresses.
+        stages:
+          - type: "softap_http"
+            name: "Charger onto Wi-Fi (skip if already joined)"
+            verified: false
+            description: >
+              For two minutes after power is applied the charger hosts a
+              setup access point and a one-page web form that lists nearby
+              networks and takes the passphrase. This is the vendor manual's
+              "personal computer" flow and needs no account and no app; the
+              Enel X Way app flow that wrapped it is gone.
+            softap:
+              ssid_prefix: "JuiceBox-"
+              ssid_examples: ["JuiceBox-123", "JuiceNet-123", "EXW-123"]
+              open_network: false
+              passphrase_source: "Fixed for the product: GoElectric (case-sensitive), printed in the user manual."
+              gateway_ip: "10.10.10.1"
+              port: 80
+            steps:
+              - action: "Power-cycle the charger at its breaker or plug. Watch for the LED to flash blue (setup mode); on generation 1 the blue NETWORK LED flashes rapidly."
+                actor: "user"
+                expect: "A Wi-Fi network named JuiceBox-###, JuiceNet-### or EXW-### appears for about two minutes."
+                timeout_seconds: 120
+              - action: "Join that network from a phone or laptop with the passphrase GoElectric."
+                actor: "user"
+              - action: "Open http://10.10.10.1/ (the module also answers the name setup.com) and pick the home Wi-Fi network from the list, enter its passphrase and submit."
+                actor: "user"
+                expect: "The charger joins the network. Generation 1: the blue NETWORK LED turns solid. Generation 2: the LED goes to solid white (idle, online) or purple (idle, offline)."
+              - action: "Reserve the charger's address in the router's DHCP so it does not move."
+                actor: "user"
+          - type: "none"
+            name: "Point the server name at the LAN host"
+            verified: false
+            description: >
+              Done on the network's DNS server; the charger is not touched.
+            steps:
+              - action: "If the console is reachable, telnet to the charger on TCP 2000 and type `list`; note the host:port on the UDPC line. Otherwise assume jbv1.emotorwerks.com:8042 (generation 1) or juicenet-udp-prod3-usa.enelx.com:8047 (generation 2) and confirm from the router's DNS log."
+                actor: "user"
+              - action: "Add a DNS override mapping that server name to the LAN host (e.g. 192.168.1.50). Add a second override sending directory-api.emotorwerks.com to 127.0.0.1 so the directory lookup fails and the unit stays on the plaintext protocol."
+                actor: "user"
+              - action: "Listen on UDP at the port from the UDPC line and power-cycle the charger."
+                actor: "client"
+                expect: "Within a minute of boot, DBG boot lines and then a status datagram (`<28-digit id>:v09u,...!XXX:` or `:v07,...`) arrive from the charger's address."
+                timeout_seconds: 180
+              - action: "Reply to every status datagram with a CMD line (see commands.set_online_current) within a few seconds; a unit that hears no reply for about five minutes falls back to its offline limit and some firmware then stops reporting the online value."
+                actor: "client"
+      - type: "none"
+        name: "Router redirect (destination NAT) of the charger's UDP"
+        role: "alternative"
+        verified: false
+        description: >
+          Nothing is changed on the charger and DNS is left alone: the
+          router rewrites every UDP datagram the charger sends — whatever
+          destination it resolved — to the LAN host, and masquerades the
+          reply so it appears to come from the original server. This also
+          blocks the unit's path to Enel X entirely (so the directory server
+          cannot enable encryption) as long as the rule covers all of its
+          traffic, not just UDP. Needs a router with dst-nat rules (MikroTik,
+          OpenWrt, pfSense); the juicepassproxy README has a MikroTik
+          example. Fixed LAN addresses for both ends are required because
+          the rules name them.
+        stages:
+          - type: "softap_http"
+            name: "Charger onto Wi-Fi (skip if already joined)"
+            verified: false
+            description: "Identical to the first stage of the DNS route: two-minute setup AP, passphrase GoElectric, web form at the module's address."
+            softap:
+              ssid_prefix: "JuiceBox-"
+              ssid_examples: ["JuiceBox-123", "JuiceNet-123", "EXW-123"]
+              open_network: false
+              passphrase_source: "Fixed for the product: GoElectric (case-sensitive), printed in the user manual."
+              gateway_ip: "10.10.10.1"
+              port: 80
+            steps:
+              - action: "Power-cycle the charger, join the JuiceBox-### / JuiceNet-### / EXW-### network (passphrase GoElectric) within two minutes, open the setup page at the module's address and submit the home network's credentials."
+                actor: "user"
+                expect: "The charger joins the LAN; reserve its DHCP address."
+          - type: "none"
+            name: "Redirect at the router"
+            verified: false
+            description: "Done in the router's firewall; the charger is not touched."
+            steps:
+              - action: "Add a dst-nat rule: UDP from the charger's address, any destination, destination port as on its UDPC line (8042 / 8047 / 9004), rewritten to the LAN host and the port the client listens on."
+                actor: "user"
+              - action: "Add a masquerade (source-NAT) rule for the same flow so the client's replies reach the charger with the server's apparent source; without it the charger ignores them."
+                actor: "user"
+              - action: "Block the charger's remaining internet access (at least TCP 443 to directory-api.emotorwerks.com) so it cannot be switched to encrypted mode, then power-cycle it."
+                actor: "user"
+              - action: "Listen on the redirected port; status datagrams arrive from the charger's address. Reply to each with a CMD line."
+                actor: "client"
+                expect: "Plaintext v09u or v07 status lines; a `v09e` or `v08` header followed by binary means the unit is encrypted — see protocol_details.encrypted_variants."
+                timeout_seconds: 180
+      - type: "device_ui"
+        name: "Telnet console re-point (TCP 2000)"
+        role: "alternative"
+        verified: false
+        description: >
+          The Wi-Fi module's own command console is told to open its UDP
+          client stream to the LAN host. Works on generation 1 units and on
+          generation 2 units whose firmware leaves telnet enabled (1.0.46
+          does; 1.0.69 ships it disabled and re-disables it). The change made
+          with `udpc` lasts until the firmware re-opens the stream — the
+          Home Assistant thread saw it revert to the Enel X server within
+          one to two and a half minutes, and it does not survive a reboot
+          — so a client keeps re-checking `list` and re-applying (juicepassproxy
+          does so every 30 s). Writing the variables and `save` persists
+          across reboots but is reported to leave some units unable to
+          recover their original target, so this spec describes the
+          non-persistent form first. This route does not stop the unit
+          reaching the directory server, so pair it with a firewall block
+          if the unit ever shows `v09e` / `v08`.
+        stages:
+          - type: "softap_http"
+            name: "Charger onto Wi-Fi (skip if already joined)"
+            verified: false
+            description: "Identical to the first stage of the DNS route: two-minute setup AP, passphrase GoElectric, web form at the module's address."
+            softap:
+              ssid_prefix: "JuiceBox-"
+              ssid_examples: ["JuiceBox-123", "JuiceNet-123", "EXW-123"]
+              open_network: false
+              passphrase_source: "Fixed for the product: GoElectric (case-sensitive), printed in the user manual."
+              gateway_ip: "10.10.10.1"
+              port: 80
+            steps:
+              - action: "Power-cycle the charger, join the JuiceBox-### / JuiceNet-### / EXW-### network (passphrase GoElectric) within two minutes, open the setup page at the module's address and submit the home network's credentials."
+                actor: "user"
+                expect: "The charger joins the LAN; reserve its DHCP address."
+          - type: "device_ui"
+            name: "Open the UDP stream to the LAN host from the console"
+            verified: false
+            description: "A raw TCP (telnet-style) session; the prompt is `>`. Commands are the Gecko OS / ZentriOS command API; see protocol_details.console."
+            steps:
+              - action: "Open TCP 2000 on the charger; send a newline and wait for the `>` prompt."
+                actor: "client"
+                expect: "A `>` prompt (generation 1 prints a `[... : Ready]` banner first)."
+                timeout_seconds: 30
+              - action: "Send `list`. Read the line of type UDPC: `# <n> UDPC <host>:<port> (<bytes>)`; <n> is the stream handle, <host>:<port> the current target."
+                actor: "client"
+                expect: "e.g. `# 1 UDPC jbv1.emotorwerks.com:8042 (10506)`"
+              - action: "Send `stream_close <n>` (older firmware also accepts `close <n>`) for the UDPC handle, then `udpc <lan-host> <port>` to open a new stream to the LAN host, where <port> is the port the client listens on."
+                actor: "client"
+                expect: "`list` now shows a UDPC line naming the LAN host; status datagrams begin arriving at the client."
+              - action: "Repeat the check every 30 s or so and re-apply when the UDPC line reverts. To make it permanent instead: `set udp.client.remote_host <lan-host>`, `set udp.client.remote_port <port>`, `save`, `reboot` — knowing that some units then could not be restored."
+                actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. Neither JuiceBox manual documents a factory reset;
+        the setup access point re-appears for two minutes after every
+        power-up, so Wi-Fi credentials are replaced without one. The Wi-Fi
+        module's OS has a factory-reset input (held 5-10 s it loads the
+        saved default configuration) but no JuiceBox control is documented
+        as wired to it.
+      description: >
+        The offline current limit, the unit ID and the UDP target all live
+        in the module's non-volatile variables and would survive anything
+        short of a module reset. If a procedure is found it should be
+        expected to clear the Wi-Fi credentials and possibly the saved UDP
+        target; it is not expected to touch the energy counters, which the
+        firmware keeps in its own store.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Power-cycle the charger and, within two minutes, join its setup AP
+        (passphrase GoElectric) and submit the new network on the setup
+        page. The old network need not exist. The UDP target is kept, so a
+        DNS override or router rule must be recreated on the new network;
+        a telnet re-point has to be re-applied anyway.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Home Wi-Fi SSID and passphrase (module variables wlan.ssid / wlan.passkey)"
+        - "UDP server host and port (udp.client.remote_host / remote_port; shown by `list`)"
+        - "Offline charging-current limit (EEPROM; set by the CMD `M` field)"
+        - "28-digit unit ID and the firmware's energy counters"
+      issued_to_client: []
+      notes: >
+        The setup page is plain HTTP on the charger's own access point, which
+        is WPA-protected with a product-wide published passphrase, so the
+        home passphrase crosses the air encrypted but not with a secret the
+        owner chose. The telnet console and the UDP protocol itself have no
+        authentication at all: anyone on the LAN who can reach TCP 2000 can
+        re-point the unit, and anyone who receives its datagrams can set its
+        current. Keep the charger on a network you control.
+
+  variants:
+    - model: "JuiceBox Pro 32 / 40 / 40 Lite / 75 (generation 1)"
+      description: >
+        2016-2019, metal four-screw chassis (silver, later black), PCB 8.12
+        to 8.17, ZentriOS WZ Wi-Fi module; firmware strings begin
+        EMWERK-JB_1_1 (ZAP) or EMWERK-JB814. Protocol v07, encrypted
+        variant v08. Telnet console on TCP 2000 answers. Does not report the
+        offline limit (`C`) in telemetry; two-digit amperes in CMD.
+    - model: "JuiceBox 32 / 40 / 48 (generation 2, Next Gen)"
+      description: >
+        2020 on, plastic chassis, PCB 9.x, Gecko OS on a Silicon Labs
+        WGM160P; firmware strings begin EMWERK-JB201 (1.0.46 common, 1.0.69
+        latest). Protocol v09u, encrypted variant v09e. Reports both limits
+        and the rating; four-digit online / three-digit offline amperes in
+        CMD. Telnet is enabled on 1.0.46 and disabled (and re-disabled after
+        enabling) on 1.0.69.
+
+protocol_handler: "juicenet_udp"
+
+protocol_details:
+  juicenet_udp:
+    direction: "The charger is the UDP client. It streams status lines to one configured host:port and expects a CMD line back for each; a LAN client is a UDP server that answers from the port the datagram arrived on."
+    ports_seen: "8042 (jbv1.emotorwerks.com, the hard-coded fallback), 8043, 8047 (juicenet-udp-prod3-usa.enelx.com, generation 2 production), 9004 (juicenet-udp-prod4-exw.enelx.com, from 2024-11). Any port works; the unit sends to whatever the directory server or the console told it."
+    directory_server: >
+      At boot the unit fetches https://directory-api.emotorwerks.com/v1/profiles/juicebox/<28-digit id>/
+      and takes from the JSON reply its UDP endpoint (`jb_udp`, host:port) and an `encrypt` flag;
+      with no reply it uses jbv1.emotorwerks.com:8042. The names still resolve in 2026-10 but the
+      servers no longer run the service. Blocking this lookup is what keeps a unit on the plaintext
+      protocol.
+    cadence: "A status line every ~9-10 s while charging (field t = 09), every ~30 s otherwise (t = 29/30). Replies arrive from the real servers 3-6 s after each line. A unit that hears nothing for about five minutes applies its offline limit; generation 1 firmware takes about six minutes after boot before it reports a settled online limit."
+    encoding: "7-bit ASCII. One datagram per line; no length prefix. A status line ends in ':' and a CMD line in '$'."
+    status_grammar: "<id>:v<ver>[,<letter><value>]...!<crc>:  — <id> is 28 decimal digits; <ver> is 07, 09u (plaintext) or 08, 09e (encrypted); each field is one letter (case significant) followed by a decimal integer, possibly negative, zero-padded to a width that depends on firmware; fields are comma-separated and their ORDER AND PRESENCE VARY — parse by letter, never by position."
+    legacy_grammar: "<id>:<letter><value>,...:  — pre-v07 firmware sends no version tag and no CRC (e.g. `<id>:V247,L11097,S0,T34,E14,i84,e1,t30:`); V is then whole volts and a repeated E occurs. Accepted by juicepassproxy as the 'old' format."
+    debug_grammar: "<id>:DBG,<LVL>:<text>:  — LVL is NFO, WRN or ERR; no CRC. Sent at boot (`NFO:BOT:<firmware string>`, e.g. BOT:EMWERK-JB201-1.0.46, ...) and on faults; `ERR:Miss CRC '<cmd>'` is the unit rejecting a CMD without a hash."
+    command_grammar: "CMD<d><HHMM>A<online>M<offline>C<code>S<counter>!<crc>$  — d: weekday 0 = Sunday .. 6 = Saturday; HHMM: local time, 24 h, four digits; A: online (while-connected) current limit in whole amperes; M: offline (fallback, EEPROM) limit in whole amperes; C: three-digit code, 006 / 008 / 242 / 244 seen from the servers, meaning unknown, 006 is what juicepassproxy sends; S: three-digit message counter 001-999 wrapping to 001; crc: three base-35 characters over everything before '!'."
+    command_digit_widths: "Generation 2 (v09u) units were sent A as four digits and M as three (A0016M040); generation 1 (v07) units two and two (A16M40). Both widths were captured from the real servers; a unit is sent the width its generation was. The example bodies below use the v09u widths."
+    current_semantics: >
+      Precedence is unit rating (m) > offline limit (M in CMD, echoed as C) > online limit (A in CMD,
+      echoed as M). The online value takes effect immediately while CMD replies keep arriving; A below
+      6 (0 is what the app sent) disallows charging and the charge LED flashes; charging resumes when
+      a value of 6 or more is sent. The offline value is written to EEPROM and is what the unit
+      charges at when it has no server, so change it rarely and only to the circuit's safe figure.
+      Some firmware clamps online to offline, one generation-2 unit accepted online above offline:
+      never rely on the unit to enforce the wiring limit. Repeated pause/resume cycles the contactor.
+    time_fields: "The weekday and HHMM in CMD are how the servers set the unit's clock for offline time-of-use schedules. Send the client's local time; a unit with no schedule ignores it."
+  crc:
+    algorithm: >
+      A 16-bit hash over the ASCII payload (every character before '!', including the leading unit ID
+      or 'CMD'): start h = 0; for each character c: h = (h XOR ((h << 5) + (h >> 2) + ord(c))) AND
+      0xFFFF, where the shifts and the addition are evaluated on the previous h before masking. Then
+      take h modulo 35^3 (= 42875) and write it as exactly three base-35 digits, LEAST significant
+      first, zero-padded, with the digit alphabet 0-9, A-N, then Z for digit 24 in place of O, then
+      P-Y for 25-34. The letter O never appears. The same hash and alphabet are used in both
+      directions; a status line's hash is checked by the unit's servers and a CMD line without a
+      correct hash is rejected with a `DBG,ERR:Miss CRC` line.
+    worked_example: "Payload `CMD31830A0016M040C006S001` hashes to 34677; 34677 = 28*35^2 + 10*35 + 27 → digits (27, 10, 28) least-significant first → 'R','A','S' → `CMD31830A0016M040C006S001!RAS$`."
+    modulo_note: "Hashes at or above 42875 (about a third of them) lose their fourth digit — the real servers' CMD frames with such hashes carry three characters, so the truncation is the protocol's, not a transcription error."
+  encrypted_variants:
+    description: >
+      A datagram whose version tag is `v09e` (generation 2, first seen June 2024) or `v08` (generation
+      1, first seen 2024-11-14, together with a move to juicenet-udp-prod4-exw.enelx.com:9004) has a
+      readable 28-digit ID and tag followed by binary. The directory server's reply switches a unit
+      into this mode (the unit's debug log then shows `DirSvc encrypt 1`); the firmware boot line
+      `FW Init.ENC.Y/...` shows the capability. The cipher and key exchange are not known; a `keys`
+      endpoint on Enel X's API handed the unit a 64-hex-character key with a one-year expiry. A
+      variant `v08L` tag was also seen. juicepassproxy recognises these frames and discards them.
+    recovery: "Cut the unit's internet access (at minimum directory-api.emotorwerks.com over HTTPS) and power-cycle it; units then came back on v09u / v07. One generation 1 unit stayed on v08 across reboots until re-pointed over telnet, and on v07 afterwards ignored CMD current changes — not understood."
+  console:
+    port: "TCP 2000, no authentication, line-oriented, prompt `>`"
+    commands:
+      - "help / help all / help commands / help variables — the module's own command API help (ZentriOS on generation 1, Gecko OS on generation 2)"
+      - "list (stream_list) — open streams, one per line: `# <handle> <TYPE> <target> (<bytes>)`; the UDPC line is the JuiceNet stream, FILE lines are the module's files (webapp/index.html-<ver>, godaddy_ca.pem-<ver>)"
+      - "stream_close <handle> (older firmware: close <handle>) — closes a stream"
+      - "udpc <host> <port> [<local port>] (udp_client) — opens a new UDP client stream; returns the new handle"
+      - "set udp.client.remote_host <host> / set udp.client.remote_port <port> — the persistent target; takes effect immediately but is only kept across reboot after `save`"
+      - "save — writes all variables to flash; reboot — restarts the module"
+      - "get <variable> / get all — read a variable or every variable (network configuration included; `get all` also shows the firmware string)"
+      - "network_lookup <name> (nlo) — resolve a name through the module's DNS, which is how to confirm a DNS override took"
+    caveats: "`udpc` without `save` reverts within minutes or at reboot; `save` has been reported to leave units unable to return to the Enel X target (juicepassproxy issue #96), so the project re-applies rather than saves. Generation 2 firmware 1.0.69 disables telnet and re-disables it after it is enabled."
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only, to satisfy the schema's access-surface rule. The
+      protocol is ASCII lines over UDP, initiated by the charger (see
+      protocol_details.juicenet_udp); the only HTTP on the device is the
+      two-minute setup page on its own access point.
+
+payload_formats:
+  StatusMessage:
+    description: >
+      One status line from the charger (protocol_details.juicenet_udp.status_grammar).
+      Fields are comma-separated `<letter><integer>` tokens after the
+      `<id>:v<ver>` head; parse by letter. Widths below are the generation
+      2 (v09u) ones; generation 1 (v07) uses fewer digits and lacks some
+      fields. The `!<crc>:` tail is not a field.
+    delimiter: ","
+    fields:
+      - name: "id"
+        index: 0
+        description: "The 28-digit unit ID, before the ':' that separates it from the version tag in the first token (`<id>:v09u`)."
+      - name: "v"
+        description: "Protocol version tag in the first token: 07, 09u plaintext; 08, 09e encrypted (binary follows — stop parsing)."
+      - name: "s"
+        description: "Message counter; three digits on v09, four on v07. Resets at boot."
+      - name: "F"
+        description: "Status flags, meaning not established: 10 seen unplugged, 11 plugged in (also charging on some cars), 31 during a charge. v09 only."
+      - name: "u"
+        description: "Firmware loop counter (eight digits on v09, five on v07); increments monotonically and is not a timestamp."
+      - name: "V"
+        unit: "V"
+        scale: 0.1
+        device_class: "voltage"
+        description: "Line voltage in tenths of a volt (V2414 = 241.4 V). The pre-v07 legacy format sends whole volts as three digits (V247); a value shorter than four digits is whole volts."
+      - name: "L"
+        unit: "Wh"
+        description: "Lifetime energy delivered, in watt-hours (eleven digits on v09, ten on v07)."
+      - name: "S"
+        description: "Plug/charge status; see StatusCode. One or two digits. Absent on the legacy format, where A > 0 means charging."
+      - name: "T"
+        unit: "C"
+        device_class: "temperature"
+        description: "Internal temperature in whole degrees Celsius (juicepassproxy converts to Fahrenheit for display; the wire is Celsius)."
+      - name: "M"
+        unit: "A"
+        device_class: "current"
+        description: "Online current limit currently in force, whole amperes — the echo of the last CMD `A` (four digits on v09, two on v07). After a reboot or five minutes without replies it shows the offline value."
+      - name: "C"
+        unit: "A"
+        device_class: "current"
+        description: "Offline (fallback, EEPROM) current limit, whole amperes — the echo of CMD `M`. v09 only; v07 units never report it, so a client must remember what it last sent."
+      - name: "m"
+        unit: "A"
+        device_class: "current"
+        description: "Hardware current rating of the unit, whole amperes (0032 / 0040 / 0048). Neither limit can exceed it; the wiring limit may be lower."
+      - name: "t"
+        unit: "s"
+        description: "Reporting interval in seconds: 09 while charging, 29-30 otherwise. The servers could ask for faster reports through a bit in the reply; not understood."
+      - name: "i"
+        description: "Index 0-95 of the 15-minute slot (of 24 h) the `e` field refers to; each message reports one slot."
+      - name: "e"
+        unit: "Wh"
+        description: "Energy in the 15-minute slot named by `i`, watt-hours, signed (negative values such as -0001 occur; meaning unknown). Usually 0 when not charging."
+      - name: "f"
+        unit: "Hz"
+        scale: 0.01
+        description: "Line frequency in hundredths of a hertz (f5999 = 59.99 Hz)."
+      - name: "r"
+        description: "Unknown; two digits on v09 (99, 61, 60, 38 seen; 995 once). Possibly a signal-quality or relay figure."
+      - name: "b"
+        description: "Unknown; always 000 in captures. v09 only."
+      - name: "B"
+        description: "Unknown; always 0000000 in captures. v09 only."
+      - name: "P"
+        description: "Unknown; present only while a vehicle is plugged in, always 0 in captures. v09 only."
+      - name: "E"
+        unit: "Wh"
+        device_class: "energy"
+        description: "Energy delivered in the current session, watt-hours; present only while a vehicle is plugged in (seven digits on v09, six on v07). Resets when the session ends. The legacy format sends it twice with different meanings; keep the first."
+      - name: "A"
+        unit: "A"
+        scale: 0.1
+        device_class: "current"
+        description: "Charging current in tenths of an ampere (A00161 = 16.1 A; five digits on v09, four on v07). Absent when no vehicle is plugged in — treat absent as 0."
+      - name: "p"
+        scale: 0.001
+        description: "Power factor ×1000 (p0996 = 0.996). Drops to a small value when the car stops drawing. Present only while plugged in."
+      - name: "X"
+        description: "Unknown; v07 only; always 0."
+      - name: "Y"
+        description: "Unknown; v07 only; always 0."
+    parse_rules:
+      - "Split the line at the first '!'. Everything before it is the payload the hash covers; after it come exactly three hash characters and a terminating ':'. Recompute the hash (protocol_details.crc) and drop the line if it differs."
+      - "If the payload contains no '!' it is either a legacy (pre-v07) status line or a DBG line: a payload whose part after the first ':' begins with 'DBG,' is a debug line (see DebugMessage); otherwise parse it as a legacy status line with no hash."
+      - "The first token up to ':' is the 28-digit unit ID. After ':' comes the version tag `v07`/`v09u` (or `v08`/`v09e`: encrypted, stop). Then split on ',' and read each token as one letter plus a decimal integer, possibly with a leading '-'."
+      - "A letter may repeat on the legacy format (E appears twice); keep the first occurrence."
+      - "Power is not on the wire: compute W = V(decoded) × A(decoded) when both are present."
+      - "Field order and presence vary with firmware and plug state. Never index by position; absent A, E, P, p mean no vehicle is plugged in."
+    example: "0910000000000000000000004242:v09u,s001,F31,u00412974,V2400,L00004262804,S02,T28,M0024,C0040,m0040,t09,i23,e-0001,f5990,r99,b000,B0000000,P0,E0004501,A00161,p0996!ZYK:"
+  StatusCode:
+    description: "Values of the status field `S`."
+    values:
+      "0": "Unplugged — no vehicle connected"
+      "1": "Plugged in, not charging (vehicle full, paused, limit below 6 A or time-of-use wait)"
+      "2": "Charging"
+      "5": "Error"
+  CommandMessage:
+    description: >
+      The server-to-charger reply (protocol_details.juicenet_udp.command_grammar).
+      Sent once in answer to every status line; the charger acts on the
+      `A` value immediately and stores `M`. Fields are fixed-position,
+      unlike the status line.
+    fields:
+      - name: "weekday"
+        description: "One digit after 'CMD': 0 = Sunday .. 6 = Saturday, local time."
+      - name: "hhmm"
+        description: "Four digits, local time 24 h."
+      - name: "A"
+        unit: "A"
+        description: "Online current limit, whole amperes; 0 (or anything below 6) pauses charging. Four digits for v09 units, two for v07."
+      - name: "M"
+        unit: "A"
+        description: "Offline current limit, whole amperes, written to EEPROM. Three digits for v09 units, two for v07."
+      - name: "C"
+        description: "Three-digit code; 006 is the common value from the servers (008, 242, 244 also seen, meaning unknown)."
+      - name: "S"
+        description: "Three-digit counter 001-999, incremented per reply, wrapping to 001."
+      - name: "crc"
+        description: "Three base-35 characters over the payload before '!', then '$'."
+    parse_rules:
+      - "Build the payload `CMD` + weekday + HHMM + 'A' + online + 'M' + offline + 'C' + code + 'S' + counter, hash it per protocol_details.crc, then append '!' + hash + '$'. Send the result as one UDP datagram to the charger's address and the source port its status line came from."
+    example: "CMD31830A0016M040C006S001!RAS$"
+  DebugMessage:
+    description: "Unsolicited diagnostic line, no hash: `<id>:DBG,<LVL>:<text>:` with LVL in NFO / WRN / ERR."
+    values:
+      "NFO:BOT:<firmware string>": "Boot banner; the string identifies generation and firmware (EMWERK-JB_1_1-1.4.0.28, ZentriOS-WZ-3.6.4.0 on generation 1; EMWERK-JB201-1.0.46, Gecko_OS-STANDARD-4.2.7, WGM160P on generation 2)."
+      "NFO:BOT:FW Init.ENC.Y/...": "Boot capability line; ENC.Y means the firmware can run the encrypted protocol."
+      "ERR:Miss CRC '<cmd>'": "A CMD line arrived without a valid hash and was ignored."
+    example: "0910000000000000000000004242:DBG,NFO:BOT:EMWERK-JB201-1.0.46, Gecko_OS-STANDARD-4.2.7-11064, WGM160P:"
+
+commands:
+  set_online_current:
+    description: >
+      Reply to a status line with a CMD line whose `A` is the new online
+      limit, carrying the unit's current offline limit along unchanged. 0
+      pauses charging; 6 or more resumes it. The unit applies it within one
+      report interval and keeps it only while replies keep coming (about
+      five minutes), after which it falls back to the offline limit.
+    transport: "udp"
+    body: "CMD{weekday}{hhmm}A{online_amps}M{offline_amps}C006S{counter}!{crc}$"
+    parameters:
+      online_amps:
+        type: "integer"
+        required: true
+        min: 0
+        max: 75
+        unit: "A"
+        description: "Online current limit, whole amperes; render zero-padded to four digits for a v09 unit (A0016) and two for a v07 unit (A16). 0 pauses. 75 is the family maximum (the Pro 75); most units are 32-48 A and clamp to their own rating `m`, which is the unit's ceiling, not the wiring's. Never above the circuit's continuous rating."
+      offline_amps:
+        type: "integer"
+        min: 6
+        max: 75
+        unit: "A"
+        source: "state:StatusMessage.C"
+        description: "The offline limit the unit is already reporting in `C`, sent back unchanged (three digits on v09: M040; two on v07). A v07 unit never reports it: the client must hold the value it last sent or the installer's setting."
+      weekday:
+        type: "integer"
+        min: 0
+        max: 6
+        description: "Client's local weekday, 0 = Sunday. Sets the unit's clock for offline schedules; no constant is correct, so a consumer fills it from its clock."
+      hhmm:
+        type: "string"
+        description: "Client's local time as four digits HHMM, from its clock."
+      counter:
+        type: "integer"
+        auto: "sequence"
+        min: 1
+        max: 999
+        description: "Per-reply counter rendered as three digits, 001-999 then back to 001 (not 000)."
+      crc:
+        type: "string"
+        description: "Three base-35 characters per protocol_details.crc over everything before '!'. Not one of the schema's `auto` checksum roles — a consumer needs the dedicated encoder named by `protocol_handler`."
+    example_body: "CMD31830A0016M040C006S001!RAS$"
+    example_notes: "Wednesday 18:30, online 16 A, offline 40 A left as reported, first reply. Hash 34677 → RAS."
+    advanced: true
+    advanced_reason: >
+      Sets how much current the charger lets the vehicle draw from the mains
+      circuit. Above the wiring's continuous rating this overheats cable and
+      breaker; the unit only clamps to its own rating. Recovery: stop
+      replying for five minutes and the unit returns to its offline limit,
+      or send the previous value.
+    verification: "reported"
+  set_offline_current:
+    description: >
+      Reply with a CMD line whose `M` is a new offline (fallback) limit,
+      carrying the current online limit along. The unit writes `M` to EEPROM
+      and charges at it whenever it has no server — including for the rest
+      of its life if the LAN client goes away — so this is the installer's
+      "Maximum Capacity" setting.
+    transport: "udp"
+    body: "CMD{weekday}{hhmm}A{online_amps}M{offline_amps}C006S{counter}!{crc}$"
+    parameters:
+      offline_amps:
+        type: "integer"
+        required: true
+        min: 6
+        max: 75
+        unit: "A"
+        description: "New offline limit, whole amperes; three digits for v09 (M032), two for v07 (M32). 75 is the family maximum (the Pro 75); hold it to the lower of the unit's rating `m` and the circuit's continuous (80 %) rating."
+      online_amps:
+        type: "integer"
+        min: 0
+        max: 75
+        unit: "A"
+        source: "state:StatusMessage.M"
+        description: "The online limit the unit is reporting in `M`, sent back unchanged (four digits on v09, two on v07)."
+      weekday:
+        type: "integer"
+        min: 0
+        max: 6
+        description: "Client's local weekday, 0 = Sunday."
+      hhmm:
+        type: "string"
+        description: "Client's local time, HHMM."
+      counter:
+        type: "integer"
+        auto: "sequence"
+        min: 1
+        max: 999
+        description: "Per-reply counter, three digits, 001-999 wrapping to 001."
+      crc:
+        type: "string"
+        description: "Three base-35 characters per protocol_details.crc; needs the dedicated encoder."
+    example_body: "CMD31830A0032M032C006S003!0CC$"
+    example_notes: "Wednesday 18:30, online 32 A kept, offline lowered to 32 A, third reply. Hash 15120 → 0CC."
+    advanced: true
+    advanced_reason: >
+      Changes the current the charger uses with NO server present, and
+      writes EEPROM each time (limited write life). Set above the wiring's
+      continuous rating it leaves a fire risk that persists after the
+      client is gone. Recovery: send the previous value (note it from `C`
+      before changing); on a v07 unit, which does not report it, keep your
+      own record.
+    verification: "reported"
+
+entities:
+  - platform: "sensor"
+    name: "Charger Status"
+    icon: "mdi:ev-station"
+    notes: "StatusMessage field S through payload_formats.StatusCode. Pushed; no state binding exists for a charger-initiated UDP stream, so the field is named here."
+  - platform: "sensor"
+    name: "Charging Current"
+    device_class: "current"
+    unit: "A"
+    notes: "StatusMessage field A × 0.1; 0 when the field is absent (unplugged)."
+  - platform: "sensor"
+    name: "Line Voltage"
+    device_class: "voltage"
+    unit: "V"
+    notes: "StatusMessage field V × 0.1 (whole volts on the legacy format)."
+  - platform: "sensor"
+    name: "Charging Power"
+    device_class: "power"
+    unit: "W"
+    notes: "Not on the wire: decoded V × decoded A."
+  - platform: "sensor"
+    name: "Session Energy"
+    device_class: "energy"
+    unit: "Wh"
+    notes: "StatusMessage field E; present only while plugged in."
+  - platform: "sensor"
+    name: "Lifetime Energy"
+    device_class: "energy"
+    unit: "Wh"
+    notes: "StatusMessage field L."
+  - platform: "sensor"
+    name: "Internal Temperature"
+    device_class: "temperature"
+    unit: "C"
+    notes: "StatusMessage field T, whole degrees Celsius."
+  - platform: "sensor"
+    name: "Line Frequency"
+    unit: "Hz"
+    icon: "mdi:sine-wave"
+    notes: "StatusMessage field f × 0.01."
+  - platform: "sensor"
+    name: "Rated Current"
+    device_class: "current"
+    unit: "A"
+    notes: "StatusMessage field m — the unit's hardware ceiling, the upper bound for both number entities below."
+  - platform: "sensor"
+    name: "Reported Online Limit"
+    device_class: "current"
+    unit: "A"
+    notes: "StatusMessage field M — what the unit is currently allowing."
+  - platform: "sensor"
+    name: "Reported Offline Limit"
+    device_class: "current"
+    unit: "A"
+    variants: ["JuiceBox 32 / 40 / 48 (generation 2, Next Gen)"]
+    notes: "StatusMessage field C. Generation 1 (v07) never sends it."
+  - platform: "number"
+    name: "Online Current Limit"
+    icon: "mdi:current-ac"
+    min: 0
+    max: 75
+    step: 1
+    unit: "A"
+    commands:
+      set_value: "set_online_current"
+    notes: >
+      0 pauses charging. 75 A is the family maximum (JuiceBox Pro 75); a
+      consumer must cap `max` at the lower of the unit's `m` and the
+      circuit's continuous rating the user confirms (the safety_advisory
+      gate), and keep sending the value with every reply or the unit
+      reverts to its offline limit after ~5 min.
+  - platform: "number"
+    name: "Offline Current Limit"
+    icon: "mdi:current-ac"
+    min: 6
+    max: 75
+    step: 1
+    unit: "A"
+    commands:
+      set_value: "set_offline_current"
+    notes: "EEPROM write; 75 A is the family maximum, so cap at the lower of the unit's `m` and the circuit's continuous rating, and change rarely. Reads back in `C` on generation 2 only."
+
+evidence:
+  documentation_review: >
+    Read on 2026-10-11: the juicepassproxy source (message parser, hash,
+    telnet driver, UDPC updater, test vectors) and README; the JuiceRescue
+    wiki pages on communication, console commands, directory API, firmware
+    and hardware versions, FAQs and common problems; juicepassproxy issues
+    #39, #52, #73 and #116 and Home Assistant core issue #86588; the Gecko
+    OS 4.2 command reference; both Enel X JuiceBox manuals; Electrek's
+    shutdown report. The hash transcription reproduces every CMD and status
+    vector juicepassproxy publishes, including frames whose hash exceeds
+    35^3 (which is how the three-character truncation was confirmed). Field
+    units and scales are juicepassproxy's decoders; field meanings beyond
+    those are the community's readings in issue #52 and are marked unknown
+    where they are.
+  open_questions: >
+    The encrypted v09e / v08 cipher and key exchange; the meaning of CMD
+    code C (006/008/242/244); the reporting-rate and "app is watching" bits
+    FalconFour recalls in the reply; fields F, r, b, B, P, X, Y and
+    negative `e`; whether a generation 1 unit that returned from v08 to v07
+    accepts CMD current changes (one did not); what the setup page's form
+    submits (not captured — only the user-facing flow is documented).
+  artifacts:
+    - type: "community_repo"
+      artifact: "JuiceRescue/juicepassproxy (default branch, 2026-10-11)"
+      url: "https://github.com/JuiceRescue/juicepassproxy"
+      description: "Apache-2.0. Message grammar, field decoders, hash, telnet UDPC update loop and the test vectors this spec's hash was checked against."
+    - type: "community_repo"
+      artifact: "philipkocanda/juicebox-protocol (archived 2026-08)"
+      url: "https://github.com/philipkocanda/juicebox-protocol"
+      description: "MIT. Origin of the CMD builder and base-35 hash; tested on a 2018 32 A three-phase (v07) unit."
+    - type: "community_thread"
+      artifact: "home-assistant/core issue #86588"
+      url: "https://github.com/home-assistant/core/issues/86588"
+      description: "2023 thread where the telnet `list` / `udpc` re-point, the revert-within-minutes behaviour, the directory server's role and the 8042/8047/8051 ports were first written down."
+    - type: "vendor_documentation"
+      artifact: "Next Gen JuiceBox User Manual (32A/40A/48A), 755-000215 Rev F"
+      url: "https://support-emobility.enelx.com/content/dam/support-hub/canada-en/JuiceBox-Manual-JuiceBox-32A-40A-48A.pdf"
+      description: "Setup AP names, GoElectric passphrase, 10.10.10.1 setup page, two-minute window, LED table; the 28-digit ID above the serial."
+
+remaining_unknowns:
+  - "The encrypted protocol (v09e on generation 2, v08 on generation 1, server juicenet-udp-prod4-exw.enelx.com:9004 from 2024-11) cannot be decoded; this spec only recognises it. A unit kept off the internet stays plaintext."
+  - "CMD code C: 006, 008, 242 and 244 were all sent by the real servers; 006 works for setting current. Whether other values carry the faster-reporting or time-of-use bits is unknown."
+  - "Status fields F, r, b, B, P, X, Y and the sign of e are unexplained; T is assumed to be an internal (board) temperature."
+  - "Whether a unit respects an online limit above its offline limit varies by firmware; the wiring limit must be enforced by the client."
+  - "No factory-reset procedure is documented for any JuiceBox; the Wi-Fi setup AP after power-up is the only documented way to change networks."
+  - "Schema gap: the CMD hash is not one of the `auto` checksum roles and the weekday/HHMM fields come from the client's clock, so a generic consumer cannot render set_online_current / set_offline_current from the YAML alone; `protocol_handler: juicenet_udp` names the encoder it needs."
+  - "The telnet variable abbreviations the wiki gives (`set ud c h`, `set ud c p`) are not confirmed against the module documentation; the full names udp.client.remote_host / remote_port are."
+  - "Not replayed on hardware by this project."
+
+helpful_urls:
+  - title: "JuiceRescue/juicepassproxy"
+    url: "https://github.com/JuiceRescue/juicepassproxy"
+    kind: "implementation"
+    description: "Apache-2.0 reference client: UDP man-in-the-middle to MQTT / Home Assistant, telnet re-point loop, and the parser whose vectors this spec is held to."
+  - title: "JuiceboxRescueWiki: How the communication works"
+    url: "https://github.com/JuiceRescue/JuiceboxRescueWiki/wiki/How-the-communication-Works-(Basic-info)"
+    kind: "protocol_writeup"
+    description: "Boot-time directory lookup, server names, ports 8042/8043/8047/9004 and the three re-pointing options."
+  - title: "JuiceboxRescueWiki: JuiceBox console commands"
+    url: "https://github.com/JuiceRescue/JuiceboxRescueWiki/wiki/Juicebox-Console-Commands"
+    kind: "protocol_writeup"
+    description: "The telnet-2000 commands (`list`, `network_lookup`, setting the UDP host and port, `save`, `reboot`) with example output."
+  - title: "JuiceboxRescueWiki: Firmware versions"
+    url: "https://github.com/JuiceRescue/JuiceboxRescueWiki/wiki/Firmware-Versions"
+    kind: "protocol_writeup"
+    description: "Which firmware strings speak v07, v09u and v09e, telnet availability, and the five-minute offline fallback."
+  - title: "home-assistant/core issue #86588: JuiceBox local control"
+    url: "https://github.com/home-assistant/core/issues/86588"
+    kind: "forum"
+    description: "The 2023 community thread that established the telnet re-point, its revert, and the directory server's role."
+  - title: "philipkocanda/juicebox-protocol"
+    url: "https://github.com/philipkocanda/juicebox-protocol"
+    kind: "implementation"
+    description: "MIT Python library (archived) for building CMD lines; the origin of the hash and grammar."
+  - title: "Gecko OS 4.2 command reference (Silicon Labs)"
+    url: "https://docs.silabs.com/gecko-os/4/standard/4.2/cmd/commands"
+    kind: "standard"
+    description: "Vendor documentation for the Wi-Fi module's console: udp_client, stream_list, stream_close, save, reboot, network_lookup."
+  - title: "Electrek: Enel X Way North America is shutting down (2024-10-02)"
+    url: "https://electrek.co/2024/10/02/enel-x-way-north-america-is-shutting-down-heres-what-we-know/"
+    kind: "other"
+    description: "The shutdown announcement: apps and servers off 2024-10-11, chargers keep charging, current can no longer be changed."
+  - title: "Juice Rescue"
+    url: "https://juice-rescue.org/"
+    kind: "forum"
+    description: "The owner community behind juicepassproxy and the OpenEVSE controller-replacement effort."
+  - title: "Next Gen JuiceBox user manual (32A / 40A / 48A, PDF)"
+    url: "https://support-emobility.enelx.com/content/dam/support-hub/canada-en/JuiceBox-Manual-JuiceBox-32A-40A-48A.pdf"
+    kind: "manual"
+    description: >
+      Enel X manual for the generation 2 JuiceBox 32A, 40A and 48A (755-000215
+      Rev F), still vendor-hosted on the Canadian support hub: installation,
+      the two-minute setup AP and setup page used in this spec, and the LED
+      table.
+  - title: "JuiceBox user manual, 2019 edition (generation 1 Pro units, PDF)"
+    url: "https://support-emobility.enelx.com/content/dam/support-hub/canada-en/Commercial-JuiceBox-Manual-2019.pdf"
+    kind: "manual"
+    description: >
+      Enel X manual for the generation 1 (metal chassis) JuiceBox Pro: the
+      same setup AP flow, the three-LED (power / network / charging) table,
+      and the list of server names the unit needs to reach.

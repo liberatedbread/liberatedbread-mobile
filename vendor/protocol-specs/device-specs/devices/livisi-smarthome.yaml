@@ -1,0 +1,1260 @@
+# LIVISI SmartHome controller (SHC 1 / SHC 2), Local SmartHome API — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# The controller formerly sold as RWE SmartHome and innogy SmartHome. LIVISI
+# retired its cloud services on 2024-03-01; since then the "Local SmartHome"
+# API on the controller itself is the only way in. That API is plain HTTP on
+# port 8080 with an OAuth2 password-grant bearer token, plus a WebSocket event
+# stream (port 9090 on SHC 2, port 8080 on SHC 1). Every fact here was derived
+# from public open-source clients (openHAB's livisismarthome binding, the
+# planbnet/livisi Python library behind Home Assistant's `livisi` integration)
+# and the vendor's own community posts; nothing was replayed against hardware.
+#
+# Discovery: deliberately no `discovery` block. Neither openHAB nor Home
+# Assistant discovers the controller (both say so and take a host by hand),
+# and no source documents an mDNS/SSDP announcement. The vendor's how-to only
+# says the controller answers to the DHCP/NetBIOS-style host names
+# SMARTHOME01 (SHC 1) and SHCONTROLLER01 (SHC 2) — see device.notes. Absent
+# block = not researched by capture, which is the honest state.
+
+device:
+  name: "LIVISI SmartHome Controller (SHC 1 / SHC 2), Local SmartHome API"
+  manufacturer: "LIVISI GmbH (formerly innogy SmartHome / RWE SmartHome)"
+  manufacturer_status: "shutdown"
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "http://web.archive.org/web/20230321111638/https://developer.services-smarthome.de/api_reference/errorcodes"
+        title: "LIVISI SmartHome developer documentation, error codes (Wayback snapshot 2023-03-21)"
+        covers: "The errorcode table in payload_formats.ErrorReply. The live developer site no longer resolves."
+    source_code: "https://github.com/planbnet/livisi"
+    license: "Apache-2.0"
+    notes: >
+      LIVISI published developer documentation for its cloud API ("CAPI",
+      developer.services-smarthome.de) and described the Local SmartHome API
+      as a copy of that API served by the controller, authenticated with the
+      OAuth2 resource-owner password grant and the fixed user "admin". The
+      vendor site is gone (the domains no longer resolve as of 2026-10-25), so
+      the documentation survives only in the Wayback Machine. The SHC 1 /
+      SHC 2 differences (event port, status shape, setpoint property name,
+      device-state wrapper) were never in that documentation; they are taken
+      from the openHAB binding and the planbnet/livisi library, which is why
+      `reverse_engineered` is true.
+  testing:
+    status: untested
+  protocol: "lan"
+  transport: "http"
+  category: "hub"
+  notes: >
+    The LIVISI SmartHome Controller (SHC) is a hub for LIVISI's own 868 MHz
+    radio devices (plugs, in-wall switches/dimmers/shutter actuators,
+    radiator and wall thermostats, window/door contacts, motion and smoke
+    detectors, remotes, sirens) sold since the RWE SmartHome and innogy
+    SmartHome days. Two hardware generations exist: SHC 1 (LIVISI calls it
+    "Classic"; device type "SHC") and SHC 2 ("2nd generation", device type
+    "SHCA", controllerType "Avatar" in the status reply).
+
+    LIVISI announced on 2022-03-01 that its SmartHome services would end on
+    2024-03-01, and switched them off that day. "Local SmartHome" — a local
+    web app plus a local copy of the cloud API on the controller — has been
+    available for every controller since 2022-09-26 and was activated
+    automatically by the January/February 2024 controller updates. It is now
+    the only control path. The child devices are proprietary LIVISI radio
+    (not Zigbee or Z-Wave), so unlike the devolo case they cannot be moved to
+    a third-party controller: keeping the SHC alive is the rescue.
+
+    The local link is unencrypted HTTP. The bearer token and the local
+    password cross the LAN in clear, and the WebSocket carries the token in
+    its query string. Keep the controller on a trusted or isolated network;
+    never port-forward it.
+
+    Host names: the vendor how-to says the local web app answers at
+    http://SMARTHOME01 (SHC 1) or http://SHCONTROLLER01 (SHC 2), with a
+    higher number when several controllers share a LAN, and recommends a
+    fixed IP because the name does not always resolve. The control API is on
+    port 8080 on both generations.
+  identification:
+    default_port: 8080
+    notes: >
+      No scan signal is documented: no mDNS service type, no SSDP target, no
+      vetted MAC prefix. One openHAB test fixture shows an SHC 1 with a MAC in
+      eQ-3's 00:1a:22 block, which fits eQ-3 having built hardware for RWE,
+      but a single fixture is not enough to declare a prefix. Identify the
+      controller after the user enters its address: GET /status (with a
+      token) and read controllerType.
+  variants:
+    - model: "SHC 1 (Classic)"
+      identification:
+        state_probe:
+          command: "get_status"
+          value_contains:
+            controllerType: "Classic"
+      notes: >
+        Device type "SHC" in GET /device. Local SmartHome needs firmware
+        1.914-3.1.1043.0 or later (first update to 1.913-3.0.1008.0).
+        WebSocket events on port 8080. GET /status carries serialNumber,
+        osVersion, appVersion and configVersion at the top level. GET
+        /device/{id}/state wraps the property map in a "state" object.
+        Controller load properties are spelled CPULoad, memoryLoad and
+        OSState. Room setpoints are written as pointTemperature. From
+        controller software 3.1.1056.0, first-time Local SmartHome setup has
+        to be confirmed with a button press on the controller. The firmware
+        string is osVersion-appVersion (the openHAB fixture's 1.914 and
+        3.1.1025.0 have that form).
+    - model: "SHC 2"
+      identification:
+        state_probe:
+          command: "get_status"
+          value_contains:
+            controllerType: "Avatar"
+      notes: >
+        Device type "SHCA" in GET /device. Local SmartHome needs firmware
+        8.17-1.2.39.443 or later (first update to 8.17-1.1.36.426); openHAB
+        states the minimum as 1.2.x. WebSocket events on port 9090. GET
+        /status nests serialNumber, osVersion, appVersion, configVersion,
+        operationStatus and network details under a "gateway" object.
+        GET /device/{id}/state returns the property map unwrapped. Controller
+        load properties are spelled cpuUsage, memoryUsage and operationStatus.
+        Room setpoints are written as setpointTemperature. The planbnet
+        library opens up to 10 concurrent HTTP connections to an SHC 2
+        against 1 to an SHC 1.
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      A controller comes up on Ethernet by DHCP. Local SmartHome must then be
+      initialised once in the controller's local web app: log in with the
+      label default, set a new local password and accept the terms. Every API
+      client then logs in as the fixed user "admin" with that password and
+      gets a bearer token. Firmware minimums and the default-password rules
+      come from LIVISI's official community post of 2022-09-30. The
+      password rules come from the LIVISI FAQ as preserved by the successor
+      community. None of it has been run by this project.
+    methods:
+      - type: "wired"
+        name: "Ethernet, Local SmartHome web app, then token login"
+        role: "primary"
+        verified: false
+        description: >
+          Wire the controller to the LAN and make sure its firmware is at
+          least the Local SmartHome release (variants). Open the local web
+          app at http://<controller>/, log in with the default from the label,
+          set the local password, and accept the terms. A client then POSTs
+          /auth/token on port 8080 as user "admin" with that password and
+          uses the returned access_token as a bearer token on every request
+          and as the token query parameter of the event WebSocket.
+        issues_credentials:
+          local_password:
+            user_entered: true
+            notes: >
+              The local password the owner set in the Local SmartHome web app.
+              It is not the label default, which the web app forces the owner
+              to change. The user name is always "admin": Local SmartHome is a
+              single-user system. Rules from the vendor FAQ: at least 10
+              characters with upper case, lower case, a digit and a special
+              character, and no "?". Store it, because a token is
+              re-requested with it whenever the old one expires.
+          access_token:
+            command: "get_token"
+            reply_path: "access_token"
+            notes: >
+              A JWT. Send it as "Authorization: Bearer <token>" on every API
+              request and as ?token=<url-encoded token> on the event
+              WebSocket. It expires: the planbnet library reads the JWT exp
+              claim and also treats errorcode 2007 as expiry. In either case,
+              run get_token again with the stored local_password and retry
+              once. The lifetime is not documented.
+        steps:
+          - action: "Connect the controller to the router with Ethernet and power it; reserve its DHCP address in the router."
+            actor: "user"
+            expect: "The controller takes a DHCP lease; its local web app answers on http://<address>/."
+          - action: "Check the controller firmware meets the Local SmartHome minimum for its generation (SHC 1: 1.914-3.1.1043.0; SHC 2: 8.17-1.2.39.443)."
+            actor: "user"
+            notes: "Controllers updated in January/February 2024 had Local SmartHome activated automatically; unregistered controllers run it from the start."
+          - action: "Open http://<address>/ in a browser and log in with the label default: SHC 1 uses the digits after 'SN' on the underside label (no spaces); SHC 2 uses the characters after 'PIN:' on the same label."
+            actor: "user"
+            expect: "The web app asks for a new password and for the terms to be accepted."
+          - action: "On SHC 1 with controller software 3.1.1056.0 or later, press the button on the controller when the web app asks for physical confirmation."
+            actor: "user"
+            notes: "Vendor post edited 2022-11-07. Which button is not named in the sources; the vendor FAQ does not state this step for SHC 2."
+          - action: "Set the new local password (at least 10 characters, A-Z, a-z, 0-9 and a special character, no '?') and accept the terms."
+            actor: "user"
+          - action: "Request a token: POST /auth/token on port 8080 with HTTP Basic clientId:clientPass and the JSON body {username: admin, password: <local password>, grant_type: password}."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /auth/token"
+              arguments:
+                - name: "username"
+                  type: "string"
+                  required: true
+                  description: "Always \"admin\"."
+                - name: "password"
+                  type: "string"
+                  required: true
+                  description: "The local password set in the web app."
+                - name: "grant_type"
+                  type: "string"
+                  required: true
+                  description: "Always \"password\"."
+            expect: "200 with a JSON object carrying access_token. Wrong password: errorcode 2009 (or 2003), or HTTP 401."
+      - type: "cloud_account"
+        name: "LIVISI app and cloud account (retired 2024-03-01)"
+        role: "historical"
+        verified: false
+        description: >
+          The original route: the controller was registered to a LIVISI
+          account and managed through the vendor app and cloud, which also
+          had an in-app switch (Settings > General settings > Local
+          SmartHome > Activate). The services and accounts were shut down on
+          2024-03-01 and their data deleted. Documented for completeness only.
+        cloud:
+          provider: "LIVISI SmartHome services (ex innogy SmartHome / RWE SmartHome)"
+          local_alternative: "Local SmartHome, the primary method above: local web app plus the port-8080 API. It needs no account."
+        steps:
+          - action: "In the LIVISI app, open Settings > General settings > Local SmartHome and tap Activate."
+            actor: "user"
+            notes: "Defunct since 2024-03-01."
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not established from public sources. A reset would presumably clear
+        the device pairings and rules and the local password, but no source
+        read for this spec gives a procedure or says what survives.
+      description: >
+        The successor community lists "factory reset" among states in which
+        the local web app is unavailable, so the controller has one, but
+        nothing read here describes the buttons or timing. A lost local
+        password is the case most owners will hit, and its recovery is
+        equally undocumented here. Do not guess: without the cloud, a reset
+        controller's devices have to be re-taught locally, and how far that
+        works offline is unknown.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Inferred, not sourced: the controller is a wired DHCP client, so a new
+        router means a new lease and nothing else. The local password and
+        device pairings live on the controller. The vendor FAQ's advice to
+        fix the IP exists because clients are configured with an address,
+        not a discovered identity. Update the client's host after a move.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Local SmartHome password for the fixed user admin"
+        - "Radio pairing keys for the LIVISI devices taught to the controller (not exposed by the API)"
+      issued_to_client:
+        - "OAuth2 access_token (a JWT bearer token), from POST /auth/token. It expires; re-request with the stored password."
+      notes: >
+        This spec documents Ethernet bring-up only, so no Wi-Fi passphrase
+        crosses any link here. The SHC 2 status reply reports Wi-Fi hotspot
+        and WPS state, so it has a radio, but its Wi-Fi onboarding is not
+        documented by any source read. The local password and the token both
+        travel in clear HTTP.
+
+auth_schemes:
+  client_basic:
+    type: "http_basic"
+    username: "clientId"
+    password: "clientPass"
+    description: >
+      OAuth2 client authentication for the token endpoint only. The client
+      id and secret are fixed published constants, the same in openHAB's
+      binding and the planbnet/livisi library: "clientId" / "clientPass",
+      i.e. the header "Authorization: Basic Y2xpZW50SWQ6Y2xpZW50UGFzcw==".
+      They identify no user and no unit.
+  bearer:
+    type: "header"
+    credential: "access_token"
+    headers:
+      Authorization: "Bearer {access_token}"
+    description: "The token from get_token, on every API request after login."
+
+commands:
+  get_token:
+    description: >
+      Log in. OAuth2 resource-owner password grant against the controller
+      itself: fixed user "admin", the local password, fixed client
+      credentials in HTTP Basic. The reply's access_token is the bearer token
+      for everything else.
+    transport: "http"
+    method: "POST"
+    path: "/auth/token"
+    headers:
+      Content-Type: "application/json"
+      Accept: "application/json"
+    auth: ["client_basic"]
+    body: '{"username":"admin","password":"{password}","grant_type":"password"}'
+    parameters:
+      password:
+        type: "string"
+        source: "credential:local_password"
+        description: >
+          The Local SmartHome password the owner set in the controller's local
+          web app. It is not the label serial or PIN, which is only the first
+          login default. JSON-escape it when it is substituted, because a
+          special character is mandatory and may be a quote or backslash.
+    returns:
+      - name: "access_token"
+        type: "string"
+        description: "JWT bearer token. The only field both reference clients read."
+    verification: "reported"
+    example_body: '{"username":"admin","password":"Example-Pass1!","grant_type":"password"}'
+    example_notes: >
+      Rendered with an invented password "Example-Pass1!". The planbnet
+      library sends exactly this JSON body. openHAB's generic OAuth2 client
+      sends the same three fields form-encoded
+      (application/x-www-form-urlencoded) with the same Basic header, so the
+      controller accepts both encodings as far as the two clients show. JSON
+      is the form documented here.
+    notes: >
+      Failure modes seen by the planbnet library: a JSON reply without
+      access_token and with errorcode 2003 (invalid client credentials) or
+      2009 (invalid user credentials) means a wrong password. HTTP 401 means
+      the same. A refused TCP connection means a wrong address or a
+      controller that is not on the network.
+
+  get_status:
+    description: "Controller identity and configuration version: which generation, which firmware, whether the config changed."
+    transport: "http"
+    method: "GET"
+    path: "/status"
+    auth: ["bearer"]
+    verification: "reported"
+    notes: >
+      Shape differs by generation (payload_formats.StatusReply): SHC 1 answers
+      a flat object, SHC 2 nests the gateway facts under "gateway". The
+      planbnet library reads controllerType at the top level on both and
+      branches on "Classic" vs "Avatar". configVersion changes whenever the
+      configuration changes (devices added, renamed, rules edited). openHAB
+      polls it to know when to re-read the device list.
+
+  get_devices:
+    description: "List every device the controller knows, including the controller itself and virtual devices."
+    transport: "http"
+    method: "GET"
+    path: "/device"
+    auth: ["bearer"]
+    verification: "reported"
+    notes: "A JSON ARRAY (payload_formats.DeviceList). The controller's own entry has type SHC (SHC 1) or SHCA (SHC 2)."
+
+  get_capabilities:
+    description: "List every capability (the controllable or readable function of a device) with its type, owning device link and config."
+    transport: "http"
+    method: "GET"
+    path: "/capability"
+    auth: ["bearer"]
+    verification: "reported"
+    notes: "A JSON ARRAY (payload_formats.CapabilityList). Join to devices on capability.device == \"/device/\" + device.id."
+
+  get_capability_states:
+    description: "Every capability's current state in one request."
+    transport: "http"
+    method: "GET"
+    path: "/capability/states"
+    auth: ["bearer"]
+    verification: "reported"
+    notes: "A JSON ARRAY of {id, state} objects (openHAB reads it as such). Each state is a CapabilityState property map."
+
+  get_capability_state:
+    description: "One capability's current state: a map of property name to {value, lastChanged}."
+    transport: "http"
+    method: "GET"
+    path: "/capability/{capability_id}/state"
+    auth: ["bearer"]
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "32 lower-case hex characters: the id of a capability from get_capabilities (the part after /capability/)."
+    verification: "reported"
+
+  get_device_state:
+    description: "One device's state (for the controller: CPU, memory, disk, reboot time, configVersion)."
+    transport: "http"
+    method: "GET"
+    path: "/device/{device_id}/state"
+    auth: ["bearer"]
+    parameters:
+      device_id:
+        type: "string"
+        required: true
+        description: "32 lower-case hex characters: a device id from get_devices."
+    verification: "reported"
+    notes: "SHC 1 wraps the property map in {\"state\": {...}}; SHC 2 returns the map itself (openHAB and planbnet both branch on this)."
+
+  get_locations:
+    description: "Rooms: id plus config.name. Devices link to them as /location/<id>."
+    transport: "http"
+    method: "GET"
+    path: "/location"
+    auth: ["bearer"]
+    verification: "reported"
+
+  get_messages:
+    description: "Controller messages: low battery, device unreachable, update available, update completed."
+    transport: "http"
+    method: "GET"
+    path: "/message"
+    auth: ["bearer"]
+    verification: "reported"
+    notes: "A JSON ARRAY (payload_formats.MessageList). The only place battery-low and unreachable flags come from when polling."
+
+  switch_on:
+    description: "Turn a SwitchActuator capability on (plugs PSS/PSSO/BT-PSS, in-wall switch ISS2)."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"onState":{"type":"Constant","value":true}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of the device's SwitchActuator capability (type \"SwitchActuator\" in get_capabilities)."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"onState":{"type":"Constant","value":true}}}'
+    example_notes: "Rendered with an invented capability id. Reply: payload_formats.ActionReply."
+
+  switch_off:
+    description: "Turn a SwitchActuator capability off."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"onState":{"type":"Constant","value":false}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "As switch_on."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"onState":{"type":"Constant","value":false}}}'
+
+  set_dim_level:
+    description: "Set a DimmerActuator capability's level (plug dimmer PSD, in-wall dimmer ISD2). 0 is off."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"dimLevel":{"type":"Constant","value":{dim_level}}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of the device's DimmerActuator capability."
+      dim_level:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        unit: "%"
+        description: "Brightness in percent, sent as a JSON integer. The planbnet integration turns a light off by writing 0 and fully on by writing 100."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"dimLevel":{"type":"Constant","value":60}}}'
+    example_notes: "Rendered with dim_level=60."
+
+  set_shutter_level:
+    description: "Move a RollerShutterActuator (in-wall shutter ISR2) to a position."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"CosipDevices.RWE","target":"/capability/{capability_id}","params":{"shutterLevel":{"type":"Constant","value":{shutter_level}}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of the device's RollerShutterActuator capability."
+      shutter_level:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        unit: "%"
+        description: "Position in percent. openHAB treats 100 as fully up (open) and 0 as fully down; it offers an `invert` option because installations differ."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"CosipDevices.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"shutterLevel":{"type":"Constant","value":40}}}'
+    example_notes: "Rendered with shutter_level=40."
+    notes: >
+      The two references disagree on the namespace of this one SetState:
+      the planbnet integration sends CosipDevices.RWE, openHAB sends the
+      default core.RWE. Both are in production use. CosipDevices.RWE is
+      documented here because the ramp commands below use it in both
+      clients. If the controller answers an errorcode, retry with core.RWE.
+
+  shutter_up:
+    description: "Start moving a shutter up (StartRamp RampUp)."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"StartRamp","namespace":"CosipDevices.RWE","target":"/capability/{capability_id}","params":{"rampDirection":{"type":"Constant","value":"RampUp"}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "As set_shutter_level."
+    verification: "reported"
+    example_body: '{"type":"StartRamp","namespace":"CosipDevices.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"rampDirection":{"type":"Constant","value":"RampUp"}}}'
+
+  shutter_down:
+    description: "Start moving a shutter down (StartRamp RampDown)."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"StartRamp","namespace":"CosipDevices.RWE","target":"/capability/{capability_id}","params":{"rampDirection":{"type":"Constant","value":"RampDown"}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "As set_shutter_level."
+    verification: "reported"
+    example_body: '{"type":"StartRamp","namespace":"CosipDevices.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"rampDirection":{"type":"Constant","value":"RampDown"}}}'
+
+  shutter_stop:
+    description: "Stop a moving shutter (StopRamp, no params)."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"StopRamp","namespace":"CosipDevices.RWE","target":"/capability/{capability_id}","params":{}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "As set_shutter_level."
+    verification: "reported"
+    example_body: '{"type":"StopRamp","namespace":"CosipDevices.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{}}'
+
+  set_thermostat_point_temperature:
+    description: >
+      Set the target temperature on a ThermostatActuator capability (radiator
+      thermostats RST/RST2, wall thermostat WRT). This is openHAB's route,
+      used unchanged on both controller generations.
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"pointTemperature":{"type":"Constant","value":{point_temperature}}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of the thermostat device's ThermostatActuator capability."
+      point_temperature:
+        type: "number"
+        required: true
+        min: 6
+        max: 30
+        unit: "C"
+        description: "Target temperature in degrees Celsius, as a JSON number. 6-30 is the range openHAB and the planbnet integration use; the RoomSetpoint capability's config may carry tighter minTemperature/maxTemperature."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"pointTemperature":{"type":"Constant","value":21.5}}}'
+    example_notes: "Rendered with point_temperature=21.5."
+
+  set_room_setpoint:
+    description: >
+      Set a room's target temperature on the RoomSetpoint capability of the
+      room's virtual heating device (VRCC), on an SHC 2. This is the planbnet
+      integration's route. The controller propagates it to the room's
+      thermostats.
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"setpointTemperature":{"type":"Constant","value":{setpoint_temperature}}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of the VRCC device's RoomSetpoint capability."
+      setpoint_temperature:
+        type: "number"
+        required: true
+        min: 6
+        max: 30
+        unit: "C"
+        description: "Target in degrees Celsius. Clamp to the capability config's minTemperature/maxTemperature when present."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"setpointTemperature":{"type":"Constant","value":20}}}'
+    example_notes: "Rendered with setpoint_temperature=20. SHC 2 only; set_room_setpoint_classic is the SHC 1 spelling."
+
+  set_room_setpoint_classic:
+    description: "As set_room_setpoint, on an SHC 1, where the same RoomSetpoint property is spelled pointTemperature."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"pointTemperature":{"type":"Constant","value":{point_temperature}}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of the VRCC device's RoomSetpoint capability."
+      point_temperature:
+        type: "number"
+        required: true
+        min: 6
+        max: 30
+        unit: "C"
+        description: "Target in degrees Celsius."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"pointTemperature":{"type":"Constant","value":20}}}'
+    example_notes: "Rendered with point_temperature=20."
+
+  set_operation_mode:
+    description: "Switch a ThermostatActuator between the controller's schedule (Auto) and manual (Manu). Setting one thermostat of a room is enough; the controller syncs the rest (planbnet note)."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"operationMode":{"type":"Constant","value":"{operation_mode}"}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of a ThermostatActuator capability (a RoomSetpoint config's underlyingCapabilityIds lists them, comma-separated)."
+      operation_mode:
+        type: "string"
+        required: true
+        enum: ["Auto", "Manu"]
+        description: "\"Auto\" follows the controller's heating schedule; \"Manu\" holds the manual setpoint. Spelled exactly so (Manu, not Manual)."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"operationMode":{"type":"Constant","value":"Auto"}}}'
+    example_notes: "Rendered with operation_mode=Auto."
+
+  set_variable:
+    description: "Set a virtual boolean variable (device type VariableActuator, capability type BooleanStateActuator) used in the controller's own rules."
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"value":{"type":"Constant","value":{value}}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of the VariableActuator device's BooleanStateActuator capability."
+      value:
+        type: "boolean"
+        required: true
+        description: "New state of the variable, as a JSON boolean."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"value":{"type":"Constant","value":true}}}'
+    example_notes: "Rendered with value=true."
+
+  restart_controller:
+    description: "Reboot the controller (Restart action addressed to the controller DEVICE, not a capability)."
+    advanced: true
+    advanced_reason: >
+      Reboots the SmartHome controller. Every device it controls stops
+      responding to the app and to rules until it is back, typically for a
+      few minutes. Nothing is erased; if it does not return, power-cycle it.
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"Restart","namespace":"core.RWE","target":"/device/{device_id}","params":{"reason":{"type":"Constant","value":"Restart requested by a local client"}}}'
+    parameters:
+      device_id:
+        type: "string"
+        required: true
+        description: "Id of the controller's own entry in get_devices (type SHC or SHCA)."
+    verification: "reported"
+    example_body: '{"type":"Restart","namespace":"core.RWE","target":"/device/fedcba9876543210fedcba9876543210","params":{"reason":{"type":"Constant","value":"Restart requested by a local client"}}}'
+    example_notes: "Rendered with an invented controller id."
+    notes: >
+      openHAB sends a free-text "reason" param; the planbnet library sends
+      empty params, so the reason is optional. The controller reboots
+      immediately and usually drops the connection without answering, so
+      treat a server disconnect on this request as success.
+
+http_endpoints:
+  - method: "POST"
+    path: "/auth/token"
+    name: "Token"
+    description: >
+      OAuth2 password grant (commands.get_token). Client auth: HTTP Basic
+      clientId:clientPass. Port 8080, plain HTTP. On success the planbnet
+      library reads access_token only. openHAB parses a standard OAuth2 token
+      response, which suggests token_type and expires_in are there too, but
+      the field list beyond access_token is unverified.
+    request_body:
+      content_type: "application/json"
+      fields:
+        - name: "username"
+          type: "string"
+          required: true
+          description: "Always \"admin\"."
+        - name: "password"
+          type: "string"
+          required: true
+          description: "The Local SmartHome password."
+        - name: "grant_type"
+          type: "string"
+          required: true
+          description: "Always \"password\"."
+      example: '{"username":"admin","password":"Example-Pass1!","grant_type":"password"}'
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "access_token"
+          type: "string"
+          description: "JWT bearer token (header.payload.signature, base64url). The payload's exp claim is the expiry in Unix seconds."
+      example: '{"access_token":"eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjE5MDAwMDAwMDB9.c2lnbmF0dXJl","token_type":"Bearer","expires_in":172800}'
+  - method: "GET"
+    path: "/status"
+    name: "Status"
+    description: "Controller identity, firmware and configVersion (commands.get_status; payload_formats.StatusReply)."
+    response_body:
+      content_type: "application/json"
+      example: '{"serialNumber":"<serial>","connected":true,"appVersion":"3.1.1043.0","osVersion":"1.914","configVersion":"1200","controllerType":"Classic"}'
+  - method: "GET"
+    path: "/device"
+    name: "Devices"
+    description: "All devices, as a JSON array (payload_formats.DeviceList)."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/device/states"
+    name: "Device States"
+    description: "All device states at once; read by openHAB. Array shape assumed to mirror /capability/states."
+    status: "unverified"
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/device/{device_id}"
+    name: "Device"
+    description: "One device object, as an element of /device."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/device/{device_id}/state"
+    name: "Device State"
+    description: "One device's state map. SHC 1 wraps it as {\"state\": {...}}; SHC 2 does not."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/device/{device_id}/capabilities"
+    name: "Device Capabilities"
+    description: "The capabilities of one device; read by openHAB."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/capability"
+    name: "Capabilities"
+    description: "All capabilities, as a JSON array (payload_formats.CapabilityList)."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/capability/states"
+    name: "Capability States"
+    description: "All capability states at once, as an array of {id, state}."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/capability/{capability_id}/state"
+    name: "Capability State"
+    description: "One capability's property map (payload_formats.CapabilityState)."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/location"
+    name: "Locations"
+    description: "Rooms, as a JSON array of {id, config: {name, type}}."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/message"
+    name: "Messages"
+    description: "Controller messages, as a JSON array (payload_formats.MessageList)."
+    response_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/action"
+    name: "Action"
+    description: >
+      The single write endpoint: every control is an action object naming a
+      type (SetState, StartRamp, StopRamp, Restart), a namespace, a target
+      link (/capability/<id> or /device/<id>) and params, each param wrapped
+      as {"type": "Constant", "value": ...} (payload_formats.ActionRequest).
+      The reply is payload_formats.ActionReply. The planbnet library also
+      sends an "id" field with a random 32-hex value; openHAB does not, so it
+      is optional.
+    request_body:
+      content_type: "application/json"
+      example: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"onState":{"type":"Constant","value":true}}}'
+    response_body:
+      content_type: "application/json"
+      example: '{"resultCode":"Success"}'
+
+websocket:
+  connect:
+    port: 9090
+    scheme: "ws"
+    path: "/events?token={access_token}"
+    fallback:
+      port: 8080
+      scheme: "ws"
+      path: "/events?token={access_token}"
+  channels:
+    - name: "events"
+      default: true
+      direction: "receive"
+      encoding: "json"
+      description: >
+        Server push only. Each text frame is one JSON event
+        (payload_formats.Event): StateChanged with a flat properties map for a
+        /capability/<id> or /device/<id> source, ButtonPressed and
+        MotionDetected for button and motion capabilities, MessageCreated /
+        MessageDeleted / NewMessageReceived for the message list,
+        ConfigurationChanged when configVersion moves, plus Disconnect.
+  notes: >
+    Pick the port by generation rather than by trial: 9090 on SHC 2, 8080 on
+    SHC 1 (variants; both reference clients branch on the controller type).
+    The fallback entry is the SHC 1 address. The token is the same
+    access_token as the HTTP API, URL-encoded into the query string. openHAB
+    encodes it on both generations; the planbnet library only on SHC 2, and
+    a JWT is URL-safe apart from padding anyway. There is no other handshake
+    and nothing is sent by the client. openHAB reconnects when no frame
+    arrives for 900 s (its default idle timeout), and the planbnet library
+    pings every 10 s with a 10 s timeout. On token expiry, get a new token and
+    reconnect. openHAB polls the controller's own CPU/memory state on SHC 1
+    every minute because, per its source, the SHC 1 does not push those
+    events; SHC 2 does.
+
+payload_formats:
+  ErrorReply:
+    description: >
+      How the controller reports a failed request: a JSON object with an
+      integer errorcode, carried in place of the normal reply. Check every
+      reply object for errorcode before reading it.
+    fields:
+      - name: "errorcode"
+        description: "Integer error code; table in `values`."
+      - name: "description"
+        description: "Human-readable text."
+      - name: "messages"
+        description: "Optional array of further strings."
+    values:
+      "1000": "Unknown error."
+      "1001": "Service unavailable."
+      "1002": "Service timeout."
+      "1003": "Internal API error."
+      "1004": "SHC invalid operation."
+      "1005": "Missing argument or wrong value."
+      "1006": "Service too busy."
+      "1007": "Unsupported request."
+      "1008": "Precondition failed."
+      "2000": "Unknown authentication or authorization error."
+      "2001": "Access not allowed."
+      "2002": "Invalid token request."
+      "2003": "Invalid client credentials."
+      "2004": "Token signature invalid."
+      "2005": "Failed to initialize user session."
+      "2006": "A connection already exists for this session."
+      "2007": "Token lifetime expired: get a new token and retry once."
+      "2008": "Login attempted from a different client provider."
+      "2009": "Invalid user credentials (wrong local password)."
+      "2010": "Controller access not allowed."
+      "2011": "Insufficient permissions."
+      "2012": "Session not found."
+      "2013": "Account temporarily locked."
+      "3000": "Requested entity does not exist."
+      "3001": "Request content invalid, cannot be parsed."
+      "3002": "No change performed."
+      "3003": "Entity already exists."
+      "3004": "Interaction not valid."
+      "3005": "Too many entities of this type."
+      "4000": "Triggered action invalid."
+      "4001": "Invalid parameter."
+      "4002": "Permission to trigger action not allowed."
+      "4003": "Unsupported action type."
+      "5000": "Configuration could not be updated."
+      "5001": "Could not obtain exclusive access to the configuration."
+      "5002": "Communication with the SHC failed."
+      "5006": "Controller offline."
+    parse_rules:
+      - "Parse the body as JSON. An object with an `errorcode` key is an error, whatever the HTTP status."
+      - "2007 means the token expired: run get_token with the stored password and resend the original request once. A second error after that is real."
+      - "2003 and 2009 on get_token mean wrong credentials: ask the owner for the local password again; do not retry in a loop (2013 is an account lock)."
+      - "Other codes are terminal for that request; surface `description`."
+    example: '{"errorcode":2007,"description":"The lifetime of the token has expired.","messages":[]}'
+  StatusReply:
+    description: "GET /status. Flat on SHC 1; on SHC 2 the gateway facts sit under `gateway`."
+    fields:
+      - name: "controllerType"
+        description: "\"Classic\" (SHC 1) or \"Avatar\" (SHC 2), read at the top level by the planbnet library. Alternative discriminator: the controller's type in GET /device, SHC vs SHCA."
+      - name: "serialNumber"
+        description: "Controller serial (SHC 1 top level; SHC 2 gateway.serialNumber)."
+      - name: "osVersion"
+        description: "First half of the firmware string, e.g. 1.914 (SHC 1) or 8.17 (SHC 2)."
+      - name: "appVersion"
+        description: "Second half of the firmware string, e.g. 3.1.1043.0 (SHC 1) or 1.2.39.443 (SHC 2). Compare against the Local SmartHome minimums in variants."
+      - name: "configVersion"
+        description: "Integer-valued (a string on SHC 1 in openHAB's fixture, a number on SHC 2). Changes whenever the configuration changes; re-read devices and capabilities when it does."
+    parse_rules:
+      - "Read controllerType at the top level."
+      - "Read serialNumber/osVersion/appVersion/configVersion at the top level; if absent, read them under `gateway`."
+    example: '{"gateway":{"serialNumber":"<serial>","appVersion":"1.2.39.443","osVersion":"8.17","configVersion":1200,"operationStatus":"active","network":{"ethCableAttached":true,"inUseAdapter":"eth","hotspotActive":false,"wpsActive":false,"backendAvailable":false}},"controllerType":"Avatar"}'
+  DeviceList:
+    description: >
+      GET /device. A JSON ARRAY of device objects, not an object keyed by id,
+      which is why this spec declares no per-device entities (see
+      remaining_unknowns).
+    fields:
+      - name: "id"
+        description: "32 lower-case hex characters."
+      - name: "type"
+        description: "Product code: SHC/SHCA (controller), PSS, PSSO, BT-PSS, PSD, ISS2, ISD2, ISR2, ISC2, RST, RST2, WRT, WDS, WMD, WMDO, WSD, WSD2, SIR, BRC8, WSC2, VRCC (virtual room heating), VariableActuator, meters (AnalogMeter, GenerationMeter, SmartMeter, Two-Way-Meter), and others."
+      - name: "manufacturer"
+        description: "e.g. RWE."
+      - name: "serialNumber"
+        description: "Device serial, may be empty for virtual devices."
+      - name: "config"
+        description: "Object; config.name is the user's name for the device."
+      - name: "capabilities"
+        description: "Array of capability links, \"/capability/<id>\"."
+      - name: "location"
+        description: "Room link, \"/location/<id>\", when the device is placed in a room."
+    example: '[{"id":"fedcba9876543210fedcba9876543210","manufacturer":"RWE","version":"1.0","product":"core.RWE","serialNumber":"<serial>","type":"SHC","config":{"name":"Smart Home Controller"},"capabilities":["/capability/00112233445566778899aabbccddeeff"]},{"id":"aaaabbbbccccddddeeeeffff00001111","manufacturer":"RWE","version":"1.0","product":"core.RWE","serialNumber":"<serial>","type":"PSS","config":{"name":"Desk lamp"},"location":"/location/22223333444455556666777788889999","capabilities":["/capability/0123456789abcdef0123456789abcdef"]}]'
+  CapabilityList:
+    description: "GET /capability. A JSON ARRAY of capabilities."
+    fields:
+      - name: "id"
+        description: "32 lower-case hex characters; the id every action targets as /capability/<id>."
+      - name: "type"
+        description: "SwitchActuator, DimmerActuator, RollerShutterActuator, ThermostatActuator, RoomSetpoint, RoomTemperature, RoomHumidity, TemperatureSensor, HumiditySensor, LuminanceSensor, WindowDoorSensor, MotionDetectionSensor, SmokeDetectorSensor, AlarmActuator, SirenActuator, PushButtonSensor, BooleanStateActuator, PowerConsumptionSensor, EnergyConsumptionSensor, meter sensors."
+      - name: "device"
+        description: "Owning device link, \"/device/<id>\"."
+      - name: "config"
+        description: "Per-type config. RoomSetpoint carries minTemperature, maxTemperature and underlyingCapabilityIds (comma-separated ThermostatActuator ids)."
+    example: '[{"id":"0123456789abcdef0123456789abcdef","type":"SwitchActuator","device":"/device/aaaabbbbccccddddeeeeffff00001111","config":{"name":"Desk lamp"}}]'
+  CapabilityState:
+    description: >
+      GET /capability/<id>/state: an object keyed by PROPERTY name, each value
+      {value, lastChanged}. The same property names arrive flat in WebSocket
+      StateChanged events.
+    fields:
+      - name: "onState"
+        description: "Boolean. SwitchActuator, AlarmActuator."
+      - name: "dimLevel"
+        unit: "%"
+        description: "Integer 0-100. DimmerActuator."
+      - name: "shutterLevel"
+        unit: "%"
+        description: "Integer 0-100. RollerShutterActuator."
+      - name: "pointTemperature"
+        unit: "C"
+        description: "Number. ThermostatActuator target; also RoomSetpoint target on SHC 1."
+      - name: "setpointTemperature"
+        unit: "C"
+        description: "Number. RoomSetpoint target on SHC 2."
+      - name: "operationMode"
+        description: "String Auto or Manu. ThermostatActuator."
+      - name: "temperature"
+        unit: "C"
+        description: "Number. RoomTemperature, TemperatureSensor."
+      - name: "humidity"
+        unit: "%"
+        description: "Number. RoomHumidity, HumiditySensor."
+      - name: "luminance"
+        unit: "%"
+        description: "Number. LuminanceSensor (openHAB documents it as a percentage)."
+      - name: "isOpen"
+        description: "Boolean. WindowDoorSensor."
+      - name: "isSmokeAlarm"
+        description: "Boolean. SmokeDetectorSensor."
+      - name: "activeChannel"
+        description: "String None, Alarm, Notification or Feedback. SirenActuator; write it with SetState like onState."
+      - name: "value"
+        description: "Boolean. BooleanStateActuator (VariableActuator)."
+      - name: "powerConsumptionWatt"
+        unit: "W"
+        description: "Number. PowerConsumptionSensor (metering plugs)."
+      - name: "lastChanged"
+        description: "ISO 8601 UTC timestamp beside each value."
+    example: '{"onState":{"value":true,"lastChanged":"2026-10-25T08:00:00.000Z"}}'
+  ActionRequest:
+    description: "POST /action body."
+    fields:
+      - name: "type"
+        description: "SetState, StartRamp, StopRamp, Restart."
+      - name: "namespace"
+        description: "core.RWE for almost everything; CosipDevices.RWE for shutter ramps (and, per the planbnet integration, shutter SetState)."
+      - name: "target"
+        description: "\"/capability/<id>\" or, for Restart, \"/device/<id>\"."
+      - name: "params"
+        description: "Object; each param is {\"type\": \"Constant\", \"value\": <value>}. Empty object for StopRamp."
+    example: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"dimLevel":{"type":"Constant","value":60}}}'
+  ActionReply:
+    description: "Reply to POST /action."
+    fields:
+      - name: "resultCode"
+        description: "\"Success\" when the controller accepted the action. Anything else, or an ErrorReply, is a failure. The new state arrives as a StateChanged event, not in this reply."
+    example: '{"resultCode":"Success"}'
+  MessageList:
+    description: "GET /message. A JSON array of messages."
+    fields:
+      - name: "type"
+        description: "DeviceLowBattery, DeviceUnreachable, DeviceUpdateAvailable, ProductUpdated, ShcUpdateCompleted, and others."
+      - name: "devices"
+        description: "Array of \"/device/<id>\" links the message is about; if empty, `source` names the device."
+      - name: "timestamp"
+        description: "ISO 8601."
+      - name: "class"
+        description: "e.g. Alert."
+    example: '[{"id":"99998888777766665555444433332222","type":"DeviceLowBattery","read":false,"class":"Alert","timestamp":"2026-10-25T08:00:00.000Z","devices":["/device/aaaabbbbccccddddeeeeffff00001111"],"namespace":"core.RWE"}]'
+  Event:
+    description: "One WebSocket text frame."
+    fields:
+      - name: "type"
+        description: "StateChanged, ButtonPressed, MotionDetected, MessageCreated, MessageDeleted, NewMessageReceived, ConfigurationChanged, Disconnect."
+      - name: "namespace"
+        description: "e.g. core.RWE."
+      - name: "source"
+        description: "\"/capability/<id>\" or \"/device/<id>\" (strip the prefix to get the id)."
+      - name: "timestamp"
+        description: "ISO 8601 with up to 7 fractional digits."
+      - name: "sequenceNumber"
+        description: "Integer; -1 or increasing."
+      - name: "properties"
+        description: "StateChanged: flat map property -> new value (no {value, lastChanged} wrapper). ButtonPressed: index (button number), type (ShortPress or LongPress), keyPressCounter. A device-level StateChanged with isReachable reports reachability."
+      - name: "data"
+        description: "MessageCreated: the message object (as in MessageList)."
+    parse_rules:
+      - "Ignore frames with no properties unless you handle that type (message and configuration events)."
+      - "Map source to the capability or device id and apply each property in `properties` by name; the names match CapabilityState."
+      - "Some devices send both StateChanged and ButtonPressed for one press; openHAB acts on ButtonPressed only."
+      - "SHC 1 controller-state events spell load properties CPULoad/memoryLoad/OSState; SHC 2 cpuUsage/memoryUsage/operationStatus."
+    example: '{"sequenceNumber":-1,"type":"StateChanged","namespace":"core.RWE","timestamp":"2026-10-25T08:00:00.0000000Z","source":"/capability/0123456789abcdef0123456789abcdef","properties":{"onState":true}}'
+
+entities:
+  # Only controller-level readings are bound. Per-device controls (switch,
+  # dimmer, shutter, thermostat) cannot be bound as `instances`: GET /device,
+  # GET /capability and GET /capability/states all answer JSON ARRAYS, and
+  # `instances` needs an object keyed by child id. The commands above are the
+  # complete per-device surface; a client joins capabilities to devices
+  # itself. See remaining_unknowns.
+  - platform: "sensor"
+    name: "Controller Type"
+    state_command: "get_status"
+    state_mapping:
+      value: "controllerType"
+    notes: "\"Classic\" = SHC 1, \"Avatar\" = SHC 2. Decides the event port and the setpoint property name."
+  - platform: "sensor"
+    name: "Controller OS Version"
+    state_command: "get_status"
+    state_mapping:
+      value: "osVersion"
+      value_fallback:
+        path: "gateway.osVersion"
+    notes: "Top level on SHC 1, under gateway on SHC 2."
+  - platform: "sensor"
+    name: "Controller App Version"
+    state_command: "get_status"
+    state_mapping:
+      value: "appVersion"
+      value_fallback:
+        path: "gateway.appVersion"
+    notes: "With the OS version, the firmware string to compare against the Local SmartHome minimum (SHC 1 3.1.1043.0, SHC 2 1.2.39.443)."
+  - platform: "sensor"
+    name: "Configuration Version"
+    state_command: "get_status"
+    state_mapping:
+      value: "configVersion"
+      value_fallback:
+        path: "gateway.configVersion"
+    notes: "Changes whenever devices, rooms or rules change; a client re-reads devices and capabilities when it moves."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud"]
+      transport: "cloud"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The controller fetched its updates (including the January/February
+          2024 ones that switched on Local SmartHome) from the LIVISI cloud.
+          Whether images are still obtainable after the 2024-03-01 shutdown is
+          open (see remaining_unknowns). No local upload endpoint is known, so
+          none is declared here.
+      enter:
+        how: "unknown"
+        notes: "No local command or endpoint that starts an update is documented."
+      dfu_mode:
+        notes: "How the controller appears while updating is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+cloud:
+  required: false
+  vendor_service: "LIVISI SmartHome services (ex innogy SmartHome / RWE SmartHome cloud)"
+  failure_mode: >
+    Retired on 2024-03-01: no accounts, app login, remote access, push
+    notifications, cloud backup, voice assistants or IFTTT, and LIVISI said
+    the stored data was deleted. Controllers keep running locally (Local
+    SmartHome, automatically enabled by the Jan/Feb 2024 updates), with
+    rules executing on the controller.
+  notes: >
+    Timeline: heise reported on 2022-03-01 that LIVISI would end its
+    services on 2024-03-01, citing failure to make privacy, independence and
+    sustainability profitable (an earlier note on digitalzimmer gave
+    2024-02-01; the final date was 2024-03-01). Local SmartHome became
+    available for all controllers on 2022-09-26. The vendor's 2022-09-30
+    post said Local SmartHome still partly needed internet and the cloud
+    then; what still needs internet after 2024-03-01 is not stated by any
+    source read. digitalzimmer reported the shutdown on 2024-03-01. The
+    vendor community went read-only, and its content lives on at
+    lsh.community, a privately run site that says it is not LIVISI's legal
+    successor. Company status: LIVISI GmbH was registered 2018-12-11 at
+    Amtsgericht Essen (HRB 29622), c/o innogy SE, Dortmund. A register
+    aggregator shows that entry deleted and a later Livisi GmbH record in
+    Munich, which reads as a seat move, but this was not confirmed against
+    the official register. No source found for an insolvency or
+    liquidation. The vendor domains (livisi.de, community.livisi.de,
+    developer.services-smarthome.de) did not resolve on 2026-10-25.
+
+local_access:
+  status: "native"
+  summary: >
+    Local SmartHome on the controller: HTTP API on 8080 with a password-grant
+    bearer token, WebSocket events on 9090 (SHC 2) or 8080 (SHC 1). It needs
+    no account and survived the cloud shutdown. openHAB, Home Assistant
+    (core `livisi` integration, and the planbnet/livisi_unofficial custom
+    integration) and ioBroker speak it.
+  covers:
+    - "Reading every device and capability state, and push updates"
+    - "Switching, dimming, shutter position and ramps, thermostat setpoints and Auto/Manu mode, virtual variables, siren channel"
+    - "Controller restart and status"
+  not_covered:
+    - "Teaching new radio devices to the controller and editing rules: done in the local web app, not through any API documented here"
+    - "Remote access: there is none; use a VPN into the LAN, never a port forward"
+    - "Factory reset and lost-password recovery: undocumented"
+
+remaining_unknowns:
+  - "Per-device entities are not declared. GET /device, /capability and /capability/states answer JSON arrays, and the schema's `instances` needs an object keyed by child id, so a spec-driven client cannot enumerate switches, dimmers or thermostats from this file. The commands are complete; binding them needs array-keyed instances (`instances.keyed_by` over an array element field) or a join of capability -> device."
+  - "Token reply fields beyond access_token (token_type, expires_in, refresh_token) and the token lifetime are not stated by either reference client; the example's extra fields are illustrative."
+  - "Whether /status carries controllerType at the top level on SHC 2 alongside the `gateway` object: the planbnet library reads it there, while openHAB's SHC 2 fixture shows only `gateway`. The GET /device controller type (SHC vs SHCA) is the safe fallback discriminator."
+  - "Namespace for shutterLevel SetState: CosipDevices.RWE (planbnet) vs core.RWE (openHAB)."
+  - "Which button confirms first-time Local SmartHome setup on SHC 1 from software 3.1.1056.0, and whether SHC 2 has an equivalent step."
+  - "Factory reset procedure and local password recovery for either generation."
+  - "Whether anything in Local SmartHome still needs internet after the 2024-03-01 shutdown (the 2022-09-30 vendor post said it partly did at the time)."
+  - "No mDNS/SSDP announcement is documented; only the host names SMARTHOME01 / SHCONTROLLER01 from the vendor how-to. A LAN capture would settle discovery."
+  - "LIVISI GmbH's corporate status after the shutdown: the Essen register entry shows deleted, apparently a move to Munich; no insolvency or liquidation source found."
+  - "Whether firmware updates are still obtainable after the shutdown (the successor community has an 'Updating the SHC' guide; not read)."
+
+evidence:
+  artifacts:
+    - type: "source_review"
+      url: "https://github.com/openhab/openhab-addons/tree/main/bundles/org.openhab.binding.livisismarthome"
+      obtained_via: "git sparse checkout of openhab-addons main, 2026-10-25"
+      description: >
+        Endpoint paths (its URL builder), WebSocket ports 9090/8080 chosen by
+        controller generation with a URL-encoded token query, OAuth client id
+        and secret, fixed user admin, action DTOs (SetState params, shutter
+        ramps in CosipDevices.RWE, Restart with reason), SHC 1/SHC 2 state
+        property spellings, status-reply shapes and event fixtures.
+    - type: "source_review"
+      url: "https://github.com/planbnet/livisi"
+      obtained_via: "git clone of main at a commit dated 2026-10-16"
+      description: >
+        Token request (JSON body, Basic header), bearer header, errorcode
+        handling (2007 refresh, 2003/2009 wrong credentials), controllerType
+        Classic/Avatar, WebSocket URL and ping settings, action body with
+        optional id, restart disconnect behaviour, message parsing.
+    - type: "source_review"
+      url: "https://github.com/planbnet/livisi_unofficial"
+      obtained_via: "git clone of main at a commit dated 2026-10-16"
+      description: >
+        Capability property names per platform, setpointTemperature (SHC 2)
+        vs pointTemperature (SHC 1) on RoomSetpoint, operationMode Auto/Manu,
+        CosipDevices.RWE on shutter writes, siren activeChannel values,
+        RoomSetpoint config fields.
+    - type: "source_review"
+      url: "https://github.com/home-assistant/core/tree/dev/homeassistant/components/livisi"
+      obtained_via: "sparse checkout of home-assistant/core, 2026-10-25"
+      description: "The core `livisi` integration is still present (requirement livisi==1.0.2, iot_class local_polling, no deprecation or repair issue)."
+    - type: "documentation_review"
+      url: "https://lsh.community/forum/thread/4551-infos-zum-lokalen-smarthome/"
+      description: "Official LIVISI post of 2022-09-30 (preserved): availability from 2022-09-26, firmware minimums per generation, default passwords (SN / PIN), button confirmation from 3.1.1056.0 (edit of 2022-11-07)."
+    - type: "documentation_review"
+      url: "https://lsh.community/lsh-howto-en/"
+      description: "LIVISI FAQ as preserved: local web app URL and host names, password rules, OAuth2 password grant with user admin, single-user, unencrypted link, automatic activation with Jan/Feb 2024 updates."
+
+helpful_urls:
+  - title: "openHAB LIVISI SmartHome binding"
+    url: "https://www.openhab.org/addons/bindings/livisismarthome/"
+    kind: "implementation"
+    description: "Supported controllers and firmware minimums, device thing types and channel ranges (setpoint 6-30 C, shutter 0-100). Local only; no discovery of the controller."
+  - title: "openHAB binding source (openhab-addons)"
+    url: "https://github.com/openhab/openhab-addons/tree/main/bundles/org.openhab.binding.livisismarthome"
+    kind: "implementation"
+    description: "Java reference client: endpoint builder, OAuth setup, action and event DTOs, SHC 1/SHC 2 branches."
+  - title: "planbnet/livisi Python library"
+    url: "https://github.com/planbnet/livisi"
+    kind: "implementation"
+    description: "Async Python client used by Home Assistant; token login, bearer requests, WebSocket events, error-code table."
+  - title: "planbnet/livisi_unofficial Home Assistant integration"
+    url: "https://github.com/planbnet/livisi_unofficial"
+    kind: "implementation"
+    description: "Fuller HA custom integration: covers, dimmers, sirens, climate with the per-generation setpoint property."
+  - title: "Home Assistant LIVISI Smart Home integration"
+    url: "https://www.home-assistant.io/integrations/livisi/"
+    kind: "implementation"
+    description: "Core integration (since 2022.12), manual setup with IP and local password, Local SmartHome must be active."
+  - title: "Lovable Smarthome Community: Local SmartHome info thread"
+    url: "https://lsh.community/forum/thread/4551-infos-zum-lokalen-smarthome/"
+    kind: "forum"
+    description: "Preserved official LIVISI post (2022-09-30): rollout date, firmware minimums for SHC 1 and SHC 2, default local passwords, button-confirmation note."
+  - title: "Lovable Smarthome Community: How can I use it? (Local SmartHome how-to)"
+    url: "https://lsh.community/lsh-howto-en/"
+    kind: "vendor_support"
+    description: "LIVISI's Local SmartHome FAQ as adopted by the successor community: web app access for SHC 1 (Classic) and SHC 2, password rules, local API (OAuth2 password grant, user admin)."
+  - title: "heise: Abschaltung im März 2024: Smart-Home-Plattform Livisi wird eingestellt (2022-03-01)"
+    url: "https://www.heise.de/news/Abschaltung-im-Maerz-2024-Smart-Home-Plattform-Livsi-wird-eingestellt-6529050.html"
+    kind: "other"
+    description: "Dated announcement of the 2024-03-01 service end and the stated reason."
+  - title: "digitalzimmer: Livisi stellt Betrieb seiner Server endgültig ein (2024-03-01)"
+    url: "https://www.digitalzimmer.de/artikel/news/livisi-stellt-betrieb-seiner-server-endgueltig-ein/"
+    kind: "other"
+    description: "Report on the day the servers went off; community to go read-only."
+  - title: "Wayback: LIVISI developer documentation, error codes (2023-03-21)"
+    url: "http://web.archive.org/web/20230321111638/https://developer.services-smarthome.de/api_reference/errorcodes"
+    kind: "protocol_writeup"
+    description: "Archived vendor API documentation; the error-code table this spec carries. The live site no longer resolves."

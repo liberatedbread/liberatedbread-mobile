@@ -1,0 +1,512 @@
+# AM43 / A-OK / Zemismart BLE roller-blind motors — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code):
+#   - buxtronix/am43 (ESP32 client): src/AM43Client.h/.cpp
+#   - ESPHome am43 component (esphome/components/am43)
+#   - openHAB bluetooth.am43 binding (command and data classes)
+#   - renssies/homebridge-am43-blinds (archived): lib/AM43Device.js
+#   - binsentsu/am43-ctrl (Node/noble): src/am43.js — the literal frames the
+#     test vectors below were checked against
+#   - TheBazeman/A-OK-AM43-Blinds-Drive (Python): AOK-AM43.py
+#   - A-OK AM43 multilingual user manual (manualslib.mx), page 6 — buttons
+
+device:
+  name: "AM43 / A-OK / Zemismart BLE Roller-Blind Motor"
+  manufacturer: "A-OK (Shenzhen); rebadged as Zemismart AM43 and others"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every frame below is
+      computed from the documented algorithm, and six of them match frames
+      that appear literally in am43-ctrl; the sample notifications decode
+      with a valid checksum.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "motor"
+  type: "roller-blind-motor"
+  notes: >
+    A battery or solar-charged tubular motor that drops into a roller blind.
+    The vendor app ("Blind Engine") talks straight to the motor over BLE with
+    no hub or cloud, and so can any other client: one GATT characteristic
+    carries short XOR-checked frames that move the blind, set a position,
+    and read back battery, position and light level.
+
+    The motors that matter here are the A-OK firmware family (AM43 and its
+    Zemismart and unbranded rebadges). Some look-alike motors sold under the
+    same AM43 name run Tuya BLE firmware instead — their GATT table has
+    service 0x1910 rather than 0xfe50 (ESPHome detects them after
+    connecting, by that service's 0x2b11 characteristic), they are set up
+    with Smart Life / Tuya, and they speak a different protocol entirely.
+    This spec does not cover them; see tuya-generic-device.
+
+    Positions are percent CLOSED: 0 = fully open (rolled up), 100 = fully
+    closed. Home Assistant style "percent open" is 100 minus the wire value.
+
+    The vendor app's status is unclear: community projects keep pointing
+    users at it for setting travel limits, but whether it is still listed
+    in the stores could not be confirmed (2026-10). That uncertainty, plus
+    the archiving of the best-known Homebridge plugin in 2025, is why the
+    protocol is written down here.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/buxtronix/am43"
+    notes: >
+      No vendor publication. Six independent open-source clients agree on the
+      GATT layout, framing and core command set; the less-used commands
+      (speed, settings write, clock, limit reset) rest on openHAB's command
+      classes alone, and of those only the settings write is ever sent by
+      the binding.
+
+  identification:
+    service_uuids:
+      - "0000fe50-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fe50-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Match on the 0xfe50 service UUID in the advertisement, which is how
+          buxtronix/am43 finds motors. The local name is set by the owner in
+          the vendor app and has no fixed default worth matching on. A motor
+          whose GATT table carries 0x1910 instead is the incompatible Tuya
+          look-alike; whether those advertise it is not shown.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision for control: power the motor, connect, open
+      notifications, send frames. What the motor does need, once, is its
+      travel limits (the fully-up and fully-down stops). Those are set with
+      the buttons on the motor head or in the vendor app; no public source
+      documents a BLE command that sets them (one that RESETS them is
+      known). A motor with no limits set will not honour position commands
+      sensibly, and bits 2-3 of the status flags say whether each limit is
+      set.
+    methods:
+      - type: "ble_direct"
+        name: "Connect and control"
+        verified: false
+        description: >
+          Connect to the motor, subscribe to notifications on 0xfe51, send
+          the PIN login frame, then write command frames to the same
+          characteristic. Replies arrive as notifications on it.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Close the vendor app and disconnect any hub or other client — the motor accepts one BLE connection at a time."
+            actor: "user"
+          - action: "Connect and enable notifications on 0000fe51-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+          - action: "Write the login frame carrying the motor's PIN (8888 unless the owner changed it)."
+            actor: "client"
+            expect: "A 0x17 reply whose first data byte is 0x5a (accepted); 0xa5 means the PIN is wrong."
+          - action: "Write a get-status frame (0xa7) to read position, limits and flags."
+            actor: "client"
+            expect: "A notification starting 9a a7."
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Returns the motor to factory state: the travel limits and settings
+        are cleared and the limits must be set again before the motor will
+        position correctly. Whether it also clears a changed PIN is not
+        stated in the manual.
+      description: >
+        From the A-OK manual's button table (the Spanish/multilingual edition
+        is the copy found online). The same SET button, held for three
+        seconds, is also how limit setting starts — the reset is that hold
+        continued until the LED changes from steady to flashing.
+      procedures:
+        - name: "Long hold on SET"
+          verified: false
+          basis: "A-OK AM43 user manual (multilingual edition, page 6)."
+          hold_seconds: 10
+          glyph: "generic/hold-button.svg"
+          indicator: "The LED lights solid red after about 3 s, then flashes red after about 10 s in total."
+          indicator_glyph: "generic/led-flashing.svg"
+          steps:
+            - action: "Press and hold SET on the motor head. After about 3 seconds the LED turns solid red — keep holding."
+              actor: "user"
+            - action: "Keep holding about 7 seconds more until the LED flashes red, then release."
+              actor: "user"
+              expect: "The motor is back at factory state; set the travel limits again."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only; there is no network to rejoin. Any central may connect once
+        the current one disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Login PIN (default 8888)"
+        - "Travel limits, direction, speed and roller settings"
+      issued_to_client: []
+      notes: >
+        The PIN is an application-layer check, not BLE pairing. Several
+        clients never send it and still control default-PIN motors, so on
+        some firmware it may only be enforced once changed; sending it
+        first is harmless and is what buxtronix and ESPHome do.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Close the vendor app (force-stop it) and disconnect any hub or bridge holding the motor, then connect."
+    enter_pairing_mode:
+      required: false
+    notes: >
+      No link-layer pairing or bonding. The only gate is the optional
+      application-layer PIN frame (command 0x17). The motor serves one BLE
+      central at a time; close the vendor app or stop the hub that holds it.
+
+services:
+  - uuid: "0000fe50-0000-1000-8000-00805f9b34fb"
+    name: "AM43 control service"
+    notes: >
+      One characteristic, 0xfe51, carries both directions. Requests are
+      written to it; replies and unsolicited updates arrive as notifications
+      on it, so notifications must be enabled before the first write. The
+      properties listed are how the clients use it, not a GATT dump: all six
+      write without response, and one gates its polling on the READ property
+      being present, so the characteristic may also be readable.
+    characteristics:
+      - uuid: "0000fe51-0000-1000-8000-00805f9b34fb"
+        name: "Command / reply"
+        properties: ["write", "write_without_response", "notify"]
+        notes: >
+          REQUEST FRAME (client to motor): 00 ff 00 00 | 9a | cmd | len |
+          data[len] | chk, where chk is the XOR of every byte from 9a
+          through the last data byte (the 00 ff 00 00 prefix is excluded;
+          equivalently, the XOR of the whole frame XORed with 0xff). One
+          client (TheBazeman's Python script) omits the prefix and is
+          presented as working; every other client sends it, and so do
+          these commands.
+
+          REPLY FRAME (motor to client): 9a | cmd | len | data[len] | chk,
+          with no prefix; the XOR of every byte including chk is 0. Replies
+          echo the request's cmd byte, which is how a client tells them
+          apart. For move (0x0a), set position (0x0d) and login (0x17) the
+          first data byte (frame offset 3) is 0x5a for accepted and 0xa5 for
+          rejected — a rejected move usually means the PIN login was not
+          sent or was wrong. What the 0x11, 0x14 and 0x22 replies carry is
+          not documented by any client.
+
+          The status layout below is the 0xa7 reply. The battery reply
+          (0xa2) and light reply (0xaa) have their own layouts, in the
+          top-level payload_formats.
+        format_match:
+          offset: 1
+          value: 0xa7
+          notes: "Only the 0xa7 status reply is laid out here; other replies are in payload_formats."
+        format:
+          - offset: 0
+            length: 1
+            name: "frame_header"
+            type: "uint8"
+            notes: "Always 0x9a."
+          - offset: 1
+            length: 1
+            name: "command"
+            type: "uint8"
+            values:
+              0xa7: "status"
+          - offset: 3
+            length: 1
+            name: "direction_normal"
+            type: "uint8"
+            mask: 0x01
+            values:
+              0: "reversed"
+              1: "normal"
+          - offset: 3
+            length: 1
+            name: "inching_mode"
+            type: "uint8"
+            mask: 0x02
+            values:
+              0: "continuous"
+              1: "inching"
+          - offset: 3
+            length: 1
+            name: "top_limit_set"
+            type: "uint8"
+            mask: 0x04
+            values:
+              0: "not set"
+              1: "set"
+          - offset: 3
+            length: 1
+            name: "bottom_limit_set"
+            type: "uint8"
+            mask: 0x08
+            values:
+              0: "not set"
+              1: "set"
+          - offset: 3
+            length: 1
+            name: "light_sensor_present"
+            type: "uint8"
+            mask: 0x10
+            values:
+              0: "absent"
+              1: "present"
+          - offset: 4
+            length: 1
+            name: "speed"
+            type: "uint8"
+            unit: "rpm"
+          - offset: 5
+            length: 1
+            name: "position_closed"
+            type: "uint8"
+            unit: "%"
+            notes: "Percent CLOSED: 0 = fully open, 100 = fully closed."
+          - offset: 6
+            length: 2
+            name: "blind_length"
+            type: "uint16"
+            endianness: "big"
+            unit: "mm"
+            notes: "Configured blind length; often 0. openHAB only."
+          - offset: 8
+            length: 1
+            name: "roller_diameter"
+            type: "uint8"
+            unit: "mm"
+            notes: "Configured roller diameter; often 0. openHAB only."
+          - offset: 9
+            length: 1
+            name: "roller_type"
+            type: "uint8"
+            mask: 0xf0
+            notes: "Roller type code; openHAB reads the high nibble. Code meanings are not published."
+        commands:
+          open:
+            description: "Roll the blind fully up (cmd 0x0a, data 0xdd)."
+            encoding: "bytes"
+            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0x0a, 0x01, 0xdd, 0x4c]
+            verification: "reported"
+          close:
+            description: "Roll the blind fully down (cmd 0x0a, data 0xee)."
+            encoding: "bytes"
+            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0x0a, 0x01, 0xee, 0x7f]
+            verification: "reported"
+          stop:
+            description: "Stop wherever the blind is (cmd 0x0a, data 0xcc)."
+            encoding: "bytes"
+            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0x0a, 0x01, 0xcc, 0x5d]
+            verification: "reported"
+          set_position:
+            description: >
+              Move to a position, in percent CLOSED (cmd 0x0d). 0 is fully
+              open, 100 fully closed; 50 renders as
+              00 ff 00 00 9a 0d 01 32 a4.
+            encoding: "bytes"
+            template: [0x00, 0xff, 0x00, 0x00, 0x9a, 0x0d, 0x01, "{position}", "{checksum}"]
+            parameters:
+              position:
+                type: "uint8"
+                min: 0
+                max: 100
+                unit: "%"
+                description: "Target position, percent closed."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+                description: "XOR of frame bytes 4 onward (9a through the data); encoder-filled."
+            verification: "reported"
+          login:
+            description: >
+              Application-layer PIN login (cmd 0x17). The PIN is a big-endian
+              uint16; the factory default 8888 renders as
+              00 ff 00 00 9a 17 02 22 b8 15. Send once per connection,
+              before any move.
+            encoding: "bytes"
+            template: [0x00, 0xff, 0x00, 0x00, 0x9a, 0x17, 0x02, "{pin_high}", "{pin_low}", "{checksum}"]
+            parameters:
+              pin_high:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "High byte of the PIN as a uint16 (8888 = 0x22b8, so 0x22)."
+              pin_low:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Low byte of the PIN (0xb8 for 8888)."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 4
+                description: "XOR of frame bytes 4 onward; encoder-filled."
+            verification: "reported"
+          get_status:
+            description: "Request the status reply (cmd 0xa7): flags, speed, position, length, diameter, type."
+            encoding: "bytes"
+            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0xa7, 0x01, 0x01, 0x3d]
+            verification: "reported"
+          get_battery:
+            description: "Request the battery reply (cmd 0xa2); see payload_formats.BatteryReply."
+            encoding: "bytes"
+            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0xa2, 0x01, 0x01, 0x38]
+            verification: "reported"
+          get_light:
+            description: "Request the light-sensor reply (cmd 0xaa); see payload_formats.LightReply. Only meaningful with the solar/light sensor fitted."
+            encoding: "bytes"
+            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0xaa, 0x01, 0x01, 0x30]
+            verification: "reported"
+          get_speed:
+            description: "Request the speed reply (cmd 0xa3; rpm at frame offset 4). Defined by openHAB's command classes but never sent by the binding, so no client has exercised it."
+            encoding: "bytes"
+            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0xa3, 0x01, 0x01, 0x39]
+            verification: "hypothesis"
+          reset_limits:
+            description: >
+              Clear the travel limits (cmd 0x22, data 00 00 01). The motor
+              then needs its limits set again with the buttons or the vendor
+              app before positions mean anything. Defined by openHAB's
+              command classes but never sent by the binding, so no client
+              has exercised it.
+            encoding: "bytes"
+            value: [0x00, 0xff, 0x00, 0x00, 0x9a, 0x22, 0x03, 0x00, 0x00, 0x01, 0xba]
+            advanced: true
+            advanced_reason: "Clears the travel limits; the blind will not position correctly until they are set again at the motor."
+            verification: "hypothesis"
+
+payload_formats:
+  BatteryReply:
+    description: "Reply to get_battery (cmd 0xa2), notified on 0xfe51."
+    fields:
+      - name: "battery_level"
+        description: "Frame offset 7 (zero-based, counting the leading 9a)."
+        unit: "%"
+    parse_rules:
+      - "Accept only a frame whose byte 0 is 0x9a and byte 1 is 0xa2, and whose bytes XOR to 0."
+      - "Battery percent is byte 7. Bytes 3-6 are not documented."
+  LightReply:
+    description: "Reply to get_light (cmd 0xaa), notified on 0xfe51."
+    fields:
+      - name: "light_level_raw"
+        description: "Frame offset 4: a small step count from the light/solar sensor, roughly 0-10."
+    parse_rules:
+      - "Accept only a frame whose byte 0 is 0x9a and byte 1 is 0xaa, and whose bytes XOR to 0."
+      - "Byte 4 is the raw light step. Clients disagree on scaling it to a percent (x12.5, x100/9, or raw), so report the raw step. The example (step 0) is a literal frame in am43-ctrl."
+    example: "9a aa 02 00 00 32"
+  StatusReply:
+    description: "Reply to get_status (cmd 0xa7); the same layout as the 0xfe51 characteristic's format block, with a worked decode."
+    parse_rules:
+      - "9a a7 07 0f 32 4e 00 00 00 30 79 decodes as: flags 0x0f (normal direction, inching mode, top and bottom limits set, no light sensor), speed 0x32 = 50 rpm, position 0x4e = 78 % closed, length 0, diameter 0, type 3; the XOR of all eleven bytes is 0."
+    example: "9a a7 07 0f 32 4e 00 00 00 30 79"
+
+entities:
+  - platform: "cover"
+    name: "Blind"
+    device_class: "shade"
+    state_characteristic: "0000fe51-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "position_closed"
+    commands:
+      open_cover: "open"
+      close_cover: "close"
+      stop_cover: "stop"
+      set_cover_position: "set_position"
+    notes: >
+      Position on the wire is percent CLOSED; a Home Assistant style cover
+      (percent open) shows 100 minus it and sends 100 minus its target. The
+      state arrives in the 0xa7 status reply, so poll get_status after a
+      move rather than waiting for a push.
+
+protocol_details:
+  am43_framing:
+    request: "00 ff 00 00 9a <cmd> <len> <data...> <xor of 9a..data>"
+    reply: "9a <cmd> <len> <data...> <chk>; XOR of every byte = 0"
+    ack_byte: "frame offset 3: 0x5a accepted, 0xa5 rejected"
+    settings_write: >
+      cmd 0x11 writes six bytes [flags, speed, 0x00, length_hi, length_lo,
+      diameter], the flags byte carrying direction, mode and the roller
+      type in its high nibble (openHAB only, and the one openHAB-only
+      command the binding actually sends). openHAB packs direction and mode
+      one bit higher here than where it reads them in the 0xa7 reply, so
+      either the two layouts differ or that client has a bug; not declared
+      as a command until someone checks it on hardware.
+    set_clock: >
+      cmd 0x14 with four bytes [day of week 0 = Sunday, hour 0-23, minute,
+      second], for the motor's on-board schedule (defined by openHAB's
+      command classes, never sent by the binding).
+    position_notify: >
+      cmd 0xa1 carries a position (percent closed at frame offset 4, one
+      byte earlier than in the 0xa7 reply). buxtronix, ESPHome and
+      homebridge decode it as a notification (ESPHome names 0xa7 the
+      position query and 0xa1 the position notify); openHAB sends it as a
+      poll, which no other client corroborates; and no client documents
+      when the motor emits it unsolicited. Poll with get_status (0xa7).
+    unknown_replies: "0xa8 and 0xa9 replies are seen and logged by clients; meaning unknown."
+  tuya_lookalike:
+    service: "00001910-0000-1000-8000-00805f9b34fb"
+    characteristic: "00002b11-0000-1000-8000-00805f9b34fb"
+    note: "Tuya-firmware AM43 look-alikes; a different protocol, not covered by this spec."
+
+evidence:
+  documentation_review: >
+    Six open-source clients read on 2026-10-11: buxtronix/am43, the ESPHome
+    am43 component, the openHAB bluetooth.am43 binding,
+    homebridge-am43-blinds, am43-ctrl and TheBazeman's Python script. All
+    six agree on the service and characteristic, and five on the frame
+    shape (the Python script omits the prefix). Every frame above is
+    computed from the XOR rule; stop, battery, light and status are
+    identical to literal frames in am43-ctrl, as are the 0 % and 100 %
+    position frames.
+  open_questions: >
+    Whether the 00 ff 00 00 prefix is needed (one Python client omits it);
+    which firmware enforces the PIN; whether 0xa1 is pushed while moving or
+    only returned when polled; the light-level scale; the settings-write bit
+    layout; and any BLE command that SETS a travel limit.
+
+remaining_unknowns:
+  - "No public source documents a BLE command that sets a travel limit; the vendor app presumably jogs the motor and confirms, but the sequence is not known. Limits can be read (status flags bits 2-3) and reset (0x22)."
+  - "Whether the PIN login is enforced on default-PIN motors. Four of six clients never send it."
+  - "Battery level (0xa2 reply, byte 7) has no entity: the schema binds a characteristic to one frame layout through `format_match`, and 0xfe51 multiplexes the 0xa7 status, 0xa2 battery and 0xaa light replies. payload_formats.BatteryReply documents it until the schema can declare per-opcode formats."
+  - "The light-level scale (raw 0-~10 steps); clients disagree on the multiplier."
+  - "Whether the vendor app is still listed in the app stores (unconfirmed either way, 2026-10)."
+
+helpful_urls:
+  - title: "buxtronix/am43 (ESP32 client)"
+    url: "https://github.com/buxtronix/am43"
+    description: "ESP32 MQTT bridge; its client source documents the status flags and the PIN login."
+  - title: "ESPHome AM43 cover component"
+    url: "https://esphome.io/components/cover/am43/"
+    description: "ESPHome's docs; notes the Tuya look-alikes and that the component does not set speed, direction or limits (set them with the app or buttons first)."
+  - title: "openHAB AM43 binding"
+    url: "https://www.openhab.org/addons/bindings/bluetooth.am43/"
+    description: "The only client that defines speed, settings, clock and limit-reset commands; of those, only the settings write is sent by the binding."
+  - title: "binsentsu/am43-ctrl"
+    url: "https://github.com/binsentsu/am43-ctrl"
+    description: "Node client whose literal frames the test vectors were checked against."
+  - title: "TheBazeman/A-OK-AM43-Blinds-Drive"
+    url: "https://github.com/TheBazeman/A-OK-AM43-Blinds-Drive"
+    description: "Python sample that sends frames without the 00 ff 00 00 prefix."
+  - title: "A-OK AM43 user manual (multilingual edition)"
+    url: "https://www.manualslib.mx/manual/676327/A-Ok-Am43.html"
+    kind: "manual"
+    description: >
+      A-OK AM43 tubular motor manual, Spanish/multilingual edition. Page 6
+      has the SET-button reset and limit-setting sequences used in this spec.

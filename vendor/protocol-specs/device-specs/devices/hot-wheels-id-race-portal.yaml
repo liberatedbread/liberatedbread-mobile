@@ -1,0 +1,691 @@
+# Mattel Hot Wheels id Race Portal (FXB53) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code):
+#   - mtxmiller/hotwheels-portal (MIT): PROTOCOL.md, README.md,
+#     hwportal/constants.py (UUIDs and properties), hwportal/portal.py (what
+#     the client subscribes to and reads), dashboard.py (the x64 "scale"
+#     speed and the client-side lap timing)
+#   - Mattel "Hot Wheels id System Discontinuation FAQs" (shop.mattel.com) —
+#     the shutdown dates
+#   - Mattel consumer-service product page for FXB53 — release year, the
+#     absence of an instruction sheet
+
+device:
+  name: "Hot Wheels id Race Portal (FXB53)"
+  manufacturer: "Mattel"
+  manufacturer_status: "abandoned"
+  model: "FXB53"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every UUID, property and
+      payload layout below is read from one open-source client
+      (mtxmiller/hotwheels-portal) whose author captured them from a portal
+      on firmware 1.2.5. The float decodes and the NDEF/base64 arithmetic
+      are reproduced by scripts/test_hot_wheels_id_race_portal_spec.py.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "other"
+  type: "nfc-race-portal"
+  notes: >
+    A rechargeable piece of Hot Wheels track with an NFC reader in the floor
+    and a BLE radio. Each Hot Wheels id car carries an NFC tag; the portal
+    reads the tag when a car is placed on it or rolls through, and pushes
+    the car's identity (NFC UID, a serial number and the tag's NDEF record)
+    and a speed figure to a connected phone over GATT indications. The
+    vendor app turned those events into speeds, lap counts and a car
+    collection, then synced everything to Mattel's cloud.
+
+    Mattel discontinued the whole Hot Wheels id system on 31 December 2023:
+    the apps were delisted, support ended and the cloud data was deleted
+    (vendor FAQ). Community projects give the date as 2024-01-01, the first
+    day the app no longer worked. Mattel itself is in business, so the
+    status is "abandoned" (product and app dropped, hardware still in
+    homes) rather than "shutdown" (company gone). The portal still boots,
+    advertises and reports cars without any cloud, which is what this spec
+    documents: it is READ-ONLY. The portal has writable characteristics
+    (an authentication service, a data-transfer service, a control register
+    and a command channel) and nothing published says what to write to
+    them, so no command is declared here.
+
+    Scope: car detection, car identity and the per-pass speed/timing value
+    as they arrive on the control service. Out of scope: the authentication
+    handshake and bulk-data channels (wire facts only, below), and anything
+    the retired cloud did with the data (collections, car names, the
+    official ID-to-model tables).
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/mtxmiller/hotwheels-portal"
+    license: "MIT"
+    notes: >
+      No vendor publication. One open-source client (MIT) documents the
+      GATT layout and event payloads from captures against its author's own
+      portal; no second independent source was found (2026-10-11), so every
+      byte-level fact here rests on that one project.
+
+  identification:
+    local_names:
+      - "HWiD"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "HWiD"
+        notes: >
+          The portal advertises the local name HWiD. Whether it also
+          advertises any of its three service UUIDs is not recorded by the
+          source, so the name is the only matcher. The open client compares
+          the name case-insensitively as a substring, which an implementer
+          may copy if a firmware revision turns out to vary the case.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The source does not say whether the BLE address is public or
+        random-static. The open client reconnects by the address it scanned,
+        which has worked across sessions for its author; treat this as
+        unconfirmed.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: charge the portal, switch it on, connect, enable
+      indications and wait for a car. No account, no cloud and no pairing
+      are needed for the event stream. The vendor's own product page says
+      only to charge the portal before connecting it to the app.
+    methods:
+      - type: "ble_direct"
+        name: "Connect and subscribe"
+        verified: false
+        description: >
+          Scan for the local name HWiD, connect, enable indications on the
+          five event-bearing characteristics of the control service and read
+          the firmware version. Placing a car on the portal then produces a
+          burst of indications in a fixed order (see protocol_details).
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Charge the portal and switch it on. Close any phone that may still hold a connection to it."
+            actor: "user"
+          - action: "Scan for a device whose local name is HWiD and connect."
+            actor: "client"
+          - action: "Enable indications on af0a6ec7-0003-000c-84a0-91559fc6f0de, af0a6ec7-0004-000c-84a0-91559fc6f0de, af0a6ec7-0005-000c-84a0-91559fc6f0de, af0a6ec7-0006-000c-84a0-91559fc6f0de and af0a6ec7-0007-000c-84a0-91559fc6f0de."
+            actor: "client"
+          - action: "Read af0a6ec7-0002-000c-84a0-91559fc6f0de for the firmware version string."
+            actor: "client"
+            expect: "An ASCII dotted version such as 1.2.5."
+          - action: "Place an id car on the portal."
+            actor: "user"
+            expect: "The control register indicates 00 fe 00 fe 02, then the serial, the 04+UID event and the NDEF record arrive."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. No public source describes a reset, and it is not
+        clear the portal holds any owner state to clear: the open client
+        found no pairing, no bond and no account on the device. The only
+        candidate is the 148-byte value on the authentication service, whose
+        role is unknown.
+      description: >
+        No instruction sheet for FXB53 could be found on Mattel's service
+        site or elsewhere (2026-10), so the buttons and LED behaviour are
+        undocumented here. Do not invent a button sequence; a power cycle is
+        the only thing known to be safe.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only; there is no network to rejoin. Any central may connect
+        once the previous one has disconnected.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "A 148-byte readable value on the authentication service (af0a6ec7-0003-000a-84a0-91559fc6f0de), which the open client labels a device key or certificate; its role is unknown"
+      issued_to_client: []
+      notes: >
+        Nothing is issued to the client. The 148-byte value is readable on a
+        bare connection and is never used by the open client, so whatever it
+        protects is not the event stream documented here.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      No link-layer pairing or bonding: the open client connects with a
+      plain GATT connection, reads the firmware, serial and 148-byte key
+      characteristics and receives every car and speed indication without
+      pairing. The portal does expose an "authentication" service (two
+      write+indicate channels and the readable 148-byte value), so an
+      application-layer handshake exists for SOMETHING — presumably the
+      data-transfer service or the command channel — but it is not needed
+      to read cars and speeds, and its messages are unpublished. Whether the
+      portal serves one central at a time is not recorded.
+
+initialization:
+  - characteristic: "af0a6ec7-0007-000c-84a0-91559fc6f0de"
+    subscribe: true
+    when: "connect"
+    notes: "Control register; indicates 00 fe 00 fe 02 when a car is placed."
+  - characteristic: "af0a6ec7-0003-000c-84a0-91559fc6f0de"
+    subscribe: true
+    when: "connect"
+    notes: "Car serial number (ASCII); empty value on removal."
+  - characteristic: "af0a6ec7-0005-000c-84a0-91559fc6f0de"
+    subscribe: true
+    when: "connect"
+    notes: "Car detection: 04 + 6-byte NFC UID; empty value on removal."
+  - characteristic: "af0a6ec7-0004-000c-84a0-91559fc6f0de"
+    subscribe: true
+    when: "connect"
+    notes: "NDEF record from the car's tag; empty value on removal."
+  - characteristic: "af0a6ec7-0006-000c-84a0-91559fc6f0de"
+    subscribe: true
+    when: "connect"
+    notes: "Speed/timing float32, one indication per pass through the portal."
+  - characteristic: "af0a6ec7-0002-000c-84a0-91559fc6f0de"
+    read: true
+    when: "connect"
+    notes: "Firmware version string, e.g. 1.2.5."
+
+services:
+  - uuid: "af0a6ec7-0001-000a-84a0-91559fc6f0de"
+    name: "Authentication service"
+    notes: >
+      Wire facts only. Three characteristics: a write+indicate command
+      channel, a 148-byte readable value the open client calls the device
+      key or certificate, and a write+indicate response channel. No message
+      on either channel has been published, the open client never writes
+      to this service, and every event documented in the control service
+      arrives without touching it. Whatever this service authorises is out
+      of scope here.
+    characteristics:
+      - uuid: "af0a6ec7-0002-000a-84a0-91559fc6f0de"
+        name: "Auth command channel"
+        properties: ["write", "indicate"]
+        notes: "Request direction of an unpublished handshake. No bytes known; do not write."
+      - uuid: "af0a6ec7-0003-000a-84a0-91559fc6f0de"
+        name: "Device key / certificate"
+        properties: ["read"]
+        notes: >
+          148 bytes, readable on a bare connection. The source calls it a
+          device key or certificate; its format is unpublished. Per-unit, so
+          never commit a captured value.
+      - uuid: "af0a6ec7-0004-000a-84a0-91559fc6f0de"
+        name: "Auth response channel"
+        properties: ["write", "indicate"]
+        notes: "Reply direction of the same handshake. No bytes known."
+
+  - uuid: "af0a6ec7-0001-000b-84a0-91559fc6f0de"
+    name: "Data transfer service"
+    notes: >
+      Wire facts only: a write+indicate command characteristic and a
+      write-without-response bulk characteristic, the shape of a firmware
+      or data upload channel. Nothing is published about what travels on
+      either, and the open client never uses them. Not needed to read cars
+      and speeds.
+    characteristics:
+      - uuid: "af0a6ec7-0002-000b-84a0-91559fc6f0de"
+        name: "Data command"
+        properties: ["write", "indicate"]
+        notes: "Unpublished. Do not write."
+      - uuid: "af0a6ec7-0003-000b-84a0-91559fc6f0de"
+        name: "Data fast transfer"
+        properties: ["write_without_response"]
+        notes: "Unpublished bulk channel. Do not write."
+
+  - uuid: "af0a6ec7-0001-000c-84a0-91559fc6f0de"
+    name: "Portal control service"
+    notes: >
+      Everything a read-only client needs. Five characteristics indicate
+      without any request once their CCCDs are written: the control
+      register, the car serial, the NDEF record, the car-detect (UID) event
+      and the speed value. The firmware version is a plain read. The
+      control register and the command channel are also writable, but no
+      write is published and none is declared here.
+
+      ORDER OF EVENTS (from the source's protocol flow). Car placed: control
+      register -> 00 fe 00 fe 02; serial -> ASCII digits; car-detect -> 04 +
+      UID; NDEF -> full record. Car rolls through: speed -> float32. Car
+      removed: NDEF, car-detect and serial each indicate an EMPTY value;
+      control register -> 00 72 9b fe 00. A client therefore keys "car
+      present" on the control register or on a non-empty car-detect value,
+      and treats an empty indication as removal, not as an error.
+    characteristics:
+      - uuid: "af0a6ec7-0002-000c-84a0-91559fc6f0de"
+        name: "Firmware version"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 5
+            name: "firmware_version"
+            type: "string"
+            notes: "ASCII dotted version, 1.2.5 on the captured unit. Declared at the observed length; read the whole value."
+
+      - uuid: "af0a6ec7-0003-000c-84a0-91559fc6f0de"
+        name: "Car serial number"
+        properties: ["read", "indicate"]
+        notes: >
+          Not the portal's serial: it is the serial of the car currently on
+          the portal, re-indicated on every placement and EMPTY on removal.
+          Reading it with no car present returns an empty value.
+        format:
+          - offset: 0
+            length: 10
+            name: "car_serial"
+            type: "string"
+            notes: "ASCII decimal digits; ten digits on every example the source gives (e.g. 1100000042 as a placeholder). Declared at the observed length; read the whole value."
+
+      - uuid: "af0a6ec7-0004-000c-84a0-91559fc6f0de"
+        name: "Car NDEF record"
+        properties: ["indicate"]
+        role: "notify"
+        notes: >
+          The NDEF message read from the car's tag, indicated on placement
+          and empty on removal. The first record is a well-known-type URI
+          record ('U') whose URI is https://www.pid.mattel/<token>, the token
+          being 28 URL-safe base64 characters that decode to a 21-byte car
+          identifier (payload_formats.CarIdToken). The record header's
+          Message-End bit is clear, so at least one more record follows the
+          URI record; the source labels those trailing bytes a signature
+          and does not lay them out.
+        format_match:
+          offset: 0
+          value: 0x91
+          notes: "Only a message starting with the URI record header is decoded; the empty removal indication is not."
+        format:
+          - offset: 0
+            length: 1
+            name: "ndef_header"
+            type: "uint8"
+            values:
+              0x91: "MB=1, ME=0, CF=0, SR=1, IL=0, TNF=1 (NFC Forum well-known type); more records follow"
+          - offset: 1
+            length: 1
+            name: "type_length"
+            type: "uint8"
+            notes: "Always 1 for the URI record."
+          - offset: 2
+            length: 1
+            name: "payload_length"
+            type: "uint8"
+            notes: "0x28 = 40: one URI-prefix byte plus 39 URI characters."
+          - offset: 3
+            length: 1
+            name: "record_type"
+            type: "uint8"
+            values:
+              0x55: "U (URI record)"
+          - offset: 4
+            length: 1
+            name: "uri_prefix_code"
+            type: "uint8"
+            values:
+              2: "https://www."
+          - offset: 5
+            length: 11
+            name: "uri_host_path"
+            type: "string"
+            notes: "The constant ASCII text pid.mattel/ that precedes the token."
+          - offset: 16
+            length: 28
+            name: "car_id_token"
+            type: "string"
+            notes: "28 URL-safe base64 characters (RFC 4648 section 5 alphabet, no padding) encoding the 21-byte car identifier; see payload_formats.CarIdToken."
+
+      - uuid: "af0a6ec7-0005-000c-84a0-91559fc6f0de"
+        name: "Car detection (NFC UID)"
+        properties: ["indicate"]
+        role: "notify"
+        notes: >
+          7 bytes on placement: 0x04 then the 6-byte NFC UID the portal
+          reports for the tag. EMPTY on removal. The same 6 bytes appear as
+          the last 6 bytes of the decoded car-ID token.
+        format_match:
+          offset: 0
+          value: 0x04
+          notes: "The empty removal indication carries no byte 0 and is not decoded."
+        format:
+          - offset: 0
+            length: 1
+            name: "event_type"
+            type: "uint8"
+            values:
+              4: "car detected"
+          - offset: 1
+            length: 6
+            name: "nfc_uid"
+            type: "bytes"
+            notes: "6-byte tag identifier as the portal reports it; display as hex pairs (aa:bb:cc:dd:ee:ff)."
+
+      - uuid: "af0a6ec7-0006-000c-84a0-91559fc6f0de"
+        name: "Speed / timing"
+        properties: ["indicate"]
+        role: "notify"
+        notes: >
+          One indication per pass: 4 bytes, an IEEE 754 binary32 in
+          LITTLE-ENDIAN byte order (b0 1c 14 3e decodes to about 0.1446).
+          The schema's field types have no float, so the field is declared
+          as 4 raw bytes; decode with payload_formats.SpeedEvent. UNITS ARE
+          UNCONFIRMED: the source's protocol notes say the value may be
+          metres per second or a sensor passage time in seconds, while its
+          client multiplies it by 64 (Hot Wheels are 1:64 scale) and labels
+          the result "scale mph". Report the raw value and say which
+          convention you applied.
+        format:
+          - offset: 0
+            length: 4
+            name: "speed_raw"
+            type: "bytes"
+            notes: "IEEE 754 binary32, little-endian. Dimensionless here because the physical unit is unconfirmed; see payload_formats.SpeedEvent and protocol_details.speed_scaling."
+
+      - uuid: "af0a6ec7-0007-000c-84a0-91559fc6f0de"
+        name: "Control register"
+        properties: ["write", "read", "indicate"]
+        notes: >
+          5 bytes, readable and indicated on change. Three patterns are
+          published: 00 fe 00 fe 00 idle, 00 fe 00 fe 02 car present,
+          00 72 9b fe 00 the state indicated just after a car is removed.
+          Byte 4 is the only byte with a known meaning. The register is
+          writable but no write is published; do not write to it.
+        format:
+          - offset: 0
+            length: 1
+            name: "reg_byte0"
+            type: "uint8"
+            notes: "0x00 in every published pattern."
+          - offset: 1
+            length: 3
+            name: "reg_state_bytes"
+            type: "bytes"
+            notes: "fe 00 fe while idle or with a car present; 72 9b fe just after removal. Meaning unknown."
+          - offset: 4
+            length: 1
+            name: "car_present"
+            type: "uint8"
+            values:
+              0: "no car (idle or just removed)"
+              2: "car present on the reader"
+
+      - uuid: "af0a6ec7-0008-000c-84a0-91559fc6f0de"
+        name: "Command channel"
+        properties: ["write", "indicate"]
+        notes: "The portal's command input and its acknowledgements. No command bytes are published; nothing is declared and nothing should be written."
+
+payload_formats:
+  SpeedEvent:
+    description: "The 4-byte indication on af0a6ec7-0006-000c-84a0-91559fc6f0de, one per pass through the portal."
+    fields:
+      - name: "speed_raw"
+        description: "IEEE 754 binary32, little-endian. Physical unit unconfirmed (m/s or seconds per the source); the open client shows raw x 64 and calls it scale mph."
+    parse_rules:
+      - "Accept exactly 4 bytes; decode as a little-endian IEEE 754 single (Python struct '<f')."
+      - "Observed range on one unit: roughly 0.14 (slow or nudged) to 1.6 (fast). Values grow with speed, which is why the source leans to m/s over passage time."
+      - "Do not convert to a physical unit without saying which convention you used; the vendor's scaling was never published. Multiplying by 64 gives the '1:64 scale' figure the open client displays."
+    example: "b0 1c 14 3e"
+  CarDetectEvent:
+    description: "The indication on af0a6ec7-0005-000c-84a0-91559fc6f0de when a car is placed (7 bytes) or removed (empty)."
+    parse_rules:
+      - "Empty value: the car was removed; clear the current car."
+      - "Otherwise byte 0 is 0x04 and bytes 1-6 are the 6-byte NFC UID; show as hex pairs."
+    example: "04 aa bb cc dd ee ff"
+  ControlRegister:
+    description: "The 5-byte value of af0a6ec7-0007-000c-84a0-91559fc6f0de."
+    values:
+      "00 fe 00 fe 00": "idle / heartbeat"
+      "00 fe 00 fe 02": "car present"
+      "00 72 9b fe 00": "transitional, indicated right after a car is removed"
+    parse_rules:
+      - "Byte 4 == 0x02 means a car is on the reader; 0x00 means none. The other bytes have no published meaning."
+    example: "00 fe 00 fe 02"
+  NdefRecord:
+    description: >
+      The indication on af0a6ec7-0004-000c-84a0-91559fc6f0de: the car tag's
+      NDEF message. The example is the URI record built from an INVENTED
+      car-ID token (placeholder UID aa:bb:cc:dd:ee:ff); a real message
+      continues with at least one further record (the source's "signature")
+      whose layout is unpublished, so the example stops at the end of the
+      URI record.
+    parse_rules:
+      - "Empty value: car removed."
+      - "Byte 0 is the NDEF record header; 0x91 = MB set, ME clear, SR set, TNF 1 (well-known). ME clear means another record follows the URI record."
+      - "Byte 1 type length (1), byte 2 payload length (0x28 = 40), byte 3 type 'U' (0x55)."
+      - "Byte 4 is the URI prefix code; 0x02 = https://www. — so the full URI is https://www.pid.mattel/<token>."
+      - "Bytes 5-15 are the ASCII text pid.mattel/ and bytes 16-43 are the 28-character token; decode the token with CarIdToken."
+      - "Bytes from 44 on belong to the following record(s); keep them opaque."
+    example: "91 01 28 55 02 70 69 64 2e 6d 61 74 74 65 6c 2f 41 51 41 41 41 41 41 71 41 41 41 41 41 41 41 41 41 41 41 41 71 72 76 4d 33 65 37 5f"
+  CarIdToken:
+    description: >
+      The 28-character token in the tag URI: URL-safe base64 (RFC 4648
+      section 5, '-' and '_' alphabet, no padding) of a 21-byte car
+      identifier. Layout from the source; the mapping from model id to a
+      car name is Mattel's and is not reproduced here.
+    fields:
+      - name: "version"
+        description: "Bytes 0-1: 01 00 on every published token."
+      - name: "model_id"
+        description: "Bytes 2-5: the car type / casting identifier. Mattel's id-to-name table is out of scope."
+      - name: "flags"
+        description: "Bytes 6-9: flags / metadata, meaning unpublished."
+      - name: "extra"
+        description: "Bytes 10-14: additional data, meaning unpublished."
+      - name: "nfc_uid"
+        description: "Bytes 15-20: the same 6-byte UID the car-detect event carries."
+    parse_rules:
+      - "Take the 28 characters after pid.mattel/ in the URI; decode as URL-safe base64 with no padding (28 chars -> exactly 21 bytes)."
+      - "Bytes 0-1 version, 2-5 model id, 6-9 flags, 10-14 extra, 15-20 NFC UID. Offsets of the middle fields are the source's; only the version prefix and the trailing UID were checked against the car-detect event."
+      - "Byte order of model_id and flags is unpublished; keep them as raw bytes."
+    example: "AQAAAAAqAAAAAAAAAAAAqrvM3e7_"
+
+entities:
+  - platform: "binary_sensor"
+    name: "Car on Portal"
+    icon: "mdi:car"
+    state_characteristic: "af0a6ec7-0007-000c-84a0-91559fc6f0de"
+    state_mapping:
+      value: "car_present"
+      on_when: "nonzero"
+    notes: >
+      Byte 4 of the control register: 0x02 with a car on the reader, 0x00
+      otherwise. The register is indicated on change, so no polling is
+      needed once subscribed; a read on connect gives the initial state.
+
+  - platform: "sensor"
+    name: "Car NFC UID"
+    icon: "mdi:nfc"
+    state_characteristic: "af0a6ec7-0005-000c-84a0-91559fc6f0de"
+    state_mapping:
+      value: "nfc_uid"
+    notes: >
+      6 bytes, shown as hex pairs. An empty indication means the car was
+      removed; clear the value rather than keeping the last car.
+
+  - platform: "sensor"
+    name: "Car Serial"
+    icon: "mdi:identifier"
+    state_characteristic: "af0a6ec7-0003-000c-84a0-91559fc6f0de"
+    state_mapping:
+      value: "car_serial"
+    notes: "ASCII digits of the car on the reader; empty when none."
+
+  - platform: "sensor"
+    name: "Car ID Token"
+    icon: "mdi:tag-text"
+    state_characteristic: "af0a6ec7-0004-000c-84a0-91559fc6f0de"
+    state_mapping:
+      value: "car_id_token"
+    notes: >
+      The 28-character token from the tag URI. Decoding it to model id and
+      UID is payload_formats.CarIdToken; the token itself is a stable key
+      for "which car is this" without any cloud.
+
+  - platform: "sensor"
+    name: "Pass Speed (raw)"
+    icon: "mdi:speedometer"
+    state_characteristic: "af0a6ec7-0006-000c-84a0-91559fc6f0de"
+    state_mapping:
+      value: "speed_raw"
+    notes: >
+      The little-endian float32 as sent, undecoded by the generic field
+      types (no float type in the schema). A consumer decodes it per
+      payload_formats.SpeedEvent. No unit is claimed: the source could not
+      settle m/s versus seconds, and the "scale mph" its dashboard shows is
+      raw x 64 with a label, not a conversion.
+
+  - platform: "sensor"
+    name: "Portal Firmware"
+    icon: "mdi:chip"
+    state_characteristic: "af0a6ec7-0002-000c-84a0-91559fc6f0de"
+    state_mapping:
+      value: "firmware_version"
+    notes: "Plain read; 1.2.5 on the captured unit."
+
+protocol_details:
+  uuid_scheme: >
+    Every UUID is af0a6ec7-XXXX-YYYY-84a0-91559fc6f0de with YYYY the service
+    (000a authentication, 000b data transfer, 000c control) and XXXX 0001
+    for the service itself, 0002 upward for its characteristics.
+  event_sequence:
+    car_placed: "control register 00 fe 00 fe 02 -> car serial (ASCII) -> car-detect 04+UID -> NDEF record"
+    car_passes_through: "speed/timing float32 on af0a6ec7-0006-000c-84a0-91559fc6f0de"
+    car_removed: "NDEF empty -> car-detect empty -> serial empty -> control register 00 72 9b fe 00"
+    notes: "Order as the source's protocol flow lists it; the capture does not say whether the order is guaranteed, so key on content, not position."
+  speed_scaling:
+    raw: "IEEE 754 binary32, little-endian"
+    unit_hypotheses:
+      - "metres per second of the real car (source's protocol notes)"
+      - "seconds between the two sensors of the portal (source's protocol notes)"
+    client_display: "raw x 64, labelled mph by the open client — the 1:64 scale factor applied to the raw number; no physical unit conversion is involved"
+    published_examples:
+      - {hex: "b0 1c 14 3e", value: 0.1446, note: "slow / stationary nudge"}
+      - {hex: "ae 38 8c 3f", value: 1.0955, note: "medium"}
+      - {hex: "ab aa ca 3f", value: 1.5833, note: "fast"}
+  lap_timing: >
+    The portal emits no lap event. The open client counts a lap on every
+    speed indication and computes the lap time as the wall-clock interval
+    since the previous speed indication for the same car; best and average
+    laps are client-side arithmetic. A client reproducing the vendor app's
+    lap counter does the same.
+  authentication_service: >
+    Wire facts only: 148-byte readable value at af0a6ec7-0003-000a-...,
+    write+indicate request channel at ...-0002-000a-..., write+indicate
+    response channel at ...-0004-000a-.... No message has been published
+    and the event stream does not depend on it.
+  car_id_token_layout: >
+    URL-safe base64, 28 chars -> 21 bytes: [0-1] version 01 00, [2-5] model
+    id, [6-9] flags, [10-14] extra, [15-20] NFC UID. Checked: the URI
+    payload length 0x28 is 1 + len("pid.mattel/") + 28, and 28 base64
+    characters decode to exactly 21 bytes with no padding. Mattel's model
+    id-to-name table is not reproduced; the open client's roadmap lists
+    "car name lookup from Mattel ID" as unfinished.
+  test_vectors:
+    note: "Held by scripts/test_hot_wheels_id_race_portal_spec.py. The speed values are measurements from the source and identify no unit; the car id is INVENTED (placeholder UID aa:bb:cc:dd:ee:ff)."
+    speed_float32_le:
+      - {hex: "b01c143e", value: 0.1446}
+      - {hex: "ae388c3f", value: 1.0955}
+      - {hex: "abaaca3f", value: 1.5833}
+    car_id:
+      token: "AQAAAAAqAAAAAAAAAAAAqrvM3e7_"
+      decoded_hex: "01000000002a000000000000000000aabbccddeeff"
+      nfc_uid_hex: "aabbccddeeff"
+      car_detect_event_hex: "04aabbccddeeff"
+      ndef_uri_record_hex: "91012855027069642e6d617474656c2f41514141414141714141414141414141414141417172764d3365375f"
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      artifact: "mtxmiller/hotwheels-portal, main branch as read 2026-10-11 (PROTOCOL.md, README.md, hwportal/constants.py, hwportal/portal.py, dashboard.py)"
+      url: "https://github.com/mtxmiller/hotwheels-portal"
+      description: >
+        MIT-licensed Python/Bleak client. Source of every UUID, property,
+        payload layout, the control-register patterns, the event order, the
+        three float examples and the x64 display scaling. Its own notes
+        hedge the speed unit and leave the authentication and data services
+        undecoded.
+    - type: "vendor_documentation"
+      artifact: "Mattel, Hot Wheels id System Discontinuation FAQs (shop.mattel.com), read 2026-10-11"
+      url: "https://shop.mattel.com/pages/hot-wheels-id-faqs"
+      description: >
+        States the system was discontinued on 31 December 2023, in-app
+        purchases ended 1 September 2023, the apps were available until 31
+        December 2023, support ended and all id / Ultimate Garage data was
+        deleted after that date; lists the Race Portal among the affected
+        products; refunds not offered.
+    - type: "vendor_documentation"
+      artifact: "Mattel consumer-service product page for FXB53, read 2026-10-11"
+      url: "https://service.mattel.com/us/productDetail.aspx?prodno=FXB53"
+      description: >
+        Gives the release year (2019) and age grading; carries no
+        instruction sheet, no FAQ text and no replacement parts. Negative
+        finding: no manual is hosted for this model.
+  documentation_review: >
+    All facts were read from the one open-source client on 2026-10-11 and
+    cross-checked internally: the UUIDs in its constants module agree with
+    its protocol notes, the characteristics it subscribes to are the ones
+    whose payloads it documents, and the NDEF payload length, URI text and
+    token length are arithmetically consistent (40 = 1 + 11 + 28; 28
+    base64 chars = 21 bytes). The float examples decode with struct '<f'
+    to the values the source prints. No second independent capture, teardown
+    or FCC filing was found; GitHub and web searches for other Hot Wheels
+    id portal work returned nothing.
+  open_questions: >
+    The physical unit of the speed float; the authentication handshake and
+    what it gates; the data-transfer service; the meaning of control-register
+    bytes 1-3 and of any write to the register or command channel; the
+    layout of the record(s) after the URI record; whether the portal
+    advertises its service UUIDs; whether its address is public; the
+    power/charge button and LED behaviour (no manual found).
+
+remaining_unknowns:
+  - "Speed unit: the raw float is either m/s or a passage time in seconds; the x64 'scale mph' figure is a display convention, not a measured conversion. Needs a timed run over a known distance."
+  - "Authentication service: a 148-byte readable value and two write+indicate channels with no published messages. Not needed for car and speed events; what it unlocks is unknown."
+  - "Data-transfer service: one write+indicate command and one write-without-response bulk characteristic, purpose unknown (firmware update is the obvious guess; unconfirmed, so no firmware_update feature is declared)."
+  - "Control register bytes 1-3 (fe 00 fe vs 72 9b fe) and the effect of any write to it or to the command channel. Nothing should be written until a capture shows what the vendor app wrote."
+  - "The record(s) following the URI record in the NDEF message — the source calls them a signature; the TNF, type and length are unpublished."
+  - "The float field is declared as 4 raw bytes because the schema's format types have no float32; a consumer needs the decode rule from payload_formats.SpeedEvent."
+  - "No FXB53 instruction sheet could be found on Mattel's service site, the usual manual aggregators or an FCC filing (2026-10); buttons, LED states, charging indication and any reset are undocumented here."
+  - "Whether the portal advertises any service UUID, and whether its BLE address is public or random-static."
+  - "Only one unit (firmware 1.2.5) has been captured; whether other firmware changes the layouts is unknown."
+
+helpful_urls:
+  - title: "mtxmiller/hotwheels-portal (Python client and protocol notes)"
+    url: "https://github.com/mtxmiller/hotwheels-portal"
+    kind: "implementation"
+    description: >
+      MIT-licensed Bleak client with a live dashboard and lap-race mode;
+      the only public implementation found. hwportal/constants.py has the
+      UUID table, PROTOCOL.md the payload layouts this spec restates.
+  - title: "Hot Wheels id Portal BLE Protocol (PROTOCOL.md)"
+    url: "https://github.com/mtxmiller/hotwheels-portal/blob/main/PROTOCOL.md"
+    kind: "protocol_writeup"
+    description: >
+      The source's reverse-engineering notes: services, characteristics,
+      event formats, control-register patterns and the connect-and-subscribe
+      flow, from captures of a firmware 1.2.5 portal.
+  - title: "Mattel: Hot Wheels id System Discontinuation FAQs"
+    url: "https://shop.mattel.com/pages/hot-wheels-id-faqs"
+    kind: "vendor_support"
+    description: >
+      Mattel's own notice for the whole Hot Wheels id system (Smart Track
+      Kit, Race Portal, id vehicles, both apps): discontinued 31 December
+      2023, apps available until then, support ended and data deleted after
+      that date, no refunds.
+  - title: "Mattel consumer service: Hot Wheels id Race Portal (FXB53)"
+    url: "https://service.mattel.com/us/productDetail.aspx?prodno=FXB53"
+    kind: "vendor_support"
+    description: >
+      Mattel's product-support page for the FXB53 Race Portal (released
+      2019). It hosts no instruction sheet, FAQ or parts for this model —
+      linked so the next person does not repeat the search.

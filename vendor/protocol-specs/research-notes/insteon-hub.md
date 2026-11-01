@@ -1,5 +1,10 @@
 # Insteon Hub (2242-222 v1 / 2245-222 v2) — Research Notes
 
+> **Promoted.** This note has graduated to a published spec at
+> `device-specs/devices/insteon-hub.yaml`, with a device page at
+> `docs/devices/insteon-hub.md`. The spec is authoritative; this note is
+> kept as the dated record of how the target was scoped.
+
 ## What it is
 Gateway between IP and Insteon's dual-band (powerline + 915 MHz RF) mesh.
 The hub embeds a PLM (power-line modem); the local APIs below are how

@@ -1,0 +1,865 @@
+# Insteon Hub 2245-222 (Hub v2) and 2242-222 (Hub v1) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Graduated from research-notes/insteon-hub.{md,yaml} (kept as the dated
+# trail). Sources (all public; clean-room — derived facts and own words only):
+#   - SmartLabs' INSTEON Hub Developer's Guide (v2.0, 2013) and the Insteon
+#     Modem (PLM) command set it documents — the authority for every IM
+#     command number, message length and the flags byte
+#   - Kevin Robert Keegan, "Technical inspection of Insteon Hub2 2245-222"
+#     — port 25105, Basic auth from the label, /3?...=I=3, the 200-character
+#     buffer, its trailing position byte and the twice-a-second polling
+#   - pyinsteon (MIT): the hub's HTTP transport (send, buffer read, buffer
+#     clear, 0.5 s poll, wrap handling) and the extended-message checksum
+#   - srveit/insteon-hub2: the hub's other HTTP pages (index.htm, sx.xml)
+#   - Home Assistant and openHAB Insteon documentation: hub v1 on TCP 9761,
+#     hub v2 on 25105 with label credentials, recovery after the 2022 outage
+#   - Insteon support knowledge base: hub factory reset
+#   - Cisco Talos TALOS-2017-0483: firmware 1012 advisories
+# No vendor app was decompiled; nothing here was needed from one. Insteon
+# device addresses in examples (1A.2B.3C, 4D.5E.6F) are invented.
+
+device:
+  name: "Insteon Hub 2245-222 (Hub v2) and 2242-222 (Hub v1)"
+  manufacturer: "Insteon Technologies (formerly SmartLabs, Inc.)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The HTTP wrapper and
+      buffer behaviour are transcribed from KRKeegan's inspection of a
+      2245-222 and from pyinsteon's hub transport, which agree; the PLM
+      frames are SmartLabs' published modem command set as implemented by
+      pyinsteon, openHAB and insteon-mqtt. The checksum rule and the frame
+      layouts are held to self-built vectors in
+      scripts/test_insteon_hub_spec.py.
+  protocol: "lan"
+  transport: "http"
+  category: "hub"
+  type: "powerline_rf_gateway"
+  notes: >
+    The Insteon Hub is the Ethernet gateway into an Insteon network: a
+    dual-band mesh of wall switches, dimmers, plug-in modules, sensors and
+    keypads that talk to each other over the house wiring and 915 MHz RF
+    (869 MHz in Europe, 921 MHz in Australia). Inside each hub is an
+    Insteon Modem (IM, also called a PLM — the same chip as the USB 2413U
+    modem), and both hub generations put that modem's byte-level command
+    set on the LAN. A client on the LAN can therefore drive every linked
+    Insteon device without the cloud, an account or the Insteon app.
+
+    SmartLabs, Insteon's maker, turned its servers off without notice in
+    mid-April 2022 (users report from about 14 April; press from 18 April).
+    Hubs kept working locally the whole time: this LAN surface never
+    depended on the cloud. A group of users led by Ken Fairbanks bought the
+    assets in June 2022 as Insteon Technologies and brought the servers
+    back. In October 2026 insteon.com is selling the Hub 2 (SKU 2245-222)
+    and devices, and the Insteon app needs a paid "Connected Home Access"
+    subscription (one year included with a new hub since 2025-03-18); the
+    LAN API documented here needs none.
+
+    TWO TRANSPORTS, ONE MODEM. Hub v2 (2245-222) wraps the modem in HTTP on
+    port 25105, protected by Basic auth with the username and password
+    printed on the hub's label: a command goes out as hex in a GET URL and
+    the modem's replies come back through a 200-character hex ring buffer
+    the client polls (`/buffstatus.xml`). Hub v1 (2242-222) is the same
+    modem as a raw binary byte stream on TCP 9761, framed exactly like a
+    serial PLM. Both carry the same frames (payload_formats); only the
+    wrapper differs.
+
+    ADDRESSING. Every Insteon device has a fixed 3-byte address printed on
+    its label (written 1A.2B.3C). Commands name the target by that address;
+    the hub learns which devices are "its" by Insteon linking (pressing
+    Set buttons, or the all-linking commands), recorded in the modem's
+    All-Link Database, which a client reads with commands 0x69/0x6A.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    notes: >
+      SmartLabs published the modem command set (the 2242-222 developer
+      guide and the 2412S/2413U modem developer's guides) for third-party
+      developers; the Hub v2's HTTP wrapper and its buffer were never
+      written up for the 2245 and were worked out by owners (KRKeegan, the
+      pyinsteon authors) by observation. The developer PDFs are gone from
+      the vendor's cache host; a mirror of the hub developer's guide is
+      held by ManualsLib.
+    upstream_docs:
+      - url: "https://www.manualslib.com/manual/2802673/Insteon-Hub.html"
+        title: "INSTEON Hub Developer's Guide (v2.0, 2013), ManualsLib mirror"
+        covers: "IM command numbers, message lengths and the HTTP URL forms /0?, /3?...=I=3"
+    source_code: "https://github.com/pyinsteon/pyinsteon"
+
+  identification:
+    default_port: 25105
+    lan_protocols: ["http"]
+    notes: >
+      Hub v2 answers HTTP on 25105 (configurable in the hub's own settings)
+      and, per KRKeegan's scan, also has 443 (HTTPS with an obsolete
+      RC4-MD5 cipher and a self-signed certificate; nothing extra behind
+      it), 23 and 992 open; telnet on 23 accepts a connection and answers
+      nothing. Hub v1 listens on TCP 9761. A request to `/index.htm` with
+      the label credentials returns the hub's type, firmware version and
+      modem address, which identifies a hub positively once its address is
+      known.
+
+  discovery:
+    none: >
+      No client documents a discovery protocol for either hub: Home
+      Assistant, openHAB, pyinsteon and insteon-mqtt all ask the user for
+      the hub's IP address (and recommend a DHCP reservation), and no
+      mDNS service or SSDP target has been reported for them. Find the hub
+      in the router's DHCP client list and enter its address.
+    static_ip_required: true
+
+  variants:
+    - model: "2245-222"
+    - model: "2242-222"
+
+  security_advisory:
+    severity: "reported"
+    summary: >
+      Hub v2 firmware 1012 has published remote-code-execution bugs in its
+      cloud message handler, and its LAN API is plain HTTP Basic auth.
+    detail: >
+      Cisco Talos disclosed on 2018-06-19 a series of buffer overflows in
+      the 2245-222's handling of messages from its cloud relay (PubNub) on
+      firmware 1012 (TALOS-2017-0483 and -0484, CVSS 8.5), plus unsigned
+      firmware upload and downgrade issues on 1013. SmartLabs told Talos
+      the issues were addressed, but no fixed firmware version is named in
+      the advisory. Separately, the local API on 25105 is unencrypted HTTP
+      with Basic auth, so the label credentials cross the LAN in the clear
+      on every request. Keep the hub on a trusted network segment and do
+      not forward port 25105 to the internet.
+    advisory_url: "https://talosintelligence.com/vulnerability_reports/TALOS-2017-0483"
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The hub needs no app or account to come up on the LAN: it is wired
+      to Ethernet and takes an address by DHCP. The local credentials are
+      the username and password printed on the hub's label (Hub v2); Hub v1
+      needs none. Devices then have to be linked to the hub, which is
+      ordinary Insteon linking with Set buttons and no server involved.
+    methods:
+      - type: "wired"
+        name: "Plug in Ethernet and read the label credentials"
+        role: "primary"
+        verified: false
+        description: >
+          Wire the hub to the router, give it a DHCP reservation, and enter
+          its address (plus, on Hub v2, the label username and password)
+          into the client. This is the route Home Assistant documents for
+          hubs recovered after the 2022 outage.
+        issues_credentials:
+          hub_username:
+            user_entered: true
+            notes: >
+              Hub v2 only. The username printed on the label on the bottom
+              of the hub (an alphanumeric string of about eight
+              characters). If someone changed it in the Insteon app, use
+              the changed one; a factory reset is reported to return the
+              label value.
+          hub_password:
+            user_entered: true
+            notes: >
+              Hub v2 only. The password printed on the same label, beside
+              the username.
+        steps:
+          - action: "Connect the hub to the router with an Ethernet cable and plug it into a mains outlet (not a surge-suppressing strip, which filters Insteon's powerline signal)."
+            actor: "user"
+            expect: "The hub's status light settles and it takes an address by DHCP."
+          - action: "In the router, find the hub's DHCP lease and reserve that address for it."
+            actor: "user"
+          - action: "Read the username and password off the label on the bottom of a Hub v2 and enter them, with the address, into the client."
+            actor: "user"
+          - action: "GET http://<hub>:25105/buffstatus.xml with Basic auth (Hub v2), or open TCP 9761 (Hub v1)."
+            actor: "client"
+            expect: "HTTP 200 and an XML body carrying a BS element (Hub v2); a 401 means the credentials are wrong."
+      - type: "button_pairing"
+        name: "Link an Insteon device to the hub"
+        role: "alternative"
+        verified: false
+        description: >
+          Not network onboarding: this is how a device becomes one the hub
+          controls and hears from. Either press the Set button on the hub
+          and then on the device (local programming, which the Insteon
+          support pages describe), or have the client put the modem into
+          linking mode with start_all_linking and then press the device's
+          Set button. Home Assistant also links by address for devices
+          that support remote linking.
+        steps:
+          - action: "Send start_all_linking (or press and release the hub's Set button)."
+            actor: "client"
+            expect: "The hub beeps / its light blinks while it waits for a device."
+          - action: "Press and hold the Set button on the Insteon device for about 3 seconds, until it beeps."
+            actor: "user"
+          - action: "Read the buffer: an ALL-Linking Completed frame (0x02 0x53) names the new device's address, category and subcategory."
+            actor: "client"
+            expect: "02 53 <link code> <group> <address> <cat> <subcat> <fw>"
+            timeout_seconds: 240
+    factory_reset:
+      applicable: true
+      confidence: medium
+      effect: >
+        Erases the hub's links to Insteon devices, its scenes and its
+        schedules; devices keep their own half of each link until they
+        are reset or the links are removed.
+      description: >
+        From Insteon's support article. Insteon recommends removing devices
+        and scenes in the app before a reset so devices do not keep
+        searching for the missing hub. Many owners reset their hubs during
+        the April 2022 outage; Home Assistant's documentation says the
+        default label credentials then work again, and devices still
+        linked from their side reappear once re-added.
+      procedures:
+        - name: "Hub v2 (2245-222): Set button held through power-up"
+          applies_to: ["2245-222"]
+          verified: false
+          basis: "Insteon support knowledge base, 'Factory Resetting Insteon Hub' (2016-02-24)."
+          power_state: "off"
+          steps:
+            - action: "Unplug the hub from power."
+              actor: "user"
+            - action: "Press and hold the Set button on the back and plug the hub back in, still holding."
+              actor: "user"
+              expect: "The hub gives a long beep."
+            - action: "Release Set when the long beep ends."
+              actor: "user"
+              expect: "A double beep, then another beep about 30 seconds later."
+            - action: "Unplug the hub and plug it back in."
+              actor: "user"
+        - name: "Hub v1 (2242-222): Set button held through power-up"
+          applies_to: ["2242-222"]
+          verified: false
+          basis: "Insteon support knowledge base, 'Factory Resetting Insteon Hub' (2016-02-24)."
+          power_state: "off"
+          steps:
+            - action: "Unplug the hub from power."
+              actor: "user"
+            - action: "Press and hold the Set button and plug the hub back in, still holding."
+              actor: "user"
+              expect: "A long beep and the light turns red."
+            - action: "Release Set when the long beep ends."
+              actor: "user"
+              expect: "A double beep and the light turns blue."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The hub is wired and takes its address by DHCP, so a new router
+        only needs the address re-entered in the client (and a new DHCP
+        reservation). Insteon also documents a network-settings reset
+        (three quick taps of Set on a powered hub, then a 30-second power
+        cycle) that leaves links intact.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Hub v2 local username and password (factory value printed on the label)"
+        - "All-Link Database (the modem's links to Insteon devices)"
+      issued_to_client: []
+      notes: >
+        The hub is wired; no Wi-Fi passphrase is involved. The label
+        credentials are sent as HTTP Basic auth in clear text on every
+        request. Hub v1's TCP 9761 stream has no authentication at all.
+
+auth_schemes:
+  hub_basic:
+    type: "http_basic"
+    credential: "hub_password"
+    username: "{hub_username}"
+    password: "{hub_password}"
+    description: "Hub v2's label credentials as HTTP Basic auth on every request to port 25105."
+
+protocol_details:
+  hub_v2_http:
+    port: 25105
+    auth: "HTTP Basic with the label username and password (auth_schemes.hub_basic). Plain HTTP; pyinsteon has no HTTPS path."
+    send: >
+      GET /3?<hex>=I=3, where <hex> is the whole modem frame (starting 02)
+      as uppercase hex ASCII, e.g. /3?02621A2B3C0F11FF=I=3. pyinsteon sends
+      the same URL as a POST; KRKeegan and srveit/insteon-hub2 use GET.
+      Treat HTTP 200 as "accepted by the hub", not as the modem's ACK —
+      the ACK and every reply arrive in the buffer. pyinsteon retries a
+      non-200 write up to five times, 0.5 s apart.
+    send_clears_buffer: >
+      A successful /3? send zeroes the buffer and resets its position to
+      00 (KRKeegan), and pyinsteon resets its read cursor to 0 on every
+      200. So a client reads the reply to a command from position 0 after
+      sending it — and anything unread before the send is lost. Read the
+      buffer before sending if unsolicited traffic matters.
+    buffer_read: >
+      GET /buffstatus.xml returns an XML document whose BS element holds
+      202 hex characters: a 200-character ring of hex ASCII (100 bytes of
+      modem output) followed by two hex characters giving the position
+      (0x00-0xC8, in characters) just past the last character written.
+      Writes run left to right and wrap from the end of the ring back to
+      the start; old characters are overwritten, never erased, and the
+      hub's own outgoing commands do not appear except as the modem's
+      echo. See payload_formats.HubBuffer.
+    buffer_clear: "GET /1?XB=M=1 empties the buffer (all zeros, position 00). pyinsteon sends it once when it starts reading."
+    polling: >
+      Poll about twice a second: pyinsteon waits 0.5 s between reads and
+      KRKeegan found two polls a second reliable and harmless; openHAB's
+      default is 1000 ms. Slower polling lets the 100-byte ring wrap over
+      unread messages when several devices report at once.
+    other_commands: >
+      /0?<cmd><group>=I=0 is the hub's group/IM shortcut form (developer
+      guide): pyinsteon starts linking with /0?09<group decimal>=I=0 and
+      cancels with /0?08=I=0; /1?L=<user>=1=<password> changes the local
+      credentials (srveit); /sx.xml?<address>=<cmd1><cmd2> is a
+      synchronous status page some clients use. These are reported, not
+      cross-checked here.
+    strong_nak_heuristic: >
+      When the modem is overloaded the buffer can fill with repeated 15
+      (NAK) bytes; pyinsteon treats nine or more "15" pairs as a NAK of the
+      last command sent and re-sends it.
+    talos_note: "Firmware 1012/1013 advisories: see device.security_advisory."
+  hub_v1_tcp:
+    port: 9761
+    framing: >
+      Raw binary modem frames on a plain TCP socket, byte-for-byte what a
+      serial 2413S/2413U PLM sends at 19200 baud — no hex encoding, no
+      buffer, no auth. Replies and unsolicited messages are pushed as they
+      happen. Frames are not length-prefixed: the second byte (the command
+      number) fixes the length, and 0x62's length depends on bit 4 of its
+      flags byte (see payload_formats.PlmFrameLengths). openHAB's hub1
+      bridge and Home Assistant's "Hub v1" option use this port.
+  plm_conventions:
+    start_byte: "Every frame in either direction begins 0x02, then a one-byte command number. 0x50-0x58 are modem-to-host; 0x60-0x7F are host-to-modem."
+    echo_and_ack: >
+      The modem answers every host command with an echo of the command
+      followed by 0x06 (ACK, accepted) or 0x15 (NAK). A NAK to 0x62 usually
+      means the modem was busy: wait about 0.5 s and resend. A bare 0x15
+      with no echo means the modem could not take the byte stream at all.
+      An ACK says the modem accepted the frame, NOT that the target device
+      heard it — the device's own answer is a separate 0x50 frame whose
+      flags byte carries ACK or NAK of direct message.
+    pacing: >
+      Insteon messages take about 50 ms each on the powerline plus
+      retries; clients wait for the device's 0x50 ACK (or about 2 s) before
+      sending the next direct message to the same device, and space all
+      sends by at least a few hundred milliseconds on Hub v2 because every
+      send also clears the buffer.
+    flags_byte: >
+      bits 7-5 message type: 000 direct, 001 ACK of direct, 101 NAK of
+      direct, 100 broadcast, 110 all-link broadcast, 010 all-link cleanup,
+      011 ACK of all-link cleanup, 111 NAK of all-link cleanup. Bit 4: 1 =
+      extended (14 data bytes). Bits 3-2: hops left. Bits 1-0: max hops.
+      A host sends 0x0F (standard direct, 3 hops) or 0x1F (extended
+      direct, 3 hops); a device's ACK typically arrives as 0x2B or 0x2F.
+    standard_commands: >
+      cmd1 for lighting devices (cmd2 in brackets): 0x11 on [level
+      0x00-0xFF], 0x12 fast on [0xFF], 0x13 off [0x00], 0x14 fast off
+      [0x00], 0x15 brighten one step, 0x16 dim one step, 0x19 status
+      request [0x00 = on-level; 0x01 = output state on some relays and
+      outlets], 0x10 ID request, 0x0D get engine version, 0x2E
+      extended get/set. The ACK to a status request is special: its cmd1
+      is the device's All-Link Database delta and its cmd2 the current
+      level (0x00 off .. 0xFF full on).
+    extended_checksum: >
+      Extended direct messages to I2CS devices (most made after 2012) must
+      carry a checksum in data byte 14: D14 = (-(cmd1 + cmd2 + D1 + ... +
+      D13)) & 0xFF, i.e. the two's complement of the low byte of the sum,
+      so cmd1 + cmd2 + D1..D14 sums to 0x00 mod 256. pyinsteon computes it
+      this way. A few devices (the 2441TH thermostat, iMeter) instead want
+      a 16-bit CRC in D13-D14 over cmd1, cmd2 and D1-D12; pyinsteon has
+      that variant too (not transcribed here).
+    aldb_records: >
+      0x69 (get first) and 0x6A (get next) are each answered by 02 69/6A 06
+      and then, if a record exists, an 0x57 ALL-Link Record frame; a NAK
+      (15) means there are no more records. Walk 0x69 then 0x6A until NAK
+      to list every device linked to the hub — the only way a client can
+      enumerate the hub's devices.
+
+payload_formats:
+  SendStandard:
+    description: "Host to modem, 8 bytes: send a standard (non-extended) Insteon message to one device."
+    fields:
+      - { name: "start", offset: 0, length: 1, description: "0x02" }
+      - { name: "command", offset: 1, length: 1, description: "0x62" }
+      - { name: "to_address", offset: 2, length: 3, description: "Target device address, high byte first (1A.2B.3C is 1A 2B 3C)." }
+      - { name: "flags", offset: 5, length: 1, description: "Message flags; 0x0F for a standard direct message with 3 hops. Bit 4 must be 0." }
+      - { name: "cmd1", offset: 6, length: 1, description: "Command (0x11 on, 0x13 off, 0x19 status ...)." }
+      - { name: "cmd2", offset: 7, length: 1, description: "Command argument (on-level for 0x11)." }
+    parse_rules:
+      - "The modem echoes all 8 bytes and appends 0x06 (ACK) or 0x15 (NAK): a 9-byte reply."
+      - "On Hub v2 the frame goes out as uppercase hex in /3?<hex>=I=3."
+    example: "02621A2B3C0F11FF"
+  SendExtended:
+    description: "Host to modem, 22 bytes: an extended Insteon message with 14 data bytes."
+    fields:
+      - { name: "start", offset: 0, length: 1, description: "0x02" }
+      - { name: "command", offset: 1, length: 1, description: "0x62" }
+      - { name: "to_address", offset: 2, length: 3, description: "Target device address." }
+      - { name: "flags", offset: 5, length: 1, description: "0x1F for an extended direct message with 3 hops. Bit 4 must be 1." }
+      - { name: "cmd1", offset: 6, length: 1 }
+      - { name: "cmd2", offset: 7, length: 1 }
+      - { name: "d1_d13", offset: 8, length: 13, description: "User data bytes 1-13." }
+      - { name: "d14", offset: 21, length: 1, description: "Checksum: (-(cmd1 + cmd2 + d1 + ... + d13)) & 0xFF." }
+    parse_rules:
+      - "The modem echoes all 22 bytes and appends 0x06 or 0x15: a 23-byte reply."
+      - "Compute d14 over cmd1, cmd2 and d1..d13 only — not over 02 62, the address or the flags."
+    example: "02621A2B3C1F2E0001000000000000000000000000D1"
+  ReceiveStandard:
+    description: "Modem to host, 11 bytes: a standard Insteon message the modem heard (0x50), including a device's ACK to a command."
+    fields:
+      - { name: "start", offset: 0, length: 1, description: "0x02" }
+      - { name: "command", offset: 1, length: 1, description: "0x50" }
+      - { name: "from_address", offset: 2, length: 3, description: "Sending device." }
+      - { name: "to_address", offset: 5, length: 3, description: "The modem's own address for direct messages and ACKs; for an all-link broadcast, byte 7 is the group number." }
+      - { name: "flags", offset: 8, length: 1, description: "Bits 7-5 message type (001 = ACK of direct, 101 = NAK, 110 = all-link broadcast, 010 = cleanup)." }
+      - { name: "cmd1", offset: 9, length: 1, description: "Echoes the command in an ACK; for a status-request ACK, the device's ALDB delta." }
+      - { name: "cmd2", offset: 10, length: 1, description: "In an ACK to 0x11/0x19, the device's current level, 0x00-0xFF." }
+    example: "02501A2B3C4D5E6F2B11FF"
+  ReceiveExtended:
+    description: "Modem to host, 25 bytes (0x51): as 0x50 plus 14 data bytes."
+    fields:
+      - { name: "header", offset: 0, length: 11, description: "02 51, from, to, flags, cmd1, cmd2 as in ReceiveStandard." }
+      - { name: "d1_d14", offset: 11, length: 14, description: "User data; d14 is the checksum when the sender used one." }
+  ImInfo:
+    description: "Reply to 02 60 (Get IM Info), 9 bytes. The example address, subcategory and firmware are invented."
+    fields:
+      - { name: "header", offset: 0, length: 2, description: "02 60" }
+      - { name: "im_address", offset: 2, length: 3, description: "The modem's own Insteon address (printed on the hub label as well)." }
+      - { name: "category", offset: 5, length: 1, description: "Device category (0x03 network bridges)." }
+      - { name: "subcategory", offset: 6, length: 1 }
+      - { name: "firmware", offset: 7, length: 1 }
+      - { name: "ack", offset: 8, length: 1, description: "0x06" }
+    example: "02604D5E6F03339E06"
+  AllLinkRecord:
+    description: "0x57 ALL-Link Record, 10 bytes, sent after 02 69 06 or 02 6A 06."
+    fields:
+      - { name: "header", offset: 0, length: 2, description: "02 57" }
+      - { name: "record_flags", offset: 2, length: 1, description: "Bit 7 in use; bit 6 modem is controller (1) or responder (0)." }
+      - { name: "group", offset: 3, length: 1 }
+      - { name: "address", offset: 4, length: 3, description: "The linked device." }
+      - { name: "link_data", offset: 7, length: 3, description: "Three link-data bytes; for a responder link from a device, commonly its category, subcategory and firmware." }
+  AllLinkingCompleted:
+    description: "0x53, 10 bytes, sent when a device links during all-linking mode."
+    fields:
+      - { name: "header", offset: 0, length: 2, description: "02 53" }
+      - { name: "link_code", offset: 2, length: 1, description: "0x00 modem is responder, 0x01 controller, 0xFF link deleted." }
+      - { name: "group", offset: 3, length: 1 }
+      - { name: "address", offset: 4, length: 3 }
+      - { name: "category", offset: 7, length: 1 }
+      - { name: "subcategory", offset: 8, length: 1 }
+      - { name: "firmware", offset: 9, length: 1 }
+  PlmFrameLengths:
+    description: "Total frame lengths, including the 02 start byte, for splitting a byte stream (Hub v1) or a buffer slice (Hub v2) into frames."
+    values:
+      "0x50": "11 (standard message received)"
+      "0x51": "25 (extended message received)"
+      "0x52": "4 (X10 received)"
+      "0x53": "10 (ALL-Linking completed)"
+      "0x54": "3 (button event)"
+      "0x55": "2 (user reset detected)"
+      "0x56": "7 (ALL-Link cleanup failure)"
+      "0x57": "10 (ALL-Link record)"
+      "0x58": "3 (ALL-Link cleanup status)"
+      "0x60": "9 reply (get IM info)"
+      "0x61": "6 reply (send ALL-Link command, echo + ACK)"
+      "0x62": "9 reply if flags bit 4 is 0, 23 reply if 1"
+      "0x64": "5 reply (start ALL-linking)"
+      "0x65": "3 reply (cancel ALL-linking)"
+      "0x67": "3 reply (reset the IM)"
+      "0x69": "3 reply (get first ALL-Link record)"
+      "0x6A": "3 reply (get next ALL-Link record)"
+      "0x73": "6 reply (get IM configuration)"
+    parse_rules:
+      - "Scan for 0x02; the next byte selects the length from this table. A lone 0x15 between frames is a modem NAK of the last command."
+      - "For 0x62 read the flags byte (offset 5) before deciding the length."
+      - "An unknown command byte means the stream is out of step: discard to the next 0x02."
+  HubBuffer:
+    description: "Hub v2's /buffstatus.xml BS element: 200 hex characters of ring buffer plus a 2-hex-digit position."
+    parse_rules:
+      - "Take the text of the BS element and strip whitespace; discard a read whose length is odd."
+      - "The last two characters are the position (hex) just past the newest character written; the first 200 are the ring."
+      - "If the first 200 characters are all zeros the buffer was cleared: reset the stored cursor to 0."
+      - "If position > cursor, the new data is ring[cursor:position]. If position < cursor, the ring wrapped: new data is ring[cursor:200] + ring[0:position] (pyinsteon drops the tail when it is all zeros, which means a reset rather than a wrap). Equal: nothing new."
+      - "Store position as the new cursor, hex-decode the new characters and split them into frames with PlmFrameLengths."
+      - "After any successful /3? send the hub zeroes the buffer; set the cursor to 0."
+    example: "02621A2B3C0F11FF0602501A2B3C4D5E6F2B11FF000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000028"
+
+http_endpoints:
+  - method: "GET"
+    path: "/3?{plm_hex}=I=3"
+    name: "Send modem frame"
+    status: "unverified"
+    description: >
+      Hub v2. Sends one modem frame, given as uppercase hex starting 02.
+      HTTP 200 means the hub took it; the modem's echo + ACK/NAK and the
+      device's reply appear in the buffer. A successful send zeroes the
+      buffer.
+  - method: "GET"
+    path: "/buffstatus.xml"
+    name: "Read reply buffer"
+    status: "unverified"
+    description: >
+      Hub v2. Returns XML with a BS element: 200 hex characters of ring
+      buffer and a 2-hex-digit write position. Poll every ~0.5 s. See
+      payload_formats.HubBuffer.
+  - method: "GET"
+    path: "/1?XB=M=1"
+    name: "Clear reply buffer"
+    status: "unverified"
+    description: "Hub v2. Empties the ring buffer and resets its position to 00."
+  - method: "GET"
+    path: "/index.htm"
+    name: "Hub information page"
+    status: "unverified"
+    description: >
+      Hub v2. Human-readable page with the hub type, firmware version and
+      the modem's Insteon address (srveit/insteon-hub2 scrapes it). The
+      HTML layout is not documented; use get_im_info for the modem
+      address in a parseable form.
+
+commands:
+  light_on:
+    description: "Turn a dimmer or relay on at a level (cmd1 0x11, cmd2 = level). Relays treat any non-zero level as on."
+    transport: "http"
+    method: "GET"
+    path: "/3?0262{address}0F11{level}=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      address:
+        type: "string"
+        source: "instance:address"
+        description: "The device's 3-byte Insteon address as six uppercase hex digits without dots (1A.2B.3C is 1A2B3C), from its label or the hub's All-Link Database."
+      level:
+        type: "string"
+        required: true
+        min_length: 2
+        max_length: 2
+        description: >
+          On-level as exactly two uppercase hex digits, 00 to FF (FF full on;
+          128 is "80", 5 is "05"). Declared as a string because the schema
+          has no parameter encoding for fixed-width hex: a client converts
+          its 0-255 level before substituting it.
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    example_notes: "Level 255 to 1A.2B.3C: GET /3?02621A2B3C0F11FF=I=3. Buffer then holds 02621A2B3C0F11FF06 and the device's ACK 02501A2B3C<hub address>2B11FF."
+    verification: "reported"
+  light_on_full:
+    description: "Turn a dimmer or relay fully on (cmd1 0x11, cmd2 0xFF). The device ramps at its configured rate."
+    transport: "http"
+    method: "GET"
+    path: "/3?0262{address}0F11FF=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      address:
+        type: "string"
+        source: "instance:address"
+        description: "Six uppercase hex digits, no dots."
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  light_fast_on:
+    description: "Fast on (cmd1 0x12): full on immediately, ignoring the ramp rate."
+    transport: "http"
+    method: "GET"
+    path: "/3?0262{address}0F12FF=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      address:
+        type: "string"
+        source: "instance:address"
+        description: "Six uppercase hex digits, no dots."
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  light_off:
+    description: "Turn a dimmer or relay off (cmd1 0x13, cmd2 0x00)."
+    transport: "http"
+    method: "GET"
+    path: "/3?0262{address}0F1300=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      address:
+        type: "string"
+        source: "instance:address"
+        description: "Six uppercase hex digits, no dots."
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    example_notes: "GET /3?02621A2B3C0F1300=I=3"
+    verification: "reported"
+  light_fast_off:
+    description: "Fast off (cmd1 0x14): off immediately, ignoring the ramp rate."
+    transport: "http"
+    method: "GET"
+    path: "/3?0262{address}0F1400=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      address:
+        type: "string"
+        source: "instance:address"
+        description: "Six uppercase hex digits, no dots."
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  status_request:
+    description: >
+      Ask a device for its level (cmd1 0x19, cmd2 0x00). The answer is not
+      the HTTP reply: it is a 0x50 ACK in the buffer whose cmd2 is the
+      current level (0x00 off .. 0xFF full on) and whose cmd1 is the
+      device's ALDB delta.
+    transport: "http"
+    method: "GET"
+    path: "/3?0262{address}0F1900=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      address:
+        type: "string"
+        source: "instance:address"
+        description: "Six uppercase hex digits, no dots."
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    returns:
+      - name: "level"
+        type: "integer"
+        description: "cmd2 of the device's 0x50 ACK, read from the buffer: 0-255."
+    example_notes: "GET /3?02621A2B3C0F1900=I=3, then the buffer shows 02621A2B3C0F190006 02501A2B3C4D5E6F2B<delta>80 for a dimmer at 50 %."
+    verification: "reported"
+  extended_get_settings:
+    description: >
+      Extended Get/Set (cmd1 0x2E, cmd2 0x00, D1 = 0x01 for the main
+      button) asking a dimmer for its operating settings; shows the
+      extended frame and checksum. The device answers with a 0x51
+      extended message whose data bytes carry ramp rate, on-level and
+      LED brightness (layout per device category, not transcribed here).
+    transport: "http"
+    method: "GET"
+    path: "/3?0262{address}1F2E0001000000000000000000000000D1=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      address:
+        type: "string"
+        source: "instance:address"
+        description: "Six uppercase hex digits, no dots."
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  get_im_info:
+    description: "Get IM Info (02 60): the modem's own address, category, subcategory and firmware (payload_formats.ImInfo)."
+    transport: "http"
+    method: "GET"
+    path: "/3?0260=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  get_first_link:
+    description: "Get First ALL-Link Record (02 69). Answered by 02 69 06 then an 0x57 record, or 02 69 15 if the database is empty."
+    transport: "http"
+    method: "GET"
+    path: "/3?0269=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  get_next_link:
+    description: "Get Next ALL-Link Record (02 6A). Repeat until 02 6A 15 to enumerate every linked device."
+    transport: "http"
+    method: "GET"
+    path: "/3?026A=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    notes: "Each send clears the hub's buffer, so read the 0x57 record for the previous request before sending the next 02 6A."
+    verification: "reported"
+  start_all_linking:
+    description: "Start ALL-Linking (02 64 <code> <group>) with the modem as controller (code 0x01) of group 0x00; press a device's Set button within about 4 minutes."
+    transport: "http"
+    method: "GET"
+    path: "/3?02640100=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  cancel_all_linking:
+    description: "Cancel ALL-Linking (02 65)."
+    transport: "http"
+    method: "GET"
+    path: "/3?0265=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  read_buffer:
+    description: "Read the reply ring buffer (payload_formats.HubBuffer)."
+    transport: "http"
+    method: "GET"
+    path: "/buffstatus.xml"
+    auth: ["hub_basic"]
+    parameters:
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  clear_buffer:
+    description: "Empty the reply buffer."
+    transport: "http"
+    method: "GET"
+    path: "/1?XB=M=1"
+    auth: ["hub_basic"]
+    parameters:
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    verification: "reported"
+  reset_im:
+    description: "Reset the IM (02 67): erases the hub modem's entire All-Link Database and configuration."
+    transport: "http"
+    method: "GET"
+    path: "/3?0267=I=3"
+    auth: ["hub_basic"]
+    parameters:
+      hub_username:
+        type: "string"
+        source: "credential:hub_username"
+        description: "Username printed on the hub's label."
+    advanced: true
+    advanced_reason: >
+      Wipes every link the hub has to Insteon devices, so it stops hearing
+      from and being able to control them as a linked controller. Walk the
+      All-Link Database first (get_first_link / get_next_link) and save
+      the records; recovery is re-linking each device with its Set button.
+    verification: "reported"
+
+entities:
+  - platform: "button"
+    name: "Start Linking"
+    variants: ["2245-222"]
+    commands:
+      press: "start_all_linking"
+    notes: "Puts the hub modem into linking mode; press the device's Set button next. Watch the buffer for 02 53."
+  - platform: "button"
+    name: "Cancel Linking"
+    variants: ["2245-222"]
+    commands:
+      press: "cancel_all_linking"
+
+evidence:
+  documentation_review: >
+    Read 2026-10-18: KRKeegan's 2245-222 inspection (ports, auth, /3?
+    send, 200-character buffer and trailing position, buffer zeroed on
+    send, twice-a-second polling); pyinsteon's http_transport,
+    http_reader_writer and msg_to_url modules (URLs, /1?XB=M=1 clear on
+    start, 0.5 s poll, wrap handling, the strong-NAK heuristic) and its
+    user_data module (the D14 checksum over cmd1, cmd2, D1-D13 and the
+    CRC variant); srveit/insteon-hub2 (index.htm, sx.xml, /1? and /2?
+    paths); Home Assistant's Insteon integration page (Hub v1 9761, Hub v2
+    25105 with label credentials, recovery after April 2022); openHAB's
+    Insteon binding (hub1 9761, hub2 25105 with username/password, 1000 ms
+    hub poll default); the ManualsLib copy of the INSTEON Hub Developer's
+    Guide (IM command table, /0? and /3? URL forms); Insteon's support
+    article on factory resetting the hub; Talos TALOS-2017-0483. Company
+    status from SiliconANGLE (2022-04-18), TechHive/Review Geek (servers
+    back, June 2022), CNX Software (2022-06-12) and insteon.com (Hub 2
+    on sale, copyright 2026, fetched 2026-10-18).
+  open_questions: >
+    Whether Hub v1 (2242-222) also serves the HTTP /3? interface (the
+    2013 developer guide describes one, with a 100-character buffer, but
+    every current client uses TCP 9761 for it); whether firmware released
+    by Insteon Technologies after 2022 changed anything on 25105; the
+    exact XML wrapper of buffstatus.xml beyond the BS element; whether the
+    modem's address appears in a fixed place on /index.htm.
+
+remaining_unknowns:
+  - "Hub v1 HTTP: the developer guide describes a /3? HTTP interface with a 100-character buffer on the 2242-222, but no current client uses it and its port is not stated; this spec binds Hub v1 only through TCP 9761 (protocol_details.hub_v1_tcp)."
+  - "Post-2022 firmware: Insteon Technologies ships hubs again (insteon.com, 2026). Whether newer firmware keeps the 25105 API unchanged is not confirmed by a dated source; HA/openHAB users report it working."
+  - "Schema gaps: no command transport carries raw binary over TCP (Hub v1), and no parameter encoding says 'two uppercase hex digits', so light_on's level is a two-character string a client must format itself."
+  - "No dimmer or switch entities are declared. `instances` needs a state_command whose JSON reply is keyed by child id, and this hub's children come from walking binary All-Link Database records (get_first_link, then get_next_link until NAK, one 0x57 record per link) while state arrives as cmd2 of a 0x50 ACK in the buffer. Until the schema can express that, a per-device light (light_on_full, light_off, light_on, status_request with the device address) is something a client builds by hand from the commands above."
+  - "The extended-settings reply layout (0x2E 0x00 response data bytes) differs by device category and is not transcribed; see pyinsteon's per-device operating-flag and property tables."
+  - "The 16-bit CRC used by the 2441TH thermostat and iMeter in place of the D14 checksum is only described, not given test vectors."
+  - "Whether a factory reset restores the label username/password if they were changed in the app is inferred from Home Assistant's recovery instructions, not stated by Insteon."
+
+helpful_urls:
+  - title: "Technical inspection of Insteon Hub2 2245-222 (KRKeegan)"
+    url: "https://krkeegan.com/technical-inspection-of-insteon-hub2-2245-222/"
+    kind: "protocol_writeup"
+    description: "Port scan, Basic auth, the /3?...=I=3 send form and the 200-character buffer with its trailing position byte."
+  - title: "pyinsteon"
+    url: "https://github.com/pyinsteon/pyinsteon"
+    kind: "implementation"
+    description: "Python library behind Home Assistant's integration; its protocol/http_* modules implement the Hub v2 wrapper and data_types/user_data.py the checksum."
+  - title: "Home Assistant Insteon integration"
+    url: "https://www.home-assistant.io/integrations/insteon/"
+    kind: "implementation"
+    description: "Hub v1 on 9761, Hub v2 on 25105 with label credentials; device linking and recovery after the 2022 outage."
+  - title: "openHAB Insteon binding"
+    url: "https://www.openhab.org/addons/bindings/insteon/"
+    kind: "implementation"
+    description: "hub1 and hub2 bridge parameters, including the hub2 poll interval."
+  - title: "insteon-mqtt"
+    url: "https://github.com/TD22057/insteon-mqtt"
+    kind: "implementation"
+    description: "Python bridge from a PLM or Insteon Hub to MQTT."
+  - title: "srveit/insteon-hub2"
+    url: "https://github.com/srveit/insteon-hub2"
+    kind: "implementation"
+    description: "Node.js Hub v2 client; source for the hub's other HTTP pages."
+  - title: "INSTEON Hub Developer's Guide (ManualsLib)"
+    url: "https://www.manualslib.com/manual/2802673/Insteon-Hub.html"
+    kind: "protocol_writeup"
+    description: "SmartLabs' 2013 hub developer's guide: the IM command table and the hub's HTTP URL forms."
+  - title: "INSTEON Hub (2242-222) Quick Start (ManualsLib)"
+    url: "https://www.manualslib.com/manual/1144177/Insteon-2242-222.html"
+    kind: "manual"
+    description: "Quick start for the original 2242-222 Hub v1."
+  - title: "Factory Resetting Insteon Hub (Insteon support)"
+    url: "https://support.insteon.com/support-knowledgebase/2016/2/24/factory-resetting-insteon-hub"
+    kind: "vendor_support"
+    description: "Set-button-at-power-up reset for Hub v2 (2245) and Hub v1 (2242), and what it erases."
+  - title: "Talos: Insteon Hub PubNub cc channel overflows (TALOS-2017-0483)"
+    url: "https://talosintelligence.com/vulnerability_reports/TALOS-2017-0483"
+    kind: "other"
+    description: "Firmware 1012 advisory for the 2245-222, disclosed 2018-06-19."
+  - title: "Home automation company Insteon reportedly goes out of business (SiliconANGLE, 2022-04-18)"
+    url: "https://siliconangle.com/2022/04/18/home-automation-company-insteon-reportedly-goes-business/"
+    kind: "other"
+    description: "Contemporary report of the April 2022 server shutdown."
+  - title: "Insteon's servers have mysteriously turned back on (TechHive, June 2022)"
+    url: "https://www.techhive.com/article/783741/insteons-servers-have-mysteriously-turned-back-on.html"
+    kind: "other"
+    description: "The June 2022 return under the user-led buyer, Insteon Technologies."
+  - title: "Is your smart home product being shut down? Just buy the company (CNX Software, 2022-06-12)"
+    url: "https://www.cnx-software.com/2022/06/12/is-your-smart-home-product-being-shutdown-just-buy-the-company/"
+    kind: "other"
+    description: "The acquisition by a group of Insteon users led by Ken Fairbanks."
+  - title: "Insteon (vendor site)"
+    url: "https://www.insteon.com/"
+    kind: "vendor_support"
+    description: "Insteon Technologies' store, selling the Hub 2 (2245-222) in 2026."

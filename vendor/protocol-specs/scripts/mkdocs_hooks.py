@@ -5,7 +5,10 @@ API files are always included in the published site without needing a
 separate CI step.
 
 The hook runs :func:`scripts.build_index.run`, which discovers, validates,
-and emits the manifest + per-device JSON into ``<site_dir>/api/v1/``.
+and emits the manifest + per-device JSON into ``<site_dir>/api/v1/``, then
+:func:`scripts.generate_blocklists.write_site`, which renders the specs'
+``cloud.egress`` entries into DNS blocklists under
+``<site_dir>/api/v1/blocklists/``.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ if str(_scripts_dir) not in sys.path:
     sys.path.insert(0, str(_scripts_dir))
 
 import build_index  # noqa: E402
+import generate_blocklists  # noqa: E402
 
 
 def on_post_build(config, **kwargs) -> None:  # noqa: ARG001
@@ -31,3 +35,5 @@ def on_post_build(config, **kwargs) -> None:  # noqa: ARG001
             f"build_index returned {rc} — aborting build to prevent stale API publish"
         )
     print("--- Device-spec JSON API generated ---\n")
+    count = generate_blocklists.write_site(site_dir / "api" / "v1" / "blocklists")
+    print(f"--- DNS blocklists generated ({count} files) ---\n")

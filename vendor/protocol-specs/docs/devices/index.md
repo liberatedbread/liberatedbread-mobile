@@ -97,7 +97,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Ubiquiti UniFi Device](ubiquiti-unifi-device.md) | UDP 10001 | Complete (identify-only) | None needed | Ubiquiti |
 | [MikroTik RouterOS Device](mikrotik-routeros.md) | MNDP | Complete (identify-only) | None needed | MikroTik |
 | [Synology DiskStation NAS](synology-diskstation.md) | findhostd (UDP 9999) | Identify-only (untested) | None needed | Synology |
-| [IPP Network Printer](ipp-network-printer.md) | mDNS / DNS-SD | Identify-only (untested) | None needed | Various (IPP/AirPrint) |
+| [IPP Network Printer](ipp-network-printer.md) | mDNS / DNS-SD + IPP | Status only (untested) | None needed | Various (IPP/AirPrint) |
 | [Android Wireless-ADB Device](android-adb-wireless.md) | mDNS / DNS-SD | Identify-only (untested) | None needed | Various (Android 11+) |
 | [Chamberlain Garage Opener (Security+)](chamberlain-garage-opener-secplus.md) | UART | Complete (needs bridge) | ratgdo/Konnected bridge | Chamberlain |
 | [ratgdo Garage-Door Controller](ratgdo.md) | WiFi (ESPHome) | Complete (untested) | Flash + wire to opener | ratgdo / Konnected |
@@ -193,6 +193,23 @@ spec's `device.setup` block; the patterns are explained in
 | [Wyze Cam (docker-wyze-bridge)](wyze-bridge-camera.md) | WiFi (RTSP via bridge) | Spec Available | Wyze API key, then local (low) | Wyze Labs |
 | [Bambu Lab 3D Printer (LAN)](bambu-lab-lan.md) | WiFi (MQTT 8883 + FTPS + RTSPS) | Spec Available | Enable LAN mode + access code (low) | Bambu Lab |
 | [PrusaLink (MK4 / XL / Mini)](prusalink-local-api.md) | WiFi (HTTP /api/v1) | Spec Available | Enable PrusaLink; API key (low) | Prusa Research |
+| [AM43 / A-OK Blind Motor](am43-blind-motor.md) | BLE | Spec Available | None needed (limits set at the motor) | A-OK / Zemismart |
+| [Instant Pot Smart Bluetooth](instant-pot-smart-bluetooth.md) | BLE | Spec Available | BLE bond via Adjust button (medium) | Instant Brands (app withdrawn) |
+| [TiVo Network Remote](tivo-network-remote.md) | LAN (TCP 31339) | Spec Available | Enable Network Remote Control (medium) | TiVo / Xperi |
+| [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
+| [Hot Wheels id Race Portal](hot-wheels-id-race-portal.md) | BLE | Spec Available | None needed (connect and subscribe) | Mattel (id system discontinued 2023) |
+| [Kano Coding Wand](kano-coding-wand.md) | BLE | Spec Available | None needed (connect and subscribe) | Kano Computing (in administration 2023) |
+| [Enel X Way JuiceBox](enel-x-juicebox.md) | WiFi (UDP, charger-initiated; telnet 2000) | Spec Available | Setup AP + DNS/NAT/telnet re-point (medium) | Enel X Way (shutdown 2024-10-11) |
+| [Bose Sleepbuds II](bose-sleepbuds-ii.md) | BLE | Spec Available | None needed (connect per bud) | Bose (Sleep app withdrawn 2025-07-21) |
+| [QardioArm (A100) Blood Pressure Monitor](qardio-arm.md) | BLE (standard BP service + vendor command) | Spec Available | BLE bonding; pinhole clears bond (medium) | Qardio (bankrupt; cloud down 2025-04-29) |
+| [Yummly Smart Thermometer](yummly-smart-thermometer.md) | BLE | Spec Available | None needed (answer a one-byte challenge) | Yummly / Whirlpool (shutdown 2024-12) |
+| [Sengled Wi-Fi Smart Bulbs](sengled-wifi-bulb.md) | WiFi (UDP 9080 JSON / MQTT) | Spec Available | SoftAP UDP re-provisioning to own broker (medium) | Sengled (cloud failing since 2025-06) |
+| [IKEA TRÅDFRI Gateway (E1526)](ikea-tradfri-gateway.md) | LAN (CoAP over DTLS, UDP 5684) | Spec Available | PSK enrolment with the label security code (medium) | IKEA (no new features since 2024-04) |
+| [Hörmann BiSecur Gateway](hormann-bisecur-gateway.md) | LAN (UDP 4001 discovery, TCP 4000) | Spec Available | Log in as a gateway user (medium) | Hörmann (replaced by homee) |
+| [Insteon Hub (2245-222 / 2242-222)](insteon-hub.md) | LAN (HTTP 25105 / TCP 9761) | Spec Available | Label credentials, Basic auth (medium) | Insteon (cloud outage 2022; revived) |
+| [Keto-Mojo GK+ Glucose & Ketone Meter](keto-mojo-gk-plus.md) | BLE | Spec Available | None needed (connect and request records) | Keto-Mojo (active) |
+| [Orbit B-hyve Bluetooth Hose Timers](orbit-bhyve-ble.md) | BLE (encrypted) | Spec Available | Export the network key once from the Orbit account (medium) | Orbit (active) |
+| [LIVISI SmartHome (SHC 1 / SHC 2)](livisi-smarthome.md) | LAN (HTTP 8080, WebSocket events) | Spec Available | Local SmartHome on; local password, token login (medium) | LIVISI (servers off 2024-03-01) |
 
 ## Not everything here was liberated
 

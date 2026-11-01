@@ -1,0 +1,293 @@
+# Drobo NAS status daemon (nasd, TCP 5000) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - droboports wiki: "NASD XML format" and "Port assignments" (DroboFS, 5N)
+#   - jerimiah797/drobo-nas-protocol: frame header layout (one 5N2, fw 4.3.1)
+#   - cosmouser/drobo_exporter (Prometheus exporter; 5N, B800fs; archived
+#     read-only since 2026-03)
+#   - andrewmobbs/drobomon (5N)
+#   - Drobo 5N2 user manual (Dashboard discovery behaviour)
+
+device:
+  name: "Drobo NAS (FS / 5N / 5N2 / B800fs) — status daemon"
+  manufacturer: "Drobo (StorCentric; liquidated 2023)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not read from hardware by this project. The XML element set comes from
+      the droboports wiki and agrees with two exporters; the 16-byte frame
+      header rests on one 5N2 write-up that itself publishes no capture or
+      hex dump (the two exporters skip the header by searching for the
+      XML start).
+  protocol: "lan"
+  transport: "tcp"
+  category: "other"
+  type: "nas"
+  notes: >
+    Drobo's parent StorCentric filed Chapter 11 in June 2022, Drobo ended
+    sales on 27 January 2023 (support became self-service), and the company went into Chapter
+    7 liquidation that spring. Drobo Dashboard, the desktop app owners used
+    to see drive health, is unsupported and its support site no longer
+    resolves. The NAS units themselves keep running their BeyondRAID arrays,
+    and the daemon behind Dashboard still answers on the LAN.
+
+    That daemon pushes the whole array status to anyone who connects: open
+    TCP 5000 and, with no request, no login and no TLS, the NAS sends a
+    16-byte header and an XML document describing the array, its capacity
+    and every drive slot, and sends it again every 10-20 seconds for as
+    long as the socket stays open. That is enough for a phone or a monitor
+    to show the traffic-light status of each bay, warn on a failing or
+    missing drive, and track free space — the jobs Dashboard did — without
+    any Drobo software.
+
+    This spec is READ-ONLY on purpose. nasd also listens on TCP 5001 and UDP
+    5002. Strings in the daemon binary show a command set that includes
+    destructive drive-management verbs alongside status getters, presumably
+    reachable on one of those ports; nothing about it is publicly
+    documented and it is left out.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Never published by Drobo. The XML is self-describing enough that the
+      droboports community documented it in the DroboFS days; the binary
+      header in front of it was written down later from one 5N2.
+
+  identification:
+    default_port: 5000
+
+  # No `discovery` block: no mDNS or SSDP advertisement for
+  # nasd is known. Dashboard found units on the local subnet by itself
+  # (on by default per the 5N2 manual, add-by-IP as the fallback), most
+  # likely via broadcasts on UDP 5002, whose payload is undocumented. A
+  # client asks for the address, or probes TCP 5000 across the subnet and
+  # keeps hosts whose first seven bytes are "DRINASD".
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to enable: the status daemon runs whenever the NAS is up and on
+      the network. The NAS's own first-time setup was done with Drobo
+      Dashboard, which is no longer distributed; a unit that has already been
+      set up keeps its configuration.
+    methods:
+      - type: "wired"
+        name: "Connect and read"
+        verified: false
+        description: >
+          Open TCP 5000 on the NAS and read one frame: a 16-byte header,
+          then the XML body whose length the header gives.
+        steps:
+          - action: "Connect the NAS to the LAN by Ethernet and note its address."
+            actor: "user"
+          - action: "Open a TCP connection to port 5000. Send nothing."
+            actor: "client"
+            expect: "A frame beginning DRINASD arrives at once (the reference script allows up to 20 seconds)."
+          - action: "Read 16 header bytes, then the body length from bytes 12-15 (big-endian), then the body; close the socket or keep it open for updates."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established for the status daemon, which holds no client state.
+        A Drobo reset that wipes the disk pack destroys the data on it and is
+        never needed to read status.
+      description: >
+        Drobo units do have reset procedures (network settings and full
+        resets), but none applies to reading status, and the ones that erase
+        the disk pack are catastrophic. Nothing is transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Wired Ethernet; the NAS takes its address by DHCP unless set static in Dashboard."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No authentication on port 5000. Anyone on the LAN can read the
+        status document, which includes drive serials and the unit's serial.
+
+protocol_details:
+  nasd_frame:
+    header:
+      - "offset 0, 8 bytes: magic, ASCII DRINASD followed by 0x00. Older firmware put a version character in byte 7 (DRINASD9 on DroboFS, DRINASDa on 5N); match the first seven bytes."
+      - "offset 8, 4 bytes: version, seen as 01 01 00 00."
+      - "offset 12, 4 bytes: body length, unsigned 32-bit BIG-endian."
+    body: "UTF-8 XML of exactly `length` bytes. The last byte is 0x00 and is counted in the length; strip it before parsing."
+    cadence: "Pushed once on connect and then every 10-20 s while the socket stays open."
+    other_ports: "TCP 5001 and UDP 5002 also belong to nasd; undocumented, out of scope, and possibly destructive."
+  # A constructed illustration of the layout above (magic, version 01 01 00
+  # 00, length 0x1a2b = 6699 bytes, the size of a typical frame), not a
+  # capture: no cited source publishes a hex dump of the header.
+  header_example_hex: "4452494e41534400 01010000 00001a2b"
+
+payload_formats:
+  ESATMUpdate:
+    description: >
+      The XML body. Root element <ESATMUpdate>; every value is the text of a
+      child element. Capacities are in bytes.
+    fields:
+      - name: "mSerial"
+        description: "Unit serial (also mESAID). On the FS the first character is replaced with 0."
+      - name: "mName"
+        description: "Owner-set unit name (also mDroboName)."
+      - name: "mVersion"
+        description: "Firmware version."
+      - name: "mModel"
+        description: "Model name, when present. The droboports prose calls it empty and FS-only, but the wiki's own 5N firmware 3.2.0 sample carries 'Drobo 5N' and a 5N2 reports it; treat it as optional."
+      - name: "mStatus"
+        description: "Overall array status; see ArrayStatus."
+      - name: "mTotalCapacityProtected"
+        unit: "B"
+        description: "Usable protected capacity — Dashboard's total."
+      - name: "mUsedCapacityProtected"
+        unit: "B"
+        description: "Used protected capacity."
+      - name: "mFreeCapacityProtected"
+        unit: "B"
+        description: "Free protected capacity."
+      - name: "mYellowThreshold"
+        scale: 0.01
+        unit: "%"
+        description: "Used-space warning threshold in hundredths of a percent (8500 = 85.00 %)."
+      - name: "mRedThreshold"
+        scale: 0.01
+        unit: "%"
+        description: "Used-space critical threshold (9500 = 95.00 %)."
+      - name: "mRelayoutCount"
+        description: "Counts down while data protection rebuilds; 0 when idle."
+      - name: "mFirmwareFeatureStates"
+        description: "Redundancy mode: 6 single, 7 dual; 4 seen, meaning unknown."
+      - name: "mSlotCountExp"
+        description: "Reported slot count: 8 on the FS and 6 on the 5N/5N2 (the sixth being the mSATA accelerator bay). Not always the number of <nX> records: FS firmware 1.2.6 reports 8 here but sends five records, so count the records themselves."
+    parse_rules:
+      - "Read the frame per protocol_details.nasd_frame, drop the trailing NUL, then parse the XML."
+      - "Slots are under <mSlotsExp> as <n0>, <n1>, ... ; n0 is the top bay. Each slot record is a SlotRecord."
+      - "Read numbers as integers; capacities exceed 32 bits."
+      - "mTemperature in slot records is always 0; do not show it."
+    example: |
+      <ESATMUpdate><mESAUpdateSignature>ESAINFO</mESAUpdateSignature><mSerial>DRB000000000000</mSerial><mName>Drobo5N2</mName><mStatus>32768</mStatus><mTotalCapacityProtected>7869522141184</mTotalCapacityProtected><mUsedCapacityProtected>2147483648000</mUsedCapacityProtected><mFreeCapacityProtected>5722038493184</mFreeCapacityProtected><mYellowThreshold>8500</mYellowThreshold><mRedThreshold>9500</mRedThreshold><mSlotCountExp>6</mSlotCountExp><mSlotsExp><n0><mSlotNumber>0</mSlotNumber><mStatus>3</mStatus><mMake>WDC WD40EFRX</mMake><mSerial>WD-0000000000</mSerial><mPhysicalCapacity>4000787030016</mPhysicalCapacity></n0></mSlotsExp></ESATMUpdate>
+  ArrayStatus:
+    description: >
+      Overall mStatus. Values from the droboports wiki, some marked
+      "possibly" there. The low bits behave like flags (0x0004 yellow,
+      0x0002 red, 0x0010 bad drive, 0x0040 removed, 0x0200 relayout,
+      0x10000 no free slot / critical) but no source says so; match whole
+      values first.
+    values:
+      "32768": "OK (0x8000)"
+      "32772": "Over the yellow capacity threshold (0x8004)"
+      "32774": "Over the red capacity threshold, with empty slots (0x8006)"
+      "32784": "Bad drive (0x8010)"
+      "32838": "Drive removed (0x8046)"
+      "33344": "Data protection (relayout) in progress (0x8240)"
+      "98304": "Unknown; Dashboard shows OK (0x18000)"
+      "98310": "Over red threshold with no empty slots (0x18006)"
+      "98320": "Has bad drives (0x18010; from drobo_exporter's table)"
+      "98880": "Relayout with redundancy critical; do not remove any drive (0x18240)"
+  SlotRecord:
+    description: "One <nX> under <mSlotsExp>."
+    fields:
+      - name: "mSlotNumber"
+        description: "0-based bay index."
+      - name: "mStatus"
+        description: "Bay status; see SlotStatus."
+      - name: "mErrorCount"
+      - name: "mDiskType"
+        description: "0 hard disk, 4 SSD / mSATA."
+      - name: "mMake"
+        description: "Drive vendor and model string."
+      - name: "mSerial"
+        description: "Drive serial."
+      - name: "mPhysicalCapacity"
+        unit: "B"
+        description: "Drive size; 0 when the bay is empty."
+      - name: "SSDLifeRemaining"
+        unit: "%"
+        description: "Read as a percentage, which is an assumption: the wiki records it as 100 for HDDs and SSDs alike and 0 for an empty bay, and 5N and later only."
+  SlotStatus:
+    description: "Per-bay mStatus, with the colour the bay LED shows."
+    values:
+      "1": "Red: array over 95 % full, add or replace a drive"
+      "2": "Yellow: array over 85 % full"
+      "3": "Green: OK"
+      "4": "Flashing green/yellow: relayout in progress, do not remove"
+      "128": "Off: empty bay (0x80)"
+      "129": "Flashing red: drive removed (0x81)"
+      "134": "Flashing red: drive failed (0x86)"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only, to satisfy the schema's access-surface rule. The
+      status is pushed over a raw TCP socket on port 5000 (see
+      protocol_details.nasd_frame), not HTTP.
+
+entities:
+  - platform: "sensor"
+    name: "Array Status"
+    icon: "mdi:nas"
+    notes: "mStatus from the pushed document, mapped through payload_formats.ArrayStatus."
+  - platform: "sensor"
+    name: "Used Capacity"
+    device_class: "data_size"
+    unit: "B"
+    notes: "mUsedCapacityProtected."
+  - platform: "sensor"
+    name: "Free Capacity"
+    device_class: "data_size"
+    unit: "B"
+    notes: "mFreeCapacityProtected."
+  - platform: "sensor"
+    name: "Bay Status"
+    icon: "mdi:harddisk"
+    notes: "One per bay: each <nX> record's mStatus mapped through payload_formats.SlotStatus."
+
+evidence:
+  documentation_review: >
+    The droboports wiki pages and three community tools (jerimiah797's
+    protocol notes and script, drobo_exporter, drobomon) were read on
+    2026-10-11. They agree on port 5000, the push behaviour and the XML
+    element names. The status tables are from droboports, plus one array
+    code from drobo_exporter.
+  open_questions: >
+    The 16-byte header layout rests on one source, jerimiah797's reading of
+    one 5N2 (firmware 4.3.1), which publishes no capture; the FS, 5N and
+    B810n are unverified, and the 10-20 s repeat cadence is the wiki's
+    (FS/5N era) and unobserved on a 5N2. The UDP 5002 discovery payload and
+    the TCP 5001 command channel are undocumented.
+
+remaining_unknowns:
+  - "Frame header layout confirmed on a single 5N2 (firmware 4.3.1); other models and older firmware may differ (older markers DRINASD9 / DRINASDa)."
+  - "Whether the overall mStatus is a bitfield; the flag reading is inferred from the value table."
+  - "Discovery: UDP 5002 broadcasts are likely Dashboard's discovery channel, payload undocumented."
+  - "The B810n is assumed to run the same nasd; no source covers it."
+  - "A raw pushed TCP stream has no schema binding for entity state; the entities above name their XML elements in notes."
+
+helpful_urls:
+  - title: "droboports wiki: NASD XML format"
+    url: "https://github.com/droboports/droboports.github.io/wiki/NASD-XML-format"
+    description: "Element-by-element notes on the status document and the status code tables."
+  - title: "jerimiah797/drobo-nas-protocol"
+    url: "https://github.com/jerimiah797/drobo-nas-protocol"
+    description: "Frame header layout and a reader script, from one 5N2."
+  - title: "cosmouser/drobo_exporter"
+    url: "https://github.com/cosmouser/drobo_exporter"
+    description: "Prometheus exporter reading the same document from 5N and B800fs units; archived read-only in 2026-03."
+  - title: "Drobo files Chapter 7 (Slashdot, May 2023)"
+    url: "https://hardware.slashdot.org/story/23/05/16/2013226/drobo-having-stopped-sales-and-support-reportedly-files-chapter-7-bankruptcy"
+    description: "StorCentric's June 2022 Chapter 11, the conversion to Chapter 7 in April 2023, and the end of sales on 27 January 2023."
+  - title: "Drobo 5N2 user manual"
+    url: "https://www.manualslib.com/manual/1300917/Drobo-5n2.html"
+    kind: "manual"
+    description: >
+      Drobo 5N2 user manual (213 pages): Dashboard discovery, bay lights and
+      what each colour means.

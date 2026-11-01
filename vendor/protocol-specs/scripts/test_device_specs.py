@@ -1493,6 +1493,80 @@ def test_initialization_steps_are_closed(mutation):
         )
 
 
+def _first_command_parameter(*, network: bool) -> tuple[dict, dict]:
+    """A real spec and one of its command parameters, for mutation.
+
+    BLE parameters live under a characteristic's `commands`; network ones
+    under the root `commands`. Returns the deep-copied spec and the parameter
+    object inside it, so the caller mutates the copy in place.
+    """
+    for path in SPEC_PATHS:
+        spec = copy.deepcopy(load(path))
+        if network:
+            commands = [spec.get("commands") or {}]
+        else:
+            commands = [
+                characteristic.get("commands") or {}
+                for service in spec.get("services") or []
+                for characteristic in service.get("characteristics") or []
+            ]
+        for table in commands:
+            for command in table.values():
+                if not isinstance(command, dict):
+                    continue
+                for parameter in (command.get("parameters") or {}).values():
+                    if isinstance(parameter, dict) and "min" in parameter:
+                        return spec, parameter
+    raise AssertionError(f"no spec has a bounded {'network' if network else 'BLE'} parameter")
+
+
+@pytest.mark.parametrize("network", [False, True], ids=["ble", "network"])
+def test_command_parameters_are_closed(network):
+    """A misspelt bound is a validation error, not a vanished bound.
+
+    `min`/`max` limit the value a client sends. With the parameter object open,
+    `mx: 100` validated, every consumer read no maximum, and nothing anywhere
+    said the bound was gone.
+    """
+    validator = Draft202012Validator(_schema())
+    spec, parameter = _first_command_parameter(network=network)
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+
+    # The number-semantics keys arrive through an allOf `$ref`; closing the
+    # object must still see them as declared.
+    parameter["scale"] = 0.5
+    assert not list(validator.iter_errors(spec)), (
+        "closing the parameter object rejected a number_semantics key"
+    )
+
+    parameter["mx"] = 100
+    errors = [e.message for e in validator.iter_errors(spec)]
+    assert any("mx" in message for message in errors), (
+        f"schema accepted a misspelt bound on a {'network' if network else 'BLE'} parameter"
+    )
+
+
+@pytest.mark.parametrize("network", [False, True], ids=["ble", "network"])
+def test_a_bytes_parameter_bounds_its_length_not_its_value(network):
+    """`min`/`max` on a `bytes` parameter is refused on both transports.
+
+    Fardriver's `{type: bytes, min: 1, max: 26}` meant 1-26 bytes; a consumer
+    read a value range, rejected the parameter and dropped the spec. BLE had
+    the rule; network parameters, which gained `min_length`/`max_length`,
+    did not, so the same misreading validated there.
+    """
+    validator = Draft202012Validator(_schema())
+    spec, parameter = _first_command_parameter(network=network)
+    parameter.clear()
+    parameter.update({"type": "bytes", "min_length": 1, "max_length": 26})
+    assert not list(validator.iter_errors(spec)), "length bounds must validate"
+
+    parameter.update({"min": 1, "max": 26})
+    assert list(validator.iter_errors(spec)), (
+        f"schema accepted min/max on a {'network' if network else 'BLE'} bytes parameter"
+    )
+
+
 def test_ble_name_matcher_regexes_compile(specs):
     """A `match: regex` needle is a regular expression a consumer can run.
 
@@ -1930,6 +2004,27 @@ def test_the_schema_rejects_an_advanced_locator():
                 command["advanced_reason"] = "irrelevant, but required"
     assert list(validator.iter_errors(both)), (
         "a command may not be both `advanced` and a `locate` action"
+    )
+
+
+def test_the_schema_requires_a_reason_on_an_advanced_network_command():
+    """`advanced` on a top-level network command carries the BLE contract.
+
+    The JuiceBox current-limit commands carried `advanced: true` that the
+    schema did not declare; the key validated only because command objects
+    are open, so a consumer could have drawn a one-tap control for a write
+    that sets more current than the wiring carries.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "enel-x-juicebox.yaml")
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+    command = spec["commands"]["set_online_current"]
+    assert command["advanced"] is True and command["advanced_reason"]
+
+    bare = copy.deepcopy(spec)
+    del bare["commands"]["set_online_current"]["advanced_reason"]
+    assert list(validator.iter_errors(bare)), (
+        "an advanced network command must carry `advanced_reason`"
     )
 
 
@@ -3649,6 +3744,33 @@ def _allowed_addresses_for(path: Path, parsed_specs=None) -> frozenset:
         if path.suffix == ".md" and sibling.exists():
             allowed |= _declared_fixed_addresses(sibling, parsed_specs)
     return allowed
+
+
+def test_no_mapping_key_reads_as_a_yaml_1_1_boolean(specs):
+    """An unquoted `on:`/`off:`/`yes:`/`no:` key is two different keys.
+
+    PyYAML (YAML 1.1, every script here) reads it as the boolean True/False;
+    the app's YAML 1.2 parser reads the string "on". So the published JSON API
+    said `{"True": "state.on"}` where the app read `{"on": ...}`, and no schema
+    rule could see it: an open map has no key vocabulary to fail. Quote it.
+    """
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(key, bool):
+                    yield "/".join(map(str, path)), key
+                yield from walk(value, (*path, key))
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                yield from walk(value, (*path, index))
+
+    found = [
+        f"{device_id}: {where or '<root>'} has key {key!r}"
+        for device_id, spec in specs.items()
+        for where, key in walk(spec, ())
+    ]
+    assert not found, "quote these keys:\n" + "\n".join(found)
 
 
 def test_lan_addresses_are_placeholders_or_product_facts(specs):
