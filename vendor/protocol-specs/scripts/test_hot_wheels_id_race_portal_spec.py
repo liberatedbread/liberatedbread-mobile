@@ -105,12 +105,12 @@ def test_speed_example_in_payload_formats_matches_the_first_vector(spec, vectors
     assert decode_speed(unhex(example)) == pytest.approx(first["value"], abs=5e-5)
 
 
-def test_speed_field_is_four_raw_bytes(spec):
-    """The schema has no float type, so the field must be declared as bytes[4]."""
+def test_speed_field_is_little_endian_float32(spec):
     fields = characteristic(spec, SPEED_CHAR)["format"]
     assert len(fields) == 1
     field = fields[0]
-    assert (field["offset"], field["length"], field["type"]) == (0, 4, "bytes")
+    assert (field["offset"], field["length"], field["type"]) == (0, 4, "float32")
+    assert field["endianness"] == "little"
     assert "unit" not in field, "the unit is unconfirmed; the spec must not claim one"
 
 

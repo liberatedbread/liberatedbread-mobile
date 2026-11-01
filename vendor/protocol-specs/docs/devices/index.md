@@ -200,6 +200,8 @@ spec's `device.setup` block; the patterns are explained in
 | [Drobo NAS Status Daemon](drobo-nasd-status.md) | LAN (TCP 5000) | Spec Available | None needed | Drobo (liquidated) |
 | [Hot Wheels id Race Portal](hot-wheels-id-race-portal.md) | BLE | Spec Available | None needed (connect and subscribe) | Mattel (id system discontinued 2023) |
 | [Kano Coding Wand](kano-coding-wand.md) | BLE | Spec Available | None needed (connect and subscribe) | Kano Computing (in administration 2023) |
+| [Artiphon Orba 2](artiphon-orba-2.md) | BLE-MIDI + SysEx | Spec Available | None needed (one central) | Artiphon (liquidated 2025) |
+| [Petronics Mousr](petronics-mousr.md) | BLE (Nordic UART) | Spec Available | None found (untested) | Petronics (consumer product abandoned) |
 | [Enel X Way JuiceBox](enel-x-juicebox.md) | WiFi (UDP, charger-initiated; telnet 2000) | Spec Available | Setup AP + DNS/NAT/telnet re-point (medium) | Enel X Way (shutdown 2024-10-11) |
 | [Bose Sleepbuds II](bose-sleepbuds-ii.md) | BLE | Spec Available | None needed (connect per bud) | Bose (Sleep app withdrawn 2025-07-21) |
 | [QardioArm (A100) Blood Pressure Monitor](qardio-arm.md) | BLE (standard BP service + vendor command) | Spec Available | BLE bonding; pinhole clears bond (medium) | Qardio (bankrupt; cloud down 2025-04-29) |
