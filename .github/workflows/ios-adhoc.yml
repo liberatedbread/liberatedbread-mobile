@@ -162,7 +162,7 @@ jobs:
         with:
           targets: ${{ steps.versions.outputs.ios-targets }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: rust
 
@@ -412,7 +412,7 @@ jobs:
       # failure should be loud) and missing files are an error.
       - name: Upload IPA
         if: steps.signing.outputs.available == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: liberated-bread-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
           path: build/ios/ipa/*.ipa
@@ -421,7 +421,7 @@ jobs:
 
       - name: Upload unsigned app bundle (no-secrets fallback)
         if: steps.signing.outputs.available == 'false'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         continue-on-error: true
         with:
           name: liberated-bread-unsigned-simulator.app
