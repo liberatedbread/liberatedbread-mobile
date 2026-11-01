@@ -12,6 +12,60 @@ Like the survey, each entry is a snapshot. Grep `device-specs/devices/`,
 Claims marked *unverified* rest on a search snippet or a page that would not
 load, and need checking before they go into a spec.
 
+## 2026-11-01
+
+A research consolidation pass over the latest local captures and recovered
+apps. Two protocols are ready for the catalogue, one existing spec needed a
+correction, and several tempting targets still need a different transport or
+better evidence rather than a premature app claim.
+
+### Added this week
+
+| Spec | Origin | Notes |
+|---|---|---|
+| [Artiphon Orba 2](../devices/artiphon-orba-2.md) | `research-notes/artiphon-orba.*` + new Orba 2 app/protocol research | Corrects the old note's Orba-1 scope: the capture-verified map is Orba 2, with the recovered `com.artiphon.kestrel` companion. Standard BLE-MIDI, LSB-first 7-bit SysEx packing, zero-init CRC-16 and fragmented writes. Transport, quantization, tempo and FX; destructive erase commands are advanced. `scripts/test_artiphon_orba_2_spec.py`. |
+| [Petronics Mousr](../devices/petronics-mousr.md) | `research-notes/mousr-cat-toy.*` + recovered 1.0.7 app | Fifteen-byte command envelope, decimal command IDs, Nordic UART and three-float32-LE drive vectors. STOP and CHIRP are fixed commands; movement is advanced and drive units/ranges stay unclaimed. Notifications and auto-mode layouts remain open. `scripts/test_petronics_mousr_spec.py`. |
+
+The schema now carries `float32` for fields and command parameters, closing
+the gap previously recorded for Hot Wheels and Mousr, and names the
+`orba_sysex_ble_midi` framing scheme.
+
+### Corrections and research-note updates
+
+- **Hot Wheels id Race Portal**: the recovered official app identifies the
+  `000a` service as MPID session setup and `000b` as signed-image OTA. The
+  manufacturing token is variable-length (136-byte generation one, at least
+  182 bytes in another format), not the community note's fixed 148-byte
+  certificate. The read-only community control path remains valid and no
+  official command write is offered. The speed field is now `float32`; its
+  unit is still unresolved.
+- **Wilson X**: assigned to the `fa10` three-axis family, not 94Fifty or the
+  `aa80`/`fd40` 9-DoF variants. Mode-1 signed axes and mode-6 five-sample
+  magnitudes are recorded in `research-notes/wilson-x-basketball.*`. Decoder
+  selection needs hardware/firmware evidence, and offline first-run
+  onboarding is unproven, so this is not yet an app spec.
+- **Lattis Ellipse**: mapped the V2 session, controls and sensors. Its
+  challenge uses MD5/SHA-256, not AES. Existing account/lock records can work
+  locally; fresh server-signed provisioning is the unsolved boundary. Do not
+  send lock commands without a validated owner session.
+- **Sleep Number**: Fuzion and MCR are separate BLE protocols, not one bed
+  API. Auth-before-notify, MCR address binding and movement cancellation are
+  documented in a new research note. No motion UI until a read-only session
+  and stop/cancel behavior are verified.
+- **Eye-Fi**: mapped the card-initiated HTTP/SOAP receiver on TCP 59278 and
+  mounted-card configuration channel. A phone controller needs a secure LAN
+  server, not an outbound camera client; legacy tar extraction is unsafe to
+  copy. No app transport is added by this research alone.
+- **Spotify Car Thing**: bridgething now has a documented v2 MessagePack/JSON
+  protocol over RFCOMM, iAP2 and WebSockets. Mira is standalone after custom
+  firmware; stock firmware remains unrescued. Custom firmware is destructive,
+  and this does not justify a stock-protocol app claim.
+- **Decent Espresso DE1**: the vendor already publishes the app and local
+  BLE/LAN options; consolidate/link those first. **Dreem 2** has prior-art
+  raw-BLE streaming but still needs the write sequence and capture evidence.
+  **Pantelligent** still lacks a GATT map and **Lockitron Bolt** lacks a
+  proven local pairing/key path; neither gains an invented spec.
+
 ## 2026-10-11
 
 ### Added this week

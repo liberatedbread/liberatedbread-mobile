@@ -1,6 +1,6 @@
 # GAPS.md
 
-Last updated: 2026-08-23
+Last updated: 2026-11-01
 
 This file is a record of the ORIGINAL 27-target research wave and what
 became of it. It is not a live list of everything the catalogue is missing
@@ -86,7 +86,7 @@ badge's speed nibble shares a byte with `mode`), and a raw-byte-stream
 transport arm for top-level `commands` (Brother's raster opcodes stay
 `payload_hex` prose).
 
-## Validation: 222/222 passing (221 device specs + 1 example)
+## Validation: 224/224 passing (223 device specs + 1 example)
 
 Pinned by `test_gaps_md_states_the_real_spec_count` in
 `scripts/test_device_specs.py`: this line said 92/92 for a fortnight after

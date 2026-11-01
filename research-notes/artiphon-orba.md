@@ -1,68 +1,40 @@
-# Artiphon Orba (1/2/3) + Chorda — Research Notes
+# Artiphon Orba — Research Notes
 
-## What it is
-Handheld synth/looper/MPE MIDI controller (palm-sized, 8 capacitive pads +
-accelerometer/gyro, built-in speaker). Orba 1 (Kickstarter Nov 2019), Orba 2
-(2022, sample engine), Orba 3 (Oct 2024), plus Chorda (2023) and the older
-INSTRUMENT 1. Talks MIDI over USB-C **and** standard BLE MIDI; works with any
-BLE-MIDI host with no vendor software.
+## Scope correction (2026-11-01)
 
-## Why it's abandoned
-- Artiphon suspended operations Aug 2025 — "forced to suspend operations"
-  ([polyexpression.com, 2025-08-19](https://community.polyexpression.com/t/artiphon-out-of-business/2347)).
-- Chapter 7 (liquidation, not restructuring) bankruptcy reported
-  ([Zynthian discourse, 2025-10-24](https://discourse.zynthian.org/t/artiphon-chorda-orba-instrument-1-and-bankruptcy/12524));
-  subreddits r/Artiphon, r/orba, r/chorda track fallout.
-- orba-protocol README (2026-06): "Artiphon, Inc. ceased operations and entered
-  liquidation in 2025; the official Orba app and cloud are abandoned."
-- Company is DEAD, not just at-risk. Companion apps (Orba app, Artiphon Connect)
-  will not be maintained; preset/sample content was partly cloud-served.
+The capture-verified `holofermes/orba-protocol` specification is for **Orba
+2**, not Orba 1 as the earlier draft said. Its identity is `Artiphon Orba 2`
+and its official companion is `com.artiphon.kestrel` (recovered 1.0.670).
+Orba 1's `com.artiphon.orba` is a different target. Orba 3, Chorda and
+INSTRUMENT 1 are not proven compatible.
 
-## Local BLE feasibility: EXCELLENT (confirmed)
-- Device is a standard **BLE MIDI** peripheral (service
-  `03b80e5a-ede8-4b33-a751-6ce34ec4c700`, char
-  `7772e5db-3868-4112-a1a9-f2669d106bf3`). MIDI/MPE in+out works with zero
-  vendor involvement (macOS/iOS/Android/Windows 11 BLE-MIDI stacks, or any
-  BLE-MIDI client library).
-- Device configuration (presets, tunings, tempo, FX, LED/haptics) runs as
-  **SysEx over the same MIDI stream** — identical payload over USB-MIDI and
-  BLE-MIDI, only framing differs.
-- **Protocol fully reverse-engineered** (verified byte-identical against BLE
-  captures): [holofermes/orba-protocol](https://github.com/holofermes/orba-protocol)
-  (spec + Python/JS reference libs, MIT/CC-BY; derived from the official
-  Android app, published 2026-06). Companion single-file web app "Orba Console"
-  drives the device over Web Bluetooth with no install or account.
-- Prior community work: subskybox/Orba (preset/voicing tools, Orba 1),
-  IanHalbwachs/orba-presets, Batninja/Orba-Preset-Editor.
-- Caution from the RE spec: do NOT blind-scan SysEx register addresses —
-  invalid reads can fault firmware and reboot the device.
+The validated spec is now `device-specs/devices/artiphon-orba-2.yaml` and the
+owner guide is `docs/devices/artiphon-orba-2.md`.
 
-## What needs cloud / app
-- Firmware updates were delivered via the desktop app (Orba 1) — now orphaned;
-  no public firmware archive known.
-- "Stem Songs"/artist sound packs were downloaded content — gone with the cloud.
-- Core play, looping, sampling (Orba 2/3 sample capture happens on-device),
-  and all configuration are fully local.
+## Local protocol
 
-## APK
-- **Package**: `com.artiphon.orba` ("Orba (1) by Artiphon") — fetched via apkeep
-  (apk-pure), latest listed 0.15.36, XAPK 85 MB,
-  sha256 `78bd3b77b697ff446d047f3dda80ae7be96adeb3537cabaf91e3858e7ac2e670`.
-  Stored in `workspace/apks/` (gitignored), base APK extracted at
-  `workspace/static/orba-xapk/com.artiphon.orba.apk`.
-- "Artiphon Connect" (Orba 2/3 + Chorda companion) package id not located on
-  apk-pure (guesses com.artiphon.connect/orba2/chorda all failed); iOS version
-  1.0.670 known. Would need Play API or adb pull from an owner device.
-- Not decompiled here — unnecessary: holofermes/orba-protocol already did the
-  full RE from this APK and published the spec.
+- Standard BLE-MIDI service `03b80e5a-ede8-4b33-a751-6ce34ec4c700` and I/O
+  characteristic `7772e5db-3868-4112-a1a9-f2669d106bf3`, write + notify.
+  Filter on the service because the post-connection name can differ.
+- One BLE central at a time. No account or cloud is needed for playing or
+  configuration. USB-MIDI carries the same SysEx command layer.
+- SysEx contains `00` followed by LSB-first 8-to-7-bit packing of
+  `82 01 <id> <length:u16be> <payload> <crc:u16be>`. CRC-16 uses reflected
+  polynomial `A001` and initial zero. GET is `02`; SET is `03`, followed by a
+  domain and big-endian register address.
+- BLE-MIDI packetization and exact register maps are declared in the
+  validated spec. Never blind-scan registers: invalid reads can reboot the
+  device. Erase and fresh-record operations are destructive.
 
-## Open questions
-- Does the same SysEx register map cover Orba 2/3 and Chorda, or Orba 1 only?
-  (holofermes spec verified against a live Orba 1; community threads suggest
-  Orba 2 differences.)
-- Firmware image availability for archival (desktop app pulled updates from
-  Artiphon servers).
-- Chorda BLE config protocol is separate and un-RE'd as far as known.
+## Evidence and immediate owner route
 
-## Safety
-None — musical instrument, no actuators beyond speaker/haptics/LEDs.
+[holofermes/orba-protocol](https://github.com/holofermes/orba-protocol)
+(code MIT, specification CC BY 4.0) reports byte-identical checks against
+captures and live Orba 2 responses. This project has not repeated the hardware
+run. [Orba Console](https://holofermes.github.io/orba-console/) is a working
+local browser controller and should be the first owner recommendation.
+
+## Remaining unknowns
+
+Metronome's exact enum, battery reply semantics, the preset-file workflow,
+firmware/content archives, and compatibility with every other Artiphon model.

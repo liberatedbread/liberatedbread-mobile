@@ -1,67 +1,35 @@
-# Wilson X Connected Basketball — Structured Note
-# APK source: apkeep (apk-pure); com.sstatzz.basketball.wilson 1.3.8 (final, 2017-12-21)
+# Wilson X — structured research note (2026-11-01)
 
 device:
   id: wilson-x-basketball
   name: Wilson X Connected Basketball
-  manufacturer: Wilson Sporting Goods (app by Sstatzz)
+  manufacturer: Wilson Sporting Goods (app discontinued)
   category: sports_sensor
-  safety_class: LOW
 
 transport:
   type: ble
   local_only: true
-  note: >
-    Make/miss detection is computed on the ball's MCU; phone receives shot events
-    over BLE. Cloud only used for sharing/leaderboards. Product discontinued; app
-    removed from stores (mirrors only).
-
-ble:
-  advertising:
-    name_patterns: []  # TBD — ball wakes on motion; needs nRF Connect scan
-    service_uuids: []  # TBD
-
-  # Three candidate 16-bit UUID families recovered from dex; which one is the
-  # ball's GATT is TBD (jadx or scan needed)
-  services:
-    - uuid: "0000aa80-0000-1000-8000-00805f9b34fb"
-      name: candidate_service_aa80
-      description: Custom service family; characteristics aa81-aa84, aa90-aa92 seen
-      confirmed: false
-    - uuid: "0000fa10-0000-1000-8000-00805f9b34fb"
-      name: candidate_service_fa10
-      description: Chars fa10-fa12, fa14-fa16 (fa13 absent)
-      confirmed: false
-    - uuid: "0000fd40-0000-1000-8000-00805f9b34fb"
-      name: candidate_service_fd40
-      description: Chars fd40-fd44
-      confirmed: false
-
-  standard_services:
-    - uuid: "00001812-0000-1000-8000-00805f9b34fb"
-      name: hid_over_gatt
-      note: Referenced in app; possibly used for ball-as-HID or OTA
-    - uuid: "00002902-0000-1000-8000-00805f9b34fb"
-      name: cccd
+  service: "0000fa10-0000-1000-8000-00805f9b34fb"
+  notify: "0000fa11-0000-1000-8000-00805f9b34fb"
+  mode_write: "0000fa12-0000-1000-8000-00805f9b34fb"
+  calibration: "0000fa15-0000-1000-8000-00805f9b34fb"
+  timing: "0000fa16-0000-1000-8000-00805f9b34fb"
 
 protocol:
-  note: >
-    Ball detects dribble/shot/flight/arc and make-vs-miss internally; app receives
-    classified events. Frame format TBD. App is small (35 MB), old (2017), and shows
-    no heavy obfuscation in strings — a good first jadx target.
-  expected_measurements:
-    - shot_attempt_event
-    - make_miss_result
-    - shot_range_estimate
+  status: static-analysis-derived; no ball capture
+  mode_1: "signed x/y/z bytes; each (value / 127) * 12 / 1000; unit unknown"
+  mode_6: "five u24be magnitudes, sqrt(value) * 0.006, then packet counter"
+  mode_2: "related u24be magnitude, sqrt(value) * 0.012"
+  excluded: "aa80 and fd40 are separate 9-DoF families; 94Fifty is unrelated"
+  selection: hardware/firmware-dependent; do not guess
 
-status:
-  apk_acquired: true
-  apk_decompiled: false
-  uuids_recovered: partial  # candidate families only; mapping TBD
-  protocol_recovered: false
-  hci_snoop_needed: true
-  cloud_status: shutdown  # product discontinued, app pulled
-  sources:
-    - https://www.fictiv.com/teardowns/wilson-x-connected-basketball-teardown
-    - https://www.homecourt.ai/wilson
-    - https://apkpure.net/wilson-x-basketball/com.sstatzz.basketball.wilson/download
+cloud:
+  acceleration_stream: local
+  shot_classifier: phone-side
+  offline_first_run: unproven
+
+next_evidence:
+  - Advertised hardware/firmware layout and a mode-1 capture
+  - Calibration/timing layouts and offline onboarding
+
+validated_spec: null

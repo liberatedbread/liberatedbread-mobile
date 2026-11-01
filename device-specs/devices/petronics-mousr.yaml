@@ -1,0 +1,307 @@
+# Petronics Mousr — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Clean-room derived facts from the official 1.0.7 app's command builders,
+# recovered command vocabulary and bundled user guide. No vendor code or
+# firmware is included. Static analysis only; no toy or HCI capture was used.
+
+device:
+  name: "Petronics Mousr"
+  manufacturer: "Petronics Inc. (consumer product discontinued)"
+  manufacturer_status: "abandoned"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The 15-byte envelope,
+      command codes and float32 drive-vector layout come from static analysis
+      of the recovered official 1.0.7 app. Notification payload layouts,
+      auto-mode offsets and drive-value physical scaling remain unverified.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "other"
+  type: "robot-pet-toy"
+  notes: >
+    Phone-direct robotic cat toy. Ordinary operation does not require an
+    account or cloud service. Nordic UART is the primary command path; Laird
+    VSP is a legacy/alternate identity. The app bundles recovery firmware,
+    but no update was performed and no firmware is shipped in this spec.
+    Movement and tail calibration require a clear area and supervision.
+  safety_advisory:
+    severity: caution
+    summary: "Moving robot and tail assembly — supervise use."
+    detail: >
+      Test STOP first and use movement only in a clear area away from pets,
+      people, cables and edges. The app-derived drive values have no proven
+      physical units. Do not attempt DFU until normal control and charging
+      state are established.
+    acknowledge_required: true
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      No public protocol implementation was found. Wire facts are derived
+      from the recovered official app's packet builders and command metadata,
+      not from a live capture.
+  identification:
+    local_name_prefix: "Mousr"
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    notes: >
+      The factory name is reported as Mousr but is user-renamable. Prefer the
+      Nordic UART service; MousrDfu is a different bootloader identity.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Mousr"
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        notes: >
+          Do not match MousrDfu and then send ordinary commands. A renamed
+          toy can still be found by the Nordic UART service.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      No account or first-run cloud activation was found in the recovered
+      app. Connect directly and subscribe before sending commands; this has
+      not been replayed on a toy.
+    methods:
+      - type: "ble_direct"
+        name: "Connect and subscribe"
+        verified: false
+        description: "Connect over Nordic UART, enable notifications, then send documented 15-byte commands."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Charge and wake the toy in a clear area."
+            actor: "user"
+          - action: "Connect to the Nordic UART service and enable notifications on 6e400003-b5a3-f393-e0a9-e50e24dcca9e."
+            actor: "client"
+          - action: "Send STOP before testing any other command."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established: whether autonomous-play settings, calibration or
+        pairing state are cleared is undocumented. DFU and tail calibration
+        are not factory resets.
+      description: "No general factory-reset procedure is established. DFU and tail calibration are not resets."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "BLE-only; reconnect after the previous central disconnects."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No account-bound credential was found for ordinary operation."
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    security_mode: "unknown"
+    bonding: "unknown"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Static analysis found no application-layer authentication for normal
+      commands. The guide discusses Bluetooth pairing, but whether a bond is
+      required on every firmware/phone combination needs a live check.
+
+initialization:
+  - characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    subscribe: true
+    when: "connect"
+    notes: "Enable the UART notification channel before control."
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART control"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Command input"
+        properties: ["write"]
+        notes: >
+          Every declared command is exactly 15 bytes: ASCII 30, a 12-byte
+          payload (zero-filled when unused), then the two-character decimal
+          command code. A one-digit code has NUL as its second character.
+        commands:
+          stop:
+            description: "Stop movement (command 0)."
+            value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00]
+          chirp:
+            description: "Play a chirp (command 18)."
+            value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x38]
+          move:
+            description: "Send a raw drive vector (command 2); units and valid ranges are unverified."
+            template: [0x30, "{speed}", "{hold}", "{angle}", 0x30, 0x32]
+            parameters:
+              speed:
+                type: "float32"
+                endianness: "little"
+                default: 0.0
+                description: "Raw app control value, not proven m/s, percent or another physical unit."
+              hold:
+                type: "float32"
+                endianness: "little"
+                default: 0.0
+                description: "Raw app control value; valid range is unestablished."
+              angle:
+                type: "float32"
+                endianness: "little"
+                default: 0.0
+                description: "Raw app control value, not proven degrees."
+            advanced: true
+            advanced_reason: "Drives a moving robot. Use only small values in a clear area after testing STOP; physical scaling is not established."
+          spin:
+            description: "Start the spin action (command 1)."
+            value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x31]
+            advanced: true
+            advanced_reason: "Starts movement; use in a clear area after testing STOP."
+          reset_heading:
+            description: "Reset the toy's heading (command 3)."
+            value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x33]
+            advanced: true
+            advanced_reason: "Changes the orientation reference used by autonomous movement."
+          sleep:
+            description: "Enter sleep mode (command 10)."
+            value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x30]
+            advanced: true
+            advanced_reason: "Ends the current play session until the toy is woken."
+          turn_off:
+            description: "Power the toy off (command 9)."
+            value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39]
+            advanced: true
+            advanced_reason: "Powers down the toy and ends the current session."
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART notifications"
+        properties: ["notify"]
+        notes: >
+          Notification IDs are recovered, but their complete payload layouts
+          are not. Keep the value opaque until a capture confirms the
+          envelope rather than presenting guessed battery or pose readings.
+  - uuid: "8ec90001-f315-4f60-9fb8-838830daea50"
+    name: "Legacy/alternate Laird VSP"
+    notes: "Identity recorded from the app. No command path is asserted for this service."
+    characteristics:
+      - uuid: "8ec90002-f315-4f60-9fb8-838830daea50"
+        name: "Laird VSP characteristic"
+        properties: []
+        notes: "Properties and live use are unconfirmed; do not write."
+
+payload_formats:
+  CommandPacket:
+    description: "The fixed 15-byte Nordic UART command envelope."
+    fields:
+      - name: "leader"
+        description: "Offset 0, ASCII 30."
+      - name: "payload"
+        description: "Offsets 1-12, zero-filled when unused."
+      - name: "decimal_code"
+        description: "Offsets 13-14, two characters; a one-digit code has NUL second."
+    parse_rules:
+      - "Reject packets whose total length is not exactly 15 bytes."
+      - "MOVE places three little-endian IEEE-754 binary32 values at offsets 1, 5 and 9, then code 02."
+      - "Do not label the drive values as physical speed, degrees or percent without new evidence."
+    example: "30 00 00 80 3f 00 00 00 00 00 00 00 00 30 32"
+  NotificationVocabulary:
+    description: "Recovered notification IDs, not complete payload declarations."
+    values:
+      15: "AUTO_ACK"
+      28: "firmware version"
+      29: "hardware version"
+      30: "initialization done"
+      48: "ROBOT_POSE"
+      50: "RESETTAIL_FAILINFO"
+      64: "STUCK_TOF_MSG"
+      95: "crash-log finish"
+      96: "crash-log string"
+      97: "debug info"
+      98: "BATTERY_VOLTAGE"
+      99: "ROBOT_STOPPED"
+      100: "RC_STUCK"
+      255: "NACK"
+
+entities: []
+
+protocol_details:
+  command_vocabulary:
+    0: "STOP"
+    1: "SPIN"
+    2: "MOVE"
+    3: "RESET_HEADING"
+    4: "GET_DEBUG_LOG"
+    5: "SPIN_PLAN"
+    8: "ENTER_DFU_MODE"
+    9: "TURN_OFF"
+    10: "SLEEP"
+    15: "CONFIG_AUTO_MODE"
+    18: "CHIRP"
+    19: "SOUND_VOLUME"
+    23: "Flick_SIGNAL"
+    24: "Reverse_SIGNAL"
+    25: "Tail_Calib_SIGNAL"
+    26: "Set_Tail_SIGNAL"
+    28: "INITIALIZE_DEVICE"
+    31: "FLIP_ROBOT"
+    41: "CFG_DRIVER_ASSIST"
+    45: "TUTORIAL_STEP"
+    46: "CMD_SET_TIME"
+    100: "INVALID"
+  excluded_controls: >
+    Auto-mode byte offsets, debug-log transfer, tail calibration, driver
+    assist, tutorial control, set-time and DFU are not declared because their
+    payload or safety sequence is not established. No reset or firmware write
+    should be inferred from the command number alone.
+  test_vectors:
+    stop_hex: "30 00 00 00 00 00 00 00 00 00 00 00 00 30 00"
+    chirp_hex: "30 00 00 00 00 00 00 00 00 00 00 00 00 31 38"
+    move:
+      speed: 1.0
+      hold: 0.0
+      angle: 0.0
+      expected_hex: "30 00 00 80 3f 00 00 00 00 00 00 00 00 30 32"
+    move_fractional:
+      speed: 0.5
+      hold: 0.25
+      angle: -1.5
+      expected_hex: "30 00 00 00 3f 00 00 80 3e 00 00 c0 bf 30 32"
+
+evidence:
+  artifacts:
+    - type: "static_app_analysis"
+      artifact: "Recovered official Mousr app 1.0.7, packet builders and command metadata, read 2026-11-01"
+      description: >
+        Establishes the 15-byte command envelope, decimal command codes,
+        float32-LE drive vector, Nordic UART and notification vocabulary.
+        These are reported facts from static analysis, not hardware tests.
+    - type: "vendor_documentation"
+      artifact: "Mousr User Guide v1.2 recovered from that app"
+      description: >
+        Supports phone-direct operation and supplies movement/tail
+        calibration precautions. No firmware compatibility claim is made.
+  open_questions: >
+    Drive-value ranges and physical units, notification payload layouts,
+    auto-mode configuration offsets, bonding requirements, firmware/DFU
+    compatibility and the exact role of the legacy Laird channel.
+
+remaining_unknowns:
+  - "Drive values are app control values, not established m/s, degrees or percent."
+  - "Notification IDs are known but payload layouts are not; no battery or pose decoder is declared."
+  - "Auto-mode configuration has a 12-byte payload but its exact offsets are unresolved."
+  - "The app carries Nordic DFU packages, but no update sequence or version compatibility was tested."
+  - "No hardware capture confirms bonding, command acceptance or connection limits."
+
+helpful_urls:
+  - title: "Mousr Kickstarter FAQ"
+    url: "https://www.kickstarter.com/projects/525985345/mousr-the-robotic-mouse-that-plays-with-your-cat/faqs"
+    kind: "vendor_support"
+    description: "Product background and the Bluetooth-direct control model."
