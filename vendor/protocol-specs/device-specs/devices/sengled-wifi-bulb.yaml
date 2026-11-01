@@ -713,6 +713,7 @@ commands:
         required: true
         min: 1
         max: 100
+        unit: "%"
         description: >
           1 = warmest, 100 = coolest. The HA integration maps Kelvin with
           level = 1 + round((K - 2000) / 4500 * 99) over 2000-6500 K; the

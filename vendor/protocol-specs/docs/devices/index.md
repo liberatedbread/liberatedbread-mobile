@@ -153,6 +153,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Magic Home / Zengge LED](magic-home-zengge-wifi.md) | WiFi (TCP 5577) | Spec Available | SoftAP + UDP 48899 (low) | Zengge |
 | [WiZ Wi-Fi Lights](wiz-wifi-light.md) | WiFi (UDP 38899) | Spec Available | App onboarding (low) | WiZ (Signify) |
 | [Twinkly Smart Lights](twinkly-lights.md) | WiFi (HTTP 80 + UDP 7777) | Spec Available | SoftAP / app (low) | Ledworks (Twinkly) |
+| [Elgato Key Light classic HTTP family](elgato-key-light.md) | WiFi (HTTP 9123) | Spec Available | Control Center onboarding (medium) | Elgato / Corsair |
 | [OSRAM Lightify Gateway](osram-lightify-gateway.md) | WiFi (TCP 4000) | Spec Available | Cloud gone; local only (low) | OSRAM / LEDVANCE |
 | [Yeelight Wi-Fi Lights (LAN)](yeelight-wifi.md) | WiFi (TCP 55443) | Spec Available | App + LAN Control toggle (low) | Yeelight (Yeelink) |
 | [Gree Air Conditioner (LAN)](gree-ac-lan.md) | WiFi (UDP 7000) | Spec Available | SoftAP + bind (low) | Gree |
