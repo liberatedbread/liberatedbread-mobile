@@ -9487,20 +9487,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   UdpProbeDto dco_decode_udp_probe_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 11)
-      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    if (arr.length != 12)
+      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
     return UdpProbeDto(
       specKey: dco_decode_String(arr[0]),
       index: dco_decode_u_32(arr[1]),
       displayName: dco_decode_String(arr[2]),
       port: dco_decode_u_16(arr[3]),
-      broadcastAddress: dco_decode_String(arr[4]),
-      probe: dco_decode_list_prim_u_8_strict(arr[5]),
-      passiveOk: dco_decode_bool(arr[6]),
-      lanProtocols: dco_decode_list_String(arr[7]),
-      responseFormat: dco_decode_opt_String(arr[8]),
-      stableKeys: dco_decode_list_udp_identity_field_dto(arr[9]),
-      displayField: dco_decode_opt_box_autoadd_udp_identity_field_dto(arr[10]),
+      listenPort: dco_decode_opt_box_autoadd_u_16(arr[4]),
+      broadcastAddress: dco_decode_String(arr[5]),
+      probe: dco_decode_list_prim_u_8_strict(arr[6]),
+      passiveOk: dco_decode_bool(arr[7]),
+      lanProtocols: dco_decode_list_String(arr[8]),
+      responseFormat: dco_decode_opt_String(arr[9]),
+      stableKeys: dco_decode_list_udp_identity_field_dto(arr[10]),
+      displayField: dco_decode_opt_box_autoadd_udp_identity_field_dto(arr[11]),
     );
   }
 
@@ -13162,6 +13163,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_index = sse_decode_u_32(deserializer);
     var var_displayName = sse_decode_String(deserializer);
     var var_port = sse_decode_u_16(deserializer);
+    var var_listenPort = sse_decode_opt_box_autoadd_u_16(deserializer);
     var var_broadcastAddress = sse_decode_String(deserializer);
     var var_probe = sse_decode_list_prim_u_8_strict(deserializer);
     var var_passiveOk = sse_decode_bool(deserializer);
@@ -13176,6 +13178,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       index: var_index,
       displayName: var_displayName,
       port: var_port,
+      listenPort: var_listenPort,
       broadcastAddress: var_broadcastAddress,
       probe: var_probe,
       passiveOk: var_passiveOk,
@@ -16332,6 +16335,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.index, serializer);
     sse_encode_String(self.displayName, serializer);
     sse_encode_u_16(self.port, serializer);
+    sse_encode_opt_box_autoadd_u_16(self.listenPort, serializer);
     sse_encode_String(self.broadcastAddress, serializer);
     sse_encode_list_prim_u_8_strict(self.probe, serializer);
     sse_encode_bool(self.passiveOk, serializer);
@@ -16571,10 +16575,10 @@ class CatalogueHandleImpl extends RustOpaque implements CatalogueHandle {
   ///
   /// The scan service asks this once and sends what comes back, instead of
   /// holding a constant and a transport per vendor. A spec whose probe is
-  /// unusable — no port, `probe_hex` that is not hex, a destination off the
-  /// local network, or a reply port this DTO cannot carry — is left out
-  /// rather than reported: discovery is best-effort by nature, and one bad
-  /// block should cost that device, not the scan.
+  /// unusable — no port, `probe_hex` that is not hex, or a destination off
+  /// the local network — is left out rather than reported: discovery is
+  /// best-effort by nature, and one bad block should cost that device, not
+  /// the scan. `listen_port` is carried so the sender can bind it first.
   Future<List<UdpProbeDto>> udpBroadcastProbes() => RustLib.instance.api
       .crateApiSpecHandleCatalogueHandleUdpBroadcastProbes(that: this);
 }

@@ -95,10 +95,10 @@ abstract class CatalogueHandle implements RustOpaqueInterface {
   ///
   /// The scan service asks this once and sends what comes back, instead of
   /// holding a constant and a transport per vendor. A spec whose probe is
-  /// unusable — no port, `probe_hex` that is not hex, a destination off the
-  /// local network, or a reply port this DTO cannot carry — is left out
-  /// rather than reported: discovery is best-effort by nature, and one bad
-  /// block should cost that device, not the scan.
+  /// unusable — no port, `probe_hex` that is not hex, or a destination off
+  /// the local network — is left out rather than reported: discovery is
+  /// best-effort by nature, and one bad block should cost that device, not
+  /// the scan. `listen_port` is carried so the sender can bind it first.
   Future<List<UdpProbeDto>> udpBroadcastProbes();
 }
 
@@ -346,6 +346,10 @@ class UdpProbeDto {
   /// The port to send to, and for a passive probe the port to listen on.
   final int port;
 
+  /// The reply port to bind before sending, when the device answers
+  /// somewhere other than `port` (BiSecur: 4001 -> 4002).
+  final int? listenPort;
+
   /// Where to send it, as a canonical dotted quad: the v4 broadcast address
   /// by default, a spec's `multicast_group` when it names one (the schema
   /// says the group REPLACES `broadcast_address`), or its own
@@ -383,6 +387,7 @@ class UdpProbeDto {
     required this.index,
     required this.displayName,
     required this.port,
+    this.listenPort,
     required this.broadcastAddress,
     required this.probe,
     required this.passiveOk,
@@ -398,6 +403,7 @@ class UdpProbeDto {
       index.hashCode ^
       displayName.hashCode ^
       port.hashCode ^
+      listenPort.hashCode ^
       broadcastAddress.hashCode ^
       probe.hashCode ^
       passiveOk.hashCode ^
@@ -415,6 +421,7 @@ class UdpProbeDto {
           index == other.index &&
           displayName == other.displayName &&
           port == other.port &&
+          listenPort == other.listenPort &&
           broadcastAddress == other.broadcastAddress &&
           probe == other.probe &&
           passiveOk == other.passiveOk &&

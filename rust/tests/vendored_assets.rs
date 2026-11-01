@@ -3598,7 +3598,7 @@ fn the_vendored_coded_parameters_offer_their_codes_as_choices() {
     }
     assert_eq!(
         coded.len(),
-        66,
+        74,
         "the catalogue's coded BLE parameters, each offering its codes: {coded:#?}"
     );
     assert!(
@@ -3715,9 +3715,12 @@ fn every_declared_udp_probe_parses() {
                 for field in mapping.stable_keys.iter().chain(mapping.display.iter()) {
                     let (dialect, _) = field.dialect();
                     assert!(
-                        matches!(dialect, "json" | "tlv" | "csv" | "payload" | "header"),
+                        matches!(
+                            dialect,
+                            "json" | "tlv" | "csv" | "payload" | "header" | "xml"
+                        ),
                         "{path}: identity source dialect {dialect} is not one the \
-                         catalogue uses elsewhere (json/tlv/csv/payload/header)"
+                         catalogue uses elsewhere (json/tlv/csv/payload/header/xml)"
                     );
                     assert!(
                         !field.name().is_empty(),
@@ -3840,13 +3843,15 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
     // is what lets `_probesWithTheirOwnTransport` skip them without losing a
     // device.
     //
-    // Govee answers on `listen_port: 4002`, which the DTO cannot carry, so
-    // the handle withholds it rather than hand over a probe whose replies are
-    // lost; its bytes are pinned from the spec itself.
-    assert!(
-        by_key("govee-rgbic-light.yaml", 4001).is_empty(),
-        "a probe answered on another port is withheld from the DTO"
-    );
+    // Govee answers on `listen_port: 4002`, which the DTO now carries so a
+    // generic caller can bind it first. The hand-written transport still owns
+    // this probe, and its bytes are pinned from the spec itself.
+    let govee_dto = by_key("govee-rgbic-light.yaml", 4001);
+    assert_eq!(govee_dto.len(), 1);
+    assert_eq!(govee_dto[0].listen_port, Some(4002));
+    let bisecur_dto = by_key("hormann-bisecur-gateway.yaml", 4001);
+    assert_eq!(bisecur_dto.len(), 1);
+    assert_eq!(bisecur_dto[0].listen_port, Some(4002));
     let govee_spec = parse_device_spec(
         &fs::read_to_string(spec_path("govee-rgbic-light.yaml")).expect("readable"),
     )
@@ -3886,9 +3891,10 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
     // What the catalogue-driven transport actually sends, spelled out: the
     // probes that carry a payload, minus the eight specs with a hand-written
     // transport in real_network_scan_service.dart. Today that is the Milight
-    // bridge's two strings and nothing else — every other declared probe is
-    // `passive_ok` with no payload (Tuya, Synology) or has no payload at all
-    // (the Aqara hub, S-20). Pinned here rather than in Dart because this is
+    // bridge's two strings, BiSecur's LogicBox probe and Sengled's
+    // search_devices — every other declared probe is `passive_ok` with no
+    // payload (Tuya, Synology) or has no payload at all (the Aqara hub, S-20).
+    // Pinned here rather than in Dart because this is
     // where the data is: a spec that adds a probe should show up as a change
     // to this list, which is the whole point of reading them as data.
     let mut would_send: Vec<String> = probes
@@ -3913,8 +3919,10 @@ fn the_catalogue_hands_over_the_probes_the_app_already_sends() {
     assert_eq!(
         would_send,
         vec![
+            "hormann-bisecur-gateway.yaml:4001",
             "limitlessled-milight-bridge.yaml:48899",
             "limitlessled-milight-bridge.yaml:48899",
+            "sengled-wifi-bulb.yaml:9080",
         ]
     );
 

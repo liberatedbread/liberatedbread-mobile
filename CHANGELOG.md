@@ -442,6 +442,9 @@ heading.
   table now records Sengled's JSON probe as performed, and the generic reply
   reader understands XML attributes, so a BiSecur LogicBox can be identified by
   its MAC without confusing it with Govee's JSON replies on the same ports.
+  `listen_port` now travels from the spec through the UDP DTO to the socket:
+  a probe answered on another port binds that port before sending (BiSecur
+  4001 -> 4002) rather than being dropped.
 
 - **Generic colour-temperature controls keep the spec's unit.** A network light
   whose command takes mireds now shows and sends mireds instead of presenting

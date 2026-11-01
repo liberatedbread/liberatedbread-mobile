@@ -1790,10 +1790,17 @@ class RealNetworkScanService implements NetworkScanService {
     // cannot complete closes the socket it was attempted on, so the one
     // unreachable group in the bundled catalogue (aqara-hub's 230.0.0.1)
     // would take the port's broadcast probes and their replies down with it.
-    // Each socket binds an ephemeral port, so there is no clash to avoid.
-    final byDestination = <({String address, int port}), List<UdpProbeDto>>{};
+    // A probe with no declared reply port binds an ephemeral one. Probes that
+    // share a destination but ask for different reply ports get different
+    // sockets; probes that agree share one, including BiSecur's :4002.
+    final byDestination =
+        <({String address, int port, int listenPort}), List<UdpProbeDto>>{};
     for (final probe in probes) {
-      final destination = (address: probe.broadcastAddress, port: probe.port);
+      final destination = (
+        address: probe.broadcastAddress,
+        port: probe.port,
+        listenPort: probe.listenPort ?? 0,
+      );
       (byDestination[destination] ??= []).add(probe);
     }
     Log.net.debug(
@@ -1810,6 +1817,7 @@ class RealNetworkScanService implements NetworkScanService {
           entry.key.address,
           entry.key.port,
           entry.value,
+          listenPort: entry.key.listenPort,
         ).catchError((Object e) {
           // One destination failing must not take the others, nor the scan:
           // this whole transport is additive, and everything it finds is
@@ -1868,8 +1876,9 @@ class RealNetworkScanService implements NetworkScanService {
     Duration timeout,
     String address,
     int port,
-    List<UdpProbeDto> probes,
-  ) async {
+    List<UdpProbeDto> probes, {
+    int listenPort = 0,
+  }) async {
     final InternetAddress target;
     try {
       target = InternetAddress(address);
@@ -1883,7 +1892,11 @@ class RealNetworkScanService implements NetworkScanService {
       return TransportOutcome.skipped;
     }
     final isEvidence = target.address == _limitedBroadcast;
-    final socket = await binder(InternetAddress.anyIPv4, 0, reuseAddress: true);
+    final socket = await binder(
+      InternetAddress.anyIPv4,
+      listenPort,
+      reuseAddress: true,
+    );
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.catalogueProbeSockets.add(socket);
     socket.broadcastEnabled = true;

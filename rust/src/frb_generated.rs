@@ -10139,6 +10139,7 @@ impl SseDecode for crate::api::spec_handle::UdpProbeDto {
         let mut var_index = <u32>::sse_decode(deserializer);
         let mut var_displayName = <String>::sse_decode(deserializer);
         let mut var_port = <u16>::sse_decode(deserializer);
+        let mut var_listenPort = <Option<u16>>::sse_decode(deserializer);
         let mut var_broadcastAddress = <String>::sse_decode(deserializer);
         let mut var_probe = <Vec<u8>>::sse_decode(deserializer);
         let mut var_passiveOk = <bool>::sse_decode(deserializer);
@@ -10153,6 +10154,7 @@ impl SseDecode for crate::api::spec_handle::UdpProbeDto {
             index: var_index,
             display_name: var_displayName,
             port: var_port,
+            listen_port: var_listenPort,
             broadcast_address: var_broadcastAddress,
             probe: var_probe,
             passive_ok: var_passiveOk,
@@ -13615,6 +13617,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::spec_handle::UdpProbeDto {
             self.index.into_into_dart().into_dart(),
             self.display_name.into_into_dart().into_dart(),
             self.port.into_into_dart().into_dart(),
+            self.listen_port.into_into_dart().into_dart(),
             self.broadcast_address.into_into_dart().into_dart(),
             self.probe.into_into_dart().into_dart(),
             self.passive_ok.into_into_dart().into_dart(),
@@ -16220,6 +16223,7 @@ impl SseEncode for crate::api::spec_handle::UdpProbeDto {
         <u32>::sse_encode(self.index, serializer);
         <String>::sse_encode(self.display_name, serializer);
         <u16>::sse_encode(self.port, serializer);
+        <Option<u16>>::sse_encode(self.listen_port, serializer);
         <String>::sse_encode(self.broadcast_address, serializer);
         <Vec<u8>>::sse_encode(self.probe, serializer);
         <bool>::sse_encode(self.passive_ok, serializer);

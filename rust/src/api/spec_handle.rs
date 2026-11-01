@@ -852,6 +852,9 @@ pub struct UdpProbeDto {
     pub display_name: String,
     /// The port to send to, and for a passive probe the port to listen on.
     pub port: u16,
+    /// The reply port to bind before sending, when the device answers
+    /// somewhere other than `port` (BiSecur: 4001 -> 4002).
+    pub listen_port: Option<u16>,
     /// Where to send it, as a canonical dotted quad: the v4 broadcast address
     /// by default, a spec's `multicast_group` when it names one (the schema
     /// says the group REPLACES `broadcast_address`), or its own
@@ -896,23 +899,15 @@ impl CatalogueHandle {
     ///
     /// The scan service asks this once and sends what comes back, instead of
     /// holding a constant and a transport per vendor. A spec whose probe is
-    /// unusable — no port, `probe_hex` that is not hex, a destination off the
-    /// local network, or a reply port this DTO cannot carry — is left out
-    /// rather than reported: discovery is best-effort by nature, and one bad
-    /// block should cost that device, not the scan.
+    /// unusable — no port, `probe_hex` that is not hex, or a destination off
+    /// the local network — is left out rather than reported: discovery is
+    /// best-effort by nature, and one bad block should cost that device, not
+    /// the scan. `listen_port` is carried so the sender can bind it first.
     pub fn udp_broadcast_probes(&self) -> Vec<UdpProbeDto> {
         let mut out = Vec::new();
         for (index, entry) in self.entries.iter().enumerate() {
             for probe in entry.spec.device.udp_broadcast_probes() {
                 let Some(port) = probe.port else { continue };
-                // A reply port other than the probe's own cannot be honoured:
-                // the sender listens where it sent from, and a Govee strip
-                // unicasts its answer to 4002. Emitting the probe anyway sends
-                // a scan whose every reply is lost, so fail closed until the
-                // DTO carries a listen port the sender binds first.
-                if probe.listen_port.is_some_and(|listen| listen != port) {
-                    continue;
-                }
                 let Some(destination) = permitted_probe_destination(
                     probe
                         .multicast_group
@@ -947,6 +942,7 @@ impl CatalogueHandle {
                     index: index as u32,
                     display_name: entry.identity.device_name.clone(),
                     port,
+                    listen_port: probe.listen_port,
                     broadcast_address: destination.to_string(),
                     probe: bytes,
                     passive_ok,
