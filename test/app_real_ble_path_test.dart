@@ -267,12 +267,28 @@ void main() {
       // between ensureVisible and the tap re-laid the list, the tap hit the
       // item that moved under it, nothing was sent, and the wait for "Sent"
       // ran out its 90 s (only under the full suite's load).
-      final powerOn = find.widgetWithText(ElevatedButton, 'Power on');
-      for (var i = 0; i < 20 && powerOn.hitTestable().evaluate().isEmpty; i++) {
-        await tester.ensureVisible(powerOn);
+      var tappedPowerOn = false;
+      for (var i = 0; i < 20 && !tappedPowerOn; i++) {
+        final rawCommand = find.widgetWithText(ElevatedButton, 'Power on');
+        final lightControl = find.widgetWithText(OutlinedButton, 'Power on');
+        final candidate = rawCommand.evaluate().isNotEmpty
+            ? rawCommand
+            : lightControl;
+        if (candidate.evaluate().isNotEmpty) {
+          await tester.ensureVisible(candidate);
+          if (candidate.hitTestable().evaluate().isNotEmpty) {
+            await tester.tap(candidate.hitTestable());
+            tappedPowerOn = true;
+            break;
+          }
+        }
         await _pumpAWhile(tester, rounds: 4);
       }
-      await tester.tap(powerOn.hitTestable());
+      expect(
+        tappedPowerOn,
+        isTrue,
+        reason: 'the typed Power on control became visible and hit-testable',
+      );
       await _pumpUntil(tester, find.text('Sent'));
       expect(
         find.text('Sent'),
