@@ -66,6 +66,12 @@ dependencies:
   share_plus: ^12.0.2
   usb_serial: ^0.5.2
 
+dependency_overrides:
+  # Keep the last BSD-licensed Darwin implementation, with guards for the two
+  # native crashes fixed here: NSNull options and nil/unsupported descriptors.
+  flutter_blue_plus_darwin:
+    path: packages/flutter_blue_plus_darwin
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

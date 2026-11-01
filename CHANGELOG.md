@@ -438,6 +438,13 @@ heading.
 
 ### Fixed
 
+- **Darwin BLE no longer crashes on null options or descriptor values.** The
+  last BSD-licensed `flutter_blue_plus_darwin` now comes from a local override
+  with two guards: `setOptions` ignores `NSNull` instead of sending it
+  `boolValue`, and a nil or unsupported descriptor value is returned as
+  `NSNull` rather than inserted into an `NSDictionary` literal. The rest of the
+  plugin stays at 7.0.3; no commercial 2.x dependency or telemetry is involved.
+
 - **Sengled and BiSecur discovery use the catalogue's UDP path.** The coverage
   table now records Sengled's JSON probe as performed, and the generic reply
   reader understands XML attributes, so a BiSecur LogicBox can be identified by
