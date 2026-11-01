@@ -2564,9 +2564,10 @@
                               "json_xor",
                               "json_aes",
                               "binary",
-                              "http"
+                              "http",
+                              "xml"
                             ],
-                            "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON; 'json_xor' = JSON under the 0xAB autokey cipher (Kasa); 'json_aes' = JSON under AES (Tuya's 6667 beacon is AES-128-ECB under a fixed, published discovery key); 'binary' = a packed struct (LIFX, KNXnet/IP DIB); 'http' = HTTP-style header lines (an SSDP-flavoured reply on a non-1900 port, e.g. Yeelight's UDP 1982)."
+                            "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON; 'json_xor' = JSON under the 0xAB autokey cipher (Kasa); 'json_aes' = JSON under AES (Tuya's 6667 beacon is AES-128-ECB under a fixed, published discovery key); 'binary' = a packed struct (LIFX, KNXnet/IP DIB); 'http' = HTTP-style header lines (an SSDP-flavoured reply on a non-1900 port, e.g. Yeelight's UDP 1982); 'xml' = one XML element (BiSecur's LogicBox discovery reply)."
                           },
                           "identity_mapping": {
                             "type": "object",
@@ -2585,7 +2586,7 @@
                                   "properties": {
                                     "source": {
                                       "type": "string",
-                                      "description": "Where in the reply the identity is, prefixed by the `response_format` dialect it is read with. `tlv:0x<type>` is a TLV record by its type byte(s) as hex (`tlv:0x0005`, the Ubiquiti v1 hostname record; `tlv:0x0001` its MAC); `tlv:<name>` a record by the name this spec's protocol block gives it (`tlv:mac`). `json:<dotted.path>` is a path into a JSON reply with numeric indices in brackets (`json:msg.data.device`, `json:system.get_sysinfo.deviceId`). `header:<Name>` is an HTTP-style header line of an `http` reply (`header:id` on Yeelight's port-1982 answer). `binary:<field>` names a field of a packed struct the protocol block lays out. A source whose dialect does not match `response_format` is unreadable and a validator should say so."
+                                      "description": "Where in the reply the identity is, prefixed by the `response_format` dialect it is read with. `tlv:0x<type>` is a TLV record by its type byte(s) as hex (`tlv:0x0005`, the Ubiquiti v1 hostname record; `tlv:0x0001` its MAC); `tlv:<name>` a record by the name this spec's protocol block gives it (`tlv:mac`). `json:<dotted.path>` is a path into a JSON reply with numeric indices in brackets (`json:msg.data.device`, `json:system.get_sysinfo.deviceId`). `header:<Name>` is an HTTP-style header line of an `http` reply (`header:id` on Yeelight's port-1982 answer). `binary:<field>` names a field of a packed struct the protocol block lays out. `xml:<attribute>` reads an attribute of the reply's root XML element (`xml:mac`, the BiSecur LogicBox address). A source whose dialect does not match `response_format` is unreadable and a validator should say so."
                                     }
                                   }
                                 }
