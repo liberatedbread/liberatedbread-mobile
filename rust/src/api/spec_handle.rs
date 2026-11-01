@@ -882,7 +882,7 @@ pub struct UdpProbeDto {
 /// One field a UDP reply is read for, with its dialect split out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UdpIdentityFieldDto {
-    /// `json`, `tlv`, `csv` or `payload` — how to read [`Self::path`].
+    /// `json`, `tlv`, `csv`, `payload` or `xml` — how to read [`Self::path`].
     pub dialect: String,
     /// What to read, in that dialect: a dotted JSON path, a TLV field name, a
     /// CSV column index, or empty for the payload itself.

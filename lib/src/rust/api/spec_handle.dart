@@ -295,7 +295,7 @@ class SpecLoadFailureDto {
 
 /// One field a UDP reply is read for, with its dialect split out.
 class UdpIdentityFieldDto {
-  /// `json`, `tlv`, `csv` or `payload` — how to read [`Self::path`].
+  /// `json`, `tlv`, `csv`, `payload` or `xml` — how to read [`Self::path`].
   final String dialect;
 
   /// What to read, in that dialect: a dotted JSON path, a TLV field name, a

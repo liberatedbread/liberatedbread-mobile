@@ -63,6 +63,7 @@
 		<string>_ankivector._tcp</string>
 		<string>_aqara._tcp</string>
 		<string>_arsdk._udp</string>
+		<string>_coap._udp</string>
 		<string>_dyson_mqtt._tcp</string>
 		<string>_enphase-envoy._tcp</string>
 		<string>_esphomelib._tcp</string>
@@ -93,6 +94,7 @@
 		<string>_snapmaker._tcp</string>
 		<string>_soundtouch._tcp</string>
 		<string>_spotify-connect._tcp</string>
+		<string>_tivo-remote._tcp</string>
 		<string>_viziocast._tcp</string>
 		<string>_wled._tcp</string>
 	</array>

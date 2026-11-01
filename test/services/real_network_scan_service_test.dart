@@ -1089,6 +1089,28 @@ void _catalogueProbeTests() {
       expect(read, {'mac': 'a1b2c3', 'fw': '42', 'on': 'true'});
     });
 
+    test('reads XML attributes from a BiSecur discovery reply', () {
+      const reply =
+          '<LogicBox swVersion="2.5.0" hwVersion="1.0.0" '
+          'mac="54:10:EC:00:00:01" protocol="MCP V3.0"/>';
+      final read = readUdpIdentityFields(utf8.encode(reply), [
+        field('xml', 'mac', 'mac'),
+        field('xml', 'protocol', 'protocol'),
+        field('xml', 'missing', 'missing'),
+      ]);
+
+      expect(read, {'mac': '54:10:EC:00:00:01', 'protocol': 'MCP V3.0'});
+    });
+
+    test('a JSON reply is not mistaken for an XML identity', () {
+      final read = readUdpIdentityFields(
+        utf8.encode('{"msg":{"cmd":"scan","data":{"device":"a1b2c3"}}}'),
+        [field('xml', 'mac', 'mac')],
+      );
+
+      expect(read, isEmpty);
+    });
+
     test(
       'a TLV field reads nothing — the tag numbering is not in the spec',
       () {

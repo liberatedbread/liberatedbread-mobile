@@ -438,6 +438,11 @@ heading.
 
 ### Fixed
 
+- **Sengled and BiSecur discovery use the catalogue's UDP path.** The coverage
+  table now records Sengled's JSON probe as performed, and the generic reply
+  reader understands XML attributes, so a BiSecur LogicBox can be identified by
+  its MAC without confusing it with Govee's JSON replies on the same ports.
+
 - **Generic colour-temperature controls keep the spec's unit.** A network light
   whose command takes mireds now shows and sends mireds instead of presenting
   the same number as Kelvin; percent-based controls can declare percent too.

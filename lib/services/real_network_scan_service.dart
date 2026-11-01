@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:multicast_dns/multicast_dns.dart';
+import 'package:xml/xml.dart';
 
 import '../core/error_text.dart';
 import '../core/ha_url.dart' show isPrivateIpv4;
@@ -456,10 +457,9 @@ bool _probesWithTheirOwnTransport(String specKey) {
 /// read, so a caller can tell "this datagram identified nothing" — which is
 /// how a stray packet on a vendor port is rejected instead of becoming a row.
 ///
-/// Three of the catalogue's four dialects are read here. `tlv:<field>` is not:
-/// a TLV reply needs the vendor's own tag numbering, which the spec states in
-/// prose and not as data, so those probes keep their hand-written parser
-/// (SPECS_TO_FIX.md S-22).
+/// `tlv:<field>` is not read here: a TLV reply needs the vendor's own tag
+/// numbering, which the spec states in prose and not as data, so those probes
+/// keep their hand-written parser (SPECS_TO_FIX.md S-22).
 @visibleForTesting
 Map<String, String> readUdpIdentityFields(
   List<int> payload,
@@ -488,6 +488,20 @@ Map<String, String> readUdpIdentityFields(
     try {
       return json = jsonDecode(body);
     } on FormatException {
+      return null;
+    }
+  }
+
+  XmlElement? xml;
+  var xmlTried = false;
+  XmlElement? asXml() {
+    if (xmlTried) return xml;
+    xmlTried = true;
+    final body = asText();
+    if (body == null) return null;
+    try {
+      return xml = XmlDocument.parse(body).rootElement;
+    } on XmlParserException {
       return null;
     }
   }
@@ -525,6 +539,8 @@ Map<String, String> readUdpIdentityFields(
           bool b => '$b',
           _ => null,
         };
+      case 'xml':
+        value = asXml()?.getAttribute(field.path);
       default:
         // An unknown or unexecutable dialect (`tlv:`) reads nothing rather
         // than guessing — a wrong MAC is worse than no MAC, because it is

@@ -1321,8 +1321,8 @@ pub struct UdpBroadcastProbe {
     /// Whether the device announces itself without being asked.
     #[serde(default)]
     pub passive_ok: Option<bool>,
-    /// `json` | `json_xor` | `json_aes` | `tlv` | `binary` | `http`, as the
-    /// schema names them. Absent means the reply needs no decoding beyond
+    /// `json` | `json_xor` | `json_aes` | `tlv` | `binary` | `http` | `xml`,
+    /// as the schema names them. Absent means the reply needs no decoding beyond
     /// what `identity_mapping` asks for.
     #[serde(default)]
     pub response_format: Option<String>,
