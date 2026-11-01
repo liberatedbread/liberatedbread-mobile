@@ -630,19 +630,20 @@ device:
         assert_eq!(probes[0].broadcast_address, "239.255.255.250");
     }
 
-    /// A reply that arrives on another port (Govee: probed on 4001, answers
-    /// to 4002) is lost by a sender that listens where it sent from, so the
-    /// probe is withheld rather than emitted to fail silently. A listen port
-    /// equal to the probe port changes nothing.
+    /// A reply that arrives on another port (BiSecur: probed on 4001, answers
+    /// to 4002) is emitted with the port the caller must bind before sending.
+    /// A listen port equal to the probe port changes nothing.
     #[test]
-    fn a_probe_whose_replies_arrive_elsewhere_is_withheld() {
+    fn a_probe_whose_replies_arrive_elsewhere_carries_its_listen_port() {
         let with_listen = |listen: u16| {
             probes_for(&format!(
                 "          port: 4001\n          probe_hex: \"01\"\n          multicast_group: \"239.255.255.250\"\n          listen_port: {listen}"
             ))
         };
-        assert!(with_listen(4002).is_empty());
+        assert_eq!(with_listen(4002).len(), 1);
+        assert_eq!(with_listen(4002)[0].listen_port, Some(4002));
         assert_eq!(with_listen(4001).len(), 1);
+        assert_eq!(with_listen(4001)[0].listen_port, Some(4001));
     }
 
     /// A `probe_hex` carrying a multi-byte character used to abort the whole
