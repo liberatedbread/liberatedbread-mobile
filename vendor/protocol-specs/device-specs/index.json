@@ -333,6 +333,32 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Artiphon Orba 2",
+    "path": "device-specs/devices/artiphon-orba-2.yaml",
+    "protocol": "ble",
+    "category": "other",
+    "manufacturer": "Artiphon, Inc. (liquidated 2025)",
+    "manufacturer_status": "shutdown",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "testing_detail": "capture-verified",
+    "helpful_urls": [
+      {
+        "title": "Orba 2 control protocol specification",
+        "url": "https://github.com/holofermes/orba-protocol/blob/main/spec/SPEC.md",
+        "kind": "protocol_writeup",
+        "description": "Capture-verified SysEx, CRC, BLE-MIDI packetization and register map."
+      },
+      {
+        "title": "Orba Console",
+        "url": "https://holofermes.github.io/orba-console/",
+        "kind": "implementation",
+        "description": "Local browser controller using Web Bluetooth or Web MIDI, with no account."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Astral Hoops Atomic V (AF Series)",
     "path": "device-specs/devices/astral-hoops.yaml",
     "protocol": "ble",
@@ -5360,6 +5386,25 @@
         "url": "https://web.archive.org/web/20250917113045/https://pebble-help-legacy.rebble.io/help.getpebble.com/customer/en/portal/articles/1774455-factory-reset02ff.html?b_id=8515",
         "kind": "vendor_support",
         "description": "Pebble's own help article, preserved twice over — by Rebble and then by the Internet Archive. Source for the reset in this spec.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Petronics Mousr",
+    "path": "device-specs/devices/petronics-mousr.yaml",
+    "protocol": "ble",
+    "category": "other",
+    "manufacturer": "Petronics Inc. (consumer product discontinued)",
+    "manufacturer_status": "abandoned",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Mousr Kickstarter FAQ",
+        "url": "https://www.kickstarter.com/projects/525985345/mousr-the-robotic-mouse-that-plays-with-your-cat/faqs",
+        "kind": "vendor_support",
+        "description": "Product background and the Bluetooth-direct control model."
       }
     ],
     "schema_version": "2020-12"

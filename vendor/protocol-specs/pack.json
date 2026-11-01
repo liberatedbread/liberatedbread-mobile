@@ -1,6 +1,6 @@
 {
   "name": "Liberated Bread Device Specs",
-  "version": "221",
+  "version": "223",
   "specs": [
     "device-specs/devices/admore-light-bar.yaml",
     "device-specs/devices/airthings-wave-family.yaml",
@@ -11,6 +11,7 @@
     "device-specs/devices/anki-overdrive-ble.yaml",
     "device-specs/devices/aqara-hub.yaml",
     "device-specs/devices/aranet4.yaml",
+    "device-specs/devices/artiphon-orba-2.yaml",
     "device-specs/devices/astral-hoops.yaml",
     "device-specs/devices/aurora-led-shoes.yaml",
     "device-specs/devices/autobaba-led-backpack.yaml",
@@ -144,6 +145,7 @@
     "device-specs/devices/parrot-arsdk-drone.yaml",
     "device-specs/devices/pax-vape.yaml",
     "device-specs/devices/pebble-smartwatch.yaml",
+    "device-specs/devices/petronics-mousr.yaml",
     "device-specs/devices/philips-jointspace.yaml",
     "device-specs/devices/proglow-motorcycle-led.yaml",
     "device-specs/devices/prusalink-local-api.yaml",
