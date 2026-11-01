@@ -138,7 +138,7 @@ final class FlutterBluePlusDarwin extends FlutterBluePlusPlatform {
     BmBluetoothAdapterNameRequest request,
   ) async {
     return BmBluetoothAdapterName(
-      adapterName: await _callDarwinMethod(
+      adapterName: await _callDarwinMethod<dynamic>(
         'getAdapterName',
       ),
     );
@@ -149,7 +149,7 @@ final class FlutterBluePlusDarwin extends FlutterBluePlusPlatform {
     BmBluetoothAdapterStateRequest request,
   ) async {
     return BmBluetoothAdapterState.fromMap(
-      await _callDarwinMethod(
+      await _callDarwinMethod<dynamic>(
         'getAdapterState',
       ),
     );
@@ -160,7 +160,7 @@ final class FlutterBluePlusDarwin extends FlutterBluePlusPlatform {
     BmSystemDevicesRequest request,
   ) async {
     return BmDevicesList.fromMap(
-      await _callDarwinMethod(
+      await _callDarwinMethod<dynamic>(
         'getSystemDevices',
         request.toMap(),
       ),
@@ -294,7 +294,7 @@ final class FlutterBluePlusDarwin extends FlutterBluePlusPlatform {
     dynamic arguments,
   ]) async {
     // restart platform
-    if (!_didRestart && method != "setOptions" && method != "setLogLevel") {
+    if (!_didRestart && method != 'setOptions' && method != 'setLogLevel') {
       await _flutterRestart();
     }
 
@@ -328,9 +328,9 @@ final class FlutterBluePlusDarwin extends FlutterBluePlusPlatform {
   Future<void> _flutterRestart() async {
     // wait for all devices to disconnect
     if ((await methodChannel.invokeMethod('flutterRestart')) != 0) {
-      await Future.delayed(Duration(milliseconds: 50));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       while ((await methodChannel.invokeMethod('connectedCount')) != 0) {
-        await Future.delayed(Duration(milliseconds: 50));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
       }
     }
     _didRestart = true;
@@ -432,7 +432,7 @@ final class FlutterBluePlusDarwin extends FlutterBluePlusPlatform {
     dynamic data,
   ) {
     if (data is Map || data is List) {
-      return JsonEncoder.withIndent('  ').convert(data);
+      return const JsonEncoder.withIndent('  ').convert(data);
     } else {
       return data.toString();
     }
