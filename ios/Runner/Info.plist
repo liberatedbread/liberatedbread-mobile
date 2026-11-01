@@ -65,6 +65,7 @@
 		<string>_arsdk._udp</string>
 		<string>_coap._udp</string>
 		<string>_dyson_mqtt._tcp</string>
+		<string>_elg._tcp</string>
 		<string>_enphase-envoy._tcp</string>
 		<string>_esphomelib._tcp</string>
 		<string>_googlecast._tcp</string>
