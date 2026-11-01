@@ -889,7 +889,7 @@ entities:
     features: ["brightness", "rgb", "effect", "transition"]
     state_topic: "/json/state"
     state_mapping:
-      on: "state.on"
+      "on": "state.on"
       brightness: "state.bri"
       rgb: "state.seg[0].col[0]"
       effect: "state.seg[0].fx"

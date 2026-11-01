@@ -1,0 +1,691 @@
+# TiVo DVRs and Minis — TCP Network Remote (port 31339) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - openHAB TiVo binding (EPL-2.0): README, status provider and handler —
+#     command set, response grammar, single-client and timing behaviour
+#   - William McBrine's "Network Remote" (tivoremote): key names, KEYBOARD,
+#     mDNS browsing, the TCP beacon length prefix
+#   - TiVo "TiVo Connect Automatic Machine Discovery Protocol Specification"
+#     rev 1.5.1 (2003) and Wireshark's TiVoConnect dissector — port 2190
+#   - pyTivo beacon.py — the beacon as a working server sends it
+#   - TiVo Roamio Viewer's Manual (Network Remote Control setting)
+# TiVo's own "TCP Network Remote Control Protocol" PDF (v1.1) is the original
+# document; its vendor URL is gone (404 in 2026-10). The Internet Archive holds
+# a 2008 edition of it (helpful_urls), which this project could not fetch, so
+# every command fact here comes from the open-source clients.
+
+device:
+  name: "TiVo DVRs and Minis (Series 3 and later) — Network Remote"
+  manufacturer: "TiVo (Xperi)"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The command set and
+      replies are transcribed from two independent open-source clients
+      (openHAB and McBrine's Network Remote) that agree on them.
+  protocol: "lan"
+  transport: "tcp"
+  category: "tv"
+  type: "dvr"
+  notes: >
+    TiVo stopped selling DVR hardware on 1 October 2025 and now sells
+    service only, leaving a large fleet of Series 3, Premiere, Roamio, Bolt
+    and Edge DVRs and their Minis with no new hardware behind them. Each
+    box carries a simple local remote-control socket that needs no account
+    and no cloud: once the owner turns on Network Remote Control in the
+    box's settings, it accepts plain ASCII commands on TCP 31339 that press
+    remote buttons, type, jump to screens and tune channels, and it reports
+    the current channel back as text.
+
+    The richer "Mind RPC" API (TLS on port 1413, `_tivo-mindrpc._tcp`)
+    needs per-account credentials and is out of scope here; this spec is
+    the remote-control socket only.
+
+    LINE PROTOCOL: every command is one line of ASCII ending in CR (0x0d).
+    The box answers with lines of its own (see payload_formats). It sends a
+    CH_STATUS line unprompted as soon as a client connects, whenever there
+    is a current channel, so a client can read the channel simply by
+    connecting; whether every later channel change is pushed on the same
+    socket is not documented by the clients (openHAB polls for it).
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    notes: >
+      TiVo published the protocol for home-automation installers as a short
+      PDF ("TiVo TCP Network Remote Control Protocol", v1.1). That PDF is no
+      longer on tivo.com (a 2008 edition survives in the Internet Archive,
+      not retrieved here), so the facts here are transcribed from
+      open-source clients built against it. The TiVoConnect discovery
+      beacon is documented in TiVo's own 2003 specification.
+
+  identification:
+    default_port: 31339
+    mdns_service_type: "_tivo-remote._tcp.local."
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_tivo-remote._tcp.local."
+          port: 31339
+          txt_record_keys: ["swversion", "platform", "TSN", "protocol", "path"]
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+            display:
+              source: "name"
+        notes: >
+          Advertised only while Network Remote Control is enabled, so finding
+          it here also says the socket is open. `swversion` begins with the
+          software version (for example 20.7.4 or 14.8) and is the one key
+          McBrine's client reads; IANA's registration of `_tivo-remote`
+          also lists `platform`, `TSN`, `protocol` and `path`, none observed
+          here. KEYBOARD is used from 12.0 by that client. Ignore instance
+          names beginning "Proxy(" — those are relays re-advertising a real
+          box. The same host usually also advertises `_tivo-device._tcp`
+          (port 80); a 2011 Premiere sample shows its TXT carrying the box's
+          serial as TSN, plus `platform` and `platformname` (IANA registers
+          no keys for it); join on hostname to pick those up.
+    identity:
+      stable_keys: ["hostname"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The box itself is set up through its own on-screen guided setup; the
+      one step this protocol needs is turning on Network Remote Control,
+      which is off from the factory.
+    methods:
+      - type: "device_ui"
+        name: "Enable Network Remote Control"
+        verified: false
+        description: >
+          On a TiVo-branded box, open the TiVo menu, then Settings, then the
+          remote / CableCARD / devices section, choose Network Remote
+          Control and set it to enabled. Virgin Media boxes keep the same
+          option under Help & Settings, then Settings, then Devices.
+        steps:
+          - action: "On the box, go to TiVo Central, Messages & Settings, Settings, then Remote, CableCARD & Devices, then Network Remote Control, and choose Enabled."
+            actor: "user"
+            glyph: "generic/on-screen-menu.svg"
+          - action: "Browse mDNS for _tivo-remote._tcp, or connect to TCP 31339 on the box's address."
+            actor: "client"
+            expect: "The connection opens; a CH_STATUS line arrives if the box is on Live TV."
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears the box's settings, and depending on the option chosen its
+        recordings and guide data, and returns it to guided setup — which
+        also turns Network Remote Control back off. Never needed for this
+        protocol.
+      description: >
+        TiVo boxes offer "Restart or Reset" under Help in the on-screen menu,
+        with several levels of reset. Nothing about the network remote needs
+        a reset; it is recorded so a reader knows what a full reset costs.
+      procedures:
+        - name: "Restart or Reset menu"
+          verified: false
+          basis: "TiVo Roamio Viewer's Manual (Help, Restart or Reset)."
+          glyph: "generic/on-screen-menu.svg"
+          steps:
+            - action: "From the TiVo menu choose Help, then Restart or Reset, then the reset level wanted."
+              actor: "user"
+              expect: "The box reboots into guided setup."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The box's own network settings change through its menus; the remote
+        socket follows the box onto whatever network it joins.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Network Remote Control enabled flag"
+      issued_to_client: []
+      notes: >
+        The socket has no authentication at all: anything on the LAN that
+        can reach port 31339 can drive the box while the setting is on.
+
+protocol_details:
+  tivo_network_remote:
+    transport: "TCP 31339, ASCII lines. Send CR (0x0d) after each command; McBrine sends CR alone, openHAB sends CR followed by the platform's line separator (CR LF on Linux) and works."
+    single_client: >
+      One client at a time. While a connection is held open, phone apps and
+      every other integration are locked out, so a client that only needs to
+      send a command or read the channel should connect, act and disconnect.
+      openHAB's default is the opposite: it keeps the connection open and
+      polls every 10 s, which its README says locks every other device out;
+      its keepConActive setting turns that off.
+    pacing: >
+      Clients pause 100-200 ms after each command (openHAB 200 ms, twice that
+      after SETCH/FORCECH; McBrine 100 ms, plus 100 ms between KEYBOARD
+      characters). No documented rate limit; bursts are where key presses get
+      lost.
+    liveness: "An empty line (CR alone) draws INVALID_COMMAND and/or COMMAND_TIMEOUT, which proves the socket is alive."
+    standby: >
+      In standby, TELEPORT does nothing useful; openHAB's handler notes that
+      only IRCODE TIVO wakes the box, and that IRCODE STANDBY draws no
+      status reply (one Home Assistant component treats STANDBY as a
+      toggle, sending it twice to wake; uncorroborated). CH_FAILED NO_LIVE
+      is also what a box in standby answers to SETCH.
+    commands:
+      IRCODE: "IRCODE <key> — one remote button press; keys below."
+      KEYBOARD: "KEYBOARD <key> — one keyboard key; Premiere and later (McBrine's client uses it from software 12.0; TiVo publishes no minimum). Send LSHIFT first for the shifted character."
+      TELEPORT: "TELEPORT <TIVO|LIVETV|GUIDE|NOWPLAYING> — jump to a screen. openHAB also sends SEARCH and NETFLIX, which are not in the original four."
+      SETCH: "SETCH <channel> or SETCH <major> <minor> — tune; the box must be on Live TV, and it refuses if every tuner is recording."
+      FORCECH: "FORCECH <channel> or FORCECH <major> <minor> — tune, cancelling a recording if every tuner is busy."
+    ircode_keys: >
+      UP DOWN LEFT RIGHT SELECT; TIVO LIVETV GUIDE INFO EXIT BACK;
+      THUMBSUP THUMBSDOWN; CHANNELUP CHANNELDOWN; PLAY FORWARD REVERSE
+      PAUSE SLOW REPLAY ADVANCE RECORD (STOP on DVD models); NUM0-NUM9
+      ENTER CLEAR; ACTION_A ACTION_B ACTION_C ACTION_D; CC_ON CC_OFF;
+      WINDOW (the Zoom/Aspect/Window key across remote generations);
+      ASPECT_CORRECTION_FULL ASPECT_CORRECTION_PANEL ASPECT_CORRECTION_ZOOM
+      ASPECT_CORRECTION_WIDE_ZOOM; VIDEO_MODE_FIXED_480i
+      VIDEO_MODE_FIXED_480p VIDEO_MODE_FIXED_720p VIDEO_MODE_FIXED_1080i
+      VIDEO_MODE_HYBRID VIDEO_MODE_HYBRID_720p VIDEO_MODE_HYBRID_1080i
+      VIDEO_MODE_NATIVE (these rewrite the video output setting); FIND_REMOTE;
+      STANDBY; NETFLIX. Letters A-Z and MINUS EQUALS LBRACKET RBRACKET
+      BACKSLASH SEMICOLON QUOTE COMMA PERIOD SLASH BACKQUOTE SPACE also work
+      as IRCODE keys on current software, and are the KEYBOARD key set.
+      This list is the union of McBrine's and openHAB's tables, not the
+      vendor's. Other clients add names not tried here: forty2/tivo-remote
+      lists IRCODE MUTE VOLUMEUP VOLUMEDOWN TVINPUT OPTIONS and the
+      KEYBOARD names KBDUP KBDDOWN KBDLEFT KBDRIGHT PAGEUP PAGEDOWN HOME END
+      CAPS RSHIFT INSERT BACKSPACE DELETE KBDENTER STOP VIDEO_ON_DEMAND; a
+      2012 Virgin Media report has DISPLAY DIRECTV NOWSHOWING DELIMITER
+      answering.
+  tivoconnect_beacon:
+    description: >
+      The older discovery path, documented by TiVo in 2003 and still
+      implemented by pyTivo; whether current boxes still send it is not
+      established. A beacon is ASCII name=value lines separated by LF; the
+      first line must be tivoconnect=1. Keys: method (broadcast or
+      connected), platform (tcd/<series> for a DVR), machine (the box's
+      name), identity (its TSN serial), services (comma-separated
+      name[:port][/protocol]) and swversion. Unknown keys are ignored.
+    udp: "Broadcast to UDP 2190: about every 5 s for 30 s after start-up or a change, then about once a minute. A client can simply listen."
+    tcp: >
+      Connect to TCP 2190, send one beacon, read one back. Working clients
+      (pyTivo, McBrine) prefix each beacon with its length as a 4-byte
+      big-endian integer, which the 2003 document does not mention.
+    example: "tivoconnect=1\nmethod=broadcast\nplatform=tcd/Series4\nmachine=Living Room\nidentity=<tsn>\nswversion=20.7.4\n"
+
+payload_formats:
+  ChannelStatus:
+    description: "CH_STATUS line, sent on connect; whether it is also pushed on every channel change is not documented."
+    fields:
+      - name: "channel"
+        index: 1
+        description: "Major channel number, zero-padded; four digits in every observed line (openHAB's parser requires four). Parse it as an integer."
+      - name: "subchannel_or_reason"
+        index: 2
+        description: "Either the OTA subchannel (also zero-padded) or the reason token."
+      - name: "reason"
+        description: "Last token: LOCAL, REMOTE or RECORDING (the tuner is recording). Which of LOCAL and REMOTE means a change made at the box versus by a network client is not settled: no client documents them (openHAB strips both), and the one gloss found reads LOCAL as set by the remote."
+    delimiter: " "
+    parse_rules:
+      - "Split on spaces. Token 0 is CH_STATUS; token 1 is the channel with leading zeros; parse it as an integer rather than relying on its width."
+      - "If there are four tokens, token 2 is the subchannel and token 3 the reason; with three tokens, token 2 is the reason."
+      - "Ignore any trailing LF."
+    example: "CH_STATUS 0702 LOCAL"
+  ChannelFailed:
+    description: "CH_FAILED line, the answer to a SETCH/FORCECH (or a connect) that could not tune."
+    values:
+      NO_LIVE: "Not on Live TV (or in standby); TELEPORT LIVETV first."
+      RECORDING: "Every tuner is recording; SETCH refused (FORCECH would cancel one)."
+      MISSING_CHANNEL: "Channel is not in the box's lineup."
+      MALFORMED_CHANNEL: "The channel argument did not parse."
+      INVALID_CHANNEL: "The channel is not valid."
+    parse_rules:
+      - "The token after CH_FAILED is the reason; look it up in values."
+    example: "CH_FAILED NO_LIVE"
+  OtherReplies:
+    description: "The remaining lines a client sees."
+    values:
+      LIVETV_READY: "Live TV is up, typically after TELEPORT LIVETV."
+      INVALID_COMMAND: "The command was not recognised."
+      COMMAND_TIMEOUT: "Arrives unprompted a few seconds after a command; harmless, ignore it."
+    parse_rules:
+      - "Treat any other line as informational and keep reading."
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only, to satisfy the schema's access-surface rule. Control
+      is ASCII lines over a raw TCP socket on port 31339 (see `commands` and
+      protocol_details.tivo_network_remote), not HTTP.
+
+commands:
+  press_up:
+    description: "Press Up (UP)."
+    body: "IRCODE UP\r"
+    verification: "reported"
+  press_down:
+    description: "Press Down (DOWN)."
+    body: "IRCODE DOWN\r"
+    verification: "reported"
+  press_left:
+    description: "Press Left (LEFT)."
+    body: "IRCODE LEFT\r"
+    verification: "reported"
+  press_right:
+    description: "Press Right (RIGHT)."
+    body: "IRCODE RIGHT\r"
+    verification: "reported"
+  press_select:
+    description: "Press Select (SELECT)."
+    body: "IRCODE SELECT\r"
+    verification: "reported"
+  press_back:
+    description: "Press Back (BACK)."
+    body: "IRCODE BACK\r"
+    verification: "reported"
+  press_tivo:
+    description: "Press TiVo Home (TIVO)."
+    body: "IRCODE TIVO\r"
+    verification: "reported"
+  press_info:
+    description: "Press Info (INFO)."
+    body: "IRCODE INFO\r"
+    verification: "reported"
+  press_exit:
+    description: "Press Exit (EXIT)."
+    body: "IRCODE EXIT\r"
+    verification: "reported"
+  press_play:
+    description: "Press Play (PLAY)."
+    body: "IRCODE PLAY\r"
+    verification: "reported"
+  press_pause:
+    description: "Press Pause (PAUSE)."
+    body: "IRCODE PAUSE\r"
+    verification: "reported"
+  press_reverse:
+    description: "Press Rewind (REVERSE)."
+    body: "IRCODE REVERSE\r"
+    verification: "reported"
+  press_forward:
+    description: "Press Fast Forward (FORWARD)."
+    body: "IRCODE FORWARD\r"
+    verification: "reported"
+  press_replay:
+    description: "Press Replay (REPLAY)."
+    body: "IRCODE REPLAY\r"
+    verification: "reported"
+  press_record:
+    description: "Press Record (RECORD)."
+    body: "IRCODE RECORD\r"
+    verification: "reported"
+  press_channel_up:
+    description: "Press Channel Up (CHANNELUP)."
+    body: "IRCODE CHANNELUP\r"
+    verification: "reported"
+  press_channel_down:
+    description: "Press Channel Down (CHANNELDOWN)."
+    body: "IRCODE CHANNELDOWN\r"
+    verification: "reported"
+  press_standby:
+    description: "Press Standby (STANDBY)."
+    body: "IRCODE STANDBY\r"
+    verification: "reported"
+  press_find_remote:
+    description: "Press Find Remote (FIND_REMOTE)."
+    body: "IRCODE FIND_REMOTE\r"
+    verification: "reported"
+  press_num_0:
+    description: "Press 0 (NUM0)."
+    body: "IRCODE NUM0\r"
+    verification: "reported"
+  press_num_1:
+    description: "Press 1 (NUM1)."
+    body: "IRCODE NUM1\r"
+    verification: "reported"
+  press_num_2:
+    description: "Press 2 (NUM2)."
+    body: "IRCODE NUM2\r"
+    verification: "reported"
+  press_num_3:
+    description: "Press 3 (NUM3)."
+    body: "IRCODE NUM3\r"
+    verification: "reported"
+  press_num_4:
+    description: "Press 4 (NUM4)."
+    body: "IRCODE NUM4\r"
+    verification: "reported"
+  press_num_5:
+    description: "Press 5 (NUM5)."
+    body: "IRCODE NUM5\r"
+    verification: "reported"
+  press_num_6:
+    description: "Press 6 (NUM6)."
+    body: "IRCODE NUM6\r"
+    verification: "reported"
+  press_num_7:
+    description: "Press 7 (NUM7)."
+    body: "IRCODE NUM7\r"
+    verification: "reported"
+  press_num_8:
+    description: "Press 8 (NUM8)."
+    body: "IRCODE NUM8\r"
+    verification: "reported"
+  press_num_9:
+    description: "Press 9 (NUM9)."
+    body: "IRCODE NUM9\r"
+    verification: "reported"
+  teleport_live_tv:
+    description: "Jump straight to Live TV (TELEPORT LIVETV)."
+    body: "TELEPORT LIVETV\r"
+    verification: "reported"
+  teleport_guide:
+    description: "Jump straight to Guide (TELEPORT GUIDE)."
+    body: "TELEPORT GUIDE\r"
+    verification: "reported"
+  teleport_my_shows:
+    description: "Jump straight to My Shows (TELEPORT NOWPLAYING)."
+    body: "TELEPORT NOWPLAYING\r"
+    verification: "reported"
+  set_channel:
+    description: >
+      Tune a channel (SETCH). The box must be on Live TV — send
+      teleport_live_tv first and wait for LIVETV_READY. The reply is a
+      CH_STATUS or CH_FAILED line.
+    body: "SETCH {channel}\r"
+    parameters:
+      channel:
+        type: "integer"
+        required: true
+        min: 1
+        max: 9999
+        description: "Major channel number."
+    verification: "reported"
+  set_channel_subchannel:
+    description: "Tune an over-the-air subchannel, e.g. 2.1 as SETCH 2 1."
+    body: "SETCH {major} {minor}\r"
+    parameters:
+      major: { type: "integer", required: true, min: 1, max: 9999, description: "Major channel." }
+      minor: { type: "integer", required: true, min: 1, max: 999, description: "Subchannel." }
+    verification: "reported"
+  force_channel:
+    description: >
+      Tune a channel even if that means cancelling a recording in progress
+      (FORCECH). Only differs from set_channel when every tuner is busy.
+    body: "FORCECH {channel}\r"
+    parameters:
+      channel:
+        type: "integer"
+        required: true
+        min: 1
+        max: 9999
+        description: "Major channel number."
+    advanced: true
+    advanced_reason: "Can cancel a recording that is in progress."
+    verification: "reported"
+
+entities:
+  - platform: "number"
+    name: "Channel"
+    icon: "mdi:numeric"
+    min: 1
+    max: 9999
+    step: 1
+    commands:
+      set_value: "set_channel"
+    notes: >
+      Sends SETCH. The current channel is read from the CH_STATUS line the
+      box sends when a client connects (payload_formats.ChannelStatus); this
+      transport has no request/response state read a consumer can bind.
+  - platform: "button"
+    name: "Up"
+    key: "up"
+    icon: "mdi:chevron-up"
+    commands:
+      press: "press_up"
+  - platform: "button"
+    name: "Down"
+    key: "down"
+    icon: "mdi:chevron-down"
+    commands:
+      press: "press_down"
+  - platform: "button"
+    name: "Left"
+    key: "left"
+    icon: "mdi:chevron-left"
+    commands:
+      press: "press_left"
+  - platform: "button"
+    name: "Right"
+    key: "right"
+    icon: "mdi:chevron-right"
+    commands:
+      press: "press_right"
+  - platform: "button"
+    name: "Select"
+    key: "ok"
+    icon: "mdi:circle-medium"
+    commands:
+      press: "press_select"
+  - platform: "button"
+    name: "Back"
+    key: "back"
+    icon: "mdi:arrow-u-left-top"
+    commands:
+      press: "press_back"
+  - platform: "button"
+    name: "TiVo Home"
+    key: "home"
+    icon: "mdi:home"
+    commands:
+      press: "press_tivo"
+  - platform: "button"
+    name: "Info"
+    key: "info"
+    icon: "mdi:information-outline"
+    commands:
+      press: "press_info"
+  - platform: "button"
+    name: "Exit"
+    key: "exit"
+    icon: "mdi:close"
+    commands:
+      press: "press_exit"
+  - platform: "button"
+    name: "Play"
+    key: "play"
+    icon: "mdi:play"
+    commands:
+      press: "press_play"
+  - platform: "button"
+    name: "Pause"
+    key: "pause"
+    icon: "mdi:pause"
+    commands:
+      press: "press_pause"
+  - platform: "button"
+    name: "Rewind"
+    key: "rewind"
+    icon: "mdi:rewind"
+    commands:
+      press: "press_reverse"
+  - platform: "button"
+    name: "Fast Forward"
+    key: "fast_forward"
+    icon: "mdi:fast-forward"
+    commands:
+      press: "press_forward"
+  - platform: "button"
+    name: "Replay"
+    key: "replay"
+    icon: "mdi:replay"
+    commands:
+      press: "press_replay"
+  - platform: "button"
+    name: "Record"
+    key: "record"
+    icon: "mdi:record"
+    commands:
+      press: "press_record"
+  - platform: "button"
+    name: "Channel Up"
+    key: "channel_up"
+    icon: "mdi:arrow-up-bold"
+    commands:
+      press: "press_channel_up"
+  - platform: "button"
+    name: "Channel Down"
+    key: "channel_down"
+    icon: "mdi:arrow-down-bold"
+    commands:
+      press: "press_channel_down"
+  - platform: "button"
+    name: "Standby"
+    key: "power_toggle"
+    icon: "mdi:power"
+    commands:
+      press: "press_standby"
+    notes: "Toggles standby. From standby the box comes up in Live TV. No status line comes back."
+  - platform: "button"
+    name: "Find Remote"
+    key: "find_remote"
+    icon: "mdi:remote"
+    commands:
+      press: "press_find_remote"
+  - platform: "button"
+    name: "0"
+    key: "num_0"
+    icon: "mdi:numeric-0"
+    commands:
+      press: "press_num_0"
+  - platform: "button"
+    name: "1"
+    key: "num_1"
+    icon: "mdi:numeric-1"
+    commands:
+      press: "press_num_1"
+  - platform: "button"
+    name: "2"
+    key: "num_2"
+    icon: "mdi:numeric-2"
+    commands:
+      press: "press_num_2"
+  - platform: "button"
+    name: "3"
+    key: "num_3"
+    icon: "mdi:numeric-3"
+    commands:
+      press: "press_num_3"
+  - platform: "button"
+    name: "4"
+    key: "num_4"
+    icon: "mdi:numeric-4"
+    commands:
+      press: "press_num_4"
+  - platform: "button"
+    name: "5"
+    key: "num_5"
+    icon: "mdi:numeric-5"
+    commands:
+      press: "press_num_5"
+  - platform: "button"
+    name: "6"
+    key: "num_6"
+    icon: "mdi:numeric-6"
+    commands:
+      press: "press_num_6"
+  - platform: "button"
+    name: "7"
+    key: "num_7"
+    icon: "mdi:numeric-7"
+    commands:
+      press: "press_num_7"
+  - platform: "button"
+    name: "8"
+    key: "num_8"
+    icon: "mdi:numeric-8"
+    commands:
+      press: "press_num_8"
+  - platform: "button"
+    name: "9"
+    key: "num_9"
+    icon: "mdi:numeric-9"
+    commands:
+      press: "press_num_9"
+  - platform: "button"
+    name: "Live TV"
+    icon: "mdi:television-classic"
+    commands:
+      press: "teleport_live_tv"
+  - platform: "button"
+    name: "Guide"
+    icon: "mdi:view-grid-outline"
+    commands:
+      press: "teleport_guide"
+  - platform: "button"
+    name: "My Shows"
+    icon: "mdi:playlist-play"
+    commands:
+      press: "teleport_my_shows"
+
+evidence:
+  documentation_review: >
+    openHAB's TiVo binding (README and the Java status provider and
+    handler) and McBrine's Network Remote were read on 2026-10-11 and agree
+    on the commands, the CR line ending, the single-client limit and the
+    reply tokens. The discovery beacon facts are from TiVo's 2003
+    TiVoConnect specification, cross-checked against Wireshark's dissector
+    and pyTivo. The `_tivo-remote` TXT keys are IANA's registered set plus
+    McBrine's use of swversion; the `_tivo-device` keys come from a 2011
+    Premiere sample and were not checked on newer boxes.
+  open_questions: >
+    The vendor PDF was not obtained. Whether a Mini, which has no tuner of
+    its own, accepts SETCH; the CH_STATUS padding width per generation; and
+    whether TELEPORT SEARCH and NETFLIX are official or later additions.
+
+remaining_unknowns:
+  - "TiVo's own protocol PDF was not retrieved (vendor URL 404; the Internet Archive holds a 2008 edition, which this project could not fetch), so the full IRCODE and KEYBOARD tables and any reply strings beyond those the clients handle (INVALID_KEY, MISSING_TELEPORT_NAME are rumoured) are reconstructed from the clients."
+  - "TiVo Mini behaviour: whether SETCH/FORCECH work (the Mini borrows a host DVR's tuner) or always answer CH_FAILED. No source covers it."
+  - "CH_STATUS channel padding on older generations: every observed line has four digits; parse as an integer regardless."
+  - "Line-oriented TCP has no `commands.transport` value in the schema; these commands rely on `device.transport: tcp` and carry their CR terminator in `body`."
+
+helpful_urls:
+  - title: "openHAB TiVo binding"
+    url: "https://www.openhab.org/addons/bindings/tivo/"
+    description: "Documents enabling the setting, the command set and the single-client caveat; the primary source for this spec."
+  - title: "wmcbrine/tivoremote (Network Remote)"
+    url: "https://github.com/wmcbrine/tivoremote"
+    description: "Independent client; source of the full key list, KEYBOARD and the mDNS browsing details."
+  - title: "pyTivo beacon.py"
+    url: "https://github.com/wmcbrine/pytivo/blob/master/beacon.py"
+    description: "A working implementation of the port-2190 TiVoConnect beacon, including the TCP length prefix."
+  - title: "TiVo Connect Automatic Machine Discovery Protocol Specification (2003)"
+    url: "https://tivopod.sourceforge.net/tivoconnect.pdf"
+    description: "TiVo's own specification of the port-2190 beacon, mirrored."
+  - title: "TiVo TCP Network Remote Control Protocol (2008 edition, Internet Archive)"
+    url: "http://web.archive.org/web/20130122172136/http://www.tivo.com/assets/images/abouttivo/resources/downloads/brochures/TiVo_TCP_Network_Remote_Control_Protocol_073108.pdf"
+    kind: "protocol_writeup"
+    description: >
+      The only surviving copy of TiVo's own protocol document found: a
+      2013 snapshot of the 2008 edition. Its edition (v1.0 or v1.1) and
+      contents were not checked here; the archive replay was unreachable
+      from this project's environment.
+  - title: "TiVo stops selling DVRs (The Desk, October 2025)"
+    url: "https://thedesk.net/2025/10/tivo-stops-selling-dvrs/"
+    description: "Coverage of TiVo's October 2025 confirmation that it no longer makes hardware; the 1 October date is from Cord Cutters News and Lifehacker."
+  - title: "TiVo Roamio Viewer's Manual"
+    url: "https://www.manualslib.com/manual/1305417/Tivo-Roamio.html"
+    kind: "manual"
+    description: >
+      Viewer's manual for the Roamio, Roamio OTA, Plus and Pro. The Network
+      Remote Control setting is on page 70; Help, Restart or Reset covers
+      the reset levels.

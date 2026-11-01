@@ -49,6 +49,7 @@ nav:
       - Tools: getting-started/tools.md
       - Methodology: getting-started/methodology.md
       - Keeping Devices Alive: keeping-devices-alive.md
+      - Blocking Updates & the Cloud: blocking-vendor-updates.md
   - Devices:
       - Device Registry: devices/index.md
       - Guides:
@@ -102,6 +103,7 @@ nav:
           - Johnson JLX Laser Distance Meters: devices/jlx-laser-distance-meter.md
           - Beurer PO60 Pulse Oximeter: devices/beurer-po60-pulse-oximeter.md
           - Beurer Series 800 Blood Pressure Monitor: devices/beurer-series800-blood-pressure.md
+          - QardioArm Blood Pressure Monitor: devices/qardio-arm.md
           - FOREO Peach 2 IPL: devices/foreo-peach-2.md
           - Braun Silk-expert Pro 5 IPL: devices/braun-silk-expert-pro5.md
           - Silk'n Infinity / Silk'n 7 IPL: devices/silkn-infinity.md
@@ -143,6 +145,14 @@ nav:
           - RuuviTag Sensor: devices/ruuvitag-ble.md
           - b-parasite Soil Sensor: devices/b-parasite-ble.md
           - Mopeka Pro Check Tank Sensor: devices/mopeka-pro-check-ble.md
+          - AM43 / A-OK Blind Motor: devices/am43-blind-motor.md
+          - Instant Pot Smart Bluetooth: devices/instant-pot-smart-bluetooth.md
+          - Hot Wheels id Race Portal: devices/hot-wheels-id-race-portal.md
+          - Kano Coding Wand: devices/kano-coding-wand.md
+          - Bose Sleepbuds II: devices/bose-sleepbuds-ii.md
+          - Yummly Smart Thermometer: devices/yummly-smart-thermometer.md
+          - Keto-Mojo GK+ Glucose & Ketone Meter: devices/keto-mojo-gk-plus.md
+          - Orbit B-hyve Bluetooth Hose Timers: devices/orbit-bhyve-ble.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md
@@ -171,7 +181,7 @@ nav:
           - Ubiquiti UniFi Device (identify): devices/ubiquiti-unifi-device.md
           - MikroTik RouterOS Device (identify): devices/mikrotik-routeros.md
           - Synology DiskStation NAS (identify): devices/synology-diskstation.md
-          - IPP Network Printer (identify): devices/ipp-network-printer.md
+          - IPP Network Printer (status): devices/ipp-network-printer.md
           - Android Wireless-ADB Device (identify): devices/android-adb-wireless.md
           - Chamberlain Garage Opener (Security+): devices/chamberlain-garage-opener-secplus.md
           - ratgdo Garage-Door Controller: devices/ratgdo.md
@@ -216,6 +226,14 @@ nav:
           - Wyze Cam (docker-wyze-bridge): devices/wyze-bridge-camera.md
           - Bambu Lab 3D Printer (LAN): devices/bambu-lab-lan.md
           - PrusaLink (Prusa MK4 / XL / Mini): devices/prusalink-local-api.md
+          - TiVo Network Remote: devices/tivo-network-remote.md
+          - Drobo NAS Status Daemon: devices/drobo-nasd-status.md
+          - Enel X Way JuiceBox (JuiceNet UDP): devices/enel-x-juicebox.md
+          - Sengled Wi-Fi Smart Bulbs: devices/sengled-wifi-bulb.md
+          - IKEA TRÅDFRI Gateway (E1526): devices/ikea-tradfri-gateway.md
+          - Hörmann BiSecur Gateway: devices/hormann-bisecur-gateway.md
+          - Insteon Hub (2245-222 / 2242-222): devices/insteon-hub.md
+          - LIVISI SmartHome (SHC 1 / SHC 2): devices/livisi-smarthome.md
       - Zigbee Devices:
           - Zigbee Soil Tester (TS0601 family): devices/zigbee-soil-tester.md
       - Z-Wave Devices:
@@ -233,6 +251,7 @@ nav:
       - Executive Summary: EXEC_SUMMARY.md
       - Candidate Devices & Hardware Sourcing: research/device-candidates.md
       - Missing Devices (2026-09 survey): research/missing-devices.md
+      - Weekly Device Sweeps: research/weekly-sweeps.md
       - Clean-room Rules: CLEANROOM_RULES.md
       - Auto-detection Workflow: AUTODETECTION.md
       - APK Decompile Playbook: APK_DECOMPILE_PLAYBOOK.md

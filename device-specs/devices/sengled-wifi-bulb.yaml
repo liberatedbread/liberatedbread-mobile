@@ -1,0 +1,1094 @@
+# Sengled Wi-Fi smart bulbs (local UDP JSON + self-hosted MQTT) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code):
+#   - HamzaETTH/SengledTools (no licence file; facts only, nothing transcribed):
+#     README, docs/references/UDP_COMMANDS_REFERENCE.md,
+#     docs/references/MQTT_COMMANDS_REFERENCE.md,
+#     docs/references/WIFI_PAIRING_REFERENCE.md, docs/INSTRUCTIONS_ADVANCED.md,
+#     and the behaviour of sengled/udp.py, sengled/wifi_setup.py,
+#     sengled/crypto.py, sengled/http_server.py, sengled/mqtt_broker.py,
+#     sengled/mqtt_client.py, sengled/command_handler.py, sengled/diagnose.py,
+#     custom_components/sengled_udp/light.py and config_flow.py
+#   - FalconFour/HA-Sengled-Local-Server-AddOn (MIT): README, CHANGELOG,
+#     rootfs/usr/local/src/simple_http_server.py, mqtt_listener.py,
+#     device_storage.py, cert_manager.py, rootfs/usr/local/mosquitto/*
+#   - PCWorld 2025-07-31, LightNOW 2025-08-15, Inside Lighting 2025-06-23 —
+#     the outages and the Alexa skill removal (manufacturer status)
+#   - support.com "How to reset the Sengled Smart Wi-Fi LED bulb" — reset
+#   - Tasmota device template for the W31-N15 (templates.blakadder.com) —
+#     chip identification only; flashing is out of scope here
+#
+# Zigbee Sengled bulbs (the Element line, Z01-*, E11-*/E12-* hub bulbs) and
+# the Bluetooth-mesh line (B11-*) are NOT covered: they are different radios
+# and different protocols. This file is the Wi-Fi "W" family only.
+
+device:
+  name: "Sengled Wi-Fi smart bulbs (W11 / W21 / W31 'Smart Wi-Fi LED' family)"
+  manufacturer: "Sengled (Sengled Optoelectronics, Shanghai; Sengled USA)"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every UDP function, the
+      provisioning exchange and the MQTT topics come from two open-source
+      projects whose authors ran them against their own bulbs (SengledTools
+      and the Home Assistant local-server add-on); the add-on credits the
+      former for the reverse engineering. Byte-level facts are therefore
+      `reported`, not `confirmed`.
+  protocol: "wifi"
+  category: "light"
+  type: "wifi-bulb"
+  transport: "udp"
+  notes: >
+    Sengled's Wi-Fi bulbs (A19 and BR30 "Smart Wi-Fi LED" bulbs, model
+    numbers W11-N13, W21-N13, W31-N15, W31-N11, W12-N15, W21-U23 and kin)
+    join the home 2.4 GHz network directly and were controlled through
+    Sengled's cloud: the Sengled Home app, the Alexa skill and Google Home
+    all went through it. That cloud has been failing since mid-2025. It was
+    down for most of a week from about 18 June 2025, kept dropping through
+    July, and on 1 August 2025 Amazon removed the Sengled Alexa skill
+    permanently, citing "prolonged outages" Sengled had not resolved
+    (PCWorld, 31 July 2025). Trade press reported in August 2025 that staff
+    had gone unpaid since January and that the company was not answering
+    customers (LightNOW). Sengled still existed as a company at the time of
+    writing (2026-10), so this is `unsupported` rather than `shutdown`: the
+    bulbs' only vendor service is unreliable and unacknowledged, and nothing
+    official supports controlling them any other way.
+
+    Two local paths survive, and this spec documents both:
+
+    1. UDP JSON on port 9080. Every bulb that is on Wi-Fi answers small JSON
+       datagrams -- {"func": "<name>", "param": {...}} -- with no
+       authentication, whether or not it can reach Sengled. On/off,
+       brightness, RGB colour, colour temperature and a state read are all
+       here, plus discovery by broadcasting the state read. This works on a
+       bulb paired years ago with the Sengled app, as long as it is still on
+       the network. The Home Assistant custom integration in SengledTools
+       uses only this path.
+
+    2. Re-pointing the bulb at your own MQTT broker. The bulb learns its
+       "cloud" during Wi-Fi provisioning: the setup payload carries two HTTP
+       base URLs, and the bulb asks the second one where its MQTT broker is.
+       Hand it URLs on your LAN, answer two small JSON requests, run a TLS
+       MQTT broker on 8883, and the bulb publishes its status and energy
+       counters to wifielement/<MAC>/status etc. and takes commands on
+       wifielement/<MAC>/update -- the same topics it used with Sengled.
+       The bulb never needs to see the vendor again. This is the route
+       SengledTools' setup wizard and the HA add-on automate.
+
+    The Wi-Fi passphrase crosses the setup AP RC4-encrypted under a fixed,
+    publicly known key -- obfuscation, not protection.
+
+    FIRMWARE: the bulbs take an OTA image from a URL they are given over
+    UDP or MQTT, into the ESP8266 RTOS SDK's ota_1 slot. SengledTools uses
+    this to load a rescue shim and then Tasmota/ESPHome/WLED on the ESP8266
+    models (W31-N15, W31-N11, W21-U23); the EMW3091 (W11-N13, W21-N13) and
+    MX1290/WF864 (W12-N15) modules are not ESP8266 and the route does not
+    apply. Flashing is noted here as a capability and is not specified: a
+    wrong image bricks the bulb.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/HamzaETTH/SengledTools"
+    notes: >
+      Nothing published by Sengled. The UDP function set was found by
+      probing the bulb (unknown names answer "function not find", which is
+      how more were discovered); the provisioning exchange and the MQTT
+      topics were recovered from the app and from captures by the
+      SengledTools author. The HA add-on reimplements the server side and
+      agrees on every endpoint and topic.
+
+  identification:
+    default_port: 9080
+
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 9080
+          broadcast_address: "255.255.255.255"
+          # ASCII of {"func":"search_devices","param":{}} -- the state read
+          # doubles as the discovery probe; every bulb on the segment answers.
+          probe_hex: "7b2266756e63223a227365617263685f64657669636573222c22706172616d223a7b7d7d"
+          response_format: "json"
+          identity_mapping:
+            stable_keys:
+              - source: "json:result.mac"
+            display:
+              source: "json:result.MN"
+          response_match:
+            - source: "json:func"
+              match: "exact"
+              value: "search_devices"
+        notes: >
+          Send the search_devices datagram to 255.255.255.255:9080 (and to
+          the directed subnet broadcast -- the HA integration sends both,
+          twice each) and listen about 2 s. Each bulb replies from its own
+          address with its MAC, IP, firmware version and channel state; the
+          `MN` field carries the model code where present, and the reply
+          contains `R`, `G` and `B` keys only on colour bulbs (a white bulb
+          answers with `W` alone). Discovery does not cross subnets and
+          Wi-Fi client isolation blocks it. A reply's `result.ret` is 0.
+    identity:
+      stable_keys: ["mac"]
+      display: "MN"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      A bulb already on Wi-Fi (paired with the Sengled Home app at any time
+      in the past) answers UDP 9080 with nothing more to do. A new bulb, or
+      one whose network changed, has to be provisioned; the Sengled app does
+      that only through Sengled's cloud, which has been failing. The route
+      recommended here replays the app's provisioning exchange over the
+      bulb's setup AP but hands the bulb URLs on your own LAN, so it treats a
+      small HTTP server and a TLS MQTT broker you run as "the cloud" from
+      then on. Both open-source implementations have run it on real bulbs;
+      this project has not.
+    methods:
+      - type: "softap_udp"
+        name: "Setup AP, then point the bulb at your own broker"
+        role: "primary"
+        verified: false
+        description: >
+          Reset the bulb so it hosts its setup AP, join the AP, and talk to
+          UDP 9080 at 192.168.8.1: a handshake that returns the bulb's MAC,
+          an optional router scan, then one RC4+base64 encrypted datagram
+          carrying the home SSID and passphrase together with two HTTP base
+          URLs, then an end message. The bulb joins the home network, POSTs
+          to <appServerDomain>/life2/device/accessCloud.json, GETs
+          <jbalancerDomain>/jbalancer/new/bimqtt, reads the broker host and
+          port out of that reply, connects to it with TLS on the port given
+          (8883 by convention) and starts publishing. From then on the
+          bulb's "cloud" is whatever you answered with. UDP 9080 control
+          works regardless of whether the MQTT half ever comes up.
+        softap:
+          ssid_prefix: "Sengled_Wi-Fi Bulb_"
+          ssid_examples:
+            - "Sengled_Wi-Fi Bulb_A1B2C3"
+          open_network: true
+          gateway_ip: "192.168.8.1"
+          port: 9080
+          ssid_notes: >
+            The suffix is six hex-looking characters, presumably from the
+            MAC; the mapping is not documented. Neither open-source client
+            scans for or joins the AP itself -- both tell the user to join it
+            -- and neither asks for an AP passphrase, so it is recorded as
+            open; nothing confirms that directly.
+          credential_encryption:
+            algorithm: "RC4"
+            key_derivation: >
+              Fixed key, the same for every bulb: the 52-character ASCII
+              string MTlCaWppbmdTaGFuZ2hhaVdpU2VuZ2xlZEZpMjBBQUJBU0U2NA==
+              used byte-for-byte as the RC4 key (it is NOT base64-decoded
+              first, although it decodes to readable text). No IV, no salt,
+              no MAC; identical plaintext gives identical ciphertext.
+            algorithm_steps:
+              - "Serialise the whole setParamsRequest object to compact JSON (the reference client uses its JSON library's default spacing; the bulb parses either) and encode as UTF-8."
+              - "RC4 key schedule (KSA) over the 52 ASCII bytes of the fixed key string, then the standard PRGA with no bytes discarded."
+              - "XOR the UTF-8 plaintext with the keystream."
+              - "Standard base64-encode the ciphertext (with '=' padding). The resulting ASCII string IS the datagram: it is sent as-is to 192.168.8.1:9080 with no JSON wrapper around it."
+              - "A reply that parses as JSON is plaintext; otherwise base64-decode it, RC4 with the same key, UTF-8 decode and parse. Either way it must contain payload.result == true."
+            encoding: "base64"
+            test_vectors:
+              description: >
+                Computed from the algorithm above with the standard library;
+                scripts/test_sengled_wifi_bulb_spec.py reproduces every one.
+                Addresses, SSID and passphrase are placeholders.
+              input:
+                key_ascii: "MTlCaWppbmdTaGFuZ2hhaVdpU2VuZ2xlZEZpMjBBQUJBU0U2NA=="
+                keystream_first_16_bytes_hex: "b64233f5a370d21473468981b990c958"
+              vectors:
+                - plaintext: '{"name":"setParamsRequest","totalStep":1,"curStep":1,"payload":{"userID":"618","appServerDomain":"http://192.168.1.50:57542","jbalancerDomain":"http://192.168.1.50:57542","timeZone":"UTC","routerInfo":{"ssid":"ExampleNet","password":"correct horse"}}}'
+                  ciphertext_base64: "zWBdlM4V8C5RNez16fG7OZCfcPxZ8pwNmnBK8ofDtRGK9LCvH/fp/yYG5vO49njXXRzPvow0AyZlQAmF8lYC/PUujzh+bLkm9JrzkFBZSf18hoirWDUpgoKjtyKoJb2R6zv9/NdnNlzaJLeD2mZyW717tZH4j+8EswgCroPcYTmsnFnagnVwKJGasyZCnsoCXW9s4Q+OCYAu1xjTWZv/b26V/VZ2SYKFNkMaeg2/w650KbmKF2vn2WvO9W7w84UdWJzY7Z32a1iaQ3EJDAgeGOjCzMDLXixDAuzo6P6X6smg1vjprDgU2owi2XAOGJ6t3KUgCdQL1QwGT84="
+                - plaintext: '{"payload":{"result":true}}'
+                  ciphertext_base64: "zWBDlNocvXUXZLP6m+KsK4iAVrsS84sLiy8b"
+                - plaintext: "ssid"
+                  ciphertext_base64: "xTFakQ=="
+        payload_formats:
+          StartConfigReply:
+            description: >
+              Reply to startConfigRequest. A JSON object whose `payload`
+              carries the bulb's MAC on the first exchange and `result` on
+              the repeat exchange that precedes setParamsRequest.
+            fields:
+              - name: "payload.mac"
+                description: "Bulb Wi-Fi MAC, 17 characters, colon-separated. The handle every MQTT topic is built from."
+              - name: "payload.result"
+                description: "true when the bulb is ready to take parameters (checked on the second startConfigRequest)."
+            parse_rules:
+              - "Treat a missing `payload` as a failed handshake and resend; the bulb drops datagrams while it is busy."
+          APList:
+            description: "Reply to getAPListRequest: the networks the bulb can see, under payload.routers."
+            fields:
+              - name: "payload.routers[].ssid"
+              - name: "payload.routers[].bssid"
+                description: "Uppercase colon-separated BSSID; used instead of the SSID when the SSID is not ASCII."
+              - name: "payload.routers[].signal"
+                description: "Signal indication; the reference client clamps it to 1-4 bars, so the raw range is at least that."
+            parse_rules:
+              - "Send scanWifiRequest, wait about 5 s for the bulb to scan, then getAPListRequest; the list is empty if asked too early."
+        steps:
+          - action: "On a LAN host the bulb will be able to reach, run an HTTP server that answers POST /life2/device/accessCloud.json and GET /jbalancer/new/bimqtt as protocol_details.cloud_bootstrap describes, and an MQTT broker with TLS 1.2 on port 8883 that allows anonymous clients and advertises ALPN x-amzn-mqtt-ca (protocol_details.mqtt_broker_requirements). Note the host's LAN address."
+            actor: "user"
+            expect: "curl -X POST http://<host>:<port>/life2/device/accessCloud.json returns the success JSON; the broker accepts a TLS 1.2 client with no credentials."
+          - action: "Factory-reset the bulb (five rapid power cycles, see factory_reset) so it hosts its setup AP."
+            actor: "user"
+            expect: "The bulb flashes, then an open Wi-Fi network named Sengled_Wi-Fi Bulb_XXXXXX appears."
+          - action: "Join the Sengled_Wi-Fi Bulb_XXXXXX network. The client is given an address in the bulb's subnet; the bulb is 192.168.8.1."
+            actor: "user"
+            expect: "The client can send UDP datagrams to 192.168.8.1:9080."
+          - action: "Send the handshake datagram and read the bulb's MAC out of the reply."
+            actor: "client"
+            request:
+              protocol: "udp"
+              action: "startConfigRequest"
+              message: '{"name":"startConfigRequest","totalStep":1,"curStep":1,"payload":{"protocol":1}} to 192.168.8.1:9080'
+            expect: "A JSON reply with payload.mac (17 characters). Retry on timeout; the reference client uses a 2 s socket timeout here and 15 s afterwards."
+            timeout_seconds: 15
+          - action: "Optionally ask the bulb to scan for networks, wait about 5 s, then fetch the list (payload_formats.APList). Needed only to pick a BSSID for a non-ASCII SSID or to show the user a chooser."
+            actor: "client"
+            request:
+              protocol: "udp"
+              action: "scanWifiRequest, then getAPListRequest"
+              message: '{"name":"scanWifiRequest","totalStep":1,"curStep":1,"payload":{}} then {"name":"getAPListRequest","totalStep":1,"curStep":1,"payload":{}}'
+            expect: "The scan request is acknowledged; the list reply carries payload.routers[] with ssid, bssid and signal."
+            timeout_seconds: 15
+          - action: "Send startConfigRequest again and require payload.result to be true before sending credentials."
+            actor: "client"
+            request:
+              protocol: "udp"
+              action: "startConfigRequest"
+              message: '{"name":"startConfigRequest","totalStep":1,"curStep":1,"payload":{"protocol":1}}'
+            expect: "payload.result is true. Abort if it is not."
+            timeout_seconds: 15
+          - action: "Build the setParamsRequest object -- name, totalStep 1, curStep 1, and a payload with userID \"618\", appServerDomain and jbalancerDomain (both http://<your-host>:<port> base URLs, no path), timeZone (an IANA zone name or \"UTC\") and routerInfo {ssid, password} -- RC4-encrypt and base64 the whole JSON text as credential_encryption describes, and send that string as the datagram. For a non-ASCII SSID send routerInfo {ssid: \"\", bssid: <uppercase BSSID>, password}."
+            actor: "client"
+            request:
+              protocol: "udp"
+              action: "setParamsRequest (RC4 + base64)"
+              arguments:
+                - name: "payload.userID"
+                  type: "string"
+                  required: true
+                  description: "Fixed string \"618\" in the reference client; meaning unknown, the bulb accepts it."
+                - name: "payload.appServerDomain"
+                  type: "string"
+                  required: true
+                  description: "Base URL the bulb will POST /life2/device/accessCloud.json to, e.g. http://192.168.1.50:57542."
+                - name: "payload.jbalancerDomain"
+                  type: "string"
+                  required: true
+                  description: "Base URL the bulb will GET /jbalancer/new/bimqtt from. Usually the same host as appServerDomain."
+                - name: "payload.timeZone"
+                  type: "string"
+                  required: true
+                  description: "Time zone name; the bulb later reports it back as the timeZone status attribute."
+                - name: "payload.routerInfo.ssid"
+                  type: "string"
+                  required: true
+                  description: "Home 2.4 GHz SSID (ASCII). Empty string when bssid is used instead."
+                - name: "payload.routerInfo.bssid"
+                  type: "string"
+                  required: false
+                  description: "Uppercase colon-separated BSSID, only when the SSID is not ASCII."
+                - name: "payload.routerInfo.password"
+                  type: "string"
+                  required: true
+                  description: "Home Wi-Fi passphrase, in the clear inside the RC4 envelope."
+            expect: "A reply (plaintext JSON or RC4+base64) with payload.result true. The reference client treats a timeout here as success and carries on; the bulb often answers nothing once it starts joining."
+            timeout_seconds: 15
+          - action: "Send endConfigRequest. The reply is optional."
+            actor: "client"
+            request:
+              protocol: "udp"
+              action: "endConfigRequest"
+              message: '{"name":"endConfigRequest","totalStep":1,"curStep":1,"payload":{}}'
+            timeout_seconds: 15
+          - action: "Leave the bulb's AP and rejoin the home network; the bulb's AP disappears as it joins."
+            actor: "user"
+          - action: "Join the home Wi-Fi, POST to <appServerDomain>/life2/device/accessCloud.json, GET <jbalancerDomain>/jbalancer/new/bimqtt, open a TLS connection to the host:port in that reply, connect to MQTT anonymously as client id <MAC>@wifielement, and publish supportAttributes to wifielement/c/status and the first status set to wifielement/<MAC>/status."
+            actor: "device"
+            expect: "Both HTTP requests arrive within about 180 s of endConfigRequest; a status message naming typeCode, identifyNO and supportAttributes follows on the broker."
+            timeout_seconds: 180
+          - action: "Confirm local control: send {\"func\":\"search_devices\",\"param\":{}} to the bulb's new LAN address on UDP 9080, or broadcast it."
+            actor: "client"
+            expect: "A reply with result.ret 0 carrying the same MAC as the handshake."
+            timeout_seconds: 3
+        timing:
+          handshake_socket_timeout_seconds: 2
+          post_handshake_socket_timeout_seconds: 15
+          scan_settle_seconds: 5
+          cloud_callback_wait_seconds: 180
+          udp_command_timeout_seconds: 3
+          notes: >
+            From the SengledTools wizard. The bulb drops datagrams while
+            busy, so the reference client simply resends on timeout with no
+            retry limit until the user gives up.
+        troubleshooting:
+          - symptom: "The bulb accepts the parameters but never contacts the HTTP server."
+            causes:
+              - "Wi-Fi client/AP isolation or a firewall between the bulb's network and the host; test with curl from another client on the same SSID."
+              - "The SSID is 5 GHz only. The bulbs are 2.4 GHz (802.11b/g/n) only; a band-steered single SSID is the usual case."
+              - "The base URLs carried a path or a trailing slash the bulb mangled. Give a bare http://host:port; the add-on matches the paths by substring because some firmware mangles the request line."
+              - "Non-ASCII SSID sent in the ssid field; use the bssid form."
+          - symptom: "The bulb reaches /bimqtt but never appears on the broker."
+            causes:
+              - "The broker refuses TLS 1.2, RSA key exchange or the x-amzn-mqtt-ca ALPN value; the bulbs' mbedTLS build (AWS IoT C SDK) needs all three."
+              - "The broker requires a username/password or a client certificate; the bulbs send neither (some firmware sends a username that is a query string, which breaks per-user ACLs -- use pattern ACLs)."
+              - "The CA changed after pairing. Reissue the server certificate under the same CA when the host's address changes rather than regenerating the CA."
+      - type: "cloud_account"
+        name: "Sengled Home app pairing through Sengled's cloud"
+        role: "alternative"
+        verified: false
+        description: >
+          The vendor route: add the bulb in the Sengled Home app, which
+          needs a Sengled account and Sengled's servers to be up. It
+          performs the same setup-AP exchange as the primary method but with
+          Sengled's own appServerDomain/jbalancerDomain, so the bulb ends up
+          on Sengled's broker. UDP 9080 then works on the LAN regardless,
+          which is how bulbs paired before the outages are still usable.
+          Listed because it still intermittently worked in 2025; expect it
+          to fail, and expect anything it sets up to stop working with the
+          next outage.
+        cloud:
+          provider: "Sengled (Sengled Home app)"
+          local_alternative: "The primary method above: replay the setup-AP exchange with your own URLs. No account, no vendor."
+        steps:
+          - action: "Reset the bulb, add it in the Sengled Home app and give it the 2.4 GHz network."
+            actor: "user"
+            expect: "The bulb joins the LAN and answers search_devices on UDP 9080 even when the app shows it offline."
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Clears the Wi-Fi credentials and the cloud URLs and returns the bulb
+        to its setup AP. A bulb pointed at your own broker will need the
+        full provisioning again, including the URLs.
+      description: >
+        The power-cycle reset is the one every guide gives for this family
+        and the one the SengledTools wizard tells its users to do first; the
+        exact count differs between sources (five quick cycles per the
+        support.com guide and the SengledTools README, ten per one
+        retailer's guide), so start with five and repeat with more if no AP
+        appears. The remote resets ride the control channels and are only
+        useful on a bulb that is already reachable.
+      procedures:
+        - name: "Five rapid power cycles at the switch"
+          verified: false
+          basis: "support.com 'How to reset the Sengled Smart Wi-Fi LED bulb' (flash three, blink two); SengledTools README says 'flick the power switch rapidly 5+ times'."
+          press_count: 5
+          power_state: "on"
+          indicator: "The bulb flashes three times, then blinks twice; the Sengled_Wi-Fi Bulb_XXXXXX network appears shortly after."
+          steps:
+            - action: "With the bulb on, switch it off and on five times in quick succession, ending on."
+              actor: "user"
+              expect: "Three flashes then two blinks; the setup AP appears."
+        - name: "factory_reset over UDP 9080"
+          verified: false
+          basis: "SengledTools UDP reference lists factory_reset (alias set_factory_reset) answering ret 0; nobody has written down what the bulb does next."
+          steps:
+            - action: "Send the factory_reset command (commands.factory_reset) to the bulb's LAN address."
+              actor: "client"
+              request:
+                protocol: "udp"
+                action: "factory_reset"
+                message: '{"func":"factory_reset","param":{}}'
+              expect: "result.ret 0; the bulb drops off the network and hosts its setup AP."
+        - name: "reset over MQTT"
+          verified: false
+          basis: "SengledTools CLI --reset publishes [{dn, type reset, value \"1\", time}] to wifielement/<MAC>/update; its effect is described only as resetting the bulb."
+          steps:
+            - action: "Publish the reset message below to the bulb's update topic."
+              actor: "client"
+              request:
+                protocol: "mqtt"
+                action: "wifielement/<MAC>/update"
+                message: '[{"dn":"<MAC>","type":"reset","value":"1","time":<epoch ms>}]'
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        No command rewrites the Wi-Fi credentials or the cloud URLs on a
+        joined bulb; a new router, SSID or broker host means a reset and the
+        provisioning exchange again. The reset itself can be triggered over
+        the old network (UDP factory_reset, MQTT reset) if the bulb is still
+        reachable, which saves the trip to the switch. Changing only the
+        broker host while keeping the same CA is handled by reissuing the
+        server certificate, not by re-provisioning -- the bulb re-reads
+        /bimqtt on every boot.
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Wi-Fi SSID (or BSSID) and passphrase"
+        - "appServerDomain and jbalancerDomain base URLs"
+        - "timeZone and userID strings from provisioning"
+      issued_to_client: []
+      notes: >
+        The passphrase travels inside an RC4 envelope under a fixed key that
+        is public, so anyone capturing the setup-AP exchange recovers it;
+        treat it as plaintext for threat purposes. Post-setup control is
+        unauthenticated on both channels: anyone on the LAN can drive the
+        bulb over UDP 9080, and the bulb connects to the broker named in
+        /bimqtt with no credentials, trusting whatever TLS certificate it is
+        shown (both open-source brokers disable verification on the bulb
+        side and the bulbs connect to a self-signed CA). The bulb's MAC is
+        the only handle a client needs to keep and it is not a secret.
+
+# Bespoke material: the UDP function catalogue, the stand-in cloud, the
+# broker requirements and the MQTT message vocabulary.
+protocol_details:
+  udp_control:
+    transport: "UDP unicast to the bulb's address, port 9080; the bulb answers to the datagram's source port. No framing, no checksum, no encryption, one JSON object per datagram."
+    request: '{"func": "<function name>", "param": { ...arguments... }}; `param` is always present, {} when the function takes none.'
+    reply: '{"func": "<echoed name>", "result": {"ret": 0, "msg": "...", ...fields...}}; ret 0 is success, 1 an error with the reason in msg ("function not find", "get brightness error"). Replies fit in 4096 bytes; the HA integration reads 1024.'
+    timeout: "3 s in every reference client, one send, no retry. A client polling right after a command should wait about 2 s; the HA integration skips polls within 2 s of a command."
+    functions:
+      - "set_device_switch {switch: 0|1} -- power"
+      - "set_device_brightness {brightness: 0-100} / get_device_brightness -> result.brightness 0-100"
+      - "set_device_color {red, green, blue: 0-255 each}; set_device_rgb takes the same arguments and was seen answering nothing"
+      - "set_device_colortemp {colorTemperature: 1-100}; the two reference clients disagree on the Kelvin ends (HA integration 2000-6500 K over 1-100; MQTT reference 2700-6500 K over 0-100). Sending colour temperature also switches the bulb to its white engine."
+      - "set_device_pwm {r, g, b, w: 0-100 each} -- drives the four LED channels directly. Volatile: not saved, 0-2 is off, >100 clamps, and any of the four persistent setters above exits PWM mode and reloads the saved state; search_devices keeps reporting the saved state, not the PWM output."
+      - "get_led_color -> result.W {freq, value} (only W observed)"
+      - "search_devices -> result {mac, ip, config_state, bind_state, mqtt_state, version, MN?, R/G/B/W {freq, value}} -- the state read and the discovery probe; see payload_formats.SearchDevicesReply"
+      - "get_device_mode / set_device_mode {mode}, set_color_mode {mode} -- mode values seen 0 and 1, meanings not established"
+      - "get_device_mac -> result.mac; set_device_mac exists, arguments unknown, no reply observed"
+      - "get_software_version -> result.version (string); get_hardver exists, reply not documented"
+      - "get_device_adc -> result.adc (float, e.g. 630.73); get_dimmer_info -> result {dimer, max, count, maxflag, mini, mini2_count, adc[]} -- the dimmer-detection ADC, meaning not established"
+      - "get_factory_mode -> result.mode; set_factory_mode {} -- a factory/test mode, effect not documented, left advanced"
+      - "set_device_light -- rejects empty params with 'get b error'; the argument set is unknown"
+      - "reboot (alias set_device_reboot); factory_reset (alias set_factory_reset)"
+      - "update_led_firmware {ota_url} -- the bulb fetches the image over HTTP and writes it to the ESP8266 RTOS SDK ota_1 slot (0x110000). See features."
+    discovery: "Broadcast search_devices to 255.255.255.255:9080 (and the subnet broadcast); listen ~2 s; every bulb answers with its mac/ip."
+    capability_detection: "A colour bulb's search_devices reply has R, G and B keys; a white-only bulb's has W alone."
+    state_decoding:
+      - "Power: on when any of R, G, B, W reports freq == 0; a channel with freq != 0 is off (the HA integration's reading; freq looks like a PWM period and value a duty, but neither source states units)."
+      - "Mode: W.value > 0 means the white (colour-temperature) engine is active; otherwise the RGB engine."
+      - "Brightness: prefer get_device_brightness (0-100 %). Fallback: the largest channel value."
+      - "Colour: R/G/B values normalised to the largest of the three. Kelvin cannot be read back exactly; the HA integration caches the last requested value and otherwise estimates from the channel mix."
+  cloud_bootstrap:
+    description: >
+      The two HTTP requests the bulb makes on every boot to whatever base
+      URLs it was provisioned with. A stand-in cloud answers both and the
+      bulb never notices. Any port works; SengledTools listens on 57542 and
+      the HA add-on on 54448 -- the port is whatever the URL said.
+    requests:
+      - "POST <appServerDomain>/life2/device/accessCloud.json (a body is sent; its contents have not been documented and neither server reads it). Expected reply, HTTP 200 application/json: {\"messageCode\": \"200\", \"info\": \"OK\", \"description\": \"正常\", \"success\": true}"
+      - "GET <jbalancerDomain>/jbalancer/new/bimqtt (POST also seen). Expected reply, HTTP 200 application/json: {\"protocal\": \"mqtt\", \"host\": \"<broker IP or hostname>\", \"port\": 8883} -- the key is spelled protocal, as the firmware wants it."
+    quirks:
+      - "Some firmware mangles the request line; the HA add-on matches 'bimqtt' and 'accessCloud' as substrings of the path rather than exact paths, and answers bimqtt before accessCloud when both appear."
+      - "SengledTools counts provisioning as complete only once both endpoints have been hit from the bulb's address within 180 s."
+  mqtt_broker_requirements:
+    tls: "Mandatory. TLS 1.2 only (the bulbs' mbedTLS build from the AWS IoT C SDK negotiates nothing newer); RSA 2048 server certificate; ECDHE-RSA/RSA AES-GCM and AES-CBC suites at a lowered OpenSSL security level; prime256v1; ALPN must offer x-amzn-mqtt-ca (what the bulb sends) -- a broker that ignores ALPN fails the handshake. Both reference brokers run a private CA (CN 'Local-CA' / 'Sengled Local CA') signing a server cert (CN 'broker.local' / 'sengled.local'); whether the bulb checks the chain is not established, but keeping the CA stable across re-issued server certs is reported to keep paired bulbs connecting."
+    authentication: "None from stock firmware: no client certificate, no password; allow anonymous. Client id is <MAC>@wifielement. Some firmware presents a username of the form ?SDK=C&Version=3.0.1, which breaks per-user ACL rules -- use topic-pattern ACLs."
+    port: "8883 by convention; the bulb uses whatever /bimqtt said."
+    acl: "A bulb needs write on wifielement/+/status, /consumption, /consumptionTime (the add-on also allows /attributes and /state) and read on wifielement/+/update (the add-on also allows /command and /set)."
+  mqtt_messages:
+    envelope: 'Every payload, in both directions, is a JSON ARRAY of objects {"dn": "<MAC>", "type": "<attribute>", "value": "<string>", "time": <epoch ms>}. Values are strings even when numeric. Several objects may ride one message (colour temperature is sent together with switch "1"). Captures of the vendor cloud show an "Os$" prefix before the array on the update topic; the reference client publishes the bare array and bulbs accept it.'
+    update_types:
+      - "switch: \"0\" | \"1\""
+      - "brightness: \"0\"-\"100\" (%)"
+      - "color: \"R:G:B\" decimal, each 0-255 (the vendor reference also shows hex \"FF0000\"; the reference client sends the colon form)"
+      - "colorTemperature: \"0\"-\"100\" (the reference says 0 = 2700 K, 100 = 6500 K), sent with a switch \"1\" object in the same array"
+      - "effectStatus: \"0\" none, \"7\" audio sync, \"100\" video sync, \"101\" game sync (TV-strip products)"
+      - "scene: a case-sensitive name such as Sleep, Read, TV, Sunrise, Dinner; effect: colorCycle, randomColor"
+      - "groupSwitch / groupBrightness / groupColorTemperature: value is an OBJECT {switch|brightness|colorTemperature: \"<string>\", gradientTime: <ms>, deviceUuidList: [\"<MAC>\", ...]} published to the first member's update topic; untested by the reference client"
+      - "gradientTime: optional transition in ms on ordinary objects"
+      - "reset: \"1\"; update: \"<http URL of a firmware image>\" (see features); timeZone: \"<zone name>\""
+    status_types: "switch, brightness, color (R:G:B), colorTemperature, colorMode (\"1\" RGB engine, \"2\" white engine), online, version, productCode, typeCode (model, e.g. W31-N15), identifyNO (module/chip marker, e.g. contains ESP8266 on the ESP bulbs), ip, deviceRssi, saveFlag, timeZone, supportAttributes (comma-separated list of the attributes the bulb implements, published to wifielement/c/status on connect). The bulb publishes a full set on boot; later messages carry only what changed. The add-on ignores status messages with fewer than five attributes as partial."
+    consumption: "wifielement/<MAC>/consumption carries {type: consumption, value: \"<integer>\"} and /consumptionTime {type: consumptionTime, value: \"<integer>\"}; the reference guesses energy and time-on counters, units not established."
+  models:
+    description: "Model codes seen in typeCode and on packaging, with the radio module where a source identifies it. Capability (colour vs white) per model is not fully established; detect it at runtime from the search_devices reply."
+    table:
+      - "W31-N15 -- A19 'Full Color' RGBW; ESP8266EX module; Tasmota template exists; OTA shim route works"
+      - "W31-N11 (W31-N11DL daylight) -- white; ESP8266EX; OTA shim route works"
+      - "W21-U23 -- ESP8266EX; OTA shim route works"
+      - "W12-N15 -- 100 W-equivalent colour A19; WF864 module (MX1290); OTA shim route does not work"
+      - "W21-N13 -- EMW3091 module; OTA shim route does not work"
+      - "W11-N13 (W11-N13W) -- A19 multicolour; EMW3091 module; OTA shim route does not work"
+      - "W11-N11 -- A19 white 2700 K / 5000 K (manual on ManualsLib); module not identified"
+    identify_marker: "SengledTools treats an identifyNO containing ESP8266 as 'probably flashable' and typeCode W31-N11 / W31-N15 as confirmed."
+  out_of_scope: "Zigbee Sengled bulbs (Element line, Z01-*, E11-*, E12-*; need the Sengled hub or any Zigbee coordinator), Bluetooth-mesh bulbs (B11-*), and Sengled Wi-Fi plugs/strips/diffusers, which share the MQTT vocabulary but have not been checked against this UDP surface."
+
+payload_formats:
+  SearchDevicesReply:
+    description: >
+      The result object of a search_devices reply (unicast or broadcast).
+      Field presence varies by model: R, G, B appear on colour bulbs only;
+      MN was seen by the HA integration and not by the CLI reference.
+    fields:
+      - name: "mac"
+        description: "Wi-Fi MAC, uppercase colon-separated, 17 characters; the topic handle."
+      - name: "ip"
+        description: "The bulb's current LAN address as dotted quad."
+      - name: "version"
+        description: "Firmware version string; contains a model-shaped token like _W31-N15_ on some builds."
+      - name: "MN"
+        description: "Model code (typeCode), when present."
+      - name: "config_state"
+        description: "Integer; provisioning state flag, values not established."
+      - name: "bind_state"
+        description: "Integer; cloud-binding flag, values not established."
+      - name: "mqtt_state"
+        description: "Integer; whether the bulb currently has a broker connection, values not established."
+      - name: "R.value"
+        description: "Red channel level; with G and B, normalised to the largest gives the RGB colour. Absent on white bulbs."
+      - name: "R.freq"
+        description: "0 when the channel is driven; non-zero when off. Likewise G.freq, B.freq, W.freq."
+      - name: "W.value"
+        description: "White channel level; > 0 means the colour-temperature engine is active."
+      - name: "ret"
+        description: "0 on success."
+    parse_rules:
+      - "Read result.ret first; anything but 0 is an error and the other fields are absent."
+      - "Power is on if any present channel has freq == 0."
+      - "Colour capability: all of R, G and B present."
+    example: '{"func":"search_devices","result":{"ret":0,"msg":"success","mac":"AA:BB:CC:DD:EE:FF","ip":"192.168.1.50","config_state":1,"bind_state":1,"mqtt_state":1,"version":"V1.0.0_W31-N15_x","R":{"freq":1,"value":0},"G":{"freq":1,"value":0},"B":{"freq":1,"value":0},"W":{"freq":0,"value":38}}}'
+  CommandResult:
+    description: "The result object every setter and most getters return."
+    fields:
+      - name: "ret"
+        description: "0 success, 1 failure."
+      - name: "msg"
+        description: "Reason text on failure: 'function not find' for an unknown func, 'get brightness error' and the like for bad params."
+    values:
+      "0": "success"
+      "1": "error; see msg"
+  MqttStatusMessage:
+    description: >
+      Payload on wifielement/<MAC>/status, /consumption, /consumptionTime
+      and the connect-time wifielement/c/status: a JSON array of
+      attribute objects. See protocol_details.mqtt_messages.status_types
+      for the attribute names.
+    fields:
+      - name: "[].dn"
+        description: "The bulb's MAC."
+      - name: "[].type"
+        description: "Attribute name (switch, brightness, color, colorTemperature, colorMode, supportAttributes, typeCode, identifyNO, ...)."
+      - name: "[].value"
+        description: "Attribute value as a string."
+      - name: "[].time"
+        description: "Bulb-side timestamp; small integers on some firmware, epoch ms on others. Not useful as a clock."
+    parse_rules:
+      - "Take the MAC from the topic, not from dn (the add-on does; dn has matched the topic in every capture)."
+      - "Index attributes by type; later messages carry only the attributes that changed."
+    example: '[{"dn":"AA:BB:CC:DD:EE:FF","type":"switch","value":"1","time":"50"},{"dn":"AA:BB:CC:DD:EE:FF","type":"brightness","value":"25","time":"50"}]'
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. The bulb serves no HTTP; control is JSON over UDP
+      port 9080 (protocol_details.udp_control) and, once re-pointed, MQTT
+      (mqtt_topics). The HTTP endpoints in protocol_details.cloud_bootstrap
+      are ones the bulb CALLS, served by the user's stand-in cloud.
+
+mqtt:
+  transport_security: "tls"
+
+mqtt_topics:
+  - topic: "wifielement/{mac}/update"
+    name: "Bulb command topic"
+    direction: "publish"
+    qos: 1
+    description: >
+      Commands to one bulb: a JSON array of {dn, type, value, time}
+      objects; see protocol_details.mqtt_messages.update_types and the
+      mqtt_* commands. The bulb subscribes here when it connects.
+    payload_format:
+      encoding: "json"
+      fields:
+        - name: "dn"
+          type: "string"
+          description: "Target bulb MAC (same as the topic)."
+        - name: "type"
+          type: "string"
+          description: "Attribute to set: switch, brightness, color, colorTemperature, effectStatus, scene, effect, group*, reset, update, timeZone."
+        - name: "value"
+          type: "string"
+          description: "New value as a string (an object for the group* types)."
+        - name: "time"
+          type: "integer"
+          description: "Sender's epoch time in ms. Whether the bulb checks it is unknown; the reference client always sends the current time."
+  - topic: "wifielement/{mac}/status"
+    name: "Bulb status"
+    direction: "subscribe"
+    qos: 0
+    description: "Attribute reports: full set on connect, then deltas. payload_formats.MqttStatusMessage."
+    payload_format:
+      encoding: "json"
+      fields:
+        - name: "dn"
+          type: "string"
+        - name: "type"
+          type: "string"
+        - name: "value"
+          type: "string"
+        - name: "time"
+          type: "string"
+  - topic: "wifielement/{mac}/consumption"
+    name: "Energy counter"
+    direction: "subscribe"
+    qos: 0
+    description: "One attribute object of type consumption with an integer-string value; assumed cumulative energy, unit not established."
+    payload_format:
+      encoding: "json"
+  - topic: "wifielement/{mac}/consumptionTime"
+    name: "On-time counter"
+    direction: "subscribe"
+    qos: 0
+    description: "One attribute object of type consumptionTime with an integer-string value; assumed cumulative on-time, unit not established."
+    payload_format:
+      encoding: "json"
+  - topic: "wifielement/c/status"
+    name: "Connect announcement"
+    direction: "subscribe"
+    qos: 0
+    description: "Published by every bulb as it connects, before its own status topic: a supportAttributes object listing what the bulb implements (e.g. brightness, or brightness,color,colorTemperature)."
+    payload_format:
+      encoding: "json"
+
+commands:
+  turn_on:
+    description: "Turn the bulb on (UDP)."
+    transport: "udp"
+    body: '{"func":"set_device_switch","param":{"switch":1}}'
+    verification: "reported"
+  turn_off:
+    description: "Turn the bulb off (UDP)."
+    transport: "udp"
+    body: '{"func":"set_device_switch","param":{"switch":0}}'
+    verification: "reported"
+  set_brightness:
+    description: "Set brightness as a percentage (UDP)."
+    transport: "udp"
+    body: '{"func":"set_device_brightness","param":{"brightness":{level}}}'
+    parameters:
+      level:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        unit: "%"
+        description: "Brightness 0-100. The HA integration maps its 0-255 scale with int(x / 255 * 100)."
+    verification: "reported"
+  set_color:
+    description: "Set an RGB colour; switches the bulb to its RGB engine (UDP). Colour bulbs only."
+    transport: "udp"
+    body: '{"func":"set_device_color","param":{"red":{red},"green":{green},"blue":{blue}}}'
+    parameters:
+      red:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 255
+        description: "Red 0-255."
+      green:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 255
+        description: "Green 0-255."
+      blue:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 255
+        description: "Blue 0-255."
+    verification: "reported"
+  set_color_temperature:
+    description: "Set colour temperature on the bulb's 1-100 warm-to-cool scale; switches the bulb to its white engine (UDP)."
+    transport: "udp"
+    body: '{"func":"set_device_colortemp","param":{"colorTemperature":{level}}}'
+    parameters:
+      level:
+        type: "integer"
+        required: true
+        min: 1
+        max: 100
+        description: >
+          1 = warmest, 100 = coolest. The HA integration maps Kelvin with
+          level = 1 + round((K - 2000) / 4500 * 99) over 2000-6500 K; the
+          MQTT reference puts the ends at 2700 K and 6500 K. The real
+          endpoints have not been measured.
+    verification: "reported"
+  get_state:
+    description: "Read the bulb's identity and channel state (search_devices); also the discovery probe. Reply: payload_formats.SearchDevicesReply."
+    transport: "udp"
+    body: '{"func":"search_devices","param":{}}'
+    verification: "reported"
+  get_brightness:
+    description: "Read brightness 0-100 (result.brightness)."
+    transport: "udp"
+    body: '{"func":"get_device_brightness","param":{}}'
+    verification: "reported"
+  get_software_version:
+    description: "Read the firmware version string (result.version)."
+    transport: "udp"
+    body: '{"func":"get_software_version","param":{}}'
+    verification: "reported"
+  set_pwm:
+    description: "Drive the four LED channels directly, 0-100 each; volatile, exits on any persistent setter. For testing and effects, not for state a client expects to read back."
+    transport: "udp"
+    body: '{"func":"set_device_pwm","param":{"r":{r},"g":{g},"b":{b},"w":{w}}}'
+    parameters:
+      r:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        description: "Red channel duty 0-100; 0-2 is off."
+      g:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        description: "Green channel duty 0-100."
+      b:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        description: "Blue channel duty 0-100."
+      w:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        description: "Warm-white channel duty 0-100."
+    verification: "reported"
+  reboot:
+    description: "Reboot the bulb (UDP). Credentials survive."
+    transport: "udp"
+    body: '{"func":"reboot","param":{}}'
+    verification: "reported"
+  factory_reset:
+    description: "Factory-reset the bulb over UDP: clears Wi-Fi and cloud URLs and returns it to the setup AP."
+    transport: "udp"
+    body: '{"func":"factory_reset","param":{}}'
+    advanced: true
+    advanced_reason: "Drops the bulb off the network; recovery is the provisioning exchange over its setup AP (setup.methods[0]), which needs someone within Wi-Fi range of the bulb."
+    verification: "reported"
+  set_factory_mode:
+    description: "Enter the firmware's factory/test mode (set_factory_mode). What it changes is not documented; get_factory_mode reads it back."
+    transport: "udp"
+    body: '{"func":"set_factory_mode","param":{}}'
+    advanced: true
+    advanced_reason: "Undocumented mode on production firmware. Read get_factory_mode first so the previous value is known; a reboot is the only recovery anyone has reported."
+    verification: "reported"
+  update_led_firmware:
+    description: "Tell the bulb to fetch a firmware image from an HTTP URL and write it to its OTA slot (UDP). The MQTT 'update' type does the same."
+    transport: "udp"
+    body: '{"func":"update_led_firmware","param":{"ota_url":"{ota_url}"}}'
+    parameters:
+      ota_url:
+        type: "string"
+        required: true
+        description: "http:// URL of a .bin the bulb can reach. The image must be built for the ESP8266 RTOS SDK ota_1 slot at 0x110000 on the ESP8266 models; the EMW3091 and MX1290 models take Sengled's own images only."
+    advanced: true
+    advanced_reason: "Replaces the firmware. A generic ESP8266 image, or any image on a non-ESP8266 model, bricks the bulb with no software recovery; the only route back is serial flashing of a module whose pads sit under capacitors. Keep Sengled's own image or a known-good shim to hand and use only the model-specific images the open-source projects publish."
+    verification: "reported"
+  mqtt_turn_on:
+    description: "Turn on over MQTT."
+    transport: "mqtt"
+    path: "wifielement/{mac}/update"
+    body: '[{"dn":"{mac}","type":"switch","value":"1","time":{time}}]'
+    parameters:
+      mac:
+        type: "string"
+        source: "credential:mac"
+        description: "The bulb's Wi-Fi MAC, uppercase colon-separated, as returned by startConfigRequest or search_devices."
+      time:
+        type: "integer"
+        required: true
+        unit: "ms"
+        description: "Current Unix time in milliseconds."
+    verification: "reported"
+  mqtt_turn_off:
+    description: "Turn off over MQTT."
+    transport: "mqtt"
+    path: "wifielement/{mac}/update"
+    body: '[{"dn":"{mac}","type":"switch","value":"0","time":{time}}]'
+    parameters:
+      mac:
+        type: "string"
+        source: "credential:mac"
+        description: "The bulb's Wi-Fi MAC, uppercase colon-separated."
+      time:
+        type: "integer"
+        required: true
+        unit: "ms"
+        description: "Current Unix time in milliseconds."
+    verification: "reported"
+  mqtt_set_brightness:
+    description: "Set brightness 0-100 over MQTT."
+    transport: "mqtt"
+    path: "wifielement/{mac}/update"
+    body: '[{"dn":"{mac}","type":"brightness","value":"{level}","time":{time}}]'
+    parameters:
+      mac:
+        type: "string"
+        source: "credential:mac"
+        description: "The bulb's Wi-Fi MAC, uppercase colon-separated."
+      level:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        unit: "%"
+        description: "Brightness percent, sent as a decimal string."
+      time:
+        type: "integer"
+        required: true
+        unit: "ms"
+        description: "Current Unix time in milliseconds."
+    verification: "reported"
+  mqtt_set_color:
+    description: "Set RGB colour over MQTT as a colon-separated decimal string."
+    transport: "mqtt"
+    path: "wifielement/{mac}/update"
+    body: '[{"dn":"{mac}","type":"color","value":"{red}:{green}:{blue}","time":{time}}]'
+    parameters:
+      mac:
+        type: "string"
+        source: "credential:mac"
+        description: "The bulb's Wi-Fi MAC, uppercase colon-separated."
+      red:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 255
+        description: "Red 0-255."
+      green:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 255
+        description: "Green 0-255."
+      blue:
+        type: "uint8"
+        required: true
+        min: 0
+        max: 255
+        description: "Blue 0-255."
+      time:
+        type: "integer"
+        required: true
+        unit: "ms"
+        description: "Current Unix time in milliseconds."
+    verification: "reported"
+  mqtt_set_color_temperature:
+    description: "Set colour temperature 0-100 over MQTT; the reference client sends switch 1 in the same array, which this body does."
+    transport: "mqtt"
+    path: "wifielement/{mac}/update"
+    body: '[{"dn":"{mac}","type":"colorTemperature","value":"{level}","time":{time}},{"dn":"{mac}","type":"switch","value":"1","time":{time}}]'
+    parameters:
+      mac:
+        type: "string"
+        source: "credential:mac"
+        description: "The bulb's Wi-Fi MAC, uppercase colon-separated."
+      level:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        description: "0 = warmest (about 2700 K per the reference), 100 = coolest (6500 K)."
+      time:
+        type: "integer"
+        required: true
+        unit: "ms"
+        description: "Current Unix time in milliseconds."
+    verification: "reported"
+  mqtt_reset:
+    description: "Reset the bulb over MQTT (the CLI's --reset). Reported to return it to provisioning."
+    transport: "mqtt"
+    path: "wifielement/{mac}/update"
+    body: '[{"dn":"{mac}","type":"reset","value":"1","time":{time}}]'
+    parameters:
+      mac:
+        type: "string"
+        source: "credential:mac"
+        description: "The bulb's Wi-Fi MAC, uppercase colon-separated."
+      time:
+        type: "integer"
+        required: true
+        unit: "ms"
+        description: "Current Unix time in milliseconds."
+    advanced: true
+    advanced_reason: "Drops the bulb off the network and the broker; recovery is the setup-AP provisioning exchange within Wi-Fi range of the bulb."
+    verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud", "custom"]
+      transport: "http"
+      image:
+        signing: "unknown"
+        source: "device_pulls"
+        format: "Raw application image for the ESP8266 RTOS SDK ota_1 slot (0x110000) on the ESP8266 models; Sengled's own images on the EMW3091 and MX1290 models."
+        notes: >
+          Sengled pushed updates by publishing an update URL on the bulb's
+          MQTT topic; the UDP update_led_firmware function takes the same
+          URL. SengledTools serves a .bin from its own HTTP server and
+          waits up to 300 s for the download to start. Whether the
+          bootloader checks a signature is not established; the ESP8266
+          models accept community images, which suggests it does not.
+      enter:
+        how: "in_place"
+        command: "update_led_firmware"
+        notes: >
+          The running firmware fetches the image itself and reboots into
+          it; there is no separate bootloader mode to recognise. The
+          rescue shim that SengledTools loads first is what then hosts its
+          own setup AP with a web flasher -- that is the shim's behaviour,
+          not the stock bulb's, and is not specified here.
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Two slots exist (the image goes to ota_1 while the stock app runs
+          from the other), which suggests an interrupted download keeps the
+          old image, but nobody has reported testing it. A wrong image that
+          completes bricks the bulb.
+      verification: "reported"
+      notes: >
+        Flashing Tasmota/ESPHome/WLED is documented by SengledTools for
+        W31-N15, W31-N11 and W21-U23 only. It is out of scope here; this
+        entry records that the OTA surface exists and what it costs to get
+        wrong.
+
+entities:
+  - platform: "light"
+    name: "Sengled Wi-Fi Light"
+    features: ["brightness", "rgb", "color_temp"]
+    state_command: "get_state"
+    commands:
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+      set_brightness: "set_brightness"
+      set_color: "set_color"
+      set_color_temperature: "set_color_temperature"
+    notes: >
+      Over UDP 9080. Offer rgb and color_temp only when the get_state reply
+      carries R, G and B (white bulbs answer with W alone). Power is on when
+      any channel's freq is 0; brightness is best read with get_brightness
+      (0-100 %); the last-sent colour and colour temperature should be
+      cached, since the reply gives channel levels, not Kelvin. Poll no
+      sooner than 2 s after a command. The mqtt_* commands are the same
+      controls on the re-pointed broker and are left unbound here because a
+      consumer needs a broker and the bulb's MAC before it can use them.
+
+evidence:
+  documentation_review: >
+    Read on 2026-10-11: HamzaETTH/SengledTools (master) -- README, the
+    three docs/references files, INSTRUCTIONS_ADVANCED.md, the HA custom
+    component, and the behaviour of its udp, wifi_setup, crypto,
+    http_server, mqtt_broker, mqtt_client, command_handler and diagnose
+    modules; FalconFour/HA-Sengled-Local-Server-AddOn (main, end of
+    maintenance December 2025) -- README, CHANGELOG, its HTTP server, MQTT
+    listener, device storage, certificate manager and Mosquitto config. The
+    two agree on every endpoint, topic and payload shape; the add-on
+    credits SengledTools for the protocol work. The RC4 test vectors were
+    computed here from the documented algorithm. Manufacturer status is
+    from PCWorld (2025-07-31), Inside Lighting (2025-06-23) and LightNOW
+    (2025-08-15). The reset is from support.com's guide and the
+    SengledTools README; the two disagree with a retailer guide on the
+    count.
+  artifacts:
+    - type: "community_repo"
+      artifact: "HamzaETTH/SengledTools, branch master (no licence file)"
+      url: "https://github.com/HamzaETTH/SengledTools"
+      obtained_via: "GitHub, 2026-10-11"
+      description: "The UDP function catalogue, the setup-AP exchange and its RC4 key, the stand-in HTTP endpoints and replies, the broker TLS constraints, the MQTT message vocabulary, the model/module table. No code transcribed."
+    - type: "community_repo"
+      artifact: "FalconFour/HA-Sengled-Local-Server-AddOn, branch main, 1.0.16 (MIT)"
+      url: "https://github.com/FalconFour/HA-Sengled-Local-Server-AddOn"
+      obtained_via: "GitHub, 2026-10-11"
+      description: "Independent server-side implementation: the two HTTP replies, the URL-mangling quirk, the <MAC>@wifielement client id and query-string username, the status array shape and supportAttributes handling, the topic ACL."
+    - type: "community_thread"
+      artifact: "PCWorld, 'Amazon yanks Sengled's Alexa skill after a series of service outages', 2025-07-31"
+      url: "https://www.pcworld.com/article/2864586/amazon-yanks-sengleds-alexa-skill-after-a-series-of-service-outages.html"
+      description: "Amazon's statement and the 1 August 2025 removal date."
+    - type: "vendor_documentation"
+      artifact: "support.com, 'How to reset the Sengled Smart Wi-Fi LED bulb' (third-party support site)"
+      url: "https://www.techsolutions.support.com/how-to/how-to-reset-the-sengled-smart-wi-fi-led-bulb-15391"
+      description: "Five off/on cycles from on; three flashes then two blinks."
+  open_questions: >
+    The Kelvin ends of the 1-100 colour-temperature scale; the meaning and
+    units of freq/value in channel reports; what config_state, bind_state
+    and mqtt_state encode; whether the bulb validates the broker's
+    certificate chain or the time field; what the accessCloud.json POST
+    body carries; the setup-AP suffix rule; and whether the five-cycle
+    reset is right for every model.
+
+remaining_unknowns:
+  - "Colour-temperature scale endpoints: the HA integration assumes 2000-6500 K over 1-100 and the MQTT reference 2700-6500 K over 0-100; nobody has measured a bulb."
+  - "Channel report semantics: `freq` 0 is read as 'on' and `value` as a level, but neither source states units or whether freq is a PWM period."
+  - "The meaning of config_state, bind_state and mqtt_state in the search_devices reply, and of the mode values behind get_device_mode / set_color_mode."
+  - "Whether the bulb verifies the broker certificate at all (both reference brokers are self-signed and the bulbs connect); whether the CA must persist across re-provisioning."
+  - "The body the bulb POSTs to accessCloud.json, and whether any field in either reply besides host/port is read."
+  - "Whether the 'Os$' prefix seen on vendor-cloud update messages is ever required."
+  - "The energy units of consumption and consumptionTime."
+  - "Factory-reset count: five cycles (support.com, SengledTools) versus ten (a retailer guide); the blink confirmation is from support.com only."
+  - "Which W-series models beyond W31-N15 and W11-N13 are colour; the setup-AP SSID suffix rule; the OUI(s) of the Wi-Fi modules (not recorded here because the only MACs in the sources are the authors' own units)."
+  - "Whether UDP 9080 answers while a bulb has no Wi-Fi credentials at all (it answers on the setup AP at 192.168.8.1 for provisioning; control functions there are untested)."
+
+helpful_urls:
+  - title: "HamzaETTH/SengledTools"
+    url: "https://github.com/HamzaETTH/SengledTools"
+    kind: "implementation"
+    description: "CLI, setup wizard, embedded TLS broker/HTTP server and a Home Assistant UDP integration; the reverse engineering this spec rests on. No licence file -- facts only were taken."
+  - title: "SengledTools: Wi-Fi pairing reference"
+    url: "https://github.com/HamzaETTH/SengledTools/blob/master/docs/references/WIFI_PAIRING_REFERENCE.md"
+    kind: "protocol_writeup"
+    description: "The setup-AP exchange step by step, including the two stand-in cloud replies."
+  - title: "SengledTools: UDP commands reference"
+    url: "https://github.com/HamzaETTH/SengledTools/blob/master/docs/references/UDP_COMMANDS_REFERENCE.md"
+    kind: "protocol_writeup"
+    description: "Every known UDP 9080 function with observed replies, the PWM mode caveats and the discovery broadcast."
+  - title: "SengledTools: MQTT commands reference"
+    url: "https://github.com/HamzaETTH/SengledTools/blob/master/docs/references/MQTT_COMMANDS_REFERENCE.md"
+    kind: "protocol_writeup"
+    description: "The update/status topic vocabulary, including scenes, effects and group messages."
+  - title: "FalconFour/HA-Sengled-Local-Server-AddOn"
+    url: "https://github.com/FalconFour/HA-Sengled-Local-Server-AddOn"
+    kind: "implementation"
+    description: "MIT Home Assistant add-on: stand-in HTTP server on 54448 and TLS Mosquitto on 28527 with pattern ACLs; end of maintenance December 2025 but documents the server side independently."
+  - title: "PCWorld: Amazon yanks Sengled's Alexa skill after a series of service outages (2025-07-31)"
+    url: "https://www.pcworld.com/article/2864586/amazon-yanks-sengleds-alexa-skill-after-a-series-of-service-outages.html"
+    kind: "other"
+    description: "Amazon's statement on the skill removal effective 1 August 2025."
+  - title: "Inside Lighting: Smart lighting cloud failure leaves users in the dark (2025-06-23)"
+    url: "https://inside.lighting/news/25-06/smart-lighting-cloud-failure-leaves-users-dark"
+    kind: "other"
+    description: "The June 2025 outage: bulbs unreachable from the app, Alexa and Google Home from about 18 June, no statement from Sengled."
+  - title: "LightNOW: Sengled smart lamps -- service outages, Alexa skill shut down (2025-08-15)"
+    url: "https://www.lightnowblog.com/2025/08/sengled-smart-lamps-service-outages-alexa-skill-shut-down"
+    kind: "other"
+    description: "Trade-press summary of the June-July outages, the skill removal and the reported unpaid-staff dispute."
+  - title: "support.com: How to reset the Sengled Smart Wi-Fi LED bulb"
+    url: "https://www.techsolutions.support.com/how-to/how-to-reset-the-sengled-smart-wi-fi-led-bulb-15391"
+    kind: "other"
+    description: "Third-party support guide: five off/on cycles from on, confirmed by three flashes and two blinks."
+  - title: "Tasmota device template: Sengled RGBW bulb W31-N15"
+    url: "https://templates.blakadder.com/sengled_W31-N15.html"
+    kind: "other"
+    description: "Identifies the W31-N15 as an ESP8266 bulb (PWM on GPIO12-15). Flashing is out of scope for this spec."
+  - title: "Sengled W11-N11 Smart Wi-Fi LED Bulb user manual (ManualsLib)"
+    url: "https://www.manualslib.com/manual/3741920/Sengled-W11-N11.html"
+    kind: "manual"
+    description: >
+      Aggregator copy of the manual for the W11-N11 A19 Wi-Fi bulb (2700 K
+      and 5000 K editions), 18 pages: Sengled Home app setup and the
+      2.4 GHz-only requirement. Pages 10-18 of the bundle are a different
+      product (a light strip). ManualsLib answers non-browser clients with
+      403, so link checkers report it as blocked, not dead. No vendor-hosted
+      PDF could be verified from here; Sengled's Zendesk support site did
+      not complete a TLS handshake when checked.

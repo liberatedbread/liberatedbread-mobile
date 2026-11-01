@@ -13,6 +13,13 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     status moves too: a shutdown date given here can slip, get reversed (Anova
     did exactly that), or arrive early.
 
+    Progress against this list, and new finds since it was written, are logged
+    week by week in [Weekly Device Sweeps](weekly-sweeps.md). Done so far from
+    *Do these next*: #1 Instant Pot, #2 AM43, #3 JuiceBox, #5 Sengled, #7 Yummly,
+    #6 BiSecur, #8 LIVISI, #15 Drobo, #16 Kano wand, #17 TiVo, #18 Hot Wheels
+    id, #19 TRÅDFRI gateway, #22 Insteon Hub; from the category tables: Orbit
+    B-hyve; from *Graduate these research notes*: QardioArm, Insteon Hub.
+
 This page answers one question: **which locally-controllable devices does the
 catalogue still lack, and which of them should be written up next?** It follows
 the older [candidates survey](device-candidates.md), which was checked against
@@ -154,7 +161,7 @@ JuiceBox, and a plug-in OBD dongle for the Nissan Leaf.
 
 18. **Hot Wheels id Smart Track Race Portal (FXB53)** — [A] · effort S. Mattel's Hot Wheels id app was discontinued on 2024-01-01 according to the community project, leaving the Race Portal (FXB53) without official software. The portal is phone-direct: it advertises HWiD over BLE and exposes three services for authentication, data and control, then reports each car's NFC UID, serial and NDEF records along with float32 speed and lap events. One small repository already has a PROTOCOL.md, so a clean spec mainly adds durability. Cite the retirement date as community-sourced, and describe the car-ID structure without copying Mattel's ID tables. Sources: [hotwheels-portal BLE protocol](https://github.com/mtxmiller/hotwheels-portal)
 
-19. **IKEA TRÅDFRI Gateway E1526 (CoAP over DTLS-PSK)** — [A] · effort M. IKEA stopped updating the TRÅDFRI gateway in July 2024 in favour of DIRIGERA, leaving a very widely owned Zigbee gateway frozen. It works fully locally: coaps on UDP 5684, a PSK obtained from the label's security code, and GET/PUT on LwM2M/IPSO resources for devices, groups and scenes. A good prose reference exists, so the value is consolidation: fixtures, the pairing state machine and the object-ID tables, in the same shape as osram-lightify-gateway. The main risk is the phone side, since Flutter/Dart DTLS 1.2 PSK support is thin. Sources: [TRÅDFRI CoAP docs (glenndehaan)](https://github.com/glenndehaan/ikea-tradfri-coap-docs) · [Debugging CoAPS with TRÅDFRI gateway](https://github.com/Jan21493/Debugging-COAPS-with-IKEA-Tradfri-gateway)
+19. **IKEA TRÅDFRI Gateway E1526 (CoAP over DTLS-PSK)** — [A] · effort M. IKEA stopped adding features to the TRÅDFRI gateway in April 2024 in favour of DIRIGERA (security firmware continued into 2026; see the [2026-10-18 sweep](weekly-sweeps.md#2026-10-18)), leaving a very widely owned Zigbee gateway frozen. It works fully locally: coaps on UDP 5684, a PSK obtained from the label's security code, and GET/PUT on LwM2M/IPSO resources for devices, groups and scenes. A good prose reference exists, so the value is consolidation: fixtures, the pairing state machine and the object-ID tables, in the same shape as osram-lightify-gateway. The main risk is the phone side, since Flutter/Dart DTLS 1.2 PSK support is thin. Sources: [TRÅDFRI CoAP docs (glenndehaan)](https://github.com/glenndehaan/ikea-tradfri-coap-docs) · [Debugging CoAPS with TRÅDFRI gateway](https://github.com/Jan21493/Debugging-COAPS-with-IKEA-Tradfri-gateway)
 
 20. **Oura Ring Gen3 and Ring 4, BLE sync protocol** — [A] · effort M. Oura gates detailed data behind a paid membership, yet the ring itself speaks BLE GATT directly to the phone. After an AES-128 nonce exchange under a 16-byte per-ring key, a client can read battery, live heart rate, SpO2 and the history-event stream with no Oura account. Public RE from 2025-26 is spread across open_oura, its forks and ringverse, so a clean-room consolidation would help owners of used rings or lapsed memberships. Carry only wire facts, no app internals or scoring models, and label health fields non-clinical. Sources: [open_oura Rust toolkit](https://github.com/Th0rgal/open_oura) · [ringverse Oura Ring 4 BLE](https://github.com/ringverse/protocol/blob/main/oura/BLE.md)
 

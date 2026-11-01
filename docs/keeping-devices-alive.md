@@ -315,7 +315,10 @@ buying again.
    local-API device; integrations keyed to IPs outlive mDNS changes.
 3. **Quarantine, don't amputate.** Devices that work locally can be denied
    WAN access at the router — but block *internet*, not the LAN, and keep DNS
-   redirection rules documented for the devices in §2.
+   redirection rules documented for the devices in §2. The per-device DNS
+   blocklists generated from the specs, and which names must *not* be blocked
+   (a clock, most often), are in
+   [Blocking Vendor Updates and the Cloud](blocking-vendor-updates.md).
 4. **Archive the app.** Keep an offline copy of the vendor APK/IPA and its
    version number; it is often the only place OTA images and setup flows live
    (the Magic Display OTA images survived precisely because they were bundled

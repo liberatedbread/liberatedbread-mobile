@@ -401,6 +401,47 @@ cloud:
     - "https://messaging.junelife.com (REST /1/messaging/… and the companion/oven WebSocket channels)"
     - "https://recipes.junelife.com (recipe catalog — never captured)"
     - "https://devices-ota.walker-cloud.com and https://dev-devices-ota.junelife.com (OTA; see the ota block)"
+  egress:
+    - host: "dev-devices-ota.junelife.com"
+      contacted_by: "device"
+      roles: ["firmware_check", "firmware_download"]
+      when_blocked:
+        impact: "none"
+        effect: >
+          No update reaches the oven. The same service was the only known way
+          to finish first boot on a factory-reset oven, which needs a cloud
+          download to get there; the service retired on 2026-09-22, so the
+          block now costs nothing that has not already gone — and a June oven
+          should not be factory-reset either way.
+      verification: "reported"
+      basis: >
+        The Weber cloud SDK's production configuration for legacy June devices
+        points them at this (nominally dev) host, and devices-ota.junelife.com
+        has no DNS; its login answered on a live probe 2026-08-18. See
+        protocol_details.ota.
+    - host: "devices-ota.walker-cloud.com"
+      contacted_by: "device"
+      roles: ["firmware_check", "firmware_download"]
+      when_blocked:
+        impact: "none"
+        effect: "As for dev-devices-ota.junelife.com: no update reaches the oven."
+      verification: "hypothesis"
+      basis: >
+        Weber's production OTA host, alive on 2026-08-18. Whether June ovens
+        were ever moved onto it is unknown; the SDK config says legacy devices
+        use the junelife host above (protocol_details.ota).
+    - host: "messaging.junelife.com"
+      contacted_by: "both"
+      roles: ["device_cloud", "firmware_check"]
+      when_blocked:
+        impact: "none"
+        effect: >
+          Remote control, camera stills, guided cooks and push notifications
+          stop, as they did for everyone at the 2026-09-22 shutdown. The oven
+          still cooks from its touchscreen. Production updates were offered
+          in-band on this channel, so blocking it also stops the offer.
+      verification: "reported"
+      basis: "The oven's WebSocket channel host (this block's hosts and protocol_details.ota's note that production delivery was in-band over the oven's WSS channel)."
   notes: >
     Every host has a dev- staging twin (dev-api., dev-messaging.,
     dev-recipes.junelife.com) hardcoded in the app's environment enum. All

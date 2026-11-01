@@ -1,0 +1,1279 @@
+# Yummly Smart Thermometer (T1/T3 base + P1/P3 probe) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code):
+#   - DavisGoglin/yummly-thermometer (MIT): README.md, docs/PROTOCOL.md,
+#     docs/NOTES.md, docs/captures/capture.py, src/yummly_thermo/thermo.py —
+#     a BLE client recovered from the vendor Android app and run against one
+#     T1 base + P1 probe (XW2 generation) in August 2026. Every byte-level
+#     fact below is restated from it; the XW3 (T3/P3) section is that
+#     project's reading of the app and has never been run against hardware.
+#   - Yummly YTE000W5K user manual (ManualsLib): parts list, batteries,
+#     first charge, care guide.
+#   - Whirlpool/Amana product-help pages for the thermometer (Wayback
+#     snapshots): setup steps, blue LED behaviour, specifications.
+#   - Yummly Help Center "Smart Thermometer" category (Wayback snapshot of
+#     21 December 2024): the shutdown notice.
+#   - Plan to Eat blog (December 2024) and The Spoon (April 2024): the
+#     shutdown date and the Whirlpool layoffs.
+
+device:
+  name: "Yummly Smart Thermometer (T1/T3 base, P1/P3 probe)"
+  manufacturer: "Yummly (Whirlpool Corporation brand); hardware reported as a Mastrad Meat°it white-label"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The XW2 (T1 + P1) facts
+      were run against one unit by DavisGoglin/yummly-thermometer in August
+      2026; its temperature decode agreed with a reference thermometer at
+      room temperature. The XW3 (T3 + P3) facts are that project's reading
+      of the vendor app and have been run against nothing. Every fixed
+      frame and worked vector below is checked by
+      scripts/test_yummly_smart_thermometer_spec.py against the algorithm
+      the spec states.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "sensor"
+  type: "wireless-meat-thermometer"
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      Undercooked meat is a food-safety hazard: these readings come from an
+      unofficial decode of an undocumented protocol and must not be the only
+      check that food is done.
+    detail: >
+      The core temperature leaves the probe as a bit-rotated 20-bit number
+      whose rotation count rides in its own top four bits; a client that
+      skips the un-rotation shows a conspicuous nonsense value, but one that
+      mis-reads the selector or the field width shows a plausible wrong
+      temperature. Firmware clamps the decoded core reading to 32.0-212.0 F
+      and the body reading to 32-572 F, so a reading pinned at a limit may be
+      hiding a fault rather than reporting a temperature. The second channel
+      is the probe body, not the air of the oven or grill; the vendor app ran
+      it through an estimation model before calling it "ambient". Confirm
+      doneness with an instant-read thermometer against the published safe
+      minimum internal temperatures (FoodSafety.gov), and keep the probe out
+      of microwaves, pressure cookers, steam ovens and direct flame as the
+      manual says. This document is unaffiliated with Yummly or Whirlpool.
+    advisory_url: "https://www.foodsafety.gov/food-safety-charts/safe-minimum-internal-temperatures"
+  notes: >
+    A wireless meat thermometer: a stainless probe (P1 or P3) with a core
+    sensor in the tip and a second sensor in the body, charged in and
+    relayed by a battery-powered dock (T1 or T3) that the phone talks to
+    over BLE GATT. The probe never speaks to the phone directly in the
+    documented flow; the dock is the peripheral and forwards probe frames
+    wrapped in the probe's address.
+
+    Yummly was a Whirlpool brand. Whirlpool laid the team off in April 2024
+    and shut the website and apps down on 20 December 2024; the help centre
+    said the thermometer function would stop on 18 December 2024, and owners
+    report the app refusing to read the probe from then on. The hardware is
+    unaffected: with the handshake below any BLE client reads it. The
+    open-source client this spec rests on reports that the same hardware is
+    sold by Mastrad as the Meat°it (the vendor app's scanner also accepts
+    the legacy names "Meat D2" and "Meat X1", and the firmware bundle names
+    a 74500-series model), so the Mastrad app may still drive a Yummly unit;
+    none of that is confirmed here.
+
+    Two generations share this spec and differ in almost everything on the
+    wire. XW2 (T1 base, P1 probe) carries TLV frames on one UART-style
+    service, requires a one-byte challenge reply after connecting, and packs
+    temperatures and battery in a bit-rotation obfuscation; it is the
+    generation that has been run. XW3 (T3 base, P3 probe) exposes plain
+    characteristics per reading with no challenge and is documented from the
+    app alone. The XW2 wire unit is Fahrenheit; the XW3 wire unit is
+    Celsius.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/DavisGoglin/yummly-thermometer"
+    notes: >
+      No vendor publication. One open-source client (MIT) recovered the
+      protocol from the vendor Android app and verified the XW2 generation on
+      a single unit; no second independent implementation was found (2026-10).
+
+  variants:
+    - model: "T1+P1 (XW2)"
+      identification:
+        local_name_contains: ["Yummly T1", "Meat D2"]
+      notes: >
+        The generation sold in the US as Yummly YTE000W5KB (graphite) and
+        YTE000W5KW (white); firmware bundle names YTE000W5KD01/KD31 (dock)
+        and YTE000W5KP01/KP02/KP31 (probe). Legacy/white-label names "Meat
+        D2" (dock) and "Meat X1" (probe). TLV over the 6e40abcd service,
+        challenge handshake, bit-rotation packing. Run against hardware by
+        the source project.
+    - model: "T3+P3 (XW3)"
+      identification:
+        local_name_contains: ["Yummly T3"]
+      notes: >
+        Protocol-mapped from the vendor app only; NOT run against hardware
+        by anyone known to this project. Reported white-label name "Meatit
+        X3" (firmware bundle names 74500P probe, 74500R dock). Dedicated
+        characteristics per reading, no challenge, plain int16 Celsius.
+
+  identification:
+    local_names: ["Yummly T1", "Yummly T3", "Meat D2"]
+    manufacturer_data:
+      company_id: 711
+      company_id_hex: "0x02C7"
+      additional_company_ids: [50946]
+      description: >
+        The vendor app reads the two company-id bytes of the manufacturer
+        record big-endian and gets 0xC702 (50946); read little-endian as the
+        Bluetooth SIG defines them that is 0x02C7 (711, listed by the SIG as
+        Electronics Tomorrow Limited), which is what a bleak/Android scanner
+        will report. Both are declared because the only published client
+        accepts both. Reported, not observed by this project.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            values: ["Yummly T1", "Yummly T3", "Meat D2"]
+          manufacturer_data:
+            company_id: 711
+            additional_company_ids: [50946]
+            description: >
+              Company id alone; the payload after it is reported as a
+              little-endian product id (0xa001 XW2, 0xa301 XW3), a brand byte
+              (0x02 = Yummly) and bond/whitelist flags, but the byte order of
+              the source's reading is ambiguous, so no pattern is declared.
+              See protocol_details.advertisement_payload.
+        notes: >
+          The vendor app matched exact names: "Yummly T1", "Yummly T3", "Meat
+          D2" for docks (and "Yummly P1", "Yummly P3", "Meat X1" for probes,
+          plus "DFU T3"/"DFU P3" in update mode). Connect to the DOCK. The
+          open-source client additionally accepts any name starting "Yummly
+          T". The dock advertises only while awake: lift the probe out of the
+          dock, or wait for the blue LED to blink.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+      notes: >
+        The one documented T1 used a random static address (top two bits
+        set), which on this chip family is fixed per unit and survives power
+        cycles, so the address is usable as identity; it is not a public
+        address and carries no OUI.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision. The vendor flow activated the dock through a
+      web page and the Yummly account, both gone; the hardware never needed
+      it. Charge the probe in the dock, wake the dock, connect, answer the
+      one-byte challenge, and the temperature stream starts on its own.
+    methods:
+      - type: "ble_direct"
+        name: "XW2 (T1 + P1): connect to the dock and answer the challenge"
+        role: "variant"
+        verified: false
+        description: >
+          For the T1 dock with a P1 probe (XW2; local name "Yummly T1" or
+          "Meat D2"). Connect to the dock, enable notifications on the
+          6e40aa03 characteristic, wait for the dock's challenge ping (01 ab,
+          repeated about every 2 s), write the three-byte reply on 6e40aa02,
+          then read what you need with request frames. Probe temperature
+          frames arrive unrequested about every 2 s once the challenge is
+          answered. Run against hardware by the source project.
+        ble:
+          pairing_required: false
+          service_uuid: "6e40abcd-b5a3-f393-e0a9-e50e4159414d"
+          write_characteristic: "6e40aa02-b5a3-f393-e0a9-e50e4159414d"
+          read_characteristic: "6e40aa03-b5a3-f393-e0a9-e50e4159414d"
+        steps:
+          - action: "Open the dock's battery lid, fit two AAA cells, and seat the probe in the dock to charge it for at least 30 minutes before first use (the manual's steps 1-2)."
+            actor: "user"
+          - action: "Wake the dock: lift the probe out, or wait until the dock's blue LED blinks. It does not advertise while asleep."
+            actor: "user"
+            expect: "A scan shows the dock by name (Yummly T1 / Yummly T3 / Meat D2)."
+          - action: "Connect to the dock and enable notifications on 6e40aa03-b5a3-f393-e0a9-e50e4159414d."
+            actor: "client"
+            expect: "Within about 2 s a two-byte notification 01 ab arrives (the challenge ping), and repeats every ~2 s until answered."
+            timeout_seconds: 6
+          - action: "Write the challenge reply 02 aa <code> to 6e40aa02-b5a3-f393-e0a9-e50e4159414d, with <code> one of 02, 11 or 28 (see commands.auth_reply). Write with response."
+            actor: "client"
+            expect: "The 01 ab pings stop. If no ping ever arrived, send the reply anyway (the source client does)."
+          - action: "Write request frames one at a time, about a second apart: 01 09 (dock firmware), 01 16 (dock battery), 01 21 (probe address)."
+            actor: "client"
+            expect: "Replies on 6e40aa03: 05 04 '1.53' (firmware), 02 15 xx (battery), 07 20 <6 bytes> (probe address, reversed)."
+          - action: "Listen. Probe frames 07 07 <addr> 04 01 <3 bytes> (core) and 07 07 <addr> 03 02 <2 bytes> (body) arrive about every 2 s. Decode with protocol_details.xw2_rotation_packing."
+            actor: "client"
+            expect: "A core reading near room temperature with the probe out of food (the source project saw 79.8 F against a 79 F reference)."
+      - type: "ble_direct"
+        name: "XW3 (T3 + P3): connect to the dock and subscribe"
+        role: "variant"
+        verified: false
+        description: >
+          For the T3 dock with a P3 probe (XW3; local name "Yummly T3").
+          There is no challenge: connect, enable notifications on the six
+          telemetry characteristics, query the dock with one-byte commands
+          on 6f2f0100, and read the probe through the address the dock
+          reports. The whole sequence is the vendor app's as read by the
+          source project; nobody known to this project has run it.
+        ble:
+          pairing_required: false
+          service_uuid: "f84cbbbb-b8bb-494e-86c5-01fd7341f217"
+          write_characteristic: "6f2f0100-a6b6-4571-8bfd-5fe8a70600f0"
+          read_characteristic: "f84c1001-b8bb-494e-86c5-01fd7341f217"
+        steps:
+          - action: "Fit the dock's cells and seat the probe in the dock to charge it before first use."
+            actor: "user"
+          - action: "Wake the dock: lift the probe out, or wait until the dock's Bluetooth LED blinks. It does not advertise while asleep."
+            actor: "user"
+            expect: "A scan shows the dock as Yummly T3."
+          - action: "Connect to the dock and enable notifications on f84c1001-b8bb-494e-86c5-01fd7341f217, f84c1002-b8bb-494e-86c5-01fd7341f217, f84c2000-b8bb-494e-86c5-01fd7341f217, f84c3001-b8bb-494e-86c5-01fd7341f217, f84c3002-b8bb-494e-86c5-01fd7341f217 and f84c3003-b8bb-494e-86c5-01fd7341f217. The vendor app refused a dock missing any of them."
+            actor: "client"
+          - action: "Write the dock queries one at a time on 6f2f0100-a6b6-4571-8bfd-5fe8a70600f0: 14 (firmware), 11 (model), 13 (production date), 50 (connected probes). Write with response."
+            actor: "client"
+            expect: "Replies on f84c1001 with the command byte first; the 50 reply carries a flag and the probe address, least-significant byte first (payload_formats.Xw3Reply)."
+            timeout_seconds: 6
+          - action: "With the probe address, write the probe queries a0 <address reversed> <cmd> for cmd 11, 13 and 14 (model, production date, firmware), retrying until each reply arrives."
+            actor: "client"
+            expect: "Replies a0 <address> <cmd> <UTF-8> on f84c1001."
+          - action: "Read f84c1002 for the dock battery, then listen: core, body and tip temperatures arrive on f84c3001, f84c3002 and f84c3003 as int16 little-endian tenths of a degree Celsius at offset 6."
+            actor: "client"
+            expect: "Readings near room temperature with the probe out of food. Untested: no one has reported a value from a T3."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Unknown. No stored client credential or bond is known, so a reset
+        would at most clear the dock-probe association (the advertisement
+        carries "bond/whitelist" flags). The manual's parts list names a
+        pairing button on the dock and never says what it does.
+      description: >
+        Nothing published describes a factory reset. The dock has a pairing
+        button (manual parts list) and two indicators (power, Bluetooth);
+        the vendor's own setup never asked for a reset, and the protocol
+        needs none: any client that answers the challenge is served.
+        Removing the AAA cells is the only established way to restart the
+        dock.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE only; there is no network to rejoin and no account binding on
+        the device. Any central that connects and answers the challenge
+        reads the probe. The vendor-account activation lived in the cloud
+        and is irrelevant now.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Dock-probe association (the probe address the dock reports on request 0x21)"
+      issued_to_client: []
+      notes: >
+        The challenge reply is derived from a public constant (brand id 2)
+        and is one of three fixed bytes; it is an application-layer gate,
+        not a secret. No bond, PIN or token exists.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Disconnect any other client (the vendor app, now defunct, or a bridge), lift the probe out to wake the dock, or remove and refit the AAA cells."
+      notes: >
+        A single-central peripheral is assumed from the chip and the app's
+        behaviour; nobody has tried two centrals at once.
+    enter_pairing_mode:
+      required: false
+    notes: >
+      No link-layer pairing or bonding: the vendor app never bonded and the
+      dock answered firmware, battery and probe queries to an unbonded
+      client. The only gate on XW2 is the one-byte challenge reply (command
+      auth_reply); XW3 is reported to have none. The Nordic buttonless-DFU
+      characteristic the dock also carries is never used by the app.
+
+features:
+  - type: "firmware_update"
+    variants: ["T1+P1 (XW2)"]
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        notes: >
+          The vendor app bundled Nordic DFU packages (manifest, .bin
+          application, .dat init packet in the Secure DFU protobuf form) for
+          dock firmware 1.41-1.53 and probe firmware; Secure DFU init packets
+          normally carry an ECDSA P-256 signature, which would make the
+          images deliverable but not rebuildable. Not established.
+      enter:
+        how: "command"
+        command: "enter_probe_dfu"
+        notes: >
+          Request 0xac on 6e40aa02 is the app's "set probe to DFU mode"
+          constant; never observed on the wire. How the DOCK enters its
+          bootloader is not established: it carries the Nordic
+          buttonless-entry characteristic 8ec90003 on 0000fe59, which the
+          app never touches.
+      dfu_mode:
+        notes: >
+          Not observed for XW2. The Nordic Secure DFU default is the name
+          "DfuTarg" at the device address plus one; the XW3 names "DFU T3" /
+          "DFU P3" suggest this family renames its bootloader, so an XW2
+          bootloader may well be "DFU T1" / "DFU P1" — hypothesis.
+      services: ["0000fe59-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+        notes: "Nordic Secure DFU is dual-bank where flash allows; not established for this firmware (nRF52832, SoftDevice S132)."
+      verification: "reported"
+      notes: >
+        Firmware targets nRF52832 with SoftDevice S132; the probe
+        application derives from the Nordic blinky example and the dock from
+        the HRS/RSCS relay example (source project's reading of the bundled
+        images).
+  - type: "firmware_update"
+    variants: ["T3+P3 (XW3)"]
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+      enter:
+        how: "command"
+        command: "enter_base_dfu"
+        notes: >
+          Write 01 to 6f2f0100 for the dock, or a0 <probe address reversed>
+          01 for the probe (command enter_probe_dfu on that characteristic).
+          From the app; untested.
+      dfu_mode:
+        local_names: ["DFU T3", "DFU P3"]
+        notes: "Names the vendor app's scanner accepted for a dock or probe in its bootloader (reported)."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+services:
+  - uuid: "6e40abcd-b5a3-f393-e0a9-e50e4159414d"
+    name: "XW2 UART-style TLV service (T1 dock)"
+    notes: >
+      XW2 only. The Nordic UART Service pattern with the short parts changed
+      (6e40 0001/0002/0003 become abcd/aa02/aa03). Requests are written to
+      aa02; replies, the challenge ping and the unrequested temperature
+      stream arrive as notifications on aa03. Every frame in both directions
+      is TLV: size byte, type byte, value. SIZE IS THE INDEX OF THE LAST
+      VALUE BYTE, not the value length — a frame with N value bytes has size
+      N + 1, so 05 04 '1.53' carries four bytes under size 5 and a request
+      with no value is 01 <type>. Probe-related frames are wrapped: 07 07
+      <probe address, 6 bytes reversed> then an inner TLV at offset 8 with
+      the same size rule. Request type bytes and reply type bytes are
+      DIFFERENT numbers (request 0x09 is answered by reply type 0x04); a
+      request sent with a reply type byte is silently ignored. See
+      protocol_details.xw2_request_reply_types.
+    characteristics:
+      - uuid: "6e40aa02-b5a3-f393-e0a9-e50e4159414d"
+        name: "Request (write)"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          Written with response. Dock-targeted requests are two bytes 01
+          <request>. Probe-targeted requests are the wrapper 07 07 <probe
+          address reversed> 01 <request>; the address comes from the 0x21
+          reply (or from the wrapper of any streamed probe frame) and goes
+          on the wire least-significant byte first — aa:bb:cc:dd:ee:ff is
+          written ff ee dd cc bb aa. The source client paces requests about
+          0.8-1.5 s apart.
+        commands:
+          auth_reply:
+            description: >
+              Answer the dock's challenge ping (01 ab). Three bytes: 02 aa
+              <code>, where <code> is the brand id 2 rotated right by s bits
+              within a 4-bit field with s in the top nibble, for s in 0..2 —
+              giving 02, 11 or 28. The dock has no clock and accepts any of
+              the three; the vendor app picked one by its clock. Send once
+              per connection, before any request; also send it if no ping
+              arrives within a few seconds.
+            encoding: "bytes"
+            template: [0x02, 0xaa, "{code}"]
+            parameters:
+              code:
+                type: "uint8"
+                allowed: [0x02, 0x11, 0x28]
+                labels: ["rotation 0", "rotation 1", "rotation 2"]
+                default: 0x02
+                description: "Any of the three accepted challenge codes; 0x02 (rotation 0) is the plain brand id."
+            verification: "reported"
+          get_base_firmware:
+            description: "Dock firmware version; reply type 0x04 carries an ASCII string (seen: 05 04 '1.53')."
+            encoding: "bytes"
+            value: [0x01, 0x09]
+            verification: "reported"
+          get_base_model:
+            description: "Dock model string; reply type 0x27. The one unit observed returned twelve NUL bytes."
+            encoding: "bytes"
+            value: [0x01, 0x28]
+            verification: "reported"
+          get_base_battery:
+            description: "Dock battery; reply type 0x15 carries one rotation-packed byte (payload_formats.Xw2Battery; seen: 02 15 2d = 3 of 4 bars)."
+            encoding: "bytes"
+            value: [0x01, 0x16]
+            verification: "reported"
+          get_base_production_date:
+            description: "Dock production date string; reply type 0x2b. Observed blank."
+            encoding: "bytes"
+            value: [0x01, 0x2c]
+            verification: "reported"
+          get_base_rssi:
+            description: "Dock-side RSSI; reply type 0x24 carries one signed byte in dBm. Request and reply share the byte 0x24 (the only pair that does); not observed on the wire."
+            encoding: "bytes"
+            value: [0x01, 0x24]
+            verification: "reported"
+          get_probe_mac:
+            description: "Address of the probe the dock is relaying; reply type 0x20 carries six bytes reversed (payload_formats.Xw2ProbeMac). All zeros means no probe."
+            encoding: "bytes"
+            value: [0x01, 0x21]
+            verification: "reported"
+          get_probe_status:
+            description: >
+              Probe link status; reply is a wrapped frame with inner type
+              0x1e and one status byte, 0x04 = connected (payload_formats.
+              Xw2ProbeStatus). The one observed unit answered 0x05 with an
+              all-zero address while the probe was streaming, so the reply
+              may reflect the vendor-app registration rather than the radio
+              link.
+            encoding: "bytes"
+            value: [0x01, 0x32]
+            verification: "reported"
+          get_probe_firmware:
+            description: "Probe firmware string; wrapped reply, inner type 0x12 (seen '1.53')."
+            encoding: "bytes"
+            template: [0x07, 0x07, "{probe_mac}", 0x01, 0x11]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "The probe address as the dock reports it in the 0x20 reply: six bytes, least-significant first. Sent back unchanged."
+            verification: "reported"
+          get_probe_name:
+            description: "Probe name string; wrapped reply, inner type 0x22 (seen 'Yummly P1' with a trailing NUL)."
+            encoding: "bytes"
+            template: [0x07, 0x07, "{probe_mac}", 0x01, 0x23]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x20 reply."
+            verification: "reported"
+          get_probe_model:
+            description: "Probe model string; wrapped reply, inner type 0x29. Observed blank."
+            encoding: "bytes"
+            template: [0x07, 0x07, "{probe_mac}", 0x01, 0x2a]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x20 reply."
+            verification: "reported"
+          get_probe_production_date:
+            description: "Probe production date string; wrapped reply, inner type 0x2d. Observed blank."
+            encoding: "bytes"
+            template: [0x07, 0x07, "{probe_mac}", 0x01, 0x2e]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x20 reply."
+            verification: "reported"
+          get_probe_battery:
+            description: "Probe battery; wrapped reply, inner type 0x03, one rotation-packed byte (seen 33 = 4 of 4 bars)."
+            encoding: "bytes"
+            template: [0x07, 0x07, "{probe_mac}", 0x01, 0x0c]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x20 reply."
+            verification: "reported"
+          get_probe_rssi:
+            description: "Probe-side RSSI; wrapped reply, inner type 0x13, one signed byte in dBm. Not observed on the wire."
+            encoding: "bytes"
+            template: [0x07, 0x07, "{probe_mac}", 0x01, 0x14]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x20 reply."
+            verification: "reported"
+          enter_probe_dfu:
+            description: >
+              The vendor app's "set probe to DFU mode" request (0xac, dock-
+              targeted). Reboots the probe into its Nordic bootloader so a
+              firmware image can be sent. Never observed on the wire.
+            encoding: "bytes"
+            value: [0x01, 0xac]
+            advanced: true
+            advanced_reason: >
+              Puts the probe into firmware-update mode, where it stops
+              reporting temperature and advertises as a bootloader until an
+              image is flashed or the bootloader times out back to the old
+              firmware (Nordic default about 120 s, not established here).
+              No vendor firmware is available any more; only send this if
+              you hold an image you intend to flash.
+            verification: "reported"
+      - uuid: "6e40aa03-b5a3-f393-e0a9-e50e4159414d"
+        name: "Replies and telemetry (notify)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Carries the challenge ping (01 ab), every reply, and the
+          unrequested probe stream. The format block below describes ONLY the
+          core-temperature stream frame (outer type 07, inner type 01, about
+          every 2 s). The body-temperature frame (inner type 02), battery,
+          status, address and string replies are laid out in payload_formats
+          because the schema binds one layout per characteristic. The packed
+          field is NOT linear: un-rotate it per
+          protocol_details.xw2_rotation_packing before reading it as tenths
+          of a degree Fahrenheit (see protocol_handler). A client that skips
+          the decode shows a conspicuously wrong number (over a million, or
+          ten times too large), not a plausible one.
+        format_match:
+          offset: 9
+          value: 0x01
+          notes: "Inner type 0x01 at offset 9 selects the core-temperature frame; shorter frames have no offset 9 and never match."
+        format:
+          - offset: 0
+            length: 1
+            name: "outer_size"
+            type: "uint8"
+            notes: "0x07: index of the last byte of the outer value (the 6-byte address)."
+          - offset: 1
+            length: 1
+            name: "outer_type"
+            type: "uint8"
+            values:
+              0x07: "probe-wrapped frame"
+          - offset: 2
+            length: 6
+            name: "probe_mac_reversed"
+            type: "bytes"
+            notes: "Probe address, least-significant byte first; aa:bb:cc:dd:ee:ff arrives as ff ee dd cc bb aa."
+          - offset: 8
+            length: 1
+            name: "inner_size"
+            type: "uint8"
+            notes: "0x04 for the core frame: three value bytes."
+          - offset: 9
+            length: 1
+            name: "inner_type"
+            type: "uint8"
+            values:
+              0x01: "core temperature (probe tip)"
+          - offset: 10
+            length: 3
+            name: "core_temp_packed"
+            type: "uint24"
+            endianness: "little"
+            device_class: "temperature"
+            notes: >
+              PACKED, not a linear value: bits 23-20 are the rotation count
+              s, bits 19-0 the core temperature in tenths of a degree F
+              rotated right by s. Decode = rotate the low 20 bits left by s;
+              then clamp to 320..2120 and divide by 10 for degrees F. Worked
+              vectors in protocol_details.xw2_rotation_packing.
+  - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+    name: "Nordic Secure DFU (buttonless entry)"
+    notes: >
+      Present on the T1 dock beside the TLV service; the app never uses it
+      and nothing arrives on it. Firmware-update path only; a GATT explorer
+      should list it read-only.
+    characteristics:
+      - uuid: "8ec90003-f315-4f60-9fb8-838830daea50"
+        name: "Buttonless DFU without bonds"
+        properties: ["write", "indicate"]
+        notes: "Stack characteristic (write 01 reboots into the bootloader). Not exercised by the app or the source project."
+  - uuid: "6f2faaaa-a6b6-4571-8bfd-5fe8a70600f0"
+    name: "XW3 command service (T3 dock)"
+    notes: "XW3 only. One write characteristic carrying one-byte dock commands and eight-byte probe commands. From the app; untested."
+    characteristics:
+      - uuid: "6f2f0100-a6b6-4571-8bfd-5fe8a70600f0"
+        name: "Command (write)"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          Written with response. Dock commands are a single byte. Probe
+          commands are a0 <probe address, 6 bytes reversed> <command>.
+          Replies arrive on f84c1001 with the command byte first.
+        commands:
+          get_base_model:
+            description: "Dock model string; reply 11 <UTF-8>."
+            encoding: "bytes"
+            value: [0x11]
+            verification: "reported"
+          get_base_production_date:
+            description: "Dock production date; reply 13 <UTF-8>."
+            encoding: "bytes"
+            value: [0x13]
+            verification: "reported"
+          get_base_firmware:
+            description: "Dock firmware version; reply 14 <UTF-8>."
+            encoding: "bytes"
+            value: [0x14]
+            verification: "reported"
+          get_connected_probes:
+            description: "Probes the dock is relaying; reply 50 <flag> <6-byte address reversed> (payload_formats.Xw3Reply)."
+            encoding: "bytes"
+            value: [0x50]
+            verification: "reported"
+          get_probe_model:
+            description: "Probe model string; reply a0 <addr> 11 <UTF-8 from byte 8>."
+            encoding: "bytes"
+            template: [0xa0, "{probe_mac}", 0x11]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, least-significant byte first, from the 0x50 reply."
+            verification: "reported"
+          get_probe_production_date:
+            description: "Probe production date; reply a0 <addr> 13 <UTF-8 from byte 8>."
+            encoding: "bytes"
+            template: [0xa0, "{probe_mac}", 0x13]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x50 reply."
+            verification: "reported"
+          get_probe_firmware:
+            description: "Probe firmware version; reply a0 <addr> 14 <UTF-8 from byte 8>."
+            encoding: "bytes"
+            template: [0xa0, "{probe_mac}", 0x14]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x50 reply."
+            verification: "reported"
+          get_probe_alert_temp_1:
+            description: "Probe alert threshold for channel 1; reply a0 <addr> 15 <uint8 at byte 8>. Units and scale of the threshold byte are not established."
+            encoding: "bytes"
+            template: [0xa0, "{probe_mac}", 0x15]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x50 reply."
+            verification: "hypothesis"
+          get_probe_alert_temp_2:
+            description: "Probe alert threshold for channel 2; reply a0 <addr> 16 <uint8 at byte 8>. Units not established."
+            encoding: "bytes"
+            template: [0xa0, "{probe_mac}", 0x16]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x50 reply."
+            verification: "hypothesis"
+          get_probe_alert_temp_3:
+            description: "Probe alert threshold for channel 3; reply a0 <addr> 17 <uint8 at byte 8>. Units not established."
+            encoding: "bytes"
+            template: [0xa0, "{probe_mac}", 0x17]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x50 reply."
+            verification: "hypothesis"
+          enter_base_dfu:
+            description: "Reboot the T3 dock into its Nordic bootloader (advertises as 'DFU T3')."
+            encoding: "bytes"
+            value: [0x01]
+            advanced: true
+            advanced_reason: >
+              Puts the dock into firmware-update mode: it stops relaying the
+              probe and advertises as "DFU T3" until an image is flashed or
+              the bootloader times out back to the old firmware. No vendor
+              image is available any more; only send this holding an image
+              you intend to flash.
+            verification: "reported"
+          enter_probe_dfu:
+            description: "Reboot the P3 probe into its Nordic bootloader (advertises as 'DFU P3')."
+            encoding: "bytes"
+            template: [0xa0, "{probe_mac}", 0x01]
+            parameters:
+              probe_mac:
+                type: "bytes"
+                min_length: 6
+                max_length: 6
+                description: "Probe address, reversed, from the 0x50 reply."
+            advanced: true
+            advanced_reason: >
+              Puts the probe into firmware-update mode, where it stops
+              reporting temperature until an image is flashed or the
+              bootloader times out back to the old firmware. Only send this
+              holding an image you intend to flash.
+            verification: "reported"
+  - uuid: "f84cbbbb-b8bb-494e-86c5-01fd7341f217"
+    name: "XW3 telemetry service (T3 dock)"
+    notes: >
+      XW3 only, from the app, untested. Six notify characteristics; the app
+      refused a dock that lacked any of them (plus the command
+      characteristic). Enable notifications on all six, then write the dock
+      commands 14, 11, 13, 50 on 6f2f0100 and the probe commands once the
+      address is known. Temperatures here are plain int16 little-endian
+      tenths of a degree CELSIUS at offset 6, with no rotation packing.
+    characteristics:
+      - uuid: "f84c1001-b8bb-494e-86c5-01fd7341f217"
+        name: "Command replies (notify)"
+        properties: ["notify"]
+        role: "notify"
+        notes: "Byte 0 echoes the command (11/13/14/50) or is 30 (probe status), 31 (probe RSSI) or a0 (probe sub-reply). Layouts in payload_formats.Xw3Reply."
+      - uuid: "f84c1002-b8bb-494e-86c5-01fd7341f217"
+        name: "Dock battery"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "base_battery_pct"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "0-100; the app mapped it to 0-4 bars for display."
+      - uuid: "f84c2000-b8bb-494e-86c5-01fd7341f217"
+        name: "Probe battery"
+        properties: ["read", "notify"]
+        notes: "At least 7 bytes. Bytes 0-5 are not documented; by analogy with the 0x30 status reply they are probably the probe address reversed (hypothesis)."
+        format:
+          - offset: 6
+            length: 1
+            name: "probe_battery_pct"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+            notes: "0-100; the app mapped it to 0-4 bars."
+      - uuid: "f84c3001-b8bb-494e-86c5-01fd7341f217"
+        name: "Channel 1 temperature (core)"
+        properties: ["notify"]
+        notes: "At least 8 bytes; bytes 0-5 undocumented (probably the probe address reversed — hypothesis). The app clamped channel 1 to 0-100 C."
+        format:
+          - offset: 6
+            length: 2
+            name: "core_temp_raw"
+            type: "int16"
+            endianness: "little"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+      - uuid: "f84c3002-b8bb-494e-86c5-01fd7341f217"
+        name: "Channel 2 temperature (probe body / ambient)"
+        properties: ["notify"]
+        notes: "At least 8 bytes; bytes 0-5 undocumented. The probe body sensor, which the app ran through an estimation model before showing it as the oven temperature."
+        format:
+          - offset: 6
+            length: 2
+            name: "ambient_temp_raw"
+            type: "int16"
+            endianness: "little"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+      - uuid: "f84c3003-b8bb-494e-86c5-01fd7341f217"
+        name: "Channel 3 temperature (tip)"
+        properties: ["notify"]
+        notes: "P3 probes only (the P1 has two sensors). At least 8 bytes; bytes 0-5 undocumented."
+        format:
+          - offset: 6
+            length: 2
+            name: "tip_temp_raw"
+            type: "int16"
+            endianness: "little"
+            scale: 0.1
+            unit: "C"
+            device_class: "temperature"
+
+protocol_handler: "yummly_xw2_tlv"
+
+payload_formats:
+  Xw2Frame:
+    description: >
+      Every XW2 frame on 6e40aa02/6e40aa03: size, type, value. Size is the
+      INDEX OF THE LAST VALUE BYTE (value length + 1); a value-less frame is
+      01 <type>. Strings are ASCII, sometimes NUL-padded.
+    parse_rules:
+      - "Read size = b[0], type = b[1]; the value is b[2 : size + 1] (size - 1 bytes). Reject a frame shorter than size + 1."
+      - "Type 0xab with size 1 is the challenge ping: answer with 02 aa <02|11|28> on 6e40aa02."
+      - "Types 0x04 (dock firmware), 0x27 (dock model), 0x2b (dock production date) carry ASCII; strip trailing NULs. Type 0x15 is Xw2Battery; 0x24 one signed dBm byte; 0x20 is Xw2ProbeMac."
+      - "Type 0x07 is a probe-wrapped frame: b[2:8] is the probe address reversed and an inner TLV starts at offset size + 1 (= 8): inner size b[8], inner type b[9], inner value b[10 : 10 + b[8] - 1]."
+      - "Inner types: 0x01 core temperature (3 bytes, see the 6e40aa03 format block), 0x02 body temperature (Xw2AmbientTemperature), 0x03 probe battery (Xw2Battery), 0x1e probe status (Xw2ProbeStatus), 0x12 firmware / 0x22 name / 0x29 model / 0x2d production date (ASCII, strip NULs), 0x13 RSSI (one signed byte)."
+      - "Any other type: drop the frame (the vendor app did)."
+    example: "05 04 31 2e 35 33"
+  Xw2AmbientTemperature:
+    description: >
+      Probe body ("ambient") temperature stream frame: 07 07 <addr> 03 02
+      <2 bytes>. Arrives unrequested about every 2 s, paired with the core
+      frame.
+    fields:
+      - name: "ambient_temp_packed"
+        description: >
+          uint16 little-endian at frame offset 10: bits 15-12 are the
+          rotation count s, bits 11-0 the temperature in WHOLE degrees F
+          rotated right by s. Decode = rotate the low 12 bits left by s, then
+          clamp to 32..572. Not tenths — this channel is ten times coarser
+          than the core channel.
+    parse_rules:
+      - "Accept only outer type 0x07 with inner type 0x02 at offset 9 and inner size 0x03 at offset 8."
+      - "raw = b[10] | b[11] << 8; s = raw >> 12; low = raw & 0x0fff; value_f = ((low << s) | (low >> (12 - s))) & 0x0fff for s in 0..11 (s is the number of low-order bits that were moved to the top); clamp to 32..572; whole degrees Fahrenheit."
+      - "Treat this as the probe BODY temperature. The vendor app only called it the oven temperature after an estimation model; the one P1 observed read about 8 F here at room temperature before clamping, which the source project took as an uncalibrated or absent sensor on the P1."
+    example: "07 07 01 53 00 5e 00 00 03 02 89 18"
+  Xw2Battery:
+    description: "One rotation-packed byte: dock battery in the 0x15 reply (frame offset 2) or probe battery in the inner-type 0x03 reply (frame offset 10)."
+    fields:
+      - name: "battery_packed"
+        description: "Bits 7-4 are the rotation count s (0..3), bits 3-0 a 4-bit gauge value rotated right by s. Decode = rotate the low nibble left by s: 0..9."
+    parse_rules:
+      - "s = raw >> 4; low = raw & 0x0f; gauge = ((low << s) | (low >> (4 - s))) & 0x0f."
+      - "Bars (the vendor display): gauge 1-3 = 1 bar, 4-5 = 2 bars, 6-8 = 3 bars, 9 = 4 bars, anything else (0, or above 9) = 0 bars."
+      - "Worked: 0x2d -> s=2, low=1101b -> 0111b = 7 -> 3 bars (dock, published frame 02 15 2d). 0x33 -> s=3, low=0011b -> 1001b = 9 -> 4 bars (probe, published)."
+    example: "02 15 2d"
+  Xw2ProbeStatus:
+    description: "Reply to request 0x32: 07 07 <addr> 02 1e <status>."
+    fields:
+      - name: "probe_status"
+        description: "0x04 = connected; any other value = disconnected, byte is a reason code. The observed unit answered 0x05 with an all-zero address while streaming (see remaining_unknowns)."
+    parse_rules:
+      - "Accept only outer type 0x07, inner type 0x1e at offset 9; status is b[10]."
+    example: "07 07 00 00 00 00 00 00 02 1e 05"
+  Xw2ProbeMac:
+    description: "Reply to request 0x21: 07 20 <6 bytes>. The probe's address least-significant byte first; all zeros means no probe is paired to the dock."
+    fields:
+      - name: "probe_mac_reversed"
+        description: "Six bytes at frame offset 2, reversed; reverse them for display. Reuse them unchanged as {probe_mac} in probe-targeted requests."
+    parse_rules:
+      - "Accept only type 0x20 with size 0x07; probe_mac_reversed = b[2:8]."
+    example: "07 20 01 53 00 5e 00 00"
+  Xw3Reply:
+    description: "XW3 notifications on f84c1001 (from the app; untested). Byte 0 selects the layout."
+    fields:
+      - name: "probe_mac_reversed"
+        description: "Probe address least-significant byte first: bytes 2-7 of a 0x50 reply, bytes 1-6 of a 0x30 / 0x31 / 0xa0 reply."
+    parse_rules:
+      - "0x11 / 0x13 / 0x14: dock model / production date / firmware, UTF-8 from byte 1."
+      - "0x50: byte 1 == 0 means no probe; else bytes 2-7 are the probe address reversed."
+      - "0x30: bytes 1-6 probe address reversed, byte 7 status (1 connected, 0 disconnected)."
+      - "0x31: bytes 1-6 probe address reversed, byte 7 RSSI as int8 dBm."
+      - "0xa0: bytes 1-6 probe address reversed, byte 7 the probe command echoed (11 model / 13 production date / 14 firmware: UTF-8 from byte 8; 15/16/17 alert threshold: uint8 at byte 8, units not established)."
+
+entities:
+  - platform: "sensor"
+    name: "Core Temperature"
+    device_class: "temperature"
+    unit: "F"
+    precision: 1
+    variants: ["T1+P1 (XW2)"]
+    state_characteristic: "6e40aa03-b5a3-f393-e0a9-e50e4159414d"
+    state_mapping:
+      value: "core_temp_packed"
+    notes: >
+      Probe-tip (core) temperature, streamed about every 2 s after the
+      challenge reply. The bound field is rotation-PACKED: a consumer must
+      run protocol_details.xw2_rotation_packing (protocol_handler
+      yummly_xw2_tlv) to get tenths of a degree F, then divide by 10. A
+      consumer without that handler must not display this field; shown raw
+      it is an obvious nonsense number, not a plausible one. Food safety:
+      see device.safety_advisory.
+  - platform: "sensor"
+    name: "Core Temperature"
+    device_class: "temperature"
+    unit: "C"
+    precision: 1
+    variants: ["T3+P3 (XW3)"]
+    state_characteristic: "f84c3001-b8bb-494e-86c5-01fd7341f217"
+    state_mapping:
+      value: "core_temp_raw"
+    notes: "Channel 1 of a P3 probe, int16 tenths of a degree C. From the app; untested."
+  - platform: "sensor"
+    name: "Ambient Temperature"
+    device_class: "temperature"
+    unit: "C"
+    precision: 1
+    variants: ["T3+P3 (XW3)"]
+    state_characteristic: "f84c3002-b8bb-494e-86c5-01fd7341f217"
+    state_mapping:
+      value: "ambient_temp_raw"
+    notes: "Channel 2 (probe body) of a P3 probe. The vendor app estimated the oven temperature from it; the raw value is the probe body. Untested."
+  - platform: "sensor"
+    name: "Tip Temperature"
+    device_class: "temperature"
+    unit: "C"
+    precision: 1
+    variants: ["T3+P3 (XW3)"]
+    state_characteristic: "f84c3003-b8bb-494e-86c5-01fd7341f217"
+    state_mapping:
+      value: "tip_temp_raw"
+    notes: "Channel 3, P3 probes only. Untested."
+  - platform: "sensor"
+    name: "Dock Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["T3+P3 (XW3)"]
+    state_characteristic: "f84c1002-b8bb-494e-86c5-01fd7341f217"
+    state_mapping:
+      value: "base_battery_pct"
+    notes: "Readable and notified. Untested. The XW2 dock battery is a rotation-packed byte in a reply (payload_formats.Xw2Battery) and has no entity; see remaining_unknowns."
+  - platform: "sensor"
+    name: "Probe Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["T3+P3 (XW3)"]
+    state_characteristic: "f84c2000-b8bb-494e-86c5-01fd7341f217"
+    state_mapping:
+      value: "probe_battery_pct"
+    notes: "Byte 6 of the notification. Untested."
+
+protocol_details:
+  xw2_rotation_packing:
+    description: >
+      The XW2 generation hides each numeric reading behind a self-describing
+      bit rotation. A packed value has a 4-bit SELECTOR in its top nibble
+      and a FIELD of W bits below it; the field holds the reading rotated
+      RIGHT by selector bits (the selector's worth of the reading's low bits
+      have been moved to the top of the field). Decoding is the inverse: a
+      left rotation of the field by selector bits within W bits. The
+      selector changes from frame to frame (observed values are small), so a
+      client cannot treat any bit position as fixed. Restated from the
+      source project's transcription of the vendor app; the worked vectors
+      marked "computed" were produced from this statement of the algorithm
+      and are checked by scripts/test_yummly_smart_thermometer_spec.py.
+    algorithm:
+      - "Read the packed value little-endian from its bytes: 3 bytes for the core temperature (24 bits, W = 20), 2 bytes for the body temperature (16 bits, W = 12), 1 byte for battery (8 bits, W = 4)."
+      - "s = packed >> W (the top four bits; 0 <= s <= 15, and for W = 12 or W = 4 only s < W is meaningful)."
+      - "field = packed & ((1 << W) - 1)."
+      - "value = ((field << s) | (field >> (W - s))) & ((1 << W) - 1). For s = 0 the field is the value unchanged."
+      - "Equivalently, as the vendor app writes it: m = ((1 << s) - 1) << (W - s); value = ((field & ~m) << s) | ((field & m) >> (W - s))."
+      - "Core temperature: clamp value to 320..2120, then divide by 10 for degrees F (0.1 F resolution). Body temperature: clamp to 32..572, WHOLE degrees F (do not divide). Battery: value 0..9, map to bars per payload_formats.Xw2Battery."
+    fields:
+      core_temperature:
+        bytes: 3
+        field_bits: 20
+        selector_bits: 4
+        unit_after_decode: "0.1 F"
+        clamp: [320, 2120]
+      body_temperature:
+        bytes: 2
+        field_bits: 12
+        selector_bits: 4
+        unit_after_decode: "F"
+        clamp: [32, 572]
+      battery:
+        bytes: 1
+        field_bits: 4
+        selector_bits: 4
+        unit_after_decode: "gauge 0..9"
+    vectors:
+      - field: "battery"
+        packed_hex: "2d"
+        selector: 2
+        decoded: 7
+        bars: 3
+        verification: "reported"
+        notes: "Published dock-battery reply 02 15 2d, shown as 3 of 4 bars."
+      - field: "battery"
+        packed_hex: "33"
+        selector: 3
+        decoded: 9
+        bars: 4
+        verification: "reported"
+        notes: "Published probe-battery reply (inner type 03, value 33), shown as 4 of 4 bars."
+      - field: "battery"
+        packed_hex: "07"
+        selector: 0
+        decoded: 7
+        bars: 3
+        verification: "hypothesis"
+        notes: "Computed: the same gauge as 2d with no rotation."
+      - field: "battery"
+        packed_hex: "1b"
+        selector: 1
+        decoded: 7
+        bars: 3
+        verification: "hypothesis"
+        notes: "Computed."
+      - field: "core_temperature"
+        packed_le_hex: "2c0500"
+        packed_int: 0x00052c
+        selector: 0
+        decoded: 1324
+        value: "132.4 F"
+        verification: "hypothesis"
+        notes: "Computed: unrotated, the field is the tenths-of-F value itself."
+      - field: "core_temperature"
+        packed_le_hex: "4b0120"
+        packed_int: 0x20014b
+        selector: 2
+        decoded: 1324
+        value: "132.4 F"
+        verification: "hypothesis"
+        notes: "Computed. A full frame carrying it: 07 07 01 53 00 5e 00 00 04 01 4b 01 20 (documentation address 00:00:5e:00:53:01)."
+      - field: "core_temperature"
+        packed_le_hex: "a50038"
+        packed_int: 0x3800a5
+        selector: 3
+        decoded: 1324
+        value: "132.4 F"
+        verification: "hypothesis"
+        notes: "Computed."
+      - field: "core_temperature"
+        packed_le_hex: "80a5f0"
+        packed_int: 0xf0a580
+        selector: 15
+        decoded: 1324
+        value: "132.4 F"
+        verification: "hypothesis"
+        notes: "Computed; the largest selector the nibble can hold."
+      - field: "core_temperature"
+        packed_le_hex: "c70028"
+        packed_int: 0x2800c7
+        selector: 2
+        decoded: 798
+        value: "79.8 F"
+        verification: "hypothesis"
+        notes: "Computed: the room-temperature reading the source project reported (79.8 F), re-packed with selector 2."
+      - field: "core_temperature"
+        packed_le_hex: "090130"
+        packed_int: 0x300109
+        selector: 3
+        decoded: 2120
+        value: "212.0 F"
+        verification: "hypothesis"
+        notes: "Computed: the upper clamp."
+      - field: "body_temperature"
+        packed_le_hex: "1301"
+        packed_int: 0x0113
+        selector: 0
+        decoded: 275
+        value: "275 F"
+        verification: "hypothesis"
+        notes: "Computed: unrotated whole degrees."
+      - field: "body_temperature"
+        packed_le_hex: "8918"
+        packed_int: 0x1889
+        selector: 1
+        decoded: 275
+        value: "275 F"
+        verification: "hypothesis"
+        notes: "Computed. A full frame carrying it: 07 07 01 53 00 5e 00 00 03 02 89 18."
+      - field: "body_temperature"
+        packed_le_hex: "2236"
+        packed_int: 0x3622
+        selector: 3
+        decoded: 275
+        value: "275 F"
+        verification: "hypothesis"
+        notes: "Computed."
+      - field: "body_temperature"
+        packed_le_hex: "2718"
+        packed_int: 0x1827
+        selector: 1
+        decoded: 79
+        value: "79 F"
+        verification: "hypothesis"
+        notes: "Computed: the room-temperature body reading the source project reported (79 F)."
+      - field: "body_temperature"
+        packed_le_hex: "26b2"
+        packed_int: 0xb226
+        selector: 11
+        decoded: 275
+        value: "275 F"
+        verification: "hypothesis"
+        notes: "Computed; the largest selector that is meaningful for a 12-bit field."
+  xw2_auth_challenge:
+    description: >
+      After the client enables notifications, the dock sends 01 ab about
+      every 2 s until it receives 02 aa <code> on 6e40aa02. <code> is the
+      brand id (2 for Yummly) packed with the same rotation scheme at W = 4:
+      code = rotate_right_4(brand_id, s) | (s << 4), for s in 0, 1, 2. The
+      vendor app chose s from its clock modulo 3; the dock has no clock and
+      accepts all three. The source project saw the pings stop after each.
+    brand_id: 2
+    vectors:
+      - selector: 0
+        code: 0x02
+        verification: "reported"
+      - selector: 1
+        code: 0x11
+        verification: "reported"
+      - selector: 2
+        code: 0x28
+        verification: "reported"
+    reply_frame_example: "02 aa 02"
+  xw2_request_reply_types:
+    description: >
+      Request byte written (as 01 <req> or wrapped) versus the type byte of
+      the reply. They differ for every pair but RSSI, and a request sent
+      with the reply's byte is ignored. Dock-targeted on the left, probe-
+      targeted (wrapped) on the right.
+    dock:
+      firmware: {request: 0x09, reply: 0x04}
+      model: {request: 0x28, reply: 0x27}
+      battery: {request: 0x16, reply: 0x15}
+      production_date: {request: 0x2c, reply: 0x2b}
+      rssi: {request: 0x24, reply: 0x24}
+      probe_mac: {request: 0x21, reply: 0x20}
+      probe_status: {request: 0x32, reply_inner: 0x1e}
+      enter_probe_dfu: {request: 0xac}
+    probe:
+      firmware: {request: 0x11, reply_inner: 0x12}
+      name: {request: 0x23, reply_inner: 0x22}
+      model: {request: 0x2a, reply_inner: 0x29}
+      production_date: {request: 0x2e, reply_inner: 0x2d}
+      battery: {request: 0x0c, reply_inner: 0x03}
+      rssi: {request: 0x14, reply_inner: 0x13}
+    stream_only:
+      core_temperature: {reply_inner: 0x01}
+      body_temperature: {reply_inner: 0x02}
+    vendor_app_query_order: >
+      After the challenge: dock firmware, model, production date, battery,
+      probe address, probe status; then, with the address, probe firmware,
+      name, model, production date, battery, about 1.5 s apart.
+  xw2_published_frames:
+    description: "Frames the source project printed from its unit, with the unit's probe address replaced by the documentation address 00:00:5e:00:53:01 (wire 01 53 00 5e 00 00)."
+    challenge_ping: "01 ab"
+    dock_firmware_reply: "05 04 31 2e 35 33"
+    dock_battery_reply: "02 15 2d"
+    probe_name_request: "07 07 01 53 00 5e 00 00 01 23"
+    probe_name_reply: "07 07 01 53 00 5e 00 00 0b 22 59 75 6d 6d 6c 79 20 50 31 00"
+    probe_battery_reply: "07 07 01 53 00 5e 00 00 02 03 33"
+    probe_status_reply_observed: "07 07 00 00 00 00 00 00 02 1e 05"
+  advertisement_payload:
+    description: >
+      Manufacturer-specific data as the vendor app's scanner read it, by
+      byte offset in the raw advertisement record (not the payload):
+      bytes 5-6 company id (0xc702 read big-endian, i.e. SIG 0x02c7 read
+      little-endian), bytes 7-8 product id 0xa001 (XW2) or 0xa301 (XW3),
+      byte 9 brand id 0x02 (Yummly), bytes 12-13 bond/whitelist flags. The
+      product-id byte order is ambiguous in the source, so match on the
+      company id and the name, not on these bytes.
+    verification: "hypothesis"
+  xw3_connection_sequence:
+    description: "What the vendor app did on a T3, from the source project's reading; untested."
+    steps:
+      - "Connect; require the command characteristic and all six f84c... characteristics."
+      - "Enable notifications on f84c1001, f84c1002, f84c2000, f84c3001, f84c3002, f84c3003; request a high connection priority."
+      - "Write 14, 11, 13, 50 on 6f2f0100 (firmware, model, production date, connected probes)."
+      - "On a 0x50 reply with a probe address (or a 0x30 connected status), write the probe commands 11, 13, 14, 15, 16, 17 wrapped as a0 <addr reversed> <cmd>, retrying until all six replies arrive."
+      - "Read f84c1002 for the dock battery once the probe address is known."
+
+evidence:
+  documentation_review: >
+    DavisGoglin/yummly-thermometer read in full on 2026-10-11 (README,
+    docs/PROTOCOL.md, docs/NOTES.md, docs/captures/capture.py,
+    src/yummly_thermo/thermo.py; MIT). The project recovered the protocol
+    from the vendor Android app (v8.7) and ran the XW2 path on one T1 + P1
+    on 2026-08-25: challenge, every dock and probe query, and the
+    temperature stream, whose core and body decodes (79.8 F and 79 F) matched
+    an independent room thermometer. Its raw-frame capture file is referenced
+    but was not retrievable (404), so the temperature vectors here are
+    computed from the stated algorithm rather than copied from the wire; the
+    battery bytes 2d and 33 and the firmware reply are the frames it
+    published. The Yummly YTE000W5K manual (ManualsLib) and the archived
+    Whirlpool/Amana product-help pages supplied the setup steps, LED and
+    specifications. No second implementation, FCC filing or Mastrad
+    documentation was found.
+  app_static_analysis: >
+    Second-hand only: this project did not decompile the app. The XW3
+    section, the request/reply byte tables, the rotation algorithm and the
+    advertisement layout are the source project's reading of it, restated
+    without its internal names.
+  open_questions: >
+    Whether a P1 probe can be connected directly without the dock; what the
+    probe-status 0x05 / zero-address reply means; why model and production
+    date come back blank; the advertisement byte order; the XW2 dock's
+    bootloader entry and update-mode name; whether the P1's body channel is
+    a real sensor; everything about XW3.
+
+remaining_unknowns:
+  - "XW3 (T3 + P3) has never been run by anyone known to this project: UUIDs, command bytes, the int16 Celsius layout and the DFU names are all from the app."
+  - "The body (channel 2) temperature, the dock battery and the probe battery on XW2 have no entity: they are further frame types on 6e40aa03, which the schema binds to one layout through format_match. payload_formats.Xw2AmbientTemperature and Xw2Battery document them until per-type layouts can be declared."
+  - "Whether the P1 probe's body channel is a working sensor. The source project's unit read about 8 F there at room temperature before the 32 F clamp (yet 79 F in another capture), and the vendor app fed the channel into an estimation model rather than showing it; treat it as uncalibrated until someone puts a probe in a known oven."
+  - "The probe-status reply (request 0x32) returned 0x05 with an all-zero address while the probe was streaming; whether it reports the radio link or the vendor-app registration is not known."
+  - "Dock and probe model and production-date strings came back as twelve NUL bytes on the observed unit; whether a different request or a bond would fill them is unknown."
+  - "Whether a phone can connect to a bare P1 probe (it carries its own name 'Yummly P1' in the app's scanner list) and read it without the dock."
+  - "The advertisement payload byte order (product id 0xa001/0xa301, brand 0x02) is ambiguous in the source; no manufacturer-data pattern is declared."
+  - "How the XW2 dock enters its bootloader and what it advertises there; whether the bundled firmware images are signed; whether any image is still obtainable now the app is gone."
+  - "Whether the Mastrad Meat°it app still drives a Yummly dock (one owner report says a 'Meat It 3' app connected; unverified), and which Mastrad model numbers correspond to T1/P1 beyond the 74500-series names in the firmware bundle."
+  - "No factory reset or pairing-button procedure is documented anywhere found; the dock's pairing button's function is unknown."
+  - "MTU, write chunking and the notification cadence under load (about 2 s per core/body pair at rest)."
+
+helpful_urls:
+  - title: "DavisGoglin/yummly-thermometer (Python BLE client, CLI and Home Assistant bridge)"
+    url: "https://github.com/DavisGoglin/yummly-thermometer"
+    kind: "implementation"
+    description: >
+      MIT-licensed client recovered from the vendor app and run against one
+      T1 + P1; the source of every byte-level fact in this spec.
+  - title: "yummly-thermometer docs/PROTOCOL.md"
+    url: "https://github.com/DavisGoglin/yummly-thermometer/blob/main/docs/PROTOCOL.md"
+    kind: "protocol_writeup"
+    description: >
+      The project's protocol write-up: GATT layout for both generations, TLV
+      size rule, challenge, rotation decoders, request/reply tables and the
+      sequence diagram the published frames come from.
+  - title: "Yummly YTE000W5K Smart Thermometer user manual (ManualsLib)"
+    url: "https://www.manualslib.com/guide/3024165/yummly-yte000w5k-smart-thermometer-manual.html"
+    kind: "manual"
+    description: >
+      The quick-start manual for the YTE000W5K family (graphite YTE000W5KB,
+      white YTE000W5KW — the T1 dock + P1 probe sold in the US): parts list
+      including the pairing button and indicators, two AAA cells, the
+      30-minute first charge, care guide. ManualsLib answers scripted
+      fetches with 403; it opens in a browser.
+  - title: "Yummly Help Center: Smart Thermometer category (archived 21 Dec 2024)"
+    url: "https://web.archive.org/web/20241221010004/https://help.yummly.com/hc/en-us/categories/360002376231-Smart-Thermometer"
+    kind: "vendor_support"
+    description: >
+      Wayback snapshot of the vendor's thermometer help category taken the
+      day after the shutdown, where the notice that the thermometer app
+      would stop working on 18 December 2024 was posted. The live site no
+      longer resolves. Snapshot existence confirmed through the Wayback
+      availability API; replay was not reachable from the sandbox that
+      wrote this spec.
+  - title: "Amana Product Help: Starting your Yummly Smart Thermometer (archived 21 May 2024)"
+    url: "https://web.archive.org/web/20240521221620/https://producthelp.amana.com/Cooking/Yummly/Yummly_Support/Starting_your_Yummly_Smart_Thermometer"
+    kind: "vendor_support"
+    description: >
+      Whirlpool-family support page for the T1/P1 thermometer: two AAA cells
+      in the dock, 30-minute charge, the blue dock LED blinking while
+      connecting and solid once paired. The live page now 404s.
+  - title: "Amana Product Help: Yummly Smart Thermometer warranty and specs (archived 2 Oct 2022)"
+    url: "https://web.archive.org/web/20221002202157/https://producthelp.amana.com/Cooking/Yummly/Yummly_Support/Yummly_Smart_Theremometer_Warranty_and_Specs"
+    kind: "vendor_support"
+    description: >
+      Specifications for the T1/P1 thermometer: maximum internal temperature
+      210 F (99 C), IPX4 probe, up to 25 hours of cooking per charge, one-
+      year limited warranty. The live page now 404s.
+  - title: "Yummly thermometer product page (archived 21 Dec 2024)"
+    url: "https://web.archive.org/web/20241221000631/https://www.yummly.com/thermometer"
+    kind: "other"
+    description: "The vendor product page as it stood the day after the shutdown; yummly.com now redirects to KitchenAid recipes."
+  - title: "Plan to Eat: Yummly is closing (December 2024)"
+    url: "https://www.plantoeat.com/blog/2024/12/yummly-is-closing-discover-the-best-meal-planning-alternative/"
+    kind: "other"
+    description: "Third-party record of the 20 December 2024 shutdown of the Yummly website and apps and Whirlpool's stated reason; the thermometer's 18 December cutoff is from the vendor help centre."
+  - title: "The Spoon: Whirlpool lays off entire team for Yummly (April 2024)"
+    url: "https://thespoon.tech/whirlpool-lays-off-entire-team-for-cooking-and-recipe-app-yummly/"
+    kind: "other"
+    description: "Industry report of the April 2024 layoffs that preceded the shutdown, noting the thermometer was still on sale at the time."
