@@ -93,6 +93,15 @@ heading.
 
 ### Changed
 
+- **The first-launch gate and the About screen ask for caution with
+  everything in the app, and say not to rely on it for anything
+  safety-critical.** A reading or a control can be wrong, late or
+  missing: sync a glucose meter's history to see which breakfast spikes you,
+  never to decide an insulin dose, and the same for blood pressure, oxygen,
+  gas alarms, doors and anything that moves. `AppConstants.termsVersion` is
+  now 2, so an install that accepted the old text sees the gate once more.
+  The README and the App Store description draft carry the same sentence.
+
 - **The spec catalogue stays in Rust, and a device spec crosses the FFI
   boundary once instead of on every call.** Three findings (F-024, F-025,
   F-059) were one shape: everything about a spec was asked by re-sending the
