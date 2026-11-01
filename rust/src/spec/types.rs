@@ -3085,6 +3085,7 @@ pub enum ValueType {
     /// `fixed_byte_size`. Used for protobuf command fields whose value can
     /// exceed 127 (e.g. SmartDawn brightness 0-255, packed pixel colors).
     Varint,
+    Float32,
     Bytes,
     String,
 }
@@ -3101,6 +3102,7 @@ impl std::fmt::Display for ValueType {
             ValueType::Uint24 => write!(f, "uint24"),
             ValueType::Uint32 => write!(f, "uint32"),
             ValueType::Varint => write!(f, "varint"),
+            ValueType::Float32 => write!(f, "float32"),
             ValueType::Bytes => write!(f, "bytes"),
             ValueType::String => write!(f, "string"),
         }
@@ -3115,7 +3117,7 @@ impl ValueType {
             ValueType::Bool | ValueType::Uint8 | ValueType::Int8 => Some(1),
             ValueType::Uint16 | ValueType::Int16 => Some(2),
             ValueType::Uint24 => Some(3),
-            ValueType::Int32 | ValueType::Uint32 => Some(4),
+            ValueType::Int32 | ValueType::Uint32 | ValueType::Float32 => Some(4),
             // Varint width depends on the value, so it is not fixed.
             ValueType::Varint | ValueType::Bytes | ValueType::String => None,
         }
@@ -3147,6 +3149,9 @@ impl ValueType {
             ValueType::Int32 => Some((i32::MIN as i64, i32::MAX as i64)),
             ValueType::Uint24 => Some((0, 0xFF_FFFF)),
             ValueType::Uint32 | ValueType::Varint => Some((0, u32::MAX as i64)),
+            // The schema's parameter bounds are integers even for a float;
+            // 2^53 is the widest magnitude every f64 represents exactly.
+            ValueType::Float32 => Some((-(1_i64 << 53), 1_i64 << 53)),
             ValueType::Bytes | ValueType::String => None,
         }
     }

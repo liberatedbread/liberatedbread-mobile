@@ -10,6 +10,19 @@ import '../services/spec_codec.dart';
 import '../core/error_text.dart';
 import 'decoded_value_widget.dart';
 
+class _PartialWriteException implements UserFacingException {
+  final int completed;
+  final int total;
+  final Object cause;
+
+  const _PartialWriteException(this.completed, this.total, this.cause);
+
+  @override
+  String get message =>
+      'Only $completed of $total packets were sent. '
+      'Check the device before retrying. Cause: $cause';
+}
+
 /// Renders the commands of a spec-described writable characteristic as typed
 /// controls: fixed commands as buttons, parameterized commands as labeled
 /// sliders/switches with a Send button.
@@ -143,6 +156,8 @@ class _CommandControl extends ConsumerStatefulWidget {
 
 class _CommandControlState extends ConsumerState<_CommandControl> {
   final Map<String, double> _values = {};
+  final Map<String, TextEditingController> _floatControllers = {};
+  final Set<String> _invalidFloats = {};
   bool _sending = false;
   String? _status;
   bool _failed = false;
@@ -187,8 +202,21 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     }
   }
 
+  @override
+  void dispose() {
+    for (final controller in _floatControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
   /// The starting value for one parameter's control.
   void _seed(ParameterDto p) {
+    if (p.valueType == 'float32' && (p.min == null || p.max == null)) {
+      _values[p.name] = (p.default_ ?? 0).toDouble();
+      if (p.default_ == null) _placeholder.add(p.name);
+      return;
+    }
     {
       final allowed = choicesFor(p);
       final isDropdown =
@@ -259,6 +287,16 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   ];
 
   Future<void> _send() async {
+    if (_invalidFloats.isNotEmpty) {
+      final text =
+          'Enter a finite number for ${humanizeName(_invalidFloats.first)}.';
+      setState(() {
+        _status = text;
+        _failed = true;
+      });
+      _showSnack(text);
+      return;
+    }
     // Advanced commands ask once before their first send, showing the spec's
     // own reason — "calibration changes how command values map to belt speed"
     // says something a generic warning cannot. The command stays available
@@ -276,41 +314,48 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     try {
       final codec = ref.read(specCodecProvider);
       final container = ProviderScope.containerOf(context, listen: false);
-      final bytes = await codec.encodeCommand(
+      final types = {
+        for (final p in widget.command.parameters) p.name: p.valueType,
+      };
+      final writes = await codec.encodeCommandWrites(
         specYaml: widget.specYaml,
-        // The service this command is drawn under, which is where it is
-        // written: unscoped, a characteristic UUID repeated under another
-        // service was encoded against that twin's command table.
         serviceUuid: widget.serviceUuid,
         charUuid: widget.charUuid,
         commandName: widget.command.name,
-        // Only what is on screen. A defaulted parameter is sent when the
-        // user has opened the section and can see it; collapsed, it goes back
-        // to being the encoder's to fill — which is what the collapsed label
-        // says it is. Without this, expanding SmartDawn's `power_on`, dragging
-        // its DDP connection-id slider and collapsing again put the edited
-        // filler on the wire under a label promising the spec filled it in,
-        // with no control anywhere to see or undo it.
         params: {
           for (final e in _values.entries)
-            if (_isSendable(e.key)) e.key: e.value.roundToDouble(),
+            if (_isSendable(e.key))
+              e.key: types[e.key] == 'float32'
+                  ? e.value
+                  : e.value.roundToDouble(),
         },
       );
-      // Readings in this service re-read once it lands; see
-      // [writeServiceCommand].
-      await writeServiceCommand(
-        container,
-        deviceId: widget.deviceId,
-        serviceUuid: widget.serviceUuid,
-        charUuid: widget.charUuid,
-        bytes: bytes.toList(),
-      );
+      if (writes.isEmpty) {
+        throw StateError('The command produced no BLE writes.');
+      }
+      var completed = 0;
+      try {
+        for (final bytes in writes) {
+          await writeServiceCommand(
+            container,
+            deviceId: widget.deviceId,
+            serviceUuid: widget.serviceUuid,
+            charUuid: widget.charUuid,
+            bytes: bytes.toList(),
+          );
+          completed++;
+        }
+      } catch (e) {
+        if (completed > 0) {
+          throw _PartialWriteException(completed, writes.length, e);
+        }
+        rethrow;
+      }
       if (mounted) {
         setState(() {
           _sending = false;
           _status = 'Sent';
           _failed = false;
-          // What was just sent IS the device's setting now.
           _placeholder.clear();
         });
         _showSnack('Sent ${humanizeName(widget.command.name)}');
@@ -486,6 +531,36 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         onChanged: (on) => setState(() {
           _placeholder.remove(p.name);
           _values[p.name] = on ? 1.0 : 0.0;
+        }),
+      );
+    }
+    if (p.valueType == 'float32' && (p.min == null || p.max == null)) {
+      final controller = _floatControllers.putIfAbsent(
+        p.name,
+        () => TextEditingController(text: '${_values[p.name] ?? 0}'),
+      );
+      return TextField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(
+          signed: true,
+          decimal: true,
+        ),
+        decoration: InputDecoration(
+          labelText: humanizeName(p.name),
+          helperText: 'Raw float32; no range declared',
+          errorText: _invalidFloats.contains(p.name)
+              ? 'Enter a finite number'
+              : null,
+        ),
+        onChanged: (text) => setState(() {
+          final parsed = double.tryParse(text);
+          if (parsed == null || !parsed.isFinite) {
+            _invalidFloats.add(p.name);
+          } else {
+            _invalidFloats.remove(p.name);
+            _values[p.name] = parsed;
+            _placeholder.remove(p.name);
+          }
         }),
       );
     }

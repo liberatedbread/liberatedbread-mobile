@@ -13,6 +13,17 @@ heading.
 
 ### Added
 
+- **Orba 2 and Mousr join the local BLE catalogue.** Orba 2's SysEx
+  configuration and transport commands are packetized as complete BLE-MIDI
+  messages, with CRC-16, LSB-first 7-bit packing and ordered multi-write plans
+  for long messages. Mousr's 15-byte commands include fixed STOP/CHIRP and
+  guarded movement controls. New `float32` fields and parameters preserve
+  fractional values and their declared byte order, also making Hot Wheels id's
+  speed reading numeric instead of a hex blob; its physical unit remains
+  explicitly unclaimed. The corresponding Hot Wheels MPID/OTA documentation
+  and the Wilson, Lattis, Sleep Number, Eye-Fi, Car Thing and Dreem research
+  notes now carry their new findings and evidence limits.
+
 - **Linux: peripherals that bluetoothd cannot enumerate now work.** BlueZ
   opens every GATT connection with a Server Supported Features (0x2B3A)
   probe some firmware — the Johnson LDM330 laser meter, for one — answers

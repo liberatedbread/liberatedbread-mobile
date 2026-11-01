@@ -129,6 +129,14 @@ abstract class LoadedSpec implements RustOpaqueInterface {
     required Map<String, double> params,
   });
 
+  /// Encode a named command into ordered BLE writes.
+  Future<List<Uint8List>> encodeCommandWrites({
+    String? serviceUuid,
+    required String charUuid,
+    required String commandName,
+    required Map<String, double> params,
+  });
+
   /// Encode a setpoint the user picked, in decoded units, into the write
   /// that applies it.
   /// `entity_index` is [`crate::api::device_api::EntityDto::entity_index`];

@@ -1580,6 +1580,7 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
                 DecodedValue::Bool(_) => "bool",
                 DecodedValue::Int(_) => "int",
                 DecodedValue::Uint(_) => "uint",
+                DecodedValue::Float(_) => "float",
                 DecodedValue::Bytes(_) => "bytes",
                 DecodedValue::String(_) => "string",
             }
@@ -1620,6 +1621,7 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
                 }
                 dto.uint_value = Some((*v).min(i64::MAX as u64) as i64);
             }
+            DecodedValue::Float(_) => {}
             DecodedValue::Bytes(_) => dto.string_value = Some(value.display()),
             DecodedValue::String(v) => dto.string_value = Some(v.clone()),
         }
@@ -5241,6 +5243,39 @@ pub(crate) fn encode_command_with_spec(
     Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
 }
 
+/// Encode a named command into ordered BLE writes.
+pub fn encode_command_writes(
+    spec_yaml: Option<String>,
+    service_uuid: Option<String>,
+    char_uuid: String,
+    command_name: String,
+    params: HashMap<String, f64>,
+) -> anyhow::Result<Vec<Vec<u8>>> {
+    if let Some(yaml) = spec_yaml.as_deref() {
+        let spec = crate::protocol::dispatch::parse_or_cached(yaml)?;
+        return encode_command_writes_with_spec(
+            spec,
+            service_uuid,
+            char_uuid,
+            command_name,
+            params,
+        );
+    }
+    let proto = select_protocol(None, service_uuid.as_deref())?;
+    Ok(proto.encode_command_writes(&char_uuid, &command_name, &params)?)
+}
+
+pub(crate) fn encode_command_writes_with_spec(
+    spec: std::sync::Arc<DeviceSpec>,
+    service_uuid: Option<String>,
+    char_uuid: String,
+    command_name: String,
+    params: HashMap<String, f64>,
+) -> anyhow::Result<Vec<Vec<u8>>> {
+    let proto = crate::protocol::generic::GenericProtocol::scoped(spec, service_uuid);
+    Ok(proto.encode_command_writes(&char_uuid, &command_name, &params)?)
+}
+
 /// Encode one RGB888 frame into the ordered BLE writes that display it,
 /// dispatched on the spec's `protocol_handler`.
 ///
@@ -6109,8 +6144,16 @@ pub(crate) fn decode_with_protocol(
                     crate::codec::number::NumberSemantics::from_field(m.scale, m.value_offset);
                 if let Some(raw) = dto.raw_number {
                     dto.decoded_number = Some(semantics.transform(raw));
-                    dto.decoded_text = Some(semantics.render(raw));
-                    dto.decimals = Some(semantics.decimals());
+                    if matches!(value, DecodedValue::Float(_))
+                        && m.scale.is_none()
+                        && m.value_offset.is_none()
+                    {
+                        dto.decoded_text = Some(value.display());
+                        dto.decimals = Some(crate::codec::number::MAX_DECIMALS);
+                    } else {
+                        dto.decoded_text = Some(semantics.render(raw));
+                        dto.decimals = Some(semantics.decimals());
+                    }
                 }
             }
             dto

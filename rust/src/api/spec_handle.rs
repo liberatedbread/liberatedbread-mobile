@@ -37,13 +37,14 @@ use crate::spec::types::DeviceSpec;
 
 use super::device_api::{
     ble_provisioning_profiles_over, decode_with_protocol, encode_command_with_spec,
-    encode_entity_value_with_spec, list_network_instances_with_spec, match_connected_device,
-    match_network_over, match_scanned_over, read_network_entity_with_spec,
-    read_network_instance_with_spec, render_network_http_state_request_with_spec,
-    render_network_state_request_with_spec, soft_ap_profiles_over, BleProvisioningProfileDto,
-    DecodedValueDto, DeviceSpecDto, EntityWriteDto, HttpRequestDto, MatchConfidence,
-    NetworkDeviceDto, NetworkInstanceDto, NetworkReadingDto, NetworkRoleReadingDto, ScanMatch,
-    ScannedDeviceDto, SoapRequestDto, SoftApProfileDto, SpecIdentityDto,
+    encode_command_writes_with_spec, encode_entity_value_with_spec,
+    list_network_instances_with_spec, match_connected_device, match_network_over,
+    match_scanned_over, read_network_entity_with_spec, read_network_instance_with_spec,
+    render_network_http_state_request_with_spec, render_network_state_request_with_spec,
+    soft_ap_profiles_over, BleProvisioningProfileDto, DecodedValueDto, DeviceSpecDto,
+    EntityWriteDto, HttpRequestDto, MatchConfidence, NetworkDeviceDto, NetworkInstanceDto,
+    NetworkReadingDto, NetworkRoleReadingDto, ScanMatch, ScannedDeviceDto, SoapRequestDto,
+    SoftApProfileDto, SpecIdentityDto,
 };
 
 /// One parsed spec, held by Rust for as long as Dart holds the handle.
@@ -111,6 +112,23 @@ impl LoadedSpec {
         params: HashMap<String, f64>,
     ) -> anyhow::Result<Vec<u8>> {
         encode_command_with_spec(
+            self.spec.clone(),
+            service_uuid,
+            char_uuid,
+            command_name,
+            params,
+        )
+    }
+
+    /// Encode a named command into ordered BLE writes.
+    pub fn encode_command_writes(
+        &self,
+        service_uuid: Option<String>,
+        char_uuid: String,
+        command_name: String,
+        params: HashMap<String, f64>,
+    ) -> anyhow::Result<Vec<Vec<u8>>> {
+        encode_command_writes_with_spec(
             self.spec.clone(),
             service_uuid,
             char_uuid,

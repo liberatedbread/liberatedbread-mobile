@@ -222,6 +222,33 @@ class RealSpecCodec implements SpecCodec {
   }
 
   @override
+  Future<List<Uint8List>> encodeCommandWrites({
+    String? specYaml,
+    String? serviceUuid,
+    required String charUuid,
+    required String commandName,
+    required Map<String, double> params,
+  }) {
+    final held = _held(specYaml);
+    if (held != null) {
+      return held.encodeCommandWrites(
+        serviceUuid: serviceUuid,
+        charUuid: charUuid,
+        commandName: commandName,
+        params: params,
+      );
+    }
+    if (specYaml != null) unawaited(_holdSpec(specYaml));
+    return rust.encodeCommandWrites(
+      specYaml: specYaml,
+      serviceUuid: serviceUuid,
+      charUuid: charUuid,
+      commandName: commandName,
+      params: params,
+    );
+  }
+
+  @override
   Future<List<DecodedValueDto>> decodeValue({
     String? specYaml,
     String? serviceUuid,

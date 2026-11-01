@@ -17,6 +17,7 @@ pub mod kasa;
 pub mod ledbadge_bitmap;
 pub mod lifx;
 pub mod mqtt;
+pub mod orba_midi;
 pub mod profiles;
 pub mod rabbit_air;
 pub mod rabbit_air_ble;

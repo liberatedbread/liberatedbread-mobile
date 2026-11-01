@@ -206,6 +206,10 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
                 None,
             )
             | (ValueType::Bytes | ValueType::String, _) => None,
+            (ValueType::Float32, Some((scale, offset))) => {
+                Some(raw_for_physical(nominal_for(field), scale, offset))
+            }
+            (ValueType::Float32, None) => None,
         };
         if let Some(val) = heuristic {
             write_value(slice, val, &field.field_type, field.is_big_endian());
@@ -290,6 +294,10 @@ fn write_value(slice: &mut [u8], val: i64, ty: &ValueType, big_endian: bool) {
                 [be[1], be[2], be[3]],
                 big_endian,
             )
+        }
+        ValueType::Float32 => {
+            let v = val as f32;
+            put(slice, v.to_le_bytes(), v.to_be_bytes(), big_endian)
         }
         // mock_default is ignored for these (variable/opaque width).
         ValueType::Varint | ValueType::Bytes | ValueType::String => {}

@@ -41,6 +41,7 @@ pub enum DecodedValue {
     Bool(bool),
     Int(i64),
     Uint(u64),
+    Float(f64),
     Bytes(Vec<u8>),
     String(String),
 }
@@ -52,6 +53,7 @@ impl DecodedValue {
             DecodedValue::Bool(v) => if *v { "on" } else { "off" }.to_string(),
             DecodedValue::Int(v) => v.to_string(),
             DecodedValue::Uint(v) => v.to_string(),
+            DecodedValue::Float(v) => v.to_string(),
             DecodedValue::Bytes(v) => bytes_to_hex(v, " "),
             DecodedValue::String(v) => v.clone(),
         }
@@ -72,6 +74,7 @@ impl DecodedValue {
         match self {
             DecodedValue::Int(v) => Some(*v as f64),
             DecodedValue::Uint(v) => Some(*v as f64),
+            DecodedValue::Float(v) => Some(*v),
             _ => None,
         }
     }
@@ -289,6 +292,9 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
                 u32::from_le_bytes(four([slice[0], slice[1], slice[2], slice[3]])) as u64,
             ))
         }
+        ValueType::Float32 => Ok(DecodedValue::Float(f32::from_le_bytes(four([
+            slice[0], slice[1], slice[2], slice[3],
+        ])) as f64)),
         ValueType::Bytes => Ok(DecodedValue::Bytes(slice.to_vec())),
         ValueType::String => {
             // Non-UTF-8 bytes in a `string` field fall back to a
@@ -369,7 +375,7 @@ pub fn decode_all_fields(
 ///
 /// Internal-only — the FFI keeps `HashMap<String, f64>` (FRB constraint).
 /// `coerce_param` is the bridge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum TypedParam {
     U8(u8),
     U16(u16),
@@ -383,6 +389,7 @@ pub(crate) enum TypedParam {
     /// A protobuf base-128 varint value (unsigned). Emitted variable-width,
     /// endianness-independent.
     Varint(u64),
+    F32(f32),
 }
 
 /// Why this command cannot be sent as raw bytes on THIS characteristic, or
@@ -443,20 +450,19 @@ pub fn unsupported_characteristic_transform(characteristic: &Characteristic) -> 
     None
 }
 
-/// Canonical name of the one fragment-framing scheme this build executes
-/// (Daniao's `[serial][total][remaining][tag]` DDP header). Defined here, at
-/// the codec layer, so the encodability gates ([`unsupported_write_kind`],
-/// `spec::bindings::needs_unimplemented_transform`) and the protocol-layer
-/// fragment registry (`protocol::image_upload`) all name the same string
-/// without the codec depending on the protocol crate. `protocol::daniao`
-/// re-exports this as its `FRAGMENT_SCHEME`.
+/// Canonical names of fragment-framing schemes this build executes. Defined
+/// at the codec layer so the encodability gates
+/// ([`unsupported_write_kind`], `spec::bindings::needs_unimplemented_transform`)
+/// and protocol implementations name the same strings without a dependency
+/// cycle. `protocol::daniao` re-exports its constant as `FRAGMENT_SCHEME`.
 pub const DANIAO_FRAGMENT_SCHEME: &str = "daniao_fragment";
+pub const ORBA_FRAGMENT_SCHEME: &str = "orba_sysex_ble_midi";
 
 /// Whether `name` is a framing scheme this build wraps packets in, rather than
 /// merely parses. A characteristic whose `framing.scheme` is implemented is
 /// sendable through the generic encoder; an unknown one is not.
 pub fn implemented_framing_scheme(name: &str) -> bool {
-    matches!(name, DANIAO_FRAGMENT_SCHEME)
+    matches!(name, DANIAO_FRAGMENT_SCHEME | ORBA_FRAGMENT_SCHEME)
 }
 
 /// The `framing.scheme` a characteristic declares, if it declares a framing
@@ -932,12 +938,11 @@ fn validate_param_range(name: &str, val: f64, def: &Parameter) -> Result<(), Pro
     Ok(())
 }
 
-/// Coerce an `f64` parameter value into the integer width its declared type
-/// requires. Rejects:
+/// Coerce an `f64` parameter value into its declared wire type. Rejects:
 /// - NaN or infinity (`ParameterInvalid`)
-/// - fractional values like `1.5` (`ParameterInvalid`)
+/// - fractional values for integer types (`ParameterInvalid`)
 /// - values outside the declared type's range (`ParameterOutOfRange`)
-/// - declared types with no integer representation (`UnsupportedParameterType`)
+/// - declared types with no numeric representation (`UnsupportedParameterType`)
 pub(crate) fn coerce_param(
     val: f64,
     ty: &ValueType,
@@ -948,6 +953,18 @@ pub(crate) fn coerce_param(
             name: name.to_string(),
             value: val,
             reason: "value is NaN or infinity".into(),
+        });
+    }
+    if matches!(ty, ValueType::Float32) {
+        let narrowed = val as f32;
+        if narrowed.is_finite() {
+            return Ok(TypedParam::F32(narrowed));
+        }
+        return Err(ProtocolError::ParameterOutOfRange {
+            name: name.to_string(),
+            value: val,
+            min: f32::MIN as f64,
+            max: f32::MAX as f64,
         });
     }
     // Accept values that are integers to within a small tolerance: params
@@ -1062,6 +1079,7 @@ fn append_typed(bytes: &mut Vec<u8>, val: TypedParam, big_endian: bool) {
             bytes.extend_from_slice(three);
         }
         TypedParam::I32(v) => push!(v),
+        TypedParam::F32(v) => push!(v),
         // Protobuf base-128 varint: 7 bits per byte, high bit = "more".
         // Byte order is intrinsic, so `big_endian` does not apply.
         TypedParam::Varint(mut v) => loop {
@@ -3023,5 +3041,36 @@ mod tests {
         assert_eq!(le, vec![0x2C, 0x01]);
         let be = encode_scalar(300.0, &ValueType::Uint16, "target", true).unwrap();
         assert_eq!(be, vec![0x01, 0x2C]);
+    }
+
+    #[test]
+    fn float32_decodes_and_encodes_fractional_values_in_both_orders() {
+        let field = |endianness| FormatField {
+            offset: 0,
+            length: 4,
+            name: "speed".into(),
+            field_type: ValueType::Float32,
+            endianness,
+            ..Default::default()
+        };
+        for (bytes, endianness) in [
+            (&[0xB0, 0x1C, 0x14, 0x3E][..], None),
+            (&[0x3E, 0x14, 0x1C, 0xB0][..], Some("big".into())),
+        ] {
+            let DecodedValue::Float(value) = decode_field(bytes, &field(endianness)).unwrap()
+            else {
+                panic!("expected float32");
+            };
+            assert!((value - 0.1446).abs() < 0.00005, "{value}");
+        }
+        assert_eq!(
+            encode_scalar(0.5, &ValueType::Float32, "speed", false).unwrap(),
+            vec![0x00, 0x00, 0x00, 0x3F]
+        );
+        assert_eq!(
+            encode_scalar(-1.5, &ValueType::Float32, "angle", true).unwrap(),
+            vec![0xBF, 0xC0, 0x00, 0x00]
+        );
+        assert!(encode_scalar(f64::MAX, &ValueType::Float32, "speed", false).is_err());
     }
 }
