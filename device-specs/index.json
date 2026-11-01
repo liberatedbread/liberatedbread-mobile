@@ -1631,6 +1631,55 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Elgato Key Light classic HTTP family",
+    "path": "device-specs/devices/elgato-key-light.yaml",
+    "protocol": "wifi",
+    "category": "light",
+    "manufacturer": "Elgato / Corsair",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Elgato local HTTP + mDNS protocol",
+        "url": "https://github.com/passtas/matterbridge-elgato/blob/main/docs/elgato-protocol.md",
+        "kind": "protocol_writeup",
+        "description": "Live-characterised discovery, CCT/HSV/scene shapes, partial PUT semantics, range quirks, stable identity and Mini battery readings.\n"
+      },
+      {
+        "title": "frenck/python-elgato",
+        "url": "https://github.com/frenck/python-elgato",
+        "kind": "implementation",
+        "description": "MIT Python client for the classic local HTTP API."
+      },
+      {
+        "title": "Key Light Mini firmware reverse engineering",
+        "url": "https://github.com/schlarpc/elgato-key-light-mini-firmware-re",
+        "kind": "teardown",
+        "description": "Hardware-focused firmware, HTTP, update and security analysis."
+      },
+      {
+        "title": "Elgato Key Light quick-start guide (PDF)",
+        "url": "https://help.elgato.com/hc/en-us/articles/360055262831-Key-Light-Quick-Start-Guide-PDF",
+        "kind": "manual",
+        "description": "Vendor quick-start guide for the original Key Light, covering physical setup and Control Center onboarding. The vendor help portal may block automated fetches while remaining usable in a browser.\n"
+      },
+      {
+        "title": "Elgato Key Light Mini — Reset Wi-Fi Configurations",
+        "url": "https://help.elgato.com/hc/en-us/articles/4424711679885-Elgato-Key-Light-Mini-Reset-Wi-Fi-Configurations",
+        "kind": "vendor_support",
+        "description": "Vendor's ten-second Mini Wi-Fi reset and three-flash confirmation."
+      },
+      {
+        "title": "Elgato Key Light Neo — Reset Wi-Fi Configuration",
+        "url": "https://help.elgato.com/hc/en-us/articles/25947652898701-Elgato-Key-Light-Neo-Reset-Wi-Fi-Configuration",
+        "kind": "vendor_support",
+        "description": "Vendor's ten-second Neo Wi-Fi reset, three flashes and automatic restart."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "ELK-BLEDOM BLE LED Strip Controller",
     "path": "device-specs/devices/elk-bledom-led-strip.yaml",
     "protocol": "ble",

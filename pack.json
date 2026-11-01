@@ -1,6 +1,6 @@
 {
   "name": "Liberated Bread Device Specs",
-  "version": "220",
+  "version": "221",
   "specs": [
     "device-specs/devices/admore-light-bar.yaml",
     "device-specs/devices/airthings-wave-family.yaml",
@@ -46,6 +46,7 @@
     "device-specs/devices/divoom-pixoo.yaml",
     "device-specs/devices/drobo-nasd-status.yaml",
     "device-specs/devices/dyson-air-purifier.yaml",
+    "device-specs/devices/elgato-key-light.yaml",
     "device-specs/devices/elk-bledom-led-strip.yaml",
     "device-specs/devices/emazinglights-spectra.yaml",
     "device-specs/devices/ember-mug.yaml",
