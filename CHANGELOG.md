@@ -438,6 +438,13 @@ heading.
 
 ### Fixed
 
+- **Generic colour-temperature controls keep the spec's unit.** A network light
+  whose command takes mireds now shows and sends mireds instead of presenting
+  the same number as Kelvin; percent-based controls can declare percent too.
+  The resolved network action carries its primary parameter's unit through the
+  Flutter Rust Bridge, while Kelvin remains the default for LIFX and specs that
+  declare no unit. The slider label also starts at its clamped in-range value.
+
 - **Forgetting a device forgets the spec you picked for it, in this session
   too.** The stored choice was cleared but the in-memory one was not, so a
   device re-added before a restart came back on the spec it was removed over.

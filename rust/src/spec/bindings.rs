@@ -908,6 +908,9 @@ pub struct NetworkAction<'a> {
     pub read_back: Vec<(&'a str, &'a str)>,
     pub min: Option<f64>,
     pub max: Option<f64>,
+    /// Display unit of the primary value, in the same decoded scale as the
+    /// bounds. A colour temperature is not necessarily Kelvin.
+    pub unit: Option<String>,
 }
 
 /// The setpoint role's aliases, shared by every platform that has one so a
@@ -1210,6 +1213,7 @@ fn qualify_network<'a>(
         transport,
         min: bounds.and_then(|p| p.min),
         max: bounds.and_then(|p| p.max),
+        unit: bounds.and_then(|p| p.unit.clone()),
         user_params,
         read_back: command.read_back_params(),
     })
@@ -3521,5 +3525,47 @@ entities:
         let spec = parse_device_spec(UNMAPPED).expect("test spec should parse");
         assert_eq!(state_binding(&spec, &spec.entities[0]), None);
         assert!(network_entities(&spec).is_empty());
+    }
+
+    #[test]
+    fn a_network_action_carries_its_primary_parameters_unit() {
+        const CCT_LIGHT: &str = r#"
+device:
+  name: Test Light
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  get_white:
+    description: Read the light.
+    transport: http
+    method: GET
+    path: /lights
+  set_white:
+    description: Set the white point.
+    transport: http
+    method: PUT
+    path: /lights
+    body: '{"lights":[{"temperature":{mireds}}]}'
+    parameters:
+      mireds:
+        type: integer
+        min: 143
+        max: 344
+        unit: mired
+entities:
+  - name: Light
+    platform: light
+    state_command: get_white
+    state_mapping:
+      brightness: "lights[0].brightness"
+    commands:
+      set_color_temperature: set_white
+"#;
+        let spec = parse_device_spec(CCT_LIGHT).expect("test spec should parse");
+        let actions = resolve_network_actions(&spec, &spec.entities[0]);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].unit.as_deref(), Some("mired"));
+        assert_eq!((actions[0].min, actions[0].max), (Some(143.0), Some(344.0)));
     }
 }

@@ -1898,6 +1898,8 @@ pub struct NetworkActionDto {
     /// Declared bounds of the value parameter, in the wire's own units.
     pub min: Option<f64>,
     pub max: Option<f64>,
+    /// Display unit of the value parameter, when the spec declares one.
+    pub unit: Option<String>,
 }
 
 /// A command parameter filled from a client-held value rather than the UI:
@@ -2068,6 +2070,7 @@ impl NetworkActionDto {
             instance_params,
             min: action.min,
             max: action.max,
+            unit: action.unit.clone(),
         }
     }
 
@@ -2093,6 +2096,7 @@ impl NetworkActionDto {
             instance_params: Vec::new(),
             min: control.min,
             max: control.max,
+            unit: (control.role == "set_color_temperature").then(|| "K".to_string()),
         }
     }
 }
@@ -2183,6 +2187,7 @@ fn roomba_network_entities(spec: &DeviceSpec) -> Vec<NetworkEntityDto> {
                     instance_params: Vec::new(),
                     min: None,
                     max: None,
+                    unit: None,
                 })
                 .collect(),
             setpoint_min: None,

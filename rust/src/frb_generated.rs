@@ -8698,6 +8698,7 @@ impl SseDecode for crate::api::device_api::NetworkActionDto {
             <Vec<crate::api::device_api::NetworkSourceParamDto>>::sse_decode(deserializer);
         let mut var_min = <Option<f64>>::sse_decode(deserializer);
         let mut var_max = <Option<f64>>::sse_decode(deserializer);
+        let mut var_unit = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::NetworkActionDto {
             role: var_role,
             command_name: var_commandName,
@@ -8708,6 +8709,7 @@ impl SseDecode for crate::api::device_api::NetworkActionDto {
             instance_params: var_instanceParams,
             min: var_min,
             max: var_max,
+            unit: var_unit,
         };
     }
 }
@@ -12309,6 +12311,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkActionDto 
             self.instance_params.into_into_dart().into_dart(),
             self.min.into_into_dart().into_dart(),
             self.max.into_into_dart().into_dart(),
+            self.unit.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -15201,6 +15204,7 @@ impl SseEncode for crate::api::device_api::NetworkActionDto {
         );
         <Option<f64>>::sse_encode(self.min, serializer);
         <Option<f64>>::sse_encode(self.max, serializer);
+        <Option<String>>::sse_encode(self.unit, serializer);
     }
 }
 

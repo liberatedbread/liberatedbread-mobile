@@ -8386,8 +8386,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkActionDto dco_decode_network_action_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return NetworkActionDto(
       role: dco_decode_String(arr[0]),
       commandName: dco_decode_String(arr[1]),
@@ -8398,6 +8398,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       instanceParams: dco_decode_list_network_source_param_dto(arr[6]),
       min: dco_decode_opt_box_autoadd_f_64(arr[7]),
       max: dco_decode_opt_box_autoadd_f_64(arr[8]),
+      unit: dco_decode_opt_String(arr[9]),
     );
   }
 
@@ -11777,6 +11778,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     );
     var var_min = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_max = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_unit = sse_decode_opt_String(deserializer);
     return NetworkActionDto(
       role: var_role,
       commandName: var_commandName,
@@ -11787,6 +11789,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       instanceParams: var_instanceParams,
       min: var_min,
       max: var_max,
+      unit: var_unit,
     );
   }
 
@@ -15198,6 +15201,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_network_source_param_dto(self.instanceParams, serializer);
     sse_encode_opt_box_autoadd_f_64(self.min, serializer);
     sse_encode_opt_box_autoadd_f_64(self.max, serializer);
+    sse_encode_opt_String(self.unit, serializer);
   }
 
   @protected
