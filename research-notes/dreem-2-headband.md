@@ -20,6 +20,12 @@ Category: sleep tracker (EEG wearable).
 - **Prior art exists**: [A closer look at the Dreem EEG Headband — majorinput.co.uk, 2022-02-18](https://www.majorinput.co.uk/post/a-closer-look-at-the-dreem-eeg-headband)
   documents logging low-quality EEG from the Dreem in real time, with scripts on GitHub
   (linked from the post). This proves the BLE stream can be tapped without the cloud.
+  The scripts are now collected at
+  [jabituyaben/DreemEEG](https://github.com/jabituyaben/DreemEEG) (reviewed
+  2026-11-01). They split tagged arrays into three 8-bit values for the larger
+  EEG streams, but do not establish every array's type, channel assignment,
+  complete write order or robust disconnect handling. Use them as a capture
+  starting point, not as a complete clinical-grade protocol.
 - The cloud was used for sleep staging, CBT-i programs and account sync. Raw
   acquisition and audio stimulation are on-device; how much configuration requires an
   authenticated session is the key unknown.

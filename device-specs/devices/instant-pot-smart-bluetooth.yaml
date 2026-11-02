@@ -1,0 +1,461 @@
+# Instant Pot Smart Bluetooth (Smart-60) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - lizardlab/openpot (GPL-3.0 replacement Android app): README.md,
+#     TEMPERATURE.md, and the app's BLE service, main activity, command
+#     settings (UI defaults, program-to-builder mapping) and settings screen
+#     (clock sync, timer presets, the 12/24-hour flag) — the only public
+#     reverse-engineering of this protocol that could be found
+#   - Instant Pot Smart-60 user manual (manualslib) — pairing, buttons,
+#     one-phone limit
+#   - News coverage of the Instant Brands Chapter 11 (June 2023)
+#
+# OpenPot's README and its own code disagree in several places (listed in
+# remaining_unknowns). Where they do, this spec follows the CODE, because the
+# code is what drove a cooker; every such fact is marked `hypothesis`.
+
+device:
+  name: "Instant Pot Smart Bluetooth (Smart-60)"
+  manufacturer: "Instant Brands (now Instant Pot Brands)"
+  manufacturer_status: "abandoned"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project, and no captured frames
+      from a cooker are published anywhere. The frames below are computed
+      from the layout and checksum OpenPot's frame builders use (cancel and
+      the Manual base frame are its literal strings; keep_warm is what its
+      builder emits for its default of 10 hours), so they prove the layout
+      and checksum as OpenPot sends them, not that a cooker accepts every
+      one.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "appliance"
+  type: "electric-pressure-cooker"
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      Starting a pressure-cooking program remotely heats a sealed pot; never
+      start one without someone at the cooker.
+    detail: >
+      These commands start, change and cancel heating and pressure programs
+      on a cooker the user may not be standing next to. A pressure cooker
+      started empty, with the valve set wrong or with the lid off is a burn
+      and scald hazard. A client should only offer start commands when the
+      user confirms they are at the cooker, and should always offer Cancel.
+      The cooker's own lid and pressure interlocks still apply; nothing here
+      bypasses them.
+  notes: >
+    The Instant Pot Smart (model Smart-60, 6 quart) was Instant Pot's first
+    Bluetooth cooker. Its companion app, "Instant Pot Smart Cooker", is
+    reported withdrawn from both app stores (OpenPot's README; no official
+    notice was found) and owners report it stopped launching on iOS 14.5,
+    and Instant Brands went through Chapter 11 in June 2023 before the
+    appliance business re-emerged as Instant Pot Brands; nothing official
+    drives these cookers any more. The cooker itself talks BLE straight to
+    the phone with no account or cloud: 20-byte frames on a control
+    characteristic start a program, and the cooker notifies its state,
+    remaining time, pressure and temperature on another.
+
+    The phone must bond with the cooker first (hold Adjust about 3 s, then
+    accept the operating system's pairing prompt), and only one phone can be
+    connected at a time.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/lizardlab/openpot"
+    license: "GPL-3.0"
+    notes: >
+      One open-source replacement app is the entire public record. Its README
+      describes the protocol and its code implements a different, working
+      version of several fields; this spec follows the code.
+
+  identification:
+    local_names:
+      - "Instant Pot Smart"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "Instant Pot Smart"
+        notes: >
+          OpenPot filters on this exact name. Whether 0000dab0-… is in the
+          advertisement is not known, so it is not used as a matcher.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No network provisioning: the cooker is BLE-only. The one-time step is
+      a link-layer bond, started from the cooker's buttons; it is described
+      in `pairing` and repeated in the method below so it reads in order.
+    methods:
+      - type: "ble_direct"
+        name: "Bond and connect"
+        verified: false
+        description: >
+          Put the cooker into pairing with the Adjust button, bond from the
+          phone, then connect, enable notifications on 0xdab2 and write
+          commands to 0xdab1.
+        ble:
+          pairing_required: true
+        steps:
+          - action: "With the cooker plugged in and Bluetooth on (the BT icon on the display), start a scan from the phone."
+            actor: "client"
+          - action: "When the phone finds 'Instant Pot Smart', press and hold Adjust on the cooker for about 3 seconds until it beeps."
+            actor: "user"
+            glyph: "generic/hold-button.svg"
+          - action: "Accept the operating system's Bluetooth pairing prompt."
+            actor: "user"
+            expect: "The phone icon on the cooker's display lights."
+          - action: "Enable notifications on 0000dab2-0000-1000-8000-00805f9b34fb and, optionally, write the current time to 0000daa1-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        The manual documents no full factory reset. The nearest thing erases
+        every stored Bluetooth pairing, including the current phone's, and
+        leaves cooking settings alone.
+      description: >
+        Two button holds in the Smart-60 manual touch the Bluetooth state:
+        Pressure held for 10 seconds erases all pairings, and Adjust held
+        for 10 seconds switches Bluetooth off or back on. A cooker that will
+        not pair is usually one with Bluetooth switched off.
+      procedures:
+        - name: "Erase all pairings"
+          verified: false
+          basis: "Instant Pot Smart-60 user manual (Bluetooth section)."
+          hold_seconds: 10
+          glyph: "generic/hold-button.svg"
+          indicator: "A long beep."
+          steps:
+            - action: "Press and hold the Pressure button for 10 seconds."
+              actor: "user"
+              expect: "A long beep; every phone has to pair again."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership. A new phone pairs alongside existing ones; the cooker keeps a count of paired devices."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Bluetooth bonds (more than one; the cooker counts them)"
+        - "Clock, two delay-timer presets and the 12/24-hour setting"
+      issued_to_client: []
+      notes: "No application-layer authentication beyond the BLE bond."
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Disconnect the other phone or turn its Bluetooth off; the cooker serves one connection at a time."
+    enter_pairing_mode:
+      required: true
+      indicator: "A short beep."
+      notes: >
+        The bond is accepted only after Adjust is held on the cooker, so a
+        person has to be at the cooker to pair. The security mode is
+        inferred: OpenPot calls the platform bond with no passkey handling
+        and the manual mentions no code, so Just Works is assumed.
+      procedures:
+        - name: "Hold Adjust about 3 seconds"
+          verified: false
+          basis: "Instant Pot Smart-60 user manual; OpenPot bonds before connecting."
+          hold_seconds: 3
+          power_state: "on"
+          glyph: "generic/hold-button.svg"
+          indicator: "A short beep."
+          steps:
+            - action: "While the phone is trying to pair, press and hold Adjust for about 3 seconds."
+              actor: "user"
+              expect: "A short beep, then the phone's pairing prompt."
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "Every stored pairing at once; there is no per-phone removal on the cooker."
+      notes: "Hold Pressure for 10 seconds (see setup.factory_reset)."
+
+services:
+  - uuid: "0000dab0-0000-1000-8000-00805f9b34fb"
+    name: "Cooker control service"
+    notes: >
+      Command frames go to 0xdab1, state comes back on 0xdab2. Every frame in
+      both directions is 20 bytes, and its last byte makes the sum of all 20
+      bytes 0 modulo 256 (the two's complement of the sum of bytes 0-18).
+      Commands start aa 55 5a 01; telemetry starts aa 55 40 02.
+
+      COMMAND LAYOUT (OpenPot's code): byte 4 program, byte 5 start mode
+      (0x20 now, 0x11 after delay timer 1, 0x12 after delay timer 2), byte 6
+      mode flags, bytes 7-8 delay hours and minutes, bytes 9-10 cook hours
+      and minutes, bytes 11-18 zero, byte 19 check. Times are plain binary
+      in the code (30 minutes is 0x1e); OpenPot's README says BCD.
+
+      MODE BYTE (byte 6), as the code builds it: bits 7-6 select Less (11),
+      Normal (01) or More (10), 00 when not applicable; bit 5 marks a
+      pressure program; bit 4 selects high pressure. So pressure programs
+      use 0xe0 / 0x60 / 0xa0 for less / normal / more, plus 0x10 for high
+      pressure; Manual and Rice use 0x30 (high) or 0x20 (low); Keep Warm and
+      Sauté use 0xc0 / 0x40 / 0x80; Yogurt uses 0xc0 pasteurise, 0x40
+      yogurt, 0x80 ferment. The README gives different values
+      (f0 / b0 / 70) and the code's own comment disagrees with the code.
+    characteristics:
+      - uuid: "0000dab1-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write", "write_without_response"]
+        notes: "OpenPot writes without response. 20-byte command frames; see the service notes for the layout."
+        commands:
+          cancel:
+            description: "Stop whatever program is running (program 0x0e, every other field zero)."
+            encoding: "bytes"
+            value: [0xaa, 0x55, 0x5a, 0x01, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x98]
+            verification: "hypothesis"
+          pressure_cook:
+            description: >
+              Start Manual pressure cooking (program 0x0c) now, for a cook
+              time in hours and minutes. Mode 0x30 is high pressure, 0x20
+              low. High pressure for 30 minutes renders as
+              aa 55 5a 01 0c 20 30 00 00 00 1e 00 … 00 2c.
+            encoding: "bytes"
+            template: [0xaa, 0x55, 0x5a, 0x01, 0x0c, 0x20, "{pressure}", 0x00, 0x00, "{hours}", "{minutes}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{check}"]
+            parameters:
+              pressure:
+                type: "uint8"
+                allowed: [0x30, 0x20]
+                labels: ["high", "low"]
+                default: 0x30
+              hours:
+                type: "uint8"
+                min: 0
+                max: 2
+                unit: "h"
+                description: "Cook-time hours; the manual gives 120 minutes as the maximum pressure-cooking time (OpenPot enforces no cap)."
+              minutes:
+                type: "uint8"
+                min: 0
+                max: 59
+                unit: "min"
+              check:
+                type: "uint8"
+                auto: "subtract_checksum"
+                checksum_start: 0
+                checksum_xor: 0
+                description: "0 minus the sum of bytes 0-18, mod 256; encoder-filled."
+            verification: "hypothesis"
+          start_program:
+            description: >
+              Start any preset program now. Soup at Normal with high
+              pressure for 30 minutes is program 0x0a, mode 0x70:
+              aa 55 5a 01 0a 20 70 00 00 00 1e 00 … 00 ee. Rice takes no
+              time (send 0 and 0). See the service notes for which mode
+              bytes each program family takes.
+            encoding: "bytes"
+            template: [0xaa, 0x55, 0x5a, 0x01, "{program}", 0x20, "{mode}", 0x00, 0x00, "{hours}", "{minutes}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{check}"]
+            parameters:
+              program:
+                type: "uint8"
+                allowed: [0x01, 0x02, 0x03, 0x04, 0x05, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d]
+                labels: ["rice", "multigrain", "porridge", "steam", "yogurt", "poultry", "chili", "meat_stew", "soup", "saute", "manual", "keep_warm"]
+              mode:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Mode-flag byte; see the service notes. Unverified on hardware."
+              hours:
+                type: "uint8"
+                min: 0
+                max: 99
+                unit: "h"
+              minutes:
+                type: "uint8"
+                min: 0
+                max: 59
+                unit: "min"
+              check:
+                type: "uint8"
+                auto: "subtract_checksum"
+                checksum_start: 0
+                checksum_xor: 0
+                description: "0 minus the sum of bytes 0-18, mod 256; encoder-filled."
+            advanced: true
+            advanced_reason: "Raw program and mode bytes; the mode values are disputed between OpenPot's README and code."
+            verification: "hypothesis"
+          keep_warm:
+            description: "Keep warm at Normal for 10 hours (program 0x0d, mode 0x40)."
+            encoding: "bytes"
+            value: [0xaa, 0x55, 0x5a, 0x01, 0x0d, 0x20, 0x40, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2f]
+            verification: "hypothesis"
+      - uuid: "0000dab2-0000-1000-8000-00805f9b34fb"
+        name: "Status"
+        properties: ["notify"]
+        notes: >
+          20-byte status frames starting aa 55 40 02 (OpenPot checks only
+          byte 2 = 0x40). Offsets are the ones OpenPot's parser uses; the
+          README's diagram puts work mode and remaining time one byte later
+          and omits the pressure byte (temperature and heating level agree).
+          Temperature is a raw sensor count, converted to degrees through a
+          non-linear table that OpenPot publishes in TEMPERATURE.md (about
+          25 C at 24, 104 C at 153, saturating at 210 C from 241); it is
+          cited rather than copied.
+        format_match:
+          offset: 2
+          value: 0x40
+          notes: "Status frames only."
+        format:
+          - offset: 4
+            length: 1
+            name: "work_state"
+            type: "uint8"
+            values:
+              0x0b: "delay_timer_counting"
+              0x0c: "cooking"
+              0x0d: "keep_warm"
+              0x0e: "keep_warm"
+            notes: "Any other value means off / standby."
+          - offset: 9
+            length: 1
+            name: "remaining_hours"
+            type: "uint8"
+            unit: "h"
+          - offset: 10
+            length: 1
+            name: "remaining_minutes"
+            type: "uint8"
+            unit: "min"
+          - offset: 11
+            length: 1
+            name: "pressure_state"
+            type: "uint8"
+            mask: 0xf0
+            values:
+              0x5: "lid_open"
+              0x9: "no_pressure"
+              0xa: "low_pressure"
+              0xb: "high_pressure"
+          - offset: 12
+            length: 1
+            name: "temperature_raw"
+            type: "uint8"
+            notes: "Raw sensor count; map through OpenPot's TEMPERATURE.md table. Not linear."
+          - offset: 13
+            length: 1
+            name: "heating_level"
+            type: "uint8"
+            notes: "0-16; percent of full heat is value / 16 x 100."
+
+  - uuid: "0000daa0-0000-1000-8000-00805f9b34fb"
+    name: "Clock and timers service"
+    notes: "Characteristic properties are from OpenPot's README, not a GATT dump; OpenPot writes each without response."
+    characteristics:
+      - uuid: "0000daa1-0000-1000-8000-00805f9b34fb"
+        name: "Clock"
+        properties: ["read", "write"]
+        notes: >
+          Seconds since 2001-01-01 00:00:00 LOCAL time (no time zone), as a
+          32-bit LITTLE-endian integer. OpenPot's README says big-endian, but
+          its own example only decodes little-endian and its code writes
+          little-endian. 2024-10-17 12:00:00 encodes as c0 33 c1 2c (this
+          spec's computation; the README's bytes for that example, b0 25 c1
+          2c, decode to 11:00:00, an hour short of its stated time).
+        format:
+          - offset: 0
+            length: 4
+            name: "seconds_since_2001"
+            type: "uint32"
+            endianness: "little"
+            unit: "s"
+      - uuid: "0000daa2-0000-1000-8000-00805f9b34fb"
+        name: "Delay timer 1 preset"
+        properties: ["read", "write"]
+        notes: "Two bytes, hours then minutes (plain binary in the code; README says BCD)."
+      - uuid: "0000daa3-0000-1000-8000-00805f9b34fb"
+        name: "Delay timer 2 preset"
+        properties: ["read", "write"]
+        notes: "Same layout as timer 1."
+      - uuid: "0000daa4-0000-1000-8000-00805f9b34fb"
+        name: "12/24-hour display"
+        properties: ["read", "write"]
+        notes: "One byte; which value means 24-hour is inconsistent even inside OpenPot's code."
+
+  - uuid: "0000dac0-0000-1000-8000-00805f9b34fb"
+    name: "Recipe service"
+    notes: >
+      One write characteristic taking multi-step recipe scripts in the same
+      20-byte framing, described only in OpenPot's README (OpenPot left it
+      unfinished: a stub builder that is never sent). Not specified further
+      here.
+    characteristics:
+      - uuid: "0000dac1-0000-1000-8000-00805f9b34fb"
+        name: "Recipe step"
+        properties: ["write"]
+
+entities:
+  - platform: "button"
+    name: "Cancel"
+    icon: "mdi:stop"
+    command_characteristic: "0000dab1-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "cancel"
+  - platform: "button"
+    name: "Keep Warm (10 h)"
+    icon: "mdi:pot-steam"
+    command_characteristic: "0000dab1-0000-1000-8000-00805f9b34fb"
+    commands:
+      press: "keep_warm"
+  - platform: "sensor"
+    name: "State"
+    state_characteristic: "0000dab2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "work_state"
+  - platform: "sensor"
+    name: "Pressure"
+    state_characteristic: "0000dab2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "pressure_state"
+
+evidence:
+  documentation_review: >
+    OpenPot's README, TEMPERATURE.md and its BLE service and activity code
+    were read on 2026-10-11, alongside the Smart-60 manual. No other public
+    reverse-engineering of the cooker was found.
+  open_questions: >
+    Everything listed in remaining_unknowns: OpenPot's README and code
+    disagree, and no captured frame from a real cooker has been published.
+
+remaining_unknowns:
+  - "Mode-byte values: README says f0 / b0 / 70; the code uses e0 / 60 / a0 plus 0x10 for high pressure. This spec follows the code."
+  - "Time fields: README says BCD; the code uses plain binary for cook time, delay, remaining time and timer presets. This spec follows the code."
+  - "Command byte offsets: README puts the delay at bytes 8-9 and the duration at 10; the code uses delay 7-8 and duration 9-10 (and one code path overwrites the mode byte with a delay, a bug)."
+  - "Telemetry offsets: the README diagram puts work mode and remaining time one byte later than the parser reads them, and omits the pressure byte; temperature and heating level agree. This spec follows the parser."
+  - "Program 0x06 is unassigned in both sources; Slow Cook is the likely missing program."
+  - "12/24-hour flag polarity."
+  - "Characteristic properties come from the README, not a GATT dump; the pairing security mode is inferred."
+
+helpful_urls:
+  - title: "lizardlab/openpot"
+    url: "https://github.com/lizardlab/openpot"
+    description: "Replacement Android app; the README, code and temperature table this spec is built from."
+  - title: "Instant Pot standalone company after bankruptcy (Retail Dive)"
+    url: "https://www.retaildive.com/news/instant-pot-standalone-company-new-leadership-post-bankruptcy/711981/"
+    description: "The appliance business re-emerging as Instant Pot Brands after the 2023 Chapter 11."
+  - title: "Instant Pot Smart-60 user manual"
+    url: "https://www.manualslib.com/manual/2251041/Instant-Pot-Smart-60.html"
+    kind: "manual"
+    description: >
+      Smart-60 (Instant Pot Smart Bluetooth) manual: Adjust-button pairing,
+      the one-phone limit, and the Pressure/Adjust ten-second holds. The host
+      refuses plain HTTP clients but loads in a browser.

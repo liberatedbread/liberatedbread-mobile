@@ -1,37 +1,42 @@
 # Wilson X Connected Basketball — Research Notes
 
-## What it is
-Wilson X Connected Basketball (2015, ~$200): a regulation ball with an embedded
-accelerometer + BLE radio that detects shot makes/misses in-ball (no hoop hardware) and
-streams shot events to the "WILSON X BASKETBALL" app. Teardown:
-[Fictiv, 2015-12-09](https://www.fictiv.com/teardowns/wilson-x-connected-basketball-teardown)
-("Bluetooth LE and an accelerometer to track your shooting stats").
+## Corrected protocol family (2026-11-01)
 
-## Why it is abandoned
-- Product discontinued by Wilson; the app (last version 1.3.8, 2017-12-21 per APKPure) is
-  gone from Google Play and the App Store — mirrors only.
-- Wilson pivoted its connected-basketball effort to camera-based tracking via the
-  HomeCourt partnership ([homecourt.ai/wilson](https://www.homecourt.ai/wilson)), leaving
-  the in-ball sensor product line dead.
-- App developed for Wilson by "Sstatzz" (package `com.sstatzz.basketball.wilson`).
+Wilson X belongs to the app's **fa10 three-axis accelerometer path**, not
+94Fifty's HDLC/RFCOMM protocol and not the `aa80`/`fd40` 9-DoF variants.
+The final official 1.3.8 app preserves enough logic for a local shot-stream
+client, but no ball or packet capture has verified it.
 
-## Local BLE feasibility
-- Shot detection runs on the ball's MCU; the phone is a display/logger. No hoop-side or
-  server-side computation needed for core function.
-- Cloud features (sharing, leaderboards) are dead, but the core make/miss stream is local BLE.
-- UUID literals recovered from dex (v1.3.8), all 16-bit-based:
-  - `0000aa80` service family: chars `aa81`–`aa84`, `aa90`–`aa92`
-  - `0000fa10`–`fa12`, `fa14`–`fa16` (note fa13 absent)
-  - `0000fd40`–`fd44`
-  - plus CCCD `2902`, HID `1812`, PnP-related `1132`–`1134`
-- No public community RE found — new work, but a small, old, unobfuscated app.
+| UUID | Role |
+|---|---|
+| `0000fa10-0000-1000-8000-00805f9b34fb` | Three-axis acceleration service |
+| `0000fa11-0000-1000-8000-00805f9b34fb` | Acceleration notifications |
+| `0000fa12-0000-1000-8000-00805f9b34fb` | Output mode, written before subscribing |
+| `0000fa15-0000-1000-8000-00805f9b34fb` | Calibration data |
+| `0000fa16-0000-1000-8000-00805f9b34fb` | Timing data, not decoded |
 
-## APK details (apkeep, apk-pure)
-- Package: `com.sstatzz.basketball.wilson`, version 1.3.8 (final)
-- SHA-256: `6ea41878d65aa99172b4065a2791721bb58d3f0fdf62bce3a595e58e35e14781`
+Hardware 130 selects mode 1: signed `(x,y,z)` bytes, each transformed as
+`(signed_byte / 127.0) * 12.0 / 1000.0`; no clean physical unit is claimed.
+Hardware 65/69/129 selects mode 6 below firmware 48 and mode A later. Mode 6
+is 16 bytes: five big-endian u24 magnitudes (`sqrt(value) * 0.006`) and a
+wrapping packet counter. Related mode 2 uses `sqrt(u24be) * 0.012`. Never
+apply the signed-axis decoder to magnitude packets. Hardware 103 and 104 use
+the separate 9-DoF paths.
 
-## Open questions
-- Which of the three UUID families is the ball's GATT (aa80 vs fa10 vs fd40) — jadx the
-  app's BLE manager or nRF Connect scan of a live ball.
-- Whether app login/account is required before shot tracking starts.
-- Ball wakes on motion/bounce — confirm advertising name prefix with a scan.
+Startup writes the selected numeric mode to `fa12`, then enables `fa11`
+notifications. No bonding or app-level authentication was found in this path.
+Decoder selection depends on advertised hardware/firmware values whose
+capture layout still needs checking, so a generic client must not guess.
+
+## Local/cloud boundary
+
+The acceleration stream is local BLE. Shot make/miss classification happens
+in the phone app's classifier, not through a cloud API; the phone-side proxy
+characteristic is not the ball's original protocol. A first-run account flow
+exists and no offline guest path has been proven. That means a replacement
+client needs its own local profile flow even though the radio stream itself
+needs no account.
+
+Next evidence: read hardware/firmware advertisements, capture one mode-1
+session with ground-truth shots, and establish `fa15`/`fa16` semantics and
+offline onboarding before writing an app spec.

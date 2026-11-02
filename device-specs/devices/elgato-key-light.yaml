@@ -1,0 +1,548 @@
+# Elgato Key Light classic HTTP family — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Elgato Key Light classic HTTP family"
+  manufacturer: "Elgato / Corsair"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The cited community protocol
+      characterisation exercised a Key Light Air, Key Light Mini and Light
+      Strip live; the remaining model coverage is reported, not confirmed.
+  protocol: "wifi"
+  category: "light"
+  transport: "http"
+  notes: >
+    Local control for classic Elgato lights over unauthenticated HTTP/JSON on
+    TCP 9123. Covered are the Key Light, Key Light Air, Key Light MK.2, Key
+    Light Neo, Key Light Mini, Ring Light, Light Strip and Light Strip Pro when
+    they publish the classic HTTP surface. The Key Light Air MK.2 (board 214)
+    is deliberately excluded: it uses mutual-TLS WebSocket JSON-RPC on the same
+    port, not this API. A client distinguishes them by the absence of the mDNS
+    `tls` TXT key here, never by guessing from the product name.
+
+    No cloud or pairing is needed for control. The HTTP surface is
+    unauthenticated and effectively single-threaded: use one keep-alive
+    connection per light and do not issue parallel requests. The same surface
+    also exposes destructive operations, so only the declared commands should
+    be sent. Range handling varies by model and neither rejects nor clamps
+    consistently; clamp client-side to the declared ranges.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/frenck/python-elgato"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://github.com/passtas/matterbridge-elgato/blob/main/docs/elgato-protocol.md"
+        title: "Elgato local HTTP + mDNS protocol"
+        covers: "Live-verified mDNS records, CCT/HSV/scene state shapes, partial PUT semantics, ranges, identity and Key Light Mini battery fields."
+      - url: "https://github.com/schlarpc/elgato-key-light-mini-firmware-re/blob/main/docs/03-http-api.md"
+        title: "Key Light Mini firmware reverse engineering — HTTP API"
+        covers: "Classic endpoint surface, firmware-update exchange and status behaviour."
+    notes: >
+      Only derived protocol facts are recorded here. Vendor application
+      internals, proprietary firmware and signing material are not part of this
+      specification. The live community results and the independent client
+      implementations agree on the control surface below.
+
+  identification:
+    default_port: 9123
+    mdns_service_type: "_elg._tcp.local."
+    mdns_txt_match:
+      - key: "mf"
+        value: "Elgato"
+        description: "Manufacturer TXT value published by the classic lights and the Air MK.2; required first so another _elg._tcp product is not claimed."
+      - key: "tls"
+        match: "absent"
+        description: "Classic firmware publishes no tls TXT key. Air MK.2 publishes tls=CERT_1_VER_EN and speaks mutual-TLS WebSocket rather than HTTP."
+    notes: >
+      TXT `dt` is a model hint, not a sufficient capability check: select CCT,
+      HSV, scene and battery support from the response shapes declared in
+      `variants`. TXT `id` is not reliably the MAC address. Use
+      accessory-info.serialNumber as the durable identity.
+
+  variants:
+    - model: "CCT"
+      identification:
+        state_probe:
+          command: "get_lights"
+          keys_present: ["lights[0].temperature"]
+      notes: >
+        Key Light family and Ring Light: `on`, `brightness` and white-point
+        `temperature` in mireds.
+    - model: "HSV"
+      identification:
+        state_probe:
+          command: "get_lights"
+          keys_present: ["lights[0].hue"]
+          keys_absent: ["lights[0].scene"]
+      notes: >
+        Light Strip in direct-colour mode: `on`, `brightness`, `hue` and
+        `saturation`. Never add `temperature` to an HSV write.
+    - model: "Scene"
+      identification:
+        state_probe:
+          command: "get_lights"
+          keys_present: ["lights[0].scene"]
+      notes: >
+        A Light Strip running a scene. A bare power, brightness or colour write
+        discards the running scene, so this entity is intentionally read-only.
+    - model: "Battery"
+      identification:
+        state_probe:
+          command: "get_battery_info"
+          keys_present: ["level"]
+      notes: >
+        Key Light Mini battery surface. Probe once: 200 means present, 404
+        means absent; the accessory-info features list does not report it.
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_elg._tcp.local."
+          port: 9123
+          txt_record_keys: ["pv", "md", "id", "dt", "mf", "tls"]
+          txt_match:
+            - key: "mf"
+              value: "Elgato"
+              description: "The manufacturer value shared by this family."
+            - key: "tls"
+              match: "absent"
+              description: "Exclude the mutual-TLS Air MK.2 from this plain-HTTP specification."
+          identity_mapping:
+            stable_keys:
+              - source: "http:/elgato/accessory-info#serialNumber"
+                key: "serial_number"
+            display:
+              source: "http:/elgato/accessory-info#displayName"
+        notes: >
+          Display name can be empty; fall back to the mDNS instance name in
+          that case. TXT `id` is only a pre-HTTP dedupe hint, not a stable key.
+    identity:
+      stable_keys: ["serial_number"]
+      display: "displayName"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Initial onboarding uses the light's own setup network and the vendor
+      Control Center flow. The classic wifi-info payload is obfuscated rather
+      than securely encrypted; this spec does not claim an independent
+      provisioning implementation. Once onboarded, control needs no account.
+    methods:
+      - type: "device_ui"
+        name: "Control Center onboarding"
+        role: "primary"
+        verified: false
+        description: "Join the light with the vendor Control Center application, then use local HTTP directly."
+        steps:
+          - action: "Power the light and wait for its setup network or onboarding offer."
+            actor: "device"
+            expect: "The light is ready to be adopted by Control Center."
+            timeout_seconds: 60
+          - action: "Follow the Control Center onboarding flow and choose the home Wi-Fi network."
+            actor: "user"
+          - action: "Wait for the light to join the LAN."
+            actor: "device"
+            expect: "An _elg._tcp.local. advertisement appears on TCP 9123 without a tls TXT key."
+            timeout_seconds: 60
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Clears the Wi-Fi configuration so the light can be onboarded again.
+        The two procedures below are vendor-documented for the named models;
+        do not generalise their button location or timing to the whole family.
+      procedures:
+        - name: "Key Light Mini Wi-Fi reset"
+          verified: false
+          basis: "Elgato's Key Light Mini — Reset Wi-Fi Configurations support article; not replayed by this project."
+          power_state: "on"
+          hold_seconds: 10
+          indicator: "The light flashes three times."
+          steps:
+            - action: "Power on the Key Light Mini."
+              actor: "user"
+            - action: "Hold the recessed Reset button with a small tool for 10 seconds."
+              actor: "user"
+              expect: "The light flashes three times."
+            - action: "Release Reset and wait for the light to restart."
+              actor: "device"
+              expect: "The light is ready to be onboarded again."
+        - name: "Key Light Neo Wi-Fi reset"
+          verified: false
+          basis: "Elgato's Key Light Neo — Reset Wi-Fi Configuration support article; not replayed by this project."
+          power_state: "on"
+          hold_seconds: 10
+          indicator: "The light flashes three times, then restarts."
+          steps:
+            - action: "Power on the Key Light Neo."
+              actor: "user"
+            - action: "Hold the recessed Reset button with a small tool for at least 10 seconds."
+              actor: "user"
+              expect: "The light flashes three times."
+            - action: "Release Reset and wait for the automatic restart."
+              actor: "device"
+              expect: "The light is ready to be onboarded again."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        The documented Mini and Neo route to a new network is the Wi-Fi reset
+        above. Reset procedures for the other models remain unverified here.
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "Light state and power-on defaults"
+      issued_to_client: []
+      notes: >
+        Classic provisioning uses an obfuscated payload, not a secret suitable
+        for protecting a network from a determined reader. Steady-state HTTP
+        control itself is unauthenticated.
+
+http_endpoints:
+  - method: "GET"
+    path: "/elgato/accessory-info"
+    name: "Accessory Information"
+    description: >
+      Product name, board id, serial number, display name, firmware and Wi-Fi
+      metadata. Use serialNumber as identity, not mDNS TXT id.
+  - method: "GET"
+    path: "/elgato/lights"
+    name: "Light State"
+    description: >
+      Returns {numberOfLights, lights:[...]}. Read lights[0]. CCT replies carry
+      on/brightness/temperature; direct-colour replies carry
+      on/brightness/hue/saturation; scene replies replace those colour fields
+      with id/name/scene/numberOfSceneElements.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "on"
+          type: "int"
+          description: "Power state, integer 0 or 1 (never a JSON boolean)."
+        - name: "brightness"
+          type: "number"
+          description: "Brightness percent. Integer in ordinary modes; may be fractional in a scene."
+        - name: "temperature"
+          type: "int"
+          description: "CCT white point in mireds, useful range 143-344."
+        - name: "hue"
+          type: "number"
+          description: "HSV hue in degrees, 0-360."
+        - name: "saturation"
+          type: "number"
+          description: "HSV saturation percent, 0-100."
+  - method: "PUT"
+    path: "/elgato/lights"
+    name: "Set Light State"
+    description: >
+      Accepts a partial lights array and preserves unnamed fields. Returns the
+      complete new state, so a client can consume the PUT response instead of
+      immediately issuing another GET.
+    request_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/elgato/battery-info"
+    name: "Battery Information"
+    description: >
+      Key Light Mini only: level (fractional percent), status (0 not charging,
+      1 pre-charge, 2 fast charge, 3 complete), powerSource (0 unknown, 1 USB,
+      2 battery), currentBatteryVoltage and inputChargeVoltage (mV), and
+      inputChargeCurrent (mA). A 404 means no battery surface.
+  - method: "POST"
+    path: "/elgato/identify"
+    name: "Identify"
+    description: "Blink the selected light. Empty request body."
+  - method: "PUT"
+    path: "/elgato/firmware-update/prepare"
+    name: "Firmware Update Prepare"
+    advanced: true
+    advanced_reason: >
+      Erases the inactive firmware slot in preparation for replacement. Only a
+      vendor image for the exact board should be supplied.
+    description: "Body {\"size\":N} with the complete image length including the 128-byte header. Allow at least 60 seconds."
+    request_body:
+      content_type: "application/json"
+  - method: "PUT"
+    path: "/elgato/firmware-update/data?offset={offset}"
+    name: "Firmware Update Data"
+    advanced: true
+    advanced_reason: >
+      Writes one 4096-byte firmware chunk. An incorrect or interrupted image
+      can leave the light unavailable until recovery.
+    description: >
+      Raw chunk at the byte offset in the query string. Chunks are sent in
+      order with Connection: close; an accepted intermediate chunk answers
+      202. The last chunk answers 200 only after signature and checksum
+      validation. A 400 or 408 means retry that chunk.
+    request_body:
+      content_type: "application/octet-stream"
+  - method: "POST"
+    path: "/elgato/firmware-update/execute"
+    name: "Firmware Update Execute"
+    advanced: true
+    advanced_reason: >
+      Selects the newly written firmware slot and restarts the light. Do not
+      send until every chunk has been acknowledged.
+    description: "Empty body; validates and activates the staged image, then restarts."
+
+commands:
+  get_lights:
+    description: "Read power, brightness and the device's current CCT, HSV or scene state."
+    transport: "http"
+    method: "GET"
+    path: "/elgato/lights"
+    verification: "confirmed"
+  get_battery_info:
+    description: "Read Key Light Mini battery state; a 404 means this capability is absent."
+    transport: "http"
+    method: "GET"
+    path: "/elgato/battery-info"
+    verification: "confirmed"
+  turn_on:
+    description: "Turn the light on without changing its stored brightness or colour."
+    transport: "http"
+    method: "PUT"
+    path: "/elgato/lights"
+    body: '{"lights":[{"on":1}]}'
+    example_body: '{"lights":[{"on":1}]}'
+    verification: "confirmed"
+  turn_off:
+    description: "Turn the light off. On a scene-running strip this also discards the scene, so Scene is read-only here."
+    transport: "http"
+    method: "PUT"
+    path: "/elgato/lights"
+    body: '{"lights":[{"on":0}]}'
+    example_body: '{"lights":[{"on":0}]}'
+    verification: "confirmed"
+  set_brightness:
+    description: "Set brightness percent, preserving power and colour. Zero is legal but leaves on=1 with no visible output, so the control starts at 3."
+    transport: "http"
+    method: "PUT"
+    path: "/elgato/lights"
+    body: '{"lights":[{"brightness":{brightness}}]}'
+    example_body: '{"lights":[{"brightness":50}]}'
+    parameters:
+      brightness:
+        type: "integer"
+        required: true
+        min: 3
+        max: 100
+        unit: "%"
+        description: "Brightness percent; clamp client-side because firmware range behaviour differs."
+    verification: "confirmed"
+  set_color_temperature:
+    description: "Set CCT white point in mireds. Do not combine temperature with hue or saturation."
+    transport: "http"
+    method: "PUT"
+    path: "/elgato/lights"
+    body: '{"lights":[{"temperature":{mireds}}]}'
+    example_body: '{"lights":[{"temperature":221}]}'
+    parameters:
+      mireds:
+        type: "integer"
+        required: true
+        min: 143
+        max: 344
+        unit: "mired"
+        description: "White point in mireds: 143 is about 7000 K and 344 about 2900 K. Keep native mireds rather than converting through an assumed linear Kelvin curve."
+    verification: "confirmed"
+  set_hsv:
+    description: "Set direct HSV colour on a Light Strip, ending any running scene. Deliberately not bound to the RGB-oriented generic colour role."
+    transport: "http"
+    method: "PUT"
+    path: "/elgato/lights"
+    body: '{"lights":[{"hue":{hue},"saturation":{saturation}}]}'
+    example_body: '{"lights":[{"hue":200,"saturation":100}]}'
+    parameters:
+      hue:
+        type: "number"
+        required: true
+        min: 0
+        max: 360
+        unit: "degree"
+        description: "Hue in whole degrees. The device stores 360 rather than folding it to 0."
+      saturation:
+        type: "number"
+        required: true
+        min: 0
+        max: 100
+        unit: "%"
+        description: "Saturation in whole percent; fractional values are truncated by current firmware."
+    verification: "confirmed"
+  identify:
+    description: "Blink the selected light so the user can confirm which unit is being controlled."
+    transport: "http"
+    method: "POST"
+    path: "/elgato/identify"
+    body: ''
+    verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["http_upload"]
+      transport: "http"
+      endpoint: "Firmware Update Data"
+      image:
+        signing: "signed"
+        algorithm: "ed25519"
+        source: "bundled_in_app"
+        format: >
+          Complete vendor image including its 128-byte little-endian header:
+          board type, four u16 version components, payload size/offset,
+          signature slot and a 64-byte signature. Signature input is
+          SHA-512(header[0:64] || payload), signed with Ed25519.
+        notes: >
+          Only the vendor image for the exact board id is appropriate. No
+          image or signing material is distributed with this spec.
+      enter:
+        how: "in_place"
+        notes: >
+          The running application receives and validates the image through the
+          prepare/data/execute endpoints; no separate bootloader mode is
+          entered before upload.
+      dfu_mode:
+        notes: >
+          The light stays on its ordinary LAN address while chunks upload.
+          No separate update-mode SSID or advertisement is documented.
+      recovery:
+        interrupted: "keeps_old_image"
+        notes: >
+          Community firmware analysis describes an inactive-slot update: the
+          previous slot remains bootable until execute selects the new image
+          after validation. Behaviour at every possible power-loss point has
+          not been tested by this project.
+      verification: "reported"
+
+entities:
+  - platform: "light"
+    name: "Key Light"
+    variants: ["CCT"]
+    features: ["brightness", "color_temp"]
+    state_command: "get_lights"
+    state_mapping:
+      is_on: "lights[0].on"
+      on_when: "nonzero"
+      brightness: "lights[0].brightness"
+      color_temperature: "lights[0].temperature"
+    commands:
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+      set_brightness: "set_brightness"
+      set_color_temperature: "set_color_temperature"
+    notes: >
+      Brightness is 3-100 in the control to avoid on=1 at zero output. White
+      point stays in native mireds (143-344), not a mislabeled Kelvin slider.
+  - platform: "light"
+    name: "Light Strip"
+    variants: ["HSV"]
+    features: ["brightness", "rgb"]
+    state_command: "get_lights"
+    state_mapping:
+      is_on: "lights[0].on"
+      on_when: "nonzero"
+      brightness: "lights[0].brightness"
+      hue: "lights[0].hue"
+      saturation: "lights[0].saturation"
+    commands:
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+      set_brightness: "set_brightness"
+    notes: >
+      `set_hsv` declares the wire write but is not bound: the generic
+      set_color role expects red/green/blue channels, not hue/saturation.
+      A client with an HSV picker can bind it directly.
+  - platform: "light"
+    name: "Light Strip Scene"
+    variants: ["Scene"]
+    features: ["brightness"]
+    state_command: "get_lights"
+    state_mapping:
+      is_on: "lights[0].on"
+      on_when: "nonzero"
+      brightness: "lights[0].brightness"
+      effect: "lights[0].id"
+    notes: >
+      Read-only deliberately. A bare on/off, brightness or HSV write discards
+      the running scene and there is no scene-list endpoint. Cache the full
+      scene object before considering a restore command.
+  - platform: "sensor"
+    name: "Battery"
+    variants: ["Battery"]
+    device_class: "battery"
+    unit: "%"
+    state_command: "get_battery_info"
+    state_mapping:
+      value: "level"
+    notes: >
+      Fractional percent; expect small fluctuations while charging. Probe the
+      endpoint once and treat 404 as a final no-battery answer.
+  - platform: "button"
+    name: "Identify"
+    commands:
+      press: "identify"
+
+remaining_unknowns:
+  - "Wi-Fi reset procedures for original Key Light, Key Light Air, Key Light MK.2, Ring Light, Light Strip and Light Strip Pro need vendor citations or hardware confirmation."
+  - "An independent provisioning client still needs the classic wifi-info key schedule reviewed for clean-room redistribution; steady-state control does not depend on it."
+  - "The full scene catalogue is not enumerable from the device. A safe scene-preserving write path should cache complete observed scenes first."
+  - "Battery charge-status values 0, 1 and 3, and powerSource 0 and 2, are from public prior art rather than the live Mini sample."
+  - "Firmware-update recovery at every power-loss point, and whether every classic model uses the same inactive-slot behaviour, remain untested by this project."
+  - "Air MK.2 mutual-TLS WebSocket control and BLE onboarding are outside this spec; its client-certificate issuance path is unresolved."
+
+evidence:
+  documentation_review: >
+    Reviewed 2026-10-31: the public matterbridge-elgato protocol
+    characterisation (live Key Light Air, Key Light Mini and Light Strip),
+    python-elgato, the Key Light Mini firmware reverse-engineering write-up,
+    and the project's clean-room Elgato research notes. The mDNS, JSON field
+    shapes, partial-write behaviour and range quirks agree. No vendor source
+    symbols, proprietary images, real device identifiers or credentials are
+    reproduced. All ordinary control commands are confirmed by the cited live
+    community work; broader model coverage and firmware upload remain
+    reported.
+  open_questions: >
+    The remaining work is scoped in remaining_unknowns: per-model reset
+    procedures, independent provisioning, scene-preserving writes, battery
+    enum coverage, firmware recovery and the separate Air MK.2 transport.
+
+helpful_urls:
+  - title: "Elgato local HTTP + mDNS protocol"
+    url: "https://github.com/passtas/matterbridge-elgato/blob/main/docs/elgato-protocol.md"
+    kind: "protocol_writeup"
+    description: >
+      Live-characterised discovery, CCT/HSV/scene shapes, partial PUT
+      semantics, range quirks, stable identity and Mini battery readings.
+  - title: "frenck/python-elgato"
+    url: "https://github.com/frenck/python-elgato"
+    kind: "implementation"
+    description: "MIT Python client for the classic local HTTP API."
+  - title: "Key Light Mini firmware reverse engineering"
+    url: "https://github.com/schlarpc/elgato-key-light-mini-firmware-re"
+    kind: "teardown"
+    description: "Hardware-focused firmware, HTTP, update and security analysis."
+  - title: "Elgato Key Light quick-start guide (PDF)"
+    url: "https://help.elgato.com/hc/en-us/articles/360055262831-Key-Light-Quick-Start-Guide-PDF"
+    kind: "manual"
+    description: >
+      Vendor quick-start guide for the original Key Light, covering physical
+      setup and Control Center onboarding. The vendor help portal may block
+      automated fetches while remaining usable in a browser.
+  - title: "Elgato Key Light Mini — Reset Wi-Fi Configurations"
+    url: "https://help.elgato.com/hc/en-us/articles/4424711679885-Elgato-Key-Light-Mini-Reset-Wi-Fi-Configurations"
+    kind: "vendor_support"
+    description: "Vendor's ten-second Mini Wi-Fi reset and three-flash confirmation."
+  - title: "Elgato Key Light Neo — Reset Wi-Fi Configuration"
+    url: "https://help.elgato.com/hc/en-us/articles/25947652898701-Elgato-Key-Light-Neo-Reset-Wi-Fi-Configuration"
+    kind: "vendor_support"
+    description: "Vendor's ten-second Neo Wi-Fi reset, three flashes and automatic restart."

@@ -897,7 +897,49 @@ cloud:
     - "Mission telemetry and run history"
     - "The home's floor plan, on the mapping models (i/j/s series, Braava m6)"
     - "Robot identity, model and firmware version"
+  # All three published names belong to the ACCOUNT route to the password --
+  # the vendor app's, or a password tool's -- not to the robot. So the
+  # generated DNS lists carry nothing for this robot, which is the honest
+  # answer: its own cloud link is an AWS IoT endpoint no public source names.
+  egress:
+    - host: "disc-prod.iot.irobotapi.com"
+      contacted_by: "app"
+      roles: ["api"]
+      when_blocked:
+        impact: "none"
+        effect: >
+          The account route to the robot's local password fails for any client
+          on this network: this is its first call. Get the password before
+          blocking it.
+      verification: "reported"
+      basis: >
+        The first step of this spec's cloud password route: a client GETs
+        /v1/discover/endpoints here for the regional Gigya key and API base
+        (dorita980's cloud password flow). Nothing public shows the robot
+        itself calling it.
+    - host: "unauth2.prod.iot.irobotapi.com"
+      contacted_by: "app"
+      roles: ["account"]
+      when_blocked:
+        impact: "none"
+        effect: "The iRobot sign-in (/v2/login) that returns the robot list and local password fails on this network."
+      verification: "reported"
+      basis: "The iRobot API base the discovery call hands back in dorita980's cloud password flow."
+    - host: "accounts.us1.gigya.com"
+      contacted_by: "app"
+      roles: ["account"]
+      region: "US"
+      when_blocked:
+        impact: "none"
+        effect: "The Gigya identity sign-in that starts the account route fails on this network."
+      verification: "reported"
+      basis: "The US Gigya base the discovery call hands back in dorita980's cloud password flow; other regions get their own."
   notes: >
+    The names in `egress` are all the account route's, not the robot's: a
+    DNS list built from them breaks the password route and leaves the robot
+    untouched. The robot's own link is to an AWS IoT endpoint that no public
+    source names, so the way to cut it off is a firewall rule on the robot's
+    address (liberatedbread.com/firewall), which needs no hostname at all.
     These hosts are the published ones and are marked `reported`, not
     `confirmed`: this project has not captured a robot's DNS traffic. Anyone
     building a blocklist from them should log the robot's own lookups at the

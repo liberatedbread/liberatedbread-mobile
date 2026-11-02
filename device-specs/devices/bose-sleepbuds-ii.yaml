@@ -1,0 +1,1271 @@
+# Bose Sleepbuds II — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code,
+# no code transcribed from the unlicensed community repo):
+#   - chillee151/SleepBuds2Revival (no licence; facts only): PROTOCOL_REFERENCE.md,
+#     sleepbuds/protocol.py, sleepbuds/controller.py, sleepbuds/scanner.py —
+#     UUIDs, frame layouts, opcodes and the author's bench results on
+#     firmware 11.9.0 ("Kingsley" hardware)
+#   - Bose support: "Sleep App Availability | Bose Sleepbuds II" (app withdrawn
+#     2025-07-21), "Resetting your product" (no factory reset; case reset
+#     pinhole), "Setting up your product" (connect / disconnect / reconnect)
+#   - Bose Sleepbuds II owner's guide, model 432893, 33 pages (manualslib
+#     mirror): Bluetooth Connections p. 25, Phone-Free Mode p. 26, Reset the
+#     charging case p. 28, Troubleshooting p. 29
+#   - bosefirmware/eb: the "drowsy" firmware index (6.x/7.x, 2018-2019) ties
+#     that codename to the first-generation noise-masking sleepbuds
+#   - device.report listing of FCC grantee 432893: FCC IDs A94432893L /
+#     A94432893R (left / right bud), model S08SEE6M1A
+
+device:
+  name: "Bose Sleepbuds II"
+  manufacturer: "Bose Corporation"
+  manufacturer_status: "abandoned"
+  model: "432893"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every byte below comes
+      from one community client (SleepBuds2Revival) whose author
+      decompiled the Bose Sleep app and then exercised the result on one
+      pair of Sleepbuds II running firmware 11.9.0. Frames marked
+      `reported` are ones that author drove on the bench or lifted from the
+      app; `hypothesis` marks layouts the client constructs but never
+      reports having had accepted.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "earbuds"
+  type: "sleep-earbuds"
+  notes: >
+    Tiny in-ear buds that play stored noise-masking sounds all night; they
+    stream nothing from the phone. The phone's only job was to run the Bose
+    Sleep app, which over BLE picked the sound, set the volume and timer,
+    set alarms, toggled phone-free mode and uploaded new sound files. Bose
+    discontinued the product in 2023 and withdrew the Sleep app from both
+    app stores on 2025-07-21, ending its development; an installed copy
+    keeps working until a phone OS update breaks it, and Bose's only
+    suggestion is to enable phone-free mode first so the buds play one
+    preselected sound on their own.
+
+    `manufacturer_status: abandoned` rather than `shutdown` because Bose is
+    very much in business — it is this product and its app that were
+    dropped, with no replacement path (the Ozlo Sleepbuds Bose points owners
+    at are a different company's product and do not control these buds).
+
+    The buds are TWO BLE peripherals. The left and right bud each advertise,
+    each accept one connection, and each must be written separately; the
+    left bud does not relay to the right. The vendor app held two
+    connections and sent every command to both. This spec therefore
+    describes one bud; a consumer treats each bud as its own device and the
+    user pairs the two up by name.
+
+    What this spec covers: picking which stored sound plays, volume, start
+    and stop, the playback timer, battery, the phone-free flag, and the
+    alarm and synchronised-start opcodes as far as they are known. What it
+    deliberately does NOT cover: uploading sound files (the "TUMBLE" chunked
+    transfer with CRC-32 confirmation on the control point) and firmware
+    update (the same control point plus a binary-packet characteristic, and
+    a legacy OTA service). Both are documented well enough in
+    SleepBuds2Revival to be revisited; they are out of scope here because
+    they write to the buds' storage and nothing about them has been checked
+    beyond one author's bench.
+
+    Firmware 11.x units ("Kingsley") are the Sleepbuds II. The same app also
+    drove the 2018 first-generation noise-masking sleepbuds ("Drowsy",
+    firmware 6.x/7.x), which use an 8-byte playback frame and a different
+    set of sound file IDs. Where the two differ this spec says so, but the
+    first generation is not otherwise covered.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/chillee151/SleepBuds2Revival"
+    notes: >
+      Bose published nothing about the BLE interface. One community client
+      (February 2026, no licence) recovered it from the Sleep app and
+      checked the playback path on a Sleepbuds II pair. No second
+      independent implementation is known; treat every fact here as resting
+      on that single source until someone replays it.
+
+  identification:
+    local_name_prefixes:
+      - "Bose"
+      - "Sleepbuds"
+    notes: >
+      LOW confidence matcher. The factory advertised name was not recorded
+      by any source; the community client finds buds by looking for
+      "bose", "sleepbud" or "drowsy" anywhere in the name, case-insensitive,
+      and the owner can rename the buds in the app (a flag in the Settings
+      characteristic records that this happened), so a renamed pair will
+      not match. Whether the Bose member service 0xfe21 is in the
+      advertisement is unknown; if a scan shows it is, that is the better
+      axis.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "contains"
+            values:
+              - "Bose"
+              - "Sleepbud"
+              - "Drowsy"
+        notes: >
+          Substring match, mirroring the community scanner. The buds
+          advertise only while out of the case (removing them powers them
+          on; placing them in the case powers them off) and only while not
+          connected to a phone. Expect TWO results per pair — one per bud —
+          with different addresses. On macOS the address is an ephemeral
+          CoreBluetooth UUID that can change between sessions.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: a bud out of its case advertises, and a central
+      that connects can read everything and write playback frames. The one
+      open question is link-layer — see `pairing`: the phone the vendor app
+      ran on appears in iOS's Bluetooth list, which suggests a bond is
+      formed, but the community client never reports a pairing prompt and
+      the owner's guide never mentions one. Close the Bose Sleep app first
+      if it is still installed; a bud serves one central at a time.
+    methods:
+      - type: "ble_direct"
+        name: "Connect to each bud and read it"
+        verified: false
+        description: >
+          Take the buds out of the case, connect to one of them, subscribe
+          to the notifying characteristics, and read the state
+          characteristics the vendor app read after connecting. The read of
+          the Audio Data characteristic matters: the playback frame carries
+          the current file ID, which `set_volume` needs. Repeat for the
+          other bud. Nothing is written during this flow except an optional
+          connection-interval request.
+        steps:
+          - action: "Close or force-stop the Bose Sleep app if it is still installed, and disconnect any other client; each bud accepts one connection."
+            actor: "user"
+          - action: "Remove both buds from the charging case and wait a few seconds; they power on and advertise."
+            actor: "user"
+          - action: "Scan and connect to one bud by address. Accept a Just Works pairing prompt if the host raises one."
+            actor: "client"
+          - action: "Enable notifications on the Control Point e81359e0-9f35-483a-a46f-7c6d686daa06, the Settings characteristic 5e500c28-33db-4d0a-afc8-c9b6df4269bf and the Audio Data characteristic 1cbd5f8f-6c18-4309-9354-703e7d42a74e."
+            actor: "client"
+          - action: "Read firmware revision 00002a26-0000-1000-8000-00805f9b34fb and serial number 00002a25-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+            expect: "Firmware as text, e.g. 11.9.0. A serial ending in -Kde marks Sleepbuds II (Kingsley) hardware."
+          - action: "Read the Settings characteristic, the Sounds characteristic 12a3d434-c7de-4760-88c0-4f743ea55e98 and the Audio Data characteristic."
+            actor: "client"
+            expect: "4 bytes of flags and battery; a list of stored file IDs ending 0xffa0; a 12-byte playback frame."
+          - action: "Optionally write the connection-parameter request (opcode d0 00) to the Control Point to ask for a faster interval; a response of 00 or 08 is fine."
+            actor: "client"
+          - action: "Repeat for the other bud. Commands are per bud; send a play frame to both to hear it in both ears."
+            actor: "client"
+    factory_reset:
+      applicable: false
+      confidence: "medium"
+      effect: >
+        None. Bose's support article for the Sleepbuds II states that there
+        is no factory reset for this product; the buds have no button and
+        no documented way to clear their stored state or pairings on the
+        device itself.
+      description: >
+        Two things exist that are NOT a factory reset and get mistaken for
+        one. (1) The charging case has a pinhole on its back next to the
+        USB-C port; pushing a straightened paper clip in until it clicks
+        powers the case off and on, which Bose offers for charging problems
+        only. (2) Placing the buds in the case and waiting for the charging
+        lights to blink slowly white, then taking them out again, power-cycles
+        the buds; Bose's troubleshooting step for a bud that misbehaves.
+        To make a bud forget a phone there is no bud-side procedure: forget
+        it in the phone's Bluetooth settings (iOS) or disconnect it in the
+        app (Android), then power-cycle the buds via the case.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE only; there is no network to rejoin. Any central may connect
+        once the current one disconnects and, if a bond is in play, once
+        the previous phone has forgotten the bud. The buds reconnect on
+        their own to the most recently connected device when they power on
+        within about 2 m of it.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Peer record for the most recently connected phone (a bond, if the link is bonded — see pairing)"
+        - "Device name set by the owner"
+        - "Phone-free flag and the sound, volume and timer it replays"
+        - "Stored sound files (file IDs listed by the Sounds characteristic)"
+        - "Pending bud-based alarm"
+      issued_to_client: []
+      notes: >
+        No application-layer secret exists: the writable characteristics
+        take plain frames with no token, PIN or key.
+
+  pairing:
+    required: "unknown"
+    confidence: "low"
+    security_mode: "just_works"
+    bonding: "unknown"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: >
+        Force-stop the Bose Sleep app if installed; on an iPhone also forget
+        the Sleepbuds in Settings > Bluetooth and toggle Bluetooth off and
+        on (Bose's own disconnect instruction); put both buds in the case
+        until the lights blink white and take them out again; then connect.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        No button and no pairing mode. A bud advertises whenever it is out
+        of the case and not connected; the owner's guide's "power on" is
+        simply removing it from the case.
+    unpair:
+      supported: "unknown"
+      requires_factory_reset: false
+      notes: >
+        There is no factory reset at all, so a stored peer can only be
+        dropped from the phone side if it is dropped at all. Bose's
+        disconnect instructions are phone-side (forget in iOS Bluetooth
+        settings; disconnect in the Android app). Whether the bud then
+        accepts a new phone without further ceremony is unverified — the
+        community client connected from a Mac that had never run the app,
+        which is weak evidence that it does.
+    notes: >
+      The evidence points two ways and neither source settles it. FOR a
+      bond: Bose tells iPhone owners to forget the Sleepbuds in the iOS
+      Bluetooth settings, and iOS only lists BLE accessories it has paired
+      with; the buds reconnect to "the most recently connected device" on
+      power-up; the control point's response-code table includes an
+      "already bonded" code. AGAINST a mandatory bond: the community client
+      connected and wrote playback frames from a macOS host without
+      describing any pairing prompt (though macOS pairs silently when a
+      characteristic demands encryption, so this proves little); the
+      owner's guide never shows a passkey or a Bluetooth-settings step and
+      the buds have no button or display, so any pairing that does happen
+      can only be Just Works. Until someone watches the SMP exchange,
+      implement for both: connect, and accept a Just Works bond if the
+      stack asks.
+
+services:
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >
+      Standard SIG service. Three characteristics are known to answer. The
+      serial number identifies one unit; log the suffix, not the value.
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+        notes: "UTF-8 text naming Bose."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+        notes: >
+          UTF-8 text such as 11.9.0. Firmware 11.x requires the 12-byte
+          playback frame; the first-generation 6.x/7.x firmware used an
+          8-byte one.
+      - uuid: "00002a25-0000-1000-8000-00805f9b34fb"
+        name: "Serial Number String"
+        properties: ["read"]
+        notes: >
+          Per-unit serial. A suffix of -Kde marks Sleepbuds II ("Kingsley")
+          hardware, which is the only way besides the stored file IDs to
+          tell the two generations apart before writing anything.
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: >
+      Standard SIG battery service, read by the community client. Whether
+      the level also notifies was not recorded. The Settings characteristic
+      carries a second copy of the percentage at byte 1.
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+
+  - uuid: "fdc34961-888e-4a93-abf1-b3490d8b231b"
+    name: "Audio service"
+    notes: >
+      Bose's playback service. Audio Data is the whole everyday control
+      surface — one 12-byte frame says what plays, how loud and for how
+      long, and reading it back returns the current state. Sounds lists
+      what is stored; Sync exposes the bud's clock for the synchronised
+      start on the control point.
+    characteristics:
+      - uuid: "1cbd5f8f-6c18-4309-9354-703e7d42a74e"
+        name: "Audio Data (playback state)"
+        properties: ["read", "write", "write_without_response", "notify"]
+        role: "command"
+        notes: >
+          Twelve bytes, little-endian, read and written whole. Firmware
+          11.x rejects the older 8-byte frame (the write fails with ATT
+          error 0x42). The sound is addressed by its FILE ID — the large
+          number the Sounds characteristic lists — not by the app's small
+          internal track number; a frame carrying a track number is accepted
+          and silently ignored.
+
+          WRITE TYPE DIFFERS PER BUD, on the one pair tested: the left bud
+          took write-without-response and rejected write-with-response with
+          ATT error 0x42; the right bud silently ignored
+          write-without-response and acted only on write-with-response.
+          Try write-with-response first and fall back to
+          write-without-response if it errors; that sequence worked on
+          both. The vendor app presumably lets the Android stack pick.
+
+          Writing a frame with state 1 starts the sound immediately on this
+          bud only. Volume is a raw byte 0-255 of which the app uses 0-100;
+          one test at 100 was described as painful, so clamp. A read while
+          stopped returns the last file ID with state 0.
+        format:
+          - offset: 0
+            length: 1
+            name: "playing"
+            type: "uint8"
+            mask: 0x01
+            values:
+              0: "stopped"
+              1: "playing"
+          - offset: 1
+            length: 1
+            name: "volume"
+            type: "uint8"
+            notes: "Raw 0-255; the vendor app's range is 0-100."
+          - offset: 2
+            length: 2
+            name: "file_id"
+            type: "uint16"
+            values:
+              13198: "Rustle"
+              43402: "Shower"
+              10972: "Swell"
+              58776: "Tranquility"
+              31567: "Warm Static"
+              54675: "Sunrise"
+              25575: "Celesta"
+              37901: "Short Ding (alarm tone)"
+              3632: "Glockenspiel (alarm tone)"
+              32302: "Staccato Bells (alarm tone)"
+              28072: "Gentle Bells (alarm tone)"
+              9145: "Xylophone (alarm tone)"
+              20000: "Rinse"
+              20004: "Fabled"
+              20005: "Starboard"
+              20007: "Gilded Dream"
+              20010: "Outbound"
+              20017: "Ode"
+              20018: "Wanderlust"
+              20019: "Boardwalk"
+              20028: "Windowseat"
+              65440: "none selected"
+            notes: >
+              File ID of the current or last sound. The table is the
+              Sleepbuds II (Kingsley) catalogue known to the community
+              client; a bud only holds the subset the Sounds characteristic
+              lists, and an owner who uploaded other sounds will show IDs
+              outside it. 0xffa0 (65440) is the vendor's "no sound"
+              sentinel. The first-generation catalogue is in
+              protocol_details.
+          - offset: 4
+            length: 2
+            name: "masking_timeout"
+            type: "uint16"
+            unit: "s"
+            notes: "Total play duration; 0 = play until stopped or returned to the case."
+          - offset: 6
+            length: 2
+            name: "time_remaining"
+            type: "uint16"
+            unit: "s"
+            notes: "Counts down from masking_timeout; the client sets it equal to masking_timeout when starting a timed sound."
+          - offset: 8
+            length: 2
+            name: "fade_in"
+            type: "uint16"
+            unit: "s"
+          - offset: 10
+            length: 2
+            name: "fade_out"
+            type: "uint16"
+            unit: "s"
+        commands:
+          play_sound:
+            description: >
+              Start a stored sound on this bud, untimed, no fade. Warm
+              Static (file ID 31567) at volume 50 renders as
+              01 32 4f 7b 00 00 00 00 00 00 00 00, the frame the community
+              client logged as accepted. Send to both buds for both ears.
+            encoding: "bytes"
+            template: [0x01, "{volume}", "{file_id}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              volume:
+                type: "uint8"
+                min: 0
+                max: 100
+                default: 50
+                description: >
+                  Volume byte. The wire accepts 0-255 but the vendor app
+                  never exceeds 100 and 100 is already very loud in-ear;
+                  bounded here for hearing safety.
+              file_id:
+                type: "uint16"
+                min: 1
+                max: 65439
+                description: >
+                  File ID of a sound stored on this bud, little-endian;
+                  take it from the Sounds characteristic. Not the app's
+                  small track number — the firmware ignores those.
+            verification: "reported"
+          play_sound_timed:
+            description: >
+              Start a stored sound with a sleep timer: masking_timeout and
+              time_remaining both set to the duration, after which the bud
+              stops on its own.
+            encoding: "bytes"
+            template: [0x01, "{volume}", "{file_id}", "{duration}", "{duration}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              volume:
+                type: "uint8"
+                min: 0
+                max: 100
+                default: 50
+                description: "Volume byte, as play_sound."
+              file_id:
+                type: "uint16"
+                min: 1
+                max: 65439
+                description: "File ID of a stored sound, little-endian."
+              duration:
+                type: "uint16"
+                min: 1
+                max: 65535
+                unit: "s"
+                description: "Play duration; written to both the timeout and the remaining field."
+            verification: "reported"
+          set_volume:
+            description: >
+              Change the volume of what is playing. There is no volume-only
+              write: the community client reads the 12-byte frame, replaces
+              byte 1 and writes it back. This template is that frame for an
+              untimed sound, so the caller must supply the file ID read
+              from the characteristic (bytes 2-3); a consumer with no
+              read-back path should use play_sound with the user's chosen
+              sound instead.
+            encoding: "bytes"
+            template: [0x01, "{volume}", "{file_id}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              volume:
+                type: "uint8"
+                min: 0
+                max: 100
+                description: "New volume byte."
+              file_id:
+                type: "uint16"
+                min: 1
+                max: 65439
+                description: "The file ID currently in bytes 2-3 of the characteristic — read it first."
+            verification: "reported"
+          stop:
+            description: >
+              Stop playback: state 0, volume 0 and the no-sound sentinel
+              0xffa0 as the file ID, which is the frame the vendor app and
+              the community client both send.
+            encoding: "bytes"
+            value: [0x00, 0x00, 0xa0, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+
+      - uuid: "12a3d434-c7de-4760-88c0-4f743ea55e98"
+        name: "Sounds (stored file list)"
+        properties: ["read"]
+        notes: >
+          Variable length: a 4-byte header (observed 01 00 02 00, meaning
+          unknown) followed by little-endian uint16 file IDs and terminated
+          by 0xffa0. These are the IDs play_sound accepts. Layout in
+          payload_formats.SoundsList. Which generation a bud is can be
+          read off this list: Sleepbuds II units hold IDs from the
+          Kingsley catalogue (31567, 13198, ...), first-generation units
+          IDs from the Drowsy one (8278, 14373, ...). The two sets do not
+          overlap, but neither follows a parity or range rule.
+
+      - uuid: "1cbe5f90-6c19-430a-9355-703f7d43a74f"
+        name: "Sync (bud clock)"
+        properties: ["read", "write", "notify"]
+        notes: >
+          Reads 8 bytes: a type byte then the bud's 7-byte clock
+          (payload_formats.SyncClock). The synchronised-start command on
+          the Control Point copies five of those bytes plus an offset. The
+          vendor app also writes single-byte sync opcodes here
+          (protocol_details.sync_opcodes); none was exercised by the
+          community client and they are not declared as commands.
+        format:
+          - offset: 0
+            length: 1
+            name: "record_type"
+            type: "uint8"
+            notes: "0x00 on every read seen."
+          - offset: 1
+            length: 1
+            name: "hours"
+            type: "uint8"
+            unit: "h"
+          - offset: 2
+            length: 1
+            name: "minutes"
+            type: "uint8"
+            unit: "min"
+          - offset: 3
+            length: 1
+            name: "seconds"
+            type: "uint8"
+            unit: "s"
+          - offset: 4
+            length: 2
+            name: "milliseconds"
+            type: "uint16"
+            unit: "ms"
+          - offset: 6
+            length: 2
+            name: "microseconds"
+            type: "uint16"
+            unit: "us"
+
+  - uuid: "0000fe21-0000-1000-8000-00805f9b34fb"
+    name: "Settings service (Bose member UUID)"
+    notes: >
+      0xfe21 is the Bluetooth SIG 16-bit UUID assigned to Bose. On the
+      Sleepbuds it carries a 4-byte flags/battery characteristic and the
+      writable device name. The community client's constants also place the
+      control point here as a fallback for first-generation firmware; on
+      Sleepbuds II it lives in the update service below.
+    characteristics:
+      - uuid: "5e500c28-33db-4d0a-afc8-c9b6df4269bf"
+        name: "Settings (flags and battery)"
+        properties: ["read", "write", "notify"]
+        role: "command"
+        notes: >
+          Four bytes. Byte 0 is a flag byte; byte 1 repeats the battery
+          percentage; bytes 2-3 were always zero in the frames seen. The
+          phone-free flag is the only bit known to be writable and the
+          client writes the whole 4 bytes with the others zero.
+
+          Enabling phone-free mode makes the bud start its stored
+          phone-free sound at the stored phone-free volume as soon as it is
+          out of the case — on the bench that was an unknown sound at volume
+          100 in one ear. Disabling it stopped the sound. Treat the toggle
+          with the same care as a volume write.
+        format:
+          - offset: 0
+            length: 1
+            name: "phone_free"
+            type: "uint8"
+            mask: 0x01
+            values:
+              0: "off"
+              1: "on"
+          - offset: 0
+            length: 1
+            name: "renamed"
+            type: "uint8"
+            mask: 0x02
+            values:
+              0: "factory name"
+              1: "owner renamed the bud"
+          - offset: 0
+            length: 1
+            name: "in_case"
+            type: "uint8"
+            mask: 0x10
+            values:
+              0: "out of case"
+              1: "in case"
+          - offset: 0
+            length: 1
+            name: "new_logs"
+            type: "uint8"
+            mask: 0x20
+            values:
+              0: "no new logs"
+              1: "new diagnostic logs available"
+          - offset: 1
+            length: 1
+            name: "battery_level"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+        commands:
+          phone_free_on:
+            description: >
+              Set the phone-free flag. The bud will then play its stored
+              phone-free sound whenever it leaves the case, without any
+              connection. See the characteristic notes for the volume
+              surprise this produced on the bench.
+            encoding: "bytes"
+            value: [0x01, 0x00, 0x00, 0x00]
+            verification: "reported"
+          phone_free_off:
+            description: "Clear the phone-free flag; the bud waits for a connected client again."
+            encoding: "bytes"
+            value: [0x00, 0x00, 0x00, 0x00]
+            verification: "reported"
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read", "write"]
+        notes: >
+          The advertised name, writable; the vendor app's rename feature.
+          Listed under this service by the community reference even though
+          the UUID is the GAP device-name characteristic. Renaming sets the
+          `renamed` flag in Settings and breaks the name-based discovery
+          matcher above.
+
+  - uuid: "c76e1666-e7c3-4432-a995-049d09cb9e90"
+    name: "Update / control service"
+    notes: >
+      Despite the name this service carries the vendor app's command
+      channel for Sleepbuds II, not just firmware update. The Control Point
+      takes [opcode][sub-module][payload] frames and answers with a
+      notification [status][echoed opcode][echoed sub-module]; the
+      sub-module byte selects a function group — 0x00 system queries, 0x01
+      firmware activation, 0x02 alarm, 0x03 file transfer, 0xbb audio. Only
+      the audio, alarm, connection-parameter and system-query frames are
+      declared below. The file-transfer (0x03) and firmware-activation
+      (0x01) groups and the Binary Packet characteristic are the
+      out-of-scope upload and DFU paths — see protocol_details.out_of_scope.
+    characteristics:
+      - uuid: "e81359e0-9f35-483a-a46f-7c6d686daa06"
+        name: "Control Point"
+        properties: ["read", "write", "notify"]
+        role: "command"
+        notes: >
+          Write with response; subscribe before writing and wait for the
+          status notification (payload_formats.ControlPointResponse). The
+          vendor app retried a failed synchronised start up to three times.
+          Timing bytes in play_in_future come from a fresh read of the Sync
+          characteristic: copy minutes, seconds, milliseconds and
+          microseconds (NOT hours — including hours shifts every field and
+          earns status 0x03), then add about 750 ms with carry into seconds
+          and minutes. All-zero timing earns status 0x09. The community
+          client got status 0x00 from both buds when it connected to them
+          one after the other, and 0x03 from both when it held both
+          connections open at once on macOS; whether that is the host
+          stack or the buds is unknown.
+        commands:
+          play_in_future:
+            description: >
+              Synchronised start — the vendor app's primary way to start a
+              sound on both buds at the same instant. Sent to EACH bud's
+              control point with timing derived from THAT bud's Sync
+              clock. Opcode 0x01 on sub-module 0xbb; byte 8 is a zero pad.
+              payload_formats.PlayInFuture has a worked example. A plain
+              play_sound write to each bud is the fallback and simply
+              starts them a few hundred milliseconds apart.
+            encoding: "bytes"
+            template: [0x01, 0xbb, "{minutes}", "{seconds}", "{milliseconds}", "{microseconds}", 0x00, "{file_id}", "{volume}", "{duration}", "{fade_in}", "{fade_out}"]
+            parameters:
+              minutes:
+                type: "uint8"
+                min: 0
+                max: 59
+                unit: "min"
+                description: "Target minute, from the Sync clock's minutes plus carry."
+              seconds:
+                type: "uint8"
+                min: 0
+                max: 59
+                unit: "s"
+                description: "Target second, from the Sync clock plus carry."
+              milliseconds:
+                type: "uint16"
+                min: 0
+                max: 999
+                unit: "ms"
+                description: "Target millisecond: the Sync clock's milliseconds plus about 750, modulo 1000, little-endian."
+              microseconds:
+                type: "uint16"
+                min: 0
+                max: 999
+                unit: "us"
+                description: "Copied from the Sync clock, little-endian."
+              file_id:
+                type: "uint16"
+                min: 1
+                max: 65439
+                description: "File ID of a stored sound, little-endian."
+              volume:
+                type: "uint8"
+                min: 0
+                max: 100
+                default: 50
+                description: "Volume byte; see play_sound."
+              duration:
+                type: "int16"
+                min: 0
+                max: 32767
+                default: 0
+                unit: "s"
+                description: "Play duration, 0 = indefinite."
+              fade_in:
+                type: "int16"
+                min: 0
+                max: 32767
+                default: 0
+                unit: "s"
+                description: "Fade-in duration."
+              fade_out:
+                type: "int16"
+                min: 0
+                max: 32767
+                default: 0
+                unit: "s"
+                description: "Fade-out duration."
+            verification: "reported"
+          cancel_play_in_future:
+            description: "Cancel a pending synchronised start (opcode 0x02, sub-module 0xbb)."
+            encoding: "bytes"
+            value: [0x02, 0xbb]
+            verification: "reported"
+          request_connection_parameters:
+            description: >
+              Ask the bud to change its connection interval (opcode 0xd0,
+              sub-module 0x00): min and max interval in 1.25 ms units,
+              slave latency, supervision timeout in 10 ms units, all
+              little-endian. The community client sends 16/16/0/200 after
+              connecting and accepts status 0x00 or 0x08 (already in that
+              state). The vendor app's defaults were 120 (standard) and 16
+              (fast); Sleepbuds II file transfer used 15, first-generation
+              units 30.
+            encoding: "bytes"
+            template: [0xd0, 0x00, "{min_interval}", "{max_interval}", "{latency}", "{supervision_timeout}"]
+            parameters:
+              min_interval:
+                type: "uint16"
+                min: 6
+                max: 3200
+                default: 16
+                scale: 1.25
+                unit: "ms"
+                description: "Minimum connection interval in 1.25 ms units."
+              max_interval:
+                type: "uint16"
+                min: 6
+                max: 3200
+                default: 16
+                scale: 1.25
+                unit: "ms"
+                description: "Maximum connection interval in 1.25 ms units."
+              latency:
+                type: "uint16"
+                min: 0
+                max: 499
+                default: 0
+                description: "Slave latency in connection events."
+              supervision_timeout:
+                type: "uint16"
+                min: 10
+                max: 3200
+                default: 200
+                scale: 10
+                unit: "ms"
+                description: "Supervision timeout in 10 ms units (200 = 2 s)."
+            verification: "reported"
+          alarm_read:
+            description: "Read the pending bud-based alarm (opcode 0x00, sub-module 0x02). The reply layout has not been recorded."
+            encoding: "bytes"
+            value: [0x00, 0x02]
+            verification: "reported"
+          alarm_cancel:
+            description: "Cancel the pending bud-based alarm (opcode 0x02, sub-module 0x02)."
+            encoding: "bytes"
+            value: [0x02, 0x02]
+            verification: "reported"
+          alarm_set:
+            description: >
+              Set a bud-based alarm (opcode 0x01, sub-module 0x02) that
+              fires on the bud's own clock, so it works with the phone off.
+              HYPOTHESIS: the opcode comes from the app, but the payload
+              layout here is the one the community client constructs — file
+              ID, volume, seconds from now (the app's limit was 18 hours =
+              64800), play duration, fade-in and fade-out, all little-endian
+              — and no source reports the bud accepting it. Send alarm_read
+              afterwards and check the status byte before trusting it.
+            encoding: "bytes"
+            template: [0x01, 0x02, "{file_id}", "{volume}", "{seconds_from_now}", "{duration}", "{fade_in}", "{fade_out}"]
+            parameters:
+              file_id:
+                type: "uint16"
+                min: 1
+                max: 65439
+                description: "File ID of the alarm tone, little-endian; the catalogue's alarm tones are 37901, 3632, 32302, 28072 and 9145."
+              volume:
+                type: "uint8"
+                min: 0
+                max: 100
+                default: 75
+                description: "Alarm volume byte."
+              seconds_from_now:
+                type: "uint16"
+                min: 1
+                max: 64800
+                unit: "s"
+                description: "Delay until the alarm fires; the app capped it at 18 hours."
+              duration:
+                type: "uint16"
+                min: 1
+                max: 65535
+                default: 300
+                unit: "s"
+                description: "How long the alarm plays."
+              fade_in:
+                type: "uint16"
+                min: 0
+                max: 65535
+                default: 30
+                unit: "s"
+                description: "Fade-in duration."
+              fade_out:
+                type: "uint16"
+                min: 0
+                max: 65535
+                default: 0
+                unit: "s"
+                description: "Fade-out duration."
+            verification: "hypothesis"
+          activate_firmware:
+            description: >
+              Activate a firmware image already transferred to the bud
+              (opcode 0x08, sub-module 0x01). Payload: a component mask, then
+              the major, minor and patch of the image to activate, one byte
+              each. Mask bits: 0x01 bud, 0x02 case, 0x04 radio, 0x40 set
+              version only, 0x80 clear. With nothing pending the bud answers
+              status 0x43 (activate error) followed by per-component status
+              bytes; the community client saw 43 08 01 00 8d 01 40 02 40 from
+              both buds, read as bud 0x8d (bad CRC / nothing pending), case
+              0x40 and radio 0x40 (idle). The image transfer that precedes
+              this write (Binary Packet characteristic) is not documented by
+              any source, and no success reply has been recorded.
+            encoding: "bytes"
+            template: [0x08, 0x01, "{component_mask}", "{major}", "{minor}", "{patch}"]
+            parameters:
+              component_mask:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Bit mask of components: 0x01 bud, 0x02 case, 0x04 radio; 0x40 sets the version record only; 0x80 clears."
+              major:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Major version of the image to activate."
+              minor:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Minor version of the image to activate."
+              patch:
+                type: "uint8"
+                min: 0
+                max: 255
+                description: "Patch version of the image to activate."
+            advanced: true
+            advanced_reason: >
+              Switches the bud onto whatever firmware image has been
+              transferred to it. With a bad or partial image the bud may stop
+              working, and no recovery path is documented; with nothing
+              pending it only returns an error. Never send it to a bud you
+              want to keep unless you have transferred a known-good image.
+            verification: "reported"
+          query_system_firmware:
+            description: "System firmware version query (opcode 0x3d, sub-module 0x00). Reply layout not recorded; the Firmware Revision String is the easier read."
+            encoding: "bytes"
+            value: [0x3d, 0x00]
+            verification: "reported"
+          query_radio_firmware:
+            description: "Radio firmware version query (opcode 0x3a, sub-module 0x00). Reply layout not recorded."
+            encoding: "bytes"
+            value: [0x3a, 0x00]
+            verification: "reported"
+          query_case_firmware:
+            description: "Charging-case firmware version query (opcode 0x3b, sub-module 0x00). Reply layout not recorded."
+            encoding: "bytes"
+            value: [0x3b, 0x00]
+            verification: "reported"
+          query_update_status:
+            description: "Firmware-update status query (opcode 0x3c, sub-module 0x00). Reply layout not recorded."
+            encoding: "bytes"
+            value: [0x3c, 0x00]
+            verification: "reported"
+      - uuid: "86d60053-6f4a-409c-9a81-93f16c4e15a0"
+        name: "Binary Packet (firmware data)"
+        properties: ["write_without_response"]
+        role: "bulk"
+        notes: >
+          Carries firmware image data during an update: the update path
+          declared in features[type: firmware_update]. The transfer format
+          over it is not documented by any source, so nothing should be
+          written here outside an update you understand. Listed so a reader
+          knows what the characteristic is.
+
+  - uuid: "4b25c5ad-978d-467c-b598-155247b9e774"
+    name: "Legacy OTA service"
+    notes: >
+      An older over-the-air update service the vendor app still knows
+      (command, state, image-block, status and image-info characteristics;
+      UUIDs in protocol_details.out_of_scope). Part of the update path
+      declared in features[type: firmware_update]; not exercised by any
+      source, so no characteristic is documented here and a generic client
+      lists it read-only.
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          The Bose Sleep app fetched images from Bose; the app is withdrawn
+          and no public image URL is known, so in practice no image is
+          obtainable. Whether the bud checks a signature is not established:
+          the activation error table has a bad-CRC code, which is an
+          integrity check, not authentication.
+      enter:
+        how: "in_place"
+        command: "activate_firmware"
+        notes: >
+          The running application takes the image itself: data is written
+          to the Binary Packet characteristic 86d60053-6f4a-409c-9a81-93f16c4e15a0
+          inside the normal control service, then the advanced command
+          activate_firmware (Control Point opcode 0x08, sub-module 0x01)
+          switches to it. The transfer format over Binary Packet is not
+          documented by any source; the community client only exercised
+          the activation query and received the no-image error.
+      dfu_mode:
+        notes: >
+          No separate bootloader advertisement is known: the bud stays in
+          its application GATT while receiving an image, and what it
+          advertises during or after activation has not been observed.
+      services: ["4b25c5ad-978d-467c-b598-155247b9e774"]
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          Nothing published. The control service c76e1666 is NOT listed
+          under services above because it also carries the Control Point
+          used for ordinary playback control; only the Binary Packet
+          characteristic inside it belongs to the update path.
+      verification: "reported"
+      notes: >
+        Declared so a consumer knows the bud takes firmware over BLE and
+        keeps generic controls away from the Binary Packet and legacy OTA
+        characteristics. From the community reference derived from Sleep
+        app 3.0.11; the legacy OTA service 4b25c5ad is listed because the
+        app still knew it, with no evidence of which firmware uses it.
+
+payload_formats:
+  AudioFrame:
+    description: >
+      The 12-byte Audio Data frame, read or written whole; the same layout
+      as that characteristic's format block, with the two frames the
+      community client logged.
+    parse_rules:
+      - "01 32 4f 7b 00 00 00 00 00 00 00 00 decodes as: playing, volume 50, file ID 0x7b4f = 31567 (Warm Static), no timer, no fade."
+      - "00 00 a0 ff 00 00 00 00 00 00 00 00 is the stop frame: stopped, volume 0, file ID 0xffa0 (none)."
+      - "A write shorter than 12 bytes is rejected by firmware 11.x with ATT error 0x42."
+    example: "01324f7b0000000000000000"
+  SoundsList:
+    description: "Reply to a read of the Sounds characteristic 12a3d434-c7de-4760-88c0-4f743ea55e98."
+    fields:
+      - name: "header"
+        description: "Bytes 0-3; observed 01 00 02 00, meaning unknown."
+      - name: "file_ids"
+        description: "From byte 4: little-endian uint16 file IDs, one per stored sound."
+      - name: "terminator"
+        description: "0xffa0 (a0 ff on the wire) ends the list."
+    parse_rules:
+      - "Skip 4 header bytes, then read uint16 LE values until 0xffa0 or the end of the value."
+      - "IDs from the Kingsley catalogue (31567, 13198, ...) mark Sleepbuds II; IDs from the Drowsy catalogue (8278, 14373, ...) mark a first-generation bud. The vendor app's small internal track numbers are odd for Kingsley and even for Drowsy; the file IDs on the wire follow no such rule."
+    example: "010002004f7b8e33a0ff"
+  SyncClock:
+    description: "Reply to a read of the Sync characteristic 1cbe5f90-6c19-430a-9355-703f7d43a74f."
+    parse_rules:
+      - "00 0d 01 00 65 01 00 00 decodes as: type 0, 13 h 01 min 00 s, 357 ms (0x0165 LE), 0 us."
+    example: "000d010065010000"
+  ControlPointResponse:
+    description: "Notification from the Control Point after a write: status, then the opcode and sub-module of the frame it answers."
+    fields:
+      - name: "status"
+        description: "Byte 0: 0x00 success, 0x02 not supported, 0x03 invalid parameter, 0x04 parameter update failed, 0x05 rejected, 0x06 timeout, 0x07 already bonded, 0x08 already in requested state, 0x09 timing error, 0x0c busy, 0xff general failure."
+      - name: "echo_opcode"
+        description: "Byte 1: the opcode written."
+      - name: "echo_sub_module"
+        description: "Byte 2: the sub-module written."
+    parse_rules:
+      - "03 01 bb is INVALID_PARAM to a play_in_future (01 bb)."
+      - "Replies to firmware-activation and file-transfer frames carry further status bytes; not covered."
+    example: "0301bb"
+  PlayInFuture:
+    description: >
+      The 18-byte synchronised-start frame built from a Sync read, as the
+      control point's play_in_future template renders it.
+    parse_rules:
+      - "From Sync read 00 0d 01 00 65 01 00 00 (01 min 00 s 357 ms 0 us): add 750 ms -> 1107 ms -> carry: 01 min 01 s 107 ms."
+      - "Frame for Warm Static at volume 50, untimed: 01 bb | 01 01 6b 00 00 00 | 00 | 4f 7b | 32 | 00 00 | 00 00 | 00 00."
+      - "This example is computed from the documented rule, not a captured frame; the author's accepted frames were not logged byte for byte."
+    example: "01bb01016b000000004f7b32000000000000"
+
+entities:
+  - platform: "select"
+    name: "Sound"
+    state_characteristic: "1cbd5f8f-6c18-4309-9354-703e7d42a74e"
+    state_mapping:
+      value: "file_id"
+      options:
+        "13198": "Rustle"
+        "43402": "Shower"
+        "10972": "Swell"
+        "58776": "Tranquility"
+        "31567": "Warm Static"
+        "54675": "Sunrise"
+        "25575": "Celesta"
+        "20000": "Rinse"
+        "20004": "Fabled"
+        "20005": "Starboard"
+        "20007": "Gilded Dream"
+        "20010": "Outbound"
+        "20017": "Ode"
+        "20018": "Wanderlust"
+        "20019": "Boardwalk"
+        "20028": "Windowseat"
+    commands:
+      select_option: "play_sound"
+    notes: >
+      Picking an option starts that sound at the command's default volume
+      (50) on THIS bud. The options are the Sleepbuds II catalogue; a bud
+      holds only the subset its Sounds characteristic lists, so a consumer
+      that can read that list should hide the rest. The five alarm tones
+      are left out of the picker.
+  - platform: "number"
+    name: "Volume"
+    state_characteristic: "1cbd5f8f-6c18-4309-9354-703e7d42a74e"
+    state_mapping:
+      value: "volume"
+    min: 0
+    max: 100
+    step: 1
+    commands:
+      set_value: "set_volume"
+    notes: >
+      Read-modify-write: set_volume needs the file ID currently in bytes
+      2-3 of the characteristic, and BLE command parameters have no
+      read-back source in this schema, so a generic consumer cannot send
+      it without device-specific code. Shown for the state; the control
+      works only in a consumer that fills file_id from its last read.
+  - platform: "button"
+    name: "Stop"
+    key: "stop"
+    commands:
+      press: "stop"
+  - platform: "binary_sensor"
+    name: "Playing"
+    state_characteristic: "1cbd5f8f-6c18-4309-9354-703e7d42a74e"
+    state_mapping:
+      value: "playing"
+      on_value: 1
+  - platform: "sensor"
+    name: "Time Remaining"
+    state_characteristic: "1cbd5f8f-6c18-4309-9354-703e7d42a74e"
+    state_mapping:
+      value: "time_remaining"
+    unit: "s"
+    notes: "0 while an untimed sound plays or nothing plays."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_level"
+    unit: "%"
+  - platform: "switch"
+    name: "Phone-Free Mode"
+    state_characteristic: "5e500c28-33db-4d0a-afc8-c9b6df4269bf"
+    state_mapping:
+      value: "phone_free"
+      on_value: 1
+    commands:
+      turn_on: "phone_free_on"
+      turn_off: "phone_free_off"
+    notes: >
+      Turning this on makes the bud play its stored phone-free sound at its
+      stored volume every time it leaves the case, with no phone involved —
+      the one thing Bose suggests owners do before the app dies. On the
+      bench it started an unknown sound at volume 100; warn before enabling.
+  - platform: "binary_sensor"
+    name: "In Case"
+    state_characteristic: "5e500c28-33db-4d0a-afc8-c9b6df4269bf"
+    state_mapping:
+      value: "in_case"
+      on_value: 1
+
+protocol_details:
+  two_peripherals:
+    summary: "Left and right buds are independent BLE peripherals with their own addresses, serials and state; nothing is relayed between them."
+    vendor_app_behaviour: "Held two connections and sent every write to both buds, one after the other."
+    fcc_ids: "A94432893L (left) and A94432893R (right), model S08SEE6M1A, per the device.report listing of grantee 432893."
+    write_type_quirk: >
+      On the one pair tested the left bud needed write-without-response on
+      Audio Data and the right bud write-with-response; the other type was
+      rejected (ATT 0x42) or silently ignored respectively. Try
+      with-response, fall back to without-response.
+  control_point_framing:
+    request: "[opcode][sub_module][payload...]; write with response"
+    response: "[status][echo opcode][echo sub_module]; notification"
+    sub_modules:
+      0x00: "system queries (firmware versions 0x3d/0x3a/0x3b, update status 0x3c) and connection parameters (0xd0)"
+      0x01: "firmware activation (0x08) — out of scope"
+      0x02: "bud-based alarm (0x00 read, 0x01 write, 0x02 cancel)"
+      0x03: "TUMBLE file transfer (0x01-0x0b) — out of scope"
+      0xbb: "audio: 0x01 play-in-future, 0x02 cancel"
+  bud_time:
+    layout: "7 bytes: hours, minutes, seconds, milliseconds u16 LE, microseconds u16 LE"
+    in_play_in_future: "bytes 2-7 of the frame are minutes, seconds, ms, us (hours dropped), then one zero pad byte at offset 8"
+    offset_rule: "add ~750 ms to the clock just read, carrying ms -> s -> min; all-zero timing is refused with status 0x09, mis-indexed timing with 0x03"
+  sync_opcodes:
+    note: "Single-byte writes to the Sync characteristic recovered from the app; none exercised by the community client, so not declared as commands."
+    0x54: "begin sync"
+    0x55: "set offset"
+    0x7f: "sync clocks"
+    0x5f: "test offset"
+    0x00: "read clock"
+    0x80: "read drift"
+  sound_catalogue_first_generation:
+    note: "First-generation noise-masking sleepbuds (Drowsy, firmware 6.x/7.x) store these file IDs and take an 8-byte playback frame (bytes 0-7 of the Sleepbuds II frame); not otherwise covered by this spec. The app's internal track numbers, never sent on the wire, are even for this generation and odd for Sleepbuds II."
+    file_ids:
+      14373: "Rustle"
+      6626: "Shower"
+      16444: "Swell"
+      31258: "Tranquility"
+      8278: "Warm Static"
+      14145: "Boardwalk"
+      54674: "Sunrise"
+      25574: "Celesta"
+      37900: "Short Ding (alarm tone)"
+      3631: "Glockenspiel (alarm tone)"
+      32301: "Staccato Bells (alarm tone)"
+      28071: "Gentle Bells (alarm tone)"
+      9144: "Xylophone (alarm tone)"
+  out_of_scope:
+    sound_upload: >
+      TUMBLE transfer on the Control Point, sub-module 0x03: create a sound
+      and file entry, stream 32 KiB clusters as 16-byte packets, confirm
+      each cluster's CRC-32 (sent as a u64 LE), end with the whole-file
+      CRC-32. Audio is raw 8192 Hz 24-bit little-endian mono PCM, one file
+      per bud. Documented in SleepBuds2Revival; not covered here.
+    firmware_update: >
+      The activation frame is declared as the advanced command
+      activate_firmware and the path as features[type: firmware_update];
+      what stays out of scope is the image transfer itself, which no source
+      documents. Image data goes to the Binary Packet characteristic
+      86d60053-6f4a-409c-9a81-93f16c4e15a0. The legacy OTA service
+      4b25c5ad-978d-467c-b598-155247b9e774 carries command
+      7ee6acc4-884c-4d97-ab3a-26c99459c030, state
+      b7488798-dd0d-40d2-8372-96524b495b47, image block
+      47bbaf32-049e-44d2-ac33-a131fc73f8bd, status
+      2c54d3b1-aedc-47ec-82c7-27bb68b6a0e6 and image info
+      43246004-5173-4f20-96e2-d594472d828b. None of the transfer is
+      covered; do not send the activation frame to a bud you want to keep.
+
+evidence:
+  artifacts:
+    - type: "community_repo"
+      artifact: "chillee151/SleepBuds2Revival, main branch, read 2026-10-11"
+      url: "https://github.com/chillee151/SleepBuds2Revival"
+      description: >
+        Python/bleak client plus PROTOCOL_REFERENCE.md derived from Bose
+        Sleep app 3.0.11 and tested on firmware 11.9.0 Kingsley hardware
+        from a macOS host. Source of every UUID, frame layout and opcode
+        here and of the per-bud write-type finding. No licence file; facts
+        were derived and restated, no code copied.
+    - type: "vendor_documentation"
+      artifact: "Bose support: Sleep App Availability | Bose Sleepbuds II"
+      url: "https://support.bose.co.uk/article/sleepbuds-ii-sleep-app-availability"
+      description: "App removed from the stores 2025-07-21 and development ended; phone-free mode offered as the fallback."
+    - type: "vendor_documentation"
+      artifact: "Bose support: Resetting your product (Sleepbuds II)"
+      url: "https://support.bose.co.uk/article/sbdii-sleepbuds-resetting-your-product---ka08c000001bufcaaa"
+      description: "States there is no factory reset; gives the in-case power cycle and the paper-clip case reset."
+    - type: "vendor_documentation"
+      artifact: "Bose Sleepbuds II owner's guide, model 432893 (33 pages), manualslib mirror"
+      url: "https://www.manualslib.com/manual/1998307/Bose-Sleepbuds-Ii.html"
+      description: "Connect/disconnect/reconnect (p. 25), phone-free mode (p. 26), case reset (p. 28), BLE requirement and troubleshooting (p. 29)."
+  documentation_review: >
+    Read 2026-10-11. SleepBuds2Revival's reference and source agree with
+    each other on every UUID and layout used here; its own notes flag two
+    internal inconsistencies (retry counts, and whether the control point
+    might also exist under 0xfe21 on older firmware) which are reflected
+    as caveats rather than facts. Bose's support pages and the owner's
+    guide supplied the product status, the absence of a factory reset, the
+    power-on/off and reconnect behaviour and the phone-side disconnect
+    steps; neither says a word about BLE security. The bosefirmware/eb
+    index ties the "drowsy" codename to the 2018 first-generation product.
+  open_questions: >
+    Whether the link is bonded (and Just Works) or open; the factory
+    advertised name and whether 0xfe21 is advertised; the alarm write
+    payload and the alarm read reply; the Sounds header bytes; the
+    phone-free sound and volume storage (where the vendor app set them);
+    whether play_in_future fails with both buds connected because of the
+    buds or because of macOS; whether Battery Level notifies.
+
+remaining_unknowns:
+  - "Firmware: the image transfer format over the Binary Packet characteristic, whether images are signed, and what a bud advertises during an update are unknown; only the activation opcode and its no-image error reply are recorded."
+  - "Link-layer security: no source has watched the pairing exchange. iOS lists the buds (suggesting a bond) but the community client never mentions pairing from macOS. pairing.required is therefore 'unknown'."
+  - "The factory advertised local name; the identification matcher is a low-confidence guess from the community scanner's substrings, and a renamed pair will not match it."
+  - "Volume cannot be set without re-sending the current file ID, and this schema has no BLE read-back source, so the Volume number entity is not drivable by a generic consumer — the same gap AM43's battery reply hit."
+  - "alarm_set's payload layout is a hypothesis from the community client's code; no acceptance was reported. The alarm_read reply layout is unknown."
+  - "Where the vendor app stored the phone-free sound and volume. Enabling the flag on a bud whose stored state was unknown played an unidentified sound (file ID 30325) at volume 100."
+  - "Sound file upload (TUMBLE, sub-module 0x03) and firmware update / activation (sub-module 0x01, Binary Packet, legacy OTA service) are deliberately out of scope; SleepBuds2Revival documents both."
+  - "Whether play_in_future's INVALID_PARAM with two simultaneous connections is a bud limitation or a macOS CoreBluetooth artefact."
+  - "First-generation (Drowsy) buds: the 8-byte frame and the separate file-ID catalogue are noted, but no first-generation unit has been exercised by any source read."
+
+helpful_urls:
+  - title: "chillee151/SleepBuds2Revival"
+    url: "https://github.com/chillee151/SleepBuds2Revival"
+    kind: "implementation"
+    description: "Python CLI and web controller with PROTOCOL_REFERENCE.md; the single source of the BLE facts here. No licence."
+  - title: "Bose: Sleep App Availability | Bose Sleepbuds II"
+    url: "https://support.bose.co.uk/article/sleepbuds-ii-sleep-app-availability"
+    kind: "vendor_support"
+    description: "Bose's notice that the Sleep app left the stores on 2025-07-21, with the phone-free-mode advice. Applies to the Sleepbuds II (model 432893)."
+  - title: "Bose: Resetting your product (Sleepbuds II)"
+    url: "https://support.bose.co.uk/article/sbdii-sleepbuds-resetting-your-product---ka08c000001bufcaaa"
+    kind: "vendor_support"
+    description: "Sleepbuds II support article: no factory reset exists; in-case power cycle and the charging-case paper-clip reset."
+  - title: "Bose: Setting up your product (Sleepbuds II)"
+    url: "https://support.bose.com.au/article/sbdii-sleepbuds-setting-up-your-product---ka08c000001brexaai"
+    kind: "vendor_support"
+    description: "Sleepbuds II connect, disconnect and reconnect behaviour, including the iOS 'forget' step used in pairing.recovery."
+  - title: "Bose Sleepbuds II owner's guide (manualslib mirror)"
+    url: "https://www.manualslib.com/manual/1998307/Bose-Sleepbuds-Ii.html"
+    kind: "manual"
+    description: >
+      English owner's guide for the Sleepbuds II, model 432893, 33 pages,
+      on manualslib (refuses non-browser fetches with 403; opens in a
+      browser). Bluetooth Connections p. 25, Phone-Free Mode p. 26, Reset
+      the charging case p. 28. Bose's own PDF host would not serve a
+      Sleepbuds II copy when checked.
+  - title: "bosefirmware/eb — first-generation sleepbuds firmware index"
+    url: "https://github.com/bosefirmware/eb"
+    kind: "other"
+    description: "Community mirror of Bose firmware metadata; its 'drowsy' page (6.x/7.x, 2018-2019) ties that codename to the first-generation product."

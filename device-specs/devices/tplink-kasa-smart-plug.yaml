@@ -401,6 +401,65 @@ protocol_details:
       system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
       emeter.get_realtime: "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware."
       netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
+      cnCloud.get_info: "The cloud link's state, and the host it points at. Bound as get_cloud_info; see cloud_module."
+      cnCloud.unbind: "Detach the device from its Kasa account. Needs the cloud reachable; see cloud_module."
+      time.set_timezone: 'Set the clock and time zone, e.g. {"time":{"set_timezone":{"year":2016,"month":1,"mday":1,"hour":10,"min":10,"sec":10,"index":42}}} (index = the device''s time-zone table entry). Bulbs carry it on smartlife.iot.common.timesetting. What keeps schedules right when NTP is blocked; python-kasa''s `kasa time sync` sets the clock from the host''s.'
+    # The local face of the vendor cloud. Worth documenting in a local-protocol
+    # spec because it is how an owner cuts the device off deliberately: it names
+    # the host to block, and unbinding is the one step that has to happen BEFORE
+    # the block. See the top-level `cloud` block for what each host does.
+    cloud_module:
+      module_names:
+        plug_switch_strip: "cnCloud"
+        bulb_light_strip: "smartlife.iot.common.cloud"
+      module_names_notes: >
+        Plugs, switches, dimmers and power strips (HS300 / KP303 / KP200 /
+        EP40) answer on cnCloud; smart bulbs and KL4xx light strips answer the
+        same methods on smartlife.iot.common.cloud and reply "module not
+        support" to cnCloud. python-kasa builds the same split (its IoT plug and
+        strip classes use cnCloud, its bulb class the smartlife module).
+      methods:
+        get_info:
+          request_json: '{"cnCloud":{"get_info":null}}'
+          reply_fields:
+            server: "The cloud host this unit connects to: devs.tplinkcloud.com on 2016-era firmware, n-devs.tplinkcloud.com on every newer fixture python-kasa carries. The name to block for this unit, whatever its firmware generation."
+            binded: "1 while bound to a Kasa account."
+            cld_connection: "1 while the cloud link is up. Read it again after blocking to confirm the block from the device's side."
+            username: "The bound account's e-mail. Personal data: never paste a reply containing it anywhere public."
+          example_reply_json: '{"binded":1,"cld_connection":1,"fwDlPage":"","fwNotifyType":-1,"illegalType":0,"server":"n-devs.tplinkcloud.com","stopConnect":0,"tcspInfo":"","tcspStatus":1,"username":"<account-email>","err_code":0}'
+        unbind:
+          request_json: '{"cnCloud":{"unbind":null}}'
+          errors:
+            "-8": "not bind yet: already unbound."
+            "-24": "no reply from server (cnCloud): the cloud is unreachable, so the unbind did not happen. Unbind BEFORE blocking."
+            "-4001": "no reply from server (smartlife.iot.common.cloud): as -24, on a bulb."
+          notes: >
+            Unbinding stopped the every-10-minutes Wi-Fi reconnect some 2023
+            builds fall into when their cloud is blocked (see the
+            n-devs.tplinkcloud.com egress entry) for one Home Assistant owner;
+            another's HS220 on 1.0.10 kept looping until TP-Link's fixed build.
+            Rebinding goes through the Kasa app and an account.
+        set_server_url:
+          request_json: '{"cnCloud":{"set_server_url":{"server":"devs.tplinkcloud.com"}}}'
+          notes: >
+            Sets the host the device connects to — in principle a way to point
+            it at nothing without touching the router. Setting it blank does
+            NOT work on an HS300-class strip, which keeps connecting to
+            n-devs.tplinkcloud.com (p-doyle/Python-KasaSmartPowerStrip README);
+            whether a non-resolving name sticks is untested. Not a substitute
+            for a block.
+        get_intl_fw_list:
+          request_json: '{"cnCloud":{"get_intl_fw_list":{}}}'
+          notes: >
+            Asks the cloud, through the device, which firmware it is offered.
+            Each offer carries fwUrl, a plain-HTTP link on
+            download.tplinkcloud.com. Fails (err_code -7) while the cloud link
+            is down.
+      verification: "reported"
+      sources:
+        - "softScheck/tplink-smartplug tplink-smarthome-commands.txt (request JSON)"
+        - "python-kasa kasa/iot/modules/cloud.py and its IoT test fixtures (reply fields, module split)"
+        - "Home Assistant community thread 620727 (unbind error codes and the reconnect-loop effect)"
     multi_outlet_note: >
       Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in
       get_sysinfo and address each outlet by wrapping a command in
@@ -623,6 +682,49 @@ commands:
           non-zero code is what a plug with no metering hardware answers this
           command with.
     verification: "reported"
+  get_cloud_info:
+    description: >
+      Read the cloud link's state on a plug, switch or power strip. `server`
+      is the cloud host THIS unit connects to — the name to block, which has
+      changed across firmware generations — and `cld_connection` reads 0 once
+      a block has taken effect. Bulbs and light strips use
+      get_cloud_info_bulb. See protocol_details.tplink_smarthome_protocol.cloud_module.
+    transport: "tcp-json"
+    body: '{"cnCloud":{"get_info":null}}'
+    example_body: '{"cnCloud":{"get_info":null}}'
+    returns:
+      - name: "server"
+        type: "string"
+        description: "Cloud host this unit connects to, e.g. n-devs.tplinkcloud.com."
+      - name: "binded"
+        type: "integer"
+        description: "1 while bound to a Kasa account, 0 once unbound."
+      - name: "cld_connection"
+        type: "integer"
+        description: "1 while the cloud link is up, 0 while it is down or blocked."
+      - name: "username"
+        type: "string"
+        description: "The bound account's e-mail address. Personal data; never log or share it."
+    verification: "reported"
+  get_cloud_info_bulb:
+    description: >
+      get_cloud_info for smart bulbs and KL4xx light strips, which carry the
+      same methods on the smartlife.iot.common.cloud module and answer
+      "module not support" to cnCloud.
+    transport: "tcp-json"
+    body: '{"smartlife.iot.common.cloud":{"get_info":null}}'
+    example_body: '{"smartlife.iot.common.cloud":{"get_info":null}}'
+    returns:
+      - name: "server"
+        type: "string"
+        description: "Cloud host this unit connects to."
+      - name: "binded"
+        type: "integer"
+        description: "1 while bound to a Kasa account, 0 once unbound."
+      - name: "cld_connection"
+        type: "integer"
+        description: "1 while the cloud link is up, 0 while it is down or blocked."
+    verification: "reported"
 
 # One control: the outlet, as an on/off switch. state_command polls
 # get_sysinfo; the reply's relay_state is the value, nonzero meaning on. This
@@ -797,6 +899,247 @@ entities:
       Kasa light strip (KL4xx): smartlife.iot.lightStrip.set_light_state
       does the switching and dimming (verified on a KL430); the bulb-class
       call is silently ignored on a strip. Brightness is 1-100.
+
+# The plug works entirely on the LAN; this records what it phones anyway,
+# because a firmware update over that link is how HS100 hw v4 lost port 9999.
+# `egress` is what scripts/generate_blocklists.py renders into DNS lists.
+cloud:
+  required: false
+  vendor_service: "TP-Link Kasa cloud (tplinkcloud.com)"
+  failure_mode: >
+    Nothing local. Blocked or gone, the cloud takes with it off-LAN control
+    through the Kasa app, Alexa and Google Assistant (both cloud-to-cloud),
+    account binding and app-driven firmware updates; the port-9999 protocol
+    this spec documents keeps working. Keeping the device away from those
+    updates is how it keeps working.
+  egress:
+    # --- The device's standing cloud link. Which name depends on the firmware
+    # generation, and the device says which: get_cloud_info's `server`.
+    - host: "n-devs.tplinkcloud.com"
+      contacted_by: "device"
+      roles: ["device_cloud"]
+      when_blocked:
+        impact: "degraded"
+        effect: >
+          Off-LAN control through the Kasa app, Alexa and Google Assistant
+          stops, and so do app-driven updates. On a set of 2023 builds a device
+          that cannot reach its cloud also drops and rejoins Wi-Fi every 10
+          minutes: TP-Link lists KP125/EP25 1.0.10, EP40A 1.0.5, KP303 v2
+          1.0.7, HS103 v5 1.0.8, HS200 v5 1.0.10, HS210 v3 1.0.9, HS220 v3
+          1.0.10, KS200 1.0.5 and KS220 1.0.9, and says fixed builds have
+          shipped — which fixes it only by taking an update.
+        workaround: >
+          Unbind the device first (cnCloud.unbind, or
+          smartlife.iot.common.cloud.unbind on a bulb) — it needs the cloud
+          reachable, so do it before blocking. It stopped the reconnect loop for
+          one owner, though an HS220 on 1.0.10 kept looping until the fixed
+          build. Failing that, resolve this name to a LAN machine that accepts
+          the TCP connection instead of to a null address; a device answered
+          that way was reported to settle where a refused one did not.
+      verification: "reported"
+      basis: >
+        The `server` value in every python-kasa IoT test fixture carrying the
+        cloud module (HS210, KP105, EP25, KL130 and KL430 among them), and in
+        DNS logs posted by a Home Assistant user blocking these devices
+        (community.home-assistant.io/t/620727). The reconnect loop and its
+        builds are TP-Link staff's (community.tp-link.com/en/smart-home/forum/topic/638558,
+        2023-11-06); unbinding and the accept-the-connection workaround are
+        from the same Home Assistant thread. The port is not established for
+        this name.
+    - host: "n-use1-devs.tplinkcloud.com"
+      contacted_by: "device"
+      roles: ["device_cloud"]
+      region: "US"
+      when_blocked:
+        impact: "degraded"
+        effect: >
+          The US regional form of n-devs.tplinkcloud.com, with the same cost:
+          off-LAN control, voice assistants and app-driven updates stop, and
+          the 2023 builds listed there reconnect Wi-Fi every 10 minutes.
+        workaround: "As for n-devs.tplinkcloud.com: unbind before blocking, or answer the connection on the LAN."
+      verification: "reported"
+      basis: >
+        Seen in DNS alongside n-devs.tplinkcloud.com by a Home Assistant user
+        blocking Kasa devices in the US (community.home-assistant.io/t/620727,
+        post 3, 2023). Other regions presumably have their own form; none is
+        documented.
+    - host: "devs.tplinkcloud.com"
+      contacted_by: "device"
+      roles: ["device_cloud"]
+      ports:
+        - {port: 50443, protocol: "tcp"}
+      when_blocked:
+        impact: "none"
+        effect: >
+          Off-LAN control through the Kasa app and voice assistants stops; the
+          device keeps retrying, and the Kasa app on the LAN shows it as
+          "local only".
+      verification: "reported"
+      basis: >
+        The cloud host of 2016-era firmware: softScheck's HS110 network capture
+        (TLS to devs.tplinkcloud.com:50443, retried even when configured
+        "local only"), an HS105 capture showing the same port in 2017
+        (coverclock.blogspot.com, 2017-07), and the default value in
+        softScheck's set_server_url example. The "local only" app state is a
+        Home Assistant user's report (community.home-assistant.io/t/244229).
+    - host: "devs-gw.tplinkcloud.com"
+      contacted_by: "device"
+      roles: ["device_cloud"]
+      when_blocked:
+        impact: "unknown"
+        effect: >
+          TP-Link staff say an HS103 (hardware 2, firmware 1.1.2) must be able
+          to resolve this name and deventry.tplinkcloud.com; what fails when it
+          cannot is not stated.
+      verification: "reported"
+      basis: "TP-Link staff reply, community.tp-link.com/us/home/forum/topic/217202 (2020-07-15)."
+    - host: "deventry.tplinkcloud.com"
+      contacted_by: "device"
+      roles: ["device_cloud"]
+      when_blocked:
+        impact: "unknown"
+        effect: >
+          TP-Link staff say an HS103 (hardware 2, firmware 1.1.2) must be able
+          to resolve this name and devs-gw.tplinkcloud.com; what fails when it
+          cannot is not stated.
+      verification: "reported"
+      basis: "TP-Link staff reply, community.tp-link.com/us/home/forum/topic/217202 (2020-07-15)."
+    # --- Firmware images. The cloud offers the update (over the link above);
+    # the image itself comes from here, over plain HTTP.
+    - host: "download.tplinkcloud.com"
+      contacted_by: "device"
+      roles: ["firmware_download"]
+      ports:
+        - {port: 80, protocol: "tcp"}
+      when_blocked:
+        impact: "none"
+        effect: >
+          No image can be fetched from here, so an update ordered through the
+          app or the cloud fails to download. The cloud hands the device the
+          URL, so an image served from any other host would get past this — no
+          source has tested the block itself, which is why the firewall rule
+          stays the recommendation.
+      verification: "reported"
+      basis: >
+        Every fwUrl in python-kasa's IoT fixtures that answer
+        get_intl_fw_list (KL130, KS200M, KL430 v2) is
+        http://download.tplinkcloud.com/firmware/<image>.bin; a Home Assistant
+        community guide to manual updates uses the same host
+        (community.home-assistant.io/t/474097).
+    # --- Unexplained lookups.
+    - host: "aps1-api.tplinkra.com"
+      contacted_by: "device"
+      roles: ["other"]
+      region: "APAC"
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: >
+        An HS110 owner's Pi-hole logged 300,000+ lookups a day for this name
+        while it did not resolve; the device stopped once Pi-hole answered it
+        as blocked (community.tp-link.com/en/home/forum/topic/110890, 2018).
+      notes: >
+        Purpose unknown. A sinkhole answer is what calmed the lookups, which
+        is an argument for listing it rather than leaving it to fail upstream.
+    - host: "use1-api.tplinkra.com"
+      contacted_by: "device"
+      roles: ["other"]
+      region: "US"
+      when_blocked:
+        impact: "none"
+      verification: "hypothesis"
+      basis: >
+        A Home Assistant user lists "use1-api-tplinkra.com" among the names
+        their Kasa devices looked up (community.home-assistant.io/t/620727,
+        post 3), read here as a typo for the US form of aps1-api.tplinkra.com.
+      notes: "Purpose unknown; see aps1-api.tplinkra.com."
+    # --- Time. Never block these: redirect them to a LAN NTP server.
+    - host: "pool.ntp.org"
+      match: "subdomains"
+      contacted_by: "device"
+      roles: ["time"]
+      ports:
+        - {port: 123, protocol: "udp"}
+      when_blocked:
+        impact: "degraded"
+        effect: >
+          Schedules, timers and away mode run on the device's clock, and there
+          is no battery-backed clock: after a power cut the device keeps a
+          default time (an HS100 wakes in January 2000) until something sets
+          it.
+        workaround: >
+          Resolve the name to a LAN NTP server (DHCP's NTP option is not known
+          to reach the device), or set the clock over the local protocol —
+          time.set_timezone, or python-kasa's `kasa time sync`.
+      verification: "reported"
+      basis: >
+        An EP10/H100/HS220 capture shows NTP to pool.ntp.org and time.nist.gov,
+        and redirecting both to a local chrony server by DNS stopped the
+        retries (lkeng.org, 2026-01-15); softScheck's 2016 HS110 setup capture
+        used cn.pool.ntp.org, which `subdomains` covers. Schedule dependence on
+        the clock is TP-Link's FAQ 1206; the January 2000 reset is from
+        community.tp-link.com topic 270194.
+    - host: "time.nist.gov"
+      contacted_by: "device"
+      roles: ["time"]
+      ports:
+        - {port: 123, protocol: "udp"}
+      when_blocked:
+        impact: "degraded"
+        effect: "As for pool.ntp.org: schedules, timers and away mode drift or stop once the clock is lost."
+        workaround: "Resolve the name to a LAN NTP server, or set the clock over the local protocol."
+      verification: "reported"
+      basis: >
+        lkeng.org's 2026-01-15 capture (EP10, H100, HS220), and a Home
+        Assistant user's DNS log (community.home-assistant.io/t/620727, post 3).
+    # --- The Kasa app's hosts. Recorded so nobody mistakes them for the
+    # device's; a router list never carries them.
+    - host: "wap.tplinkcloud.com"
+      contacted_by: "app"
+      roles: ["account", "api"]
+      when_blocked:
+        impact: "none"
+        effect: "The Kasa app loses its cloud sign-in and device list on this network. The device is unaffected."
+      verification: "reported"
+      basis: >
+        Captured from the Kasa app's traffic (itnerd.space, 2017-01-22), with
+        regional forms eu-wap., use1-wap. and aps1-wap.tplinkcloud.com.
+    - host: "n-wap.tplinkcloud.com"
+      contacted_by: "app"
+      roles: ["account", "api"]
+      when_blocked:
+        impact: "none"
+        effect: "As for wap.tplinkcloud.com: the app's cloud side, not the device's."
+      verification: "reported"
+      basis: "The Kasa host constant in the open-source piekstra/tplink-cloud-api client (tplinkcloud/client.py); regional forms such as n-use1-wap. are handed out at sign-in."
+  notes: >
+    The devices use the resolver DHCP gives them (dnsmasq and Pi-hole blocks
+    are reported to take effect, and no hardcoded resolver has been
+    established), so a DNS list does reach them — it is still the second
+    layer.
+    The device-cloud name is the one that moves between firmware
+    generations; before relying on a list, ask the unit itself
+    (get_cloud_info's `server`). Whether a device updates without an app
+    confirming it is contested: TP-Link says Kasa firmware only updates
+    through the app, and some owners report HS100/HS110 firmware 1.1.0
+    arriving unasked in 2020 on units they had not blocked.
+
+local_access:
+  status: "native"
+  summary: >
+    Speaks the port-9999 protocol above as shipped, with no account and no
+    cloud, on the firmware this spec covers. The risk is not the vendor
+    disappearing but the vendor updating it: HS100 hardware v4 lost the port
+    in firmware 1.1.0.
+  covers:
+    - "On/off, per-outlet control on strips, and energy readings on metering models."
+    - "Bulb and light-strip on/off and brightness."
+    - "Discovery by UDP broadcast, and Wi-Fi provisioning over the SoftAP."
+    - "Setting the clock (time.set_timezone in the command tree), which keeps schedules right with NTP blocked."
+  not_covered:
+    - "Off-LAN control through the Kasa app, Alexa and Google Assistant: cloud-only."
+    - "Firmware updates, deliberately: keeping them out is the point of blocking."
+    - "Unbinding from a Kasa account, which needs the cloud reachable."
 
 helpful_urls:
   - title: "softScheck — Reverse Engineering the TP-Link HS110 (2016)"
