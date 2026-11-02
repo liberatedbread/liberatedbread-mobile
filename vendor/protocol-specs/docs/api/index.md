@@ -15,6 +15,7 @@ carries provisioning, factory reset and rebinding — see
 |----------|-------------|
 | `/api/v1/manifest.json` | Registry of all known device specs with checksums and timestamps |
 | `/api/v1/devices/<id>.json` | Full device specification for a single device, normalized to JSON |
+| `/api/v1/blocklists/index.json` | Every `cloud.egress` entry, and the DNS blocklists generated from them — see [Blocking Vendor Updates and the Cloud](../blocking-vendor-updates.md) |
 
 ## Manifest (`/api/v1/manifest.json`)
 

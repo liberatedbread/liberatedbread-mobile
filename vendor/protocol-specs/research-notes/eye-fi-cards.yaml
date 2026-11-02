@@ -1,0 +1,37 @@
+# Eye-Fi cards — structured research note (2026-10-31)
+
+device:
+  id: eye-fi-cards
+  name: Eye-Fi X2 and Mobi Wi-Fi SD cards
+  manufacturer: Eye-Fi (services discontinued)
+  category: camera_storage
+
+receiver:
+  direction: card initiates upload to host
+  transport: cleartext HTTP/SOAP on TCP 59278
+  soap_path: /api/soap/eyefilm/v1
+  upload_path: /api/soap/eyefilm/v1/upload
+  sequence: StartSession, GetPhotoStatus, UploadPhoto, MarkLastPhotoInRoll
+  payload: multipart SOAPENVELOPE and FILENAME tar archive
+
+credentials:
+  algorithm: concatenate hex strings, hex-decode, MD5, lowercase hex
+  x2_start_session: MD5_bytes(mac + cnonce + upload_key)
+  x2_photo_status: MD5_bytes(mac + upload_key + snonce)
+  mobi_reviewed: same formulas with 32 ASCII zeroes as upload key
+
+configuration:
+  channel: mounted FAT EyeFi/reqm, reqc, rspm, rspc records
+  capabilities: identity/key export, networks, logs, transfer and direct-mode fields
+  unresolved: direct-mode discovery, resume/dedup, signatures, model coverage
+
+implementation_cautions:
+  trusted_lan_only: true
+  reject_tar_traversal_links_special_files_and_oversize: true
+  scope_nonces_per_card_session: true
+  no_geolocation_sidecar_upload: true
+
+status:
+  evidence: three community implementations; no hardware capture
+  app_transport: secure receiver required, not an outbound camera client
+  validated_spec: null

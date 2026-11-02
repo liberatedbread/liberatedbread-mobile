@@ -1,0 +1,878 @@
+# QardioArm (A100) BLE blood-pressure monitor — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code):
+#   - ptylr/LibreArm (iOS, MIT): Core/BPClient.swift (GATT client, control
+#     bytes, pairing-error recovery, battery) and
+#     Core/BloodPressureMeasurement.swift (0x2a35 parser, SFLOAT decode,
+#     completeness rules)
+#   - agreenbhm/LibreArm_Android (MIT): app/src/main/java/com/ptylr/librearm/
+#     ble/BpClient.kt — independent second client, same UUIDs and bytes
+#   - Paul Taylor, "LibreArm: breathing new life into QardioArm devices"
+#     (ptylr.com, 2025-09-28)
+#   - Bluetooth SIG Blood Pressure Service / Blood Pressure Measurement
+#     characteristic (0x2a35) field definitions, via the public GATT XML
+#     mirror oesmith/gatt-xml
+#   - QardioArm user manual, version 2.4 (English), pages 6, 9, 14-15 and
+#     20-24 — power behaviour, pairing, pinhole reset, batteries, ranges
+#   - technodabbler.com post-mortem (2026-05-19) and two Apple Support
+#     Community threads (255768352, 256006237) for the shutdown timeline
+#   - DEX string triage of the vendor Android app (package
+#     com.getqardio.android 2.5.1) — UUID cross-check and the DFU library
+#     presence only; no code was read
+
+device:
+  name: "QardioArm (A100) Wireless Blood Pressure Monitor"
+  manufacturer: "Qardio, Inc. (San Francisco); built by Ya Horng Electronic, Taiwan"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every byte here is read
+      from two open-source clients that are used daily against real cuffs
+      (LibreArm on iOS, its Android port), cross-checked against the vendor
+      app's string table and the Bluetooth SIG characteristic definition.
+      The worked payload examples in payload_formats are constructed from
+      the SIG layout, not captured from a cuff; no raw QardioArm frame has
+      been published.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "health"
+  type: "blood-pressure-monitor"
+  notes: >
+    An upper-arm oscillometric blood-pressure cuff that folds around its own
+    pump unit and runs on four AAA cells. It has no screen and no button:
+    unwrapping the cuff switches it on, wrapping it back switches it off,
+    and every measurement is started from a phone over BLE. That made it
+    entirely dependent on the vendor app, and the vendor is gone — the app
+    left the stores and the Qardio cloud it synced to went dark in 2025.
+
+    The protocol turns out to be almost entirely standard. The cuff
+    implements the Bluetooth SIG Blood Pressure Service (0x1810) and
+    delivers results as Blood Pressure Measurement (0x2a35) records, so any
+    client that decodes IEEE-11073 SFLOATs can read it. The one vendor
+    addition is a control characteristic inside the same service that takes
+    a two-byte command: f1 01 inflates and measures, f1 02 cancels. The
+    cuff bonds to the phone, and the only "reset" it has is a pinhole on
+    the battery hatch that clears that bond.
+
+    Partial records arrive while the cuff inflates and deflates; a client
+    must treat a reading as a result only when systolic and diastolic are
+    both finite, positive and systolic exceeds diastolic (the completeness
+    rule both open clients apply). Readings are a wellness log, not a
+    clinical instrument — see safety_advisory.
+
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      The cuff inflates around the arm when a measurement is started, and
+      its readings are not a substitute for clinical blood-pressure
+      measurement or medical advice.
+    detail: >
+      Starting a measurement pumps the cuff up on whoever is wearing it.
+      Only start one when the cuff is fitted to a consenting adult who is
+      sitting still, with the arm supported at heart level, and stay with
+      them until it deflates; use cancel (f1 02) if it must stop early. The
+      manual's cuff range is 22-37 cm upper-arm circumference, and it
+      advises consulting a doctor before use in pregnancy, arrhythmia or
+      arteriosclerosis. Readings taken through a third-party client are a
+      personal log: they are not diagnostic, and a reading must never be
+      the sole basis for a medication decision. A client must display the
+      values the cuff reports without altering them, and should show the
+      irregular-pulse flag when the record carries it. This spec and any
+      client built from it are experimental and unaffiliated with Qardio;
+      the manufacturer's instructions for use govern.
+    acknowledge_required: true
+    advisory_url: "https://www.medm.com/assets/files/sensors/manuals/qardioarm.pdf"
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/ptylr/LibreArm"
+    license: "MIT"
+    notes: >
+      Qardio published nothing about the control characteristic. Everything
+      vendor-specific here was recovered by the LibreArm author from the
+      cuff's behaviour; the measurement format itself is the Bluetooth SIG's
+      published Blood Pressure Measurement characteristic.
+
+  identification:
+    local_name_prefix: "Qardio"
+    service_uuids:
+      - "00001810-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "00001810-0000-1000-8000-00805f9b34fb"
+          local_name:
+            match: "prefix"
+            value: "Qardio"
+        notes: >
+          Both open clients scan on the advertised 0x1810 service alone and
+          use no name filter, so the service match is the one that is
+          known to work. 0x1810 is shared with every SIG-profile blood
+          pressure monitor (Beurer, Omron and others in this catalogue), so
+          the name narrows it: the vendor manual's phone screenshots list
+          the bonded cuff as "QardioARM" / "QardioArm" (the manual itself
+          spells it both ways, hence the prefix match). A connected client
+          can confirm the model definitively by the presence of the vendor
+          control characteristic 583cb5b3-875d-40ed-9098-c39eb0c1983d. The
+          cuff advertises only while switched on, which means unwrapped from
+          the pump unit; wrapped, or after a few idle minutes, it is off
+          and invisible.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision — no account, no network, no cloud. A new or
+      second-hand cuff needs only batteries and a phone that can bond to
+      it. The vendor app once required a Qardio account before it would
+      show the START button; that was an app-side gate, not a device one,
+      and both open clients drive the cuff without any account. The one
+      thing that stops a connect-and-go client is a bond the cuff still
+      holds for an earlier phone, which the pinhole clears.
+    methods:
+      - type: "ble_direct"
+        name: "Unwrap, bond, subscribe, start"
+        verified: false
+        description: >
+          The whole flow as LibreArm runs it. The cuff is switched on by
+          unwrapping it, bonds on the first secured operation, streams
+          0x2a35 records once notifications are enabled, and measures when
+          f1 01 is written to the control characteristic.
+        ble:
+          pairing_required: true
+        steps:
+          - action: "Fit four AAA alkaline cells if the cuff is new or dead, and unwrap the cuff from the pump unit to switch it on."
+            actor: "user"
+            expect: "The cuff starts advertising service 0x1810 within a few seconds."
+          - action: "Scan for an advertisement carrying service 00001810-0000-1000-8000-00805f9b34fb and connect."
+            actor: "client"
+            timeout_seconds: 30
+          - action: "Discover services 00001810-0000-1000-8000-00805f9b34fb and 0000180f-0000-1000-8000-00805f9b34fb; read Battery Level 00002a19-0000-1000-8000-00805f9b34fb if present."
+            actor: "client"
+            expect: "One byte, 0-100 percent. LibreArm refuses to start below 10 percent and warns below 20."
+          - action: "Enable notifications on 00002a35-0000-1000-8000-00805f9b34fb (CCCD 01 00)."
+            actor: "client"
+            expect: >
+              On a fresh cuff the OS raises a pairing prompt here; accept
+              it. An ATT error 0x05, 0x08, 0x0c or 0x0f instead means the
+              cuff holds a bond for another phone — clear it with the
+              pinhole (see factory_reset) and retry.
+          - action: "Fit the cuff on the upper arm, Qardio logo towards the hand, arm supported at heart level."
+            actor: "user"
+          - action: "Write f1 01 to 583cb5b3-875d-40ed-9098-c39eb0c1983d to start the measurement."
+            actor: "client"
+            expect: >
+              The cuff inflates. 0x2a35 notifications follow while it
+              inflates and deflates; keep the one whose systolic and
+              diastolic are both finite and positive with systolic above
+              diastolic. LibreArm abandons a run that produces none within
+              180 s.
+          - action: "Wrap the cuff back around the pump unit when done to switch the cuff off."
+            actor: "user"
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Clears the stored BLE bond ("the pairing"). The manual documents
+        nothing else held on the cuff, so this is the only reset it has.
+      description: >
+        The vendor manual calls this "resetting the pairing" and it is the
+        remedy both for moving the cuff to a new phone and for a phone that
+        has forgotten a bond the cuff still holds. LibreArm's own recovery
+        advice on a pairing-class ATT error is the same three moves: press
+        the pinhole, forget the cuff in the phone's Bluetooth settings,
+        reconnect. The button sits behind a pinhole on the battery
+        compartment hatch and needs a straightened paper clip. The cuff
+        must be switched on (unwrapped) for the press to register.
+      procedures:
+        - name: "Paper clip in the battery-hatch pinhole"
+          verified: false
+          basis: >
+            QardioArm user manual v2.4, "Resetting the pairing" (page 15);
+            LibreArm's pairing-error recovery text; the MedM support page
+            for the QardioArm, which describes the same press and the same
+            green light.
+          power_state: "on"
+          glyph: "generic/pinhole-reset.svg"
+          indicator: "A green light shines through the battery compartment hatch."
+          steps:
+            - action: "Unwrap the cuff from the pump unit so the cuff is switched on."
+              actor: "user"
+            - action: "Press the button behind the pinhole on the battery compartment hatch with a straightened paper clip."
+              actor: "user"
+              expect: "A green light shines through the hatch; the stored bond is gone."
+            - action: "On the phone that was paired, open Bluetooth settings and forget the QardioArm entry so the phone does not try to reuse the old keys."
+              actor: "user"
+            - action: "Connect and enable notifications on 00002a35-0000-1000-8000-00805f9b34fb; accept the new pairing prompt."
+              actor: "client"
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: false
+      notes: >
+        BLE-only; there is no network to rejoin. Moving the cuff to a new
+        phone means clearing the bond with the pinhole and forgetting it on
+        the old phone — the pairing reset above, which is not a loss of
+        anything else because the cuff stores nothing else.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "One BLE bond (long-term key) for the paired central"
+      issued_to_client: []
+      notes: >
+        No application-layer secret, PIN or account token. The bond is the
+        only credential, and it lives in the OS Bluetooth stack on both
+        sides.
+
+  pairing:
+    required: true
+    confidence: "medium"
+    security_mode: "just_works"
+    bonding: "required"
+    exclusivity:
+      single_connection: "unknown"
+      single_bond: true
+      recovery: >
+        Forget the QardioArm in the phone's Bluetooth settings, press the
+        pinhole on the battery hatch with a paper clip while the cuff is
+        unwrapped (green light through the hatch), then connect again and
+        accept the pairing prompt. Close the vendor app, if one is still
+        installed, before connecting.
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The cuff is pairable whenever it is switched on, which is whenever
+        it is unwrapped; there is no pairing button. The manual's "touch
+        your phone to the QardioArm" is proximity theatre for the first
+        connection — the cuff has no NFC and the bond is established over
+        BLE when the app first subscribes.
+    unpair:
+      supported: true
+      requires_factory_reset: false
+      clears: "The stored bond only. The cuff holds no readings, name or settings."
+      notes: >
+        The pinhole press under factory_reset is this operation; the cuff
+        has nothing else to reset, so the two are one procedure. Forget the
+        device on the phone as well, or the phone reconnects with keys the
+        cuff no longer has and the cuff refuses it.
+    notes: >
+      Established from behaviour, not a capture: the vendor manual tells
+      the user to accept a pairing request with no code to type, the paired
+      cuff appears in the phone's Bluetooth device list, and LibreArm maps
+      ATT errors 0x05 (insufficient authentication), 0x08 (insufficient
+      authorization), 0x0c (insufficient encryption key size) and 0x0f
+      (insufficient encryption) on its notification enable or start write to
+      "the cuff needs re-pairing". That pattern is a secured characteristic
+      behind a Just Works bond. The Android port never calls for a bond
+      itself and still works, which is consistent with the stack bonding on
+      demand when the cuff returns one of those errors. Whether the cuff
+      uses LE legacy pairing or LE Secure Connections is not established.
+
+services:
+  - uuid: "00001810-0000-1000-8000-00805f9b34fb"
+    name: "Blood Pressure Service"
+    notes: >
+      The Bluetooth SIG Blood Pressure Service, plus one vendor
+      characteristic. The standard Blood Pressure Feature (0x2a49) and
+      Intermediate Cuff Pressure (0x2a36) characteristics are not reported
+      by either open client; whether the cuff exposes them is unknown. The
+      measurement characteristic is secured: enabling its notifications is
+      what triggers the bond.
+    characteristics:
+      - uuid: "00002a35-0000-1000-8000-00805f9b34fb"
+        name: "Blood Pressure Measurement"
+        properties: ["notify"]
+        notes: >
+          The SIG Blood Pressure Measurement record, little-endian
+          throughout, decoded exactly as the characteristic definition says
+          and with no vendor quirk: flags byte, then systolic, diastolic
+          and mean arterial pressure as three IEEE-11073 16-bit SFLOATs,
+          then optional fields in flag order — 7-byte timestamp, SFLOAT
+          pulse rate, uint8 user ID, uint16 measurement status. Minimum
+          length 7 bytes. The format block below declares the fixed part;
+          payload_formats.BloodPressureMeasurement walks the optional tail,
+          whose offsets depend on the flags, and gives the SFLOAT rule and
+          worked examples.
+
+          SFLOAT: the 16-bit value's low 12 bits are a two's-complement
+          mantissa, the high 4 bits a two's-complement exponent, value =
+          mantissa x 10^exponent. Mantissas 0x07ff (NaN), 0x0800 (NRes),
+          0x07fe (+INF), 0x0802 (-INF) and 0x0801 (reserved) are special
+          and carry no value. The pressure unit follows flags bit 0: mmHg
+          when clear, kPa when set (multiply by 7.500617 for mmHg).
+
+          The SIG profile specifies this characteristic as INDICATE; both
+          open clients enable NOTIFY (the Android port writes CCCD 01 00)
+          and receive records, so the cuff at least supports notifications.
+          Records arrive while the cuff inflates and deflates, not only at
+          the end: a client keeps the last record whose systolic and
+          diastolic both decode finite and above zero with systolic greater
+          than diastolic, debounces 1.5 s after the last notification, and
+          treats a special-value systolic or diastolic as "no result".
+          LibreArm additionally refuses to save a result outside systolic
+          40-260, diastolic 20-200, pulse 20-220.
+        format:
+          - offset: 0
+            length: 1
+            name: "flags_unit_kpa"
+            type: "uint8"
+            mask: 0x01
+            values:
+              0: "mmHg"
+              1: "kPa"
+            notes: "Flags bit 0: the unit of the three pressure SFLOATs."
+          - offset: 0
+            length: 1
+            name: "flags_timestamp_present"
+            type: "uint8"
+            mask: 0x02
+            values:
+              0: "absent"
+              1: "present"
+            notes: "Flags bit 1: a 7-byte timestamp (year uint16 LE, month, day, hour, minute, second) follows at offset 7."
+          - offset: 0
+            length: 1
+            name: "flags_pulse_present"
+            type: "uint8"
+            mask: 0x04
+            values:
+              0: "absent"
+              1: "present"
+            notes: "Flags bit 2: a pulse-rate SFLOAT follows the timestamp (or sits at offset 7 when there is none)."
+          - offset: 0
+            length: 1
+            name: "flags_user_id_present"
+            type: "uint8"
+            mask: 0x08
+            values:
+              0: "absent"
+              1: "present"
+            notes: "Flags bit 3: a uint8 user ID follows the pulse rate; 255 = unknown user."
+          - offset: 0
+            length: 1
+            name: "flags_status_present"
+            type: "uint8"
+            mask: 0x10
+            values:
+              0: "absent"
+              1: "present"
+            notes: "Flags bit 4: a uint16 LE measurement-status bitfield ends the record. Bits 5-7 are reserved and LibreArm rejects a record with any of them set."
+          - offset: 1
+            length: 2
+            name: "systolic_sfloat"
+            type: "uint16"
+            endianness: "little"
+            unit: "mmHg"
+            unit_source: "device_setting"
+            unit_reference: "00002a35-0000-1000-8000-00805f9b34fb.flags_unit_kpa"
+            unit_values:
+              0: "mmHg"
+              1: "kPa"
+            notes: >
+              IEEE-11073 SFLOAT, not a linear integer: decode the 12-bit
+              mantissa and 4-bit exponent before use (a consumer with no
+              SFLOAT decoder must not render the raw uint16). The unit
+              follows the same record's flags bit 0; the cuff is believed
+              to report mmHg, and no kPa record from it has been observed.
+              Zero or a special-value mantissa means "no result yet".
+          - offset: 3
+            length: 2
+            name: "diastolic_sfloat"
+            type: "uint16"
+            endianness: "little"
+            unit: "mmHg"
+            unit_source: "device_setting"
+            unit_reference: "00002a35-0000-1000-8000-00805f9b34fb.flags_unit_kpa"
+            unit_values:
+              0: "mmHg"
+              1: "kPa"
+            notes: "Same SFLOAT encoding and unit rule as systolic_sfloat."
+          - offset: 5
+            length: 2
+            name: "map_sfloat"
+            type: "uint16"
+            endianness: "little"
+            unit: "mmHg"
+            unit_source: "device_setting"
+            unit_reference: "00002a35-0000-1000-8000-00805f9b34fb.flags_unit_kpa"
+            unit_values:
+              0: "mmHg"
+              1: "kPa"
+            notes: >
+              Mean arterial pressure, same SFLOAT encoding and unit rule.
+              Always occupies offsets 5-6 but may decode to a special value
+              on a record that carries systolic and diastolic.
+
+      - uuid: "583cb5b3-875d-40ed-9098-c39eb0c1983d"
+        name: "QardioArm control"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        notes: >
+          The vendor's one addition to the standard service: a two-byte
+          command whose first byte is always f1. LibreArm writes with
+          response when the characteristic advertises the write property
+          and without response otherwise, and the Android port always
+          writes with response, so the characteristic is known to accept
+          write-with-response; which of the two properties the cuff
+          actually declares has not been dumped. No reply or notification
+          is documented on this characteristic — the response to a start is
+          the stream of 0x2a35 records. A write that fails with a
+          pairing-class ATT error means the bond is broken (see
+          device.pairing).
+        commands:
+          start_measurement:
+            description: >
+              Start a measurement: the cuff inflates, measures and deflates,
+              streaming 0x2a35 records as it goes. Only send with the cuff
+              fitted to a person who is ready for it (see safety_advisory).
+              LibreArm checks battery first and abandons a run that yields
+              no complete record within 180 s.
+            encoding: "bytes"
+            value: [0xf1, 0x01]
+            verification: "reported"
+          cancel_measurement:
+            description: >
+              Cancel a measurement in progress; the cuff stops inflating
+              and releases pressure. LibreArm sends it on user cancel and
+              on its 180 s watchdog, and warns that the cuff may not have
+              stopped cleanly if the write fails.
+            encoding: "bytes"
+            value: [0xf1, 0x02]
+            verification: "reported"
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: >
+      Standard SIG Battery Service. LibreArm's README says "when the cuff
+      exposes it" and the client tolerates its absence, so treat the
+      service as optional until a GATT dump settles it; the Android port
+      does not read it at all.
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+        notes: >
+          One byte, 0-100 percent; LibreArm discards anything above 100.
+          Read on connect, before each measurement and after each result.
+          The vendor manual says the app shows a low-battery symbol at about
+          25 percent and refuses to measure when the cells are depleted;
+          LibreArm draws the lines at 20 percent (low) and 10 percent
+          (blocks measurement). Four AAA alkaline cells; the manual says not
+          to use rechargeables.
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+            unit: "%"
+            device_class: "battery"
+
+payload_formats:
+  BloodPressureMeasurement:
+    description: >
+      One 0x2a35 notification. Offsets 0-6 are fixed and declared in the
+      characteristic's format block; this entry gives the walk over the
+      optional tail and the SFLOAT rule, with worked examples that
+      scripts/test_qardio_arm_spec.py decodes. The examples are constructed
+      from the SIG layout to exercise a decoder — no raw QardioArm frame
+      has been published — so they show what a conformant record looks
+      like, not which flags the cuff sets.
+    fields:
+      - name: "flags"
+        description: "Byte 0. bit0 unit (0 mmHg, 1 kPa); bit1 timestamp; bit2 pulse; bit3 user ID; bit4 measurement status; bits 5-7 reserved."
+      - name: "systolic"
+        description: "Bytes 1-2, SFLOAT LE."
+        unit: "mmHg"
+      - name: "diastolic"
+        description: "Bytes 3-4, SFLOAT LE."
+        unit: "mmHg"
+      - name: "mean_arterial_pressure"
+        description: "Bytes 5-6, SFLOAT LE."
+        unit: "mmHg"
+      - name: "timestamp"
+        description: "7 bytes at offset 7 when flags bit1 is set: year uint16 LE, month, day, hour, minute, second. Neither open client uses it."
+      - name: "pulse_rate"
+        description: "SFLOAT LE, 2 bytes, after the timestamp (or at offset 7 without one) when flags bit2 is set."
+        unit: "bpm"
+      - name: "user_id"
+        description: "uint8 after the pulse rate when flags bit3 is set; 255 = unknown user."
+      - name: "measurement_status"
+        description: >
+          uint16 LE at the end when flags bit4 is set. bit0 body movement;
+          bit1 cuff too loose; bit2 irregular pulse detected (the one bit
+          LibreArm surfaces); bits 3-4 pulse-rate range (0 in range, 1
+          above upper limit, 2 below lower limit); bit5 improper
+          measurement position; bits 6-15 reserved.
+    parse_rules:
+      - "Require at least 7 bytes. Read flags at byte 0; if any of bits 5-7 is set, reject the record."
+      - "Decode systolic (1-2), diastolic (3-4) and MAP (5-6) as little-endian SFLOATs: mantissa = low 12 bits as two's complement (subtract 0x1000 when >= 0x800), exponent = high 4 bits as two's complement (subtract 16 when >= 8), value = mantissa x 10^exponent."
+      - "Mantissa 0x07ff is NaN, 0x0800 NRes, 0x07fe +INF, 0x0802 -INF, 0x0801 reserved: no value, whatever the exponent."
+      - "If flags bit0 is set the three pressures are kPa; multiply by 7.500617 for mmHg."
+      - "Walk the tail from offset 7 in flag order: bit1 -> skip or decode 7 timestamp bytes; bit2 -> 2-byte SFLOAT pulse in bpm; bit3 -> 1 byte user ID; bit4 -> 2-byte LE status. Each must fit, and the walk must end exactly at the record's length."
+      - "A record is a result only when systolic and diastolic are both finite and > 0 and systolic > diastolic; anything else is an in-progress frame or a failed measurement and is not shown as a reading."
+      - "Worked: 04 78 00 50 00 5f 00 48 00 = mmHg, pulse present: systolic 120, diastolic 80, MAP 95, pulse 72."
+      - "Worked (kPa): 05 a0 f0 6a f0 7f f0 48 00 = kPa, pulse present: 16.0 / 10.6 / 12.7 kPa (SFLOAT 0xf0a0 = 160 x 10^-1), i.e. 120.0 / 79.5 / 95.3 mmHg; pulse 72."
+      - "Worked (all fields): 1e 78 00 50 00 5f 00 e9 07 0a 0b 08 1e 00 48 00 ff 04 00 = timestamp 2025-10-11 08:30:00, pulse 72, user 255, status 0x0004 (irregular pulse)."
+      - "Worked (no result yet): 00 00 00 00 00 00 00 = flags 0, all pressures zero; and 04 ff 07 ff 07 ff 07 48 00 = NaN pressures. Neither is a reading."
+    example: "04 78 00 50 00 5f 00 48 00"
+
+entities:
+  - platform: "sensor"
+    name: "Systolic Pressure"
+    unit: "mmHg"
+    precision: 1
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "systolic_sfloat"
+    notes: >
+      SFLOAT decode required; publish only from a complete record (see
+      payload_formats.BloodPressureMeasurement). Shown in mmHg; convert if
+      the record's flags bit 0 says kPa.
+  - platform: "sensor"
+    name: "Diastolic Pressure"
+    unit: "mmHg"
+    precision: 1
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "diastolic_sfloat"
+    notes: "Same decode and completeness rule as Systolic Pressure."
+  - platform: "sensor"
+    name: "Mean Arterial Pressure"
+    unit: "mmHg"
+    precision: 1
+    state_characteristic: "00002a35-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "map_sfloat"
+    notes: "Same decode as Systolic Pressure; may be a special value (no reading) on a record that carries the other two."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery_percent"
+    notes: "Read, not notified; absent on a cuff that does not expose the Battery Service."
+  - platform: "button"
+    name: "Start Measurement"
+    key: "start"
+    icon: "mdi:heart-pulse"
+    command_characteristic: "583cb5b3-875d-40ed-9098-c39eb0c1983d"
+    commands:
+      press: "start_measurement"
+    notes: >
+      Inflates the cuff on whoever is wearing it; the safety_advisory
+      banner applies to this control above all. Pulse arrives in the same
+      0x2a35 record as the pressures but at a flag-dependent offset, so it
+      is documented in payload_formats rather than bound as an entity.
+  - platform: "button"
+    name: "Cancel Measurement"
+    key: "stop"
+    icon: "mdi:stop-circle-outline"
+    command_characteristic: "583cb5b3-875d-40ed-9098-c39eb0c1983d"
+    commands:
+      press: "cancel_measurement"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_legacy_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          The vendor Android app's string table carries the complete Nordic
+          legacy DFU UUID set (service 00001530-1212-efde-1523-785feabcd123
+          and its 1531/1532/1534 characteristics) and part of the Secure
+          DFU 8ec9... family, i.e. it bundles Nordic's DFU client library.
+          Where it fetched images from, and whether it ever updated the
+          cuff rather than a sibling product, is not established.
+      enter:
+        how: "unknown"
+        notes: >
+          Nothing here says the cuff honours the stack's buttonless entry
+          (01 04 on the legacy control point) or carries the DFU service at
+          all in application mode — see dfu.notes. No entry command is
+          declared.
+      dfu_mode:
+        notes: >
+          Not observed. A stock legacy bootloader advertises "DfuTarg" and
+          may or may not move address; nothing yet binds such an advert
+          back to a QardioArm.
+      recovery:
+        interrupted: "unknown"
+      verification: "hypothesis"
+      notes: >
+        Declared to the extent the sources establish it and no further. The
+        evidence is the DFU library inside a vendor app that served the
+        QardioArm, the QardioBase scale and the QardioCore ECG patch alike;
+        neither open client discovers a DFU service on the cuff (they only
+        look for 0x1810 and 0x180f), and no GATT dump has been published.
+        So: the cuff's radio is very likely a Nordic nRF5 part and the app
+        could flash Nordic devices, but which Qardio product that applied
+        to is unknown. A GATT explorer should treat
+        00001530-1212-efde-1523-785feabcd123 as read-only if it appears.
+        With the vendor gone no new image will ever ship; the only use of
+        this block is recognising a cuff stranded in its bootloader.
+
+cloud:
+  required: false
+  vendor_service: "Qardio cloud (account, measurement history, sharing) — offline since 2025-04-29"
+  failure_mode: >
+    Already happened. Qardio's servers became intermittent from
+    2025-03-12 and went down for good on the morning of 2025-04-29 (Apple
+    Support Community thread 256006237, replies dated 2025-04-30 and
+    2025-05-04). The vendor app could no longer sign in or sync, and since
+    the app would not show its START button without a signed-in account,
+    the cuff became unusable through the official software. Nothing on
+    the device itself changed: the BLE control surface above is complete
+    and local, which is why LibreArm (2025-09) could revive it with no
+    cloud at all. The iOS app disappeared from the App Store around
+    2024-09-21 and briefly returned; by 2026 both store listings were gone
+    and the vendor's domain had been seen listed for sale.
+  data_leaves_device:
+    - "Nothing leaves the cuff except over BLE to the connected phone; what the vendor app then uploaded (readings, account identity) is the app's business and the service is gone."
+  notes: >
+    Recorded only to document the dependency that killed the official app.
+    There is no cloud interface to implement and no reason to.
+
+local_access:
+  status: "native"
+  summary: >
+    Fully local as shipped: the cuff speaks the SIG Blood Pressure Service
+    over BLE plus one two-byte vendor command, with no account, token or
+    server at any point. Two open-source clients prove it daily.
+  covers:
+    - "Starting and cancelling a measurement (vendor control characteristic)"
+    - "Systolic, diastolic, mean arterial pressure and pulse from the standard 0x2a35 record, including the irregular-pulse status bit when present"
+    - "Battery level via the standard Battery Service, where exposed"
+    - "Bond reset at the device (pinhole)"
+  not_covered:
+    - "Measurement history: the cuff stores none, so a client keeps its own (LibreArm writes to Apple Health / Google Fit)"
+    - "Firmware updates: the vendor's images, if any, are gone with the vendor"
+  notes: >
+    No bridge, no hub, no replacement part. The only thing a user needs that
+    they no longer have is a client, and two exist.
+
+protocol_details:
+  control_commands:
+    characteristic: "583cb5b3-875d-40ed-9098-c39eb0c1983d"
+    frame: "two bytes: f1 <opcode>"
+    opcodes:
+      0x01: "start measurement"
+      0x02: "cancel measurement"
+    notes: >
+      Only these two opcodes are known. The first byte f1 may be a command
+      class with other opcodes behind it; nobody has probed, and probing a
+      medical device's control characteristic blind is not recommended.
+  measurement_session:
+    connect_timeout_s: 30
+    run_watchdog_s: 180
+    notification_debounce_s: 1.5
+    battery_block_below_percent: 10
+    battery_warn_below_percent: 20
+    multi_run_delay_s: "15-60 (default 30) between readings when averaging up to three"
+    notes: >
+      LibreArm's values, recorded as a known-good envelope rather than
+      protocol constants. The cuff itself imposes none of them except that
+      it switches off after a few idle minutes when left unwrapped.
+  power_behaviour: >
+    No power button. Unwrapping the cuff from the pump unit switches the
+    cuff on and starts advertising; wrapping it back switches it off; left
+    unwrapped and idle it switches off by itself after a few minutes
+    (vendor manual, page 9). A client that cannot find the cuff should tell
+    the user to unwrap it, not to press anything.
+  pairing_error_codes:
+    att_errors_meaning_rebond: [0x05, 0x08, 0x0c, 0x0f]
+    notes: >
+      ATT insufficient authentication, insufficient authorization,
+      insufficient encryption key size and insufficient encryption,
+      returned on the 0x2a35 notification enable or the f1 01 write. All
+      four mean the same thing operationally: the bond on one side does not
+      match the other. Remedy under device.pairing.exclusivity.recovery.
+  hardware:
+    fcc_id: "2ABF2-888ARM"
+    ic: "11885A-888ARM00"
+    oem: "Ya Horng Electronic Co., Ltd., Tainan, Taiwan"
+    batteries: "4 x AAA alkaline (the manual excludes rechargeables)"
+    measurement_range: "40-250 mmHg pressure; 40-200 bpm pulse; 1 mmHg / 1 bpm resolution (manual)"
+    cuff_circumference_cm: "22-37"
+    fda_510k: "K140067 (QardioArm A100, cleared 2014-06-18)"
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      url: "https://github.com/ptylr/LibreArm"
+      artifact: "ptylr/LibreArm, Core/BPClient.swift and Core/BloodPressureMeasurement.swift (main, read 2026-10-11)"
+      description: >
+        MIT-licensed iOS client in daily use against real cuffs. Source of
+        the control characteristic UUID, the f1 01 / f1 02 bytes, the
+        notify-on-0x2a35 flow, the battery handling, the pairing-class ATT
+        error list and recovery advice, the SFLOAT decode with its special
+        values, the kPa factor, and the completeness and save-range rules.
+        Scans on service 0x1810 only; no name filter. Facts only were
+        taken; no code was transcribed.
+    - type: "public_implementation"
+      url: "https://github.com/agreenbhm/LibreArm_Android"
+      artifact: "agreenbhm/LibreArm_Android, app/src/main/java/com/ptylr/librearm/ble/BpClient.kt (main, read 2026-10-11)"
+      description: >
+        MIT-licensed Android port by Drew Green. Independently confirms the
+        same service, characteristic and control UUIDs and the same two
+        command bytes; writes CCCD 01 00 (notifications) on 0x2a35 and
+        receives records; writes the control characteristic with response.
+        It never requests a bond itself and does no kPa or special-value
+        handling — recorded here as a weaker parser, not as a protocol
+        fact.
+    - type: "public_research"
+      url: "https://ptylr.com/posts/2025-09-28-librearm-breathing-new-life-into-qardioarm-devices"
+      description: >
+        The LibreArm author's write-up (2025-09-28): the cuff speaks the
+        standard SIG Blood Pressure Measurement service, a vendor
+        characteristic controls inflation, partial values arrive while
+        inflating, and the app saves only records with systolic and
+        diastolic present.
+    - type: "vendor_documentation"
+      url: "https://www.medm.com/assets/files/sensors/manuals/qardioarm.pdf"
+      artifact: "QardioArm user manual, version 2.4, English (Qardio, Inc. 2013-2014)"
+      description: >
+        Unwrap-to-power-on and wrap-to-power-off behaviour, auto power-off,
+        the first-use pairing flow ("accept the pairing request"), the
+        "Resetting the pairing" pinhole procedure and green-light
+        indicator, battery type and low-battery behaviour, measurement
+        ranges, FCC/IC identifiers and the OEM.
+    - type: "standard"
+      url: "https://raw.githubusercontent.com/oesmith/gatt-xml/master/org.bluetooth.characteristic.blood_pressure_measurement.xml"
+      description: >
+        Public mirror of the Bluetooth SIG Blood Pressure Measurement
+        characteristic definition: field order, flags bits, measurement
+        status bits and the C1-C6 presence conditions used for the format
+        and payload_formats blocks.
+    - type: "static_analysis"
+      artifact: "com.getqardio.android 2.5.1 (vendor Android app, delisted; third-party mirror, 2026-08-03)"
+      sha256: "50681c026b9ef2987b14a82307804b03e6e9b31bf319d58a4ce40197bf5e5b95"
+      obtained_via: "third-party APK mirror, 2026-08"
+      description: >
+        String-table triage only, no decompiled code read. Confirms the
+        0x1810 / 0x2a35 pair and the 583cb5b3 control UUID, and shows the
+        Nordic legacy DFU UUID set plus part of the Secure DFU family — the
+        basis for the hedged firmware_update feature. The same app served
+        the QardioBase scale and QardioCore patch, so nothing in it is
+        attributable to the cuff alone.
+    - type: "community_thread"
+      url: "https://discussions.apple.com/thread/256006237"
+      description: >
+        Apple Support Community thread opened 2025-03-13 reporting the
+        Qardio servers down; replies dated 2025-04-30 and 2025-05-04 date
+        the permanent outage to the morning of 2025-04-29. Thread 255768352
+        (2024-09-21) records the iOS app vanishing from the App Store and
+        returning within days.
+    - type: "public_research"
+      url: "https://www.technodabbler.com/what-happened-to-qardio-when-connected-health-devices-stop-working/"
+      description: >
+        2026-05-19 post-mortem: no shutdown announcement, UK and Dutch
+        corporate filings (Qardio Netherlands B.V. bankruptcy at its own
+        request after funding from Qardio, Inc. stopped), apps gone from
+        the stores, the vendor domain seen listed for sale, and the cuff
+        unusable without its app — with LibreArm named as the way out.
+  documentation_review: >
+    Two independent open-source clients, the vendor manual and the SIG
+    characteristic definition were read on 2026-10-11 and agree on every
+    fact declared above. The two clients share an author lineage (the
+    Android port is a deliberate mirror of the iOS client), so they count
+    as one recovery confirmed twice, not two recoveries. The vendor app's
+    string table was used only to confirm UUIDs and to note the DFU
+    library.
+  open_questions: >
+    Which flags the cuff actually sets in its 0x2a35 records (timestamp?
+    user ID? status?), and therefore where pulse sits; whether the
+    characteristic is declared notify, indicate or both; whether the
+    control characteristic is write, write-without-response or both; the
+    exact ATT error the cuff returns on an unbonded notification enable;
+    whether the Battery Service is present on every hardware revision;
+    whether any DFU service appears in the cuff's own GATT table; and the
+    advertised local name, which rests on the manual's phone screenshots.
+
+remaining_unknowns:
+  - "No raw 0x2a35 record from a QardioArm has been published, so which optional fields the cuff includes is unknown. Pulse rate is therefore documented in payload_formats with its flag-dependent offset and has no sensor entity; one captured record would let it be bound at a fixed offset."
+  - "The advertised local name. The manual's screenshots show the bonded cuff as QardioARM / QardioArm in the phone's Bluetooth list; neither open client filters on a name. The prefix matcher 'Qardio' rests on that."
+  - "Whether the cuff exposes Blood Pressure Feature (0x2a49), Intermediate Cuff Pressure (0x2a36), Device Information (0x180a) or any DFU service: no GATT dump has been published and the open clients discover only 0x1810 and 0x180f."
+  - "What an in-progress (inflating) record carries in its pressure fields — zeros, special values or rising partial values. The clients only establish that such records exist and fail the completeness rule."
+  - "The pairing method in detail: Just Works is inferred from a code-free prompt and the ATT error pattern, not from a capture. LE legacy vs LE Secure Connections is unknown."
+  - "Whether the f1 command byte has opcodes beyond 01 and 02. Not probed, deliberately."
+  - "Whether the pinhole clears anything beyond the bond. The manual documents nothing else stored on the cuff."
+  - "The hardware variant map. The manual is for the original QardioArm (FCC ID 2ABF2-888ARM; FDA K140067 names model A100); whether later colour variants or an A101 differ in firmware is unknown."
+
+helpful_urls:
+  - title: "ptylr/LibreArm (iOS client, MIT)"
+    url: "https://github.com/ptylr/LibreArm"
+    kind: "implementation"
+    description: >
+      The working open-source client this spec is read from. Core/ holds
+      the GATT client and the 0x2a35 parser; on the App Store as LibreArm.
+  - title: "agreenbhm/LibreArm_Android (Android port, MIT)"
+    url: "https://github.com/agreenbhm/LibreArm_Android"
+    kind: "implementation"
+    description: >
+      Independent Android client confirming the same UUIDs and command
+      bytes; optional Google Fit export.
+  - title: "LibreArm: breathing new life into QardioArm devices (ptylr.com, 2025-09-28)"
+    url: "https://ptylr.com/posts/2025-09-28-librearm-breathing-new-life-into-qardioarm-devices"
+    kind: "protocol_writeup"
+    description: >
+      The author's account of recovering the protocol: standard BP service,
+      vendor inflate/cancel characteristic, partial records while inflating.
+  - title: "QardioArm user manual v2.4 (English, PDF)"
+    url: "https://www.medm.com/assets/files/sensors/manuals/qardioarm.pdf"
+    kind: "manual"
+    description: >
+      Third-party-hosted copy (MedM) of the vendor manual for the original
+      QardioArm (FCC ID 2ABF2-888ARM; model A100). Page 9 has the
+      unwrap-to-power-on behaviour, page 14 the battery hatch and page 15
+      the pinhole "Resetting the pairing" procedure used in this spec.
+      The vendor's own download page is gone.
+  - title: "MedM: QardioArm compatible app notes"
+    url: "https://www.medm.com/sensors/qardio/qardioarm-bpm-compatible-app.html"
+    kind: "vendor_support"
+    description: >
+      A third-party health app's support page for the cuff; independently
+      describes the paper-clip pinhole press and the green light that
+      confirms the pairing reset, and records the device as discontinued.
+  - title: "What happened to Qardio? (technodabbler.com, 2026-05-19)"
+    url: "https://www.technodabbler.com/what-happened-to-qardio-when-connected-health-devices-stop-working/"
+    kind: "other"
+    description: >
+      Post-mortem of the shutdown with the corporate-filings trail; the
+      best single account of why the official app stopped working.
+  - title: "Apple Support Community: Qardio servers down (2025)"
+    url: "https://discussions.apple.com/thread/256006237"
+    kind: "forum"
+    description: >
+      User reports dating the final server outage to 2025-04-29.
+  - title: "Bluetooth SIG Blood Pressure Service 1.1.1"
+    url: "https://www.bluetooth.com/specifications/specs/blood-pressure-service-1-1-1/"
+    kind: "standard"
+    description: >
+      The published service the cuff implements; authoritative for 0x1810
+      and the 0x2a35 record this spec decodes.
+  - title: "Blood Pressure Measurement characteristic XML (gatt-xml mirror)"
+    url: "https://raw.githubusercontent.com/oesmith/gatt-xml/master/org.bluetooth.characteristic.blood_pressure_measurement.xml"
+    kind: "standard"
+    description: >
+      Public mirror of the SIG characteristic definition: field order,
+      flags and measurement-status bits, presence conditions.
+  - title: "FDA 510(k) K140067 — QardioArm A100"
+    url: "https://fda.innolitics.com/device/K140067"
+    kind: "other"
+    description: >
+      The US clearance record naming model A100 and Qardio, Inc.; confirms
+      the model number this spec is filed under.

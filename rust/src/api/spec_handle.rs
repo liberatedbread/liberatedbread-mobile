@@ -37,13 +37,14 @@ use crate::spec::types::DeviceSpec;
 
 use super::device_api::{
     ble_provisioning_profiles_over, decode_with_protocol, encode_command_with_spec,
-    encode_entity_value_with_spec, list_network_instances_with_spec, match_connected_device,
-    match_network_over, match_scanned_over, read_network_entity_with_spec,
-    read_network_instance_with_spec, render_network_http_state_request_with_spec,
-    render_network_state_request_with_spec, soft_ap_profiles_over, BleProvisioningProfileDto,
-    DecodedValueDto, DeviceSpecDto, EntityWriteDto, HttpRequestDto, MatchConfidence,
-    NetworkDeviceDto, NetworkInstanceDto, NetworkReadingDto, NetworkRoleReadingDto, ScanMatch,
-    ScannedDeviceDto, SoapRequestDto, SoftApProfileDto, SpecIdentityDto,
+    encode_command_writes_with_spec, encode_entity_value_with_spec,
+    list_network_instances_with_spec, match_connected_device, match_network_over,
+    match_scanned_over, read_network_entity_with_spec, read_network_instance_with_spec,
+    render_network_http_state_request_with_spec, render_network_state_request_with_spec,
+    soft_ap_profiles_over, BleProvisioningProfileDto, DecodedValueDto, DeviceSpecDto,
+    EntityWriteDto, HttpRequestDto, MatchConfidence, NetworkDeviceDto, NetworkInstanceDto,
+    NetworkReadingDto, NetworkRoleReadingDto, ScanMatch, ScannedDeviceDto, SoapRequestDto,
+    SoftApProfileDto, SpecIdentityDto,
 };
 
 /// One parsed spec, held by Rust for as long as Dart holds the handle.
@@ -111,6 +112,23 @@ impl LoadedSpec {
         params: HashMap<String, f64>,
     ) -> anyhow::Result<Vec<u8>> {
         encode_command_with_spec(
+            self.spec.clone(),
+            service_uuid,
+            char_uuid,
+            command_name,
+            params,
+        )
+    }
+
+    /// Encode a named command into ordered BLE writes.
+    pub fn encode_command_writes(
+        &self,
+        service_uuid: Option<String>,
+        char_uuid: String,
+        command_name: String,
+        params: HashMap<String, f64>,
+    ) -> anyhow::Result<Vec<Vec<u8>>> {
+        encode_command_writes_with_spec(
             self.spec.clone(),
             service_uuid,
             char_uuid,
@@ -630,19 +648,20 @@ device:
         assert_eq!(probes[0].broadcast_address, "239.255.255.250");
     }
 
-    /// A reply that arrives on another port (Govee: probed on 4001, answers
-    /// to 4002) is lost by a sender that listens where it sent from, so the
-    /// probe is withheld rather than emitted to fail silently. A listen port
-    /// equal to the probe port changes nothing.
+    /// A reply that arrives on another port (BiSecur: probed on 4001, answers
+    /// to 4002) is emitted with the port the caller must bind before sending.
+    /// A listen port equal to the probe port changes nothing.
     #[test]
-    fn a_probe_whose_replies_arrive_elsewhere_is_withheld() {
+    fn a_probe_whose_replies_arrive_elsewhere_carries_its_listen_port() {
         let with_listen = |listen: u16| {
             probes_for(&format!(
                 "          port: 4001\n          probe_hex: \"01\"\n          multicast_group: \"239.255.255.250\"\n          listen_port: {listen}"
             ))
         };
-        assert!(with_listen(4002).is_empty());
+        assert_eq!(with_listen(4002).len(), 1);
+        assert_eq!(with_listen(4002)[0].listen_port, Some(4002));
         assert_eq!(with_listen(4001).len(), 1);
+        assert_eq!(with_listen(4001)[0].listen_port, Some(4001));
     }
 
     /// A `probe_hex` carrying a multi-byte character used to abort the whole
@@ -852,6 +871,9 @@ pub struct UdpProbeDto {
     pub display_name: String,
     /// The port to send to, and for a passive probe the port to listen on.
     pub port: u16,
+    /// The reply port to bind before sending, when the device answers
+    /// somewhere other than `port` (BiSecur: 4001 -> 4002).
+    pub listen_port: Option<u16>,
     /// Where to send it, as a canonical dotted quad: the v4 broadcast address
     /// by default, a spec's `multicast_group` when it names one (the schema
     /// says the group REPLACES `broadcast_address`), or its own
@@ -882,7 +904,7 @@ pub struct UdpProbeDto {
 /// One field a UDP reply is read for, with its dialect split out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UdpIdentityFieldDto {
-    /// `json`, `tlv`, `csv` or `payload` — how to read [`Self::path`].
+    /// `json`, `tlv`, `csv`, `payload` or `xml` — how to read [`Self::path`].
     pub dialect: String,
     /// What to read, in that dialect: a dotted JSON path, a TLV field name, a
     /// CSV column index, or empty for the payload itself.
@@ -896,23 +918,15 @@ impl CatalogueHandle {
     ///
     /// The scan service asks this once and sends what comes back, instead of
     /// holding a constant and a transport per vendor. A spec whose probe is
-    /// unusable — no port, `probe_hex` that is not hex, a destination off the
-    /// local network, or a reply port this DTO cannot carry — is left out
-    /// rather than reported: discovery is best-effort by nature, and one bad
-    /// block should cost that device, not the scan.
+    /// unusable — no port, `probe_hex` that is not hex, or a destination off
+    /// the local network — is left out rather than reported: discovery is
+    /// best-effort by nature, and one bad block should cost that device, not
+    /// the scan. `listen_port` is carried so the sender can bind it first.
     pub fn udp_broadcast_probes(&self) -> Vec<UdpProbeDto> {
         let mut out = Vec::new();
         for (index, entry) in self.entries.iter().enumerate() {
             for probe in entry.spec.device.udp_broadcast_probes() {
                 let Some(port) = probe.port else { continue };
-                // A reply port other than the probe's own cannot be honoured:
-                // the sender listens where it sent from, and a Govee strip
-                // unicasts its answer to 4002. Emitting the probe anyway sends
-                // a scan whose every reply is lost, so fail closed until the
-                // DTO carries a listen port the sender binds first.
-                if probe.listen_port.is_some_and(|listen| listen != port) {
-                    continue;
-                }
                 let Some(destination) = permitted_probe_destination(
                     probe
                         .multicast_group
@@ -947,6 +961,7 @@ impl CatalogueHandle {
                     index: index as u32,
                     display_name: entry.identity.device_name.clone(),
                     port,
+                    listen_port: probe.listen_port,
                     broadcast_address: destination.to_string(),
                     probe: bytes,
                     passive_ok,

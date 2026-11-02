@@ -13,6 +13,17 @@ heading.
 
 ### Added
 
+- **Orba 2 and Mousr join the local BLE catalogue.** Orba 2's SysEx
+  configuration and transport commands are packetized as complete BLE-MIDI
+  messages, with CRC-16, LSB-first 7-bit packing and ordered multi-write plans
+  for long messages. Mousr's 15-byte commands include fixed STOP/CHIRP and
+  guarded movement controls. New `float32` fields and parameters preserve
+  fractional values and their declared byte order, also making Hot Wheels id's
+  speed reading numeric instead of a hex blob; its physical unit remains
+  explicitly unclaimed. The corresponding Hot Wheels MPID/OTA documentation
+  and the Wilson, Lattis, Sleep Number, Eye-Fi, Car Thing and Dreem research
+  notes now carry their new findings and evidence limits.
+
 - **Linux: peripherals that bluetoothd cannot enumerate now work.** BlueZ
   opens every GATT connection with a Server Supported Features (0x2B3A)
   probe some firmware — the Johnson LDM330 laser meter, for one — answers
@@ -69,6 +80,10 @@ heading.
   unrecorded. docs/RELEASE.md is the runbook.
 
 ### Security
+
+- **Tokio 1.53.1 -> 1.54.1.** Picks up the fix for the `AsyncFd` I/O-safety
+  advisory RUSTSEC-2026-0386. `cargo audit` is clean of known vulnerabilities;
+  only the already-known unmaintained `unsafe-libyaml` warning remains.
 
 - **A smart lock is never in a group's "Turn all off".** The spec schema has
   no lock platform, so SESAME's and Yale's bolts are switches whose Off is
@@ -446,6 +461,28 @@ heading.
   ABI assertions no longer name it.
 
 ### Fixed
+
+- **Darwin BLE no longer crashes on null options or descriptor values.** The
+  last BSD-licensed `flutter_blue_plus_darwin` now comes from a local override
+  with two guards: `setOptions` ignores `NSNull` instead of sending it
+  `boolValue`, and a nil or unsupported descriptor value is returned as
+  `NSNull` rather than inserted into an `NSDictionary` literal. The rest of the
+  plugin stays at 7.0.3; no commercial 2.x dependency or telemetry is involved.
+
+- **Sengled and BiSecur discovery use the catalogue's UDP path.** The coverage
+  table now records Sengled's JSON probe as performed, and the generic reply
+  reader understands XML attributes, so a BiSecur LogicBox can be identified by
+  its MAC without confusing it with Govee's JSON replies on the same ports.
+  `listen_port` now travels from the spec through the UDP DTO to the socket:
+  a probe answered on another port binds that port before sending (BiSecur
+  4001 -> 4002) rather than being dropped.
+
+- **Generic colour-temperature controls keep the spec's unit.** A network light
+  whose command takes mireds now shows and sends mireds instead of presenting
+  the same number as Kelvin; percent-based controls can declare percent too.
+  The resolved network action carries its primary parameter's unit through the
+  Flutter Rust Bridge, while Kelvin remains the default for LIFX and specs that
+  declare no unit. The slider label also starts at its clamped in-range value.
 
 - **Forgetting a device forgets the spec you picked for it, in this session
   too.** The stored choice was cleared but the in-memory one was not, so a

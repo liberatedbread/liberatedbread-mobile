@@ -409,10 +409,14 @@ iPhone 16e). Summary: **the app builds, launches, and runs on iOS**.
     send on :5353 returns `No route to host (errno 65)` under the macOS host
     sandbox.
 
-Bottom line: the app builds and runs on iOS, but two things block a submission
-today and neither is an Apple account step. The privacy manifest had to declare
-the Rust core's required-reason file-timestamp APIs or App Store Connect refuses
-the upload (ITMS-91053) — fixed, see `ios/Runner/PrivacyInfo.xcprivacy`. And the
-build number must increase per upload (Step 5). The pinned Bluetooth plugin also
-carries two native crashers; they are written up in the audit notes a
-maintainer can share.
+Bottom line: the app builds and runs on iOS. The privacy manifest declares the
+Rust core's required-reason file-timestamp APIs (ITMS-91053), and `release.sh`
+keeps the build number rising per upload (Step 5). The two native Bluetooth
+crashers found in that audit are now guarded in the local BSD plugin override:
+`NSNull` options are ignored instead of being messaged as booleans, and a nil or
+unsupported descriptor value is returned as `NSNull` instead of being inserted
+into an `NSDictionary` literal. `test/platform/ble_native_patch_test.dart` pins
+both guards and a release iOS build compiles and links them. Real-device BLE and
+LAN validation is still outstanding: both paired iPhones rejected the developer
+disk image before the hardware suite could start, so do not read that as a
+runtime pass.

@@ -90,7 +90,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   /// touches a control their position wins.
   Color _color = lightSwatches.first;
   double _brightness = 255;
-  double _kelvin = 3500;
+  double _colorTemperature = 3500;
   bool _seeded = false;
 
   /// The strip's zones, once a live read reports them. Empty until then; drives
@@ -178,7 +178,9 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   }
 
   /// The one value a single-parameter action takes, by role: what the card
-  /// calls it, before it is renamed to the spec's own parameter name.
+  /// calls it, before it is renamed to the spec's own parameter name. The
+  /// historical `kelvin` key is only an internal slot; the action's declared
+  /// unit decides what the slider displays and what the value means.
   static const _primaryValueOf = {
     'set_brightness': 'brightness',
     'set_color_temperature': 'kelvin',
@@ -198,6 +200,26 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   double get _brightnessMax => widget.isLifx
       ? 255
       : _setBrightness?.max?.toDouble() ?? kUndeclaredBrightnessMax;
+
+  double get _colorTemperatureMin =>
+      (_setColorTemperature?.min ?? 1500).toDouble();
+  double get _colorTemperatureMax =>
+      (_setColorTemperature?.max ?? 9000).toDouble();
+  double get _colorTemperatureValue =>
+      _colorTemperature.clamp(_colorTemperatureMin, _colorTemperatureMax);
+
+  String _formatColorTemperature(double value, {bool spoken = false}) {
+    final unit = _setColorTemperature?.unit ?? 'K';
+    final suffix = switch (unit.toLowerCase()) {
+      'k' || 'kelvin' => spoken ? 'kelvin' : 'K',
+      '%' || 'percent' => spoken ? 'percent' : '%',
+      _ => unit,
+    };
+    return switch (suffix) {
+      'K' || 'kelvin' || '%' || 'percent' => '${value.round()}$suffix',
+      _ => '${value.round()} $suffix',
+    };
+  }
 
   @override
   void initState() {
@@ -377,7 +399,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
         _assumedOn = state.powerOn;
         _color = Color.fromARGB(255, state.red, state.green, state.blue);
         _brightness = state.brightness.toDouble();
-        if (state.kelvin > 0) _kelvin = state.kelvin.toDouble();
+        if (state.kelvin > 0) _colorTemperature = state.kelvin.toDouble();
         _seeded = true;
       });
     } catch (_) {
@@ -531,29 +553,26 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                   ),
                   Expanded(
                     child: Slider(
-                      min: (_setColorTemperature!.min ?? 1500).toDouble(),
-                      max: (_setColorTemperature!.max ?? 9000).toDouble(),
-                      value: _kelvin.clamp(
-                        _setColorTemperature!.min ?? 1500,
-                        _setColorTemperature!.max ?? 9000,
-                      ),
+                      min: _colorTemperatureMin,
+                      max: _colorTemperatureMax,
+                      value: _colorTemperatureValue,
                       semanticFormatterCallback: (v) =>
-                          'Colour temperature ${v.round()} kelvin',
-                      label: '${_kelvin.round()}K',
+                          'Colour temperature ${_formatColorTemperature(v, spoken: true)}',
+                      label: _formatColorTemperature(_colorTemperatureValue),
                       onChanged: _sending
                           ? null
-                          : (v) => setState(() => _kelvin = v),
+                          : (v) => setState(() => _colorTemperature = v),
                       onChangeEnd: _sending
                           ? null
                           : (_) => _send('set_color_temperature', {
-                              'kelvin': _kelvin.roundToDouble(),
+                              'kelvin': _colorTemperature.roundToDouble(),
                               if (_hasBrightness)
                                 'brightness': _brightness.roundToDouble(),
                             }),
                     ),
                   ),
                   Text(
-                    '${_kelvin.round()}K',
+                    _formatColorTemperature(_colorTemperatureValue),
                     style: text.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),

@@ -7,7 +7,7 @@
 use super::traits::{DeviceProtocol, FieldMeta};
 use crate::codec::types::{self, DecodedValues};
 use crate::error::ProtocolError;
-use crate::spec::types::DeviceSpec;
+use crate::spec::types::{Characteristic, DeviceSpec};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -46,13 +46,13 @@ impl GenericProtocol {
     }
 }
 
-impl DeviceProtocol for GenericProtocol {
-    fn encode_command(
+impl GenericProtocol {
+    fn command_bytes(
         &self,
         char_uuid: &str,
         command_name: &str,
         params: &HashMap<String, f64>,
-    ) -> Result<Vec<u8>, ProtocolError> {
+    ) -> Result<(&Characteristic, Vec<u8>), ProtocolError> {
         let found = match self.service_scope.as_deref() {
             Some(scope) => self.spec.find_writable_characteristic_in(scope, char_uuid),
             None => self.spec.find_writable_characteristic(char_uuid),
@@ -60,7 +60,6 @@ impl DeviceProtocol for GenericProtocol {
         let (_, characteristic) = found.ok_or_else(|| ProtocolError::CharacteristicNotFound {
             uuid: char_uuid.to_string(),
         })?;
-
         let commands =
             characteristic
                 .commands
@@ -68,34 +67,52 @@ impl DeviceProtocol for GenericProtocol {
                 .ok_or_else(|| ProtocolError::NoCommands {
                     uuid: char_uuid.to_string(),
                 })?;
-
         let command = commands
             .get(command_name)
             .ok_or_else(|| ProtocolError::CommandNotFound {
                 uuid: char_uuid.to_string(),
                 command: command_name.to_string(),
             })?;
-
-        // The same gate the DTO's `is_encodable` uses, so the control and the
-        // encoder cannot disagree about what is sendable. A characteristic
-        // whose payloads must pass through encryption, or a framing scheme
-        // this crate does not execute, would otherwise take a template's bytes
-        // straight to the wire.
         if let Some(kind) = types::unsupported_write_kind(characteristic, command) {
             return Err(ProtocolError::UnsupportedCommandEncoding(kind));
         }
-        let bytes = types::encode_command(command, params)?;
-        // Wrap in the characteristic's framing when it declares an implemented
-        // scheme (Daniao's DDP fragment header) — the controller ignores an
-        // unframed command write. The fragment serial rides in as `sn`, the
-        // same counter the template's `auto: sequence` places in the packet;
-        // one-shot commands leave it 0 (accepted on hardware). The spec types
-        // `sn` uint16 while the fragment header byte is u8, so the serial
-        // WRAPS like the stored-upload path's does — a saturating cast made
-        // every command after the 255th share serial 255, and the firmware
-        // de-dupes framed commands by serial, so they were silently dropped.
+        Ok((characteristic, types::encode_command(command, params)?))
+    }
+}
+
+impl DeviceProtocol for GenericProtocol {
+    fn encode_command(
+        &self,
+        char_uuid: &str,
+        command_name: &str,
+        params: &HashMap<String, f64>,
+    ) -> Result<Vec<u8>, ProtocolError> {
+        let (characteristic, bytes) = self.command_bytes(char_uuid, command_name, params)?;
+        if types::framing_scheme_name(characteristic).as_deref() == Some(super::orba_midi::SCHEME) {
+            return Err(ProtocolError::UnsupportedCommandEncoding(
+                "BLE-MIDI commands require ordered writes".to_string(),
+            ));
+        }
         let serial = (params.get("sn").copied().unwrap_or(0.0) as u64 % 256) as u8;
         super::image_upload::frame_command(characteristic, bytes, serial)
+    }
+
+    fn encode_command_writes(
+        &self,
+        char_uuid: &str,
+        command_name: &str,
+        params: &HashMap<String, f64>,
+    ) -> Result<Vec<Vec<u8>>, ProtocolError> {
+        let (characteristic, bytes) = self.command_bytes(char_uuid, command_name, params)?;
+        let serial = (params.get("sn").copied().unwrap_or(0.0) as u64 % 256) as u8;
+        if types::framing_scheme_name(characteristic).as_deref() == Some(super::orba_midi::SCHEME) {
+            return super::orba_midi::encode_command(characteristic, &bytes, serial);
+        }
+        Ok(vec![super::image_upload::frame_command(
+            characteristic,
+            bytes,
+            serial,
+        )?])
     }
 
     fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
@@ -602,6 +619,60 @@ services:
             value: [0x09, 0xD2]
 "#
         )
+    }
+
+    #[test]
+    fn orba_commands_use_the_ordered_write_plan() {
+        let spec = Arc::new(
+            parse_device_spec(
+                r#"
+device:
+  name: "Orba 2"
+  manufacturer: "Artiphon"
+  manufacturer_status: "shutdown"
+  protocol: "ble"
+services:
+  - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    name: "MIDI"
+    characteristics:
+      - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        name: "MIDI I/O"
+        properties: ["write", "notify"]
+        framing:
+          scheme: "orba_sysex_ble_midi"
+          max_chunk_size: 20
+        commands:
+          transport_play:
+            description: "Play"
+            value: [0x03, 0x07, 0x00, 0x02, 0x05]
+"#,
+            )
+            .unwrap(),
+        );
+        let proto = GenericProtocol::new(spec);
+        let writes = proto
+            .encode_command_writes(
+                "7772e5db-3868-4112-a1a9-f2669d106bf3",
+                "transport_play",
+                &HashMap::new(),
+            )
+            .unwrap();
+        assert_eq!(writes.len(), 2);
+        assert_eq!(
+            writes[0],
+            vec![
+                0x80, 0x80, 0xF0, 0x00, 0x02, 0x03, 0x00, 0x00, 0x50, 0x60, 0x40, 0x03, 0x00, 0x04,
+                0x14, 0x00, 0x7F, 0x05,
+            ]
+        );
+        assert_eq!(writes[1], vec![0x80, 0x80, 0xF7]);
+        assert!(proto
+            .encode_command(
+                "7772e5db-3868-4112-a1a9-f2669d106bf3",
+                "transport_play",
+                &HashMap::new(),
+            )
+            .is_err());
     }
 
     #[test]

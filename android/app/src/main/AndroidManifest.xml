@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Android 11 and below (API 21-30) use the legacy pair instead. minSdk is
-         21, and flutter_blue_plus_android ships a deliberately empty manifest
+         24, and flutter_blue_plus_android ships a deliberately empty manifest
          ("users can set exactly the permissions they want"), so this app's
          manifest is the only source of them: without these, scanning and
          connecting throw SecurityException on every device below Android 12. -->

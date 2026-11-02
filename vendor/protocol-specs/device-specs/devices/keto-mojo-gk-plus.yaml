@@ -1,0 +1,505 @@
+# Keto-Mojo GK+ blood glucose and ketone meter — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code):
+#   - gjg4000-debug/ha-keto-mojo (Home Assistant custom integration, MIT,
+#     version 0.1.0, main read 2026-10-25): custom_components/keto_mojo/
+#     protocol.py (the three request frames, the end-of-records frame, the
+#     unit and serial reply prefixes, the 9-byte record decode),
+#     const.py (characteristic UUIDs), __init__.py (connect, notify, write
+#     order and timeouts), manifest.json and config_flow.py (name matcher),
+#     README.md (service UUID, one-connection limit, tested firmware)
+#   - Home Assistant community announcement thread (2026-10-17)
+#   - Keto-Mojo GK+ user manual, Canadian English/French edition (2026-08
+#     upload on keto-mojo.com) — memory size, ranges, markers, power
+#   - The frame check (CRC-16/MODBUS, sent as four nibbles) is this
+#     project's own derivation: the integration sends fixed frames and never
+#     computes it. It reproduces all four literal frames in protocol.py.
+
+device:
+  name: "Keto-Mojo GK+ Blood Glucose and Ketone Meter"
+  manufacturer: "Keto-Mojo; built by VivaChek"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The three request frames
+      and the end-of-records frame are copied byte for byte from an
+      open-source integration that its author runs against a GK+ (firmware
+      SW2071323011A001, meter set to mg/dL). The record, unit and serial
+      worked examples in payload_formats are constructed here from the
+      integration's decoder, with an invented serial and a frame check
+      computed by the derived CRC rule; no raw notification has been
+      published.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "health"
+  type: "glucose-ketone-meter"
+  notes: >
+    A handheld fingerstick meter that reads blood glucose and blood
+    beta-ketone from two kinds of test strip, keeps up to 1000 results in
+    memory, and syncs them to the vendor phone app over BLE. Over BLE it is
+    a read-only data logger: a client asks for the glucose unit, the serial
+    number and the whole stored history, and the meter answers on a
+    notification characteristic. Nothing here starts a test or changes a
+    setting.
+
+    The service is the vendor's (VivaChek's), not the Bluetooth SIG Glucose
+    Profile (0x1808). Frames are bracketed by 7b ... 7d and close with a
+    CRC-16 whose two bytes are each split into two nibble bytes, so the
+    check can never contain a 7b or 7d. Each stored result is a 9-byte
+    record: date and time to the minute, a value encoded as two base-100
+    digits, a meal-marker byte and a type byte that separates glucose,
+    ketone, GKI-mode pairs and control-solution tests.
+
+    The meter accepts one BLE connection at a time, so the vendor app must
+    be closed while another client syncs. Readings are a personal log, not
+    a basis for treatment — see safety_advisory.
+
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      Readings synced from the meter are for information only and must never
+      be used to decide an insulin or other medication dose.
+    detail: >
+      A third-party client reads the meter's stored history after the fact;
+      it does not take a measurement and adds no accuracy of its own.
+      Display the value, unit and timestamp exactly as the record carries
+      them, and never show a control-solution result (type bytes 0x22 and
+      0x66) as a reading: those are quality-control tests of strips and
+      solution, not blood. Glucose and ketone are different quantities in
+      different units — do not mix them on one axis. Timestamps are the
+      meter's own local clock with no time zone, and a meter whose clock was
+      never set (or was reset by a battery change) stamps results with the
+      wrong date. The vendor's own manual says app data is not for medical
+      care reference; the same applies with more force to a client built
+      from this spec, which is experimental and unaffiliated with Keto-Mojo
+      or VivaChek. The manufacturer's instructions for use and a healthcare
+      professional govern any treatment decision.
+    acknowledge_required: true
+    advisory_url: "https://keto-mojo.com/wp-content/uploads/2026/08/Keto-Mojo-GK-Meter-Users-Manual-En-Fr-CAN-WEB.pdf"
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/gjg4000-debug/ha-keto-mojo"
+    license: "MIT"
+    notes: >
+      No vendor publication. One open-source client, whose README says the
+      protocol was worked out independently for interoperability and
+      contains no vendor code. A single source: nothing here has a second,
+      independent confirmation yet.
+
+  identification:
+    local_name_prefix: "Keto-Mojo"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Keto-Mojo"
+        notes: >
+          The integration discovers the meter by advertised local name alone
+          (prefix "Keto-Mojo", connectable advertisements); it does not
+          match on a service UUID, and whether the meter advertises
+          0003cdd0-0000-1000-8000-00805f9b0131 is not shown. The name may
+          carry trailing NUL bytes, which the integration strips before
+          display. The meter advertises while it is switched on (the
+          integration syncs whenever it sees an advertisement); the manual
+          gives automatic shut-off two minutes after the last action.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision for reading: no account, network or bond. The
+      vendor app's sync also sets the meter's clock from the phone (manual,
+      "Synching Your Meter with the Smartphone"), but the command that does
+      so is not known; without the app the clock is set on the meter itself
+      in its set-up mode (hold the main button for 3 seconds with the meter
+      off).
+    methods:
+      - type: "ble_direct"
+        name: "Connect, subscribe, read history"
+        verified: false
+        description: >
+          The sync as the Home Assistant integration runs it: connect,
+          enable notifications on 0003cdd1, then write three fixed frames to
+          0003cdd2 one after another, each time waiting for its answer
+          before the next.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Close the Keto-Mojo app on every phone that has synced this meter — the meter accepts one BLE connection at a time."
+            actor: "user"
+          - action: "Switch the meter on (press the main button, or insert a strip) so it advertises."
+            actor: "user"
+            expect: "An advertisement whose local name begins Keto-Mojo."
+          - action: "Connect and enable notifications on 0003cdd1-0000-1000-8000-00805f9b0131; wait about 0.5 s."
+            actor: "client"
+          - action: "Write get_unit to 0003cdd2-0000-1000-8000-00805f9b0131 (write without response)."
+            actor: "client"
+            timeout_seconds: 8
+            expect: "A unit reply frame beginning 7b 01 20 01 10 aa aa 00 01."
+          - action: "Write get_serial."
+            actor: "client"
+            timeout_seconds: 8
+            expect: "A serial reply frame beginning 7b 01 20 01 10 77 aa 00 10."
+          - action: "Write fetch_all_records and collect notifications until the end-of-records frame."
+            actor: "client"
+            timeout_seconds: 30
+            expect: "One record frame per stored result, then 7b 01 20 01 10 d1 66 00 00 0b 09 03 04 7d."
+          - action: "Disconnect, so the vendor app can connect again."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: "Unknown. The manual documents no factory reset and no way to clear the stored results."
+      description: >
+        The GK+ manual covers set-up mode, alarms, markers and battery
+        replacement, and says results survive a battery change; it
+        describes no reset and no memory clear. Memory is a ring of 1000
+        results, the oldest overwritten first. No BLE command to clear
+        memory is known.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only and unbonded as far as is known: any central can read the
+        meter once the current one disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Up to 1000 stored results with date and time"
+        - "Glucose unit, clock, alarms, meal-marker and ketone-warning settings"
+      issued_to_client: []
+      notes: "No PIN, key or account token is used by the open client."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Close (force-stop) the Keto-Mojo app on every phone that has synced the meter, then connect."
+    enter_pairing_mode:
+      required: false
+      notes: >
+        The integration connects, subscribes and writes with no pairing or
+        bonding step and no application-layer login. The vendor app's
+        "pairing" flow (manual, link to the vendor's Bluetooth connection
+        page) is an app-side association that also sets the clock; whether
+        it creates an OS-level bond is not established.
+    notes: >
+      From the integration's code and README: no pair call, no secret, one
+      connection at a time. Not replayed by this project.
+
+services:
+  - uuid: "0003cdd0-0000-1000-8000-00805f9b0131"
+    name: "VivaChek meter service"
+    notes: >
+      Vendor service. Its UUID is NOT on the Bluetooth SIG base: the last
+      group is 00805f9b0131, not 00805f9b34fb, so 0003cdd0, 0003cdd1 and
+      0003cdd2 are full 128-bit vendor UUIDs and must not be shortened to
+      16-bit forms. The service UUID comes from the integration's README;
+      its code addresses the two characteristics directly.
+    characteristics:
+      - uuid: "0003cdd1-0000-1000-8000-00805f9b0131"
+        name: "Reply (notify)"
+        properties: ["notify"]
+        role: "notify"
+        notes: >
+          Every reply arrives here as notifications; enable them before the
+          first write. FRAME: 7b | 01 | src | 01 | dst | cmd | status |
+          len (uint16 big-endian) | data[len] | check (4 bytes) | 7d.
+          Replies carry src 0x20, dst 0x10 (requests the reverse). status
+          is 0xaa on the unit and serial replies, 0x66 on the
+          end-of-records frame. A record frame is 23 bytes, longer than a
+          default 20-byte notification, so a frame may arrive split across
+          notifications: concatenate the notification bytes in order and
+          cut frames at 7b ... 7d (the check is nibble-encoded and record
+          data bytes stay below 0x7b, so neither delimiter occurs inside a
+          frame). Check: CRC-16/MODBUS over bytes 1 through the last data
+          byte, low byte first, each byte sent as two bytes holding its
+          high then low nibble — see protocol_details.frame. The layouts of
+          the unit reply, serial reply and stored-record frame are in
+          payload_formats.
+      - uuid: "0003cdd2-0000-1000-8000-00805f9b0131"
+        name: "Command (write)"
+        properties: ["write_without_response"]
+        role: "command"
+        notes: >
+          The integration writes without response; whether the
+          characteristic also accepts write-with-response is not shown. All
+          three known requests have no data (len 00 00), so they are fixed
+          frames; their check bytes are already included.
+        commands:
+          get_unit:
+            description: >
+              Ask for the meter's glucose display unit (cmd 0xaa). Answer:
+              payload_formats.UnitReply. Ask before fetching records — a
+              glucose record's scale depends on it.
+            encoding: "bytes"
+            value: [0x7b, 0x01, 0x10, 0x01, 0x20, 0xaa, 0x55, 0x00, 0x00, 0x02, 0x01, 0x0d, 0x08, 0x7d]
+            verification: "reported"
+          get_serial:
+            description: "Ask for the meter's serial number (cmd 0x77). Answer: payload_formats.SerialReply."
+            encoding: "bytes"
+            value: [0x7b, 0x01, 0x10, 0x01, 0x20, 0x77, 0x55, 0x00, 0x00, 0x01, 0x0b, 0x0b, 0x04, 0x7d]
+            verification: "reported"
+          fetch_all_records:
+            description: >
+              Ask for every stored result (cmd 0xdd). The meter answers with
+              one RecordFrame per result and then the EndOfRecords frame;
+              the integration allows 30 s. There is no known "since" or
+              "latest only" variant, so a client de-duplicates on
+              (timestamp, type, value) itself.
+            encoding: "bytes"
+            value: [0x7b, 0x01, 0x10, 0x01, 0x20, 0xdd, 0x55, 0x00, 0x00, 0x03, 0x0a, 0x06, 0x0c, 0x7d]
+            verification: "reported"
+
+payload_formats:
+  UnitReply:
+    description: "Answer to get_unit, notified on 0003cdd1. 15 bytes; one data byte."
+    fields:
+      - name: "header"
+        description: "Bytes 0-8: 7b 01 20 01 10 aa aa 00 01 (reply, cmd 0xaa, status 0xaa, len 1)."
+      - name: "unit_code"
+        description: "Byte 9, uint8."
+        values:
+          0x11: "mg/dL"
+          0x22: "mmol/L"
+      - name: "check"
+        description: "Bytes 10-13: CRC-16/MODBUS of bytes 1-9 as four nibble bytes (low byte first). Byte 14 is 7d."
+    parse_rules:
+      - "Find the 9-byte header 7b 01 20 01 10 aa aa 00 01 and read the next byte. 0x11 means glucose records are mg/dL; 0x22 means they are tenths of mmol/L. Any other code: keep the previously known unit."
+      - "The unit applies to glucose and glucose-control records only; ketone is always mmol/L."
+      - "Worked (mg/dL): 7b 01 20 01 10 aa aa 00 01 11 0e 0f 07 04 7d = unit 0x11, mg/dL; check 0x74ef."
+      - "Worked (mmol/L): 7b 01 20 01 10 aa aa 00 01 22 0a 0f 06 01 7d = unit 0x22, mmol/L; check 0x61af."
+    example: "7b 01 20 01 10 aa aa 00 01 11 0e 0f 07 04 7d"
+  SerialReply:
+    description: "Answer to get_serial, notified on 0003cdd1. 30 bytes; 16 data bytes."
+    fields:
+      - name: "header"
+        description: "Bytes 0-8: 7b 01 20 01 10 77 aa 00 10 (reply, cmd 0x77, status 0xaa, len 16)."
+      - name: "serial"
+        description: "Bytes 9-24: 16 ASCII bytes; strip trailing NUL and space padding."
+      - name: "check"
+        description: "Bytes 25-28: CRC-16/MODBUS of bytes 1-24 as four nibble bytes. Byte 29 is 7d."
+    parse_rules:
+      - "Find the header 7b 01 20 01 10 77 aa 00 10, take the 16 bytes after it as ASCII and strip NUL and space padding."
+      - "Worked: 7b 01 20 01 10 77 aa 00 10 53 4e 30 30 30 54 45 53 54 30 30 30 31 00 00 00 0a 07 01 04 7d = serial SN000TEST0001 (an invented serial; real serials' format is not published)."
+    example: "7b 01 20 01 10 77 aa 00 10 53 4e 30 30 30 54 45 53 54 30 30 30 31 00 00 00 0a 07 01 04 7d"
+  RecordFrame:
+    description: >
+      One stored result, notified on 0003cdd1 after fetch_all_records.
+      23 bytes: a 9-byte header, the 9-byte record at bytes 9-17, the
+      4-byte check and 7d. The integration reads only bytes 9-17; header
+      bytes 5-6 of a record frame (shown here as dd aa, by analogy with the
+      unit and serial replies) and the length (shown as 00 09) are not
+      checked by it and are unconfirmed.
+    fields:
+      - name: "year"
+        description: "Byte 9, uint8 binary (not BCD): years since 2000."
+        value_offset: 2000
+      - name: "month"
+        description: "Byte 10, uint8, 1-12."
+      - name: "day"
+        description: "Byte 11, uint8, 1-31."
+      - name: "hour"
+        description: "Byte 12, uint8, 0-23 (24-hour, whatever the display setting)."
+      - name: "minute"
+        description: "Byte 13, uint8, 0-59. No seconds are stored."
+      - name: "value_hundreds"
+        description: "Byte 14, uint8: the value's hundreds (base-100 high digit). raw = byte14 x 100 + byte15 — NOT a 16-bit integer."
+        scale: 100
+      - name: "value_units"
+        description: "Byte 15, uint8, 0-99: the value's base-100 low digit."
+      - name: "meal_marker"
+        description: "Byte 16, high nibble. Low nibble not decoded by any client."
+        values:
+          0x0: "general (no marker)"
+          0x1: "pre-meal"
+          0x2: "post-meal"
+      - name: "record_type"
+        description: "Byte 17, uint8."
+        values:
+          0x11: "glucose"
+          0x12: "glucose, GKI-mode pair"
+          0x55: "ketone"
+          0x56: "ketone, GKI-mode pair"
+          0x22: "glucose control solution"
+          0x66: "ketone control solution"
+      - name: "glucose_mg_dl"
+        description: "Value of a glucose or glucose-control record when the meter unit is mg/dL: raw as-is."
+        unit: "mg/dL"
+      - name: "glucose_mmol_l"
+        description: "Value of a glucose or glucose-control record when the meter unit is mmol/L: raw / 10."
+        unit: "mmol/L"
+        scale: 0.1
+      - name: "ketone_mmol_l"
+        description: "Value of a ketone or ketone-control record, always: raw / 100."
+        unit: "mmol/L"
+        scale: 0.01
+    parse_rules:
+      - "Concatenate notifications in arrival order and cut frames at 7b ... 7d. A frame whose length byte pair (7-8) is 00 09 and whose bytes 1-17 pass the check is a record; the end-of-records frame (cmd 0xd1, status 0x66, len 0) ends the dump."
+      - "Timestamp = (2000 + byte9)-byte10-byte11 byte12:byte13, a naive local time on the meter's clock. Skip a record whose date or time is invalid."
+      - "raw = byte14 x 100 + byte15. Scale by record_type and the unit from get_unit: ketone types (0x55, 0x56, 0x66) raw / 100 mmol/L; glucose types (0x11, 0x12, 0x22) raw mg/dL, or raw / 10 mmol/L on a meter set to mmol/L."
+      - "Meal marker = high nibble of byte 16: 1 pre-meal, 2 post-meal, anything else general."
+      - "Types 0x22 and 0x66 are control-solution tests: never present them as readings, and leave them out of averages, as the meter itself does."
+      - "Ignore a record whose type byte is not one of the six listed: the integration drops them, and their meaning is unknown."
+      - "GKI-mode pairs (0x12 with 0x56) sit next to each other in the dump. GKI = glucose in mmol/L (mg/dL / 18) divided by ketone in mmol/L, floored to one decimal."
+      - "Worked (glucose, pre-meal): 7b 01 20 01 10 dd aa 00 09 1a 0a 11 07 1e 00 5f 10 11 0e 09 0b 07 7d = 2026-10-17 07:30, raw 0 x 100 + 95 = 95 mg/dL (mg/dL meter), pre-meal, glucose."
+      - "Worked (glucose, post-meal): 7b 01 20 01 10 dd aa 00 09 1a 0a 11 0d 2d 01 2a 20 11 0e 09 03 0f 7d = 2026-10-17 13:45, raw 1 x 100 + 42 = 142 mg/dL, post-meal, glucose."
+      - "Worked (GKI pair, glucose half): 7b 01 20 01 10 dd aa 00 09 1a 0a 11 07 1f 01 08 00 12 02 09 09 0a 7d = 2026-10-17 07:31, 108 mg/dL, general, glucose GKI pair."
+      - "Worked (GKI pair, ketone half): 7b 01 20 01 10 dd aa 00 09 1a 0a 11 07 20 01 19 00 56 06 0d 0a 09 7d = 2026-10-17 07:32, raw 125 -> 1.25 mmol/L, ketone GKI pair; with the record before it, GKI = (108 / 18) / 1.25 = 4.8."
+      - "Worked (control solution): 7b 01 20 01 10 dd aa 00 09 1a 0a 12 09 05 01 0c 00 22 00 03 0a 03 7d = 2026-10-18 09:05, 112 mg/dL, glucose CONTROL — not a reading."
+      - "Worked (mmol/L meter): 7b 01 20 01 10 dd aa 00 09 1a 0a 11 07 1e 00 36 00 11 03 04 06 0b 7d = 2026-10-17 07:30, raw 54 -> 5.4 mmol/L glucose."
+    example: "7b 01 20 01 10 dd aa 00 09 1a 0a 11 07 1e 00 5f 10 11 0e 09 0b 07 7d"
+  EndOfRecords:
+    description: "Sent after the last RecordFrame; a client stops collecting when it sees it. A literal frame from the integration."
+    parse_rules:
+      - "Match the whole frame 7b 01 20 01 10 d1 66 00 00 0b 09 03 04 7d (cmd 0xd1, status 0x66, len 0)."
+      - "Whether the meter sends it for an empty memory, and whether it is the last notification before the meter goes quiet, is not shown."
+    example: "7b 01 20 01 10 d1 66 00 00 0b 09 03 04 7d"
+
+protocol_details:
+  frame:
+    start_byte: 0x7b
+    end_byte: 0x7d
+    layout: "7b | 01 | src | 01 | dst | cmd | status | len_hi | len_lo | data[len] | c0 c1 c2 c3 | 7d"
+    addresses:
+      0x10: "phone / client"
+      0x20: "meter"
+    constant_bytes: "Bytes 1 and 3 are 0x01 in every known frame, both directions; meaning unknown."
+    length: "uint16, big-endian, counts data bytes only (unit reply 00 01, serial reply 00 10)."
+    status_byte:
+      0x55: "request (client to meter)"
+      0xaa: "reply carrying data (unit, serial)"
+      0x66: "end of records"
+    commands:
+      0xaa: "get unit"
+      0x77: "get serial"
+      0xdd: "fetch all records"
+      0xd1: "end of records (meter to client)"
+    check:
+      algorithm: "CRC-16/MODBUS (reflected polynomial 0xa001, init 0xffff, no final xor)"
+      span: "Bytes 1 through the last data byte: everything after 7b and before the check."
+      encoding: >
+        Four bytes, low CRC byte first, each CRC byte split into its high
+        nibble then its low nibble, one nibble per byte (values 0x00-0x0f).
+        CRC 0xd821 is sent as 02 01 0d 08.
+      provenance: >
+        Derived by this project, not stated by any source: a search over
+        CRC-16 polynomials, inits and nibble orders found exactly this rule
+        reproducing all four literal frames in the integration (three
+        requests and the end-of-records reply). The schema's
+        `auto: crc16_modbus` writes two raw bytes, so it cannot express the
+        nibble split; the known requests carry no data and are declared as
+        fixed frames instead.
+      verification: "hypothesis"
+  session:
+    notify_settle_s: 0.5
+    reply_timeouts_s:
+      get_unit: 8
+      get_serial: 8
+      fetch_all_records: 30
+    write_type: "write_without_response"
+    notes: >
+      The integration's values, a known-good envelope rather than protocol
+      constants. It also waits 180 s after a sync before reacting to the
+      meter's advertisements again, which is client policy.
+  hardware:
+    tested_firmware: "SW2071323011A001 (the integration author's meter)"
+    memory_records: 1000
+    memory_order: "Oldest overwritten first when full; the manual shows results newest-first on screen. The order of the BLE dump is not stated."
+    glucose_range: "1.1-33.3 mmol/L (manual; about 20-600 mg/dL)"
+    ketone_range: "0.1-8.0 mmol/L (manual)"
+    power: "2 x AAA LR03; automatic shut-off 2 minutes after the last action"
+    bluetooth: "Bluetooth 4.2 LE per the vendor's Canadian product page"
+
+entities: []
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      url: "https://github.com/gjg4000-debug/ha-keto-mojo"
+      artifact: "gjg4000-debug/ha-keto-mojo 0.1.0, custom_components/keto_mojo/{protocol.py, const.py, __init__.py, manifest.json, config_flow.py} and README.md (main, single commit, read 2026-10-25)"
+      description: >
+        MIT-licensed Home Assistant integration tested by its author on a
+        GK+ set to mg/dL. Source of the two characteristic UUIDs, the three
+        request frames, the end-of-records frame, the unit and serial reply
+        headers and codes, the 9-byte record layout with its base-100
+        value, the type-byte and meal-nibble enums, the unit scaling, the
+        write-without-response and notify flow with its timeouts, and the
+        "Keto-Mojo" name matcher. README supplies the service UUID, the
+        VivaChek attribution and the one-connection limit. Facts only; no
+        code transcribed.
+    - type: "community_thread"
+      url: "https://community.home-assistant.io/t/new-integration-keto-mojo-gk-glucose-ketone-meter-over-bluetooth/1029313"
+      description: "Announcement of the integration (2026-10-17)."
+    - type: "vendor_documentation"
+      url: "https://keto-mojo.com/wp-content/uploads/2026/08/Keto-Mojo-GK-Meter-Users-Manual-En-Fr-CAN-WEB.pdf"
+      artifact: "Keto-Mojo GK+ Blood Glucose and Beta-Ketone Meter user's manual, English/French, Canadian edition"
+      description: >
+        Memory of 1000 dated results (oldest overwritten), pre/post-meal and
+        control-result markers, control results excluded from averages,
+        measurement ranges, two AAA cells, two-minute auto-off, set-up mode
+        entry, and that app sync sets the meter clock. This edition is
+        mmol/L-only; US meters show mg/dL.
+  documentation_review: >
+    One open-source client and the vendor manual, read 2026-10-25. The
+    client's README says it was developed independently with no vendor
+    code. The frame layout beyond what the client checks (address, status
+    and length bytes) is inferred from the four literal frames and the two
+    reply headers, and the check algorithm was derived from those frames.
+  open_questions: >
+    The header bytes and length of a record frame (unchecked by the client);
+    the BLE dump order; the low nibble of the meal byte; any further type
+    codes; the clock-set command the vendor app uses; whether the meter
+    advertises its service UUID; whether the characteristics accept write
+    with response; and whether an mmol/L meter's glucose really uses tenths
+    (the client's author tested only mg/dL).
+
+remaining_unknowns:
+  - "No entities are bound. Every reply arrives on one notification characteristic, and a 'last glucose' or 'last ketone' sensor would need to pick one record type out of a 1000-record dump, decode a base-100 value (byte14 x 100 + byte15, not a uint16) and choose the newest timestamp. The schema's format/format_match can express none of those three steps, so a client must implement payload_formats.RecordFrame and keep its own history."
+  - "Header bytes 5-6 and the length field of a record frame. The client reads only bytes 9-17; the worked examples show dd aa / 00 09 by analogy with the unit and serial replies."
+  - "The order in which fetch_all_records returns results (oldest or newest first). The client keeps the meter's order only to find GKI pairs and sorts by timestamp for display."
+  - "mmol/L scaling of glucose (raw / 10) is from the client's code but was not tested on hardware: its author's meter is set to mg/dL."
+  - "The command the vendor app uses to set the meter's clock during sync, and any command to clear memory. Neither is known; no write beyond the three reads has been seen."
+  - "Whether the meter advertises 0003cdd0-0000-1000-8000-00805f9b0131 (the client matches by name only)."
+  - "Whether the vendor app forms an OS-level bond. The open client never bonds and works."
+  - "The CRC rule is a derivation from four frames, not a stated fact; a client that cannot verify checks can still parse by position, as the open client does."
+
+helpful_urls:
+  - title: "gjg4000-debug/ha-keto-mojo (Home Assistant integration, MIT)"
+    url: "https://github.com/gjg4000-debug/ha-keto-mojo"
+    kind: "implementation"
+    description: >
+      The open-source client this spec is read from; protocol.py holds the
+      frames and the record decoder.
+  - title: "New integration: Keto-Mojo GK+ glucose/ketone meter over Bluetooth (Home Assistant community)"
+    url: "https://community.home-assistant.io/t/new-integration-keto-mojo-gk-glucose-ketone-meter-over-bluetooth/1029313"
+    kind: "forum"
+    description: "The integration's announcement thread (2026-10-17)."
+  - title: "Keto-Mojo GK+ user's manual, English/French Canadian edition (PDF)"
+    url: "https://keto-mojo.com/wp-content/uploads/2026/08/Keto-Mojo-GK-Meter-Users-Manual-En-Fr-CAN-WEB.pdf"
+    kind: "manual"
+    description: >
+      Vendor-hosted manual for the GK+ meter (Canadian mmol/L edition).
+      Covers set-up mode, meal markers, control-solution testing, the
+      1000-result memory, batteries and the system specifications used in
+      this spec.
+  - title: "Keto-Mojo user guides and manuals"
+    url: "https://keto-mojo.com/help-docs/user-guides-manuals/"
+    kind: "vendor_support"
+    description: "Vendor index of meter manuals and quick-start guides."

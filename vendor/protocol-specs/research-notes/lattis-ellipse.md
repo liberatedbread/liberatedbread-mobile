@@ -1,67 +1,52 @@
 # Lattis Ellipse Smart Bike Lock — Research Notes
 
-## What it is
-- Solar-charged BLE U-lock with accelerometer (theft/crash detection), capacitive
-  touchpad code entry, and app-based lock/unlock/share. Launched 2017 at $200.
-- Company (Lattis, fka related to the Skylock crowdfunding era, founded 2013, SF)
-  pivoted to B2B bike/scooter-share fleet hardware+software and no longer sells or
-  supports the consumer Ellipse.
+## Current finding (2026-11-01)
 
-## Why abandoned / at-risk (dated sources)
-- 2017-01: consumer launch coverage ([VentureBeat](https://venturebeat.com/business/lattis-bike-lock-sends-theft-alerts-and-tells-friends-if-you-crash), 2017-01-05).
-- 2018-07: [CNET review](https://www.cnet.com/reviews/lattis-ellipse-smart-bike-lock-review-2/) — last consumer-era product coverage.
-- 2026-01: [Levy Electric fleet-software guide](https://ride.levyelectric.com/post/starting-an-electric-scooter-fleet-here-are-the-best-options-for-rental-fleet-software-and-apps) lists Lattis purely as a B2B fleet platform; lattis.io sells only fleet solutions (checked 2026-08-04).
-- Android app `io.lattis.ellipse` ("Ellipse", "Keyless bike lock…") is delisted from
-  Google Play (Play search 2026-08-04 returns nothing); AppBrain showed 1,000+ installs.
-  Last version 2.1.15 (versionCode 85). App is only on mirrors (APKPure).
+Already-provisioned Ellipse locks have a local BLE path for lock/unlock,
+state, sensors, touchpad code and firmware information. New-phone provisioning
+is the hard boundary: the normal V2 flow expects a server-signed message.
+Owner export of an existing lock record is a plausible rescue route;
+self-issuing that credential is not established.
 
-## Local BLE feasibility
-Lock/unlock is GATT writes over BLE; no internet needed for an already-provisioned
-phone (auth material cached locally in a Realm-backed key cache). BUT the pairing/auth
-scheme uses a **server-signed message** (handed to the SDK's v2 security handler), so
-first-time provisioning of a new phone almost certainly required the Lattis backend —
-with the consumer backend's status unknown, re-pairing may be impossible. Mitigations:
-- Physical touchpad code (`BUTTON_LOCK_SEQUENCE` characteristic configures it) works
-  with no phone and no cloud — locks never fully brick.
-- Existing paired installs keep working offline (cached keys).
-- A community rescue path would need RE of the security handshake to self-issue
-  signed messages (or key extraction from a paired phone / HCI snoop during pairing).
+The earlier draft's encryption description was wrong for this handshake:
+V2 uses **MD5 and SHA-256**, not AES. A general AES helper elsewhere in the
+app is not evidence for this sequence.
 
-## APK Provenance
-- **Package**: `io.lattis.ellipse` — version 2.1.15 (versionCode 85)
-- **Source**: apkeep, apk-pure mirror (Play-delisted), 2026-08-04
-- **SHA-256**: `8a5397782824166a5ebf74c14b44ea31935710aa85db6ff883af509336549dff`
-- Decompiled with jadx to `workspace/static/lattis-ellipse/`; clean Java
-  (`io.lattis.ellipse.sdk` + `com.lattis.ellipse` app), Realm DB, not obfuscated.
+## GATT and V2 session
 
-## BLE GATT
-Base UUID pattern `d3995xxx-fa57-11e4-ae59-0002a5d5c51b` (Dialog DA145x-era numbering).
+The advertised security service is
+`d3995e00-fa57-11e4-ae59-0002a5d5c51b`; all custom UUIDs share the
+`d3995xxx-fa57-11e4-ae59-0002a5d5c51b` base.
 
-| Service | Characteristics |
-|---|---|
-| Security `d3995e00` (advertised; used as scan filter) | SIGNED_MESSAGE `e01`, PUBLIC_KEY `e02`, CHALLENGE_KEY `e03`, CHALLENGE_DATA `e04`, STATE `e05` |
-| Device `d3995e40` | LED `e41`, LOCK `e42`, INFO `e43`, MAGNETOMETER `e44`, CONNECTION `e45`, ACCELEROMETER `e46` |
-| Configuration `d3995e80` | RESET `e81`, LOCK_ADJUST `e82`, SERIAL_NUMBER `e83`, BUTTON_LOCK_SEQUENCE `e84` |
-| Firmware `d3995d00` | CODE_VERSION `d01`, WRITE_DATA `d02`, STATUS `d03`, DOWNLOAD_DONE `d04` |
+1. Write the account/lock public key to `e02`.
+2. Write `e03`: lowercase MD5 hex of the user ID, padded with ASCII `f` to 64
+   hex characters (32 bytes on wire).
+3. Write the cached server-issued signed message to `e01`.
+4. Read `e04`; uppercase-hex its raw challenge, append that hex to the
+   64-character challenge key, hex-decode the combination and hash SHA-256.
+5. Write the lowercase-hex result, hex-decoded, back to `e04`, then read
+   hardware info and continue only after an owner/guest verified status.
 
-- Security handshake: phone writes CHALLENGE_KEY
-  derived from `userId` after reading PUBLIC_KEY, writes SIGNED_MESSAGE, then reads
-  CHALLENGE_DATA; failure state `SECURITY_STATE_INVALID_ACCESS_DENIED` → disconnect.
-- The app's encryption helper: SHA-256 + AES/ECB/PKCS5Padding.
-- `Configuration.WRITE_RESET_*`: 0xBC shipping, 0xBD factory, 0xBE development modes.
+This proves an existing account/lock relationship; it does not generate a new
+signed provisioning message.
 
-## What needs cloud
-- Account creation, lock registration/pairing (server-signed auth messages), sharing
-  access with other users, crash-alert SMS to contacts. Theft alerts are push
-  notifications via app (needs app running; cloud push for remote alerts).
-- Lock/unlock/status/touchpad code: local BLE only, once provisioned.
+Hardware `d3995e40` carries LED `e41`, lock `e42`, five-byte info `e43`,
+magnetometer `e44`, connection `e45` and accelerometer `e46`. Lock writes are
+`00` unlock, `01` lock, `ff` delayed lock and `ff 00` cancel-delay. Info is
+u16 LE battery/voltage (unit unknown), signed temperature (unit unknown),
+signed RSSI, then position (0 unlocked, 1 locked, 2 between, 3 invalid).
 
-## Open questions
-- Is the Lattis consumer auth backend still up? (An old install with cached keys can
-  be checked with an HCI snoop; if the lock accepts cached SIGNED_MESSAGE offline,
-  rescue tooling only needs key export.)
-- Can BUTTON_LOCK_SEQUENCE be set via raw GATT without prior auth? If yes, that alone
-  is a viable local re-provisioning path.
-- Prior community RE: none found (no GitHub drivers/HA integration located).
-- safety_class: LOW (property-security device, no injury vector; mechanical touchpad
-  fallback limits lockout risk).
+Configuration `d3995e80` carries reset `e81`, adjustment `e82`, serial `e83`
+and touchpad `e84`. A numeric touchpad PIN is padded with ASCII `0` to 16
+characters, hex-decoded to eight bytes and written to `e84`; whether this is
+accepted before owner authentication is unknown. Firmware `d01-d04` resolve
+through configuration service `e80` in this build; a separate `d3995d00`
+service is not established.
+
+## Safety and remaining work
+
+Lock/unlock is property-security control and must require a validated owner
+session. Shipping/factory/development reset modes are excluded from ordinary
+control. Freshly reset locks without a surviving account backend remain
+unprovisionable on current evidence. The next useful evidence is an owner
+export plus one HCI snoop of a successful session, not more guessing at keys.

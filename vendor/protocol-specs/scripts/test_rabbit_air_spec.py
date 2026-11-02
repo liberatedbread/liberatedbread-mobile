@@ -142,6 +142,18 @@ def sample_body(command: dict) -> str:
 # ── The commands block is renderable ─────────────────────────────────────────
 
 
+def test_ble_example_wire_frame_is_the_payload_length_le16(spec):
+    """The BLE example's length prefix is what the framing rule computes.
+
+    It used to say `0d00` ("13 = len(...)") for an 18-byte payload: a reader
+    checking their own framer against the example would have "fixed" a
+    correct one. The prefix is the payload's byte count, little-endian u16.
+    """
+    example = spec["protocol_details"]["rabbit_air_ble"]["example_wire"]
+    payload = example["payload"].encode("utf-8")
+    assert bytes.fromhex(example["framed_hex"]) == len(payload).to_bytes(2, "little")
+
+
 def test_every_command_is_a_udp_message_with_a_static_body(commands):
     """The contract the rabbit_air_lan handler is keyed on: transport udp, and
     a body that parses as JSON carrying ONLY static envelope fields — an `id`

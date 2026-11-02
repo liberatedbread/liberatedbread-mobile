@@ -78,6 +78,10 @@ const Map<String, String> _performed = {
   '4001/json':
       'Govee LAN `scan` to the :4001 multicast group, answered on :4002 '
       '(_runGovee)',
+  '4001/xml':
+      'BiSecur LogicBox discovery, replied to on :4002 '
+      '(_runCatalogueProbes)',
+  '9080/json': 'Sengled search_devices (_runCatalogueProbes)',
 };
 
 /// Probes with no `udp_broadcast` block behind them, keyed by port, each for a
@@ -228,6 +232,11 @@ const Map<int, String> _sharedPorts = {
   6666:
       'Two specs disagree about this one rather than two protocols sharing '
       'it — see the 6666/json_aes entry in _notPerformed.',
+  4001:
+      'Govee (JSON) and BiSecur (XML) share the destination and reply ports. '
+      'The catalogue reader parses each reply by shape: XML attributes come '
+      'only from a LogicBox document, JSON fields only from a JSON document, '
+      'so neither device is invented out of the other protocol\'s datagrams.',
 };
 
 List<_Declared> _declaredMethods() {

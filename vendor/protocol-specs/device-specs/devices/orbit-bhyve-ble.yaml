@@ -1,0 +1,897 @@
+# Orbit B-hyve Bluetooth hose-tap and XD timers — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no vendor app code):
+#   - ljmerza/orbit-bhyve-ble (MIT, Home Assistant integration), read at
+#     commit 70b3c90 (2026-10-11): custom_components/orbit_bhyve/connection.py
+#     (handshake, keystream, outer frame), devices/protobuf.py and
+#     devices/status.py (protobuf family), devices/ht25.py and devices/mesh.py
+#     (HT25-0000 mesh family), devices/__init__.py (model routing), const.py,
+#     cloud.py; docs/protocol.md, docs/ble-messages.md, docs/encryption.md,
+#     docs/findings/d7-47-protocol.md, docs/ble-reliability-and-behavior.md.
+#   - wxfield/Orbit_B-Hyve_4Port_Controller (MIT, the original XD work),
+#     read at commit 0bfd0f9: scripts/bhyve.py (independent transcription of
+#     the same cipher and frame), scripts/extract_key.py.
+#   - knobunc/ha-orbit-bhyve-ble is cited by ljmerza as a third reference;
+#     github.com answered HTTP 451 for it on 2026-10-25, so nothing here
+#     rests on it.
+#
+# NEVER COMMIT a real network key, mesh id, account e-mail or a full device
+# MAC. Every key, id and handshake value in this file is invented.
+
+device:
+  name: "Orbit B-hyve Bluetooth Hose and XD Timers"
+  manufacturer: "Orbit Irrigation Products"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Everything below is
+      transcribed from two open-source clients whose authors report
+      end-to-end actuation on their own units (HT25-0000 fw0041/fw0085,
+      HT25G2-0001 fw0111, HT25A-0001 fw0098, HT31-0001 fw0058, HT32A-0001
+      and HT34A-0001 fw0107). The cipher vectors in protocol_details were
+      computed by this project with an invented key and checked by
+      scripts/test_orbit_bhyve_ble_spec.py; the inner-message CRC was also
+      checked against plaintext frames published in ljmerza's message
+      catalogue.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "irrigation"
+  type: "hose-timer"
+  notes: >
+    Battery-powered valve timers that screw onto an outdoor tap (HT25, HT31)
+    or feed two to four outlets (the "XD" HT32A and HT34/HT34A). The B-hyve
+    phone app drives them directly over BLE, and an optional Wi-Fi hub
+    (BH1) bridges them to the Orbit cloud. Every timer on one account mesh
+    shares one AES-128 "network key" that the cloud generated when the
+    first device was set up; the BLE link is useless without it.
+
+    CLOUD DEPENDENCE: the key and, for the HT25-0000 family, two 16-bit
+    mesh ids come from the owner's Orbit account. The owner exports them
+    once (see setup); after that every command and status read in this
+    spec is local BLE and works with the WAN down. A client that has never
+    been given the key cannot talk to the timer, and nothing in this
+    document recovers a lost key without the cloud or the vendor app.
+
+    Two wire families share one GATT service and one cipher:
+      * HT25-0000 (the original single-outlet hose timer, firmware 0041 and
+        0085): a binary "mesh" message, frame magic 0x10, needs a seven-step
+        init on every connection and the timer's own mesh id in every frame.
+      * Everything else seen so far (HT25G2-0001, HT25A-0001, the bare
+        HT25-0001, HT31-0001, HT32A-0001, HT34A-0001, HT34-0001): protobuf
+        messages in a CRC-checked inner wrapper, frame magic 0x11.
+    The routing rule both clients use: hardware string starting HT25 and
+    ending "-0000" is the mesh family; every other HT25*, HT31*, HT32* and
+    HT34* is the protobuf family. The hardware string comes from the
+    owner's account record; nothing in the advertisement says which family
+    a timer is.
+
+    The upstream authors warn that a firmware update may change the
+    protocol, and that HT25A-0001 fw0098 behaves differently (see its
+    entity). Hub units (BH1-0001) advertise the same service but have no
+    valve and are not covered.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/ljmerza/orbit-bhyve-ble"
+    license: "MIT"
+    notes: >
+      No vendor publication. Recovered by the ljmerza and wxfield projects
+      from HCI captures of the vendor app and from analysis of the app; the
+      two agree on GATT layout, handshake, keystream, frame and the XD
+      start/stop messages. The HT25-0000 mesh format is from ljmerza only.
+
+  identification:
+    service_uuids:
+      - "0000fe32-0000-1000-8000-00805f9b34fb"
+    mac_prefixes:
+      - prefix: "44:67:55"
+        confidence: "medium"
+        notes: >
+          IEEE assigns 44:67:55 to Orbit Irrigation (registries/ieee-oui.tsv),
+          and the timer addresses quoted in ljmerza's message catalogue (and
+          the device id inside its captured protobuf frames) carry it. It
+          covers Orbit's whole catalogue, Wi-Fi controllers and hubs
+          included, so it ranks a device as "made by Orbit", not as this
+          spec.
+    notes: >
+      The 0xfe32 service is what ljmerza's firmware-recovery scanner matches.
+      The B-hyve BH1 hub advertises it too, and so does a timer stuck in its
+      bootloader. wxfield's key-extraction notes say the XD advertises the
+      local name "ASR" (not corroborated elsewhere, so not used as a
+      matcher). In practice a client knows its timers by the MAC address
+      in the owner's exported record.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fe32-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Match the 0xfe32 service UUID, then pick the timer by its address
+          from the owner's exported record. A 0xfe32 device whose GATT table
+          lacks 00006c71-fe32-4f58-8b78-98e42b2c047f is either a hub or a
+          timer in its bootloader; do not send it control frames.
+    identity:
+      stable_keys: ["address"]
+      display: "address"
+    static_ip_required: false
+
+  variants:
+    - model: "HT25-0000"
+    - model: "HT25G2-0001"
+    - model: "HT25A-0001"
+    - model: "HT31-0001"
+    - model: "HT32A-0001"
+    - model: "HT34A-0001"
+    - model: "HT34-0001"
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The timer is first set up with the B-hyve app and an Orbit account;
+      that is when the mesh and its network key are created. A local client
+      then needs, per timer: its BLE address, its hardware string (which
+      picks the wire family), the mesh network key, and for HT25-0000 its
+      own mesh device id and its hub's mesh device id. The upstream
+      integration reads all of it from the account once and stores it; no
+      later step touches the cloud. Re-export after adding a timer or
+      re-creating the account (the key is regenerated only then; it is not
+      rotated on its own, per ljmerza's notes).
+    methods:
+      - type: "cloud_account"
+        name: "Owner exports the mesh key once"
+        role: "primary"
+        verified: false
+        description: >
+          The owner signs in to their own Orbit account once and copies
+          what the timer needs into the local client. ljmerza's integration
+          does this with two REST calls (base https://api.orbitbhyve.com/v1):
+          POST /session with the account e-mail and password returns an API
+          token; GET /devices lists the timers (hardware_version,
+          mac_address, mesh_id, num_stations); GET /meshes/{mesh_id} (newer
+          accounts: /network_topologies/{mesh_id}, also /networks/{mesh_id})
+          returns the mesh record whose network_key (or ble_network_key) is
+          the base64 AES key and whose devices[] list maps each timer's
+          device_id to its ble_device_id. The requests carry an
+          "orbit-app-id" header; ljmerza sends a browser User-Agent because
+          Orbit's firewall rejects one containing "HomeAssistant".
+        cloud:
+          provider: "Orbit B-hyve cloud (api.orbitbhyve.com)"
+          local_alternative: >
+            None for a mesh that has never been exported: the key exists only
+            in the account and in the vendor app's storage. On a rooted
+            Android phone the key can be read from the B-hyve app's cached
+            mesh response (ljmerza docs/network-key-extraction.md, option 3)
+            without contacting the cloud. Once exported, nothing here needs
+            the cloud again.
+        issues_credentials:
+          network_key:
+            user_entered: true
+            notes: >
+              The mesh's AES-128 key: 16 bytes, delivered base64 by the
+              cloud; store as 32 hex characters. Shared by every timer on
+              the mesh. Treat it like a password: it opens every valve on
+              the account and decrypts captured traffic.
+          mesh_device_id:
+            user_entered: true
+            notes: >
+              HT25-0000 only. The timer's ble_device_id from the mesh
+              record's devices[] entry (fallback: the number after the dash
+              in the device record's "reference"). A 16-bit value, written
+              little-endian as the first two bytes of every mesh frame.
+          hub_mesh_device_id:
+            user_entered: true
+            notes: >
+              HT25-0000 only. The ble_device_id of the mesh's bridge
+              (bridge_device_id). Absent when the mesh has no hub; ljmerza
+              then sends 0 and reports that the timer still initialises.
+        steps:
+          - action: "Set the timer up in the B-hyve app on the owner's account, if that has not been done."
+            actor: "user"
+          - action: "Sign in to the account once (or read the app's cache on a rooted phone) and export, per timer, the BLE address, hardware string, mesh network key and, for HT25-0000, the timer's and the hub's mesh device ids."
+            actor: "user"
+            expect: "A 32-hex-character key and the per-timer record, stored in the local client."
+          - action: "Decline firmware updates in the vendor app if local control matters; both upstream projects were built against the firmware listed in device.testing."
+            actor: "user"
+    factory_reset:
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Not covered by either source. Whether a reset clears the mesh
+        membership and key on the timer, and what button sequence does it,
+        is not established here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE only, nothing to rejoin. A new local client needs only the
+        exported key and ids; the timer does not know or care which central
+        connects.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Mesh network key (AES-128)"
+        - "HT25-0000: own mesh device id and hub (server bridge) mesh device id"
+        - "Watering programs, rain delay, controller mode, clock"
+      issued_to_client:
+        - "network_key (from the owner's account)"
+        - "mesh_device_id (HT25-0000)"
+        - "hub_mesh_device_id (HT25-0000)"
+      notes: >
+        The key is not exchanged over BLE and is not derived from the
+        handshake; the handshake only fixes the per-session nonce and
+        counters. A 00006c76-fe32-4f58-8b78-98e42b2c047f write of the key
+        was tried upstream and refused ("write not permitted") on every
+        unit; do not write it.
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "app_layer"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Close the B-hyve app (force-stop it) so it releases the timer's single BLE session, then connect."
+    enter_pairing_mode:
+      required: false
+    notes: >
+      No link-layer pairing or bonding (ljmerza observed nothing written to
+      the host's bond table and no MAC filtering). Security is the mesh key
+      and the AES session handshake in `initialization`. The battery timers
+      take one central at a time; the vendor app holding the session is the
+      usual cause of silent failures.
+
+# Every command body below is application plaintext; this handler applies
+# protocol_details.envelope (handshake nonce, AES-128-ECB counter keystream,
+# trailer, and the protobuf family's inner aa775a0f wrapper) before writing.
+protocol_handler: "bhyve_envelope"
+
+initialization:
+  - characteristic: "00006c73-fe32-4f58-8b78-98e42b2c047f"
+    subscribe: true
+    notes: >
+      Subscribe BEFORE the handshake write; ljmerza found the device may stay
+      silent otherwise. Every reply in this spec arrives here.
+  - characteristic: "00006c71-fe32-4f58-8b78-98e42b2c047f"
+    description: >
+      Session handshake, fresh per connection, whose bytes cannot be fixed
+      data. Write 20 random bytes C (byte 11 forced to 0x00, as the vendor
+      app does), then read 20 bytes D back. D[0:4] must be non-zero and
+      D[4:20] all zero, or the handshake failed. Compose S = D[0:4] ||
+      C[4:20]: nonce = S[0:12]; host-to-device counter = uint32 LE S[12:16];
+      device-to-host counter = uint32 LE S[16:20]. See
+      protocol_details.envelope and the test vector there.
+  - characteristic: "00006c72-fe32-4f58-8b78-98e42b2c047f"
+    description: >
+      HT25-0000 only: the seven-frame mesh init in
+      protocol_details.ht25_mesh.init_sequence, sent encrypted, before EVERY
+      watering command (the upstream client re-runs it per actuation
+      because a command on a stale session is acknowledged and silently
+      ignored). The protobuf family needs no init.
+
+services:
+  - uuid: "0000fe32-0000-1000-8000-00805f9b34fb"
+    name: "B-hyve timer service"
+    notes: >
+      Handle numbers vary between units; address characteristics by UUID.
+      Upstream requests a larger ATT MTU (the app asks for about 262; 247 is
+      plenty) so a reply of up to ~100 bytes arrives in one notification.
+    characteristics:
+      - uuid: "00006c71-fe32-4f58-8b78-98e42b2c047f"
+        name: "Session handshake"
+        properties: ["read", "write"]
+        notes: >
+          20-byte write then 20-byte read, once per connection; see
+          `initialization`. Absent when the timer is in its bootloader.
+      - uuid: "00006c72-fe32-4f58-8b78-98e42b2c047f"
+        name: "Encrypted command (host to device)"
+        properties: ["write", "write_without_response"]
+        role: "command"
+        encryption:
+          algorithm: "aes-128-ctr"
+          key_derivation: "device-specific"
+        notes: >
+          NOTHING HERE IS WRITTEN RAW. The commands below are application
+          plaintext; protocol_details.envelope turns each one into the bytes
+          written: (protobuf family only) wrap the protobuf body as
+          aa 77 5a 0f <len LE16 = body + 2> <body> <CRC-16/XMODEM LE over
+          everything before it>; then XOR with the AES-128 keystream at the
+          host-to-device counter; then frame as <magic> <len u8> <ciphertext>
+          <trailer LE16 = (magic + len + sum(plaintext)) mod 65536>, magic
+          0x11 for the protobuf family and 0x10 for HT25-0000. Commands
+          whose name starts ht25_ are for HT25-0000; the rest are protobuf
+          bodies for every other model. Upstream writes with response but
+          caps the wait under a second (an ESPHome proxy never relays the
+          response); the real acknowledgement is a notification. A frame
+          with a malformed or unknown protobuf field gets no reply and
+          desyncs the device's counter for the rest of the connection —
+          reconnect.
+        commands:
+          start_zone_1:
+            description: >
+              Protobuf family: manual run of zone 1 (wire station 0) for
+              `duration` seconds — field 14 timerMode {mode 2 manual, field
+              2 manualModeParams {field 3 stationInfo {field 1 station 0,
+              field 2 run seconds}}}. 600 s renders as the body
+              72 0b 08 02 12 07 1a 05 08 00 10 d8 04. HT25A-0001 fw0098
+              ignores the duration (see its entity).
+            encoding: "bytes"
+            template: [0x72, 0x0b, 0x08, 0x02, 0x12, 0x07, 0x1a, 0x05, 0x08, 0x00, 0x10, "{duration}"]
+            parameters:
+              duration:
+                type: "varint"
+                min: 128
+                max: 16383
+                default: 600
+                unit: "s"
+                description: >
+                  Run time in seconds, protobuf varint. Bounded to 128-16383
+                  so the varint is exactly two bytes and the nested lengths
+                  in the template hold; any other value needs the lengths
+                  recomputed (protocol_details.protobuf_family). The
+                  device's own maximum is not known.
+            verification: "reported"
+          start_zone_2:
+            description: "As start_zone_1 for zone 2 (wire station 1). HT32A, HT34A and HT34 only."
+            encoding: "bytes"
+            template: [0x72, 0x0b, 0x08, 0x02, 0x12, 0x07, 0x1a, 0x05, 0x08, 0x01, 0x10, "{duration}"]
+            parameters:
+              duration:
+                type: "varint"
+                min: 128
+                max: 16383
+                default: 600
+                unit: "s"
+                description: "Run time in seconds; two-byte varint range, as start_zone_1."
+            verification: "reported"
+          start_zone_3:
+            description: "As start_zone_1 for zone 3 (wire station 2). HT34A and HT34 only."
+            encoding: "bytes"
+            template: [0x72, 0x0b, 0x08, 0x02, 0x12, 0x07, 0x1a, 0x05, 0x08, 0x02, 0x10, "{duration}"]
+            parameters:
+              duration:
+                type: "varint"
+                min: 128
+                max: 16383
+                default: 600
+                unit: "s"
+                description: "Run time in seconds; two-byte varint range, as start_zone_1."
+            verification: "reported"
+          start_zone_4:
+            description: "As start_zone_1 for zone 4 (wire station 3). HT34A and HT34 only."
+            encoding: "bytes"
+            template: [0x72, 0x0b, 0x08, 0x02, 0x12, 0x07, 0x1a, 0x05, 0x08, 0x03, 0x10, "{duration}"]
+            parameters:
+              duration:
+                type: "varint"
+                min: 128
+                max: 16383
+                default: 600
+                unit: "s"
+                description: "Run time in seconds; two-byte varint range, as start_zone_1."
+            verification: "reported"
+          stop_watering:
+            description: >
+              Protobuf family: stop whatever is running — timerMode {mode 2
+              manual, empty manualModeParams}. Verified upstream on
+              HT25G2-0001 fw0111 and HT34A-0001 fw0107. NOT for HT25A-0001
+              fw0098, where this exact frame STARTS a default 30-minute
+              run; use controller_off there. The device answers a stop with
+              a bare field-30 ack and no status, so read status afterwards
+              to confirm.
+            encoding: "bytes"
+            value: [0x72, 0x04, 0x08, 0x02, 0x12, 0x00]
+            verification: "reported"
+          controller_off:
+            description: >
+              Protobuf family: controller mode off — timerMode {mode 0,
+              empty manualModeParams}. Stops a run on every model and is the
+              only verified stop on HT25A-0001 fw0098. It also disables
+              stored programs until controller_auto is sent; upstream sends
+              controller_auto after a stop if the controller was in auto
+              before.
+            encoding: "bytes"
+            value: [0x72, 0x04, 0x08, 0x00, 0x12, 0x00]
+            verification: "reported"
+          controller_auto:
+            description: >
+              Protobuf family: controller mode auto (stored programs run) —
+              timerMode {mode 1, empty manualModeParams}. The empty field 2
+              is required; a timerMode without it is silently ignored.
+            encoding: "bytes"
+            value: [0x72, 0x04, 0x08, 0x01, 0x12, 0x00]
+            verification: "reported"
+          get_status:
+            description: >
+              Protobuf family: empty field-15 status request; the device
+              answers with a field-16 status message (run state, seconds
+              remaining, running station, battery mV). Laid out in
+              payload_formats.ProtobufStatus. Inner message
+              aa 77 5a 0f 04 00 7a 00 bc 34, as captured upstream.
+            encoding: "bytes"
+            value: [0x7a, 0x00]
+            verification: "reported"
+          get_battery:
+            description: >
+              Protobuf family: empty field-45 battery request; the reply is
+              field 46 {field 3 battery millivolts}. Inner message
+              aa 77 5a 0f 05 00 ea 02 00 dd 7e, as captured upstream.
+            encoding: "bytes"
+            value: [0xea, 0x02, 0x00]
+            verification: "reported"
+          ht25_start:
+            description: >
+              HT25-0000: open the valve for `duration` seconds. Mesh header
+              [mesh id LE16][0xb6][0x0d 0x40] then 04 <seconds LE16>
+              00 00 00 00. For mesh id 0x1234 and 600 s the plaintext is
+              34 12 b6 0d 40 04 58 02 00 00 00 00. Run the mesh init first
+              in the same connection. The device acks with type byte 0xf6
+              echoing 04 <seconds>.
+            encoding: "bytes"
+            template: ["{mesh_id}", 0xb6, 0x0d, 0x40, 0x04, "{duration}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              mesh_id:
+                type: "uint16"
+                endianness: "little"
+                source: "credential:mesh_device_id"
+                description: "This timer's own mesh device id; a frame carrying another id is ignored without error."
+              duration:
+                type: "uint16"
+                endianness: "little"
+                min: 1
+                max: 65535
+                default: 600
+                unit: "s"
+                description: "Run time in seconds. 600 s is the app's default manual run."
+            verification: "reported"
+          ht25_stop:
+            description: >
+              HT25-0000: close the valve. Header [mesh id LE16][0xb7][0x0d
+              0x40] then 02 00 00 00. Ack type byte 0xf7. Run the mesh init
+              first in the same connection.
+            encoding: "bytes"
+            template: ["{mesh_id}", 0xb7, 0x0d, 0x40, 0x02, 0x00, 0x00, 0x00]
+            parameters:
+              mesh_id:
+                type: "uint16"
+                endianness: "little"
+                source: "credential:mesh_device_id"
+                description: "This timer's own mesh device id."
+            verification: "reported"
+          ht25_read_health:
+            description: >
+              HT25-0000: device-health read (mesh message 3). The reply
+              carries the timer's local clock, battery millivolts and fault
+              bits; laid out on 00006c73-fe32-4f58-8b78-98e42b2c047f. Also
+              step 3 of the mesh init, so every init yields a battery
+              reading.
+            encoding: "bytes"
+            template: ["{mesh_id}", 0x03, 0x03, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              mesh_id:
+                type: "uint16"
+                endianness: "little"
+                source: "credential:mesh_device_id"
+                description: "This timer's own mesh device id."
+            verification: "reported"
+          ht25_read_status:
+            description: >
+              HT25-0000: device-status read (mesh message 2); reply in
+              payload_formats.Ht25Status. Also step 2 of the mesh init.
+            encoding: "bytes"
+            template: ["{mesh_id}", 0x02, 0x02, 0x40, 0x00]
+            parameters:
+              mesh_id:
+                type: "uint16"
+                endianness: "little"
+                source: "credential:mesh_device_id"
+                description: "This timer's own mesh device id."
+            verification: "reported"
+      - uuid: "00006c73-fe32-4f58-8b78-98e42b2c047f"
+        name: "Encrypted reply (device to host)"
+        properties: ["notify"]
+        role: "notify"
+        encryption:
+          algorithm: "aes-128-ctr"
+          key_derivation: "device-specific"
+        notes: >
+          Every reply arrives here as <magic> <len> <ciphertext> <trailer>,
+          decrypted with the device-to-host counter, which runs as one
+          continuous stream across notifications. Drop a notification that
+          is byte-identical to the previous one before decrypting it: a
+          proxy can re-deliver frames, and decrypting a duplicate advances
+          the counter and corrupts every later frame (protobuf replies then
+          fail their CRC — the signal to reconnect). A long protobuf reply
+          arrives as several frames; concatenate the decrypted payloads and
+          split on the aa 77 5a 0f header.
+
+          The layout below is the HT25-0000 device-health reply (decrypted
+          offsets). The other mesh replies and the protobuf status are in
+          payload_formats. Protobuf-family plaintext starts aa 77 5a 0f, so
+          offset 3 is 0x0f there and this matcher does not fire on a
+          protobuf message's first frame.
+        format_match:
+          offset: 3
+          value: 0x03
+          notes: "Mesh message id 3 (device health). Check also that byte 4 is 0x40 and bit 0x40 of byte 2 is set (a reply)."
+        format:
+          - offset: 0
+            length: 2
+            name: "mesh_id"
+            type: "uint16"
+            endianness: "little"
+            notes: "The timer's own mesh device id."
+          - offset: 2
+            length: 1
+            name: "type"
+            type: "uint8"
+            notes: "Bits 7-6 command (1 = read reply), bits 5-0 sequence."
+          - offset: 5
+            length: 4
+            name: "device_clock"
+            type: "uint32"
+            endianness: "little"
+            unit: "s"
+            notes: "The timer's local time, seconds since the Unix epoch in local time."
+          - offset: 9
+            length: 2
+            name: "battery_mv"
+            type: "uint16"
+            endianness: "little"
+            unit: "mV"
+            notes: >
+              Battery voltage of the AA pack. Upstream accepts 1500-4000 and
+              matched the cloud's figure to within 1 mV on three units.
+              Upstream's percent is a linear 2400 mV = 0 % to 3000 mV =
+              100 % approximation for alkaline cells, not a device value.
+          - offset: 11
+            length: 1
+            name: "fault_flags"
+            type: "uint8"
+            notes: "Bit 0 voltage-boost circuit fail, bit 1 valve on but no flow, bit 2 valve off but flow (leak)."
+      - uuid: "00006c76-fe32-4f58-8b78-98e42b2c047f"
+        name: "Unused write characteristic"
+        properties: ["write"]
+        notes: >
+          Answers ATT error 0x80 / "write not permitted" to every write
+          tried upstream. ljmerza associates it with the firmware path. Do
+          not write it.
+
+payload_formats:
+  ProtobufStatus:
+    description: >
+      Protobuf family: the decrypted inner message (aa 77 5a 0f <len LE16>
+      <protobuf> <CRC LE16>) that answers get_status, a start, or the
+      clock-sync message. Fields are protobuf field numbers; names are this
+      document's own.
+    fields:
+      - name: "run_state"
+        description: "Field 16 > field 1, enum: 0 off, 1 idle, 2 low battery (refuses to start watering), 3 rain delay, 4 watering, 5 mesh device offline."
+      - name: "seconds_remaining"
+        description: "Field 16 > 6 > 5, seconds left in the current run (counts down; present only while watering)."
+        unit: "s"
+      - name: "run_total"
+        description: "Field 16 > 6 > 7, total seconds of the current run (constant during the run)."
+        unit: "s"
+      - name: "running_station"
+        description: "Field 16 > 6 > 4, zero-based station running now (zone = value + 1)."
+      - name: "controller_mode"
+        description: "Field 16 > 2 > 1: 0 off, 1 auto, 2 manual."
+      - name: "battery_mv"
+        description: "Field 16 > 14 > 3, battery millivolts (also field 46 > 3 in the get_battery reply)."
+        unit: "mV"
+      - name: "device_clock"
+        description: "Top-level field 7, device clock, Unix epoch seconds UTC. Top-level field 1 carries the device's 6-byte MAC."
+        unit: "s"
+    parse_rules:
+      - "Verify the CRC-16/XMODEM (poly 0x1021, init 0, no reflection, no xor-out) over every byte before the CRC, stored little-endian; drop the message on mismatch."
+      - "The length field is a length (protobuf + 2), never a message type. Identify a message by which top-level protobuf field it carries: 16 status, 30 watering-status ack (field 1: 1 complete, 2 in progress, 3-7 delay states), 46 battery, 23 device info."
+      - "Decode the protobuf generically; field positions and lengths vary with content, so no fixed offsets exist."
+  Ht25Status:
+    description: >
+      HT25-0000 device-status reply (mesh message 2), decrypted. Header
+      [mesh id LE16][type][02 40] then seven payload bytes.
+    fields:
+      - name: "state"
+        description: "Offset 5: 0x01 idle, 0x04 watering (0x00 off, 0x03 rain delay per upstream's mesh constants)."
+      - name: "countdown_ticks"
+        description: "Offsets 6-7, uint16 LE, remaining time in 1/64-second ticks (upstream hypothesis fitted to two captures); 0xffff when idle."
+      - name: "requested_seconds"
+        description: "Offsets 9-10, uint16 LE: the run length the device accepted."
+        unit: "s"
+    parse_rules:
+      - "Idle payload is 01 ff ff ff ff 00 00."
+      - "Offset 8 reads 0x40 while watering; whether it carries countdown bits for runs over 1023 s is unknown."
+    example: "34 12 42 02 40 04 c0 95 40 58 02 00"
+
+entities:
+  - platform: "switch"
+    name: "Zone 1"
+    variants: ["HT25G2-0001", "HT31-0001", "HT32A-0001", "HT34A-0001", "HT34-0001"]
+    commands:
+      turn_on: "start_zone_1"
+      turn_off: "stop_watering"
+    notes: >
+      Write-only state: the device reports the running station only in a
+      protobuf status (payload_formats.ProtobufStatus), which no format
+      block can describe, so read it with get_status. The device times the
+      run itself.
+  - platform: "switch"
+    name: "Zone 2"
+    variants: ["HT32A-0001", "HT34A-0001", "HT34-0001"]
+    commands:
+      turn_on: "start_zone_2"
+      turn_off: "stop_watering"
+    notes: "stop_watering stops whichever zone is running; there is no per-zone stop."
+  - platform: "switch"
+    name: "Zone 3"
+    variants: ["HT34A-0001", "HT34-0001"]
+    commands:
+      turn_on: "start_zone_3"
+      turn_off: "stop_watering"
+  - platform: "switch"
+    name: "Zone 4"
+    variants: ["HT34A-0001", "HT34-0001"]
+    commands:
+      turn_on: "start_zone_4"
+      turn_off: "stop_watering"
+  - platform: "switch"
+    name: "Valve"
+    variants: ["HT25A-0001"]
+    commands:
+      turn_on: "start_zone_1"
+      turn_off: "controller_off"
+    notes: >
+      HT25A-0001 fw0098 (hardware-verified upstream, 2026-09-14) ignores
+      the requested run time and always runs its default 1800 s, so the
+      CLIENT must send controller_off when the requested time is up, and
+      then controller_auto if programs should keep running. Never send
+      stop_watering to this model: it restarts a 30-minute run.
+  - platform: "switch"
+    name: "Valve"
+    variants: ["HT25-0000"]
+    commands:
+      turn_on: "ht25_start"
+      turn_off: "ht25_stop"
+    notes: >
+      Each command needs the seven-frame mesh init earlier in the same
+      connection (protocol_details.ht25_mesh.init_sequence).
+  - platform: "sensor"
+    name: "Battery voltage"
+    variants: ["HT25-0000"]
+    device_class: "voltage"
+    unit: "mV"
+    state_characteristic: "00006c73-fe32-4f58-8b78-98e42b2c047f"
+    state_mapping:
+      value: "battery_mv"
+    commands:
+      poll: "ht25_read_health"
+    notes: "Arrives on every connection as the reply to init step 3, so a separate poll is rarely needed."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: "Images are downloaded per hardware model from the Orbit cloud by the vendor app; ljmerza's recovery tool fetches the same image with the owner's login."
+      enter:
+        how: "unknown"
+        notes: "The vendor app's update path is not documented by either source."
+      dfu_mode:
+        notes: >
+          A timer stuck in its bootloader (HT25-0000 after a failed update
+          blinks white about every 2 s) still advertises 0xfe32 and exposes
+          6c72 and 6c73 but NOT 6c71. ljmerza documents re-flashing such a
+          unit (docs/firmware-recovery.md, verified on two HT25-0000 fw0085
+          units); that transfer protocol is not transcribed here.
+
+protocol_details:
+  envelope:
+    applies_to: "Both families, both directions."
+    key: "16-byte mesh network_key (credential:network_key); AES-128."
+    handshake: >
+      Write 20 bytes C to 6c71 (random, C[11] = 0x00), read 20 bytes D.
+      S = D[0:4] || C[4:20]. nonce = S[0:12]. ctr_tx = uint32 LE S[12:16].
+      ctr_rx = uint32 LE S[16:20]. Reject D whose first four bytes are all
+      zero or whose bytes 4-19 are not all zero.
+    keystream: >
+      block_i = AES-128-ECB-encrypt(key, nonce || uint32 LE (ctr + i)).
+      Ciphertext = plaintext XOR the keystream, truncated to the plaintext
+      length. A frame of n bytes consumes ceil(n / 16) counter values; the
+      next frame in the same direction starts at the following counter, and
+      the unused tail of a partial block is discarded. Counters are per
+      direction and per connection, never reset mid-connection. Counter
+      wrap is modulo 2^32 in ljmerza (wxfield wraps at 2^32 - 1; never
+      reached in practice).
+    outer_frame: >
+      [magic u8][len u8 = plaintext length][ciphertext][trailer u16 LE],
+      total len + 4 bytes. magic 0x11 protobuf family, 0x10 HT25-0000.
+      trailer = (magic + len + sum of PLAINTEXT bytes) mod 65536 — the
+      additive sum of [magic, len] + plaintext, computed before encryption.
+      Same rule on device-to-host frames.
+    inner_message_protobuf_family: >
+      aa 77 5a 0f [length u16 LE = len(protobuf) + 2][protobuf][crc u16 LE].
+      CRC-16/XMODEM (poly 0x1021, init 0x0000, no reflection, no xor-out)
+      over the header, length and protobuf — every byte before the CRC.
+      (ljmerza's prose says "over the protobuf"; its code and all four
+      captured requests checked here include the header.) Example:
+      aa 77 5a 0f 04 00 7a 00 bc 34.
+    test_vectors:
+      notes: >
+        Invented key, handshake and mesh id — no real unit. Computed by
+        this project from the rules above; scripts/test_orbit_bhyve_ble_spec.py
+        recomputes them.
+      network_key: "00112233445566778899aabbccddeeff"
+      handshake_write: "101112131415161718191a001c1d1e1f20212223"
+      handshake_read: "c0ffee0100000000000000000000000000000000"
+      nonce: "c0ffee011415161718191a00"
+      ctr_tx: 0x1f1e1d1c
+      ctr_rx: 0x23222120
+      frames:
+        - name: "protobuf stop_watering, first host frame"
+          magic: 0x11
+          counter: 0x1f1e1d1c
+          plaintext: "aa775a0f0800720408021200c776"
+          frame: "110efc6bace0e0184c7c0d44d29e592f8003"
+          next_counter: 0x1f1e1d1d
+        - name: "protobuf start_zone_2 600 s, second host frame (two blocks)"
+          magic: 0x11
+          counter: 0x1f1e1d1d
+          plaintext: "aa775a0f0f00720b080212071a05080110d8049d93"
+          frame: "1115f71f66bda6398b1a221fe5cc5fef839559efa3d3cda304"
+          next_counter: 0x1f1e1d1f
+        - name: "protobuf battery reply (minimal: field 46 {3: 2838 mV}), first device frame"
+          magic: 0x11
+          counter: 0x23222120
+          plaintext: "aa775a0f0800f202031896167450"
+          frame: "110e29cf2bd695e8159bc75abe38eb343004"
+          next_counter: 0x23222121
+        - name: "HT25-0000 ht25_start, mesh id 0x1234, 600 s, first host frame of a fresh session"
+          magic: 0x10
+          counter: 0x1f1e1d1c
+          plaintext: "3412b60d4004580200000000"
+          frame: "100c620e40e2a81c667a0546c09ec301"
+          next_counter: 0x1f1e1d1d
+      published_inner_messages:
+        notes: "Plaintext requests from ljmerza docs/ble-messages.md; CRC-valid under the rule above."
+        get_status: "aa775a0f04007a00bc34"
+        get_battery: "aa775a0f0500ea0200dd7e"
+        get_device_info: "aa775a0f0500b20100e1dc"
+        start_station0_30s: "aa775a0f0e00720a080212061a040800101ee605"
+  protobuf_family:
+    models: ["HT25G2-0001", "HT25A-0001", "HT25-0001", "HT31-0001", "HT32A-0001", "HT34A-0001", "HT34-0001"]
+    message: >
+      One protobuf message per inner message with exactly one top-level
+      field set; the field number is the command. No .proto is needed: the
+      bodies are small enough to encode by hand (tag = field << 3 | wire
+      type; wire 0 varint, wire 2 length-delimited).
+    commands_used:
+      timer_mode: >
+        Field 14 {1: mode (0 off, 1 auto, 2 manual), 2: manual parameters
+        {3: station entry {1: zero-based station, 2: run seconds}}}. Field 2
+        must be present (empty for off/auto/stop). One station entry per
+        run. General start body: 72 L1 08 02 12 L2 1a L3 08 <station varint>
+        10 <seconds varint>, with L3 = length of the station entry, L2 =
+        L3 + 2, L1 = L2 + 4.
+      status_request: "Field 15, empty (7a 00) -> field 16 status."
+      battery_request: "Field 45, empty (ea 02 00) -> field 46 {3: mV}."
+      device_info_request: "Field 22, empty (b2 01 00) -> field 23 {1: stations, 2: hardware string, 3: firmware string}."
+      clock_sync: >
+        Field 75 {1: Unix seconds UTC, 2: UTC offset seconds as int32 —
+        negative values sign-extended to a 10-byte varint}. The vendor app
+        sends it on connect and it elicits the same field-16 status as
+        field 15; field 18 (ISO date string) does nothing over BLE.
+      rain_delay: "Field 17 {1: minutes, 3: end time Unix UTC, 4: 1}; {1: 0} cancels."
+      identify: "Field 47 {1: seconds} flashes the LED on the Gen2 HT25G2 (latches; send 0 to stop); the XD ignores it."
+      skip_station: "Field 21, empty: skip the zone running now (app behaviour; not hardware-verified upstream)."
+      programs: >
+        Stored programs: field 19 writes a slot, field 20 {1: enable bitmask,
+        program A = bit 0}, field 10 (empty) dumps every slot plus a status.
+        A program runs only with the controller in auto. Out of scope here;
+        see ljmerza docs/protocol.md.
+    replies: >
+      A start is answered by a field-16 status; a stop by a bare field-30
+      watering-status ack only, so poll status to confirm. An idle timer
+      pushes a status on connect; one that is watering or in rain delay
+      often does not, so always request status explicitly.
+    flow: >
+      HT25G2 has a flow sensor: field 57 {1: interval ms, 2: duration s}
+      subscribes, and field 59 frames stream ({1: frequency Hz, 3:
+      cumulative ticks this run}); field 57 {1: 0} unsubscribes. A
+      subscription left running persists across reconnects and starves
+      status replies — always unsubscribe. Upstream bucket-measured about
+      433 ticks per US gallon.
+    model_differences:
+      HT25A-0001: "fw0098: ignores run seconds (always 1800 s); stop_watering frame starts a run; stop with controller_off."
+      HT34-0001: "Routed to the XD protocol on a fork's report; not hardware-tested by ljmerza."
+      HT32A-0001: "2-station XD; same firmware as HT34A."
+      HT31-0001: "Single-station sibling of the XD (fw0058), hardware-verified on five units upstream."
+  ht25_mesh:
+    models: ["HT25-0000"]
+    plaintext: >
+      [mesh id u16 LE][type u8][message id u16 LE][body]. type: bits 7-6
+      command (0 read, 1 read reply, 2 write, 3 write ack — the reply sets
+      bit 0x40), bits 5-0 a sequence the device echoes. The message-id
+      word: low 14 bits message id, top 2 bits destination; every frame
+      observed carries destination 1, i.e. byte 4 = 0x40. No CRC, no
+      protobuf; the outer trailer is the only check. Mesh id is the
+      timer's own (credential:mesh_device_id); frames carrying another
+      id are dropped silently. (Earlier notes called the first two bytes
+      a fixed "d7 47" magic; that was one unit's mesh id.)
+    messages:
+      0x00: "configure device: write 01 <own mesh id LE16> 00 00 00 00 (set own id) or 00 <hub mesh id LE16> 00 00 00 00 (set server bridge id)"
+      0x01: "device info: read with 00 00 00; reply <type u5 | hw u3> <firmware u16 LE, e.g. 85> <stations u6>"
+      0x02: "device status: read with 00; reply in payload_formats.Ht25Status"
+      0x03: "device health: read with seven zeros; reply on 6c73's format block"
+      0x05: "UTC time: write <Unix seconds u32 LE><local offset minutes int16 LE>"
+      0x07: "button preset run time: write <seconds u16 LE> (acked on fw0085)"
+      0x09: "active programs bitmask; writing 00 disables every stored program (the app sends it on connect; upstream deliberately does not)"
+      0x0d: "watering control: 04 <seconds u16 LE> 00 00 00 00 start, 02 00 00 00 stop"
+      0x18: "watering delay end: write <until Unix seconds u32 LE>"
+    init_sequence:
+      notes: >
+        Sent in order, about 150 ms apart, after the handshake and before
+        every watering command (ljmerza re-runs it per actuation; only
+        steps 1-3 are confirmed necessary). Bodies follow the 5-byte
+        header; <now> is <Unix seconds u32 LE><UTC offset minutes int16 LE>.
+      steps:
+        - "type 0x81, message 0x05: <now> (set clock)"
+        - "type 0x02, message 0x02: 00 (status read)"
+        - "type 0x03, message 0x03: 00 00 00 00 00 00 00 (health read; battery)"
+        - "type 0x04, message 0x01: 00 00 00 (device info read)"
+        - "type 0x85, message 0x00: 01 <own mesh id LE16> 00 00 00 00"
+        - "type 0x85, message 0x00: 00 <hub mesh id LE16, 00 00 if no hub> 00 00 00 00"
+        - "type 0x86, message 0x05: <now> (clock again)"
+      example_step1_plaintext: "34 12 81 05 40 <now: 6 bytes>"
+    battery_percent: "Upstream's estimate only: 0 % at 2400 mV, 100 % at 3000 mV, linear, clamped."
+  transport_behaviour:
+    single_session: "One central at a time. Upstream recommends connect, do one thing, disconnect, under a per-device lock."
+    duplicate_notifications: "Drop a notification byte-identical to the previous one before decrypting (see 6c73 notes)."
+    write_mode: "Write requests and write commands have both actuated an HT34A. ljmerza's current code writes with response (waiting under a second for it); its older docs/ble-protocol.md reports write requests of about 25 bytes or more refused with ATT error 0x80 on one unit, so fall back to write without response if that error appears."
+
+evidence:
+  documentation_review: >
+    Read 2026-10-25: ljmerza/orbit-bhyve-ble at 70b3c90 (code and docs) and
+    wxfield/Orbit_B-Hyve_4Port_Controller at 0bfd0f9. Both implement the
+    same handshake, keystream and 0x11 frame. The stop frame's trailer
+    80 03 computed from the trailer rule equals the constant wxfield's
+    client sends. The inner CRC was checked against four published
+    plaintext requests. knobunc/ha-orbit-bhyve-ble, cited upstream as a
+    third reference, returned HTTP 451 and was not read.
+  open_questions: >
+    Whether the device verifies the outer trailer (ljmerza says mismatches
+    are dropped; wxfield's client sent a fixed 80 04 trailer on every start
+    frame, which matches no start frame under the rule); the device's
+    maximum run time; the HT25-0000 countdown scale; which init steps are
+    really required; the factory reset.
+
+remaining_unknowns:
+  - "The schema cannot express this envelope: there is no framing scheme for AES-CTR with a handshake nonce, no CRC-16/XMODEM auto parameter, and no way to declare that a command body is wrapped in the inner aa775a0f message. Every command here is application plaintext that a client must pass through protocol_details.envelope; a consumer without a handler for it can describe the device but not drive it. `protocol_handler: bhyve_envelope` names the encoder a consumer needs; a declarative framing scheme would be the schema field that replaces it."
+  - "Protobuf-family status, battery and running zone come back as protobuf (payload_formats.ProtobufStatus) and have no fixed offsets, so no sensor or switch state is bound for those models. Battery is bound only for HT25-0000, whose health reply is fixed-layout."
+  - "Start durations on the protobuf family are bounded to 128-16383 s so the template's nested lengths stay fixed; shorter or longer runs are valid on the wire but need the lengths recomputed, which a template cannot do."
+  - "The family is chosen from the hardware string in the owner's account record (HT25…-0000 = mesh); the advertisement carries nothing that tells the families or models apart, so variants have no identification block."
+  - "The network key and mesh ids are only obtainable from the Orbit account (or the vendor app's storage on a rooted phone). If the cloud is retired before an owner exports them, no public method recovers them."
+  - "Whether the outer trailer is enforced by the device (sources disagree; see evidence)."
+  - "Factory reset procedure and whether it clears the mesh key."
+  - "HT34-0001 and HT32A-0001 actuation rests on sibling-model evidence; HT25-0001 (bare) is routed to the protobuf family by rule, not by a tested unit."
+  - "HT25-0000 STATUS countdown: 1/64 s ticks is a fit to two captures; runs over 1023 s may use offset 8."
+
+helpful_urls:
+  - title: "ljmerza/orbit-bhyve-ble"
+    url: "https://github.com/ljmerza/orbit-bhyve-ble"
+    description: "MIT Home Assistant integration; the primary source for every family, the cloud key export and firmware recovery."
+  - title: "Local-only Orbit B-hyve integration over Bluetooth LE (Home Assistant forum)"
+    url: "https://community.home-assistant.io/t/local-only-orbit-b-hyve-integration-for-home-assistant-over-bluetooth-le/1028201"
+    description: "Announcement thread (2026-10-10) with owner reports per model."
+  - title: "wxfield/Orbit_B-Hyve_4Port_Controller"
+    url: "https://github.com/wxfield/Orbit_B-Hyve_4Port_Controller"
+    description: "The original XD (HT34A) reverse engineering, MIT; an independent transcription of the cipher and frame."

@@ -1,0 +1,1012 @@
+# IKEA TRÅDFRI Gateway (E1526) — CoAP over DTLS-PSK — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - home-assistant-libs/pytradfri (MIT): const.py (resource and key
+#     numbers, value ranges), gateway.py (PSK request, /.well-known/core
+#     sample, reboot/reset/commissioning), api/aiocoap_api.py (DTLS
+#     credentials, observe), device/*_control.py and group.py (payload shapes)
+#   - AlCalzone/node-tradfri-client (MIT): discovery.ts (mDNS _coap._udp,
+#     TXT `version`), tradfri-client.ts (Client_identity, 2.01 reply),
+#     conversions.ts (blind position inversion, transition-time unit),
+#     accessory.ts (5750 device-type codes), README (identity since fw 1.2.42)
+#   - glenndehaan/ikea-tradfri-coap-docs: coap-client walk-through, payload
+#     examples, PSK six-week idle expiry, white-spectrum hex values
+#   - Home Assistant tradfri integration docs and source (HomeKit discovery,
+#     random identity, cover inversion)
+#   - openHAB tradfri binding docs (code is discarded after enrolment)
+#   - IKEA: E1526 manual (factory reset), Home smart release notes (gateway
+#     firmware history), "When will IKEA stop supporting..." FAQ
+# Nothing here was driven against a gateway by this project.
+
+device:
+  name: "IKEA TRÅDFRI Gateway (E1526)"
+  manufacturer: "IKEA of Sweden"
+  model: "E1526"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every resource path, key
+      number and payload is transcribed from open-source clients
+      (pytradfri, node-tradfri-client) and the community coap-client
+      walk-through, which agree on the paths and key numbers; where they
+      differ (the blind stop value, the xy scale, the dimmer minimum) is in
+      value_ranges and remaining_unknowns.
+  protocol: "lan"
+  transport: "udp"
+  category: "hub"
+  type: "zigbee-gateway"
+  notes: >
+    The TRÅDFRI gateway is IKEA's first-generation Zigbee hub: a small
+    Ethernet-only box that fronts TRÅDFRI bulbs, panels, control outlets,
+    blinds, STARKVIND air purifiers and battery remotes. Its whole local API
+    is CoAP (RFC 7252) secured with DTLS in pre-shared-key mode on UDP 5684
+    (coaps). There is no cloud dependency on that path: a client proves it
+    holds the gateway's printed security code once, receives a per-client
+    PSK, and from then on reads, writes and observes JSON resources named by
+    LwM2M/IPSO-style numbers.
+
+    STATUS (as of 2026-10): IKEA's FAQ says no new products or features will
+    be released for the gateway or the IKEA Home smart 1 app after April
+    2024, citing the gateway's memory limit, and that the system will be
+    supported "at least until June 2026". Firmware did keep coming after
+    that: the release notes list gateway 1.21.44 (1 July 2025), 1.21.51
+    (10 February 2026) and 1.21.57 (4 May 2026, bug fixes), the last of which
+    is the image IKEA's OTA feed still offers. The successor is the DIRIGERA
+    hub (October 2022), which speaks a different API; the new IKEA Home
+    smart app does not talk to this gateway at all. This spec is for owners
+    who keep the gateway after that window, or who want to drive it without
+    either app.
+
+    RESOURCE MODEL: everything is a GET/PUT/POST on a numbered path,
+    carrying a UTF-8 JSON object whose keys are decimal strings. 15001 is the
+    device list, 15004 groups, 15005 scenes ("moods"), 15010 smart tasks,
+    15011 the gateway itself. A collection GET answers a bare JSON array of
+    instance ids; a GET on one id answers that instance's object. Writes are
+    PUTs of a partial object. Device control rides inside a one-element
+    array under the device-kind key (3311 lights, 3312 outlets, 15015 blinds,
+    15025 air purifiers); group control is flat. See payload_formats and
+    protocol_details.tradfri_coap.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      IKEA never published the API. The resource and key numbers were
+      worked out by the community from captures of the vendor app and are
+      now stable across a decade of open-source clients. Many of the
+      device-level numbers (3311 Light Control, 3312 Power Control, 5850
+      On/Off, 5851 Dimmer, 5706 Colour, 5712 Transition Time) are borrowed
+      from the OMA LwM2M/IPSO registry; the 9xxx and 15xxx numbers are
+      IKEA's own. IKEA does tolerate third-party clients to the extent of
+      asking them (per node-tradfri-client's README) not to store the
+      security code — only the issued identity and PSK.
+
+  identification:
+    default_port: 5684
+    mdns_service_type: "_coap._udp.local."
+    mdns_txt_match:
+      - key: "version"
+        match: "present"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_coap._udp.local."
+          port: 5684
+          txt_record_keys: ["version"]
+          txt_match:
+            - key: "version"
+              match: "present"
+              description: >
+                node-tradfri-client reads the gateway firmware from TXT
+                `version`. A weak narrowing on a generic CoAP service type
+                (see remaining_unknowns); it is what the schema can say.
+          identity_mapping:
+            stable_keys:
+              - source: "name"
+            display:
+              source: "name"
+        notes: >
+          node-tradfri-client browses _coap._udp and takes the instance name
+          (matched as `gw-` followed by twelve lowercase hex digits, the
+          gateway's MAC without separators — for example
+          gw-aabbccddeeff), the SRV target host and the TXT `version` key
+          (the gateway firmware). `_coap._udp` is a generic CoAP service
+          type, so the gw- prefix is what makes a hit a TRÅDFRI gateway.
+          Home Assistant instead discovers the gateway through its HomeKit
+          advertisement (`_hap._tcp`, model TRADFRI) and keys it by the
+          HomeKit `id` property; that is a second, independent signal.
+    identity:
+      stable_keys: ["name"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The gateway reaches the LAN over Ethernet (it has no Wi-Fi client
+      radio and nothing to provision), so the only protocol step is client
+      enrolment: a DTLS handshake keyed by the 16-character security code
+      printed on the label under the gateway, followed by one POST that
+      returns a PSK for an identity the client chose. Every later session
+      uses that identity and PSK; the security code is not needed again and
+      should not be stored. Gateway firmware older than 1.2.42 accepted the
+      security code directly as the PSK for every client; current firmware
+      requires the enrolment.
+    methods:
+      - type: "wired"
+        name: "Ethernet, then enrol with the label security code"
+        verified: false
+        description: >
+          Two things in order: the gateway joins the LAN over its Ethernet
+          port, then the client enrols once with the security code to obtain
+          its own identity/PSK pair. No vendor account or app is involved in
+          either step.
+        stages:
+          - type: "wired"
+            name: "Put the gateway on the LAN"
+            verified: false
+            description: >
+              Connect the gateway's Ethernet port to the router and power it
+              from its USB supply. It takes a DHCP lease and starts
+              answering on UDP 5684. A DHCP reservation is recommended by
+              Home Assistant, because a moved address breaks stored hosts.
+            steps:
+              - action: "Connect the gateway to the router with Ethernet and power it."
+                actor: "user"
+                expect: "The gateway's front LEDs settle and it answers mDNS _coap._udp as gw-<mac>."
+                timeout_seconds: 120
+          - type: "button_pairing"
+            name: "Enrol this client with the security code"
+            verified: false
+            description: >
+              The physical proof here is the label rather than a button: the
+              16-character security code (case-sensitive; Home Assistant
+              warns about I/l confusion) is the PSK for the bootstrap
+              identity "Client_identity". Over that DTLS session the client
+              POSTs the identity it will use from now on and the gateway
+              answers 2.01 Created with that identity's PSK.
+              commands.request_psk is this call.
+            issues_credentials:
+              identity:
+                user_entered: true
+                notes: >
+                  Not issued by the gateway: the client names itself, sends
+                  the name as 9090 in request_psk, and must store it with
+                  the PSK, because every later DTLS session presents it.
+                  Any string unique to this install works; a client may
+                  fill it for the owner (a random 32-hex string, as Home
+                  Assistant does) rather than asking. The schema has no
+                  "client-generated" credential kind, so it is declared
+                  user_entered.
+              psk:
+                command: "request_psk"
+                reply_path: "9091"
+                notes: >
+                  The DTLS pre-shared key for the identity sent in 9090,
+                  used as UTF-8 bytes. Store identity and PSK together,
+                  keyed by the gateway's mDNS name or gateway id (9081),
+                  not its IP. The matching identity is not returned: it
+                  is the 9090 value the client itself sent, so store that
+                  too. Clients use something unique per install (Home
+                  Assistant a random 32-hex UUID, node-tradfri-client
+                  "tradfri_" plus a millisecond timestamp).
+            steps:
+              - action: "Read the 16-character security code from the label on the underside of the gateway."
+                actor: "user"
+              - action: "Open a DTLS-PSK session to UDP 5684 with identity Client_identity and the security code as the key, then POST {\"9090\":\"<identity>\"} to /15011/9063."
+                actor: "client"
+                request:
+                  protocol: "udp"
+                  action: "CoAP POST /15011/9063"
+                  arguments:
+                    - name: "9090"
+                      type: "string"
+                      required: true
+                      description: "The identity this client will use from now on."
+                expect: "2.01 Created with a JSON body carrying 9091 (the PSK) and 9029 (gateway firmware version)."
+              - action: "Close that session and open a new one with identity <identity> and the returned PSK; GET /15011/15012 to confirm."
+                actor: "client"
+                expect: "2.05 Content with the gateway-info object (9029 firmware, 9081 gateway id)."
+    factory_reset:
+      applicable: true
+      confidence: medium
+      effect: >
+        Erases every paired Zigbee device, group, scene, smart task and
+        every issued client identity/PSK. Bulbs and accessories stay joined
+        to a network that no longer exists and must be reset and paired
+        again. Never needed for a lost PSK — re-enrol with the security
+        code instead, which costs nothing.
+      description: >
+        The E1526 manual gives a pinhole on top of the gateway, under the
+        removable lid. The same reset is reachable over the API as
+        commands.factory_reset.
+      procedures:
+        - name: "Pinhole under the lid"
+          verified: false
+          basis: "IKEA TRÅDFRI gateway manual (E1526), Factory reset section."
+          glyph: "generic/pinhole-reset.svg"
+          steps:
+            - action: "Lift off the gateway's lid and push a pin into the pinhole on top for at least 5 seconds."
+              actor: "user"
+            - action: "Wait for the gateway to restart."
+              actor: "device"
+              timeout_seconds: 120
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving the gateway to another router is a cable move and a new DHCP
+        lease. Issued identities survive, so clients only need the new
+        address; find it again by the gw-<mac> mDNS name.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Per-client identity/PSK pairs"
+        - "Zigbee network key and the paired device table"
+      issued_to_client:
+        - "DTLS PSK (string, from 9091) for the client-chosen identity sent in 9090"
+      notes: >
+        The security code is a long-lived bootstrap secret printed on the
+        hardware: anyone who can read the label and reach UDP 5684 can enrol
+        a client. glenndehaan's notes report that an issued PSK expires if
+        it goes unused for six weeks and that each use extends it; a client
+        that has been idle that long should be ready to re-enrol. Use
+        `<security-code>` / `<psk>` placeholders in any notes; never commit
+        a real one.
+
+protocol_details:
+  tradfri_coap:
+    transport: >
+      CoAP (RFC 7252) over DTLS in PSK mode, UDP port 5684, URI scheme
+      coaps://<gateway>:5684/<path>. Payloads are UTF-8 JSON with
+      decimal-string keys. pytradfri drives it with aiocoap (tinydtls);
+      node-tradfri-client with its own node-dtls-client; the community
+      walk-through with libcoap's coap-client built with DTLS.
+    dtls_credentials:
+      bootstrap: "identity `Client_identity`, PSK = the 16-character security code as UTF-8 bytes; valid only for POST /15011/9063"
+      session: "identity = the 9090 string the client enrolled, PSK = the 9091 string returned, as UTF-8 bytes"
+    response_codes: >
+      Clients check 2.05 Content on GET and 2.01 Created on the PSK POST;
+      PUTs answer 2.04 Changed. A 4.04 on a device id means it was removed.
+      Libraries treat a DTLS handshake failure after a gateway firmware
+      update as "re-enrol": Home Assistant documents "Fatal DTLS error: code
+      115" after updates and code 20 for a wrong security code.
+    observe: >
+      Every collection and instance is observable (RFC 7641): a GET carrying
+      the Observe option with value 0 registers, the first response is the
+      current state, and each later notification on the same token is the
+      complete new object. pytradfri and node-tradfri-client observe each
+      device id under 15001 and each group under 15004; they also observe
+      15001 itself to learn of added and removed devices. Battery remotes
+      and sensors are reported not to push useful events (Home Assistant and
+      openHAB both say so), so observe is for lights, outlets, blinds and
+      purifiers. After a gateway reboot or network loss, observations are
+      lost and must be re-registered on a fresh DTLS session.
+    well_known_core: >
+      GET /.well-known/core answers a link-format list. pytradfri's sample:
+      </15001>, </15004>, </15004/add>, </15004/remove>, </15005>,
+      </15006>, </15010>, </15011/15012>, </15011/9030>, </15011/9031>,
+      </15011/9034>, </15011/9063>, plus one entry per instance (e.g.
+      </15001/65536>, </15004/131073>, </15005/131073/196608>); the
+      collections carry `obs`.
+    roots:
+      "15001": "Devices. GET -> array of device ids (five digits, from 65536)."
+      "15004": "Groups. GET -> array of group ids (six digits, from 131072). PUT /15004/add and /15004/remove with {\"9038\": <group id>, \"9003\": [<device id>]} edit membership."
+      "15005": "Scenes, called moods before app 1.12. GET /15005/<group id> -> scene ids for that group (six digits, around 196608); GET /15005/<group id>/<scene id> -> one scene."
+      "15006": "Notifications (name speculative in pytradfri)."
+      "15009": "Remote controls (pytradfri constant; unused by the clients)."
+      "15010": "Smart tasks (schedules, wake-up, not-home)."
+      "15011": "Gateway. /15011/15012 info (GET, observe, PUT), /15011/9063 PSK enrolment (POST), /15011/9030 reboot (POST), /15011/9031 factory reset (POST), /15011/9034 firmware update trigger."
+    device_types:
+      description: "Key 5750 on a device object (node-tradfri-client's table; pytradfri names 7 as blind)."
+      values:
+        "0": "remote"
+        "1": "remote paired to another remote"
+        "2": "light"
+        "3": "control outlet / plug"
+        "4": "motion sensor"
+        "6": "signal repeater"
+        "7": "blind"
+        "8": "SYMFONISK sound remote"
+        "10": "STARKVIND air purifier"
+    value_ranges:
+      dimmer_5851: "0-254 (not the IPSO 0-100). pytradfri allows 0, which turns the light off; the coap-client notes give 1-254 as the dimming range."
+      mireds_5711: "250-454 on white-spectrum bulbs (pytradfri and node-tradfri-client agree); about 4000 K to 2200 K."
+      colour_xy_5709_5710: "CIE 1931 x and y scaled to 0-65535 (pytradfri); node-tradfri-client scales by 65279."
+      hue_5707_saturation_5708: "Hue 0-65535; saturation 0-65279 (pytradfri: higher is accepted but produces no light)."
+      transition_5712: "Tenths of a second (node-tradfri-client converts seconds x 10)."
+      blind_5536: "0-100, percent CLOSED: 0 is fully open, 100 fully closed. Home Assistant and node-tradfri-client both present 100 minus it."
+    white_spectrum_hex: >
+      Colour-temperature bulbs also accept the fixed 5706 hex strings
+      f5faf6 (cold), f1e0b5 (normal) and efd275 (warm); newer bulb firmware
+      (about 2.3.087 on) adds f3f3e3 and f2eccf. The coap-client notes
+      report that an unlisted hex falls back to a warm glow, and that bulb
+      firmware 2.3.086 instead turned the bulb off while reporting it on.
+      For colour bulbs prefer 5709/5710 (xy) over the hex presets.
+
+payload_formats:
+  DeviceObject:
+    description: >
+      One device, as GET /15001/<id> returns it and observe pushes it. The
+      common keys are always present; exactly one device-kind array (3311,
+      3312, 15015, 15025, 3300 for sensors) carries the controllable state,
+      as a one-element array in every observed device. Values below are an
+      invented example of a colour-temperature bulb.
+    fields:
+      - name: "9003"
+        description: "Instance id (integer, the same id as in the path)."
+      - name: "9001"
+        description: "Name the owner gave the device (string)."
+      - name: "9002"
+        description: "Created-at, Unix epoch seconds."
+      - name: "9020"
+        description: "Last seen, Unix epoch seconds."
+      - name: "9019"
+        description: "Reachable: 1 reachable, 0 not. A bulb switched off at the wall keeps its last state here with 9019 = 0."
+      - name: "9054"
+        description: "OTA update state (integer; codes not documented)."
+      - name: "5750"
+        description: "Device type; see protocol_details.tradfri_coap.device_types."
+      - name: "3"
+        description: "Device info object: \"0\" manufacturer, \"1\" model number, \"2\" serial, \"3\" firmware version, \"6\" power source (integer code), \"9\" battery percent 0-100 on battery devices."
+      - name: "3311"
+        description: "Light control array (lights only). Each element: 5850 on/off (0/1), 5851 dimmer 0-254, 5706 colour hex string, 5707 hue, 5708 saturation, 5709 colour x, 5710 colour y, 5711 colour temperature in mireds, 5712 transition time (tenths of a second, write-only)."
+      - name: "3312"
+        description: "Outlet array: 5850 on/off, 5851 dimmer (no dimmable outlet is known)."
+      - name: "15015"
+        description: "Blind array: 5536 position (float, 0 open to 100 closed), 5523 trigger (write; used to stop a moving blind)."
+      - name: "15025"
+        description: "Air purifier array: 5900 fan mode (0 off, 1 auto, 10/20/30/40/50 levels 1-5), 5908 fan speed, 5905 controls locked, 5906 status LEDs off, 5907 air quality (PM2.5), 5903 filter status, 5902 filter runtime, 5904 filter lifetime, 5910 filter remaining, 5909 motor runtime."
+    parse_rules:
+      - "Parse as JSON. Keys are decimal strings; look up the device kind by which of 3311 / 3312 / 15015 / 15025 / 3300 is present (or by 5750)."
+      - "Take element [0] of the kind array; no shipped TRÅDFRI device is reported to carry more than one."
+      - "Treat a missing colour key as 'not supported by this bulb' rather than zero: dimmable-only bulbs carry no 5706/5711, colour bulbs carry 5707-5710."
+      - "Honour 9019 before drawing a live control."
+    example: '{"9001":"Hallway","9002":1600000000,"9003":65537,"9019":1,"9020":1760000000,"9054":0,"5750":2,"3":{"0":"IKEA of Sweden","1":"TRADFRI bulb E27 WS opal 980lm","2":"","3":"2.3.095","6":1},"3311":[{"5850":1,"5851":203,"5706":"f1e0b5","5709":30138,"5710":26909,"5711":370,"9003":0}]}'
+  GroupObject:
+    description: "One group, as GET /15004/<id> returns it. The gateway reports the group's own last-set values, not an aggregate of its members."
+    fields:
+      - name: "9003"
+        description: "Group id."
+      - name: "9001"
+        description: "Group name."
+      - name: "5850"
+        description: "On/off last set on the group."
+      - name: "5851"
+        description: "Dimmer last set on the group, 0-254."
+      - name: "9039"
+        description: "Id of the scene last activated."
+      - name: "9018"
+        description: "Members: {\"15002\": {\"9003\": [<device id>, ...]}}."
+    parse_rules:
+      - "Member ids are at 9018 -> 15002 -> 9003."
+      - "Do not use the group's 5850/5851 as the state of its lights; read the members. node-tradfri-client notes the gateway does not report group properties back after a change."
+    example: '{"9001":"Living room","9002":1600000000,"9003":131073,"5850":1,"5851":254,"9039":196608,"9018":{"15002":{"9003":[65537,65538]}}}'
+  GatewayInfo:
+    description: "GET /15011/15012."
+    fields:
+      - name: "9029"
+        description: "Gateway firmware version string, e.g. 1.21.57."
+      - name: "9081"
+        description: "Gateway id (string); a stable key for stored credentials."
+      - name: "9083"
+        description: "HomeKit id."
+      - name: "9023"
+        description: "NTP server."
+      - name: "9059"
+        description: "Current time, Unix epoch seconds."
+      - name: "9060"
+        description: "Current time, ISO 8601 string."
+      - name: "9061"
+        description: "Commissioning mode (write a number of seconds to open pairing for accessories)."
+      - name: "9054"
+        description: "OTA update state."
+      - name: "9055"
+        description: "Update progress."
+      - name: "9066"
+        description: "OTA type."
+      - name: "9069"
+        description: "First-setup time, Unix epoch seconds (meaning inferred by pytradfri)."
+      - name: "9071"
+        description: "Time source."
+      - name: "9092"
+        description: "Certificate provisioned (cloud/voice-assistant linkage)."
+      - name: "9093"
+        description: "Alexa pairing status."
+      - name: "9105"
+        description: "Google Home pairing status."
+    example: '{"9029":"1.21.57","9081":"<gateway-id>","9023":"<ntp-server>","9059":1760000000,"9060":"2025-10-09T08:53:20.000000Z","9061":0,"9054":0,"9055":0,"9066":5,"9069":1600000000,"9071":1,"9092":0,"9093":0,"9105":0}'
+  PskResponse:
+    description: "The 2.01 Created body of POST /15011/9063."
+    fields:
+      - name: "9091"
+        description: "The PSK for the enrolled identity (string)."
+      - name: "9029"
+        description: "Gateway firmware version."
+    example: '{"9091":"<psk>","9029":"1.21.57"}'
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only, to satisfy the schema's access-surface rule. The
+      gateway serves no HTTP; its API is CoAP over DTLS on UDP 5684 (see
+      `commands`, whose entries carry `transport: coap`, and
+      protocol_details.tradfri_coap).
+
+commands:
+  request_psk:
+    description: >
+      Enrol a client: over a DTLS session opened with identity
+      Client_identity and the label security code as PSK, POST the identity
+      this client will use. The gateway answers 2.01 Created with that
+      identity's PSK (9091) and its firmware version (9029).
+    transport: "coap"
+    method: "POST"
+    path: "/15011/9063"
+    body: '{"9090":"{identity}"}'
+    parameters:
+      identity:
+        type: "string"
+        source: "credential:identity"
+        description: >
+          Client-chosen identity, unique per installation (Home Assistant
+          uses a random 32-hex-character UUID). Becomes the DTLS identity of
+          every later session, so it is stored next to the PSK; see the
+          setup stage's issues_credentials.identity.
+    returns:
+      - name: "9091"
+        type: "string"
+        description: "PSK for this identity."
+      - name: "9029"
+        type: "string"
+        description: "Gateway firmware version."
+    example_body: '{"9090":"0123456789abcdef0123456789abcdef"}'
+    verification: "reported"
+    notes: "The bootstrap session is used for this one request; reconnect with the new identity/PSK for everything else."
+
+  get_gateway_info:
+    description: "Read the gateway-info object (payload_formats.GatewayInfo). Observable."
+    transport: "coap"
+    method: "GET"
+    path: "/15011/15012"
+    verification: "reported"
+
+  list_devices:
+    description: "List device ids: answers a bare JSON array such as [65536,65537,65538]. Observe it to learn of added or removed devices."
+    transport: "coap"
+    method: "GET"
+    path: "/15001"
+    verification: "reported"
+
+  get_device:
+    description: "Read one device object (payload_formats.DeviceObject). Send with the Observe option set to 0 to subscribe instead of polling."
+    transport: "coap"
+    method: "GET"
+    path: "/15001/{id}"
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id from list_devices."
+    verification: "reported"
+
+  light_turn_on:
+    description: "Switch a light on."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3311":[{"5850":1}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a light (5750 = 2)."
+    verification: "reported"
+
+  light_turn_off:
+    description: "Switch a light off."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3311":[{"5850":0}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a light."
+    verification: "reported"
+
+  light_set_brightness:
+    description: "Set a light's dimmer level (5851). 0 turns the light off."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3311":[{"5851":{brightness}}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a light."
+      brightness:
+        type: "integer"
+        required: true
+        min: 0
+        max: 254
+        description: "Dimmer level 0-254; 127 is about half."
+    example_body: '{"3311":[{"5851":127}]}'
+    verification: "reported"
+
+  light_set_brightness_transition:
+    description: "Set the dimmer level with a fade (5712)."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3311":[{"5851":{brightness},"5712":{transition}}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a light."
+      brightness:
+        type: "integer"
+        required: true
+        min: 0
+        max: 254
+        description: "Dimmer level 0-254."
+      transition:
+        type: "integer"
+        required: true
+        min: 0
+        unit: "s"
+        scale: 0.1
+        description: "Fade time; raw value is tenths of a second (10 = 1 s)."
+    example_body: '{"3311":[{"5851":254,"5712":10}]}'
+    verification: "reported"
+
+  light_set_color_temperature:
+    description: "Set a white-spectrum light's colour temperature in mireds (5711)."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3311":[{"5711":{mireds}}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a white-spectrum or colour light."
+      mireds:
+        type: "integer"
+        required: true
+        min: 250
+        max: 454
+        unit: "mired"
+        description: "250 is the coldest (about 4000 K), 454 the warmest (about 2200 K)."
+    example_body: '{"3311":[{"5711":370}]}'
+    verification: "reported"
+
+  light_set_color_xy:
+    description: "Set a colour light by CIE 1931 xy (5709/5710)."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3311":[{"5709":{x},"5710":{y}}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a colour light."
+      x:
+        type: "integer"
+        required: true
+        min: 0
+        max: 65535
+        description: "CIE x scaled to 0-65535."
+      "y":
+        type: "integer"
+        required: true
+        min: 0
+        max: 65535
+        description: "CIE y scaled to 0-65535."
+    example_body: '{"3311":[{"5709":30138,"5710":26909}]}'
+    verification: "reported"
+
+  light_set_color_hex:
+    description: "Set a light to one of the gateway's preset colours by hex string (5706); see protocol_details.tradfri_coap.white_spectrum_hex."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3311":[{"5706":"{hex}"}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a light."
+      hex:
+        type: "string"
+        required: true
+        description: "Six lowercase hex digits from the preset list, e.g. f1e0b5. Arbitrary RGB values are not honoured."
+    example_body: '{"3311":[{"5706":"f1e0b5"}]}'
+    verification: "reported"
+
+  outlet_turn_on:
+    description: "Switch a control outlet on."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3312":[{"5850":1}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of an outlet (5750 = 3)."
+    verification: "reported"
+
+  outlet_turn_off:
+    description: "Switch a control outlet off."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"3312":[{"5850":0}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of an outlet."
+    verification: "reported"
+
+  blind_set_position:
+    description: "Move a blind to a position, in percent CLOSED (5536)."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"15015":[{"5536":{position}}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a blind (5750 = 7)."
+      position:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        scale: -1
+        value_offset: 100
+        unit: "%"
+        description: >
+          The wire value is percent CLOSED: 0 fully open, 100 fully closed,
+          and `min`/`max` bound that raw value. `scale: -1` with
+          `value_offset: 100` states the decoded terms, percent open
+          (open = raw * -1 + 100), so a percent-open UI value encodes as
+          raw = 100 - open: 75 % open sends 25.
+    example_body: '{"15015":[{"5536":25}]}'
+    example_notes: "75 % open."
+    verification: "reported"
+
+  blind_open:
+    description: "Open a blind fully (position 0)."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"15015":[{"5536":0}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a blind."
+    verification: "reported"
+
+  blind_close:
+    description: "Close a blind fully (position 100)."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"15015":[{"5536":100}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a blind."
+    verification: "reported"
+
+  blind_stop:
+    description: "Stop a moving blind by writing the trigger resource (5523)."
+    transport: "coap"
+    method: "PUT"
+    path: "/15001/{id}"
+    body: '{"15015":[{"5523":0}]}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Device id of a blind."
+    verification: "reported"
+    notes: >
+      node-tradfri-client sends 5523 = 0.0 to stop; pytradfri (and so Home
+      Assistant's stop_cover) sends 5523 = true. Both are reported to work;
+      which value the gateway actually requires is not established.
+
+  list_groups:
+    description: "List group ids (bare JSON array)."
+    transport: "coap"
+    method: "GET"
+    path: "/15004"
+    verification: "reported"
+
+  get_group:
+    description: "Read one group (payload_formats.GroupObject). Observable."
+    transport: "coap"
+    method: "GET"
+    path: "/15004/{id}"
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Group id from list_groups."
+    verification: "reported"
+
+  group_turn_on:
+    description: "Switch every member of a group on (flat object, no 3311 wrapper)."
+    transport: "coap"
+    method: "PUT"
+    path: "/15004/{id}"
+    body: '{"5850":1}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Group id."
+    verification: "reported"
+
+  group_turn_off:
+    description: "Switch every member of a group off."
+    transport: "coap"
+    method: "PUT"
+    path: "/15004/{id}"
+    body: '{"5850":0}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Group id."
+    verification: "reported"
+
+  group_set_brightness:
+    description: "Set the dimmer level of every member of a group."
+    transport: "coap"
+    method: "PUT"
+    path: "/15004/{id}"
+    body: '{"5851":{brightness}}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Group id."
+      brightness:
+        type: "integer"
+        required: true
+        min: 0
+        max: 254
+        description: "Dimmer level 0-254."
+    example_body: '{"5851":200}'
+    verification: "reported"
+
+  group_activate_scene:
+    description: "Recall a scene (mood) on a group. 5850 must be 1 for the scene to apply."
+    transport: "coap"
+    method: "PUT"
+    path: "/15004/{id}"
+    body: '{"5850":1,"9039":{scene_id}}'
+    parameters:
+      id:
+        type: "integer"
+        source: "instance:id"
+        description: "Group id."
+      scene_id:
+        type: "integer"
+        required: true
+        description: "Scene id from GET /15005/<group id>."
+    example_body: '{"5850":1,"9039":196608}'
+    verification: "reported"
+
+  list_scenes:
+    description: "List the scene ids belonging to a group."
+    transport: "coap"
+    method: "GET"
+    path: "/15005/{group_id}"
+    parameters:
+      group_id:
+        type: "integer"
+        required: true
+        description: "Group id."
+    verification: "reported"
+
+  set_commissioning_mode:
+    description: >
+      Open the gateway for pairing remotes, dimmers and motion sensors for
+      the given number of seconds (9061 on the gateway-info resource).
+    transport: "coap"
+    method: "PUT"
+    path: "/15011/15012"
+    body: '{"9061":{seconds}}'
+    parameters:
+      seconds:
+        type: "integer"
+        required: true
+        min: 0
+        unit: "s"
+        description: "How long the gateway accepts new accessories."
+    example_body: '{"9061":60}'
+    verification: "reported"
+
+  reboot_gateway:
+    description: "Reboot the gateway (POST, empty body)."
+    transport: "coap"
+    method: "POST"
+    path: "/15011/9030"
+    advanced: true
+    advanced_reason: "Drops every DTLS session and observation for about a minute; clients must reconnect and re-observe."
+    verification: "reported"
+
+  factory_reset:
+    description: "Reset the gateway to factory defaults (POST, empty body)."
+    transport: "coap"
+    method: "POST"
+    path: "/15011/9031"
+    advanced: true
+    advanced_reason: >
+      Erases every paired device, group, scene, schedule and issued PSK.
+      Every bulb and accessory must be reset and paired again. There is no
+      undo.
+    verification: "reported"
+
+entities:
+  - platform: "light"
+    name: "TRÅDFRI Light"
+    state_command: "get_device"
+    state_mapping:
+      is_on: "3311[0].5850"
+      brightness: "3311[0].5851"
+    commands:
+      turn_on: "light_turn_on"
+      turn_off: "light_turn_off"
+      set_brightness: "light_set_brightness"
+      set_color_temperature: "light_set_color_temperature"
+    notes: >
+      One entity per light (device type 5750 = 2). Enumeration is two-step
+      — list_devices answers a bare array of ids and each id must be read
+      on its own — which the `instances` block (an object keyed by id)
+      cannot yet express, so the bound commands carry `instance:id` and a
+      client supplies ids from list_devices. Brightness is 0-254. Colour
+      temperature binds only for white-spectrum bulbs (those reporting
+      5711); xy and hex colour are documented as commands but not bound,
+      because no consumer resolves a two-value set_color yet. Prefer
+      observing get_device over polling it.
+  - platform: "switch"
+    name: "TRÅDFRI Control Outlet"
+    state_command: "get_device"
+    state_mapping:
+      is_on: "3312[0].5850"
+    commands:
+      turn_on: "outlet_turn_on"
+      turn_off: "outlet_turn_off"
+    notes: "One per outlet (5750 = 3). Same two-step enumeration as the light."
+  - platform: "cover"
+    name: "TRÅDFRI Blind"
+    device_class: "blind"
+    state_command: "get_device"
+    state_mapping:
+      value: "15015[0].5536"
+    commands:
+      open_cover: "blind_open"
+      close_cover: "blind_close"
+      stop_cover: "blind_stop"
+      set_cover_position: "blind_set_position"
+    notes: >
+      One per blind (5750 = 7; FYRTUR, KADRILJ, PRAKTLYSING, TREDANSEN).
+      Position on the wire is percent CLOSED, and the two directions
+      differ: the state read here (5536) is RAW percent closed, so a
+      percent-open cover shows 100 minus it, but set_cover_position already
+      takes percent OPEN (its parameter declares scale -1 / value_offset
+      100), so the client sends the UI value as-is and must not invert it a
+      second time. Battery is under 3."9".
+  - platform: "light"
+    name: "TRÅDFRI Group"
+    state_command: "get_group"
+    state_mapping:
+      is_on: "5850"
+      brightness: "5851"
+    commands:
+      turn_on: "group_turn_on"
+      turn_off: "group_turn_off"
+      set_brightness: "group_set_brightness"
+    notes: >
+      One per group from list_groups. The state shown is what was last set
+      on the group, not an aggregate of its members — read the members for
+      truth. Scenes are recalled with group_activate_scene.
+  - platform: "sensor"
+    name: "Accessory Battery"
+    device_class: "battery"
+    unit: "%"
+    state_command: "get_device"
+    state_mapping:
+      value: "3.9"
+    notes: "Remotes, motion sensors and blinds report battery percent under device-info key 3 -> 9. Remotes push nothing else useful."
+
+evidence:
+  documentation_review: >
+    pytradfri (master, read 2026-10-18), node-tradfri-client (master) and
+    glenndehaan/ikea-tradfri-coap-docs agree on every path and key number
+    used here (they differ on the blind stop value, the xy scale and the
+    dimmer minimum; see remaining_unknowns); Home Assistant's integration source confirms
+    the identity scheme and the cover inversion, and openHAB's binding docs
+    the code-then-discard enrolment. IKEA's release notes and OTA feed
+    (fetched 2026-10-18) give the gateway firmware history; the latest
+    image offered is 1.21.57, released 4 May 2026.
+  status_correction: >
+    The backlog entry said IKEA stopped updating the gateway in July 2024.
+    IKEA's own FAQ dates the end of new products and features to April
+    2024 and promises support at least until June 2026; the release notes
+    show further gateway firmware in July 2025, February 2026 and May 2026.
+    "July 2024" matches only a bulb-firmware release (11 and 16 July 2024),
+    not the gateway.
+  open_questions: >
+    The DTLS cipher suite the gateway negotiates; whether an identity can be
+    re-enrolled or has a length limit; the true idle-expiry rule for a PSK;
+    the blind stop value (0 vs true); what 9054/9066/6 codes mean.
+
+remaining_unknowns:
+  - "DTLS cipher suite and version: the clients delegate to tinydtls, node-dtls-client and libcoap and none of the sources here names the suite the gateway selects. TLS_PSK_WITH_AES_128_CCM_8 is commonly assumed for CoAP but is not confirmed."
+  - "PSK lifetime: the six-weeks-idle expiry is from one community write-up; neither library implements or documents it."
+  - "Identity rules: maximum length, permitted characters, how many identities the gateway keeps, and what POSTing an already-enrolled identity returns are undocumented."
+  - "Blind stop: node-tradfri-client writes 5523 = 0.0, pytradfri writes true; which the gateway requires (or whether any write to 5523 stops it) is not established."
+  - "Whether firmware 1.21.57 (May 2026) or any later release changes the API, and whether IKEA will keep the OTA feed online after the June 2026 support floor."
+  - "Discovery narrowing: `_coap._udp` is every CoAP device that advertises itself, and the TXT `version` key the method requires is a weak signal. The decisive check is the instance name (`gw-` followed by twelve hex digits), which the schema has no matcher for; a client should apply it before treating a hit as this gateway."
+  - "Cover position: the entity's state (5536) is raw percent closed while blind_set_position takes percent open; entity-level `scale` cannot carry the offset that would make the two agree."
+  - "Codes for 9054 (OTA state), 9066 (OTA type), 9071 (time source) and device-info 6 (power source) are not documented by the clients."
+  - "The `instances` block cannot express a hub whose collection GET answers an array of ids (each child read separately), so the entities rely on `instance:id` without `instances`; a schema field for two-step enumeration would fix this."
+  - "The schema has no CoAP transport block, so commands carry `transport: coap` with `method`/`path`/`body` and the DTLS session rules live in protocol_details.tradfri_coap; the placeholder http_endpoints entry exists only to satisfy the access-surface rule."
+
+helpful_urls:
+  - title: "home-assistant-libs/pytradfri"
+    url: "https://github.com/home-assistant-libs/pytradfri"
+    kind: "implementation"
+    description: "Python client used by Home Assistant; source of the key-number table, value ranges and PSK enrolment."
+  - title: "AlCalzone/node-tradfri-client"
+    url: "https://github.com/AlCalzone/node-tradfri-client"
+    kind: "implementation"
+    description: "Node.js client; source of mDNS discovery, device-type codes, observe usage and the blind/transition conversions."
+  - title: "glenndehaan/ikea-tradfri-coap-docs"
+    url: "https://github.com/glenndehaan/ikea-tradfri-coap-docs"
+    kind: "protocol_writeup"
+    description: "coap-client walk-through of enrolment, device, group and scene resources with example payloads."
+  - title: "Home Assistant IKEA TRÅDFRI integration"
+    url: "https://www.home-assistant.io/integrations/tradfri/"
+    description: "Setup with the security code, DTLS error codes after firmware updates, and the DIRIGERA note."
+  - title: "openHAB TRÅDFRI binding"
+    url: "https://www.openhab.org/addons/bindings/tradfri/"
+    description: "Thing types and the enrol-then-discard handling of the security code."
+  - title: "IKEA: When will IKEA stop supporting the IKEA Home smart 1 app and TRÅDFRI gateway?"
+    url: "https://www.ikea.com/ie/en/customer-service/knowledge/articles/893bggb1-5065-40fb-gef4-21be418f18dg.html"
+    kind: "vendor_support"
+    description: "IKEA's statement: no new products or features after April 2024; supported at least until June 2026."
+  - title: "IKEA Home smart release notes"
+    url: "https://ww8.ikea.com/ikeahomesmart/releasenotes/releasenotes.html"
+    kind: "vendor_support"
+    description: "Gateway and accessory firmware history; gateway 1.21.57 dated 4 May 2026."
+  - title: "IKEA TRÅDFRI gateway manual (E1526, PDF)"
+    url: "https://www.ikea.com/us/en/manuals/tradfri-gateway__AA-1954428-1_pub.pdf"
+    kind: "manual"
+    description: >
+      Multilingual leaflet for the E1526 gateway: Ethernet and power
+      connection, the pinhole factory reset under the lid (at least 5 s),
+      and technical data.

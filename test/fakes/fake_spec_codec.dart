@@ -33,6 +33,9 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [encodeCommand].
   final Uint8List encoded;
 
+  /// Optional ordered packets returned by [encodeCommandWrites].
+  final List<Uint8List>? encodedWrites;
+
   /// Returned by [decodeValue] when [decodedFor] is null.
   final List<DecodedValueDto> decoded;
 
@@ -224,6 +227,7 @@ class FakeSpecCodec implements SpecCodec {
     this.scanMatches,
     this.networkMatches,
     Uint8List? encoded,
+    this.encodedWrites,
     this.decoded = const [],
     this.decodedFor,
     this.specByYaml,
@@ -334,6 +338,36 @@ class FakeSpecCodec implements SpecCodec {
     ));
     if (encodeError != null) throw encodeError!;
     return encoded;
+  }
+
+  @override
+  Future<List<Uint8List>> encodeCommandWrites({
+    String? specYaml,
+    String? serviceUuid,
+    required String charUuid,
+    required String commandName,
+    required Map<String, double> params,
+  }) async {
+    final writes = encodedWrites;
+    if (writes == null) {
+      return [
+        await encodeCommand(
+          specYaml: specYaml,
+          serviceUuid: serviceUuid,
+          charUuid: charUuid,
+          commandName: commandName,
+          params: params,
+        ),
+      ];
+    }
+    encodeCalls.add((
+      serviceUuid: serviceUuid,
+      charUuid: charUuid,
+      commandName: commandName,
+      params: Map.of(params),
+    ));
+    if (encodeError != null) throw encodeError!;
+    return writes;
   }
 
   @override

@@ -159,12 +159,11 @@ packages:
     source: hosted
     version: "7.0.4"
   flutter_blue_plus_darwin:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: flutter_blue_plus_darwin
-      sha256: "682982862c1d964f4d54a3fb5fccc9e59a066422b93b7e22079aeecd9c0d38f8"
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/flutter_blue_plus_darwin"
+      relative: true
+    source: path
     version: "7.0.3"
   flutter_blue_plus_linux:
     dependency: "direct main"

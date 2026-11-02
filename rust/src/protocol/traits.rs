@@ -43,6 +43,21 @@ pub trait DeviceProtocol: Send + Sync {
         params: &HashMap<String, f64>,
     ) -> Result<Vec<u8>, ProtocolError>;
 
+    /// Encode a named command into ordered BLE writes. Most commands need
+    /// one; packetized transports such as BLE-MIDI need several.
+    fn encode_command_writes(
+        &self,
+        char_uuid: &str,
+        command_name: &str,
+        params: &HashMap<String, f64>,
+    ) -> Result<Vec<Vec<u8>>, ProtocolError> {
+        Ok(vec![self.encode_command(
+            char_uuid,
+            command_name,
+            params,
+        )?])
+    }
+
     /// Decode raw bytes from a BLE read/notify into named values.
     fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError>;
 

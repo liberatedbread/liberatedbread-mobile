@@ -46,6 +46,7 @@ String humanizeName(String raw) {
     'uint8' => (min: 0.0, max: 255.0),
     'uint16' => (min: 0.0, max: 65535.0),
     'uint32' => (min: 0.0, max: 4294967295.0),
+    'float32' => (min: -3.4028234663852886e38, max: 3.4028234663852886e38),
     'int8' => (min: -128.0, max: 127.0),
     'int16' => (min: -32768.0, max: 32767.0),
     'int32' => (min: -2147483648.0, max: 2147483647.0),
@@ -160,7 +161,13 @@ int decimalsForStep(double step) {
 /// `string`/`bytes` (and any unrecognized type) have no meaningful numeric
 /// range, so controls for them must not pretend a 0..255 slider is valid.
 bool isNumericValueType(String valueType) => switch (valueType) {
-  'uint8' || 'uint16' || 'uint32' || 'int8' || 'int16' || 'int32' => true,
+  'uint8' ||
+  'uint16' ||
+  'uint32' ||
+  'int8' ||
+  'int16' ||
+  'int32' ||
+  'float32' => true,
   _ => false,
 };
 

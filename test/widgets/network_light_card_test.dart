@@ -221,6 +221,7 @@ void main() {
       List<String> params, {
       double? min,
       double? max,
+      String? unit,
     }) => NetworkActionDto(
       role: role,
       commandName: role,
@@ -231,6 +232,7 @@ void main() {
       instanceParams: const [],
       min: min,
       max: max,
+      unit: unit,
     );
 
     Future<List<(String, Map<String, String>)>> pump(
@@ -289,6 +291,32 @@ void main() {
       await tester.pumpAndSettle();
       expect(sent.single.$1, 'set_color_temperature');
       expect(sent.single.$2, {'ct': '3500'});
+    });
+
+    testWidgets('colour temperature uses the declared native unit', (
+      tester,
+    ) async {
+      final sent = await pump(tester, [
+        generic(
+          'set_color_temperature',
+          ['mireds'],
+          min: 143,
+          max: 344,
+          unit: 'mired',
+        ),
+      ]);
+      final slider = tester.widget<Slider>(
+        find.byWidgetPredicate((w) => w is Slider && w.max == 344),
+      );
+      expect(slider.label, '344 mired');
+      expect(slider.semanticFormatterCallback!(344), contains('mired'));
+      expect(slider.semanticFormatterCallback!(344), isNot(contains('kelvin')));
+      slider.onChanged!(221);
+      await tester.pump();
+      expect(tester.widget<Slider>(find.byType(Slider)).label, '221 mired');
+      slider.onChangeEnd!(221);
+      await tester.pumpAndSettle();
+      expect(sent.single.$2, {'mireds': '221'});
     });
 
     testWidgets('a one-parameter colour action draws no swatches', (

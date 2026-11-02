@@ -1,0 +1,36 @@
+# Sleep Number / SleepIQ — structured research note (2026-10-31)
+
+device:
+  id: sleep-number-sleepiq
+  name: Sleep Number beds and foundations
+  manufacturer: Sleep Number / Select Comfort
+  category: adjustable_bed
+
+fuzion:
+  service: "09d23fae-90e6-44c2-95b6-0b3d0f1abf25"
+  startup: bond if needed, read 16-byte Auth UUID, then subscribe
+  auth_characteristic: "8d4675a5-b5fa-42b2-b587-0ee71c46b709"
+  frame: "fUzIoN, little-endian length and CRC32; trailing space for no-argument commands"
+  halt: global, never side-specific
+
+mcr:
+  service: "ffffd1fd-388d-938b-344a-939d1f6efee0"
+  notify: "ffffd1fd-388d-938b-344a-939d1f6efee1"
+  write: "ffffd1fd-388d-938b-344a-939d1f6efee2"
+  binding: "persistent nonzero u64 client id; bind reply supplies 16-bit addresses"
+  numbering: right = 0, left = 1; position percent, not degrees
+
+local_control:
+  established_sessions: firmness, base, lights and supported climate
+  separate_paths: Wi-Fi setup, account, cloud reports and firmware/file transfer
+
+movement_safety:
+  serialize: true
+  cleanup_on_cancel_replace_failure: stop/release required
+  acknowledge_is_not_arrival: true
+  exclude: factory reset, manufacturing stress tests, fault bypass
+
+status:
+  evidence: static app analysis plus community implementation; no bed capture
+  validated_spec: null
+  next: read-only auth/bind and capabilities, then small command and stop vectors

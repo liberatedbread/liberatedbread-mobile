@@ -12,7 +12,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `decode_hex`, `entry_at`, `identities`, `parse_chunk`, `permitted_probe_destination`, `specs_at`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CatalogueSpec`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Parse a spec and keep it, returning the handle that addresses it.
 ///
@@ -95,10 +95,10 @@ abstract class CatalogueHandle implements RustOpaqueInterface {
   ///
   /// The scan service asks this once and sends what comes back, instead of
   /// holding a constant and a transport per vendor. A spec whose probe is
-  /// unusable — no port, `probe_hex` that is not hex, a destination off the
-  /// local network, or a reply port this DTO cannot carry — is left out
-  /// rather than reported: discovery is best-effort by nature, and one bad
-  /// block should cost that device, not the scan.
+  /// unusable — no port, `probe_hex` that is not hex, or a destination off
+  /// the local network — is left out rather than reported: discovery is
+  /// best-effort by nature, and one bad block should cost that device, not
+  /// the scan. `listen_port` is carried so the sender can bind it first.
   Future<List<UdpProbeDto>> udpBroadcastProbes();
 }
 
@@ -123,6 +123,14 @@ abstract class LoadedSpec implements RustOpaqueInterface {
 
   /// Encode a named command into the bytes for a BLE write.
   Future<Uint8List> encodeCommand({
+    String? serviceUuid,
+    required String charUuid,
+    required String commandName,
+    required Map<String, double> params,
+  });
+
+  /// Encode a named command into ordered BLE writes.
+  Future<List<Uint8List>> encodeCommandWrites({
     String? serviceUuid,
     required String charUuid,
     required String commandName,
@@ -295,7 +303,7 @@ class SpecLoadFailureDto {
 
 /// One field a UDP reply is read for, with its dialect split out.
 class UdpIdentityFieldDto {
-  /// `json`, `tlv`, `csv` or `payload` — how to read [`Self::path`].
+  /// `json`, `tlv`, `csv`, `payload` or `xml` — how to read [`Self::path`].
   final String dialect;
 
   /// What to read, in that dialect: a dotted JSON path, a TLV field name, a
@@ -346,6 +354,10 @@ class UdpProbeDto {
   /// The port to send to, and for a passive probe the port to listen on.
   final int port;
 
+  /// The reply port to bind before sending, when the device answers
+  /// somewhere other than `port` (BiSecur: 4001 -> 4002).
+  final int? listenPort;
+
   /// Where to send it, as a canonical dotted quad: the v4 broadcast address
   /// by default, a spec's `multicast_group` when it names one (the schema
   /// says the group REPLACES `broadcast_address`), or its own
@@ -383,6 +395,7 @@ class UdpProbeDto {
     required this.index,
     required this.displayName,
     required this.port,
+    this.listenPort,
     required this.broadcastAddress,
     required this.probe,
     required this.passiveOk,
@@ -398,6 +411,7 @@ class UdpProbeDto {
       index.hashCode ^
       displayName.hashCode ^
       port.hashCode ^
+      listenPort.hashCode ^
       broadcastAddress.hashCode ^
       probe.hashCode ^
       passiveOk.hashCode ^
@@ -415,6 +429,7 @@ class UdpProbeDto {
           index == other.index &&
           displayName == other.displayName &&
           port == other.port &&
+          listenPort == other.listenPort &&
           broadcastAddress == other.broadcastAddress &&
           probe == other.probe &&
           passiveOk == other.passiveOk &&

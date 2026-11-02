@@ -212,6 +212,26 @@ abstract class SpecCodec {
     required Map<String, double> params,
   });
 
+  /// Encode a named command into ordered BLE writes. The default preserves
+  /// the single-write contract; packetized transports override it.
+  Future<List<Uint8List>> encodeCommandWrites({
+    String? specYaml,
+    String? serviceUuid,
+    required String charUuid,
+    required String commandName,
+    required Map<String, double> params,
+  }) async {
+    return [
+      await encodeCommand(
+        specYaml: specYaml,
+        serviceUuid: serviceUuid,
+        charUuid: charUuid,
+        commandName: commandName,
+        params: params,
+      ),
+    ];
+  }
+
   /// Decode raw bytes from a BLE read/notify into named values.
   Future<List<DecodedValueDto>> decodeValue({
     String? specYaml,

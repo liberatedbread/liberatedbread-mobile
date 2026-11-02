@@ -935,9 +935,10 @@
           "enum": [
             "daniao_fragment",
             "seeblue_envelope",
-            "length_prefixed_le16"
+            "length_prefixed_le16",
+            "orba_sysex_ble_midi"
           ],
-          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `length_prefixed_le16` (Rabbit Air purifiers' GATT command channel): each logical packet is preceded by a two-byte LITTLE-ENDIAN uint16 length of the packet alone (the prefix is not counted), and the prefixed packet is then split into consecutive writes of at most `max_chunk_size` bytes, sent in order; the device answers in the same shape, so a reader takes the first two bytes of the first fragment as the total and accumulates fragment bodies until that many packet bytes have arrived. The chunk size is (negotiated ATT MTU - 5) in the vendor app, which requests MTU 515 and so writes 510-byte chunks — `max_chunk_size` states that common case. VERIFIED on hardware (MinusA2 gen2, 2026-08-15): cleartext setup and encrypted control conversations both ran framed this way. `seeblue_envelope` (LEDGlow/SEEBlue motorcycle lighting): each write is [0x95][message_length u8][message_index u8][protocol_id u8][packet bytes][checksum u8], where message_length counts message_index through the last packet byte, message_index is a per-connection sequence number the client owns, protocol_id comes from the command's `protocol_id`, and the checksum is the 8-bit two's complement of message_length through the last packet byte. Protocol ids: 0x00 INTERNAL (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the device answers on this one), 0x03 BOOTLOADER (latent OTA: flashes an Intel HEX over BLE; no firmware HEX is public), 0x04 GENERIC, 0x10 LEDGlow snapshot and the v2 UI-change commands. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
+          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `orba_sysex_ble_midi` (Artiphon Orba 2): the logical packet is the command payload [op, domain, address, values]. Wrap as 82 01 <message id> <payload length u16be> <payload> <crc u16be>, using CRC-16 reflected polynomial A001 with initial zero over 82 through the last payload byte; LSB-first 8-to-7-bit pack it, prefix 00 and delimit with F0/F7. BLE-MIDI first writes are 80 80 plus at most 18 stream bytes, continuations are 80 plus at most 19, and the final write is 80 80 F7. `max_chunk_size` states the whole GATT write size (20 in the common case), not a payload fragment size. Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `length_prefixed_le16` (Rabbit Air purifiers' GATT command channel): each logical packet is preceded by a two-byte LITTLE-ENDIAN uint16 length of the packet alone (the prefix is not counted), and the prefixed packet is then split into consecutive writes of at most `max_chunk_size` bytes, sent in order; the device answers in the same shape, so a reader takes the first two bytes of the first fragment as the total and accumulates fragment bodies until that many packet bytes have arrived. The chunk size is (negotiated ATT MTU - 5) in the vendor app, which requests MTU 515 and so writes 510-byte chunks — `max_chunk_size` states that common case. VERIFIED on hardware (MinusA2 gen2, 2026-08-15): cleartext setup and encrypted control conversations both ran framed this way. `seeblue_envelope` (LEDGlow/SEEBlue motorcycle lighting): each write is [0x95][message_length u8][message_index u8][protocol_id u8][packet bytes][checksum u8], where message_length counts message_index through the last packet byte, message_index is a per-connection sequence number the client owns, protocol_id comes from the command's `protocol_id`, and the checksum is the 8-bit two's complement of message_length through the last packet byte. Protocol ids: 0x00 INTERNAL (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the device answers on this one), 0x03 BOOTLOADER (latent OTA: flashes an Intel HEX over BLE; no firmware HEX is public), 0x04 GENERIC, 0x10 LEDGlow snapshot and the v2 UI-change commands. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
         },
         "channel_tag": {
           "type": "integer",
@@ -2564,9 +2565,10 @@
                               "json_xor",
                               "json_aes",
                               "binary",
-                              "http"
+                              "http",
+                              "xml"
                             ],
-                            "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON; 'json_xor' = JSON under the 0xAB autokey cipher (Kasa); 'json_aes' = JSON under AES (Tuya's 6667 beacon is AES-128-ECB under a fixed, published discovery key); 'binary' = a packed struct (LIFX, KNXnet/IP DIB); 'http' = HTTP-style header lines (an SSDP-flavoured reply on a non-1900 port, e.g. Yeelight's UDP 1982)."
+                            "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON; 'json_xor' = JSON under the 0xAB autokey cipher (Kasa); 'json_aes' = JSON under AES (Tuya's 6667 beacon is AES-128-ECB under a fixed, published discovery key); 'binary' = a packed struct (LIFX, KNXnet/IP DIB); 'http' = HTTP-style header lines (an SSDP-flavoured reply on a non-1900 port, e.g. Yeelight's UDP 1982); 'xml' = one XML element (BiSecur's LogicBox discovery reply)."
                           },
                           "identity_mapping": {
                             "type": "object",
@@ -2585,7 +2587,7 @@
                                   "properties": {
                                     "source": {
                                       "type": "string",
-                                      "description": "Where in the reply the identity is, prefixed by the `response_format` dialect it is read with. `tlv:0x<type>` is a TLV record by its type byte(s) as hex (`tlv:0x0005`, the Ubiquiti v1 hostname record; `tlv:0x0001` its MAC); `tlv:<name>` a record by the name this spec's protocol block gives it (`tlv:mac`). `json:<dotted.path>` is a path into a JSON reply with numeric indices in brackets (`json:msg.data.device`, `json:system.get_sysinfo.deviceId`). `header:<Name>` is an HTTP-style header line of an `http` reply (`header:id` on Yeelight's port-1982 answer). `binary:<field>` names a field of a packed struct the protocol block lays out. A source whose dialect does not match `response_format` is unreadable and a validator should say so."
+                                      "description": "Where in the reply the identity is, prefixed by the `response_format` dialect it is read with. `tlv:0x<type>` is a TLV record by its type byte(s) as hex (`tlv:0x0005`, the Ubiquiti v1 hostname record; `tlv:0x0001` its MAC); `tlv:<name>` a record by the name this spec's protocol block gives it (`tlv:mac`). `json:<dotted.path>` is a path into a JSON reply with numeric indices in brackets (`json:msg.data.device`, `json:system.get_sysinfo.deviceId`). `header:<Name>` is an HTTP-style header line of an `http` reply (`header:id` on Yeelight's port-1982 answer). `binary:<field>` names a field of a packed struct the protocol block lays out. `xml:<attribute>` reads an attribute of the reply's root XML element (`xml:mac`, the BiSecur LogicBox address). A source whose dialect does not match `response_format` is unreadable and a validator should say so."
                                     }
                                   }
                                 }
@@ -4499,6 +4501,8 @@
                           "required": [
                             "type"
                           ],
+                          "$comment": "Closed: an undeclared key here is a typo or a fact no consumer reads, never a harmless extra. `min`/`max` bound the value a client will send, so `mx: 100` used to validate while the bound silently vanished, leaving a consumer to offer the type's whole range. `unevaluatedProperties` rather than `additionalProperties` because `number_semantics` (scale, unit, ...) is declared through the allOf `$ref`, which `additionalProperties` cannot see.",
+                          "unevaluatedProperties": false,
                           "allOf": [
                             {
                               "$ref": "#/$defs/number_semantics"
@@ -4633,10 +4637,11 @@
                                 "int32",
                                 "uint32",
                                 "varint",
+                                "float32",
                                 "bytes",
                                 "string"
                               ],
-                              "description": "Parameter value type. `varint` is a protobuf base-128 varint (LEB128, unsigned): variable width, used for protobuf command fields whose value can exceed 127 (e.g. SmartDawn brightness 0-255). int32/uint32/varint are all consumed by the mobile Rust encoder."
+                              "description": "Parameter value type. `varint` is a protobuf base-128 varint (LEB128, unsigned): variable width, used for protobuf command fields whose value can exceed 127 (e.g. SmartDawn brightness 0-255). `float32` is an IEEE-754 binary32 value in the declared endianness, for wire protocols such as Mousr's three-float drive vector; unlike integer parameters it preserves fractional values. int32/uint32/varint/float32 are all consumed by the mobile Rust encoder."
                             },
                             "description": {
                               "type": "string",
@@ -4742,10 +4747,11 @@
                           "int16",
                           "int32",
                           "uint32",
+                          "float32",
                           "bytes",
                           "string"
                         ],
-                        "description": "Field value type. int32/uint32/uint24 are consumed by the mobile Rust ValueType enum (fixed width, endianness honored; uint24 is a 3-byte unsigned field, e.g. KingSmith WiLink telemetry) — do not work around them with prose or paired uint16 fields."
+                        "description": "Field value type. int32/uint32/uint24/float32 are consumed by the mobile Rust ValueType enum (fixed width, endianness honored; uint24 is a 3-byte unsigned field and float32 is IEEE-754 binary32) — do not work around them with prose or paired uint16 fields."
                       },
                       "mask": {
                         "type": "integer",
@@ -5763,7 +5769,7 @@
     },
     "cloud": {
       "type": "object",
-      "description": "A vendor cloud service the device depends on. Present ONLY to record the dependency honestly -- this is the problem, not the interface we want consumers to build on. A spec may satisfy the schema with `cloud` alone, which is precisely the 'cloud-only, no local path' case: it makes that state machine-readable instead of leaving it as prose in a notes field, so a consumer can say 'this device stops working when the vendor does' rather than silently offering endpoints that will one day 404. Pair with `local_access` to record what, if anything, would free it.",
+      "description": "A vendor cloud service the device depends on. Present ONLY to record the dependency honestly -- this is the problem, not the interface we want consumers to build on. A spec may satisfy the schema with `cloud` alone, which is precisely the 'cloud-only, no local path' case: it makes that state machine-readable instead of leaving it as prose in a notes field, so a consumer can say 'this device stops working when the vendor does' rather than silently offering endpoints that will one day 404. Pair with `local_access` to record what, if anything, would free it. `egress` records the other half of the dependency -- the names the device itself reaches out to -- which is what an owner needs to cut it off deliberately, and what the published DNS blocklists are generated from. A device that works entirely locally still gets a `cloud` block (with `required: false`) when it phones home, because that is exactly the device whose local protocol an update can take away.",
       "required": [
         "required"
       ],
@@ -5781,7 +5787,232 @@
           "items": {
             "type": "string"
           },
-          "description": "Base hosts, e.g. 'https://app-api-fk.niu.com'. Note where hosts are region-dependent."
+          "description": "Base hosts, e.g. 'https://app-api-fk.niu.com'. Note where hosts are region-dependent. Free-form and kept for the specs that already carry it; new work belongs in `egress`, which says who contacts each host, what for, and what blocking it costs -- the facts a string list cannot hold."
+        },
+        "egress": {
+          "type": "array",
+          "description": "The hosts and addresses traffic leaves the LAN for on this device's behalf, one entry per name, each saying WHO opens the connection, WHAT it is for and WHAT STOPS if it is blocked. This is the structured form of `hosts`, and the one to write: `hosts` is a free-form string list whose entries carry schemes, paths and parenthesised prose, so nothing can act on it. `egress` is what scripts/generate_blocklists.py turns into DNS sinkhole lists (hosts, Pi-hole, AdGuard Home, dnsmasq, Unbound, RouterOS, RPZ), and the question it answers is the one an owner asks the day they decide to keep a device off the internet: which of these names can I block, and which one takes my schedules with it? A DNS list is the second layer, never the only one -- a device that hardcodes a resolver or an address walks past it, which is why `address` exists and why the firewall rule stays the recommendation. An empty or absent list is not a claim that the device contacts nothing.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "contacted_by",
+              "roles",
+              "when_blocked",
+              "verification"
+            ],
+            "properties": {
+              "host": {
+                "type": "string",
+                "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+                "description": "A bare DNS name, lowercase: no scheme, port, path or wildcard ('devs.tplinkcloud.com', not 'https://devs.tplinkcloud.com:50443/'). Whether its subdomains are covered is `match`, not an asterisk, because half the formats a blocklist is rendered into cannot express one."
+              },
+              "match": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "subdomains"
+                ],
+                "default": "exact",
+                "description": "'exact': this name only. 'subdomains': this name and every name under it -- for a vendor that rotates regional or numbered hosts under one parent (use1-..., eu-..., n-...) where listing them would always be one short. Never use 'subdomains' on a parent the vendor's app also lives under unless blocking the app is intended: a hosts file cannot express it anyway, and a dnsmasq or AdGuard list will take everything under it. The generator drops a 'subdomains' rule that would answer for a protected name beneath it (another entry's clock, or an 'impact: breaks' name), so a parent rule is only as blockable as everything under it; a more specific entry from the same spec under its own 'breaks' parent is read as a deliberate carve-out."
+              },
+              "address": {
+                "type": "string",
+                "pattern": "^[0-9a-f:.]+(?:/[0-9]{1,3})?$",
+                "description": "A literal IPv4 or IPv6 address, or CIDR block, the device connects to WITHOUT a DNS lookup. Exactly one of `host` and `address` is present. DNS blocking cannot touch these entries; the blocklist generator lists them as firewall rules, not DNS lines -- except a time source, which is never blocked."
+              },
+              "ports": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "port",
+                    "protocol"
+                  ],
+                  "properties": {
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "protocol": {
+                      "type": "string",
+                      "enum": [
+                        "tcp",
+                        "udp"
+                      ]
+                    }
+                  }
+                },
+                "description": "Destination ports, when known. What a firewall rule that names ports needs, and a strong hint at what the connection is (UDP 123 is time; TCP 8883 is MQTT over TLS)."
+              },
+              "contacted_by": {
+                "type": "string",
+                "enum": [
+                  "device",
+                  "app",
+                  "both"
+                ],
+                "description": "Who opens the connection. 'device': the hardware itself -- the entries a router-level block is for. 'app': only the vendor's phone app or web client; blocking it at the router breaks that app for every phone on the network and does nothing to the device, so the generator never lists these. 'both': the same name serves both. Recording app hosts is still worth it -- it is how a reader learns the host they found in a forum post was never the device's."
+              },
+              "roles": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "device_cloud",
+                    "firmware_check",
+                    "firmware_download",
+                    "provisioning",
+                    "account",
+                    "api",
+                    "telemetry",
+                    "advertising",
+                    "time",
+                    "connectivity_check",
+                    "content",
+                    "other"
+                  ]
+                },
+                "description": "What the connection is for. 'device_cloud': the device's standing link to the vendor (off-LAN remote control, state push, voice-assistant bridging) -- usually also the channel an update is ORDERED over. 'firmware_check': asks whether an update exists or fetches its manifest. 'firmware_download': serves the image itself. 'provisioning': used only while setting up, binding or activating. 'account': sign-in and account management. 'api': the vendor's app-facing API other than sign-in. 'telemetry': analytics, logs, crash reports. 'advertising': ad serving and ad measurement. 'time': NTP or an HTTP time source. Never blocked by the generator, because a device that loses its clock loses its schedules: an NTP source (UDP 123, or no `ports` recorded) is REDIRECTED to a LAN time server, and any other time source is left reachable -- so record `ports`, since a clock served over HTTPS cannot be stood in for by an NTP server. 'connectivity_check': an 'am I online?' probe. 'content': what the device is for on a TV or speaker -- streams, catalogues, an app store. 'other': say what in `notes`."
+              },
+              "region": {
+                "type": "string",
+                "description": "Where a host is one of a regional set, which region it serves ('US', 'EU', 'APAC')."
+              },
+              "when_blocked": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "impact"
+                ],
+                "properties": {
+                  "impact": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "degraded",
+                      "breaks",
+                      "unknown"
+                    ],
+                    "description": "Effect on LOCAL operation. 'none': local control is untouched; what stops is vendor-side (off-LAN access through the vendor, the vendor app away from home, updates). 'degraded': local control works but something on the LAN visibly suffers (schedules run at the wrong time, a status light complains, retries drain a battery). 'breaks': blocking it stops normal operation -- the device will not finish setup or boot, or refuses local commands without it; the generator leaves these out of every list and says so, and a combined list does not block the name on another spec's say-so. 'unknown': nobody has blocked it and watched -- the honest default."
+                  },
+                  "effect": {
+                    "type": "string",
+                    "description": "What stops, concretely -- the sentence an owner reads before adding the rule. Required unless `impact` is 'none'."
+                  },
+                  "workaround": {
+                    "type": "string",
+                    "description": "How to get the block without the cost, when a way is known: unbind first, set the clock locally, or answer the connection on the LAN instead of refusing it. The last is the one case where resolving a vendor name to a local machine does more than a sinkhole -- nothing there speaks the vendor's protocol, but a device that reboots when its cloud refuses it may settle when something accepts the connection."
+                  }
+                },
+                "allOf": [
+                  {
+                    "$comment": "'degraded' or 'breaks' with no description names a cost without saying what it is.",
+                    "if": {
+                      "properties": {
+                        "impact": {
+                          "enum": [
+                            "degraded",
+                            "breaks",
+                            "unknown"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "impact"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "effect"
+                      ]
+                    }
+                  }
+                ],
+                "description": "What blocking this entry costs. The field that turns a list of names into a list someone can act on."
+              },
+              "verification": {
+                "$ref": "#/$defs/verification"
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Where an unconfirmed entry comes from -- an open-source client's source file, a community blocklist, a forum capture -- and anything that weakens it. Required unless `verification` is 'confirmed', as it is for a host_compatibility verdict: 'python-kasa names it' and 'we watched the plug look it up' warrant different trust, and the person who pays for the difference is the one whose device updated anyway."
+              },
+              "notes": {
+                "type": "string"
+              }
+            },
+            "allOf": [
+              {
+                "$comment": "An entry is a name or an address, never both and never neither: the two are rendered by different mechanisms (a DNS line vs a firewall rule).",
+                "oneOf": [
+                  {
+                    "required": [
+                      "host"
+                    ],
+                    "not": {
+                      "required": [
+                        "address"
+                      ]
+                    }
+                  },
+                  {
+                    "required": [
+                      "address"
+                    ],
+                    "not": {
+                      "required": [
+                        "host"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "$comment": "`match` describes DNS names; an address has no subdomains.",
+                "if": {
+                  "required": [
+                    "address"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "match"
+                    ]
+                  }
+                }
+              },
+              {
+                "$comment": "An unconfirmed entry must cite its basis -- see `basis`.",
+                "if": {
+                  "properties": {
+                    "verification": {
+                      "enum": [
+                        "reported",
+                        "hypothesis"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "verification"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "basis"
+                  ]
+                }
+              }
+            ]
+          }
         },
         "auth": {
           "type": "object",
@@ -6482,6 +6713,30 @@
         ],
         "allOf": [
           {
+            "$comment": "Same contract as a BLE characteristic's command and an `http_endpoints` entry: an advanced invocation must explain itself, because consumers surface `advanced_reason` at the opt-in point. Added when the JuiceBox current-limit commands carried `advanced: true` that nothing in this block declared -- the key validated only because command objects are open, so a schema-driven consumer could have rendered a one-tap control that sets more current than the wiring carries.",
+            "if": {
+              "properties": {
+                "advanced": {
+                  "const": true
+                }
+              },
+              "required": [
+                "advanced"
+              ]
+            },
+            "then": {
+              "required": [
+                "advanced_reason"
+              ],
+              "properties": {
+                "advanced_reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          {
             "$comment": "A `transport: http` command without both halves of its address is documentation, not something a consumer may execute -- and the catalogue carried four (logitech-harmony-hub) that parsed, validated and silently resolved to nothing. Enforced rather than described.",
             "if": {
               "properties": {
@@ -6522,6 +6777,16 @@
         "properties": {
           "description": {
             "type": "string"
+          },
+          "advanced": {
+            "type": "boolean",
+            "default": false,
+            "description": "Same meaning as on a BLE characteristic's command: the invocation goes further than a typical consumer app would (sets a charger's current limit, writes EEPROM, reboots into a bootloader), so a consumer puts it behind a deliberate action and surfaces `advanced_reason` there. A SIGNPOST, NOT A GATE: keep the capability available, do not hide it or require an account for it. Requires `advanced_reason`."
+          },
+          "advanced_reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Shown to the user at the opt-in point, as for a BLE command: what changes, the realistic consequence, and how to recover."
           },
           "transport": {
             "type": "string",
@@ -6624,6 +6889,35 @@
                   "$ref": "#/$defs/number_semantics"
                 },
                 {
+                  "$comment": "`min`/`max` bound a NUMBER. A `bytes` parameter is a run of octets with no numeric range, so a bound on one can only have meant its length -- which is what `min_length`/`max_length` say. Fardriver wrote `data: {type: bytes, min: 1, max: 26}` meaning 1-26 bytes; a consumer reading it as a value range rejected the parameter and lost the whole spec with it. Left legal, the two readings are indistinguishable and each is plausible.",
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "const": "bytes"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  "then": {
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "min"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "max"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
                   "$comment": "`default` and `source` are mutually exclusive because they answer the same question -- what happens when the caller supplies nothing -- with opposite instructions. `default` says substitute this constant; `source` says the real value lives on the device and a send without it must FAIL. A parameter carrying both would let a renderer quietly substitute the constant whenever the read-back fails, which on the Crock-Pot is a cleared timer (or a cooker stopped mid-run) with nothing on screen saying so. The first published version of the Wemo spec made exactly this mistake.",
                   "not": {
                     "required": [
@@ -6652,6 +6946,16 @@
                 },
                 "max": {
                   "type": "number"
+                },
+                "min_length": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Fewest octets this `bytes` parameter may carry. The length vocabulary for `bytes`, where `min`/`max` are the value vocabulary for numbers -- state a fixed width as equal `min_length`/`max_length` (a two-byte CRC is 2 and 2)."
+                },
+                "max_length": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Most octets this `bytes` parameter may carry, in the same terms as `min_length`."
                 },
                 "enum": {
                   "type": "array",
@@ -6688,7 +6992,9 @@
                   "default": 0,
                   "description": "Value XORed into an `auto: checksum` result after the mod-256 sum, or the SEED an `auto: subtract_checksum` span is subtracted from -- exactly as the BLE parameter key. Absent means 0 (plain additive checksum). Not the reduction operator: an XOR-reduced frame is `auto: xor_checksum`."
                 }
-              }
+              },
+              "$comment": "Closed: an undeclared key here is a typo or a fact no consumer reads, never a harmless extra. `min`/`max` bound the value a client will send, so `mx: 100` used to validate while the bound silently vanished, leaving a consumer to offer the type's whole range. `unevaluatedProperties` rather than `additionalProperties` because `number_semantics` (scale, unit, ...) is declared through the allOf `$ref`, which `additionalProperties` cannot see.",
+              "unevaluatedProperties": false
             }
           },
           "returns": {

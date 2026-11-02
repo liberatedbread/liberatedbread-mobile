@@ -76,11 +76,13 @@ UdpProbeDto _probe({
   required String specKey,
   required String address,
   required int port,
+  int? listenPort,
 }) => UdpProbeDto(
   specKey: specKey,
   index: 0,
   displayName: specKey,
   port: port,
+  listenPort: listenPort,
   broadcastAddress: address,
   probe: Uint8List.fromList(const [0x01]),
   passiveOk: false,
@@ -287,6 +289,36 @@ void main() {
       ),
     );
     expect(clock.elapsed, lessThan(const Duration(seconds: 3)));
+  });
+
+  test('a declared reply port is bound before the probe is sent', () async {
+    final network = _Network(refuse: (a, p) => false);
+    final bisecur = _probe(
+      specKey: 'hormann-bisecur-gateway.yaml',
+      address: '255.255.255.255',
+      port: 4001,
+      listenPort: 4002,
+    );
+    final service = RealNetworkScanService(
+      multicastLock: MulticastLock(isSupported: false),
+      interfaceLister:
+          ({
+            bool includeLoopback = false,
+            bool includeLinkLocal = false,
+            InternetAddressType type = InternetAddressType.any,
+          }) async => [],
+      probeSource: () async => [bisecur],
+      binder: network.bind,
+      isApplePlatform: false,
+    );
+
+    await service
+        .scan(timeout: const Duration(milliseconds: 300))
+        .drain<void>();
+
+    final socket = network.sentTo('255.255.255.255', 4001).single;
+    expect(socket.port, 4002);
+    expect(socket.sent, hasLength(2));
   });
 
   test(

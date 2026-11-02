@@ -119,6 +119,18 @@ binds only `turn_off: power_off`
 to bind, no power state to read; an unreachable socket is the closest thing
 to "off" webOS offers.
 
+## Blocking updates without losing the clock
+
+Firmware updates come from `snu.lge.com` (the check) and `su.lge.com` /
+`su-ssl.lge.com` (the image) — the names the webOS Homebrew Channel's "Block
+system updates" option points at localhost. Blocking them, and LG's ad and
+telemetry names, is safe. Blocking the **Service Delivery Platform**
+(`<country>.lgtvsdp.com`, and `nextlgsdp.com` on newer sets) is not: the TV
+takes its clock from it (it is not known to use NTP), and apps fail
+certificate checks once the clock resets. The spec's `cloud.egress` records each name and its cost;
+the generated lists leave the clock out. See
+[Blocking Vendor Updates and the Cloud](../blocking-vendor-updates.md#lg-webos-what-not-to-block).
+
 ## Tools Used
 
 - [x] Source reading: LG Connect SDK, aiowebostv, bscpylgtv, openHAB lgwebos
