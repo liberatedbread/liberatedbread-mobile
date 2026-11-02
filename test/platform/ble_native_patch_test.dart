@@ -31,17 +31,29 @@ void main() {
     );
   });
 
-  test('a nil or unsupported descriptor value becomes NSNull, not a crash', () {
+  test('a nil or unsupported descriptor value becomes empty, not NSNull', () {
+    // Not NSNull either: BmDescriptorData.fromMap casts `value` to a
+    // non-nullable Uint8List, so a null throws in the Dart handler and the
+    // read waits out its timeout. ble_descriptor_read_channel_test.dart runs
+    // the empty value through that handler.
     expect(
       source,
-      contains('@"value":                  data ? data : [NSNull null],'),
+      contains('@"value":                  data ?: [NSData data],'),
     );
+    expect(source, isNot(contains('data ? data : [NSNull null]')));
   });
 
   test('the override resolves to the local BSD-licensed source', () {
     final lock = File('pubspec.lock').readAsStringSync();
-    expect(lock, contains('source: path'));
-    expect(lock, contains('path: "packages/flutter_blue_plus_darwin"'));
+    // The entry itself, up to the next package: another path dependency's
+    // `source: path` elsewhere in the lock must not satisfy this.
+    final entry = RegExp(
+      r'^  flutter_blue_plus_darwin:\n(?:    .*\n|      .*\n)*',
+      multiLine: true,
+    ).firstMatch(lock)?.group(0);
+    expect(entry, isNotNull);
+    expect(entry, contains('source: path'));
+    expect(entry, contains('path: "packages/flutter_blue_plus_darwin"'));
     expect(
       File('packages/flutter_blue_plus_darwin/LICENSE').readAsStringSync(),
       contains('Redistribution and use in source and binary forms'),

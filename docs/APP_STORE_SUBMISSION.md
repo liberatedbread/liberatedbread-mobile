@@ -414,8 +414,9 @@ Rust core's required-reason file-timestamp APIs (ITMS-91053), and `release.sh`
 keeps the build number rising per upload (Step 5). The two native Bluetooth
 crashers found in that audit are now guarded in the local BSD plugin override:
 `NSNull` options are ignored instead of being messaged as booleans, and a nil or
-unsupported descriptor value is returned as `NSNull` instead of being inserted
-into an `NSDictionary` literal. `test/platform/ble_native_patch_test.dart` pins
+unsupported descriptor value is returned as an empty value instead of being
+inserted into an `NSDictionary` literal (not as `NSNull`, which the Dart side
+cannot decode, so a failed read would never report back). `test/platform/ble_native_patch_test.dart` pins
 both guards and a release iOS build compiles and links them. Real-device BLE and
 LAN validation is still outstanding: both paired iPhones rejected the developer
 disk image before the hardware suite could start, so do not read that as a
