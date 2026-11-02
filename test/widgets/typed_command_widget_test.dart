@@ -346,6 +346,36 @@ const _advancedChar = CharacteristicDto(
   formatFields: [],
 );
 
+// A float32 parameter with both bounds declared: a continuous quantity (an
+// Orba-style pitch bend), not three integers to pick between.
+const _boundedFloatChar = CharacteristicDto(
+  uuid: _char,
+  name: 'Command write',
+  canRead: false,
+  canWrite: true,
+  canNotify: false,
+  commands: [
+    CommandDto(
+      name: 'set_bend',
+      description: 'Bend the pitch',
+      isFixed: false,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: false,
+      parameters: [
+        ParameterDto(
+          name: 'bend',
+          valueType: 'float32',
+          min: -1,
+          max: 1,
+          userSettable: true,
+        ),
+      ],
+    ),
+  ],
+  formatFields: [],
+);
+
 Widget _wrap({
   required FakeBleService ble,
   required FakeSpecCodec codec,
@@ -769,6 +799,33 @@ void main() {
     // checksum itself.
     expect(call.params.containsKey('checksum'), isFalse);
     expect(call.params.keys, ['speed']);
+  });
+
+  testWidgets('a bounded float32 parameter sends a fractional value', (
+    tester,
+  ) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([3]));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _boundedFloatChar),
+    );
+
+    // -1..1 is a continuous range, not the three whole numbers in it.
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.divisions, isNull);
+    expect(slider.min, -1);
+    expect(slider.max, 1);
+    slider.onChanged!(0.37);
+    await tester.pump();
+    expect(find.text('Bend: 0.37'), findsOneWidget);
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+
+    final call = codec.encodeCalls.firstWhere(
+      (c) => c.commandName == 'set_bend',
+    );
+    expect(call.params['bend'], closeTo(0.37, 1e-9));
   });
 
   testWidgets('a scaled parameter presents in decoded units and sends raw', (
