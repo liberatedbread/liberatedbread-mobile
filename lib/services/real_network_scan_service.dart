@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -1897,11 +1898,11 @@ class RealNetworkScanService implements NetworkScanService {
       return TransportOutcome.skipped;
     }
     final isEvidence = target.address == _limitedBroadcast;
-    final socket = await binder(
-      InternetAddress.anyIPv4,
-      listenPort,
-      reuseAddress: true,
-    );
+    // A declared reply port is bound through the session, once per scan:
+    // BiSecur's :4002 is also Govee's, and so may be any port a spec names.
+    final socket = listenPort == 0
+        ? await binder(InternetAddress.anyIPv4, 0, reuseAddress: true)
+        : await session.bindListenPort(binder, listenPort);
     if (session.stoppedDuringBind(socket)) return TransportOutcome.skipped;
     session.catalogueProbeSockets.add(socket);
     socket.broadcastEnabled = true;
@@ -2483,12 +2484,9 @@ class RealNetworkScanService implements NetworkScanService {
   ) async {
     final RawDatagramSocket recv;
     try {
-      recv = await binder(
-        InternetAddress.anyIPv4,
-        _goveeRecvPort,
-        reuseAddress: true,
-        reusePort: true,
-      );
+      // Through the session, not the binder: BiSecur's catalogue probe is
+      // answered on :4002 too, and the two must share one bind of it.
+      recv = await session.bindListenPort(binder, _goveeRecvPort);
     } catch (e) {
       Log.net.debug('Govee :$_goveeRecvPort bind failed: $e');
       return TransportOutcome.skipped;
@@ -3216,6 +3214,64 @@ class _ScanSession {
   /// file, so how many there are is not known here.
   final List<RawDatagramSocket> catalogueProbeSockets = [];
 
+  /// The reply ports more than one transport may listen on, bound once each.
+  ///
+  /// Govee and BiSecur are both answered on UDP 4002, and each transport
+  /// used to bind it for itself in the same scan. On iOS and macOS the
+  /// second bind fails with EADDRINUSE. On Linux and Android it succeeds, and
+  /// each unicast reply is then delivered to ONE of the two sockets (the
+  /// later bind, on Linux), so one protocol's devices were never heard.
+  /// Keyed by port; the in-flight bind is what is stored, so two transports
+  /// asking at once share it.
+  final Map<int, Future<_SharedListenPort>> _listenPorts = {};
+  final Set<_SharedListenPort> _openListenPorts = {};
+
+  /// A socket on [port] for one transport, sharing a single bind of the port
+  /// with every other transport of this scan that asks for it.
+  ///
+  /// What comes back behaves as a socket of the caller's own: it sees every
+  /// datagram that reaches the port, and closing it releases the caller's
+  /// share — the port itself closes with the last one. Each caller parses
+  /// what it is handed and drops what is not its protocol's, which both
+  /// transports on :4002 already did with traffic from strangers.
+  Future<RawDatagramSocket> bindListenPort(
+    DatagramBinder binder,
+    int port,
+  ) async {
+    while (true) {
+      final pending = _listenPorts[port] ??= binder(
+        InternetAddress.anyIPv4,
+        port,
+        reuseAddress: true,
+        reusePort: true,
+      ).then(_SharedListenPort.new);
+      // Only this bind's entry: a newer bind of the port may stand there.
+      void forget() {
+        if (identical(_listenPorts[port], pending)) {
+          _listenPorts.remove(port)?.ignore();
+        }
+      }
+
+      final _SharedListenPort shared;
+      try {
+        shared = await pending;
+      } catch (_) {
+        // A failed bind is not remembered: the next caller tries again, and
+        // each caller handles the failure as it handled its own bind's.
+        forget();
+        rethrow;
+      }
+      // Every earlier holder may have let go between the bind and this
+      // caller's turn, and a closed port cannot be joined: bind afresh.
+      if (shared.closed) {
+        forget();
+        continue;
+      }
+      _openListenPorts.add(shared);
+      return shared.attach();
+    }
+  }
+
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
   /// transport parked in a delay never looks at a flag.
@@ -3280,5 +3336,162 @@ class _ScanSession {
       socket.close();
     }
     catalogueProbeSockets.clear();
+    for (final shared in _openListenPorts.toList()) {
+      shared.close();
+    }
   }
+}
+
+/// One bind of a UDP port, fanned out to every transport listening on it.
+///
+/// Every datagram that arrives is handed to every attached view. A send
+/// error — dart:io's refusal, which also closes the socket — goes only to
+/// the views that have sent, since the others did not ask for that send and
+/// would misread it as their own; the closing goes to all of them.
+class _SharedListenPort {
+  _SharedListenPort(this.socket) {
+    socket.listen(_onEvent, onError: _onError, onDone: close);
+  }
+
+  final RawDatagramSocket socket;
+  final List<_ListenPortView> _views = [];
+  bool closed = false;
+
+  _ListenPortView attach() {
+    final view = _ListenPortView(this);
+    _views.add(view);
+    return view;
+  }
+
+  void _onEvent(RawSocketEvent event) {
+    if (event != RawSocketEvent.read) return;
+    for (Datagram? d = socket.receive(); d != null; d = socket.receive()) {
+      for (final view in _views.toList()) {
+        view._deliver(d);
+      }
+    }
+  }
+
+  void _onError(Object error, StackTrace stack) {
+    for (final view in _views.where((v) => v._sent).toList()) {
+      view._events.addError(error, stack);
+    }
+  }
+
+  void _detach(_ListenPortView view) {
+    _views.remove(view);
+    if (_views.isEmpty) close();
+  }
+
+  /// Closes the port and ends every view still attached.
+  void close() {
+    if (closed) return;
+    closed = true;
+    socket.close();
+    for (final view in _views.toList()) {
+      view._end();
+    }
+    _views.clear();
+  }
+}
+
+/// One transport's share of a [_SharedListenPort], as a socket of its own.
+///
+/// Sends and socket options go to the shared socket — the transports that
+/// share a port set the same options on it. Receives come from this view's
+/// own inbox, so one transport reading a datagram does not take it from
+/// another, and [close] releases this share rather than the port.
+class _ListenPortView extends Stream<RawSocketEvent>
+    implements RawDatagramSocket {
+  _ListenPortView(this._port);
+
+  final _SharedListenPort _port;
+  final StreamController<RawSocketEvent> _events = StreamController();
+  final Queue<Datagram> _inbox = Queue();
+  bool _sent = false;
+  bool _closed = false;
+
+  RawDatagramSocket get _socket => _port.socket;
+
+  void _deliver(Datagram datagram) {
+    if (_closed) return;
+    _inbox.add(datagram);
+    _events.add(RawSocketEvent.read);
+  }
+
+  void _end() {
+    if (_closed) return;
+    _closed = true;
+    _inbox.clear();
+    _events.add(RawSocketEvent.closed);
+    unawaited(_events.close());
+  }
+
+  @override
+  StreamSubscription<RawSocketEvent> listen(
+    void Function(RawSocketEvent event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => _events.stream.listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+
+  @override
+  int send(List<int> buffer, InternetAddress address, int port) {
+    if (_closed) return 0;
+    _sent = true;
+    return _socket.send(buffer, address, port);
+  }
+
+  @override
+  Datagram? receive() => _inbox.isEmpty ? null : _inbox.removeFirst();
+
+  @override
+  void close() {
+    if (_closed) return;
+    _end();
+    _port._detach(this);
+  }
+
+  @override
+  int get port => _socket.port;
+  @override
+  InternetAddress get address => _socket.address;
+  @override
+  bool get broadcastEnabled => _socket.broadcastEnabled;
+  @override
+  set broadcastEnabled(bool value) => _socket.broadcastEnabled = value;
+  @override
+  bool get readEventsEnabled => _socket.readEventsEnabled;
+  @override
+  set readEventsEnabled(bool value) => _socket.readEventsEnabled = value;
+  @override
+  bool get writeEventsEnabled => _socket.writeEventsEnabled;
+  @override
+  set writeEventsEnabled(bool value) => _socket.writeEventsEnabled = value;
+  @override
+  bool get multicastLoopback => _socket.multicastLoopback;
+  @override
+  set multicastLoopback(bool value) => _socket.multicastLoopback = value;
+  @override
+  int get multicastHops => _socket.multicastHops;
+  @override
+  set multicastHops(int value) => _socket.multicastHops = value;
+  @override
+  NetworkInterface? multicastInterface;
+  @override
+  void joinMulticast(InternetAddress group, [NetworkInterface? interface]) =>
+      _socket.joinMulticast(group, interface);
+  @override
+  void leaveMulticast(InternetAddress group, [NetworkInterface? interface]) =>
+      _socket.leaveMulticast(group, interface);
+  @override
+  Uint8List getRawOption(RawSocketOption option) =>
+      _socket.getRawOption(option);
+  @override
+  void setRawOption(RawSocketOption option) => _socket.setRawOption(option);
 }

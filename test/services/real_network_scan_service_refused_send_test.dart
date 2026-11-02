@@ -56,12 +56,21 @@ class _Network {
 
   _Network({required this.refuse, this.answer});
 
-  /// A datagram from [from] arriving at every socket bound to [port].
+  /// A unicast datagram from [from] arriving at [port].
+  ///
+  /// Delivered to ONE socket, the most recently bound that is still open —
+  /// what Linux does when two sockets share a UDP port through SO_REUSEADDR
+  /// (measured with dart:io: every datagram went to the later bind, none to
+  /// the earlier). A fake that copied it to every socket on the port would
+  /// hide exactly the loss a second bind of a port causes.
   void deliver(int port, String data, {required String from}) {
-    for (final socket in sockets.where((s) => s.port == port)) {
-      socket.deliver(utf8.encode(data), from: InternetAddress(from));
-    }
+    final open = sockets.where((s) => s.port == port && !s.closed);
+    if (open.isEmpty) return;
+    open.last.deliver(utf8.encode(data), from: InternetAddress(from));
   }
+
+  /// How many times a socket was bound to [port].
+  int bindsOf(int port) => sockets.where((s) => s.port == port).length;
 
   Future<RawDatagramSocket> bind(
     dynamic host,
@@ -167,6 +176,10 @@ final _bisecur = _probe(
 const _bisecurReply =
     '<LogicBox swVersion="2.5.0" hwVersion="1.0.0" '
     'mac="54:10:EC:00:00:01" protocol="MCP V3.0"/>';
+
+const _goveeReply =
+    '{"msg":{"cmd":"scan","data":{"ip":"192.0.2.50",'
+    '"device":"AA:BB:CC:DD:EE:FF:00:11","sku":"H6159"}}}';
 
 /// Every device a short scan with [probes] found on [network].
 Future<List<NetworkDevice>> _scan(_Network network, List<UdpProbeDto> probes) {
@@ -395,6 +408,38 @@ void main() {
     final devices = await _scan(network, [_bisecur]);
 
     expect(devices.map((d) => d.host), contains('192.0.2.42'));
+  });
+
+  test('Govee and BiSecur share one :4002 and both are heard', () async {
+    // Both protocols are answered on UDP 4002: Govee's JSON to its 4001
+    // multicast scan, BiSecur's XML to its 4001 broadcast. Each transport
+    // used to bind 4002 for itself in the same scan. On iOS and macOS the
+    // second bind fails with EADDRINUSE; on Linux and Android it succeeds and
+    // each unicast reply then reaches one of the two sockets, so one
+    // protocol's devices go missing.
+    final network = _Network(
+      refuse: (a, p) => false,
+      answer: (network, datagram) {
+        if (datagram.port != 4001) return;
+        if (datagram.address.address == '239.255.255.250') {
+          network.deliver(4002, _goveeReply, from: '192.0.2.50');
+        } else if (datagram.address.address == '255.255.255.255') {
+          network.deliver(4002, _bisecurReply, from: '192.0.2.42');
+        }
+      },
+    );
+
+    final devices = await _scan(network, [_bisecur]);
+
+    expect(network.bindsOf(4002), 1, reason: 'one :4002 per scan');
+    final hosts = devices.map((d) => d.host).toSet();
+    expect(hosts, contains('192.0.2.50'), reason: 'the Govee strip');
+    expect(hosts, contains('192.0.2.42'), reason: 'the BiSecur gateway');
+    // Each parser ignored the other's reply rather than inventing a device.
+    final bisecur = devices.singleWhere((d) => d.host == '192.0.2.42');
+    expect(bisecur.answeredLanProtocols, ['bisecur']);
+    final govee = devices.singleWhere((d) => d.host == '192.0.2.50');
+    expect(govee.txt['device'], 'AA:BB:CC:DD:EE:FF:00:11');
   });
 
   test(
