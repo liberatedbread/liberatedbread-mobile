@@ -501,7 +501,12 @@ Map<String, String> readUdpIdentityFields(
     if (body == null) return null;
     try {
       return xml = XmlDocument.parse(body).rootElement;
-    } on XmlParserException {
+    } on FormatException {
+      // Not XmlParserException: parse validates nesting and namespaces too,
+      // and a mismatched tag (XmlTagException) or an undeclared prefix
+      // (XmlNamespaceException) is a sibling of it, not a subclass. All
+      // three implement FormatException. One escaping here would end the
+      // caller's receive loop, and every later reply of the scan with it.
       return null;
     }
   }
