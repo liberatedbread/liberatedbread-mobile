@@ -6159,15 +6159,13 @@ pub(crate) fn decode_with_protocol(
                 // reading has no number there but still renders as text.
                 if let Some(raw) = value.as_number() {
                     dto.decoded_number = finite(Some(semantics.transform(raw)));
-                    if matches!(value, DecodedValue::Float(_))
-                        && m.scale.is_none()
-                        && m.value_offset.is_none()
-                    {
-                        dto.decoded_text = Some(crate::codec::number::render(
-                            raw,
-                            crate::codec::number::MAX_DECIMALS,
-                        ));
-                        dto.decimals = Some(crate::codec::number::MAX_DECIMALS);
+                    // A float32 carries its own fraction, so its places do
+                    // not come from the transform — an integral `scale: 64`
+                    // used to send it down the integer path and render
+                    // 9.257 as "9". See `NumberSemantics::float_decimals`.
+                    if matches!(value, DecodedValue::Float(_)) {
+                        dto.decoded_text = Some(semantics.render_float(raw));
+                        dto.decimals = Some(semantics.float_decimals());
                     } else {
                         dto.decoded_text = Some(semantics.render(raw));
                         dto.decimals = Some(semantics.decimals());
@@ -10151,5 +10149,61 @@ entities:
         assert_eq!(entity.setpoint_max, None);
         assert_eq!(action.min, None);
         assert_eq!(action.max, None);
+    }
+
+    #[test]
+    fn a_float32_with_an_integral_transform_keeps_its_decimals() {
+        // The 6-place rendering a bare float32 gets used to need BOTH scale
+        // and offset absent; an integral `scale: 64` sent the reading down
+        // the integer path, whose transform implies no places, so the Hot
+        // Wheels portal's 9.257 rendered "9" and `scale: 1.0` turned 0.1446
+        // into "0". A float's fraction is on the wire, not in its scale.
+        let yaml = |extra: &str| {
+            format!(
+                r#"
+device:
+  name: "Portal"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "af0a6ec7-0001-000c-84a0-91559fc6f0de"
+    name: "Portal"
+    characteristics:
+      - uuid: "af0a6ec7-0006-000c-84a0-91559fc6f0de"
+        name: "Speed"
+        properties: ["indicate"]
+        format:
+          - offset: 0
+            length: 4
+            name: "speed_raw"
+            type: "float32"
+            endianness: "little"{extra}
+"#
+            )
+        };
+        let bytes = vec![0xB0, 0x1C, 0x14, 0x3E]; // 0.14464068...
+        for (extra, text) in [
+            ("", "0.144641"),
+            ("\n            scale: 64", "9.257004"),
+            ("\n            scale: 1.0", "0.144641"),
+            ("\n            value_offset: 2", "2.144641"),
+            // A fractional transform's places are a floor, not a ceiling.
+            ("\n            scale: 0.5", "0.072320"),
+        ] {
+            let values = decode_value(
+                Some(yaml(extra)),
+                None,
+                "af0a6ec7-0006-000c-84a0-91559fc6f0de".to_string(),
+                bytes.clone(),
+            )
+            .unwrap();
+            assert_eq!(values[0].decoded_text.as_deref(), Some(text), "{extra}");
+            assert_eq!(
+                values[0].decimals,
+                Some(crate::codec::number::MAX_DECIMALS),
+                "{extra}"
+            );
+        }
     }
 }

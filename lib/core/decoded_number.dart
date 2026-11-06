@@ -153,7 +153,13 @@ String decodedTextOf(
         : decoded;
     return rounded.toStringAsFixed(decimalsForPrecision(precision));
   }
-  return decoded.toStringAsFixed(decimalsForTransform(scale: scaleOverride));
+  // A float32 carries its own fraction, so the entity scale's places are not
+  // the reading's: an integral `scale: 64` printed 9.257 as "9". Every place
+  // worth showing, as `NumberSemantics::float_decimals` does in Rust.
+  final decimals = value.valueType == 'float'
+      ? _maxDecimals
+      : decimalsForTransform(scale: scaleOverride);
+  return decoded.toStringAsFixed(decimals);
 }
 
 /// The reading as a person should read it: the `values:` code-table name when

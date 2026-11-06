@@ -216,19 +216,45 @@ impl NumberSemantics {
         }
     }
 
+    /// [`Self::decimals`] for a reading whose wire type is a float.
+    ///
+    /// A transform's places describe the resolution of an INTEGER on the
+    /// wire: `raw * 0.01` is never finer than a hundredth, and `raw * 64` is
+    /// always whole. A float32 carries its own fraction, so the same
+    /// transform says nothing about how many places the reading has — the
+    /// Hot Wheels portal's 0.1446 scaled by 64 is 9.257, and taking the
+    /// integral scale's word for it rendered "9". A float keeps every place
+    /// worth showing ([`MAX_DECIMALS`], which is never fewer than any
+    /// transform implies), unless the entity's `precision` says how finely
+    /// the device actually knows it.
+    pub fn float_decimals(&self) -> u32 {
+        match self.precision {
+            Some(p) if p > 0.0 => decimals_for_precision(p),
+            _ => MAX_DECIMALS,
+        }
+    }
+
     /// `raw` as the text to show: transformed, rounded to the declared
     /// precision, and printed at the places that precision is honest about.
     ///
     /// Never carries the unit or the `values:` code-table label — those are
     /// separate statements a caller combines as its layout needs.
     pub fn render(&self, raw: f64) -> String {
-        let mut value = self.transform(raw);
-        if let Some(p) = self.precision {
-            if p > 0.0 {
-                value = round_to_precision(value, p);
-            }
+        render(self.rounded(raw), self.decimals())
+    }
+
+    /// [`Self::render`] for a float reading, at [`Self::float_decimals`].
+    pub fn render_float(&self, raw: f64) -> String {
+        render(self.rounded(raw), self.float_decimals())
+    }
+
+    /// `raw` transformed and rounded to the declared precision, if any.
+    fn rounded(&self, raw: f64) -> f64 {
+        let value = self.transform(raw);
+        match self.precision {
+            Some(p) if p > 0.0 => round_to_precision(value, p),
+            _ => value,
         }
-        render(value, self.decimals())
     }
 }
 
@@ -494,6 +520,34 @@ mod tests {
         assert_eq!(s.decimals(), 2);
         assert_eq!(s.render(2350.0), "23.50");
         assert_eq!(s.invert(23.5), Some(2350.0));
+    }
+
+    #[test]
+    fn a_float_keeps_its_places_whatever_the_transform_implies() {
+        for semantics in [
+            NumberSemantics::default(),
+            NumberSemantics::from_field(Some(64.0), None),
+            NumberSemantics::from_field(Some(1.0), Some(-40.0)),
+            NumberSemantics::from_field(Some(0.01), None),
+        ] {
+            assert_eq!(semantics.float_decimals(), MAX_DECIMALS, "{semantics:?}");
+        }
+        let speed = NumberSemantics::from_field(Some(64.0), None);
+        assert_eq!(speed.render_float(0.144_640_684_127_807_62), "9.257004");
+        // The integer rendering of the same transform has no places at all,
+        // which is the answer a float must not get.
+        assert_eq!(speed.render(0.144_640_684_127_807_62), "9");
+    }
+
+    #[test]
+    fn a_declared_precision_still_narrows_a_float() {
+        let s = NumberSemantics {
+            scale: Some(64.0),
+            precision: Some(0.1),
+            ..Default::default()
+        };
+        assert_eq!(s.float_decimals(), 1);
+        assert_eq!(s.render_float(0.144_640_684_127_807_62), "9.3");
     }
 
     #[test]
