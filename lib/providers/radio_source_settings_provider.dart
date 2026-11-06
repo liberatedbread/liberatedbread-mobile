@@ -1,6 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -171,8 +173,25 @@ final radioHttpClientProvider = Provider<http.Client>((ref) {
 });
 
 final radioSourceCacheProvider = Provider<RadioSourceCache>((ref) {
-  return RadioSourceCache(cacheDirResolver: getApplicationDocumentsDirectory);
+  // Application Support, not Documents: see RadioSourceCache. Documents is
+  // where earlier builds put it, so that copy is retired on first use, but
+  // only where Documents is the app's own. On iOS, Android and the sandboxed
+  // macOS build it is a per-app container; on Linux and Windows it is the
+  // user's shared ~/Documents, where a `radio_cache` folder is not provably
+  // ours, and retiring it is a recursive delete. There the old copy stays.
+  return RadioSourceCache(
+    cacheDirResolver: getApplicationSupportDirectory,
+    legacyDirResolver: _documentsIsAppPrivate
+        ? getApplicationDocumentsDirectory
+        : null,
+  );
 });
+
+/// Whether this platform's documents directory belongs to the app alone.
+bool get _documentsIsAppPrivate => switch (defaultTargetPlatform) {
+  TargetPlatform.iOS || TargetPlatform.android || TargetPlatform.macOS => true,
+  _ => false,
+};
 
 final repeaterBookClientProvider = Provider<RepeaterBookClient>((ref) {
   final bundled = ref.watch(radioBundledDataProvider);

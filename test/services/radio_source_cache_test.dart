@@ -157,4 +157,81 @@ void main() {
     // Clearing twice is not an error.
     await cache.clear();
   });
+
+  group('the copy an earlier build left in Documents', () {
+    // Several megabytes of re-downloadable listings, backed up to iCloud
+    // from Documents and orphaned there once the cache moved.
+    late Directory documents;
+
+    setUp(() async {
+      documents = await Directory.systemTemp.createTemp('radio_cache_legacy');
+    });
+
+    tearDown(() async {
+      if (await documents.exists()) await documents.delete(recursive: true);
+    });
+
+    RadioSourceCache moved() => RadioSourceCache(
+      cacheDirResolver: () async => temp,
+      legacyDirResolver: () async => documents,
+    );
+
+    Future<void> leftInDocuments(String state) => RadioSourceCache(
+      cacheDirResolver: () async => documents,
+    ).write('repeaterbook', state, [_listing]);
+
+    test('moves into the new home when that is empty', () async {
+      await leftInDocuments('CT');
+
+      final cached = await moved().read('repeaterbook', 'CT');
+
+      // Kept, not refetched: a stale copy is what answers offline.
+      expect(cached!.listings, hasLength(1));
+      expect(Directory('${documents.path}/radio_cache').existsSync(), isFalse);
+    });
+
+    test('is deleted, not merged, when the new home has its own', () async {
+      await cache.write('repeaterbook', 'MA', [_listing]);
+      await leftInDocuments('CT');
+
+      final cache2 = moved();
+      expect(await cache2.read('repeaterbook', 'MA'), isNotNull);
+      expect(await cache2.read('repeaterbook', 'CT'), isNull);
+      expect(Directory('${documents.path}/radio_cache').existsSync(), isFalse);
+    });
+
+    test('is looked for once, not on every read', () async {
+      var asked = 0;
+      final cache2 = RadioSourceCache(
+        cacheDirResolver: () async => temp,
+        legacyDirResolver: () async {
+          asked++;
+          return documents;
+        },
+      );
+      await cache2.write('repeaterbook', 'CT', [_listing]);
+      await cache2.read('repeaterbook', 'CT');
+      await cache2.read('repeaterbook', 'CT');
+      expect(asked, 1);
+    });
+
+    test('an unreachable Documents never fails a read or a write', () async {
+      final cache2 = RadioSourceCache(
+        cacheDirResolver: () async => temp,
+        legacyDirResolver: () async =>
+            throw const FileSystemException('no documents directory'),
+      );
+      await cache2.write('repeaterbook', 'CT', [_listing]);
+      expect((await cache2.read('repeaterbook', 'CT'))!.listings, hasLength(1));
+    });
+
+    test('a platform whose two directories coincide keeps its cache', () async {
+      await cache.write('repeaterbook', 'CT', [_listing]);
+      final same = RadioSourceCache(
+        cacheDirResolver: () async => temp,
+        legacyDirResolver: () async => temp,
+      );
+      expect((await same.read('repeaterbook', 'CT'))!.listings, hasLength(1));
+    });
+  });
 }
