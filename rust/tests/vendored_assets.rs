@@ -2035,6 +2035,98 @@ fn the_vendored_hisense_spec_resolves_a_remote_over_mqtt() {
     );
 }
 
+/// Every MQTT `body` in the catalogue, filled through the FFI, and the one
+/// shape that needed escaping driven with a value that would inject.
+///
+/// Sengled writes its payloads as JSON ARRAYS in a literal `body` (an
+/// `arguments` block can only build an object), with the bulb's MAC, a stored
+/// credential, inside a string. A `string` value was pasted in verbatim, so a
+/// stored MAC carrying a quote wrote members of its own into the command. The
+/// Hisense and Bambu bodies are the other two shapes, a bare key name and a
+/// fixed JSON object, and must come out exactly as before.
+#[test]
+fn vendored_mqtt_bodies_fill_by_their_own_shape() {
+    use liberated_bread_core::api::device_api::render_network_mqtt_command;
+    use std::collections::HashMap;
+
+    let yaml = |file: &str| fs::read_to_string(spec_path(file)).expect("spec reads");
+    let values = |pairs: &[(&str, &str)]| -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    };
+
+    let sengled = yaml("sengled-wifi-bulb.yaml");
+    let on = render_network_mqtt_command(
+        sengled.clone(),
+        "mqtt_turn_on".to_string(),
+        values(&[("mac", "B0:CE:18:00:00:01"), ("time", "5")]),
+    )
+    .expect("mqtt_turn_on renders");
+    assert_eq!(on.topic, "wifielement/B0:CE:18:00:00:01/update");
+    assert_eq!(
+        on.payload,
+        r#"[{"dn":"B0:CE:18:00:00:01","type":"switch","value":"1","time":5}]"#
+    );
+    let color = render_network_mqtt_command(
+        sengled.clone(),
+        "mqtt_set_color".to_string(),
+        values(&[
+            ("mac", "B0:CE:18:00:00:01"),
+            ("red", "255"),
+            ("green", "0"),
+            ("blue", "16"),
+            ("time", "5"),
+        ]),
+    )
+    .expect("mqtt_set_color renders");
+    assert!(
+        color.payload.contains(r#""value":"255:0:16""#),
+        "{}",
+        color.payload
+    );
+
+    let hostile = r#"AA","type":"reset","value":"1","x":""#;
+    let injected = render_network_mqtt_command(
+        sengled,
+        "mqtt_turn_on".to_string(),
+        values(&[("mac", hostile), ("time", "5")]),
+    )
+    .expect("a quote in a string value is escaped, not refused");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&injected.payload).expect("the payload is still JSON");
+    assert_eq!(parsed[0]["dn"], hostile, "{}", injected.payload);
+    assert_eq!(parsed[0]["type"], "switch", "{}", injected.payload);
+    assert_eq!(
+        parsed[0].as_object().map(|m| m.len()),
+        Some(4),
+        "no member may be added: {}",
+        injected.payload
+    );
+
+    let hisense = yaml("hisense-vidaa.yaml");
+    let volume = render_network_mqtt_command(
+        hisense,
+        "set_volume".to_string(),
+        values(&[("client_id", "phone1"), ("volume", "30")]),
+    )
+    .expect("set_volume renders");
+    assert_eq!(volume.payload, "30", "a whole-body placeholder stays bare");
+
+    let bambu = yaml("bambu-lab-lan.yaml");
+    let pause = render_network_mqtt_command(
+        bambu,
+        "pause".to_string(),
+        values(&[("serial", "01P00A000000000")]),
+    )
+    .expect("pause renders");
+    assert_eq!(
+        pause.payload,
+        r#"{"print":{"sequence_id":"0","command":"pause"}}"#
+    );
+}
+
 /// `state_topic` is a LOCATION, and a location is a binding only when the
 /// reading there can be both reached and read.
 ///
