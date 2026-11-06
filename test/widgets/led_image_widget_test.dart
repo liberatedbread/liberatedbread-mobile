@@ -1125,6 +1125,72 @@ void main() {
       },
     );
 
+    testWidgets('a failed effect-list request releases its notify listener', (
+      tester,
+    ) async {
+      // The effect-list diagnostic subscribes for the reply BEFORE sending
+      // the request; a send that throws arms no timer to cancel it, so the
+      // notify interest stayed held until the editor was disposed.
+      final notify = StreamController<List<int>>.broadcast();
+      addTearDown(notify.close);
+      final ble = FakeBleService(notifyStream: notify.stream);
+      final codec = FakeSpecCodec(
+        encodeError: StateError('link dropped'),
+        storedPlan: StoredUploadPlanDto(
+          serviceUuid: 'svc',
+          uploadWrites: [
+            ImageWriteDto(
+              characteristicUuid: 'uploader',
+              bytes: Uint8List.fromList([10]),
+            ),
+          ],
+          playWrite: ImageWriteDto(
+            characteristicUuid: 'ddp',
+            bytes: Uint8List.fromList([9]),
+          ),
+          responseCharacteristicUuid: 'notify',
+          cid: 900128,
+        ),
+      );
+      await tester.pumpWidget(
+        _wrap(
+          const LedImageWidget(
+            deviceId: 'AA:BB',
+            imageUpload: _encodableSpec,
+            storedUpload: encodableStored,
+            specYaml: 'yaml',
+          ),
+          ble: ble,
+          codec: codec,
+        ),
+      );
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      notify.add(const [1]); // the device commits
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(
+        codec.encodeCalls.map((c) => c.commandName),
+        ['effect_list'],
+        reason: 'the request that failed',
+      );
+      expect(ble.subscriptions, [
+        'notify',
+        'notify',
+      ], reason: 'the commit wait, then the effect-list reply');
+      expect(find.textContaining('Could not save'), findsOneWidget);
+      expect(
+        ble.liveSubscriberCount['notify'],
+        0,
+        reason: 'nothing may stay subscribed after the save has failed',
+      );
+    });
+
     testWidgets('two replays of the same design use distinct sequences', (
       tester,
     ) async {

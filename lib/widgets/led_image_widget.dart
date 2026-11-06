@@ -1406,7 +1406,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           }
         });
     _effectListSub = sub;
-    await _sendFramedCommand(specYaml, serviceUuid, charUuid, 'effect_list');
+    try {
+      await _sendFramedCommand(specYaml, serviceUuid, charUuid, 'effect_list');
+    } catch (_) {
+      // No timer is armed to release a request that never went out, so the
+      // listener (and the notify interest under it) would stay held until
+      // dispose.
+      unawaited(sub.cancel());
+      if (identical(_effectListSub, sub)) _effectListSub = null;
+      rethrow;
+    }
     // The await above is where dispose lands: a timer created after it
     // belongs to a dead widget — dispose already ran its cancels, so this
     // one would tick for 2.5 s and log from a screen that no longer exists.
