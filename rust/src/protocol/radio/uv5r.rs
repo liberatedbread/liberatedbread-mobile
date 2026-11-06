@@ -689,17 +689,6 @@ fn decode_text(raw: &[u8]) -> String {
         .to_string()
 }
 
-/// A frequency in the same four-byte field the newer family uses, refused
-/// rather than rounded when it is finer than the ten hertz the field holds.
-fn encode_frequency(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
-    if !hz.is_multiple_of(10) {
-        return Err(ProtocolError::MalformedReply(format!(
-            "{hz} Hz is finer than the 10 Hz this radio stores"
-        )));
-    }
-    encode_bcd(hz, out)
-}
-
 /// The channels in an image, one entry per slot, `None` for an empty one.
 ///
 /// A slot whose frequency is not valid BCD also reads as `None`: there is
@@ -803,11 +792,13 @@ fn encode_channel(
     } else {
         [0u8; RECORD_LEN]
     };
-    encode_frequency(channel.rx_freq_hz, &mut record[0..4])?;
+    // The same four-byte field the newer family uses, which refuses rather
+    // than rounds a frequency finer than its ten hertz.
+    encode_bcd(channel.rx_freq_hz, &mut record[0..4])?;
     if channel.rx_only {
         record[4..8].fill(0xFF);
     } else {
-        encode_frequency(channel.tx_freq_hz, &mut record[4..8])?;
+        encode_bcd(channel.tx_freq_hz, &mut record[4..8])?;
     }
     record[8..10].copy_from_slice(&encode_tone(channel.rx_tone)?.to_le_bytes());
     record[10..12].copy_from_slice(&encode_tone(channel.tx_tone)?.to_le_bytes());
@@ -1179,9 +1170,19 @@ mod tests {
 
     #[test]
     fn a_finer_frequency_than_the_radio_stores_is_refused() {
-        assert!(
-            encode_channels(&blank(), &[channel("A", 146_520_005, 146_520_005)], &UV5R).is_err()
-        );
+        // In either direction, and the same way the UV-17Pro family's codec
+        // refuses it: one plan, one answer, whichever radio it is for.
+        use crate::protocol::radio::{codeplug, models::UV5R_MINI};
+        for (rx, tx) in [(146_520_005, 146_520_000), (146_520_000, 146_520_005)] {
+            let err = encode_channels(&blank(), &[channel("A", rx, tx)], &UV5R).unwrap_err();
+            let mini = codeplug::encode_channels(
+                &vec![0xFF; UV5R_MINI.image_len as usize],
+                &[channel("A", rx, tx)],
+                &UV5R_MINI,
+            )
+            .unwrap_err();
+            assert_eq!(err.to_string(), mini.to_string());
+        }
     }
 
     #[test]

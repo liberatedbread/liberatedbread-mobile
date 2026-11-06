@@ -232,8 +232,19 @@ pub(crate) fn decode_bcd(bytes: &[u8]) -> Option<u32> {
     value.checked_mul(10)
 }
 
-/// Encode hertz into the same field.
+/// Encode hertz into the same field, refusing rather than truncating a
+/// frequency finer than the ten hertz it holds.
+///
+/// Both families store frequencies this way, and both refuse here: the
+/// UV-5R codec refused 146_520_005 Hz while this one wrote it as 146.52000
+/// MHz, so one plan was an error on one radio and quietly retuned on the
+/// other.
 pub(crate) fn encode_bcd(hz: u32, out: &mut [u8]) -> Result<(), ProtocolError> {
+    if !hz.is_multiple_of(10) {
+        return Err(ProtocolError::MalformedReply(format!(
+            "{hz} Hz is finer than the 10 Hz this radio stores"
+        )));
+    }
     let mut tens = hz / 10;
     if tens > 99_999_999 {
         return Err(ProtocolError::MalformedReply(format!(
@@ -739,6 +750,41 @@ mod tests {
         let mut field = [0u8; 4];
         encode_bcd(146_940_000, &mut field).unwrap();
         assert_eq!(field, [0x00, 0x40, 0x69, 0x14]);
+    }
+
+    #[test]
+    fn a_frequency_finer_than_the_field_holds_is_refused_not_truncated() {
+        // The field holds tens of hertz. 146_520_005 Hz went out as 146.52000
+        // MHz on the Mini, where the UV-5R family's codec refused it: one
+        // plan, two answers. Fails on the truncating encoder.
+        for hz in [146_520_001u32, 146_520_005, 146_520_009, 462_562_501] {
+            let mut field = [0u8; 4];
+            let err = encode_bcd(hz, &mut field).unwrap_err();
+            assert!(err.to_string().contains("finer than"), "{hz}: {err}");
+
+            let mut rx = channel("FINE");
+            rx.rx_freq_hz = hz;
+            let mut tx = channel("FINE");
+            tx.tx_freq_hz = hz;
+            for fine in [rx, tx] {
+                let mut record = [0xFFu8; 32];
+                assert!(encode_channel(&mut record, &fine, 12, TWO_POWER_LEVELS).is_err());
+                let image = blank_image(&UV5R_MINI);
+                assert!(encode_channels(&image, &[fine], &UV5R_MINI).is_err());
+            }
+        }
+        // Whole tens of hertz, to the field's top, still go in exactly.
+        for hz in [146_520_010u32, 462_556_250, 999_999_990] {
+            let mut field = [0u8; 4];
+            encode_bcd(hz, &mut field).unwrap();
+            assert_eq!(decode_bcd(&field), Some(hz));
+        }
+        assert!(encode_bcd(1_000_000_000, &mut [0u8; 4]).is_err());
+        // A receive-only channel's transmit frequency is never encoded.
+        let mut listen = channel("WX");
+        listen.rx_only = true;
+        listen.tx_freq_hz = 162_550_005;
+        assert!(encode_channel(&mut [0xFFu8; 32], &listen, 12, TWO_POWER_LEVELS).is_ok());
     }
 
     #[test]
