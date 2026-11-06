@@ -150,6 +150,8 @@ pub const UV5R: Uv5rModel = Uv5rModel {
     always_new_limits: false,
 };
 
+/// The tri-power BF-F8HP. Its first ident is the UV-5R's, so only its
+/// firmware string tells the two tables apart (see [`check_firmware`]).
 pub const BF_F8HP: Uv5rModel = Uv5rModel {
     id: "bf-f8hp",
     idents: &[MAGIC_291, MAGIC_A58],
@@ -189,8 +191,23 @@ pub fn model_by_id(id: &str) -> Option<&'static Uv5rModel> {
     MODELS.iter().find(|model| model.id == id)
 }
 
+/// One of CHIRP's classes in `chirp/drivers/uv5r.py`, as far as telling
+/// models apart goes.
+struct ChirpModel {
+    /// CHIRP's `MODEL`.
+    name: &'static str,
+
+    /// Its `_basetype` list.
+    basetypes: &'static [&'static str],
+
+    /// The table its records' power bits index: `UV5R_POWER_LEVELS3` where
+    /// the class sets `_tri_power`, `UV5R_POWER_LEVELS` otherwise.
+    power_levels: &'static [Power],
+}
+
 /// CHIRP's `_basetype` lists, in the order `chirp/drivers/uv5r.py`
-/// registers the classes that carry them, each with the CHIRP model name.
+/// registers the classes that carry them, each with the CHIRP model name
+/// and power table.
 ///
 /// A basetype matches when it occurs anywhere in the firmware string
 /// (`model_match`: `any(type in rid for type in cls._basetype)`). Lists
@@ -201,72 +218,118 @@ pub fn model_by_id(id: &str) -> Option<&'static Uv5rModel> {
 /// is never consulted (`uv5r.py` reads it only in `model_match`). Classes
 /// whose `match_model` always answers no (UV-5G Pro, UV-5RX3, GT-5R, UV-5G)
 /// are left out, as they never match.
-const CHIRP_BASETYPES: &[(&str, &[&str])] = &[
-    (
-        "UV-5R",
-        &["BFS", "BFB", "N5R-2", "N5R2", "N5RV", "BTS", "D5R2", "B5R2"],
-    ),
-    ("F-11", &["USA"]),
-    ("UV-82", &["US2S2", "B82S", "BF82", "N82-2", "N822"]),
-    ("UV-82X3", &["HN5RV01"]),
-    ("UV-6", &["BF1", "UV6"]),
-    ("KT-980HP", &["BFP3V3 B"]),
-    (
-        "BF-F8HP",
-        &["BFP3V3 F", "N5R-3", "N5R3", "F5R3", "BFT", "N5RV"],
-    ),
-    ("UV-82HP", &["N82-3", "N823", "N5R2"]),
+const CHIRP_BASETYPES: &[ChirpModel] = &[
+    ChirpModel {
+        name: "UV-5R",
+        basetypes: &["BFS", "BFB", "N5R-2", "N5R2", "N5RV", "BTS", "D5R2", "B5R2"],
+        power_levels: TWO_POWER_LEVELS,
+    },
+    ChirpModel {
+        name: "F-11",
+        basetypes: &["USA"],
+        power_levels: TWO_POWER_LEVELS,
+    },
+    ChirpModel {
+        name: "UV-82",
+        basetypes: &["US2S2", "B82S", "BF82", "N82-2", "N822"],
+        power_levels: TWO_POWER_LEVELS,
+    },
+    // A UV-82 subclass: the UV-82's table.
+    ChirpModel {
+        name: "UV-82X3",
+        basetypes: &["HN5RV01"],
+        power_levels: TWO_POWER_LEVELS,
+    },
+    ChirpModel {
+        name: "UV-6",
+        basetypes: &["BF1", "UV6"],
+        power_levels: TWO_POWER_LEVELS,
+    },
+    ChirpModel {
+        name: "KT-980HP",
+        basetypes: &["BFP3V3 B"],
+        power_levels: THREE_POWER_LEVELS,
+    },
+    ChirpModel {
+        name: "BF-F8HP",
+        basetypes: &["BFP3V3 F", "N5R-3", "N5R3", "F5R3", "BFT", "N5RV"],
+        power_levels: THREE_POWER_LEVELS,
+    },
+    ChirpModel {
+        name: CHIRP_UV82HP,
+        basetypes: &["N82-3", "N823", "N5R2"],
+        power_levels: THREE_POWER_LEVELS,
+    },
 ];
+
+/// The CHIRP models a firmware string could be, in CHIRP's registration
+/// order (see [`CHIRP_BASETYPES`]).
+fn chirp_models_named(firmware: &str) -> impl Iterator<Item = &'static ChirpModel> + '_ {
+    CHIRP_BASETYPES
+        .iter()
+        .filter(|model| model.basetypes.iter().any(|b| firmware.contains(b)))
+}
 
 /// Every CHIRP model a firmware string could be, by CHIRP's basetype match
 /// (see [`CHIRP_BASETYPES`]), in CHIRP's registration order. Empty when it
 /// names none of them -- an empty or unreadable string, or a radio this
 /// list does not know.
 pub fn firmware_models(firmware: &str) -> impl Iterator<Item = &'static str> + '_ {
-    CHIRP_BASETYPES
-        .iter()
-        .filter(|(_, basetypes)| basetypes.iter().any(|b| firmware.contains(b)))
-        .map(|&(model, _)| model)
+    chirp_models_named(firmware).map(|model| model.name)
 }
 
 /// CHIRP's name for [`UV82HP`], as [`CHIRP_BASETYPES`] lists it.
 const CHIRP_UV82HP: &str = "UV-82HP";
 
-/// Whether a radio reporting `firmware` may be programmed as `model`, as far
-/// as the UV-82HP goes -- the one model here whose table no ident can tell
-/// from another's.
+/// Whether a radio reporting `firmware` may be programmed as `model`: not
+/// when its firmware names only CHIRP models whose power table is not
+/// `model`'s.
 ///
-/// A firmware string only the UV-82HP's list matches (`N82-3`, `N823`) is
-/// programmed only as [`UV82HP`], and one the HP's list does not match is
-/// never programmed as it. A string in the HP's list and another's (`N5R2`,
-/// also the UV-5R's) allows either, as CHIRP does for a live radio: taking
-/// only the first match refused such an HP as one and left it the
-/// two-level table, which writes its Low as 1, its Med. A string that
-/// names no model at all is refused for the HP when `strict` -- a radio
-/// answering live, which always reports one -- and let through otherwise:
-/// a blank or unreadable image names nothing, and says nothing about
-/// power either. The other models are left as the user chose them.
+/// The idents cannot hold the tables apart. The BF-F8HP's start with the
+/// UV-5R's `MAGIC_291`, so an F8HP acks the UV-5R profile and a UV-5R the
+/// F8HP's; the UV-82HP answers only the two-level UV-82's. Taken as the
+/// UV-5R, an F8HP's fresh Low went out as 1, its Med (4 W); taken as the
+/// F8HP, a UV-5R's as 2, an index its two-level table never defined.
+///
+/// So the firmware string decides, as CHIRP's basetype lists name it. A
+/// string naming a model with `model`'s table allows it, even where it
+/// names another as well: `N5RV` is CHIRP's UV-5R and BF-F8HP both, and
+/// either profile may be chosen, as CHIRP programs a live radio as the
+/// class the user picked. The UV-82HP is held tighter, both ways. A string
+/// only the HP's list matches (`N82-3`, `N823`) is programmed only as
+/// [`UV82HP`], not as a three-level F8HP whose idents it does not answer,
+/// and one the HP's list does not match is never programmed as it. A
+/// string in the HP's list and another's (`N5R2`, also the UV-5R's) allows
+/// either of those two: taking only the first match refused such an HP as
+/// one and left it the two-level table, which writes its Low as 1, its
+/// Med.
+///
+/// A string that names no model at all is refused for the HP when `strict`
+/// -- a radio answering live, which always reports one -- and let through
+/// otherwise, and for every other model: a blank or unreadable image names
+/// nothing, and says nothing about power either.
 pub fn check_firmware(
     model: &Uv5rModel,
     firmware: &str,
     strict: bool,
 ) -> Result<(), ProtocolError> {
-    let named: Vec<&str> = firmware_models(firmware).collect();
+    let named: Vec<&ChirpModel> = chirp_models_named(firmware).collect();
     let is_hp = model.id == UV82HP.id;
-    let hp_named = named.contains(&CHIRP_UV82HP);
-    let other_named = named.iter().any(|&m| m != CHIRP_UV82HP);
     let refuse = if named.is_empty() {
         is_hp && strict
     } else if is_hp {
-        !hp_named
+        !named.iter().any(|m| m.name == CHIRP_UV82HP)
     } else {
-        !other_named
+        !named
+            .iter()
+            .any(|m| m.name != CHIRP_UV82HP && m.power_levels == model.power_levels)
     };
     if refuse {
         let named = if named.is_empty() {
             "no model this app knows".to_string()
         } else {
-            format!("CHIRP's {}", named.join(" or "))
+            let names: Vec<&str> = named.iter().map(|m| m.name).collect();
+            format!("CHIRP's {}", names.join(" or "))
         };
         return Err(ProtocolError::MalformedReply(format!(
             "firmware {firmware:?} is {named}, not {}",
@@ -885,6 +948,12 @@ mod tests {
         image_with_firmware("BFB297")
     }
 
+    /// A blank image from a BF-F8HP: firmware CHIRP's BASETYPE_F8HP names.
+    /// The UV-5R's BFB297 is refused for it (see check_firmware).
+    fn f8hp_blank() -> Vec<u8> {
+        image_with_firmware("BFP3V3 F")
+    }
+
     fn channel(name: &str, rx: u32, tx: u32) -> ChannelRecord {
         ChannelRecord {
             name: name.to_string(),
@@ -1230,7 +1299,7 @@ mod tests {
         // CHIRP UV5R_POWER_LEVELS3: 0 High, 1 Med, 2 Low.
         let mut low = channel("A", 146_520_000, 146_520_000);
         low.power = Power::Low;
-        let image = encode_channels(&blank(), &[low.clone()], &BF_F8HP).unwrap();
+        let image = encode_channels(&f8hp_blank(), &[low.clone()], &BF_F8HP).unwrap();
         let range = record_range(0);
         assert_eq!(image[range.start + 14] & 0x03, 2, "low on a fresh slot");
 
@@ -1269,7 +1338,8 @@ mod tests {
         mid.power = Power::Medium;
         let mut low = channel("L", 146_560_000, 146_560_000);
         low.power = Power::Low;
-        let full = encode_channels(&blank(), &[high, mid.clone(), low.clone()], &BF_F8HP).unwrap();
+        let full =
+            encode_channels(&f8hp_blank(), &[high, mid.clone(), low.clone()], &BF_F8HP).unwrap();
         let moved = encode_channels(&full, &[mid, low], &BF_F8HP).unwrap();
         assert_eq!(
             moved[record_range(0).start + 14] & 0x03,
@@ -1439,7 +1509,7 @@ mod tests {
 
         // BF-F8HP: its Low is the listed 2, its Med 1, whatever the image
         // holds.
-        let mut f8hp = encode_channels(&blank(), &[fresh.clone()], &BF_F8HP).unwrap();
+        let mut f8hp = encode_channels(&f8hp_blank(), &[fresh.clone()], &BF_F8HP).unwrap();
         f8hp[at] = (f8hp[at] & !0x03) | 3;
         let written = encode_channels(&f8hp, &[fresh.clone()], &BF_F8HP).unwrap();
         assert_eq!(power_raws(&written, 1), [2]);
@@ -1528,6 +1598,96 @@ mod tests {
     }
 
     #[test]
+    fn a_firmware_naming_only_another_power_table_is_refused() {
+        // The BF-F8HP's idents start with the UV-5R's MAGIC_291, so each
+        // acks the other's profile, and the UV-82HP-only check let both
+        // through: an F8HP chosen as the UV-5R had a fresh Low written as
+        // 1, its Med (4 W), and a UV-5R chosen as the F8HP as 2, an index
+        // its two-level table never defined. Fails on that check.
+        for firmware in ["BFT V3.01", "N5R3", "BFP3V3 F", "N5R-3", "F5R3"] {
+            for strict in [false, true] {
+                let err = check_firmware(&UV5R, firmware, strict).unwrap_err();
+                assert!(
+                    err.to_string().contains("CHIRP's BF-F8HP"),
+                    "{firmware}: {err}"
+                );
+                for model in [&BF_F8HP, &AR152] {
+                    assert!(
+                        check_firmware(model, firmware, strict).is_ok(),
+                        "{firmware} as {}",
+                        model.id
+                    );
+                }
+            }
+        }
+        for (firmware, chirp) in [
+            ("BFB297", "UV-5R"),
+            ("BFS311", "UV-5R"),
+            ("N5R-2", "UV-5R"),
+            ("N82-2", "UV-82"),
+            ("BF1", "UV-6"),
+        ] {
+            for strict in [false, true] {
+                for model in [&BF_F8HP, &AR152] {
+                    let err = check_firmware(model, firmware, strict).unwrap_err();
+                    assert!(
+                        err.to_string().contains(&format!("CHIRP's {chirp}")),
+                        "{firmware} as {}: {err}",
+                        model.id
+                    );
+                }
+                assert!(
+                    check_firmware(&UV5R, firmware, strict).is_ok(),
+                    "{firmware}"
+                );
+            }
+        }
+        // The KT-980HP answers MAGIC_291 and is tri-power: an F8HP's table,
+        // not a UV-5R's.
+        assert!(check_firmware(&UV5R, "BFP3V3 B", true).is_err());
+        assert!(check_firmware(&BF_F8HP, "BFP3V3 B", true).is_ok());
+
+        // Strings CHIRP lists for a two-level and a three-level model allow
+        // either profile whose table one of them has. N5RV and HN5RV01 are
+        // the UV-5R's and the F8HP's; N5R2 the UV-5R's and the UV-82HP's,
+        // which the HP's own rule keeps to the HP (above), so not an F8HP.
+        for firmware in ["N5RV", "HN5RV01"] {
+            for model in [&UV5R, &BF_F8HP, &AR152] {
+                assert!(
+                    check_firmware(model, firmware, true).is_ok(),
+                    "{firmware} as {}",
+                    model.id
+                );
+            }
+            assert!(check_firmware(&UV82HP, firmware, true).is_err());
+        }
+        assert!(check_firmware(&UV5R, "N5R2", true).is_ok());
+        assert!(check_firmware(&UV82HP, "N5R2", true).is_ok());
+        assert!(check_firmware(&BF_F8HP, "N5R2", true).is_err());
+        assert!(check_firmware(&AR152, "N5R2", true).is_err());
+
+        // Nothing named still says nothing about power.
+        for model in [&UV5R, &BF_F8HP, &AR152] {
+            assert!(check_firmware(model, "", true).is_ok(), "{}", model.id);
+            assert!(check_firmware(model, "XYZ", true).is_ok(), "{}", model.id);
+        }
+
+        // The codec holds the same line, so no Low goes out as the wrong
+        // index whichever way the profile was picked.
+        let mut low = channel("L", 146_520_000, 146_520_000);
+        low.power = Power::Low;
+        let f8hp = image_with_firmware("BFT V3.01");
+        assert!(encode_channels(&f8hp, &[low.clone()], &UV5R).is_err());
+        assert!(decode_channels(&f8hp, &UV5R).is_err());
+        let written = encode_channels(&f8hp, &[low.clone()], &BF_F8HP).unwrap();
+        assert_eq!(power_raws(&written, 1), [2]);
+        assert!(encode_channels(&blank(), &[low.clone()], &BF_F8HP).is_err());
+        assert!(decode_channels(&blank(), &AR152).is_err());
+        let written = encode_channels(&blank(), &[low], &UV5R).unwrap();
+        assert_eq!(power_raws(&written, 1), [1]);
+    }
+
+    #[test]
     fn a_uv82hp_reads_and_writes_all_three_levels() {
         // UV5R_POWER_LEVELS3: 0 High, 1 Med, 2 Low.
         let base = image_with_firmware("N82-3");
@@ -1591,7 +1751,7 @@ mod tests {
         // index-only rule.
         let mut low = channel("L", 146_540_000, 146_540_000);
         low.power = Power::Low;
-        let f8hp = encode_channels(&blank(), &[low], &BF_F8HP).unwrap();
+        let f8hp = encode_channels(&f8hp_blank(), &[low], &BF_F8HP).unwrap();
         let read: Vec<ChannelRecord> = decode_channels(&f8hp, &BF_F8HP)
             .unwrap()
             .into_iter()
@@ -1599,7 +1759,7 @@ mod tests {
             .collect();
         assert_eq!(read[0].power_raw, Some(2));
         // Round trip on the F8HP itself: 2 is its listed Low.
-        let again = encode_channels(&blank(), &read, &BF_F8HP).unwrap();
+        let again = encode_channels(&f8hp_blank(), &read, &BF_F8HP).unwrap();
         assert_eq!(power_raws(&again, 1), [2]);
 
         let uv5r =

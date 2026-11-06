@@ -376,7 +376,10 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
         await rust.uv5RIdentMagics(modelId: profile.id),
       );
       final probe = await session.probe();
-      await _checkModel(profile, probe.firmware);
+      await _checkModel(profile, probe.firmware, [
+        for (final other in radioProfiles)
+          if (other != profile && supports(other)) other,
+      ]);
       yield* body(session, ident, probe);
     } finally {
       try {
@@ -388,30 +391,77 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
   }
 }
 
-/// Refuse a radio whose firmware string says it is not [profile].
+/// Refuse a radio whose firmware string says it is not [profile], naming
+/// whichever of [alternatives] it may be programmed as.
 ///
-/// The UV-82HP answers the same ident as the two-level UV-82, and its Low is
-/// the index the UV-5R's table has no entry for: read as a UV-5R its Med
-/// shows as Low, and a Low written as a UV-5R's is its Med. Only the
-/// firmware string tells them apart, so the choice is checked against it
-/// before anything is read or written.
-Future<void> _checkModel(RadioProfile profile, String firmware) async {
+/// The idents cannot tell the power tables apart: the BF-F8HP answers the
+/// UV-5R's first magic, and the tri-power UV-82HP the two-level UV-82's.
+/// Taken as the wrong one, a radio's Low goes out as another level — an
+/// F8HP's as its Med, a UV-5R's as an index it never defined — and its
+/// levels read back wrong. Only the firmware string tells them apart, so
+/// the choice is checked against it before anything is read or written.
+///
+/// The model to suggest is found the same way, by asking the codec which
+/// of [alternatives] it would accept, rather than from a second list of
+/// firmware strings here that could drift from the codec's.
+Future<void> _checkModel(
+  RadioProfile profile,
+  String firmware,
+  List<RadioProfile> alternatives,
+) async {
   try {
     await rust.uv5RCheckFirmware(modelId: profile.id, firmware: firmware);
   } catch (error) {
     Log.radio.warning('model does not match firmware', error: error);
-    final said = firmware.isEmpty ? 'reports no firmware' : 'is $firmware';
-    throw RadioUnsupportedException(
-      profile == uv82hpProfile
-          ? 'This radio\'s firmware $said, which is not a UV-82HP\'s, so '
-                'its power levels may not be the UV-82HP\'s three. Nothing '
-                'was read or written. Choose the model it is.'
-          : 'This radio\'s firmware $said: a UV-82HP, which has three power '
-                'levels where the ${profile.displayName} has '
-                '${profile.powerLevels.length}. Nothing was read or '
-                'written. Choose ${uv82hpProfile.displayName} and try again.',
-    );
+    final fits = <RadioProfile>[];
+    // A radio that names no firmware says nothing about which model it is.
+    if (firmware.isNotEmpty) {
+      for (final other in alternatives) {
+        try {
+          await rust.uv5RCheckFirmware(modelId: other.id, firmware: firmware);
+          fits.add(other);
+        } catch (_) {
+          // Not this one either.
+        }
+      }
+    }
+    throw RadioUnsupportedException(_wrongModelText(profile, firmware, fits));
   }
+}
+
+/// What to tell someone whose radio's [firmware] is not [profile]'s, when
+/// [fits] are the profiles it would be accepted as.
+String _wrongModelText(
+  RadioProfile profile,
+  String firmware,
+  List<RadioProfile> fits,
+) {
+  String levels(RadioProfile p) => switch (p.powerLevels.length) {
+    1 => 'one',
+    2 => 'two',
+    3 => 'three',
+    final n => '$n',
+  };
+  String names(String joiner) =>
+      fits.map((p) => p.displayName).join(' $joiner ');
+  final table = fits.firstOrNull?.powerLevels;
+  if (table != null &&
+      !listEquals(table, profile.powerLevels) &&
+      fits.every((p) => listEquals(p.powerLevels, table))) {
+    // Every model it may be has the one table, which is not this one's.
+    // (One with the same table is refused only by the UV-82HP's own rule,
+    // which the general text below covers.)
+    return 'This radio\'s firmware is $firmware: a ${names('or')}, which '
+        'has ${levels(fits.first)} power levels where the '
+        '${profile.displayName} has ${levels(profile)}. Nothing was read or '
+        'written. Choose ${names('or')} and try again.';
+  }
+  final said = firmware.isEmpty ? 'reports no firmware' : 'is $firmware';
+  return 'This radio\'s firmware $said, which is not a '
+      '${profile.displayName}\'s, so its power levels may not be the '
+      '${profile.displayName}\'s ${levels(profile)}. Nothing was read or '
+      'written. '
+      '${fits.isEmpty ? 'Choose the model it is.' : 'Choose ${names('or')} and try again.'}';
 }
 
 const int _ack = 0x06;
