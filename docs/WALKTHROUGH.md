@@ -254,7 +254,7 @@ final bleServiceProvider = Provider<BleService>((ref) {
 
 Loads device spec YAML strings from two merged sources: the specs bundled as
 app assets (the fallback, keyed by asset path) and any remote spec packs the
-user has installed (keyed `pack:<name>/<file>`, so keys can never collide).
+user has installed (keyed `pack:<slug>/<file>`, so keys can never collide).
 Bundled specs always load even when no pack is installed; a pack failure never
 removes a bundled spec.
 

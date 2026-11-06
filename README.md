@@ -530,8 +530,10 @@ app-store release:
 - **UI** — the puzzle-piece icon in the scan screen's AppBar opens
   `SpecPackSettingsScreen`: install/refresh/remove packs, edit the URL.
 - **Merging** — `deviceSpecsProvider` merges the bundled assets with every
-  cached pack. Pack specs are namespaced `pack:<name>/<file>` so they can never
-  collide with bundled keys, and a pack failure never removes a bundled spec.
+  cached pack. Pack specs are namespaced `pack:<slug>/<file>` (the pack's
+  directory and the spec's file name in it) so they can never collide with
+  bundled keys or with each other, and a pack failure never removes a bundled
+  spec.
   A pack's copy of a bundled device replaces it, and when two packs carry the
   same device the one installed or refreshed most recently wins.
 

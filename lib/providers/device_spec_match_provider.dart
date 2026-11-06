@@ -7,6 +7,7 @@ import '../core/hex.dart';
 import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
 import '../services/spec_codec.dart';
+import '../services/spec_pack_service.dart' show SpecPackService;
 import 'device_spec_provider.dart';
 import 'spec_choice_provider.dart';
 import 'spec_codec_provider.dart';
@@ -190,7 +191,8 @@ Map<String, CatalogueSpec> specEntriesByKey(List<CatalogueSpec> parsed) => {
 };
 
 /// Whether [entry] came from an installed pack rather than the app bundle.
-/// Pack entries are keyed `pack:<name>/<file>` by the spec-pack cache.
+/// Pack entries are keyed by the spec-pack cache ([SpecPackService.specKey]),
+/// always under `pack:`.
 bool isPackSpec(CatalogueSpec entry) => entry.key.startsWith('pack:');
 
 /// The built-in specs the installed pack [packName] REPLACES under
@@ -211,7 +213,9 @@ List<String> builtInSpecsShadowedByPack(
   List<CatalogueSpec> specs,
   String packName,
 ) {
-  final prefix = 'pack:$packName/';
+  // The pack's slug, not its name: `pack:a/` was also the start of every
+  // key of a pack called "a/b", whose copies were credited to "a".
+  final prefix = SpecPackService.packKeyPrefix(packName);
   final builtIn = {
     for (final e in specs)
       if (!isPackSpec(e)) specKeyOf(e.deviceName, e.manufacturer),

@@ -92,7 +92,7 @@ class SpecPackUrlNotifier extends AsyncNotifier<String> {
   }
 }
 
-/// Cached remote specs, keyed by `pack:<name>/<file>`, for
+/// Cached remote specs, keyed by [SpecPackService.specKey], for
 /// [deviceSpecsProvider] to merge with the bundled assets.
 ///
 /// This feeds live device matching, which MUST always fall back to the bundled

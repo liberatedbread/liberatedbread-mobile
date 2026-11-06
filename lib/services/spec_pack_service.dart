@@ -901,7 +901,27 @@ class SpecPackService {
     }
   }
 
-  /// Every cached spec YAML, keyed by a namespaced id `pack:<name>/<file>` so
+  /// The catalogue key [loadCachedSpecs] files [specFile] of the pack called
+  /// [packName] under: `pack:<slug>/<on-disk file name>`.
+  ///
+  /// Both halves are names the pack occupies on disk, neither can hold a
+  /// `/`, and each is unique where it lives: no two installed packs share a
+  /// slug (two names that reduce to one are refused at install, R-062) and
+  /// no two specs in a pack share a file name (refused at write, R-061). So
+  /// the key is unambiguous, which `pack:<name>/<entry>` was not: a pack
+  /// "a" listing "b/c.yaml" and a pack "a/b" listing "c.yaml" both spelled
+  /// `pack:a/b/c.yaml`, both installed, and the catalogue kept one of the
+  /// two specs. Nothing persists these keys — stored spec choices and saved
+  /// devices hold the identity key (`deviceName|manufacturer`) — so the
+  /// change of spelling orphans nothing.
+  static String specKey(String packName, String specFile) =>
+      '${packKeyPrefix(packName)}${_safeFileName(specFile)}';
+
+  /// What every [specKey] of the pack called [packName] starts with, and no
+  /// other pack's does — the test for "this entry came from that pack".
+  static String packKeyPrefix(String packName) => 'pack:${_slug(packName)}/';
+
+  /// Every cached spec YAML, keyed by [specKey] — namespaced `pack:` so
   /// remote specs never collide with bundled asset keys.
   ///
   /// Packs are emitted OLDEST first, so the most recently installed or
@@ -935,6 +955,7 @@ class SpecPackService {
     for (final pack in packs.reversed) {
       final dir = _packDir(root, pack.name);
       for (final file in pack.specFiles) {
+        final key = specKey(pack.name, file);
         try {
           final f = File('${dir.path}/specs/${_safeFileName(file)}');
           if (await f.exists()) {
@@ -944,22 +965,17 @@ class SpecPackService {
             final weaker = await _belowFloor(yaml);
             if (weaker != null) {
               Log.packs.warning(
-                'skipping pack:${pack.name}/$file: it weakens the built-in '
-                'spec it replaces ($weaker)',
+                'skipping $key: it weakens the built-in spec it replaces '
+                '($weaker)',
               );
               continue;
             }
-            result['pack:${pack.name}/$file'] = yaml;
+            result[key] = yaml;
           } else {
-            Log.packs.warning(
-              'cached spec missing on disk: pack:${pack.name}/$file',
-            );
+            Log.packs.warning('cached spec missing on disk: $key');
           }
         } catch (e) {
-          Log.packs.warning(
-            'skipping unreadable cached spec pack:${pack.name}/$file',
-            error: e,
-          );
+          Log.packs.warning('skipping unreadable cached spec $key', error: e);
         }
       }
     }

@@ -1117,7 +1117,7 @@ class CatalogueSpec {
   final int index;
 
   /// The key the catalogue was loaded under: a bundled asset path, or
-  /// `pack:<name>/<file>` for an installed pack.
+  /// `pack:<slug>/<file>` for an installed pack (`SpecPackService.specKey`).
   final String key;
 
   /// The spec's text. Still here because most entry points still take it;
