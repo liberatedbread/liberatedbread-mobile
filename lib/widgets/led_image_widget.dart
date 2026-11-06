@@ -2200,7 +2200,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final Uint8List bits;
     try {
       final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      final rgba = data!.buffer.asUint8List();
+      if (data == null) throw _TextRasterException(width, height);
+      final rgba = data.buffer.asUint8List();
       bits = Uint8List(width * height);
       for (var i = 0; i < width * height; i++) {
         // Lit where the glyph painted brightly over the black ground.
@@ -2667,6 +2668,29 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 const String _animationWipesOthersNote =
     'Storing an animation clears the device\'s other saved designs, '
     'including any stored by the vendor app.';
+
+/// The engine could not read back the bitmap a text save rendered.
+///
+/// `Image.toByteData` is documented to return null when the encode fails. It
+/// was null-asserted, so the save died on a bare null-check error and the user
+/// read the generic "Could not save to the device." — blaming a device that
+/// had not yet been sent anything.
+class _TextRasterException implements UserFacingException {
+  final int width;
+  final int height;
+
+  const _TextRasterException(this.width, this.height);
+
+  @override
+  String get message =>
+      'Could not draw the text for the device; nothing was sent. '
+      'Try saving again.';
+
+  @override
+  String toString() =>
+      '_TextRasterException: toByteData returned null for the '
+      '${width}x$height text raster';
+}
 
 /// What the user chose in the "Save to device" dialog.
 /// What kind of content to persist on the device.
