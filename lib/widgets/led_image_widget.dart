@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -30,6 +31,38 @@ List<int> diyEffectCidsToClear(Iterable<EffectEntryDto> entries) => [
   for (final e in entries)
     if (e.diy == 1) e.cid,
 ];
+
+/// The first id of a fresh stored design spanning [count] consecutive cids:
+/// one for a picture or text, one per frame for an animation (stored as a
+/// still per frame at `base..base+count-1`).
+///
+/// Ids come from a high band, unlikely to collide with catalogue effects
+/// (hardware accepts ids it has never seen). The search starts where [seed]
+/// (the clock) lands in the band and walks forward, wrapping within it, to the
+/// first base whose whole range is clear of [saved] — every design's `cid`
+/// AND its `frameCids`, because an animation occupies each frame's id on the
+/// device while its entry records only the base as `cid`. A clash would store
+/// the new design over another's slot, and leave the replay list with two
+/// entries addressing it. Pure so the choice is unit-testable.
+int freshStoredCid(int seed, Iterable<SavedDesign> saved, {int count = 1}) {
+  const first = 900001;
+  const band = 90000;
+  final taken = {
+    for (final d in saved) ...[d.cid, ...d.frameCids],
+  };
+  bool clear(int base) {
+    for (var i = 0; i < count; i++) {
+      if (taken.contains(base + i)) return false;
+    }
+    return true;
+  }
+
+  for (var step = 0; step < band; step++) {
+    final base = first + (seed + step) % band;
+    if (clear(base)) return base;
+  }
+  throw StateError('no free stored-design id left on this device');
+}
 
 /// Usable bytes per BLE write for a given ATT MTU.
 ///
@@ -1094,13 +1127,18 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       final contentHash = designContentHash(hashInput.takeBytes());
 
       // Same content already on the device -> same cid (the device just
-      // overwrites its slot); otherwise a novel app-chosen id in a high band,
-      // unlikely to collide with catalogue effects (hardware accepts ids it
-      // has never seen).
+      // overwrites its slot); otherwise a novel app-chosen id clear of every
+      // slot this app's saved designs hold — an animation's whole frame range
+      // included ([freshStoredCid]). clock.now(), not DateTime.now(): the
+      // same in production, and a test can pin it onto a taken id.
       final prior = store.findByContent(widget.deviceId, contentHash);
       final cid =
           prior?.cid ??
-          900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
+          freshStoredCid(
+            clock.now().millisecondsSinceEpoch,
+            store.load(widget.deviceId),
+            count: options.kind == _StoredKind.animation ? allFrames.length : 1,
+          );
 
       // A multi-frame animation can't be one stored blob on this curtain: the
       // firmware has no .eff renderer (hardware-confirmed — a committed .eff
@@ -1420,7 +1458,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final ble = ref.read(bleServiceProvider);
 
     // A distinct cid per frame, contiguous from the design's base id, so a
-    // byte-identical re-save re-uses the very same device slots.
+    // byte-identical re-save re-uses the very same device slots. A new
+    // design's base was picked with the whole range clear ([freshStoredCid]).
     final frameCids = [for (var i = 0; i < frames.length; i++) baseCid + i];
 
     // Encode every frame's upload plan up front (no BLE) so we can subscribe to

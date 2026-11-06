@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,7 @@ import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart'
     show sharedPreferencesProvider;
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/saved_designs_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/led_image_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -98,6 +100,42 @@ void main() {
 
     test('caps at the 512-byte attribute maximum', () {
       expect(writePayloadForMtu(9999), 512);
+    });
+  });
+
+  group('freshStoredCid', () {
+    SavedDesign design(int cid, {List<int> frameCids = const []}) =>
+        SavedDesign(
+          name: 'd$cid',
+          cid: cid,
+          kind: frameCids.isEmpty ? 'picture' : 'animation',
+          contentHash: 'h$cid',
+          savedAt: DateTime.utc(2026),
+          frameCids: frameCids,
+        );
+
+    test('with nothing saved, the clock places the id in the high band', () {
+      expect(freshStoredCid(5, const []), 900006);
+      expect(freshStoredCid(90000 * 7 + 5, const []), 900006);
+    });
+
+    test('skips every frame of an animation, not only its base', () {
+      final loop = design(900004, frameCids: [900004, 900005, 900006, 900007]);
+      expect(freshStoredCid(5, [loop]), 900008);
+    });
+
+    test('a multi-cid range must be clear end to end', () {
+      final dot = design(900007);
+      expect(freshStoredCid(5, [dot]), 900006, reason: 'one id fits');
+      expect(
+        freshStoredCid(5, [dot], count: 2),
+        900008,
+        reason: '900006..900007 would overlap the picture',
+      );
+    });
+
+    test('wraps within the band instead of leaving it', () {
+      expect(freshStoredCid(89999, [design(990000)]), 900001);
     });
   });
 
@@ -1401,6 +1439,116 @@ void main() {
       final thirdCid = codec.encodeStoredCalls.last.cid;
       expect(thirdCid, isNot(cids[0]));
       expect(find.byType(ActionChip), findsNWidgets(2));
+    });
+
+    // An animation is stored as one still per frame, at baseCid..baseCid+N-1,
+    // but its entry's `cid` is only the base. A fresh id was the clock modulo
+    // the band and checked against nothing, so it could land inside a loop's
+    // range: the new design overwrote that frame on the device, and the
+    // replay list held two entries addressing one slot.
+    const loopFrameCids = [900004, 900005, 900006, 900007];
+    // The instant whose clock-derived id is 900006 — the loop's third frame.
+    final collidingInstant = Clock.fixed(
+      DateTime.fromMillisecondsSinceEpoch(5),
+    );
+
+    testWidgets('a new picture never takes a cid an animation frame holds', (
+      tester,
+    ) async {
+      final store = SavedDesignsStore(_prefs);
+      await store.save(
+        'AA:BB',
+        SavedDesign(
+          name: 'Loop',
+          cid: loopFrameCids.first,
+          kind: 'animation',
+          contentHash: 'loop',
+          savedAt: DateTime.utc(2026),
+          frameCids: loopFrameCids,
+          frameSlots: const [1, 2, 3, 4],
+        ),
+      );
+      final codec = FakeSpecCodec();
+      await withClock(collidingInstant, () async {
+        await tester.pumpWidget(
+          _wrap(
+            const LedImageWidget(
+              deviceId: 'AA:BB',
+              imageUpload: _encodableSpec,
+              storedUpload: encodableStored,
+              specYaml: 'yaml',
+            ),
+            ble: FakeBleService(),
+            codec: codec,
+          ),
+        );
+        await _scrollAndTap(tester, find.text('Save to device'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('stored-name-field')),
+          'Still',
+        );
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pumpAndSettle();
+      });
+
+      final cid = codec.encodeStoredCalls.single.cid;
+      expect(loopFrameCids, isNot(contains(cid)));
+      expect(cid, 900008, reason: 'the next id clear of the loop');
+      expect(
+        store.load('AA:BB').map((d) => d.name),
+        unorderedEquals(['Still', 'Loop']),
+        reason: 'both designs keep their own slots',
+      );
+    });
+
+    testWidgets('a new animation keeps its whole frame range clear', (
+      tester,
+    ) async {
+      // A picture at 900007: a two-frame loop based at 900006 would store its
+      // second frame over it.
+      final store = SavedDesignsStore(_prefs);
+      await store.save(
+        'AA:BB',
+        SavedDesign(
+          name: 'Dot',
+          cid: 900007,
+          kind: 'picture',
+          contentHash: 'dot',
+          savedAt: DateTime.utc(2026),
+        ),
+      );
+      final codec = FakeSpecCodec();
+      await withClock(collidingInstant, () async {
+        await tester.pumpWidget(
+          _wrap(
+            const LedImageWidget(
+              deviceId: 'AA:BB',
+              imageUpload: _encodableSpec,
+              storedUpload: encodableStored,
+              specYaml: 'yaml',
+            ),
+            ble: FakeBleService(),
+            codec: codec,
+          ),
+        );
+        await _scrollAndTap(tester, find.text('Animation'));
+        await tester.pump();
+        await _scrollAndTap(tester, find.byTooltip('Add frame'));
+        await tester.pump();
+        await _scrollAndTap(tester, find.text('Save to device'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pumpAndSettle();
+      });
+
+      expect(
+        codec.encodeStoredCalls.map((c) => c.cid),
+        [900008, 900009],
+        reason: 'the first base whose whole range is free',
+      );
+      // Dispose so the in-app loop cycle's timer is cancelled before teardown.
+      await tester.pumpWidget(const SizedBox.shrink());
     });
   });
 
