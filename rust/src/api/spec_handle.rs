@@ -299,7 +299,7 @@ fn parse_chunk(
 #[derive(Debug, Clone)]
 pub struct SpecLoadFailureDto {
     /// The key the caller filed the spec under (an asset path, or
-    /// `pack:<name>/<file>`).
+    /// `pack:<slug>/<file>` for a spec pack's).
     pub key: String,
     /// What the parser said.
     pub message: String,

@@ -12,7 +12,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `decode_hex`, `entry_at`, `identities`, `parse_chunk`, `permitted_probe_destination`, `specs_at`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CatalogueSpec`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Parse a spec and keep it, returning the handle that addresses it.
 ///
@@ -289,7 +289,7 @@ class CatalogueMatchDto {
 /// rather than silently shrinking.
 class SpecLoadFailureDto {
   /// The key the caller filed the spec under (an asset path, or
-  /// `pack:<name>/<file>`).
+  /// `pack:<slug>/<file>` for a spec pack's).
   final String key;
 
   /// What the parser said.
