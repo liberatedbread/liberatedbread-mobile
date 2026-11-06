@@ -337,16 +337,17 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       }
       var completed = 0;
       try {
-        for (final bytes in writes) {
-          await writeServiceCommand(
-            container,
-            deviceId: widget.deviceId,
-            serviceUuid: widget.serviceUuid,
-            charUuid: widget.charUuid,
-            bytes: bytes.toList(),
-          );
-          completed++;
-        }
+        // As one run, not a loop of single writes: a fragmented command
+        // (an Orba's BLE-MIDI SysEx) only means something if no other write
+        // to the device lands between its packets.
+        await writeServiceCommandPackets(
+          container,
+          deviceId: widget.deviceId,
+          serviceUuid: widget.serviceUuid,
+          charUuid: widget.charUuid,
+          packets: [for (final bytes in writes) bytes.toList()],
+          onPacketWritten: () => completed++,
+        );
       } catch (e) {
         if (completed > 0) {
           throw _PartialWriteException(completed, writes.length, e);

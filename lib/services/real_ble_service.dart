@@ -542,7 +542,11 @@ class _ConnectAttempt {
 
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService
-    implements BleService, BleAuthorizationWatcher, BleConnectCanceller {
+    implements
+        BleService,
+        BleAuthorizationWatcher,
+        BleConnectCanceller,
+        BlePacketWriter {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   final Map<String, List<BluetoothService>> _servicesCache = {};
 
@@ -1638,6 +1642,10 @@ class RealBleService
   /// [connect] for why connects serialize at all.
   final Map<String, Future<void>> _connectChain = {};
 
+  /// The tail of each device's write queue, kept the way [_connectChain] is;
+  /// see [_inWriteOrder] for why writes serialize per device.
+  final Map<String, Future<void>> _writeChain = {};
+
   int _generationOf(String deviceId) => _connectionGeneration[deviceId] ?? 0;
 
   /// Find a specific BLE characteristic by service and characteristic UUID.
@@ -1683,6 +1691,59 @@ class RealBleService
 
   @override
   Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) => _inWriteOrder(
+    deviceId,
+    () => _writeNow(deviceId, serviceUuid, charUuid, value),
+  );
+
+  @override
+  Future<void> writeCharacteristicPackets(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<List<int>> packets, {
+    void Function()? onPacketWritten,
+  }) => _inWriteOrder(deviceId, () async {
+    for (final packet in packets) {
+      await _writeNow(deviceId, serviceUuid, charUuid, packet);
+      onPacketWritten?.call();
+    }
+  });
+
+  /// Run [write] once every write already queued for [deviceId] has
+  /// finished, holding the next one back until it has.
+  ///
+  /// This is what makes [writeCharacteristicPackets] a unit. fbp's own mutex
+  /// is first-come first-served per CALL, so a run of packets issued one
+  /// write at a time was only ever ordered against itself: a second command
+  /// tapped mid-send queued its first packet behind the run's current one
+  /// and went out between two halves of an Orba SysEx. Single writes take
+  /// the same queue, so nothing — another card, a group run — can land in
+  /// the middle of a run either. fbp serializes the platform calls anyway,
+  /// so this adds ordering, not latency; the same shape as [connect]'s
+  /// chain, and per device because the corruption is.
+  Future<void> _inWriteOrder(String deviceId, Future<void> Function() write) {
+    final previous = _writeChain[deviceId] ?? Future<void>.value();
+    final attempt = previous.then((_) => write());
+    // Error-swallowed for the reason [connect]'s tail is: a refused write
+    // must not refuse every write queued behind it. Each caller still gets
+    // its own failure through `attempt`.
+    final tail = attempt.catchError((Object _) {});
+    _writeChain[deviceId] = tail;
+    tail.whenComplete(() {
+      if (identical(_writeChain[deviceId], tail)) {
+        _writeChain.remove(deviceId);
+      }
+    });
+    return attempt;
+  }
+
+  /// One write, straight to the plugin: callers hold [_inWriteOrder].
+  Future<void> _writeNow(
     String deviceId,
     String serviceUuid,
     String charUuid,

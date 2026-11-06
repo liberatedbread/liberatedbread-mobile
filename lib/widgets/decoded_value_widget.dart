@@ -11,6 +11,7 @@ import '../core/value_format.dart';
 import '../providers/ble_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../services/ble_service.dart';
 import '../services/spec_codec.dart';
 import '../core/error_text.dart';
 
@@ -69,6 +70,63 @@ Future<void> writeServiceCommand(
   };
   for (final key in keys) {
     container.read(serviceWritesProvider(key).notifier).wrote();
+  }
+}
+
+/// [writeServiceCommand] for a command the codec split across several
+/// writes: every packet, in order, as one unit.
+///
+/// Handed to the stack whole when it is a [BlePacketWriter], which keeps
+/// every other write to the device out of the middle — an Orba's SysEx
+/// with another command's packet inside it is corrupt, though each write
+/// succeeded. A stack without that capability gets the packets one by one,
+/// which is all it can do anyway.
+///
+/// [onPacketWritten] is called once per packet that landed, so the caller
+/// can report a run cut off partway. The readings are bumped once, after the
+/// last packet, rather than once per packet as a loop over
+/// [writeServiceCommand] did — and also when a run fails after some packets
+/// landed, since those may have changed what the device reports.
+Future<void> writeServiceCommandPackets(
+  ProviderContainer container, {
+  required String deviceId,
+  required String serviceUuid,
+  required String charUuid,
+  required List<List<int>> packets,
+  void Function()? onPacketWritten,
+}) async {
+  final ble = container.read(bleServiceProvider);
+  var landed = 0;
+  void wrote() {
+    landed++;
+    onPacketWritten?.call();
+  }
+
+  try {
+    if (ble is BlePacketWriter) {
+      await ble.writeCharacteristicPackets(
+        deviceId,
+        serviceUuid,
+        charUuid,
+        packets,
+        onPacketWritten: wrote,
+      );
+    } else {
+      for (final packet in packets) {
+        await ble.writeCharacteristic(deviceId, serviceUuid, charUuid, packet);
+        wrote();
+      }
+    }
+  } finally {
+    if (landed > 0) {
+      container
+          .read(
+            serviceWritesProvider(
+              serviceWriteKey(deviceId, serviceUuid),
+            ).notifier,
+          )
+          .wrote();
+    }
   }
 }
 
