@@ -162,6 +162,27 @@ void main() {
       expect(addressFromTxt({'sn': 'X', 'device_name': 'U1'}), isNull);
       expect(addressFromTxt(const {}), isNull);
     });
+
+    test('holds the TXT address to the self-reported-host rule (R-024)', () {
+      // The TXT is the device's own claim, like a Roomba beacon's `ip` or an
+      // SSDP LOCATION, and the scan emits a row AT that address: any IP
+      // literal was taken, so one record could point a control screen at a
+      // public host — and an IPv6 literal made the HTTP sender's
+      // `Uri.parse('http://$host:$port')` throw a bare FormatException.
+      expect(addressFromTxt({'ip': '203.0.113.7'}), isNull);
+      expect(addressFromTxt({'ip': '8.8.8.8'}), isNull);
+      expect(addressFromTxt({'ip': 'fe80::1'}), isNull);
+      expect(addressFromTxt({'ipv4': '2001:db8::7'}), isNull);
+      // A LAN address still comes through, in each private range.
+      expect(addressFromTxt({'ip': '192.168.1.4'}), '192.168.1.4');
+      expect(addressFromTxt({'ip': '172.16.0.9'}), '172.16.0.9');
+      expect(addressFromTxt({'ip': '10.0.5.7'}), '10.0.5.7');
+      // A refused key does not hide a usable one beside it.
+      expect(
+        addressFromTxt({'ip': '203.0.113.7', 'address': '10.0.0.2'}),
+        '10.0.0.2',
+      );
+    });
   });
 
   group('service instance names', () {

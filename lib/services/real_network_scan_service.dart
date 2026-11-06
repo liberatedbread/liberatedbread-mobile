@@ -301,14 +301,24 @@ Map<String, String> parseTxtRecord(Iterable<String> entries) {
 /// hostname, so PTR->SRV->A never yields an address and the normal resolution
 /// drops them (the Snapmaker U1 is the known case — its TXT carries `ip=`, and
 /// its own docs say to read it and hit the device there). This lets the scan use
-/// that self-reported address instead of losing the device. Only a value that
-/// parses as an IP literal is accepted, so a key merely NAMED like an address
-/// but holding something else (`ipaddr=dhcp`) is ignored.
-String? addressFromTxt(Map<String, String> txt) {
+/// that self-reported address instead of losing the device.
+///
+/// It is still the device's own CLAIM, and the scan emits a row at it, so it is
+/// held to the rule every other self-reported address is
+/// ([trustedSelfReportedHost], R-024): a LAN IPv4 literal or nothing. Taking
+/// any IP literal let one TXT record aim a control screen at a public host,
+/// and an IPv6 one broke the HTTP sender, which builds `http://$host:$port`. A
+/// key merely NAMED like an address (`ipaddr=dhcp`) is no address either, and
+/// a refused value lets the next key be tried. [source] says where the claim
+/// was read, for the log: the mDNS client does not say which datagram the TXT
+/// arrived in.
+String? addressFromTxt(
+  Map<String, String> txt, {
+  String source = 'an mDNS TXT record',
+}) {
   for (final key in const ['ip', 'ipv4', 'address', 'ipaddress', 'ipaddr']) {
-    final value = txt[key];
-    if (value == null || value.isEmpty) continue;
-    if (InternetAddress.tryParse(value) != null) return value;
+    final host = trustedSelfReportedHost(txt[key], source, requireLan: true);
+    if (host != null) return host;
   }
   return null;
 }
@@ -855,7 +865,10 @@ bool isLocalNetworkDenied(Object error, {required bool isApplePlatform}) =>
 /// the path/port beside it are kept regardless.
 ///
 /// On any rejection the caller falls back to [source], the address the datagram
-/// actually came from. A disagreement between the two is logged.
+/// actually came from. A disagreement between the two is logged. Where the
+/// transport does not expose the sender — an mDNS TXT read through the package
+/// client ([addressFromTxt]) — [source] describes where the claim was read
+/// instead, there is nothing to fall back to, and nothing to compare.
 ///
 /// Returns the reported value when it is trustworthy, else null.
 String? trustedSelfReportedHost(
@@ -880,7 +893,7 @@ String? trustedSelfReportedHost(
     );
     return null;
   }
-  if (reported != source) {
+  if (reported != source && InternetAddress.tryParse(source) != null) {
     Log.net.debug(
       'self-reported host "$reported" differs from datagram source $source',
     );
@@ -2730,7 +2743,10 @@ class RealNetworkScanService implements NetworkScanService {
           // cannot co-bind :5353 and rescue it. Coalesces by host with any
           // later resolved row (mergedWith prefers that row's name and SRV
           // port) and with the source-capture backstop.
-          final txtHost = addressFromTxt(txt);
+          final txtHost = addressFromTxt(
+            txt,
+            source: 'the TXT of ${instance.domainName}',
+          );
           if (txtHost != null) {
             emit(
               NetworkDevice(

@@ -50,7 +50,10 @@ const _snapType = '_snapmaker._tcp.local.';
 /// The OTHER Snapmaker failure: a device that answers PTR + TXT + SRV but is
 /// deaf to the A query for its own hostname, so PTR -> SRV -> A never yields an
 /// address. Its TXT carries `ip=`, which is the only way the scan can place it.
-const _snapTxtHost = '198.51.100.14';
+/// RFC1918 rather than TEST-NET-2 like its neighbours: a TXT address is a
+/// self-reported one, held to the LAN rule, and a documentation-space address
+/// would be refused as off-LAN.
+const _snapTxtHost = '10.254.100.14';
 const _snapTxtType = '_snaptxt._tcp.local.';
 
 /// Long enough for two multicast round trips on loopback, short enough that a
