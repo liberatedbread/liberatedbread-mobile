@@ -1505,8 +1505,15 @@ impl From<(&Characteristic, &str, &Command)> for CommandDto {
             // Normalized through `locate_kind` rather than forwarded raw, so
             // a spelling this build does not understand crosses the FFI as
             // "not a locator" instead of as a string the Dart side would have
-            // to re-validate.
-            locate: cmd.locate_kind().map(|kind| kind.as_str().to_string()),
+            // to re-validate. And only for a command one write can carry: the
+            // find-device button sends a single `encode_command` write, which
+            // an Orba-framed command can never be, so offering it as a
+            // locator drew a button whose every press failed. It stays
+            // encodable — the command browser sends every write it takes.
+            locate: cmd
+                .locate_kind()
+                .filter(|_| !crate::codec::types::requires_ordered_writes(characteristic))
+                .map(|kind| kind.as_str().to_string()),
             advanced: cmd.advanced,
             advanced_reason: cmd.advanced_reason.clone(),
             // Same as commands: `params` is an IndexMap, so plain iteration
@@ -10205,5 +10212,93 @@ services:
                 "{extra}"
             );
         }
+    }
+
+    /// An Orba-framed characteristic with entities and a locator bound to
+    /// it. Its commands encode only as several ordered writes.
+    const ORBA_ENTITY_YAML: &str = r#"
+device:
+  name: "Orba 2"
+  manufacturer: "Artiphon"
+  manufacturer_status: "shutdown"
+  protocol: "ble"
+services:
+  - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    name: "MIDI"
+    characteristics:
+      - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        name: "MIDI I/O"
+        properties: ["write", "notify"]
+        framing:
+          scheme: "orba_sysex_ble_midi"
+          max_chunk_size: 20
+        commands:
+          transport_play:
+            description: "Play"
+            value: [0x03, 0x07, 0x00, 0x02, 0x05]
+          transport_pause:
+            description: "Pause"
+            value: [0x03, 0x07, 0x00, 0x02, 0x06]
+          chirp:
+            description: "Make a sound"
+            value: [0x03, 0x01, 0x00, 0x03, 0x02]
+            locate: "sound"
+          set_tempo:
+            description: "Tempo"
+            template: [0x03, 0x07, 0x00, 0x07, "{tempo}"]
+            parameters:
+              tempo:
+                type: "uint16"
+                endianness: "big"
+                min: 1
+                max: 65535
+entities:
+  - platform: switch
+    name: Transport
+    commands:
+      turn_on: transport_play
+      turn_off: transport_pause
+  - platform: number
+    name: Tempo
+    min: 1
+    max: 300
+    commands:
+      set_value: set_tempo
+"#;
+
+    #[test]
+    fn a_multi_write_characteristic_offers_no_single_write_controls() {
+        // Every caller of an entity action, a group op or a locator sends ONE
+        // write through `encode_command`/`encode_entity_value`, and both
+        // refuse the Orba's framing. Offered, each was a button that could
+        // only fail. The typed-command browser sends through
+        // `encode_command_writes`, so the commands stay there.
+        let dto = load_device_spec(ORBA_ENTITY_YAML.to_string()).unwrap();
+        assert!(
+            dto.entities.iter().all(|e| e.actions.is_empty()),
+            "{:?}",
+            dto.entities
+        );
+        assert!(
+            encode_entity_value(ORBA_ENTITY_YAML.to_string(), "Tempo".into(), None, 120.0)
+                .unwrap_err()
+                .to_string()
+                .contains("no settable value"),
+            "refused at the gate, not at the framer"
+        );
+
+        let commands = &dto.services[0].characteristics[0].commands;
+        let chirp = commands.iter().find(|c| c.name == "chirp").unwrap();
+        assert_eq!(chirp.locate, None, "a locator is a one-write button");
+        assert!(commands.iter().all(|c| c.is_encodable));
+        let writes = encode_command_writes(
+            Some(ORBA_ENTITY_YAML.to_string()),
+            None,
+            "7772e5db-3868-4112-a1a9-f2669d106bf3".to_string(),
+            "chirp".to_string(),
+            HashMap::new(),
+        )
+        .unwrap();
+        assert!(writes.len() >= 2, "{writes:?}");
     }
 }

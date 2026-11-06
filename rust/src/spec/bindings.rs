@@ -19,7 +19,7 @@ use super::types::{
     name_has_prefix, Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service,
     SpecCommand, TemplateElement, ValueType,
 };
-use crate::codec::types::{unsupported_characteristic_transform, unsupported_write_kind};
+use crate::codec::types::{unsupported_single_write_kind, unsupported_single_write_transform};
 use crate::protocol::{http, kasa, mqtt, rabbit_air, soap, websocket};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -482,8 +482,11 @@ fn qualify_valued<'a>(
     // here missed `unsupported_parameter_kind`, so the BIO-key lock's Unlock
     // (a `bytes` credential parameter the f64 FFI cannot carry) resolved into
     // a card whose every press the encoder refused, while the command browser
-    // marked the same command unencodable.
-    if unsupported_write_kind(characteristic, command).is_some() || !is_writable(characteristic) {
+    // marked the same command unencodable. The SINGLE-write form, because the
+    // value goes out through `encode_entity_value`, one write.
+    if unsupported_single_write_kind(characteristic, command).is_some()
+        || !is_writable(characteristic)
+    {
         return None;
     }
     // A fixed byte sequence cannot carry a value the user picked.
@@ -538,9 +541,9 @@ fn resolve_direct_write<'a>(
     let (service, characteristic) =
         spec.find_characteristic_where(uuid, |c| c.format.as_ref().is_some_and(|f| f.len() == 1))?;
     // Same gate as the command path: a raw value written to a characteristic
-    // that encrypts or frames its payloads lands as the wrong bytes.
-    if unsupported_characteristic_transform(characteristic).is_some()
-        || !is_writable(characteristic)
+    // that encrypts or frames its payloads lands as the wrong bytes, and one
+    // whose framing needs several ordered writes cannot take a single one.
+    if unsupported_single_write_transform(characteristic).is_some() || !is_writable(characteristic)
     {
         return None;
     }
@@ -796,8 +799,13 @@ fn qualify<'a>(
     // way out, a template naming a `bytes`/`string` parameter the f64 FFI
     // cannot carry, or a characteristic that takes no writes at all. One
     // predicate with the encoder and `CommandDto`, so the card and the
-    // command browser cannot disagree about the same command.
-    if unsupported_write_kind(characteristic, command).is_some() || !is_writable(characteristic) {
+    // command browser cannot disagree about the same command. Its
+    // single-write form: every card and group op sends one write, so a
+    // command only `encode_command_writes` can carry (the Orba's BLE-MIDI
+    // framing) stays in the command browser and resolves no control.
+    if unsupported_single_write_kind(characteristic, command).is_some()
+        || !is_writable(characteristic)
+    {
         return None;
     }
 
@@ -2706,6 +2714,83 @@ entities:
 "#,
         );
         assert!(actions_for(&spec).is_empty());
+    }
+
+    /// The Orba's BLE-MIDI framing is executed — but only as SEVERAL ordered
+    /// writes. Every consumer of a resolved action sends exactly one, and the
+    /// single-write encoders refuse the scheme, so a switch, a setpoint or a
+    /// direct write on such a characteristic is a control that can only fail.
+    #[test]
+    fn a_multi_write_framing_scheme_disqualifies_entity_actions() {
+        let services = r#"
+  - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    name: MIDI
+    characteristics:
+      - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        name: MIDI I/O
+        properties: [write, notify]
+        framing:
+          scheme: "orba_sysex_ble_midi"
+          max_chunk_size: 20
+        commands:
+          transport_play:
+            description: Play
+            value: [0x03, 0x07, 0x00, 0x02, 0x05]
+          transport_pause:
+            description: Pause
+            value: [0x03, 0x07, 0x00, 0x02, 0x06]
+          set_tempo:
+            description: Tempo
+            template: [0x03, 0x07, 0x00, 0x07, "{tempo}"]
+            parameters:
+              tempo: {type: uint16, endianness: big, min: 1, max: 65535}
+        format:
+          - offset: 0
+            length: 1
+            name: level
+            type: uint8
+"#;
+        for entity in [
+            r#"
+  - name: Transport
+    platform: switch
+    commands:
+      turn_on: transport_play
+      turn_off: transport_pause
+"#,
+            r#"
+  - name: Tempo
+    platform: number
+    commands:
+      set_value: set_tempo
+"#,
+            r#"
+  - name: Level
+    platform: number
+    command_characteristic: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+"#,
+        ] {
+            let spec = spec_with(entity, services);
+            assert!(
+                roles(&actions_for(&spec)).is_empty(),
+                "an action on a multi-write characteristic must not resolve: {entity}"
+            );
+        }
+
+        // A scheme that frames a packet into ONE write is no obstacle: the
+        // gate is about the write count, not about framing as such.
+        let single = services.replace("orba_sysex_ble_midi", "daniao_fragment");
+        let spec = spec_with(
+            r#"
+  - name: Transport
+    platform: switch
+    commands:
+      turn_on: transport_play
+      turn_off: transport_pause
+"#,
+            &single,
+        );
+        assert_eq!(roles(&actions_for(&spec)), vec!["turn_on", "turn_off"]);
     }
 
     /// Sensors and unknown platforms resolve nothing — their rendering is

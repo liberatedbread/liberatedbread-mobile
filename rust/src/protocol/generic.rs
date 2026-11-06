@@ -88,7 +88,9 @@ impl DeviceProtocol for GenericProtocol {
         params: &HashMap<String, f64>,
     ) -> Result<Vec<u8>, ProtocolError> {
         let (characteristic, bytes) = self.command_bytes(char_uuid, command_name, params)?;
-        if types::framing_scheme_name(characteristic).as_deref() == Some(super::orba_midi::SCHEME) {
+        // The same predicate the entity/locator gates ask, so nothing they
+        // offer can reach this refusal.
+        if types::requires_ordered_writes(characteristic) {
             return Err(ProtocolError::UnsupportedCommandEncoding(
                 "BLE-MIDI commands require ordered writes".to_string(),
             ));
