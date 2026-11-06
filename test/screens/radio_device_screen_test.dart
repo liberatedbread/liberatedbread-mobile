@@ -6,6 +6,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge.dart'
+    show AnyhowException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/channel_plan.dart';
 import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
@@ -928,6 +930,33 @@ void main() {
       expect(error, contains('may now hold part of the write'));
       expect(error, contains('uv-5r-mini_0.bin'));
       expect(error, contains('"Restore a backup"'));
+    });
+
+    testWidgets('a cable pulled out mid-write, which the desktop port reports '
+        'as an error rather than a timeout, still says the radio may be '
+        'half written', (tester) async {
+      // rust/src/serial.rs answers a port at end of file (a tty whose cable
+      // was pulled) with an error at once, where it used to spin until the
+      // step deadline and report a timeout. The bridge raises that error as
+      // an AnyhowException, which the cable driver passes on untranslated.
+      await seedPlan();
+      final harness = await _pump(
+        tester,
+        programmer: _CutOffProgrammer(
+          AnyhowException('the serial port closed after 0 of 1 bytes'),
+        ),
+      );
+      await pickAndConfirm(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(harness.backups.saved, hasLength(1));
+      final error = tester
+          .widgetList<Text>(find.textContaining('did not finish'))
+          .first
+          .data!;
+      expect(error, contains('may now hold part of the write'));
+      expect(error, contains('uv-5r-mini_0.bin'));
     });
 
     testWidgets('a refused block names the backup without repeating the '

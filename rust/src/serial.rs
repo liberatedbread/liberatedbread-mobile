@@ -118,7 +118,7 @@ mod imp {
     use serialport::{
         ClearBuffer, DataBits, FlowControl, Parity, SerialPort, SerialPortType, StopBits,
     };
-    use std::io::{ErrorKind, Read as _, Write as _};
+    use std::io::{ErrorKind, Write as _};
     use std::time::{Duration, Instant};
 
     pub struct Port(Box<dyn SerialPort>);
@@ -186,6 +186,28 @@ mod imp {
 
     pub fn read_exact(port: &mut Port, len: usize, timeout_ms: u32) -> anyhow::Result<Read> {
         let deadline = Instant::now() + Duration::from_millis(timeout_ms as u64);
+        fill(&mut port.0, len, deadline)
+    }
+
+    /// What [fill] reads from: a reader whose every read gives up after a
+    /// timeout it is told. A port, or in the tests a scripted one.
+    pub trait TimedRead: std::io::Read {
+        fn set_read_timeout(&mut self, timeout: Duration) -> anyhow::Result<()>;
+    }
+
+    impl TimedRead for Box<dyn SerialPort> {
+        fn set_read_timeout(&mut self, timeout: Duration) -> anyhow::Result<()> {
+            Ok(self.set_timeout(timeout)?)
+        }
+    }
+
+    /// [read_exact]'s loop: `len` bytes from `reader`, or what arrived by
+    /// `deadline`.
+    pub fn fill<R: TimedRead + ?Sized>(
+        reader: &mut R,
+        len: usize,
+        deadline: Instant,
+    ) -> anyhow::Result<Read> {
         let mut data = vec![0u8; len];
         let mut filled = 0;
         while filled < len {
@@ -197,8 +219,25 @@ mod imp {
                     timed_out: true,
                 });
             }
-            port.0.set_timeout((deadline - now).min(POLL))?;
-            match port.0.read(&mut data[filled..]) {
+            reader.set_read_timeout((deadline - now).min(POLL))?;
+            match reader.read(&mut data[filled..]) {
+                // A read that asked for bytes and got none is the end of the
+                // file: the port has gone (a tty hung up when its cable is
+                // pulled), and nothing more will ever arrive. Counted as
+                // progress it ran this loop flat out, a core at 100%, until
+                // the deadline, and then passed for a slow radio. An error
+                // reaches Dart as a failed read, which a write in progress
+                // reports as one that may have left the radio half written,
+                // as it does a failed write. (serialport 4 already turns a
+                // hangup poll() reports into BrokenPipe; this is the driver
+                // that says readable and then reads nothing.)
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        ErrorKind::UnexpectedEof,
+                        format!("the serial port closed after {filled} of {len} bytes"),
+                    )
+                    .into())
+                }
                 Ok(n) => filled += n,
                 Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::Interrupted) => {}
                 Err(e) => return Err(e.into()),
@@ -334,6 +373,83 @@ mod tests {
         assert!(waited >= Duration::from_millis(150), "{waited:?}");
         assert!(waited < Duration::from_secs(2), "{waited:?}");
         close(port).unwrap();
+    }
+
+    /// A reader that gives the answers it was scripted with, then the end
+    /// of the file forever -- a tty after its cable is pulled -- counting
+    /// every read.
+    struct Scripted {
+        answers: std::collections::VecDeque<std::io::Result<Vec<u8>>>,
+        reads: usize,
+    }
+
+    impl Scripted {
+        fn new(answers: Vec<std::io::Result<Vec<u8>>>) -> Self {
+            Self {
+                answers: answers.into(),
+                reads: 0,
+            }
+        }
+    }
+
+    impl std::io::Read for Scripted {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.reads += 1;
+            match self.answers.pop_front() {
+                Some(Ok(bytes)) => {
+                    buf[..bytes.len()].copy_from_slice(&bytes);
+                    Ok(bytes.len())
+                }
+                Some(Err(error)) => Err(error),
+                None => Ok(0),
+            }
+        }
+    }
+
+    impl imp::TimedRead for Scripted {
+        fn set_read_timeout(&mut self, _timeout: Duration) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_port_at_end_of_file_is_an_error_at_once_not_a_spin_to_the_deadline() {
+        // Ok(0) from a read that asked for bytes is the end of the file:
+        // nothing more will ever arrive. Counted as progress, it ran the
+        // loop flat out, a core at 100%, until the step's deadline, and then
+        // reported a timeout. Fails on that loop.
+        let mut port = Scripted::new(vec![Ok(vec![1, 2])]);
+        let started = Instant::now();
+        let err = imp::fill(&mut port, 4, started + Duration::from_millis(500)).unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_millis(250),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(port.reads, 2, "the two bytes, then the end of the file");
+        let io = err
+            .downcast_ref::<std::io::Error>()
+            .expect("the read's own error");
+        assert_eq!(io.kind(), std::io::ErrorKind::UnexpectedEof, "{err}");
+
+        // A read that timed out or was interrupted is still waited through.
+        let mut port = Scripted::new(vec![
+            Err(std::io::ErrorKind::TimedOut.into()),
+            Err(std::io::ErrorKind::Interrupted.into()),
+            Ok(vec![7]),
+        ]);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        assert_eq!(
+            imp::fill(&mut port, 1, deadline).unwrap(),
+            Read {
+                data: vec![7],
+                timed_out: false
+            }
+        );
+        // And nothing asked for is nothing read.
+        let mut port = Scripted::new(vec![]);
+        assert!(imp::fill(&mut port, 0, deadline).unwrap().data.is_empty());
+        assert_eq!(port.reads, 0);
     }
 
     #[test]
