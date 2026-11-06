@@ -312,6 +312,14 @@ class RepeaterBookClient implements RepeaterSource {
 
   /// Read a tone cell: "100.0" is CTCSS, "D023"/"023" with a D is DCS, and
   /// "CSQ", "" or a dash all mean carrier squelch.
+  ///
+  /// Only a tone on the app's tables ([ctcssTonesTenthHz], [dcsCodes]) is
+  /// taken, as `channelFromDto` does with a radio's own: anything else is
+  /// no tone. A code off the DCS table ("D777") reached the codec, which
+  /// refused the whole write after the read and the backup; a cell that is
+  /// no sub-audible tone ("1750", the burst some repeaters list there) was
+  /// written as a 1750.0 Hz CTCSS tone. No tone is the setting that cannot
+  /// key anything unexpected, and the editor shows it missing.
   static ToneSetting _toneFrom(Object? value) {
     final text = value?.toString().trim();
     if (text == null || text.isEmpty) return ToneSetting.none;
@@ -323,17 +331,21 @@ class RepeaterBookClient implements RepeaterSource {
     if (upper.startsWith('D')) {
       final digits = RegExp(r'\d+').firstMatch(upper)?.group(0);
       final code = digits == null ? null : int.tryParse(digits);
-      if (code == null || code <= 0) return ToneSetting.none;
+      if (code == null || !dcsCodes.contains(code)) return ToneSetting.none;
       return ToneSetting.dcs(code, inverted: upper.endsWith('I'));
     }
 
     final hz = parseMegahertzToHz(text);
     // The tone cell is in Hz, not MHz, so the parser's "MHz" units are being
     // borrowed purely for its exactness: 107.2 arrives as 107200000 and the
-    // tenths of a Hz this app stores are that divided by 100000.
-    if (hz == null || hz <= 0) return ToneSetting.none;
+    // tenths of a Hz this app stores are that divided by 100000. Anything
+    // past the tenths ("100.05") is not a table tone either, rather than
+    // the one it would truncate to.
+    if (hz == null || hz <= 0 || hz % 100000 != 0) return ToneSetting.none;
     final tenths = hz ~/ 100000;
-    return tenths > 0 ? ToneSetting.ctcss(tenths) : ToneSetting.none;
+    return ctcssTonesTenthHz.contains(tenths)
+        ? ToneSetting.ctcss(tenths)
+        : ToneSetting.none;
   }
 
   static double? _numField(Map<String, dynamic> row, List<String> names) {

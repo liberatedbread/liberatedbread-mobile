@@ -166,6 +166,47 @@ void main() {
       expect(csq.channel.txTone, ToneSetting.none);
     });
 
+    test('a tone off the radios\' tables is no tone, not a channel the write '
+        'refuses or garbles', () async {
+      // A DCS code outside dcsCodes reached the codec, which refused the
+      // whole write after the read and the backup ("did not finish"); a
+      // CTCSS cell like 1750 (the 1750 Hz burst some repeaters list there)
+      // was written as a 1750.0 Hz sub-audible tone. The same tables the
+      // decoder filters a radio's own tones against decide here. Fails on
+      // the unfiltered parser.
+      Future<ToneSetting> toneOf(String pl) async {
+        final row =
+            '{"Frequency": "146.94", "Input Freq": "146.34", '
+            '"PL": "$pl", "Lat": "41.7", "Long": "-72.7", '
+            '"Callsign": "WT7EST"}';
+        final listings = await _answering(
+          '{"results": [$row]}',
+        ).fetchByState('CT');
+        return listings.single.channel.txTone;
+      }
+
+      for (final pl in [
+        'D777', // not a DCS code (7 is not octal)
+        'D999',
+        'D024', // octal, but not on the standard list
+        '1750',
+        '1750.0',
+        '100.1', // a typo of 100.0
+        '100.05', // not 100.0, which it would truncate to
+        '60.0', // below the lowest standard tone
+        '300.0', // above the highest
+        '0.5',
+      ]) {
+        expect(await toneOf(pl), ToneSetting.none, reason: pl);
+      }
+      // Every tone on the tables still comes through.
+      expect(await toneOf('67.0'), const ToneSetting.ctcss(670));
+      expect(await toneOf('254.1'), const ToneSetting.ctcss(2541));
+      expect(await toneOf('D645'), const ToneSetting.dcs(645));
+      expect(await toneOf('D754I'), const ToneSetting.dcs(754, inverted: true));
+      expect(await toneOf('d023'), const ToneSetting.dcs(23));
+    });
+
     test('an empty input frequency means simplex', () async {
       final listings = await _answering(fixture).fetchByState('CT');
       final simplex = listings.firstWhere((l) => l.callsign == 'WT3EST');
