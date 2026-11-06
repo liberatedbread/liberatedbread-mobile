@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import '../core/unit_display.dart';
+import '../core/value_format.dart' show decimalsForStep, snapToStep;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -2812,12 +2813,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               label: shown == null ? null : _trimNumber(shown),
               onChanged: (busy || _lockedFor(action))
                   ? null
-                  : (value) =>
-                        setState(() => _pendingSetpoints[entity.name] = value),
+                  : (value) => setState(
+                      () => _pendingSetpoints[entity.name] = _onStep(
+                        value,
+                        min,
+                        max,
+                        step,
+                      ),
+                    ),
               onChangeEnd: (busy || _lockedFor(action))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, action, value: _trimNumber(value)),
+                      _send(
+                        entity,
+                        action,
+                        value: _sliderText(value, min, max, step),
+                      ),
                     ),
             ),
           _unclaimedActions(entity, const {'set_value'}),
@@ -2826,8 +2837,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
   }
 
-  /// A number rendered the way it will be sent: whole when it is whole, one
-  /// decimal otherwise (the finest step the specs declare). Non-finite
+  /// A number for display, and as an unstepped slider sends it: whole when
+  /// it is whole, one decimal otherwise (the finest step the specs declare;
+  /// a stepped slider sends through [_sliderText] instead). Non-finite
   /// values print as themselves: Rust's f64 parse takes "inf" and "NaN", so
   /// a device can report either, and `round()` threw on Infinity mid-build —
   /// the whole screen became an error page over one odd reading.
@@ -2865,6 +2877,45 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       value.isFinite && _isExactInt(value)
       ? value.round().toString()
       : value.toString();
+
+  /// [value] on the declared [step]'s grid, or as it is when nothing is
+  /// declared — where the finger is, as far as the device can follow it.
+  static double _onStep(double value, double min, double max, double? step) =>
+      step == null ? value : snapToStep(value, min, max, step);
+
+  /// A released slider position as the text that is sent.
+  ///
+  /// Slider reports stop k of n as `k / n * (max - min) + min`, which binary
+  /// floating point does not always land exactly: stop 23 of OpenEVSE's
+  /// 6..48 A charge limit is 29.000000000000004, and stop 29 of a
+  /// SoundTouch's 0..100 volume 28.999999999999996. [_trimNumber] printed
+  /// both as "29.0", and Rust parses an integer parameter as an integer —
+  /// "declared integer, and this is not an integer" — so the send failed and
+  /// the slider rolled back. Snapped to the declared step and printed to
+  /// that step's precision (and the grid's origin's: min 0.5 by whole steps
+  /// is 1.5, not "2"), a whole step sends a whole number.
+  ///
+  /// With no step declared nothing says which grid the device holds, so
+  /// [unstepped] stands.
+  static String _sliderText(
+    double value,
+    double min,
+    double max,
+    double? step, {
+    String Function(double) unstepped = _trimNumber,
+  }) {
+    if (step == null || !step.isFinite || step <= 0) return unstepped(value);
+    final snapped = snapToStep(value, min, max, step);
+    final stepDecimals = decimalsForStep(step);
+    final originDecimals = decimalsForStep(min.abs());
+    final decimals = stepDecimals > originDecimals
+        ? stepDecimals
+        : originDecimals;
+    final text = snapped.toStringAsFixed(decimals);
+    // A grid point at zero can land a hair below it, and toStringAsFixed
+    // keeps the sign: "-0.0" is not what anybody set.
+    return double.parse(text) == 0 ? 0.0.toStringAsFixed(decimals) : text;
+  }
 
   /// Slider detents from the declared step, capped so a wide range with a
   /// tiny step does not build thousands of divisions.
@@ -2943,6 +2994,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final pendingPosition = _pendingSetpoints[entity.name];
     final positionMin = position?.min ?? 0;
     final positionMax = position?.max ?? 1;
+    final positionStep = entity.setpointStep;
 
     Widget motion(NetworkActionDto? action, IconData icon, String label) =>
         Expanded(
@@ -3008,14 +3060,40 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               ),
               min: positionMin,
               max: positionMax,
+              divisions: _sliderDivisions(
+                positionMin,
+                positionMax,
+                positionStep,
+              ),
               onChanged: (busy || _lockedFor(position))
                   ? null
-                  : (value) =>
-                        setState(() => _pendingSetpoints[entity.name] = value),
+                  : (value) => setState(
+                      () => _pendingSetpoints[entity.name] = _onStep(
+                        value,
+                        positionMin,
+                        positionMax,
+                        positionStep,
+                      ),
+                    ),
+              // Unstepped, the position goes out exact rather than trimmed:
+              // ratgdo's is a 0..1 fraction, where one decimal would be ten
+              // stops. Exact still drops a whole number's ".0" — toString()
+              // sent a cover at 50 as "50.0", which an integer parameter
+              // refuses.
               onChangeEnd: (busy || _lockedFor(position))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, position, value: value.toString()),
+                      _send(
+                        entity,
+                        position,
+                        value: _sliderText(
+                          value,
+                          positionMin,
+                          positionMax,
+                          positionStep,
+                          unstepped: _exactNumber,
+                        ),
+                      ),
                     ),
             ),
           _unclaimedActions(entity, const {
@@ -3043,6 +3121,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final isOn = reading?.isOn;
     final min = percentage?.min ?? 0;
     final max = percentage?.max ?? 100;
+    final step = entity.setpointStep;
     final pending = _pendingSetpoints[entity.name];
     final speed = pending ?? reading?.number;
 
@@ -3089,15 +3168,26 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               value: (speed ?? min).clamp(min, max),
               min: min,
               max: max,
+              divisions: _sliderDivisions(min, max, step),
               label: speed == null ? null : _trimNumber(speed),
               onChanged: (busy || _lockedFor(percentage))
                   ? null
-                  : (value) =>
-                        setState(() => _pendingSetpoints[entity.name] = value),
+                  : (value) => setState(
+                      () => _pendingSetpoints[entity.name] = _onStep(
+                        value,
+                        min,
+                        max,
+                        step,
+                      ),
+                    ),
               onChangeEnd: (busy || _lockedFor(percentage))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, percentage, value: _trimNumber(value)),
+                      _send(
+                        entity,
+                        percentage,
+                        value: _sliderText(value, min, max, step),
+                      ),
                     ),
             ),
           if (oscillating != null)

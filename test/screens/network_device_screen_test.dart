@@ -4353,6 +4353,146 @@ void main() {
       expect(double.parse(call.values['speed']!), inInclusiveRange(0, 6));
     });
 
+    // Flutter's Slider reports stop k of n as `k / n * (max - min) + min`,
+    // which binary floating point does not always land exactly: stop 23 of
+    // OpenEVSE's 6..48 A charge limit is 29.000000000000004, and stop 29 of
+    // a SoundTouch's 0..100 volume is 28.999999999999996. Both went out as
+    // "29.0", which Rust's integer parameters refuse ("declared integer, and
+    // this is not an integer") — the send failed and the slider rolled back.
+    // The fake codec takes any string, so the assertion is the exact text.
+    for (final (label, min, max, step, stop, sent) in [
+      ('a 6..48 A charge limit', 6.0, 48.0, 1.0, 23, '29'),
+      ('a 0..100 volume', 0.0, 100.0, 1.0, 29, '29'),
+      ('a 0..100 volume', 0.0, 100.0, 1.0, 57, '57'),
+      ('a -80..18 dB half-step volume', -80.0, 18.0, 0.5, 187, '13.5'),
+    ]) {
+      testWidgets('$label sends stop $stop as "$sent"', (tester) async {
+        final entity = NetworkEntityDto(
+          isInstanced: false,
+          name: 'Setpoint',
+          platform: 'number',
+          stateCommand: 'GetCrockpotState',
+          valueField: 'time',
+          setpointMin: min,
+          setpointMax: max,
+          setpointStep: step,
+          options: const [],
+          actions: const [
+            NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'set_value',
+              transport: 'soap',
+              commandName: 'set_point',
+              userParams: ['value'],
+              readBack: [],
+            ),
+          ],
+        );
+        await pumpUtility(tester, entities: [entity], reading: (_, _) => null);
+
+        final slider = tester.widget<Slider>(find.byType(Slider));
+        final divisions = ((max - min) / step).round();
+        expect(slider.divisions, divisions);
+        // The value Slider itself hands its callbacks for that stop.
+        final released = stop / divisions * (max - min) + min;
+        slider.onChanged!(released);
+        slider.onChangeEnd!(released);
+        await tester.pumpAndSettle();
+
+        final call = codec.renderNetworkCommandCalls.lastWhere(
+          (c) => c.commandName == 'set_point',
+        );
+        expect(call.values['value'], sent);
+      });
+    }
+
+    // The fan and cover sliders sent the same noisy doubles: the fan through
+    // the one-decimal trim, the cover through toString(), so a cover at 50
+    // went out as "50.0".
+    testWidgets('a stepped fan speed sends a whole percentage', (tester) async {
+      final fan = utilityEntities.firstWhere((e) => e.platform == 'fan');
+      await pumpUtility(
+        tester,
+        entities: [
+          NetworkEntityDto(
+            isInstanced: fan.isInstanced,
+            name: fan.name,
+            platform: fan.platform,
+            stateCommand: fan.stateCommand,
+            valueField: fan.valueField,
+            setpointStep: 1,
+            options: fan.options,
+            actions: fan.actions,
+          ),
+        ],
+      );
+
+      final slider = tester.widget<Slider>(find.byType(Slider));
+      expect(slider.divisions, 100);
+      slider.onChanged!(28.999999999999996);
+      slider.onChangeEnd!(28.999999999999996);
+      await tester.pumpAndSettle();
+
+      final call = codec.renderNetworkCommandCalls.lastWhere(
+        (c) => c.commandName == 'fan_speed',
+      );
+      expect(call.values['value'], '29');
+    });
+
+    for (final (label, step, released, sent) in [
+      ('an unstepped cover position', null, 50.0, '50'),
+      ('a stepped cover position', 1.0, 49.99999999999999, '50'),
+    ]) {
+      testWidgets('$label at $released sends "$sent"', (tester) async {
+        final cover = utilityEntities.firstWhere((e) => e.platform == 'cover');
+        await pumpUtility(
+          tester,
+          entities: [
+            NetworkEntityDto(
+              isInstanced: cover.isInstanced,
+              name: cover.name,
+              platform: cover.platform,
+              deviceClass: cover.deviceClass,
+              stateCommand: cover.stateCommand,
+              valueField: cover.valueField,
+              setpointStep: step,
+              options: cover.options,
+              actions: [
+                ...cover.actions,
+                const NetworkActionDto(
+                  credentials: [],
+                  instanceParams: [],
+                  role: 'set_cover_position',
+                  transport: 'soap',
+                  commandName: 'door_position',
+                  userParams: ['position'],
+                  min: 0,
+                  max: 100,
+                  readBack: [],
+                ),
+              ],
+            ),
+          ],
+          reading: (entity, ret) => const NetworkReadingDto(
+            kind: NetworkReadingKind.number,
+            number: 20,
+            raw: '20',
+          ),
+        );
+
+        final slider = tester.widget<Slider>(find.byType(Slider));
+        slider.onChanged!(released);
+        slider.onChangeEnd!(released);
+        await tester.pumpAndSettle();
+
+        final call = codec.renderNetworkCommandCalls.lastWhere(
+          (c) => c.commandName == 'door_position',
+        );
+        expect(call.values['position'], sent);
+      });
+    }
+
     testWidgets('hidden declared controls are counted, not vanished', (
       tester,
     ) async {
