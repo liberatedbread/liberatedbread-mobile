@@ -118,7 +118,10 @@ What it does:
 7. Sets up Android SDK components (platform, build-tools, CMake, NDK)
 8. Installs the emulator and system image and creates the
    `liberated_bread_test` AVD — same image and device profile CI boots
-9. Runs `pod install` on macOS
+9. Checks for Xcode and CocoaPods on macOS. It does not run `pod install`:
+   `ios/Podfile` needs the `Generated.xcconfig` that `flutter pub get` writes
+   in the next step, so `run-ios*.sh` and `flutter build ios` run it
+   themselves, after pub get
 10. Runs `flutter pub get` and generates FRB bindings
 
 ### Where the versions come from
