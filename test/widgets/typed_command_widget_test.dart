@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -936,6 +937,64 @@ void main() {
       codec.encodeCalls.where((c) => c.commandName == 'calibration_mode'),
       hasLength(2),
     );
+  });
+
+  testWidgets('two taps in one frame send a command once', (tester) async {
+    // The button disables itself only from the next frame, while a tap fires
+    // during pointer dispatch: both taps saw it enabled, and with the first
+    // write still in flight the second encoded and wrote a second command.
+    final gate = Completer<void>();
+    final ble = FakeBleService(writeGate: gate.future);
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1, 1]));
+    await tester.pumpWidget(_wrap(ble: ble, codec: codec));
+
+    final button = find.widgetWithText(ElevatedButton, 'Power on');
+    await tester.tap(button);
+    await tester.tap(button);
+    expect(
+      codec.encodeCalls.where((c) => c.commandName == 'power_on'),
+      hasLength(1),
+    );
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(ble.writes, hasLength(1));
+    expect(find.text('Sent'), findsOneWidget);
+  });
+
+  testWidgets('two activations of an advanced command ask once and send once', (
+    tester,
+  ) async {
+    // The confirmation dialog is an await before the button ever shows
+    // "Sending...", so nothing held a second send back while it was up: two
+    // activations stacked two dialogs, and confirming both sent twice.
+    // Activated through semantics, as an accessibility tap is: a second
+    // POINTER tap in the frame that pushes the dialog is absorbed by the
+    // Navigator, but nothing absorbs an action sent to the button's node.
+    final handle = tester.ensureSemantics();
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _advancedChar),
+    );
+    await tester.tap(find.text('Advanced commands'));
+    await tester.pumpAndSettle();
+
+    final button = find.semantics.byLabel('Calibration mode');
+    tester.semantics.tap(button);
+    tester.semantics.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      codec.encodeCalls.where((c) => c.commandName == 'calibration_mode'),
+      hasLength(1),
+    );
+    expect(ble.writes, hasLength(1));
+    handle.dispose();
   });
 
   testWidgets('an advanced command without a reason falls back to a generic '

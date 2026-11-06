@@ -161,6 +161,14 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   final Map<String, TextEditingController> _floatControllers = {};
   final Set<String> _invalidFloats = {};
   bool _sending = false;
+
+  /// Set on entry to [_send], before its first await, and cleared when it
+  /// returns. [_sending] cannot do this job: it disables the button only
+  /// from the next frame, while a tap fires during pointer dispatch, so two
+  /// taps in one frame both encoded and wrote. And it is set only once an
+  /// advanced command's confirmation is answered, which left the whole time
+  /// the dialog was up unguarded — two activations stacked two dialogs.
+  bool _inFlight = false;
   String? _status;
   bool _failed = false;
 
@@ -288,7 +296,18 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       if (!p.userSettable && p.auto == null && p.source == null) p,
   ];
 
+  /// One send at a time per command — see [_inFlight].
   Future<void> _send() async {
+    if (_inFlight) return;
+    _inFlight = true;
+    try {
+      await _sendOnce();
+    } finally {
+      _inFlight = false;
+    }
+  }
+
+  Future<void> _sendOnce() async {
     if (_invalidFloats.isNotEmpty) {
       final text =
           'Enter a finite number for ${humanizeName(_invalidFloats.first)}.';
