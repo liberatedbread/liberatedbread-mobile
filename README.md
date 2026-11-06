@@ -525,8 +525,8 @@ app-store release:
   are same-origin-only (redirects included), size-capped, and every downloaded
   spec is validated through the real Rust codec *before* install, so a spec
   that won't parse is rejected up front instead of silently skipped later.
-  Installed packs are cached under the app documents directory at
-  `spec_packs/<slug>/`. `lib/providers/spec_pack_provider.dart` drives it all.
+  Installed packs are cached under the app's Application Support directory
+  at `spec_packs/<slug>/` (not Documents, which iOS backs up to iCloud). `lib/providers/spec_pack_provider.dart` drives it all.
 - **UI** — the puzzle-piece icon in the scan screen's AppBar opens
   `SpecPackSettingsScreen`: install/refresh/remove packs, edit the URL.
 - **Merging** — `deviceSpecsProvider` merges the bundled assets with every

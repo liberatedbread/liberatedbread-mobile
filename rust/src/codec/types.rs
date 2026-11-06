@@ -452,10 +452,9 @@ pub fn unsupported_characteristic_transform(characteristic: &Characteristic) -> 
 }
 
 /// Canonical names of fragment-framing schemes this build executes. Defined
-/// at the codec layer so the encodability gates
-/// ([`unsupported_write_kind`], `spec::bindings::needs_unimplemented_transform`)
-/// and protocol implementations name the same strings without a dependency
-/// cycle. `protocol::daniao` re-exports its constant as `FRAGMENT_SCHEME`.
+/// at the codec layer so the encodability gates ([`unsupported_write_kind`],
+/// [`unsupported_characteristic_transform`] and their single-write forms) and
+/// protocol implementations name the same strings without a dependency cycle. `protocol::daniao` re-exports its constant as `FRAGMENT_SCHEME`.
 pub const DANIAO_FRAGMENT_SCHEME: &str = "daniao_fragment";
 pub const ORBA_FRAGMENT_SCHEME: &str = "orba_sysex_ble_midi";
 

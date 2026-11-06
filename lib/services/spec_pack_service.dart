@@ -22,7 +22,7 @@ import 'ws_control_service.dart'
 /// The manifest URL points at JSON of the shape
 /// `{"name": str, "version": str, "specs": ["bulb.yaml", ...]}` where each entry
 /// is a filename resolved *relative to the manifest URL*. Downloaded manifests
-/// and YAML files are cached under the app documents directory; [loadCachedSpecs]
+/// and YAML files are cached under Application Support; [loadCachedSpecs]
 /// re-reads them for [deviceSpecsProvider] to merge with the bundled assets.
 ///
 /// Every network and parse path is defensive: timeouts, non-2xx responses,
@@ -30,7 +30,7 @@ import 'ws_control_service.dart'
 /// a typed [InstallResult] — this class never throws for expected error paths.
 
 /// A cache directory resolver. Injected so unit tests can point at a temp dir
-/// instead of the real (platform-channel-backed) app documents directory.
+/// instead of the real (platform-channel-backed) Application Support directory.
 typedef CacheDirResolver = Future<Directory> Function();
 
 /// Validates that a downloaded spec's YAML actually parses as a device spec.
