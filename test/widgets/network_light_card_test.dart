@@ -237,8 +237,9 @@ void main() {
 
     Future<List<(String, Map<String, String>)>> pump(
       WidgetTester tester,
-      List<NetworkActionDto> actions,
-    ) async {
+      List<NetworkActionDto> actions, {
+      double? colorTemperature,
+    }) async {
       final sent = <(String, Map<String, String>)>[];
       await tester.pumpWidget(
         ProviderScope(
@@ -264,6 +265,7 @@ void main() {
                   targetMac: '',
                   sendAction: (action, values) async =>
                       sent.add((action.commandName, values)),
+                  initialColorTemperature: colorTemperature,
                 ),
               ),
             ),
@@ -287,7 +289,8 @@ void main() {
       final slider = tester.widget<Slider>(
         find.byWidgetPredicate((w) => w is Slider && w.max == 6500),
       );
-      slider.onChangeEnd!(slider.value);
+      slider.onChanged!(3500);
+      slider.onChangeEnd!(3500);
       await tester.pumpAndSettle();
       expect(sent.single.$1, 'set_color_temperature');
       expect(sent.single.$2, {'ct': '3500'});
@@ -304,19 +307,80 @@ void main() {
           max: 344,
           unit: 'mired',
         ),
-      ]);
+      ], colorTemperature: 250);
       final slider = tester.widget<Slider>(
         find.byWidgetPredicate((w) => w is Slider && w.max == 344),
       );
-      expect(slider.label, '344 mired');
-      expect(slider.semanticFormatterCallback!(344), contains('mired'));
-      expect(slider.semanticFormatterCallback!(344), isNot(contains('kelvin')));
+      expect(slider.label, '250 mired');
+      expect(slider.semanticFormatterCallback!(250), contains('mired'));
+      expect(slider.semanticFormatterCallback!(250), isNot(contains('kelvin')));
       slider.onChanged!(221);
       await tester.pump();
       expect(tester.widget<Slider>(find.byType(Slider)).label, '221 mired');
       slider.onChangeEnd!(221);
       await tester.pumpAndSettle();
       expect(sent.single.$2, {'mireds': '221'});
+    });
+
+    // No reading and no drag: there is no white point to show. The card
+    // invented 3500 K and clamped it into the action's range, so an Elgato
+    // (143..344 mired) opened pinned at "344 mired" and the screen reader
+    // announced that as the light's setting — the treadmill's 45d4f6a again.
+    testWidgets('colour temperature is not set until read or dragged', (
+      tester,
+    ) async {
+      final sent = await pump(tester, [
+        generic(
+          'set_color_temperature',
+          ['mireds'],
+          min: 143,
+          max: 344,
+          unit: 'mired',
+        ),
+      ]);
+      Slider slider() => tester.widget<Slider>(
+        find.byWidgetPredicate((w) => w is Slider && w.max == 344),
+      );
+      expect(slider().value, 143, reason: 'the thumb rests at the bottom');
+      expect(slider().label, isNull);
+      expect(slider().semanticFormatterCallback!(143), contains('not set'));
+      expect(find.text('344 mired'), findsNothing);
+      expect(find.text('143 mired'), findsNothing);
+      expect(find.text('—'), findsOneWidget);
+      expect(sent, isEmpty);
+
+      slider().onChanged!(200);
+      await tester.pump();
+      expect(slider().label, '200 mired');
+      expect(slider().semanticFormatterCallback!(200), contains('200 mired'));
+      expect(find.text('200 mired'), findsOneWidget);
+    });
+
+    testWidgets('a reading seeds the colour temperature and a later one moves '
+        'it', (tester) async {
+      final actions = [
+        generic(
+          'set_color_temperature',
+          ['mireds'],
+          min: 143,
+          max: 344,
+          unit: 'mired',
+        ),
+      ];
+      await pump(tester, actions, colorTemperature: 213);
+      Slider slider() => tester.widget<Slider>(
+        find.byWidgetPredicate((w) => w is Slider && w.max == 344),
+      );
+      expect(slider().value, 213);
+      expect(find.text('213 mired'), findsOneWidget);
+      expect(
+        slider().semanticFormatterCallback!(213),
+        'Colour temperature 213 mired',
+      );
+
+      await pump(tester, actions, colorTemperature: 300);
+      expect(slider().value, 300);
+      expect(find.text('300 mired'), findsOneWidget);
     });
 
     testWidgets('a one-parameter colour action draws no swatches', (
