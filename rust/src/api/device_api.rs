@@ -1794,12 +1794,14 @@ pub(crate) fn encode_entity_value_with_spec(
         }
     }
 
-    let transform = bindings::setpoint_transform(spec, entity, action);
-    let raw = transform.encode(value).ok_or_else(|| {
-        anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
-    })?;
     let value_type = bindings::setpoint_value_type(action)
         .ok_or_else(|| anyhow::anyhow!("entity '{entity_name}' does not declare a value type"))?;
+    // Inverted for the type it is written as: an integer field rounds to the
+    // nearest whole raw value, a float32 keeps its fraction.
+    let transform = bindings::setpoint_transform(spec, entity, action);
+    let raw = transform.encode_for(value, &value_type).ok_or_else(|| {
+        anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
+    })?;
 
     let bytes = match action.command_name {
         // The command owns the byte layout; hand it the raw value for its one
@@ -10009,5 +10011,145 @@ device:
   protocol: "ble"
 "#;
         assert!(setup_instructions(yaml.to_string()).is_none());
+    }
+
+    /// A number entity whose `set_value` command carries its value in a
+    /// float32 parameter (the Mousr's `move` shape).
+    const FLOAT_COMMAND_SETPOINT_YAML: &str = r#"
+device:
+  name: "Float Drive"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "UART"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          move:
+            description: "Drive"
+            template: [0x30, "{speed}", "{hold}", 0x32]
+            parameters:
+              speed:
+                type: "float32"
+                endianness: "little"
+              hold:
+                type: "float32"
+                default: 0.0
+entities:
+  - platform: number
+    name: Drive
+    min: -1
+    max: 1
+    step: 0.1
+    commands:
+      set_value: move
+"#;
+
+    /// A number entity that writes straight to a one-field float32
+    /// characteristic, declaring no bounds of its own.
+    const FLOAT_DIRECT_SETPOINT_YAML: &str = r#"
+device:
+  name: "Float Target"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Target"
+        properties: ["read", "write"]
+        format:
+          - offset: 0
+            length: 4
+            name: "target"
+            type: "float32"
+entities:
+  - platform: number
+    name: Target
+    command_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+"#;
+
+    #[test]
+    fn a_float32_setpoint_parameter_is_not_rounded_to_a_whole_number() {
+        // The entity path used to invert the transform and ROUND, which is
+        // right for an integer wire value and wrong for a float: 0.3 went out
+        // as 0.0, -0.7 as -1.0 and 0.5 as 1.0, while the typed-command path
+        // sent the same 0.5 as 0.5.
+        for value in [0.3_f64, -0.7, 0.5] {
+            let write = encode_entity_value(
+                FLOAT_COMMAND_SETPOINT_YAML.to_string(),
+                "Drive".to_string(),
+                None,
+                value,
+            )
+            .unwrap();
+            let mut want = vec![0x30];
+            want.extend_from_slice(&(value as f32).to_le_bytes());
+            want.extend_from_slice(&0.0_f32.to_le_bytes());
+            want.push(0x32);
+            assert_eq!(write.bytes, want, "setpoint {value}");
+        }
+        // And the two doors now agree about the same value.
+        let generic = encode_command(
+            Some(FLOAT_COMMAND_SETPOINT_YAML.to_string()),
+            None,
+            "6e400002-b5a3-f393-e0a9-e50e24dcca9e".to_string(),
+            "move".to_string(),
+            HashMap::from([("speed".to_string(), 0.5)]),
+        )
+        .unwrap();
+        let entity = encode_entity_value(
+            FLOAT_COMMAND_SETPOINT_YAML.to_string(),
+            "Drive".to_string(),
+            None,
+            0.5,
+        )
+        .unwrap();
+        assert_eq!(entity.bytes, generic);
+    }
+
+    #[test]
+    fn a_float32_direct_write_is_not_rounded_to_a_whole_number() {
+        for value in [23.5_f64, 0.1446, -1.5, 0.25] {
+            let write = encode_entity_value(
+                FLOAT_DIRECT_SETPOINT_YAML.to_string(),
+                "Target".to_string(),
+                None,
+                value,
+            )
+            .unwrap();
+            assert_eq!(
+                write.bytes,
+                (value as f32).to_le_bytes().to_vec(),
+                "setpoint {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_float32_direct_write_advertises_no_invented_bounds() {
+        // `ValueType::integer_range` gives a float32 ±2^53 — the widest
+        // integer every f64 holds exactly, a parse-time cap on the schema's
+        // integer `min`/`max`, not anything the device accepts. Shown as a
+        // setpoint range it put a slider from -9007199254740992 to
+        // 9007199254740992 on screen. With no bounds of its own declared, the
+        // entity has none to show.
+        let dto = load_device_spec(FLOAT_DIRECT_SETPOINT_YAML.to_string()).unwrap();
+        let entity = &dto.entities[0];
+        let action = entity
+            .actions
+            .iter()
+            .find(|a| a.role == "set_value")
+            .expect("the direct write still resolves");
+        assert_eq!(entity.setpoint_min, None);
+        assert_eq!(entity.setpoint_max, None);
+        assert_eq!(action.min, None);
+        assert_eq!(action.max, None);
     }
 }

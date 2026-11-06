@@ -549,8 +549,19 @@ fn resolve_direct_write<'a>(
     let [field] = field.as_slice() else {
         return None;
     };
-    // The value has to be expressible as an integer of known width.
-    let (type_min, type_max) = field.field_type.integer_range()?;
+    // The value has to be a number of known width. For an integer type the
+    // width's range is a real bound — a uint8 holds 0..=255 and nothing else.
+    // A float32's `integer_range` is not: ±2^53 is the parser's cap on the
+    // schema's integer `min`/`max`, and advertised as a setpoint range it put
+    // a slider across ±9007199254740992 on screen. A float states no bound of
+    // its own; the entity's declarations are the only honest ones.
+    let (min, max) = match field.field_type {
+        ValueType::Float32 => (None, None),
+        ref integer => {
+            let (type_min, type_max) = integer.integer_range()?;
+            (Some(type_min), Some(type_max))
+        }
+    };
 
     Some(ResolvedAction {
         role: SET_VALUE_ROLE,
@@ -558,8 +569,8 @@ fn resolve_direct_write<'a>(
         characteristic,
         command_name: None,
         user_params: Vec::new(),
-        min: Some(type_min),
-        max: Some(type_max),
+        min,
+        max,
     })
 }
 
@@ -591,6 +602,21 @@ impl ValueTransform {
     /// 1.0 would write a number the user never asked for.
     pub fn encode(&self, value: f64) -> Option<f64> {
         crate::codec::number::invert_transform(value, Some(self.scale), Some(self.value_offset))
+    }
+
+    /// Decoded → raw for a value written as `value_type`: [`Self::encode`]
+    /// for an integer type, and the same inversion UNROUNDED for a float32,
+    /// which carries its own fraction. Rounding there sent a 0.3 setpoint as
+    /// 0.0 while the typed-command path sent the same command's 0.3 intact.
+    pub fn encode_for(&self, value: f64, value_type: &ValueType) -> Option<f64> {
+        match value_type {
+            ValueType::Float32 => crate::codec::number::invert_transform_unrounded(
+                value,
+                Some(self.scale),
+                Some(self.value_offset),
+            ),
+            _ => self.encode(value),
+        }
     }
 }
 

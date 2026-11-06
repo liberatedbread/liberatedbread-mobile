@@ -41,11 +41,26 @@ pub fn apply_transform(raw: f64, scale: Option<f64>, value_offset: Option<f64>) 
 /// `None` when `scale` is zero — that transform is not invertible, and
 /// silently substituting 1.0 would write a number the user never asked for.
 pub fn invert_transform(value: f64, scale: Option<f64>, value_offset: Option<f64>) -> Option<f64> {
+    invert_transform_unrounded(value, scale, value_offset).map(f64::round)
+}
+
+/// [`invert_transform`] without the rounding, for a wire type that carries a
+/// fraction of its own.
+///
+/// Rounding to a whole raw value is right for an integer field — a count of
+/// centidegrees is whole by construction, and 2346.9999 is float error — and
+/// wrong for a float32, where the fraction IS the value: rounded, a 0.3
+/// setpoint went out as 0.0 and 0.5 as 1.0.
+pub fn invert_transform_unrounded(
+    value: f64,
+    scale: Option<f64>,
+    value_offset: Option<f64>,
+) -> Option<f64> {
     let scale = scale.unwrap_or(1.0);
     if scale == 0.0 {
         return None;
     }
-    Some(((value - value_offset.unwrap_or(0.0)) / scale).round())
+    Some((value - value_offset.unwrap_or(0.0)) / scale)
 }
 
 /// An entity's `state_mapping.scale`, which REPLACES the field's transform
@@ -276,6 +291,17 @@ mod tests {
     fn invert_rounds_to_a_whole_raw_value() {
         // 23.47 °C in centidegrees is 2347, not 2346.9999.
         assert_eq!(invert_transform(23.47, Some(0.01), None), Some(2347.0));
+    }
+
+    #[test]
+    fn the_unrounded_inversion_keeps_the_fraction() {
+        assert_eq!(invert_transform_unrounded(0.3, None, None), Some(0.3));
+        assert_eq!(invert_transform_unrounded(-0.7, None, None), Some(-0.7));
+        assert_eq!(
+            invert_transform_unrounded(135.5, Some(0.5), Some(85.0)),
+            Some(101.0)
+        );
+        assert_eq!(invert_transform_unrounded(1.0, Some(0.0), None), None);
     }
 
     #[test]
