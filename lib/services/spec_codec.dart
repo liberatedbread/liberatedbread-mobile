@@ -142,7 +142,8 @@ abstract class SpecCodec {
   /// scan, adopt and group paths ask through.
   ///
   /// [specs] is key → YAML in catalogue order (bundled assets first, then
-  /// installed packs — the order the pack-shadows-bundled rule depends on).
+  /// installed packs oldest first — the order the pack-shadows-bundled rule,
+  /// and the newer-pack-shadows-older one, depend on).
   ///
   /// The catalogue is loaded, not returned: parsing 203 specs into 203
   /// [DeviceSpecDto]s and decoding them on the UI isolate was a ~70-77 ms

@@ -866,7 +866,13 @@ class SpecPackService {
         );
       }
     }
-    packs.sort((a, b) => b.installedAt.compareTo(a.installedAt));
+    // Name breaks a tie (two records with no readable timestamp both read
+    // as the epoch), so the order — which [loadCachedSpecs] turns into
+    // which pack wins — does not depend on the directory listing's.
+    packs.sort((a, b) {
+      final byAge = b.installedAt.compareTo(a.installedAt);
+      return byAge != 0 ? byAge : a.name.compareTo(b.name);
+    });
     return packs;
   }
 
@@ -898,6 +904,15 @@ class SpecPackService {
   /// Every cached spec YAML, keyed by a namespaced id `pack:<name>/<file>` so
   /// remote specs never collide with bundled asset keys.
   ///
+  /// Packs are emitted OLDEST first, so the most recently installed or
+  /// refreshed pack's specs come last. That order is the pack-vs-pack
+  /// shadowing rule: the catalogue resolves two entries for one device
+  /// last-wins (`specEntriesByKey`), exactly as it lets a pack beat the
+  /// bundled copy it loads after. Walking [listInstalledPacks]'
+  /// newest-first order instead made the OLDER of two packs carrying the
+  /// same device win — and refreshing a pack to pick up its fix made it
+  /// newest, and so made it lose.
+  ///
   /// This feeds live device matching, which must always fall back to the bundled
   /// specs, so a catastrophic cache-read failure is tolerated (empty map) rather
   /// than propagated — but it is logged, not silently swallowed. Individual
@@ -917,7 +932,7 @@ class SpecPackService {
     if (packs.isEmpty) return result;
     // One root resolution for the whole walk, not one per pack.
     final root = await _cacheRoot();
-    for (final pack in packs) {
+    for (final pack in packs.reversed) {
       final dir = _packDir(root, pack.name);
       for (final file in pack.specFiles) {
         try {

@@ -684,6 +684,65 @@ void main() {
       expect(await service.listInstalledPacks(), hasLength(1));
     });
 
+    group('two packs carrying the same spec', () {
+      // The catalogue resolves a duplicate identity last-wins
+      // (specEntriesByKey): whatever loads later is the copy in force. So
+      // the ORDER loadCachedSpecs emits packs in is the pack-vs-pack rule,
+      // and it has to put the most recently installed or refreshed pack
+      // last. It used to walk listInstalledPacks' newest-first order, so
+      // the OLDER pack won, and refreshing a pack to pick up a fix made it
+      // newest — and made it lose.
+      SpecPackService twoPacks() => _service(tempDir, (request) async {
+        final dir = request.url.pathSegments.first;
+        if (request.url.path.endsWith('pack.json')) {
+          return http.Response(
+            _manifestJson(
+              name: dir == 'older' ? 'Older' : 'Newer',
+              specs: ['x.yaml'],
+            ),
+            200,
+          );
+        }
+        return http.Response('$dir-yaml', 200);
+      });
+      const olderUrl = 'https://specs.example.com/older/pack.json';
+      const newerUrl = 'https://specs.example.com/newer/pack.json';
+
+      // installedAt is the clock, so two installs a few microseconds apart
+      // are kept a visible step apart rather than trusting its resolution.
+      Future<void> tick() =>
+          Future<void>.delayed(const Duration(milliseconds: 2));
+
+      test('the pack installed last loads last', () async {
+        final service = twoPacks();
+        expect(await service.install(olderUrl), isA<InstallOk>());
+        await tick();
+        expect(await service.install(newerUrl), isA<InstallOk>());
+
+        final cached = await service.loadCachedSpecs();
+        expect(cached.keys, ['pack:Older/x.yaml', 'pack:Newer/x.yaml']);
+        expect(cached.values.last, 'newer-yaml');
+        // The settings list keeps its newest-first order.
+        expect((await service.listInstalledPacks()).map((p) => p.name), [
+          'Newer',
+          'Older',
+        ]);
+      });
+
+      test('refreshing a pack makes its copy the one in force', () async {
+        final service = twoPacks();
+        await service.install(olderUrl);
+        await tick();
+        await service.install(newerUrl);
+        await tick();
+        expect(await service.refresh(olderUrl), isA<InstallOk>());
+
+        final cached = await service.loadCachedSpecs();
+        expect(cached.keys, ['pack:Newer/x.yaml', 'pack:Older/x.yaml']);
+        expect(cached.values.last, 'older-yaml');
+      });
+    });
+
     test('loadCachedSpecs is empty before anything is installed', () async {
       final service = _service(tempDir, (_) async => http.Response('', 200));
       expect(await service.loadCachedSpecs(), isEmpty);

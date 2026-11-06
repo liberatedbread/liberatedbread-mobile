@@ -532,6 +532,8 @@ app-store release:
 - **Merging** — `deviceSpecsProvider` merges the bundled assets with every
   cached pack. Pack specs are namespaced `pack:<name>/<file>` so they can never
   collide with bundled keys, and a pack failure never removes a bundled spec.
+  A pack's copy of a bundled device replaces it, and when two packs carry the
+  same device the one installed or refreshed most recently wins.
 
 The bundled fallback specs are discovered from the subtree's own
 `vendor/protocol-specs/device-specs/index.json` (or the gitignored local
