@@ -213,7 +213,9 @@ pub fn radio_models() -> Vec<RadioModelDto> {
     let newer = models::MODELS.iter().map(|model| RadioModelDto {
         id: model.id.to_string(),
         image_len: model.image_len,
-        channel_count: model.channel_count,
+        // What a plan may hold, which is what the profile's capacity is:
+        // the UV-5G Mini's 999 slots less its 30 fixed GMRS ones.
+        channel_count: model.plan_capacity(),
         name_len: models::NAME_LEN as u32,
         power_levels: power_names(model.power_levels),
     });
@@ -334,9 +336,14 @@ pub fn radio_decode_channels(
     model_id: String,
 ) -> anyhow::Result<Vec<RadioChannelDto>> {
     let model = model_or_error(&model_id)?;
+    // Only the slots a plan occupies: a model's fixed ones (the UV-5G
+    // Mini's GMRS 1-30) are never written, so read into a plan they would
+    // be written again after it. Each keeps its own slot number.
+    let first = usize::from(codeplug::plan_slots(model).start);
     Ok(codeplug::decode_channels(&image, model)?
         .into_iter()
         .enumerate()
+        .skip(first)
         .filter_map(|(index, channel)| {
             channel.map(|c| RadioChannelDto::from_channel(index as u16 + 1, &c))
         })
@@ -358,6 +365,8 @@ pub fn radio_encode_channels(
         .iter()
         .map(RadioChannelDto::to_channel)
         .collect::<anyhow::Result<Vec<ChannelRecord>>>()?;
+    // From the first slot a plan occupies: slot 1 on most radios, 31 on the
+    // UV-5G Mini, whose 1-30 are left as they are (`codeplug::plan_slots`).
     Ok(codeplug::encode_channels(&image, &decoded, model)?)
 }
 
@@ -684,6 +693,52 @@ mod tests {
         );
         assert!(uv5r_ident_magics("uv-5g".into()).is_err());
         assert_eq!(uv5r_ident_magics("uv5r".into()).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn the_uv5g_minis_gmrs_channels_are_neither_read_into_a_plan_nor_written() {
+        // Slots 1-30 are its fixed GMRS plan (CHIRP UV5GMini). Read into a
+        // plan they would be written back after it, at 31-60; written over,
+        // the plan replaced them. Fails on the slot-1 bridge.
+        let mut image = vec![0xFFu8; models::UV5G_MINI.image_len as usize];
+        let gmrs: Vec<RadioChannelDto> = (1..=30)
+            .map(|slot| dto(slot, "GMRS", 462_550_000 + u32::from(slot) * 25_000))
+            .collect();
+        image = radio_encode_channels(image, gmrs, "uv-5r-mini".into()).unwrap();
+        let before = image.clone();
+
+        assert!(radio_decode_channels(image.clone(), "uv-5g-mini".into())
+            .unwrap()
+            .is_empty());
+        let plan = vec![dto(1, "ONE", 146_520_000), dto(2, "TWO", 446_000_000)];
+        let written = radio_encode_channels(image, plan, "uv-5g-mini".into()).unwrap();
+        assert_eq!(written[..30 * 32], before[..30 * 32]);
+        let read = radio_decode_channels(written.clone(), "uv-5g-mini".into()).unwrap();
+        assert_eq!(
+            read.iter()
+                .map(|c| (c.slot, c.name.as_str()))
+                .collect::<Vec<_>>(),
+            [(31, "ONE"), (32, "TWO")]
+        );
+        // The UV-5R Mini reads the same bytes from slot 1.
+        assert_eq!(
+            radio_decode_channels(written, "uv-5r-mini".into())
+                .unwrap()
+                .len(),
+            32
+        );
+
+        // The capacity the Dart profile is held to is what a plan may hold.
+        let count = |id: &str| {
+            radio_models()
+                .into_iter()
+                .find(|m| m.id == id)
+                .unwrap()
+                .channel_count
+        };
+        assert_eq!(count("uv-5g-mini"), 969);
+        assert_eq!(count("uv-5r-mini"), 999);
+        assert_eq!(count("uv-32"), 1000);
     }
 
     #[test]

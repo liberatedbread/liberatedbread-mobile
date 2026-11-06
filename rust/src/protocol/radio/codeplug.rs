@@ -510,7 +510,8 @@ pub fn clear_channel(record: &mut [u8]) -> Result<(), ProtocolError> {
     Ok(())
 }
 
-/// Every channel in an image, by slot, with empties as `None`.
+/// Every channel in an image, by slot, with empties as `None` -- the
+/// model's fixed slots included (see [`plan_slots`]).
 pub fn decode_channels(
     image: &[u8],
     model: &RadioModel,
@@ -530,11 +531,20 @@ pub fn decode_channels(
         .collect())
 }
 
-/// Write `channels` into a copy of `image`, from slot 0 up, clearing the rest.
+/// The slots a plan occupies on `model`, 0-based: every slot after its
+/// fixed ones ([`RadioModel::fixed_channels`]), which hold the radio's own
+/// channel plan and are neither read into a plan nor written.
+pub fn plan_slots(model: &RadioModel) -> std::ops::Range<u16> {
+    model.fixed_channels..model.channel_count
+}
+
+/// Write `channels` into a copy of `image`, from the first slot a plan
+/// occupies up ([`plan_slots`]: slot 0 on most radios, 30 on the UV-5G
+/// Mini), clearing the rest of those.
 ///
 /// A copy rather than a fresh image, because everything this codec does not
-/// model -- every setting, every DTMF code -- lives in the same bytes and has
-/// to survive.
+/// model -- every setting, every DTMF code, a fixed slot's every byte --
+/// lives in the same bytes and has to survive.
 pub fn encode_channels(
     image: &[u8],
     channels: &[ChannelRecord],
@@ -546,12 +556,12 @@ pub fn encode_channels(
             got: image.len(),
         });
     }
-    if channels.len() > model.channel_count as usize {
+    if channels.len() > model.plan_capacity() as usize {
         return Err(ProtocolError::MalformedReply(format!(
             "{} channels do not fit {}'s {} slots",
             channels.len(),
             model.display_name,
-            model.channel_count
+            model.plan_capacity()
         )));
     }
 
@@ -562,11 +572,12 @@ pub fn encode_channels(
         model.power_levels,
     );
     let mut out = image.to_vec();
-    for index in 0..model.channel_count {
+    let slots = plan_slots(model);
+    for index in slots.clone() {
         let Some((start, end)) = model.channel_range(index) else {
             continue;
         };
-        match channels.get(index as usize) {
+        match channels.get(usize::from(index - slots.start)) {
             Some(channel) => encode_channel_onto(
                 &mut out[start..end],
                 channel,
@@ -583,7 +594,7 @@ pub fn encode_channels(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::radio::models::{UV17R_PLUS, UV32, UV5R_MINI};
+    use crate::protocol::radio::models::{UV17R_PLUS, UV32, UV5G_MINI, UV5R_MINI};
 
     /// A blank image the size a Mini reads back, filled the way an unwritten
     /// radio is.
@@ -1418,6 +1429,76 @@ mod tests {
         assert_eq!(written[0x8080], 0x42);
         assert_eq!(written[0x8200], 0x43);
         assert_eq!(written.len(), image.len());
+    }
+
+    /// A UV-5G Mini image as one might come off the radio: records 1-30
+    /// (indices 0..30) hold its GMRS plan, here as bytes no encoder would
+    /// write -- unmodelled bits, an odd name pad, one not even BCD -- so
+    /// that anything but leaving them alone shows.
+    fn uv5g_mini_image() -> Vec<u8> {
+        let mut image = blank_image(&UV5G_MINI);
+        for slot in 0..30usize {
+            let record = &mut image[slot * 32..slot * 32 + 32];
+            encode_channel(record, &channel("GMRS"), 12, TWO_POWER_LEVELS).unwrap();
+            encode_bcd(462_562_500 + slot as u32 * 25_000, &mut record[0..4]).unwrap();
+            record[12] = slot as u8;
+            record[13] = 0xA5;
+            record[14] |= 0xF0;
+            record[16..20].copy_from_slice(&[slot as u8, 0x5A, 0xC3, 0x3C]);
+            record[31] = 0x00;
+        }
+        image[7 * 32] = 0x9A; // not BCD: decodes as nothing at all
+        image
+    }
+
+    #[test]
+    fn the_uv5g_minis_fixed_gmrs_channels_survive_a_write_byte_for_byte() {
+        // CHIRP's UV5GMini makes slots 1-30 its fixed GMRS plan (frequency,
+        // duplex and offset immutable; 8-14 forced to NFM and low power).
+        // A plan was written from slot 1 up, over all of it. Now 1-30 are
+        // left exactly as read and the plan goes from 31. Fails on the
+        // slot-1 encoder.
+        let image = uv5g_mini_image();
+        let fixed = 30 * 32;
+        let plan = vec![channel("ONE"), channel("TWO"), channel("THREE")];
+        let written = encode_channels(&image, &plan, &UV5G_MINI).unwrap();
+        assert_eq!(written[..fixed], image[..fixed], "slots 1-30 untouched");
+        let read = decode_channels(&written, &UV5G_MINI).unwrap();
+        let names: Vec<_> = read[30..33]
+            .iter()
+            .map(|c| c.as_ref().unwrap().name.clone())
+            .collect();
+        assert_eq!(names, ["ONE", "TWO", "THREE"], "from slot 31");
+        assert!(read[33..].iter().all(Option::is_none));
+        assert_eq!(
+            written[fixed + 3 * 32..0x8040],
+            image[fixed + 3 * 32..0x8040]
+        );
+
+        // An empty plan clears 31 up and still leaves 1-30 alone.
+        let cleared = encode_channels(&written, &[], &UV5G_MINI).unwrap();
+        assert_eq!(cleared[..fixed], image[..fixed]);
+        assert!(cleared[fixed..999 * 32].iter().all(|&b| b == 0xFF));
+
+        // What a plan may hold is what is left: 969.
+        assert_eq!(UV5G_MINI.plan_capacity(), 969);
+        let full = vec![channel("X"); 969];
+        let written = encode_channels(&image, &full, &UV5G_MINI).unwrap();
+        assert_eq!(written[..fixed], image[..fixed]);
+        assert!(decode_channels(&written, &UV5G_MINI).unwrap()[998].is_some());
+        assert!(encode_channels(&image, &vec![channel("X"); 970], &UV5G_MINI).is_err());
+
+        // The UV-5R Mini has no fixed plan: its slot 1 is the plan's first.
+        assert_eq!(UV5R_MINI.fixed_channels, 0);
+        assert_eq!(UV5R_MINI.plan_capacity(), 999);
+        let written = encode_channels(&image, &plan, &UV5R_MINI).unwrap();
+        assert_eq!(
+            decode_channels(&written, &UV5R_MINI).unwrap()[0]
+                .as_ref()
+                .unwrap()
+                .name,
+            "ONE"
+        );
     }
 
     #[test]

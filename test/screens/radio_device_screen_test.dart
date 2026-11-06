@@ -417,6 +417,28 @@ void main() {
       expect(find.textContaining('closed up'), findsNothing);
     });
 
+    testWidgets(
+      'from a UV-5G Mini, says its GMRS channels are not the plan\'s',
+      (tester) async {
+        await _pump(
+          tester,
+          initialProfile: uv5gMiniProfile,
+          decoded: const DecodedChannels(channels: channels, hadGaps: false),
+        );
+
+        await tester.tap(find.text('Read its channels into a new plan'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining(
+            '2 channels read into "From Base radio". Channels 1-30 are the '
+            'radio\'s own fixed channels',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
     testWidgets('says so when the radio had gaps a plan cannot keep', (
       tester,
     ) async {
@@ -767,6 +789,25 @@ void main() {
       await tester.tap(find.text('Write a channel plan'));
       await tester.pumpAndSettle();
       expect(find.textContaining('No channel plans yet'), findsOneWidget);
+    });
+
+    testWidgets('on a UV-5G Mini, says which channels a write replaces and '
+        'that its GMRS channels stay', (tester) async {
+      // Its slots 1-30 are its fixed GMRS plan, which a write now leaves
+      // as read; the dialog said every channel was replaced.
+      await seedPlan();
+      await _pump(tester, initialProfile: uv5gMiniProfile);
+      await pickAndConfirm(tester);
+
+      expect(
+        find.textContaining(
+          'This replaces memory channels 31-999 on the radio with the 2 in '
+          '"Local repeaters". Channels 1-30, its own fixed GMRS channels, '
+          'and its other settings are left alone.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('replaces the 969'), findsNothing);
     });
 
     testWidgets('asks first, and a cancel touches nothing', (tester) async {

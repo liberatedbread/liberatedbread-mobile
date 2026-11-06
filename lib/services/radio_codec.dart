@@ -123,11 +123,17 @@ class DecodedChannels {
 }
 
 /// Channels in slot order from a codec's decode, noting any gaps.
-DecodedChannels decodedFromDtos(List<rust.RadioChannelDto> dtos) {
+///
+/// A plan starts at [firstSlot]: 1, or the slot after a radio's fixed
+/// channels ([RadioProfile.firstPlanSlot]), which a decode leaves out.
+DecodedChannels decodedFromDtos(
+  List<rust.RadioChannelDto> dtos, {
+  int firstSlot = 1,
+}) {
   final sorted = [...dtos]..sort((a, b) => a.slot.compareTo(b.slot));
   var hadGaps = false;
   for (var i = 0; i < sorted.length; i++) {
-    if (sorted[i].slot != i + 1) hadGaps = true;
+    if (sorted[i].slot != firstSlot + i) hadGaps = true;
   }
   return DecodedChannels(
     channels: [for (final dto in sorted) channelFromDto(dto)],
@@ -157,6 +163,7 @@ class CodeplugDecoder {
             image: codeplug.image,
             modelId: profile.id,
           ),
+          firstSlot: profile.firstPlanSlot,
         );
       case ProgrammingFamily.serialUv5r:
         return decodedFromDtos(
@@ -180,17 +187,21 @@ class CodeplugDecoder {
 class CodeplugEncoder {
   const CodeplugEncoder();
 
-  /// A copy of [base]'s image with [channels] in slots 1 up and every later
-  /// slot cleared, for a [profile] radio. Everything the app does not model
-  /// survives from [base], which is why a write always reads first.
+  /// A copy of [base]'s image with [channels] from the profile's first plan
+  /// slot up (1, or 31 on the UV-5G Mini, after its fixed GMRS channels)
+  /// and every later slot cleared, for a [profile] radio. Everything the
+  /// app does not model survives from [base], fixed slots included, which
+  /// is why a write always reads first.
   Future<Uint8List> encode(
     RadioCodeplug base,
     RadioProfile profile,
     List<RadioChannel> channels,
   ) async {
+    // The codecs place channels in list order and never read the slot; it
+    // is numbered here as the radio numbers it.
     final dtos = [
       for (var i = 0; i < channels.length; i++)
-        channelToDto(channels[i], slot: i + 1),
+        channelToDto(channels[i], slot: profile.firstPlanSlot + i),
     ];
     switch (profile.programmingFamily) {
       case ProgrammingFamily.bleUv17Pro:

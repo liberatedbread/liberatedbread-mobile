@@ -525,9 +525,8 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       context,
       title: 'Write to ${_target.displayName}?',
       message:
-          'This replaces the ${profile.channelCapacity} memory channels on '
-          'the radio with the ${plan.length} in "${plan.name}". Its other '
-          'settings are left alone.\n\n'
+          '${_replacesText(profile)} with the ${plan.length} in '
+          '"${plan.name}". ${_leftAloneText(profile)}\n\n'
           'A copy of what is on the radio now is saved first; "Restore a '
           'backup" puts it back.',
       confirmLabel: 'Write',
@@ -579,15 +578,41 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
         );
         _readPlanId = plan.id;
         final n = decoded.channels.length;
+        final fixed = profile.fixedChannels;
         return [
           '$n ${n == 1 ? 'channel' : 'channels'} read into "${plan.name}".',
+          if (fixed > 0)
+            'Channels 1-$fixed are the radio\'s own fixed channels: they are '
+                'left out of the plan, and a write leaves them as they are.',
           if (decoded.hadGaps)
             'The radio had empty slots between channels. A plan numbers '
-                'its channels from 1, so those gaps were closed up — writing '
+                'its channels from ${profile.firstPlanSlot}, so those gaps '
+                'were closed up — writing '
                 'this plan back would move the channels after them.',
         ].join(' ');
       },
     );
+  }
+
+  /// Which memory channels a plan write replaces on [profile]: all of them,
+  /// or those after its fixed ones.
+  static String _replacesText(RadioProfile profile) {
+    final fixed = profile.fixedChannels;
+    if (fixed == 0) {
+      return 'This replaces the ${profile.channelCapacity} memory channels on '
+          'the radio';
+    }
+    return 'This replaces memory channels ${profile.firstPlanSlot}-'
+        '${fixed + profile.channelCapacity} on the radio';
+  }
+
+  /// What a plan write leaves on [profile]'s radio.
+  static String _leftAloneText(RadioProfile profile) {
+    final fixed = profile.fixedChannels;
+    if (fixed == 0) return 'Its other settings are left alone.';
+    return 'Channels 1-$fixed, its own fixed '
+        '${profile.gmrsLocked ? 'GMRS ' : ''}channels, and its other '
+        'settings are left alone.';
   }
 
   /// Whether this link's programmer will refuse to write [profile], saying

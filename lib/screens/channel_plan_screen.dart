@@ -182,7 +182,11 @@ class _ChannelPlanScreenState extends ConsumerState<ChannelPlanScreen> {
             )
           : CircleAvatar(
               radius: 14,
-              child: Text('${index + 1}', style: const TextStyle(fontSize: 12)),
+              // The radio's own number: a UV-5G Mini's plan starts at 31.
+              child: Text(
+                '${profile.firstPlanSlot + index}',
+                style: const TextStyle(fontSize: 12),
+              ),
             ),
       title: Text(channel.name.isEmpty ? '(unnamed)' : channel.name),
       subtitle: Text(_summary(channel)),
@@ -424,6 +428,14 @@ class _CapacityBar extends StatelessWidget {
             '${plan.length} of ${profile.channelCapacity} channels · '
             '${profile.displayName}',
           ),
+          if (profile.fixedChannels > 0)
+            Text(
+              'Channels ${profile.firstPlanSlot}-'
+              '${profile.fixedChannels + profile.channelCapacity} on the '
+              'radio; 1-${profile.fixedChannels} are its own fixed channels, '
+              'which a write leaves as they are.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           const SizedBox(height: 6),
           LinearProgressIndicator(value: fraction),
         ],

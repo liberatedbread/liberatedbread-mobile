@@ -136,7 +136,15 @@ class RadioProfile {
   /// A GMRS radio: fixed channel plan, tx limited to the GMRS allocation.
   final bool gmrsLocked;
 
+  /// How many channels a plan for this radio may hold: its memory slots
+  /// after any [fixedChannels].
   final int channelCapacity;
+
+  /// Slots at the start of the radio's memory that hold its own fixed
+  /// channel plan. A write leaves them exactly as read, a read leaves them
+  /// out of the plan, and a plan's first channel is slot [firstPlanSlot].
+  /// 0 on a radio whose whole memory is the user's.
+  final int fixedChannels;
 
   /// Longest channel name the radio's display and codeplug will hold.
   final int nameLength;
@@ -165,11 +173,16 @@ class RadioProfile {
     required this.nameLength,
     required this.programmingFamily,
     this.gmrsLocked = false,
+    this.fixedChannels = 0,
     this.programmerSupport = ProgrammerSupport.none,
     this.txUnlock = TxUnlock.unsupported,
     this.powerLevels = _twoPowerLevels,
     this.legacyProfileIds = const [],
   });
+
+  /// The radio's own number for a plan's first channel: 1, or the slot
+  /// after its [fixedChannels].
+  int get firstPlanSlot => fixedChannels + 1;
 
   /// Whether this build can read and write this radio directly.
   bool get isProgrammable => programmerSupport != ProgrammerSupport.none;
@@ -429,13 +442,20 @@ const RadioProfile uv5rMiniProfile = RadioProfile(
 );
 
 /// Mini 5 / UV-5G Mini: the GMRS Mini. Same tunnel, same protocol.
+///
+/// Its first 30 slots are its fixed GMRS channels: CHIRP's `UV5GMini` makes
+/// their frequency, duplex and offset immutable, and forces 8-14 (the 467
+/// MHz interstitials) to narrow and low power. The app wrote a plan over
+/// them from slot 1; now it leaves them exactly as read and a plan fills
+/// 31-999. Not yet run against a radio.
 const RadioProfile uv5gMiniProfile = RadioProfile(
   id: 'uv-5g-mini',
   displayName: 'Baofeng Mini 5 / UV-5G Mini (GMRS)',
   rxRanges: [_fmBroadcast, _vhfRx, _uhfRx],
   factoryTxRanges: [_gmrsLow, _gmrsHigh],
   gmrsLocked: true,
-  channelCapacity: 999,
+  fixedChannels: 30,
+  channelCapacity: 969,
   nameLength: 12,
   programmingFamily: ProgrammingFamily.bleUv17Pro,
   programmerSupport: ProgrammerSupport.verified,
