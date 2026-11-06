@@ -165,6 +165,11 @@ void main() {
       findsNWidgets(2),
     );
     expect(find.text('Sent'), findsNothing);
+    // A cause written for the user still says why the rest did not go.
+    expect(
+      find.textContaining(const BleLinkDroppedException().message),
+      findsNWidgets(2),
+    );
   });
 
   testWidgets('a run refused at its first packet is a plain refusal', (
@@ -240,6 +245,10 @@ void main() {
       findsNWidgets(2),
     );
     expect(find.text('Sent'), findsNothing);
+    // The cause is a StateError: implementation noise, for the log only.
+    // It reached the screen as "Cause: Bad state: simulated lost link".
+    expect(find.textContaining('Bad state'), findsNothing);
+    expect(find.textContaining('simulated lost link'), findsNothing);
   });
 
   testWidgets('raw float input preserves a negative fractional value', (

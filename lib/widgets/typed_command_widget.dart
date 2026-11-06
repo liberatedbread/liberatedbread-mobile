@@ -17,12 +17,30 @@ class _PartialWriteException implements UserFacingException {
   final int total;
   final Object cause;
 
-  const _PartialWriteException(this.completed, this.total, this.cause);
+  /// [cause] in words fit for the screen, or empty. Through
+  /// [friendlyErrorText] like any other error: this class is user-facing, so
+  /// its message passes straight to the snackbar, and interpolating the raw
+  /// cause put "Bad state: ..." or "PlatformException(...)" there. A BLE
+  /// exception written for the user still says why the rest did not go;
+  /// anything else is logged instead.
+  final String _why;
+
+  _PartialWriteException(this.completed, this.total, this.cause)
+    : _why = friendlyErrorText(
+        cause,
+        context: 'packet $completed of $total',
+        fallback: '',
+      );
 
   @override
   String get message =>
       'Only $completed of $total packets were sent. '
-      'Check the device before retrying. Cause: $cause';
+      'Check the device before retrying.${_why.isEmpty ? '' : ' $_why'}';
+
+  /// The raw cause, for the log line [friendlyErrorText] writes about this.
+  @override
+  String toString() =>
+      'Only $completed of $total packets were sent; cause: $cause';
 }
 
 /// Renders the commands of a spec-described writable characteristic as typed
