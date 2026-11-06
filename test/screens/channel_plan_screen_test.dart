@@ -411,6 +411,35 @@ void main() {
       expect(find.textContaining('No channels yet'), findsNothing);
     });
 
+    testWidgets('reads a decimal comma as the point', (tester) async {
+      // An iOS decimal pad in de/fr/es/it/pt/nl has a comma key and no
+      // period, so "146,940" was the only way to type the frequency there,
+      // and it was refused as not looking like 146.940.
+      final harness = await _pump(tester, prefs: _seed(channels: 0));
+      await tester.tap(find.byTooltip('Add channel'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Rpt');
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Receive (MHz)'),
+        '146,940',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Transmit (MHz)'),
+        '146,34',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('should look like'), findsNothing);
+      final channel = harness.container
+          .read(channelPlansProvider)
+          .single
+          .channels
+          .single;
+      expect(channel.rxFreqHz, 146940000);
+      expect(channel.txFreqHz, 146340000);
+    });
+
     testWidgets('refuses to save without a frequency', (tester) async {
       final harness = await _pump(tester, prefs: _seed(channels: 0));
       await tester.tap(find.byTooltip('Add channel'));

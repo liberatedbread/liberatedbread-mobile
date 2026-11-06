@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../core/decimal_input.dart';
 import '../core/error_text.dart';
 import '../core/frequency.dart';
 import '../models/channel_plan.dart';
@@ -603,12 +604,16 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
   );
 
   void _save() {
-    final rx = parseMegahertzToHz(_rx.text);
+    // Typed, so a decimal comma is the point (an iOS decimal pad in several
+    // locales has no period key).
+    final rx = parseMegahertzToHz(normalizeDecimalInput(_rx.text));
     if (rx == null || rx <= 0) {
       setState(() => _error = 'Receive frequency should look like 146.940.');
       return;
     }
-    final tx = _rxOnly ? rx : parseMegahertzToHz(_tx.text);
+    final tx = _rxOnly
+        ? rx
+        : parseMegahertzToHz(normalizeDecimalInput(_tx.text));
     if (tx == null || tx <= 0) {
       setState(() => _error = 'Transmit frequency should look like 146.340.');
       return;
