@@ -145,17 +145,24 @@ class ToneSetting {
   /// that cannot key anything unexpected. A channel is still usable without
   /// its tone; dropping the whole channel over one unreadable field would lose
   /// more than it protects.
+  ///
+  /// A tone off [ctcssTonesTenthHz] or [dcsCodes] cannot be read either, as
+  /// `channelFromDto` and the RepeaterBook reader already hold. Taken as
+  /// stored, an off-table DCS code (or a CTCSS value under 60 Hz) reached
+  /// the codec, which refused the whole write after the read and the
+  /// backup, and any other off-table CTCSS value went out as a tone the
+  /// editor never offers. The editor now shows it missing.
   static ToneSetting fromJson(Object? value) {
     if (value is! Map<String, dynamic>) return none;
     final mode = ToneMode.fromWire(value['mode']);
     switch (mode) {
       case ToneMode.ctcss:
         final tone = value['ctcss'];
-        if (tone is! int || tone <= 0) return none;
+        if (tone is! int || !ctcssTonesTenthHz.contains(tone)) return none;
         return ToneSetting.ctcss(tone);
       case ToneMode.dcs:
         final code = value['dcs'];
-        if (code is! int || code <= 0) return none;
+        if (code is! int || !dcsCodes.contains(code)) return none;
         return ToneSetting.dcs(code, inverted: value['inverted'] == true);
       case ToneMode.none:
       case null:
