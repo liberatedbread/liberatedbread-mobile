@@ -413,42 +413,57 @@ pub fn read_entity_roles(
 ///
 /// Verbatim first: the flatteners key every nested member by its dotted path
 /// (`light_state.on_off`). A path that steps into an array — an Elgato's
-/// `lights[0].on` — is never a key, because the flatteners keep an array
-/// whole, as its JSON text, under its own path (R-043). So the longest key
-/// the path starts with is parsed, and the rest of the path walked inside
-/// it. A leaf that is itself an array comes back as its JSON text, the
+/// `lights[0].on` — is never a key, so it is walked by [`array_path_node`].
+/// A leaf that is itself an array comes back as its JSON text, the
 /// flatteners' own convention; an object or null is not a reading.
 fn state_field<'a>(returned: &'a BTreeMap<String, String>, path: &str) -> Option<Cow<'a, str>> {
     if let Some(raw) = returned.get(path) {
         return Some(Cow::Borrowed(raw));
     }
+    match array_path_node(|key| returned.get(key).map(String::as_str), path)? {
+        serde_json::Value::String(s) => Some(Cow::Owned(s)),
+        serde_json::Value::Number(n) => Some(Cow::Owned(n.to_string())),
+        serde_json::Value::Bool(b) => Some(Cow::Owned(b.to_string())),
+        node @ serde_json::Value::Array(_) => Some(Cow::Owned(node.to_string())),
+        serde_json::Value::Object(_) | serde_json::Value::Null => None,
+    }
+}
+
+/// The JSON node a path names inside an array a flattened reply kept whole.
+///
+/// The flatteners keep an array as its JSON text under its own path
+/// (R-043), so a path that steps into one (`lights[0].on`) is never a key of
+/// the reply. The longest key the path starts with — cut at a `[` or `.` —
+/// is parsed, and the rest of the path (`[n]` indices, `.name` members)
+/// walked inside it. `field` looks a key up in the flattened reply: the one
+/// walk serves the entity reader here and the variant probes in
+/// `spec::bindings`, so a path means the same thing to both. None when no
+/// key prefixes the path, its text is not JSON, or the walk steps past an
+/// end, through a scalar, or over a malformed index.
+pub(crate) fn array_path_node<'a>(
+    field: impl Fn(&str) -> Option<&'a str>,
+    path: &str,
+) -> Option<serde_json::Value> {
     let (text, rest) = path
         .char_indices()
         .rev()
         .filter(|&(_, c)| c == '[' || c == '.')
-        .find_map(|(at, _)| returned.get(&path[..at]).map(|text| (text, &path[at..])))?;
-    let parsed: serde_json::Value = serde_json::from_str(text).ok()?;
-    let mut node = &parsed;
+        .find_map(|(at, _)| field(&path[..at]).map(|text| (text, &path[at..])))?;
+    let mut node: serde_json::Value = serde_json::from_str(text).ok()?;
     let mut rest = rest;
     while !rest.is_empty() {
         if let Some(tail) = rest.strip_prefix('[') {
             let close = tail.find(']')?;
-            node = node.get(tail[..close].parse::<usize>().ok()?)?;
+            node = node.get_mut(tail[..close].parse::<usize>().ok()?)?.take();
             rest = &tail[close + 1..];
         } else {
             let tail = rest.strip_prefix('.')?;
             let end = tail.find(['.', '[']).unwrap_or(tail.len());
-            node = node.get(&tail[..end])?;
+            node = node.get_mut(&tail[..end])?.take();
             rest = &tail[end..];
         }
     }
-    match node {
-        serde_json::Value::String(s) => Some(Cow::Owned(s.clone())),
-        serde_json::Value::Number(n) => Some(Cow::Owned(n.to_string())),
-        serde_json::Value::Bool(b) => Some(Cow::Owned(b.to_string())),
-        serde_json::Value::Array(_) => Some(Cow::Owned(node.to_string())),
-        serde_json::Value::Object(_) | serde_json::Value::Null => None,
-    }
+    Some(node)
 }
 
 /// What an `is_on` role reads as under the entity's power rule:

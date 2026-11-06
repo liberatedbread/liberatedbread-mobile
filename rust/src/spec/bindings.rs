@@ -1630,10 +1630,19 @@ fn probe_matched_variant_names(
     spec: &DeviceSpec,
     state_keys: &HashMap<String, HashMap<String, String>>,
 ) -> Vec<String> {
+    // A path is present as a key, as the dotted prefix of one (an object's
+    // members flatten to `light_state.on_off`), or inside an array the
+    // flatteners kept whole as its JSON text (R-043). That last is the
+    // Elgato family's every probe — `lights[0].temperature` tells a Key
+    // Light from a Light Strip — and as a key alone it was never present,
+    // so after the first poll no light variant matched and the light left
+    // the screen. A null there is absent, as the flatteners drop nulls.
     let path_present = |reply: &HashMap<String, String>, path: &str| {
         reply
             .keys()
             .any(|k| k == path || k.strip_prefix(path).is_some_and(|r| r.starts_with('.')))
+            || soap::array_path_node(|key| reply.get(key).map(String::as_str), path)
+                .is_some_and(|node| !node.is_null())
     };
     variant_entries(spec)
         .filter_map(|variant| {

@@ -14,7 +14,8 @@
 use std::collections::HashMap;
 
 use liberated_bread_core::api::device_api::{
-    read_network_entity, read_network_entity_roles, NetworkReadingKind, NetworkRoleReadingDto,
+    network_entities_for_state_keys, read_network_entity, read_network_entity_roles,
+    NetworkReadingKind, NetworkRoleReadingDto,
 };
 
 const KASA: &str =
@@ -100,6 +101,56 @@ fn an_elgato_key_light_reads_on_brightness_and_colour_temperature() {
     .unwrap();
     assert_eq!(role(&off, "is_on").reading.is_on, Some(false));
     assert_eq!(role(&off, "brightness").reading.number, Some(3.0));
+}
+
+#[test]
+fn an_elgato_reply_keeps_the_light_its_variant_probe_names() {
+    // The family's variants are told apart by what `lights[0]` carries:
+    // `temperature` is a CCT Key Light, `hue` without `scene` a Light Strip,
+    // `scene` a strip running one. Those probe paths step into the array,
+    // which the flatteners keep whole as its JSON text, and matched only as
+    // keys they never held — so after the first poll no light variant
+    // matched, and the Key Light's card left the screen beside Identify.
+    let surface = |lights: &str| {
+        let state = HashMap::from([(
+            "get_lights".to_string(),
+            returned(&[("numberOfLights", "1"), ("lights", lights)]),
+        )]);
+        let mut names: Vec<String> = network_entities_for_state_keys(ELGATO.into(), vec![], state)
+            .unwrap()
+            .entities
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        names.sort();
+        names
+    };
+    // The spec's own worked CCT and HSV replies.
+    assert_eq!(
+        surface(r#"[{"on":1,"brightness":43,"temperature":221}]"#),
+        ["Identify", "Key Light"]
+    );
+    assert_eq!(
+        surface(r#"[{"on":1,"hue":200.0,"saturation":100.0,"brightness":50}]"#),
+        ["Identify", "Light Strip"]
+    );
+    // A running scene: id/name/scene/numberOfSceneElements in place of the
+    // colour fields. Neither writable light claims it.
+    let scene = surface(
+        r#"[{"on":1,"brightness":30.5,"id":"sunrise","name":"Sunrise","numberOfSceneElements":1,"scene":[{"hue":10,"saturation":80,"brightness":100}]}]"#,
+    );
+    assert!(!scene.contains(&"Key Light".to_string()), "{scene:?}");
+    assert!(!scene.contains(&"Light Strip".to_string()), "{scene:?}");
+    // The HSV probe's keys_absent steps into the array too: should a scene
+    // reply also carry `hue`, the strip's writable entity, whose bare writes
+    // discard the scene, still stays off it.
+    let scene_with_hue = surface(r#"[{"on":1,"brightness":30,"hue":10,"scene":[]}]"#);
+    assert!(
+        !scene_with_hue.contains(&"Light Strip".to_string()),
+        "{scene_with_hue:?}"
+    );
+    // An array the reply did not fill decides nothing.
+    assert_eq!(surface("[]"), ["Identify"]);
 }
 
 #[test]
