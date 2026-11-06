@@ -716,6 +716,50 @@ void main() {
       },
     );
 
+    // Fails on the old code: removePack deleted only `<slug>`. A reinstall
+    // whose cleanup of the old copy failed (that delete is only logged)
+    // leaves `.old-<slug>` beside the new pack, and with `<slug>` gone that
+    // is exactly the interrupted swap the next listing puts back — so the
+    // pack the user just removed came back, at its previous version.
+    test('a removed pack stays removed when a reinstall left its old copy '
+        'aside', () async {
+      var version = '1.0.0';
+      final service = _service(tempDir, (request) async {
+        if (request.url.path.endsWith('pack.json')) {
+          return http.Response(_manifestJson(version: version), 200);
+        }
+        return http.Response('v$version', 200);
+      });
+      await service.install(_manifestUrl);
+      final dir = await packDir();
+      final slug = dir.uri.pathSegments.lastWhere((p) => p.isNotEmpty);
+      // v1 as it stood, to put aside where the failed cleanup left it.
+      final v1 = {
+        for (final f in await dir.list(recursive: true).toList())
+          if (f is File)
+            f.path.substring(dir.path.length): await f.readAsBytes(),
+      };
+      version = '2.0.0';
+      await service.install(_manifestUrl);
+      for (final MapEntry(key: path, value: bytes) in v1.entries) {
+        final f = File('${dir.parent.path}/.old-$slug$path');
+        await f.parent.create(recursive: true);
+        await f.writeAsBytes(bytes);
+      }
+      // And a staging directory a crashed install left, for good measure.
+      await Directory('${dir.parent.path}/.staging-$slug').create();
+
+      await service.removePack('Test Pack');
+
+      expect(
+        (await service.listInstalledPacks()).map((p) => p.version),
+        isEmpty,
+        reason: 'the old code put v1 back on the next listing',
+      );
+      expect(await service.loadCachedSpecs(), isEmpty);
+      expect(await dir.parent.list().toList(), isEmpty);
+    });
+
     test('a reinstall leaves nothing aside', () async {
       final service = await installed();
       await service.install(_manifestUrl);

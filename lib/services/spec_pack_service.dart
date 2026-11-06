@@ -880,6 +880,10 @@ class SpecPackService {
   /// in. Dot-prefixed, which `_slug` strips, so no pack can own the name.
   static const String _asidePrefix = '.old-';
 
+  /// Where [_persist] writes a pack before swapping it in. Dot-prefixed for
+  /// the reason [_asidePrefix] is.
+  static const String _stagingPrefix = '.staging-';
+
   /// Put back a pack [_persist] had renamed aside when it died before the
   /// new one took its place; drop one whose replacement did land.
   Future<void> _restoreSwappedAside(Directory root) async {
@@ -992,16 +996,32 @@ class SpecPackService {
   /// the user a failure instead of a false "Removed" message. The path-safety
   /// guard still refuses (silently, as a no-op) to recursively delete anything
   /// that is not strictly inside the cache root.
+  ///
+  /// The pack's aside and staging copies go with it, and go FIRST. A
+  /// reinstall whose cleanup of the old copy failed (only logged, in
+  /// [_persist]) leaves `.old-<slug>` beside the new pack; deleting just
+  /// `<slug>` turned that into exactly the interrupted swap
+  /// [_restoreSwappedAside] repairs, and the next listing put the removed
+  /// pack back at its previous version. Deleting them before the pack
+  /// itself means a failure part-way still leaves the pack installed and
+  /// says so, rather than reporting a removal the next launch undoes.
   Future<void> removePack(String name) async {
     final root = await _cacheRoot();
-    final dir = _packDir(root, name);
+    final slug = _slug(name);
+    final dirs = [
+      Directory('${root.path}/$_asidePrefix$slug'),
+      Directory('${root.path}/$_stagingPrefix$slug'),
+      _packDir(root, name),
+    ];
     // Never recursively delete a path that isn't strictly inside the cache
     // root, mirroring the guard in _persist.
-    if (!_isStrictlyInside(root, dir)) {
+    if (!dirs.every((d) => _isStrictlyInside(root, d))) {
       Log.packs.warning('refusing to remove pack "$name": unsafe path');
       return;
     }
-    if (await dir.exists()) await dir.delete(recursive: true);
+    for (final dir in dirs) {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    }
     Log.packs.info('removed pack "$name"');
   }
 
@@ -1074,7 +1094,7 @@ class SpecPackService {
     // a name a pack could hold itself — installing "foo" then deleted the
     // installed pack "foo.staging" without a word.
     final stagingDir = Directory(
-      '${root.path}/.staging-${_slug(manifest.name)}',
+      '${root.path}/$_stagingPrefix${_slug(manifest.name)}',
     );
     if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
     final specsDir = Directory('${stagingDir.path}/specs');
@@ -1147,6 +1167,9 @@ class SpecPackService {
       rethrow;
     }
     if (hadOld) {
+      // Not fatal: the new pack is in place, the next listing drops an aside
+      // copy that has a pack in front of it, and [removePack] deletes it
+      // with the pack (left behind, it would outlive a removal).
       try {
         await aside.delete(recursive: true);
       } catch (e) {
