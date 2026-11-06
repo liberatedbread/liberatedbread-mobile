@@ -181,6 +181,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Duration _mqttBackoff = Duration.zero;
   bool _polling = false;
 
+  /// Bumped when a send begins. A background poll captures it before its
+  /// round trip and drops its reply if it changed meanwhile: that reply was
+  /// asked for before the command, so it reports the state the command is
+  /// changing, and one landing after the send's own read-back redrew the old
+  /// state (and dropped the slider the user was holding) until the next
+  /// tick. The tick already skips its turn while a send is in flight; this
+  /// covers the one that was on the wire when the send began. The same guard
+  /// [_keyboardStateGen] gives the keyboard poll.
+  int _stateGen = 0;
+
   /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
   /// round trip and discards its answer if it changed meanwhile — so a stale
   /// poll reply cannot clobber a fresher `textedit` notice that arrived while
@@ -800,8 +810,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<void> _tickStatePoll() async {
     if (!mounted || _polling || _loading || _sending.isNotEmpty) return;
     _polling = true;
+    final gen = _stateGen;
     try {
-      await _refreshState();
+      await _refreshState(superseded: () => gen != _stateGen);
     } catch (_) {
       // Keep the last-known readings until a poll succeeds.
     } finally {
@@ -810,9 +821,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   /// Send every state request and re-decode every entity from the replies.
-  Future<void> _refreshState() async {
+  ///
+  /// [superseded], when given, is asked as each reply lands: true means a
+  /// send began after this refresh asked, so its replies describe the state
+  /// before that send and are dropped, decode and all (see [_stateGen]).
+  Future<void> _refreshState({bool Function()? superseded}) async {
     if (_isKasa) {
-      await _refreshStateKasa();
+      await _refreshStateKasa(superseded: superseded);
       return;
     }
     // An MQTT device PUSHES. There is no request whose reply is the battery
@@ -843,7 +858,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     var anySucceeded = false;
     for (final command in _stateCommands) {
       try {
-        if (await _pollStateCommand(command, codec, client)) {
+        if (await _pollStateCommand(
+          command,
+          codec,
+          client,
+          superseded: superseded,
+        )) {
           anySucceeded = true;
         }
       } catch (e, st) {
@@ -857,19 +877,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     if (firstFailure != null && !anySucceeded) {
       Error.throwWithStackTrace(firstFailure, firstTrace!);
     }
+    if (superseded?.call() ?? false) return;
     await _decodeEntities();
   }
 
   /// One state command's poll. True when a reading was taken, false when this
   /// command has nothing to poll on this device (no description to address a
-  /// SOAP read through).
+  /// SOAP read through). A reply [superseded] disowns is not stored.
   Future<bool> _pollStateCommand(
     String command,
     SpecCodec codec,
-    SoapControlClient client,
-  ) async {
+    SoapControlClient client, {
+    bool Function()? superseded,
+  }) async {
     if (_stateTransport(command) == 'http') {
-      await _refreshStateHttp(command);
+      await _refreshStateHttp(command, superseded: superseded);
       return true;
     }
     // Everything left resolves its address out of the description, so
@@ -893,13 +915,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     final path = description.controlPathFor(request);
     if (path == null) return false;
-    _stateByCommand[command] = await client.send(
+    final returned = await client.send(
       description.host,
       description.port,
       path,
       request,
       urlBase: description.urlBase,
     );
+    if (!(superseded?.call() ?? false)) _stateByCommand[command] = returned;
     return true;
   }
 
@@ -918,7 +941,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// device-side policy a refused write is, so it raises the standing note
   /// and leaves the readings unknown rather than erroring the screen of a
   /// device that is otherwise answering.
-  Future<void> _refreshStateHttp(String command) async {
+  Future<void> _refreshStateHttp(
+    String command, {
+    bool Function()? superseded,
+  }) async {
     final codec = ref.read(specCodecProvider);
     final request = await codec.renderNetworkHttpStateRequest(
       specYaml: widget.controls.specYaml,
@@ -933,6 +959,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     try {
       final body = await _sendNetworkHttp(request);
+      if (superseded?.call() ?? false) return;
       _stateByCommand[command] = httpStateFields(body);
     } on ControlRefusedException {
       _controlRefused = true;
@@ -948,7 +975,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// [kasaStateFields] dispatches per reply shape: sysinfo lifts flat (the
   /// switch's `relay_state`), an emeter reply flattens to the dotted paths
   /// the HS110's sensors name.
-  Future<void> _refreshStateKasa() async {
+  Future<void> _refreshStateKasa({bool Function()? superseded}) async {
     final codec = ref.read(specCodecProvider);
     final client = ref.read(kasaControlClientProvider);
 
@@ -962,6 +989,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         _kasaHostPort,
         request,
       );
+      // Overtaken by a send: this reply and the rest of the round describe
+      // the plug before it (see [_stateGen]).
+      if (superseded?.call() ?? false) return;
       _stateByCommand[command] = kasaStateFields(reply);
       _rawStateReply[command] = reply;
       // The reply, so an "unknown state" is diagnosable from a log instead of a
@@ -970,6 +1000,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // earns its keep.
       Log.net.debug('kasa $command <- ${widget.device.host}: $reply');
     }
+    if (superseded?.call() ?? false) return;
     await _decodeInstances();
     await _decodeEntities();
   }
@@ -1471,6 +1502,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _sending.add(entity.name);
       if (!independent) _soapSending = entity.name;
       _error = null;
+      // A poll already on the wire now answers for the state before this.
+      _stateGen++;
     });
     try {
       final sent = <String, String>{...?values};
@@ -1596,6 +1629,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     setState(() {
       _sending.add(key);
       _error = null;
+      // As in [_send]: an in-flight poll now describes the strip before this.
+      _stateGen++;
     });
     try {
       await _sender.sendAction(action, {

@@ -446,6 +446,55 @@ void main() {
     expect(warm.selected, isTrue);
   });
 
+  // A background poll asked before a send answers with the state the send
+  // is about to change. The tick skipped only NEW ticks while a send was in
+  // flight, so one already on the wire landed after the send's read-back
+  // and redrew the old mode until the next tick, four seconds later.
+  testWidgets('a poll overtaken by a send does not redraw the old state', (
+    tester,
+  ) async {
+    var mode = 51;
+    Completer<void>? held;
+    final device = MockClient((request) async {
+      if (request.url.path == '/setup.xml') {
+        return http.Response(_setupXml, 200);
+      }
+      final action = request.headers['SOAPACTION'] ?? '';
+      if (action.contains('GetCrockpotState')) {
+        // What the device holds when the poll ASKS, whenever it answers.
+        final asked = mode;
+        final gate = held;
+        held = null;
+        if (gate != null) await gate.future;
+        return http.Response(_stateResponse(mode: asked, time: 240), 200);
+      }
+      final picked = RegExp('<mode>(\\d+)</mode>').firstMatch(request.body);
+      if (picked != null) mode = int.parse(picked.group(1)!);
+      return http.Response(_ackResponse, 200);
+    });
+    await pump(tester, device);
+    bool selected(String label) => tester
+        .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label))
+        .selected;
+    expect(selected('low'), isTrue);
+
+    // The next tick's poll goes out and is held on the wire, carrying low.
+    final gate = held = Completer<void>();
+    await tester.pump(const Duration(seconds: 4));
+    expect(held, isNull, reason: 'the tick has asked');
+
+    // A send now: its read-back reports warm.
+    await tester.tap(find.widgetWithText(ChoiceChip, 'warm'));
+    await tester.pumpAndSettle();
+    expect(selected('warm'), isTrue);
+
+    // The stale reply lands last.
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(selected('warm'), isTrue, reason: 'low is what the device WAS');
+    expect(selected('low'), isFalse);
+  });
+
   testWidgets('an unknown mode reads as unrecognized, never as off', (
     tester,
   ) async {
