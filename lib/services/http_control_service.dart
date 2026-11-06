@@ -257,6 +257,20 @@ class HttpControlClient {
     // absent means plain http, `https` means the device only answers over
     // TLS — and its certificate is excused for this host alone.
     final secure = request.scheme == 'https';
+    final scheme = secure ? 'https' : 'http';
+    final device = Uri.parse('$scheme://$host:$port');
+    final uri = device.resolve(path);
+    // Resolving honours everything a reference carries, so a path spelled
+    // `https://elsewhere/` or `//elsewhere/` resolves to ELSEWHERE — with the
+    // spec's headers, a stored credential among them, riding along. Refused
+    // before a pin is read or a host trusted, let alone a socket opened.
+    // Compared as parsed URIs, not against [host]: Uri lowercases a host,
+    // and discovery records whatever the device advertised.
+    if (uri.scheme != device.scheme ||
+        uri.host != device.host ||
+        uri.port != device.port) {
+      throw ControlForeignTargetException(uri);
+    }
     final http.Client client;
     if (secure) {
       await _rereadUnreadablePin(host);
@@ -265,8 +279,6 @@ class HttpControlClient {
     } else {
       client = _http;
     }
-    final scheme = secure ? 'https' : 'http';
-    final uri = Uri.parse('$scheme://$host:$port').resolve(path);
     final method = request.method.toUpperCase();
     // Refused before anything is built or opened: a method this transport
     // does not speak must never reach the device.
@@ -526,6 +538,31 @@ class ControlCertificatePinUnreadableException implements UserFacingException {
       'The saved security fingerprint for this device could not be read, so '
       'the app would not guess. Unlock the phone (or reopen the app) and try '
       'again — there is nothing wrong with the device.';
+}
+
+/// The spec aimed a command at an address that is not the device's.
+///
+/// A rendered path is resolved against the device's own address, and a
+/// reference that names its own scheme, host or port (`https://elsewhere/`,
+/// `//elsewhere/`) would take the request — spec-declared headers, a stored
+/// credential among them — wherever it said. No catalogue spec is written
+/// that way, so a path that does it is a broken or hostile spec pack, and the
+/// command is refused before anything is opened. The SOAP controlURL, the
+/// probes and the WebSocket hand-over already keep to the device's address
+/// for the same reason.
+///
+/// [target] is where it would have gone, for the log; the message does not
+/// repeat it, because the user's next step does not depend on it.
+class ControlForeignTargetException implements UserFacingException {
+  final Uri target;
+  const ControlForeignTargetException(this.target);
+  @override
+  String get message =>
+      'This device\'s spec points that command at a different address than '
+      'the device\'s own, so it was not sent. If the spec came from a spec '
+      'pack, remove that pack.';
+  @override
+  String toString() => 'ControlForeignTargetException: refused $target';
 }
 
 /// The transport failed: unreachable host, unexpected status, bad method.

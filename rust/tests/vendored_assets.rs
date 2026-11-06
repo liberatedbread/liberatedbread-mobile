@@ -1309,6 +1309,68 @@ fn vendored_literal_http_bodies_render_filled_not_empty() {
     assert_eq!(volume.body, "<volume>30</volume>");
 }
 
+/// Every HTTP path the catalogue declares is a path on the device, not an
+/// address of its own.
+///
+/// The renderer refuses a path that names a scheme or an authority
+/// (`https://elsewhere/`, `//elsewhere/`), because the sender resolves it
+/// against the device's address and would otherwise follow it — headers and
+/// a stored credential with it. That refusal is only free while nothing
+/// legitimate is spelled that way, which is what this pins: a subtree pull
+/// that adds one fails here, naming it, rather than as a control that stops
+/// working on the phone.
+#[test]
+fn every_vendored_http_path_is_device_relative() {
+    let mut offenders = Vec::new();
+    let mut checked = 0;
+    for path in vendored_yaml_paths() {
+        let file = path.file_name().unwrap().to_string_lossy().into_owned();
+        let yaml = fs::read_to_string(&path).expect("spec file should be readable");
+        let spec = parse_device_spec(&yaml).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+        let mut paths: Vec<(String, &str)> = Vec::new();
+        for (name, command) in &spec.commands {
+            if command.transport.as_deref() != Some("http") {
+                continue;
+            }
+            paths.extend(command.path.as_deref().map(|p| (name.clone(), p)));
+            paths.extend(
+                command
+                    .path_fallback
+                    .as_deref()
+                    .map(|p| (format!("{name}.path_fallback"), p)),
+            );
+        }
+        let endpoints = spec
+            .extensions
+            .get("http_endpoints")
+            .and_then(|e| e.as_sequence())
+            .into_iter()
+            .flatten();
+        for endpoint in endpoints {
+            let name = endpoint.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+            if let Some(p) = endpoint.get("path").and_then(|p| p.as_str()) {
+                paths.push((format!("http_endpoints.{name}"), p));
+            }
+        }
+        for (what, p) in paths {
+            checked += 1;
+            let second = p.as_bytes().get(1).copied();
+            if !p.starts_with('/') || matches!(second, Some(b'/' | b'\\')) {
+                offenders.push(format!("  {file}: {what} = {p:?}"));
+            }
+        }
+    }
+    assert!(
+        checked > 200,
+        "expected the catalogue's HTTP paths, checked only {checked}"
+    );
+    assert!(
+        offenders.is_empty(),
+        "these HTTP paths would be refused as pointing off the device:\n{}",
+        offenders.join("\n")
+    );
+}
+
 /// The vendored iDotMatrix spec now reports its image uploads encodable.
 ///
 /// This is the DTO the editor keys off: `encodable` must flip to true the

