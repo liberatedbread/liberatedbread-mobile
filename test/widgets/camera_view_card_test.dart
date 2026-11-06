@@ -124,6 +124,37 @@ void main() {
     await disposeCard(tester);
   });
 
+  testWidgets('a camera URL refused for leaving the device says so at once', (
+    tester,
+  ) async {
+    // The feed puts the refusal on the stream and starts nothing. Before, the
+    // card only logged it and, 15 s later, said the camera "isn't
+    // responding", blaming a camera that was never asked.
+    final feed = StreamController<Uint8List>.broadcast();
+    addTearDown(feed.close);
+    await pump(tester, camera: _pollCamera, feed: feed);
+    await tester.pump();
+
+    feed.addError(
+      const CameraUrlRefusedException('http://203.0.113.7/monitor.jpg'),
+    );
+    await tester.pump();
+
+    expect(
+      find.textContaining('points its camera at a different address'),
+      findsOneWidget,
+    );
+    // And the first-frame timeout no longer overwrites it.
+    await tester.pump(const Duration(seconds: 16));
+    expect(find.textContaining('isn’t responding'), findsNothing);
+    expect(
+      find.textContaining('points its camera at a different address'),
+      findsOneWidget,
+    );
+
+    await disposeCard(tester);
+  });
+
   testWidgets('each frame replaces the last in the image cache', (
     tester,
   ) async {
