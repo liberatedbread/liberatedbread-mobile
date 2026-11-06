@@ -155,20 +155,26 @@ Duration? nextEmptyDiscoveryRetryDelay(int attempt) {
   return attempt < delays.length ? delays[attempt] : null;
 }
 
-/// Whether an error thrown by `setNotifyValue` is the Linux backend's
-/// spurious confirmation timeout, which should be tolerated because the
-/// subscription is actually live.
+/// Whether an error thrown by `setNotifyValue` is a Linux confirmation
+/// timeout, tolerated because the subscription is live or about to be.
 ///
-/// flutter_blue_plus_linux (3.0.2, the newest release compatible with
-/// flutter_blue_plus 1.35.4) performs BlueZ StartNotify/StopNotify
-/// synchronously inside the platform call — by the time the call returns,
-/// notifications are flowing. But flutter_blue_plus core then waits for an
-/// onDescriptorWritten event for the CCCD (0x2902), which that backend never
-/// emits: BlueZ manages the CCCD internally and does not even expose it as a
-/// descriptor. So on Linux every setNotifyValue "times out" AFTER succeeding.
-/// Tolerating exactly (Linux && setNotifyValue && timeout) turns that into a
-/// logged warning instead of a dead subscription; every other error — wrong
-/// characteristic, device disconnected, a genuine unacked CCCD write on
+/// Written for flutter_blue_plus_linux 3.0.2 (paired with flutter_blue_plus
+/// 1.35.4), which performed BlueZ StartNotify/StopNotify synchronously inside
+/// the platform call and still had flutter_blue_plus core wait for an
+/// onDescriptorWritten event for the CCCD (0x2902) that it never emitted.
+/// So on Linux every setNotifyValue "timed out" AFTER succeeding.
+///
+/// The pinned flutter_blue_plus_linux 7.0.3 cannot produce that any more: it
+/// still subscribes through StartNotify, which writes the CCCD itself, but
+/// returns false, and flutter_blue_plus 1.36.8 then skips the wait. What can
+/// still reach this on Linux is the direct-ATT route
+/// (lib/services/direct_att/), which writes and confirms the CCCD over its
+/// own bearer: a confirmation later than [RealBleService]'s shortened Linux
+/// wait times out here while the write is still in flight — and a refusal
+/// arriving after the wait goes unseen. Tolerating exactly (Linux &&
+/// setNotifyValue && timeout) keeps that subscription rather than failing
+/// it; every other error — wrong characteristic, device disconnected, a CCCD
+/// write refused inside the wait, a genuine unacked CCCD write on
 /// Android/iOS — still surfaces.
 ///
 /// Extracted as a pure top-level function so the tolerance can be unit-tested
@@ -1552,9 +1558,11 @@ class RealBleService
     // makes fbp subscribe to the GATT Service Changed characteristic (0x2A05)
     // as part of discovery, so a peripheral that never acks that CCCD write
     // turns the whole discovery into a "setNotifyValue timed out" failure
-    // after 15s. (2) On Linux that subscribe can never be confirmed at all
-    // (see [isSpuriousLinuxNotifyTimeout]), making the timeout certain
-    // whenever the device exposes 0x2A05. We re-discover on every connection
+    // after 15s. (2) Under flutter_blue_plus_linux 3.0.2 that subscribe could
+    // never be confirmed at all (see [isSpuriousLinuxNotifyTimeout]), making
+    // the timeout certain whenever the device exposed 0x2A05; 7.0.3 no longer
+    // waits for a confirmation, but (1) still holds wherever one is awaited,
+    // Linux's direct-ATT route included. We re-discover on every connection
     // (the cache clears in [disconnect]), so nothing here relies on
     // service-changed notifications.
     final stopwatch = Stopwatch()..start();
@@ -2213,14 +2221,15 @@ class RealBleService
     return rssi;
   }
 
-  /// Enable/disable notifications, tolerating the Linux backend's spurious
-  /// confirmation timeout (see [isSpuriousLinuxNotifyTimeout]: the
-  /// subscription is live by the time it fires).
+  /// Enable/disable notifications, tolerating a Linux confirmation timeout
+  /// (see [isSpuriousLinuxNotifyTimeout]).
   ///
-  /// On Linux the wait is also shortened: the confirmation event cannot
-  /// arrive from the current backend, so the default 15s would be pure dead
-  /// time before every (working) subscription. 3s still leaves room for a
-  /// future fixed backend to confirm for real.
+  /// On Linux the wait is also shortened to 3s. It was set for
+  /// flutter_blue_plus_linux 3.0.2, whose confirmation could never arrive,
+  /// so the default 15s was pure dead time before every (working)
+  /// subscription. Under 7.0.3 flutter_blue_plus does not wait on BlueZ at
+  /// all, so there the 3s changes nothing; what it bounds now is the
+  /// direct-ATT route's CCCD write, which is confirmed for real.
   Future<void> _setNotifyValue(
     BluetoothCharacteristic char, {
     required bool enable,

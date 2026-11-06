@@ -2123,11 +2123,13 @@ void main() {
 
     test('keeps the subscription alive when the Linux backend never confirms '
         'the CCCD write', () async {
-      // flutter_blue_plus_linux applies StartNotify synchronously and never
-      // emits the descriptor-written event flutter_blue_plus waits for, so
-      // every setNotifyValue times out AFTER succeeding. isSpuriousLinuxNotify-
-      // Timeout is what turns that into a warning instead of a dead
-      // subscription — this is that path, running for real.
+      // flutter_blue_plus_linux 3.0.2 applied StartNotify synchronously and
+      // never emitted the descriptor-written event flutter_blue_plus waited
+      // for, so every setNotifyValue timed out AFTER succeeding. 7.0.3 makes
+      // flutter_blue_plus skip that wait, but a Linux CCCD write confirmed
+      // later than the wait (the direct-ATT route's) still lands here.
+      // isSpuriousLinuxNotifyTimeout is what turns that into a warning
+      // instead of a dead subscription — this is that path, running for real.
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
       bulb.confirmsCccdWrites = false;
       // Linux behaviour on whatever host runs this, so the tolerance is
