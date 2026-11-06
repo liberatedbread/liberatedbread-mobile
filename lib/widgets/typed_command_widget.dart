@@ -308,9 +308,13 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   }
 
   Future<void> _sendOnce() async {
-    if (_invalidFloats.isNotEmpty) {
-      final text =
-          'Enter a finite number for ${humanizeName(_invalidFloats.first)}.';
+    // Only a field whose value would be sent can block the send. A defaulted
+    // one left blank and then folded away is filled in by the encoder, as the
+    // folded label promises, and refusing over it named a field that was not
+    // on screen.
+    final invalid = _invalidFloats.where(_isSendable).firstOrNull;
+    if (invalid != null) {
+      final text = 'Enter a finite number for ${humanizeName(invalid)}.';
       setState(() {
         _status = text;
         _failed = true;

@@ -304,6 +304,48 @@ const _scaledAutoChar = CharacteristicDto(
   formatFields: [],
 );
 
+// Mousr's `move`: three raw float32s the spec defaults to 0.0 and declares
+// no range for, so each is a text field under "values the spec fills in".
+// (The real command is advanced; that gate is beside the point here.)
+const _defaultedFloatsChar = CharacteristicDto(
+  uuid: _char,
+  name: 'Command',
+  canRead: false,
+  canWrite: true,
+  canNotify: false,
+  commands: [
+    CommandDto(
+      name: 'move',
+      description: 'Send a raw drive vector',
+      isFixed: false,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: false,
+      parameters: [
+        ParameterDto(
+          name: 'speed',
+          valueType: 'float32',
+          default_: 0.0,
+          userSettable: false,
+        ),
+        ParameterDto(
+          name: 'hold',
+          valueType: 'float32',
+          default_: 0.0,
+          userSettable: false,
+        ),
+        ParameterDto(
+          name: 'angle',
+          valueType: 'float32',
+          default_: 0.0,
+          userSettable: false,
+        ),
+      ],
+    ),
+  ],
+  formatFields: [],
+);
+
 // An ordinary command beside two advanced ones — one with the spec's own
 // reason text, one without, so the dialog's fallback wording is exercised.
 // KingSmith flags its calibration toggle advanced for exactly this reason.
@@ -694,6 +736,42 @@ void main() {
       (c) => c.commandName == 'set_mode',
     );
     expect(call.params, isEmpty);
+  });
+
+  testWidgets('a cleared float folded away with the defaults does not block '
+      'Send', (tester) async {
+    // Reveal, clear Speed, hide: the encoder fills Speed in again, as the
+    // folded label promises, yet Send refused with "Enter a finite number
+    // for Speed" and no Speed field anywhere on screen.
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x30]));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, specChar: _defaultedFloatsChar),
+    );
+
+    await tester.tap(find.text('3 values the spec fills in'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Speed'), '');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Hide the spec\'s defaults'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Enter a finite number'), findsNothing);
+    expect(codec.encodeCalls.single.params, isEmpty);
+    expect(ble.writes, hasLength(1));
+
+    // Shown again, the field it left blank is the one that blocks. (The
+    // status line, at least: its snackbar queues behind the "Sent" one.)
+    await tester.tap(find.text('3 values the spec fills in'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter a finite number for Speed.'), findsWidgets);
+    expect(ble.writes, hasLength(1));
   });
 
   testWidgets(
