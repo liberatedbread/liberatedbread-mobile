@@ -68,10 +68,11 @@ double? decodedNumberOf(DecodedValueDto value, {double? scaleOverride}) {
 /// Decimal places implied by the transform `raw * scale + offset`.
 ///
 /// Rust already decided this for the reading itself — it is
-/// [DecodedValueDto.decimals], and [decodedTextOf] is rendered at it. This
-/// spelling exists for the one caller that has to re-render the number rather
-/// than show the text: the Home Assistant forwarder sends a JSON number, and
-/// an untransformed field has to stay an integer there.
+/// [DecodedValueDto.decimals], and [decodedTextOf] is rendered at it — and
+/// that answer is the one to use whenever it is there: the transform alone
+/// cannot see a float32 field, whose fraction is on the wire. This spelling
+/// exists for the transforms Rust never saw (an entity's `state_mapping.scale`
+/// in [decodedTextOf]) and for a DTO that arrived without decimals.
 int decimalsForTransform({double? scale, double? valueOffset}) {
   final byScale = _decimalPlaces(scale ?? 1.0);
   final byOffset = _decimalPlaces(valueOffset ?? 0.0);
