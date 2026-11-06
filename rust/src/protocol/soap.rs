@@ -353,6 +353,27 @@ pub fn read_entity(
     }
 }
 
+/// What an `is_on` role reads as under the entity's power rule:
+/// `on_when: nonzero` (any nonzero number is on) or `on_value` (exactly that
+/// value is on — a number compared as a number, a string such as ratgdo's
+/// `"ON"` compared as text). `None` when the entity declares neither, or
+/// `raw` is not something the rule can compare; the role then reads as its
+/// plain value.
+///
+/// The rule is the power role's alone. A light's mapping puts `on_when`
+/// beside `brightness`, and applied to every numeric role it read a dimmer
+/// at 77 as "on" with no level.
+pub(crate) fn is_on_by_rule(entity: &Entity, raw: &str) -> Option<bool> {
+    if entity.on_when_nonzero() {
+        return parse_number(raw).map(|n| n != 0.0);
+    }
+    match entity.state_mapping.get("on_value")? {
+        serde_yaml::Value::String(on) => Some(raw == on),
+        // The comparison read_entity makes for a switch's `value`.
+        on => Some(parse_number(raw)? as i64 == on.as_i64()?),
+    }
+}
+
 fn parse_number(raw: &str) -> Option<f64> {
     raw.parse::<f64>().ok()
 }

@@ -919,7 +919,6 @@ pub fn read_instance_entity(
         return Ok(BTreeMap::new());
     };
 
-    let on_when_nonzero = entity.on_when_nonzero();
     let mut readings = BTreeMap::new();
     for (role, path) in &entity.state_mapping {
         let Some(dotted) = path.as_str() else {
@@ -928,20 +927,31 @@ pub fn read_instance_entity(
         let Some(value) = walk(child, dotted) else {
             continue;
         };
+        // The power rule (`on_when`/`on_value`) is the `is_on` role's alone:
+        // a dimmer's mapping declares `on_when: nonzero` beside its
+        // `brightness`, and a level of 77 is not "on".
+        let power = |raw: &str| {
+            (role == "is_on")
+                .then(|| crate::protocol::soap::is_on_by_rule(entity, raw))
+                .flatten()
+        };
         // The JSON type decides the reading: a bool is on/off, a string is
-        // text. A number is the number — UNLESS the entity declares
-        // `on_when: nonzero`, in which case it is on/off (nonzero = on). A Hue
-        // light already speaks boolean and needs no table; a Kasa outlet
-        // reports `state` as 0/1 and does, exactly as the plain switch reads
-        // relay_state.
+        // text. A number is the number — UNLESS it is the power role under a
+        // declared rule, in which case it is on/off. A Hue light already
+        // speaks boolean and needs no rule; a Kasa outlet reports `state` as
+        // 0/1 and declares `on_when: nonzero`, exactly as the plain switch
+        // reads relay_state.
         let reading = match value {
             serde_json::Value::Bool(b) => EntityReading::OnOff(*b),
-            serde_json::Value::Number(n) => match n.as_f64() {
-                Some(number) if on_when_nonzero => EntityReading::OnOff(number != 0.0),
-                Some(number) => EntityReading::Number(number),
-                None => continue,
+            serde_json::Value::Number(n) => match (power(&n.to_string()), n.as_f64()) {
+                (Some(on), _) => EntityReading::OnOff(on),
+                (None, Some(number)) => EntityReading::Number(number),
+                (None, None) => continue,
             },
-            serde_json::Value::String(s) => EntityReading::Text(s.clone()),
+            serde_json::Value::String(s) => match power(s) {
+                Some(on) => EntityReading::OnOff(on),
+                None => EntityReading::Text(s.clone()),
+            },
             _ => continue,
         };
         readings.insert(role.clone(), reading);
@@ -2252,6 +2262,55 @@ commands:
         // state 0 is off.
         let off = read_instance_entity(entity, STRIP_REPLY, "8006AAA01").unwrap();
         assert_eq!(off.get("is_on"), Some(&EntityReading::OnOff(false)));
+    }
+
+    #[test]
+    fn on_when_nonzero_reads_is_on_and_leaves_brightness_a_number() {
+        // `on_when` is a rule for the power role. Applied to every numeric
+        // role, a child reporting on 1 and brightness 77 read its brightness
+        // as OnOff(true) — a dimmer with no level.
+        let spec = parse_device_spec(&HUB.replace(
+            r#"state_mapping: { is_on: "state.on", brightness: "state.level" }"#,
+            r#"state_mapping: { is_on: "on", on_when: "nonzero", brightness: "bri" }"#,
+        ))
+        .expect("fixture parses");
+        let entity = &spec.entities[0];
+        let readings = read_instance_entity(entity, r#"{"1":{"on":1,"bri":77}}"#, "1").unwrap();
+        assert_eq!(readings.get("is_on"), Some(&EntityReading::OnOff(true)));
+        assert_eq!(
+            readings.get("brightness"),
+            Some(&EntityReading::Number(77.0))
+        );
+        let off = read_instance_entity(entity, r#"{"1":{"on":0,"bri":0}}"#, "1").unwrap();
+        assert_eq!(off.get("is_on"), Some(&EntityReading::OnOff(false)));
+        assert_eq!(off.get("brightness"), Some(&EntityReading::Number(0.0)));
+
+        // `on_value` likewise: a brightness that happens to equal it is
+        // still a brightness, and a string value compares as text.
+        for (on_value, on, reply) in [
+            ("1", true, r#"{"1":{"on":1,"bri":1}}"#),
+            (r#""ON""#, true, r#"{"1":{"on":"ON","bri":1}}"#),
+            (r#""ON""#, false, r#"{"1":{"on":"OFF","bri":1}}"#),
+        ] {
+            let spec = parse_device_spec(&HUB.replace(
+                r#"state_mapping: { is_on: "state.on", brightness: "state.level" }"#,
+                &format!(
+                    r#"state_mapping: {{ is_on: "on", on_value: {on_value}, brightness: "bri" }}"#
+                ),
+            ))
+            .expect("fixture parses");
+            let readings = read_instance_entity(&spec.entities[0], reply, "1").unwrap();
+            assert_eq!(
+                readings.get("is_on"),
+                Some(&EntityReading::OnOff(on)),
+                "{reply}"
+            );
+            assert_eq!(
+                readings.get("brightness"),
+                Some(&EntityReading::Number(1.0)),
+                "{reply}"
+            );
+        }
     }
 
     #[test]
