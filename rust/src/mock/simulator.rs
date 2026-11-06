@@ -155,7 +155,17 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
     for field in fields {
         let slice = &mut bytes[field.offset..field.offset + field.length];
 
-        // 1. Try the explicit `mock_default` from the spec.
+        // 1. Try the explicit `mock_default` from the spec. A float32 takes
+        // it as a float: read through the integer path below, `mock_default:
+        // 0.5` was refused and the field demoed as 0.
+        if let Some(val) = field
+            .mock_default
+            .as_ref()
+            .and_then(|v| coerce_float_mock_default(v, &field.field_type))
+        {
+            write_float(slice, val, field.is_big_endian());
+            continue;
+        }
         if let Some(val) = field
             .mock_default
             .as_ref()
@@ -237,6 +247,34 @@ fn coerce_mock_default(val: &serde_yaml::Value, ty: &ValueType) -> Option<i64> {
         }
         _ => None,
     }
+}
+
+/// A float32 field's `mock_default`, narrowed to the `f32` it is written as.
+///
+/// `None` for every other type — those take [`coerce_mock_default`]'s integer
+/// path, where a fraction is still refused — and, mirroring that path's range
+/// check, for a value no float32 holds: 1e300 narrows to infinity and NaN is
+/// no reading, so both fall through to the heuristic rather than demo a
+/// non-number.
+fn coerce_float_mock_default(val: &serde_yaml::Value, ty: &ValueType) -> Option<f32> {
+    if !matches!(ty, ValueType::Float32) {
+        return None;
+    }
+    let narrowed = val.as_f64()? as f32;
+    narrowed.is_finite().then_some(narrowed)
+}
+
+/// Write a float32 into the first four bytes of `slice` in the field's byte
+/// order. `slice` is never shorter: the parser rejects a float32 field under
+/// four bytes (`FieldLengthMismatch`), and a longer one keeps a zero tail, as
+/// in [`write_value`].
+fn write_float(slice: &mut [u8], val: f32, big_endian: bool) {
+    let bytes = if big_endian {
+        val.to_be_bytes()
+    } else {
+        val.to_le_bytes()
+    };
+    slice[..4].copy_from_slice(&bytes);
 }
 
 /// Write `val` into the low bytes of `slice`, honoring the byte width of `ty`
@@ -704,6 +742,69 @@ mod tests {
         }];
         // 1234 = 0x04D2, little-endian = [0xD2, 0x04]
         assert_eq!(generate_defaults(&fields), vec![0xD2, 0x04]);
+    }
+
+    /// A float32 carries a fraction, so its `mock_default` may too. Read as
+    /// an integer, `mock_default: 0.5` was refused, and with no heuristic for
+    /// an untransformed float the field demoed as 0.
+    #[test]
+    fn a_fractional_mock_default_on_a_float32_is_written_as_that_float() {
+        use crate::codec::types::{decode_field, DecodedValue};
+        let float = |default: serde_yaml::Value, endianness: Option<&str>| FormatField {
+            offset: 0,
+            length: 4,
+            name: "speed".into(),
+            field_type: ValueType::Float32,
+            endianness: endianness.map(str::to_string),
+            mock_default: Some(default),
+            ..Default::default()
+        };
+        for (default, want) in [
+            (serde_yaml::Value::from(0.5), 0.5_f32),
+            (serde_yaml::Value::from(-1.25), -1.25),
+            (serde_yaml::Value::from(3), 3.0),
+            (serde_yaml::Value::from(1e30), 1e30),
+        ] {
+            for endianness in [None, Some("big")] {
+                let field = float(default.clone(), endianness);
+                let bytes = generate_defaults(std::slice::from_ref(&field));
+                assert_eq!(
+                    decode_field(&bytes, &field).unwrap(),
+                    DecodedValue::Float(want as f64),
+                    "{default:?} {endianness:?}"
+                );
+            }
+        }
+        // A default no float32 can hold, or no number at all, falls back to
+        // the heuristic (zero for an untransformed float) rather than
+        // writing an infinity.
+        for default in [
+            serde_yaml::Value::from(1e300),
+            serde_yaml::Value::from(f64::NAN),
+            serde_yaml::Value::from(f64::INFINITY),
+        ] {
+            let field = float(default.clone(), None);
+            assert_eq!(
+                generate_defaults(std::slice::from_ref(&field)),
+                vec![0; 4],
+                "{default:?}"
+            );
+        }
+    }
+
+    /// The f64 path is for float32 only: a fractional default on an integer
+    /// field is still refused rather than truncated.
+    #[test]
+    fn a_fractional_mock_default_on_an_integer_still_falls_back() {
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 1,
+            name: "brightness".into(),
+            field_type: ValueType::Uint8,
+            mock_default: Some(serde_yaml::Value::from(0.5)),
+            ..Default::default()
+        }];
+        assert_eq!(generate_defaults(&fields), vec![80]);
     }
 
     /// A big-endian field is mocked in big-endian order, so the value the
