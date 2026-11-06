@@ -20,7 +20,8 @@ import 'ws_connect_deadline.dart';
 /// `websocket_jsonrpc` keepalive this also opens a WebSocket and re-sends the
 /// start method every `interval_seconds`, stopping it on teardown. Everything
 /// but the socket is built on the Rust side of the spec; this only fills the
-/// `{address}` placeholder and drives the timers.
+/// `{address}` placeholder — refusing a URL that then names any host but the
+/// device ([cameraUrlOnDevice]) — and drives the timers.
 ///
 /// [frames] is a broadcast-free single-subscription stream: listen to start the
 /// feed, cancel the subscription to stop it (which closes the keepalive socket).
@@ -89,6 +90,44 @@ String fillCameraUrl(String template, String host, {int? port}) {
   return url;
 }
 
+/// [template] filled for [host], refused unless the result is on [host].
+///
+/// Filling `{address}` is the only thing tying a camera URL to the device, and
+/// it ties nothing when the spec puts it somewhere other than the host — or
+/// leaves it out. `http://203.0.113.7/monitor.jpg` filled to itself, and the
+/// feed polled that host up to five times a second for as long as the monitor
+/// was open; the keepalive opened a socket there and re-opened it on every
+/// drop. The rule is the one the HTTP sender and the WebSocket hand-over
+/// keep: the URL's host must be the device's. Its port and path are the
+/// template's own business (`{address}:8889`, `:554`).
+///
+/// [host] may carry a port (`127.0.0.1:8080`, what the loopback tests hand
+/// over), and is compared without it. Hosts compare as `Uri` reads them,
+/// lowercased, since discovery records a name as the device advertised it.
+Uri cameraUrlOnDevice(String template, String host) {
+  final filled = fillCameraUrl(template, host);
+  final url = Uri.tryParse(filled);
+  final device = Uri.tryParse('//$host')?.host ?? host.toLowerCase();
+  if (url == null || url.host.isEmpty || url.host != device) {
+    throw CameraUrlRefusedException(filled);
+  }
+  return url;
+}
+
+/// A camera URL the spec declares does not point at the device.
+///
+/// The feed it belongs to is not started at all: a spec that aims any part of
+/// its camera off the device is broken or hostile, and half-trusting it (the
+/// poll without the keepalive, say) would only hide which.
+class CameraUrlRefusedException implements Exception {
+  final String url;
+  const CameraUrlRefusedException(this.url);
+  @override
+  String toString() =>
+      'CameraUrlRefusedException: $url is not on the device, so it is not '
+      'fetched';
+}
+
 /// Build one JSON-RPC 2.0 frame for a keepalive method. `paramsJson` is the
 /// spec's params object serialised by Rust; the id is ours per call. Pure so a
 /// test can pin the exact frame the Snapmaker expects.
@@ -136,6 +175,11 @@ class _FeedSession {
   /// FAILURE is a lost reconnect worth retrying, not an initial absence.
   bool _keepaliveEverConnected = false;
 
+  /// The poll and keepalive URLs, filled and checked once by [start]: on the
+  /// device, or the feed never starts ([cameraUrlOnDevice]).
+  String _pollUrl = '';
+  String? _keepaliveUrl;
+
   _FeedSession({
     required this.host,
     required this.stream,
@@ -147,6 +191,23 @@ class _FeedSession {
   });
 
   Future<void> start() async {
+    // Both URLs are checked before anything is opened, and a refusal of
+    // either ends the feed: the template is the spec's, and one aimed off the
+    // device would otherwise be polled up to five times a second.
+    try {
+      _pollUrl = cameraUrlOnDevice(stream.urlTemplate, host).toString();
+      final k = keepalive;
+      final keepaliveTemplate = k?.transport == 'websocket_jsonrpc'
+          ? k?.urlTemplate
+          : null;
+      if (keepaliveTemplate != null) {
+        _keepaliveUrl = cameraUrlOnDevice(keepaliveTemplate, host).toString();
+      }
+    } on CameraUrlRefusedException catch (e) {
+      Log.spec.warning('camera feed refused', error: e);
+      if (!_stopped && !sink.isClosed) sink.addError(e);
+      return;
+    }
     await _startKeepalive();
     // The keepalive connect awaits; the session may have been stopped meanwhile.
     if (_stopped) return;
@@ -162,16 +223,16 @@ class _FeedSession {
   Future<void> _startKeepalive() async {
     final k = keepalive;
     if (k == null || k.transport != 'websocket_jsonrpc') return;
-    final urlTemplate = k.urlTemplate;
+    final url = _keepaliveUrl;
     final startMethod = k.startMethod;
-    if (urlTemplate == null || startMethod == null) return;
+    if (url == null || startMethod == null) return;
     final WebSocket ws;
     try {
       // A camera that upgrades after the deadline has its socket closed, not
       // orphaned — the reconnect loop below would otherwise leak one per
       // retry for as long as the monitor stays open.
       ws = await connectWithinDeadline(
-        WebSocket.connect(fillCameraUrl(urlTemplate, host)),
+        WebSocket.connect(url),
         connectTimeout,
         discard: discardWebSocket,
         what: 'camera keepalive connect',
@@ -252,8 +313,8 @@ class _FeedSession {
     HttpClientRequest? req;
     try {
       final ts = DateTime.now().microsecondsSinceEpoch;
-      final sep = stream.urlTemplate.contains('?') ? '&' : '?';
-      final url = '${fillCameraUrl(stream.urlTemplate, host)}${sep}ts=$ts';
+      final sep = _pollUrl.contains('?') ? '&' : '?';
+      final url = '$_pollUrl${sep}ts=$ts';
       req = await _http.getUrl(Uri.parse(url)).timeout(fetchTimeout);
       final resp = await req.close().timeout(fetchTimeout);
       if (resp.statusCode != 200) {
