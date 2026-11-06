@@ -4285,6 +4285,23 @@ void main() {
       });
     }
 
+    // An iOS decimal pad in de/fr/es/it/pt/nl locales has a comma key and no
+    // period, so a comma is the only way such a user can type a fraction.
+    testWidgets('a value typed with a decimal comma is sent as a number', (
+      tester,
+    ) async {
+      await pumpNumberReading(tester, 21.0);
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '21,5');
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
+      final call = codec.renderNetworkCommandCalls.lastWhere(
+        (c) => c.commandName == 'set_speed',
+      );
+      expect(call.values['speed'], '21.5');
+    });
+
     // The cover's position slider drew only the live reading and its
     // onChanged did nothing, so the thumb sat still under the finger and the
     // door was sent to a position the user never saw.

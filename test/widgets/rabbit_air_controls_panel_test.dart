@@ -208,6 +208,44 @@ void main() {
     expect(transport.sent, isNotEmpty, reason: 'the value was still sent');
   });
 
+  // "NaN" parses, and slips past every bound comparison; it is no setting.
+  testWidgets('typing NaN in the Set dialog is refused, not sent', (
+    tester,
+  ) async {
+    final transport = _FakeTransport();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [specCodecProvider.overrideWithValue(_codec())],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RabbitAirControlsPanel(
+                specYaml: 'y',
+                entities: const [_numberEntity],
+                transport: transport,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Set Fan'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'NaN');
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+
+    // Only the panel's own state polls went out, and the refusal is the
+    // dialog's, not a send that failed downstream.
+    expect(transport.sent.where((s) => !s.contains('get_state')), isEmpty);
+    expect(
+      find.text('That is not a value the device accepts.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a refused command says the purifier did not take it', (
     tester,
   ) async {

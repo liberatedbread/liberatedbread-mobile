@@ -13,6 +13,7 @@ import '../core/entity_keys.dart';
 import '../core/sensor_reading_level.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
+import '../core/decimal_input.dart';
 import '../models/network_device.dart';
 import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
@@ -3012,7 +3013,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       ),
     );
     if (entered == null || entered.isEmpty || !mounted) return;
-    final value = double.tryParse(entered);
+    // A decimal comma read as the point: on an iOS decimal pad in many
+    // locales it is the only separator there is.
+    final value = double.tryParse(normalizeDecimalInput(entered));
     // Not finite is refused too: "Infinity" and "NaN" parse, NaN slips past
     // every bound comparison, and neither is a value any device accepts.
     if (value == null ||

@@ -267,6 +267,22 @@ void main() {
     expect(ble.writes.single.value, [0x30, 0x32]);
   });
 
+  // An iOS decimal pad in many locales has a comma key and no period.
+  testWidgets('raw float input typed with a decimal comma is read', (
+    tester,
+  ) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x30, 0x32]));
+    await tester.pumpWidget(
+      _wrap(ble: ble, codec: codec, characteristic: _commands(const [_move])),
+    );
+    await tester.enterText(find.byType(TextField), '-0,25');
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+
+    expect(codec.encodeCalls.single.params['speed'], -0.25);
+  });
+
   testWidgets('invalid raw float input blocks the write', (tester) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x30, 0x32]));

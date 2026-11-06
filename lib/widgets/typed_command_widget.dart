@@ -10,6 +10,7 @@ import '../core/value_format.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 import '../core/error_text.dart';
+import '../core/decimal_input.dart';
 import 'decoded_value_widget.dart';
 
 class _PartialWriteException implements UserFacingException {
@@ -597,7 +598,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
               : null,
         ),
         onChanged: (text) => setState(() {
-          final parsed = double.tryParse(text);
+          // A decimal comma read as the point: on an iOS decimal pad in
+          // many locales it is the only separator there is.
+          final parsed = double.tryParse(normalizeDecimalInput(text));
           if (parsed == null || !parsed.isFinite) {
             _invalidFloats.add(p.name);
           } else {
