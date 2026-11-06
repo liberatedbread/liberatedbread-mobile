@@ -2035,6 +2035,90 @@ fn the_vendored_hisense_spec_resolves_a_remote_over_mqtt() {
     );
 }
 
+/// Every SOAP command in the catalogue renders, given values its parameters
+/// declare acceptable.
+///
+/// The SOAP renderer holds a substituted argument to its parameter's declared
+/// type and bounds, as every other transport does. That is only safe while
+/// the values the catalogue's own commands are driven with pass it. Each
+/// parameter here gets its `default`, else its first coded value, else its
+/// declared `min` (or a plain value of its declared type), which is what a
+/// control resolved from the spec would offer.
+#[test]
+fn every_vendored_soap_command_renders_with_values_its_parameters_accept() {
+    use liberated_bread_core::protocol::soap;
+    use liberated_bread_core::spec::types::SpecCommandParameter;
+    use std::collections::BTreeMap;
+
+    fn scalar_to_string(value: &serde_yaml::Value) -> Option<String> {
+        match value {
+            serde_yaml::Value::String(s) => Some(s.clone()),
+            serde_yaml::Value::Number(n) => Some(n.to_string()),
+            serde_yaml::Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        }
+    }
+
+    fn acceptable(parameter: &SpecCommandParameter) -> String {
+        if let Some(default) = parameter.default.as_ref().and_then(scalar_to_string) {
+            return default;
+        }
+        let coded = parameter
+            .values
+            .as_ref()
+            .and_then(|v| v.as_mapping())
+            .and_then(|m| m.keys().next())
+            .and_then(scalar_to_string);
+        if let Some(code) = coded {
+            return code;
+        }
+        match parameter.value_type.as_deref() {
+            Some("boolean" | "bool") => "1".to_string(),
+            Some("number" | "float" | "double") => parameter.min.unwrap_or(0.0).to_string(),
+            Some(t) if t.starts_with("int") || t.starts_with("uint") || t == "varint" => {
+                (parameter.min.unwrap_or(0.0) as i64).to_string()
+            }
+            // A string is escaped, never validated: give it the characters
+            // escaping exists for.
+            _ => "Cats & <Dogs>".to_string(),
+        }
+    }
+
+    let mut rendered = 0;
+    let mut failures = Vec::new();
+    for path in vendored_yaml_paths() {
+        let file = path.file_name().unwrap().to_string_lossy().into_owned();
+        let yaml = fs::read_to_string(&path).expect("spec file should be readable");
+        let spec = parse_device_spec(&yaml).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+        for (name, command) in &spec.commands {
+            if command.service.is_none()
+                || command.action.is_none()
+                || command.transport.as_deref().unwrap_or(soap::TRANSPORT) != soap::TRANSPORT
+            {
+                continue;
+            }
+            let values: BTreeMap<String, String> = command
+                .parameters
+                .iter()
+                .map(|(param, declared)| (param.clone(), acceptable(declared)))
+                .collect();
+            match soap::render_command(&spec, name, command, &values) {
+                Ok(_) => rendered += 1,
+                Err(e) => failures.push(format!("  {file}: {name}: {e}")),
+            }
+        }
+    }
+    assert!(
+        rendered >= 100,
+        "expected the catalogue's SOAP commands, rendered only {rendered}"
+    );
+    assert!(
+        failures.is_empty(),
+        "these vendored SOAP commands no longer render:\n{}",
+        failures.join("\n")
+    );
+}
+
 /// Every MQTT `body` in the catalogue, filled through the FFI, and the one
 /// shape that needed escaping driven with a value that would inject.
 ///

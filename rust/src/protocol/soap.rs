@@ -11,12 +11,13 @@
 //! — comes out of the YAML, so a second SOAP device is a spec, not a patch.
 //!
 //! What lives here is what a transport cannot work out for itself: parameter
-//! defaulting, argument substitution, XML escaping, and the read-back rule
-//! that keeps a two-argument action from clearing the argument nobody meant
-//! to change. What deliberately does NOT live here is I/O. This crate has no
-//! HTTP client and wants none: the caller resolves the address, sends the
-//! request and hands the reply back as name→value pairs, exactly as the BLE
-//! path hands back the bytes it read.
+//! defaulting, argument substitution held to each parameter's declared type
+//! and bounds, XML escaping, and the read-back rule that keeps a two-argument
+//! action from clearing the argument nobody meant to change. What
+//! deliberately does NOT live here is I/O. This crate has no HTTP client and
+//! wants none: the caller resolves the address, sends the request and hands
+//! the reply back as name→value pairs, exactly as the BLE path hands back the
+//! bytes it read.
 
 use std::collections::BTreeMap;
 
@@ -68,8 +69,8 @@ const DEFAULT_TEMPLATE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 /// this fails rather than sending a half-filled action. A `source` parameter
 /// has no default by the spec's own rule, so skipping its read-back is one of
 /// the failures — the alternative was a renderer quietly substituting 0 into
-/// a cook timer. Values are matched by name and stringified as the spec
-/// author wrote them.
+/// a cook timer. Values are matched by name, and one whose parameter declares
+/// a non-string type must be of that type and inside its bounds.
 pub fn render_request(
     spec: &DeviceSpec,
     command_name: &str,
@@ -109,7 +110,11 @@ pub fn render_command(
                 reason: "argument value is not a scalar".to_string(),
             })?;
         let value = match placeholder(&literal) {
-            Some(param) => resolve_param(command, command_name, param, values)?,
+            Some(param) => typed_value(
+                command,
+                param,
+                resolve_param(command, command_name, param, values)?,
+            )?,
             None => literal,
         };
         rendered.push(format!("<{name}>{}</{name}>", escape_xml(&value)));
@@ -151,6 +156,26 @@ fn template_for(spec: &DeviceSpec) -> String {
                 && template.contains("{arguments}")
         })
         .map_or_else(|| DEFAULT_TEMPLATE.to_string(), str::to_string)
+}
+
+/// A resolved argument, held to its parameter's declared type and bounds.
+///
+/// Escaping keeps a value from breaking the envelope; it does nothing about a
+/// value that is well-formed XML and wrong. Wemo's `set_cook_time` declares
+/// `time` an `integer` with `min: 0`, and `-5<x/>` went out as
+/// `<time>-5&lt;x/&gt;</time>`, to a cooker that is running. Every other
+/// transport already refuses that by name, BLE through the codec and the
+/// network renderers through `http::typed_json`. This is the same check, as
+/// `http::substitute_markup` applies it to XML bodies. A non-string is written
+/// in `typed_json`'s rendering (`240`, not ` 240`), and a `string` or
+/// undeclared type passes through to be escaped, as before.
+fn typed_value(command: &SpecCommand, param: &str, raw: String) -> Result<String, ProtocolError> {
+    use super::http::{declared_type, typed_json, DeclaredType};
+    let parameter = command.parameters.get(param);
+    match declared_type(parameter.and_then(|p| p.value_type.as_deref())) {
+        DeclaredType::String => Ok(raw),
+        _ => typed_json(parameter, param, &raw).map(|value| value.to_string()),
+    }
 }
 
 /// `"{name}"` → `name`. Anything else is a literal the command already chose.
