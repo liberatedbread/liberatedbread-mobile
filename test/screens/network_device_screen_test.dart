@@ -25,6 +25,7 @@ import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
+import 'package:liberated_bread_mobile/widgets/network_light_card.dart';
 import 'package:liberated_bread_mobile/widgets/rabbit_air_controls_panel.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/models/ha_config.dart';
@@ -2287,16 +2288,11 @@ void main() {
               raw: on ? '1' : '0',
             );
           }
-          if (entity == 'Bulb' || entity == 'Light Strip') {
-            // The dotted keys the flattener now emits for light_state.
-            final on = returned['light_state.on_off'] == '1';
-            return NetworkReadingDto(
-              kind: NetworkReadingKind.onOff,
-              isOn: on,
-              number: double.tryParse(returned['light_state.brightness'] ?? ''),
-              raw: on ? '1' : '0',
-            );
-          }
+          // A light declares no `value`, so the real single read answers
+          // null for it; its state is the role read below. This fake used to
+          // answer both at once, which is how a card that real Rust never
+          // seeded passed here.
+          if (entity == 'Bulb' || entity == 'Light Strip') return null;
           // The sensors: the dotted path the flattener keys the reply by.
           final field = switch (entity) {
             'Voltage' => 'emeter.get_realtime.voltage',
@@ -2310,6 +2306,34 @@ void main() {
             number: double.parse(raw),
             raw: raw,
           );
+        },
+        // The spec's `is_on: light_state.on_off` (on_when: nonzero) and
+        // `brightness: light_state.brightness`, over the dotted keys the
+        // flattener emits for light_state.
+        networkRoleReadings: (entity, returned) {
+          if (entity != 'Bulb' && entity != 'Light Strip') return const [];
+          final onOff = returned['light_state.on_off'];
+          final brightness = returned['light_state.brightness'];
+          return [
+            if (onOff != null)
+              NetworkRoleReadingDto(
+                role: 'is_on',
+                reading: NetworkReadingDto(
+                  kind: NetworkReadingKind.onOff,
+                  isOn: onOff != '0',
+                  raw: onOff,
+                ),
+              ),
+            if (brightness != null)
+              NetworkRoleReadingDto(
+                role: 'brightness',
+                reading: NetworkReadingDto(
+                  kind: NetworkReadingKind.number,
+                  number: double.parse(brightness),
+                  raw: brightness,
+                ),
+              ),
+          ];
         },
       );
 
@@ -3921,12 +3945,14 @@ void main() {
       List<NetworkEntityDto> entities = utilityEntities,
       List<String> hiddenNames = const [],
       NetworkReadingDto? Function(String, Map<String, String>)? reading,
+      List<NetworkRoleReadingDto> Function(String, Map<String, String>)? roles,
     }) async {
       posts = [];
       codec = FakeSpecCodec(
         networkEntities: (_) => entities,
         networkHiddenNames: hiddenNames,
         networkReading: reading ?? readUtility,
+        networkRoleReadings: roles,
       );
       codec.networkRequest = (name, values) => SoapRequestDto(
         service: 'urn:Belkin:service:basicevent:1',
@@ -4492,6 +4518,101 @@ void main() {
         expect(call.values['position'], sent);
       });
     }
+
+    // A light declares roles, not a `value`: the single read is null for it,
+    // and the card was built with no reading at all — an Elgato opened
+    // "Ready", its brightness pinned at the top and its white point at an
+    // invented 344 mired, whatever the light was doing.
+    testWidgets('a light card is seeded from its role readings', (
+      tester,
+    ) async {
+      NetworkActionDto action(
+        String role,
+        String command, {
+        List<String> params = const [],
+        double? min,
+        double? max,
+        String? unit,
+      }) => NetworkActionDto(
+        credentials: const [],
+        instanceParams: const [],
+        role: role,
+        transport: 'soap',
+        commandName: command,
+        userParams: params,
+        min: min,
+        max: max,
+        unit: unit,
+        readBack: const [],
+      );
+      NetworkRoleReadingDto number(String role, double value) =>
+          NetworkRoleReadingDto(
+            role: role,
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: value,
+              raw: '$value',
+            ),
+          );
+      await pumpUtility(
+        tester,
+        entities: [
+          NetworkEntityDto(
+            isInstanced: false,
+            name: 'Key Light',
+            platform: 'light',
+            stateCommand: 'GetCrockpotState',
+            options: const [],
+            actions: [
+              action('turn_on', 'light_on'),
+              action('turn_off', 'light_off'),
+              action(
+                'set_brightness',
+                'set_brightness',
+                params: ['brightness'],
+                min: 3,
+                max: 100,
+              ),
+              action(
+                'set_color_temperature',
+                'set_temperature',
+                params: ['temperature'],
+                min: 143,
+                max: 344,
+                unit: 'mired',
+              ),
+            ],
+          ),
+        ],
+        reading: (_, _) => null,
+        roles: (entity, _) => [
+          const NetworkRoleReadingDto(
+            role: 'is_on',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.onOff,
+              isOn: true,
+              raw: '1',
+            ),
+          ),
+          number('brightness', 40),
+          number('color_temperature', 213),
+        ],
+      );
+
+      final card = tester.widget<NetworkLightCard>(
+        find.byType(NetworkLightCard),
+      );
+      expect(card.initialOn, isTrue);
+      expect(card.initialBrightness, 40);
+      expect(card.initialColorTemperature, 213);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      final sliders = tester
+          .widgetList<Slider>(find.byType(Slider))
+          .map((s) => s.value)
+          .toList();
+      expect(sliders, [40, 213]);
+      expect(find.text('213 mired'), findsOneWidget);
+    });
 
     testWidgets('hidden declared controls are counted, not vanished', (
       tester,

@@ -19,6 +19,7 @@
 //! the reply back as name→value pairs, exactly as the BLE path hands back the
 //! bytes it read.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use crate::error::ProtocolError;
@@ -350,6 +351,103 @@ pub fn read_entity(
             number * entity.value_scale().unwrap_or(1.0),
         )),
         None => Some(EntityReading::Text(raw.to_string())),
+    }
+}
+
+/// Read every role an entity's `state_mapping` names — besides its one
+/// `value`, which is [`read_entity`]'s — out of the name→value pairs a state
+/// call returned.
+///
+/// The reading of an entity with no single `value`: a light's `is_on`,
+/// `brightness` and `color_temperature`. [`read_entity`] answers None for
+/// every such light, so its card never learned the bulb was on. The power
+/// rule ([`is_on_by_rule`]) decides `is_on` alone, and the entity's `scale`
+/// applies to the numeric roles as [`read_entity`] applies it to `value`. A
+/// role the reply does not carry is omitted rather than invented. Keyed by
+/// role in a BTreeMap, the shape a hub's child reads in
+/// (`http::read_instance_entity`).
+pub fn read_entity_roles(
+    spec: &DeviceSpec,
+    entity: &Entity,
+    returned: &BTreeMap<String, String>,
+) -> BTreeMap<String, EntityReading> {
+    let mut readings = BTreeMap::new();
+    for (role, path) in &entity.state_mapping {
+        // The rule keys qualify a role rather than name one.
+        if matches!(role.as_str(), "value" | "on_when" | "on_value") {
+            continue;
+        }
+        let Some(field) = path.as_str() else {
+            continue;
+        };
+        let Some(raw) = state_field(returned, field) else {
+            continue;
+        };
+        // The same packed-value rule read_entity applies to `value`.
+        let raw = match spec.payload_formats.get(field) {
+            Some(format) => match format.primary_value(&raw) {
+                Some(primary) => primary,
+                None => continue,
+            },
+            None => raw.as_ref(),
+        }
+        .trim();
+        let power = (role == "is_on")
+            .then(|| is_on_by_rule(entity, raw))
+            .flatten();
+        let reading = match (power, parse_number(raw)) {
+            (Some(on), _) => EntityReading::OnOff(on),
+            // A JSON boolean flattens to "true"/"false"; see read_entity.
+            _ if raw == "true" || raw == "false" => EntityReading::OnOff(raw == "true"),
+            (None, Some(number)) => {
+                EntityReading::Number(number * entity.value_scale().unwrap_or(1.0))
+            }
+            (None, None) => EntityReading::Text(raw.to_string()),
+        };
+        readings.insert(role.clone(), reading);
+    }
+    readings
+}
+
+/// A `state_mapping` path's raw text in a flattened state reply.
+///
+/// Verbatim first: the flatteners key every nested member by its dotted path
+/// (`light_state.on_off`). A path that steps into an array — an Elgato's
+/// `lights[0].on` — is never a key, because the flatteners keep an array
+/// whole, as its JSON text, under its own path (R-043). So the longest key
+/// the path starts with is parsed, and the rest of the path walked inside
+/// it. A leaf that is itself an array comes back as its JSON text, the
+/// flatteners' own convention; an object or null is not a reading.
+fn state_field<'a>(returned: &'a BTreeMap<String, String>, path: &str) -> Option<Cow<'a, str>> {
+    if let Some(raw) = returned.get(path) {
+        return Some(Cow::Borrowed(raw));
+    }
+    let (text, rest) = path
+        .char_indices()
+        .rev()
+        .filter(|&(_, c)| c == '[' || c == '.')
+        .find_map(|(at, _)| returned.get(&path[..at]).map(|text| (text, &path[at..])))?;
+    let parsed: serde_json::Value = serde_json::from_str(text).ok()?;
+    let mut node = &parsed;
+    let mut rest = rest;
+    while !rest.is_empty() {
+        if let Some(tail) = rest.strip_prefix('[') {
+            let close = tail.find(']')?;
+            node = node.get(tail[..close].parse::<usize>().ok()?)?;
+            rest = &tail[close + 1..];
+        } else {
+            let tail = rest.strip_prefix('.')?;
+            let end = tail.find(['.', '[']).unwrap_or(tail.len());
+            node = node.get(&tail[..end])?;
+            rest = &tail[end..];
+        }
+    }
+    match node {
+        serde_json::Value::String(s) => Some(Cow::Owned(s.clone())),
+        serde_json::Value::Number(n) => Some(Cow::Owned(n.to_string())),
+        serde_json::Value::Bool(b) => Some(Cow::Owned(b.to_string())),
+        serde_json::Value::Array(_) => Some(Cow::Owned(node.to_string())),
+        serde_json::Value::Object(_) | serde_json::Value::Null => None,
     }
 }
 
@@ -691,5 +789,32 @@ soap_common:
         // Not an error and not a zero: a control with no reading shows as
         // unknown, where a fabricated 0 would show a plug as off.
         assert_eq!(read_entity(&spec, &spec.entities[0], &returned(&[])), None);
+    }
+
+    #[test]
+    fn a_path_into_an_array_walks_the_text_the_flattener_kept() {
+        // The flatteners keep an array as its JSON text under its own path,
+        // so a WLED-shaped `state.seg[0].col[0]` is never a key.
+        let reply = returned(&[
+            ("state.on", "true"),
+            ("state.seg", r#"[{"col":[[255,160,0],[0,0,0]],"fx":3}]"#),
+        ]);
+        assert_eq!(state_field(&reply, "state.on").as_deref(), Some("true"));
+        assert_eq!(state_field(&reply, "state.seg[0].fx").as_deref(), Some("3"));
+        assert_eq!(
+            state_field(&reply, "state.seg[0].col[0]").as_deref(),
+            Some("[255,160,0]")
+        );
+        assert_eq!(
+            state_field(&reply, "state.seg[0].col[0][1]").as_deref(),
+            Some("160")
+        );
+        // Past the end, through a scalar, or malformed: nothing, not a guess.
+        assert_eq!(state_field(&reply, "state.seg[1].fx"), None);
+        assert_eq!(state_field(&reply, "state.on.x"), None);
+        assert_eq!(state_field(&reply, "state.seg[x].fx"), None);
+        assert_eq!(state_field(&reply, "state.seg[0"), None);
+        // An object is not a reading.
+        assert_eq!(state_field(&reply, "state.seg[0]"), None);
     }
 }

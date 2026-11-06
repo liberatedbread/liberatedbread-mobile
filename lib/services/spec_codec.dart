@@ -686,6 +686,17 @@ abstract class SpecCodec {
     required Map<String, String> returned,
   });
 
+  /// Decode every role an entity's `state_mapping` names besides its one
+  /// `value` — a light's `is_on`, `brightness` and `color_temperature` —
+  /// from the same name→value pairs [readNetworkEntity] reads. A light
+  /// declares no `value`, so that read is null for it. Empty when the reply
+  /// carried none of the roles, rendered as unknown.
+  Future<List<NetworkRoleReadingDto>> readNetworkEntityRoles({
+    required String specYaml,
+    required String entityName,
+    required Map<String, String> returned,
+  });
+
   /// Encode the BLE writes that PERSIST a picture on the device so it plays
   /// standalone after disconnect, dispatched on the spec's `stored_upload`
   /// feature.

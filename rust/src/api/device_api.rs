@@ -3535,6 +3535,45 @@ pub(crate) fn read_network_entity_with_spec(
     Ok(crate::protocol::soap::read_entity(spec, entity, &returned).map(reading_to_dto))
 }
 
+/// Decode every role an entity's `state_mapping` names — besides its one
+/// `value`, which is [`read_network_entity`]'s — from the name→value pairs a
+/// state call returned: a light's `is_on`, `brightness` and
+/// `color_temperature`. A light declares no `value`, so the single read
+/// answers None for it and its card never learned the bulb was on.
+///
+/// The non-instanced sibling of [`read_network_instance`], in the same
+/// shape. Empty when the reply carried none of the roles — which renders as
+/// unknown, never as a fabricated "off".
+pub fn read_network_entity_roles(
+    spec_yaml: String,
+    entity_name: String,
+    returned: HashMap<String, String>,
+) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    read_network_entity_roles_with_spec(&spec, entity_name, returned)
+}
+
+/// [`read_network_entity_roles`] against a spec that is already parsed — the
+/// body both the by-YAML entry point and [`super::spec_handle::LoadedSpec`]
+/// run. It rides the four-second poll beside [`read_network_entity`].
+pub(crate) fn read_network_entity_roles_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    returned: HashMap<String, String>,
+) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+    let entity = find_entity(spec, &entity_name)?;
+    let returned = returned.into_iter().collect();
+    Ok(
+        crate::protocol::soap::read_entity_roles(spec, entity, &returned)
+            .into_iter()
+            .map(|(role, reading)| NetworkRoleReadingDto {
+                role,
+                reading: reading_to_dto(reading),
+            })
+            .collect(),
+    )
+}
+
 /// One [`EntityReading`] as the DTO Dart draws — shared by the SOAP and HTTP
 /// read paths so a reading means the same thing whichever transport carried
 /// it.

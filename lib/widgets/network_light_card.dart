@@ -51,10 +51,13 @@ class NetworkLightCard extends ConsumerStatefulWidget {
   sendAction;
 
   /// The generic path's live state, from the screen's ordinary poll: the
-  /// entity's decoded on/off and brightness readings. A LIFX light reads its
-  /// own state and ignores these. Null means the poll has not said.
+  /// entity's decoded on/off, brightness and colour temperature readings
+  /// (the last in the set_color_temperature action's own unit — an
+  /// Elgato's mireds). A LIFX light reads its own state and ignores these.
+  /// Null means the poll has not said.
   final bool? initialOn;
   final double? initialBrightness;
+  final double? initialColorTemperature;
 
   const NetworkLightCard({
     super.key,
@@ -65,6 +68,7 @@ class NetworkLightCard extends ConsumerStatefulWidget {
     this.sendAction,
     this.initialOn,
     this.initialBrightness,
+    this.initialColorTemperature,
   });
 
   /// Whether this entity rides the dedicated LIFX binary-UDP handler.
@@ -234,6 +238,8 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     } else {
       _assumedOn = widget.initialOn;
       _brightness = widget.initialBrightness ?? _brightnessMax;
+      final colorTemperature = widget.initialColorTemperature;
+      if (colorTemperature != null) _colorTemperature = colorTemperature;
     }
   }
 
@@ -247,6 +253,10 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     if (widget.initialBrightness != null &&
         widget.initialBrightness != old.initialBrightness) {
       _brightness = widget.initialBrightness!;
+    }
+    if (widget.initialColorTemperature != null &&
+        widget.initialColorTemperature != old.initialColorTemperature) {
+      _colorTemperature = widget.initialColorTemperature!;
     }
   }
 
@@ -268,6 +278,8 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     _assumedOn = widget.initialOn ?? assumeOn ?? _assumedOn;
     final brightness = widget.initialBrightness;
     if (brightness != null) _brightness = brightness;
+    final colorTemperature = widget.initialColorTemperature;
+    if (colorTemperature != null) _colorTemperature = colorTemperature;
   }
 
   Map<String, double> _colorParams({double? brightnessOverride}) {

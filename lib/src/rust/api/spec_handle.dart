@@ -160,6 +160,14 @@ abstract class LoadedSpec implements RustOpaqueInterface {
     required Map<String, String> returned,
   });
 
+  /// Decode every role besides `value` — a light's `is_on`, `brightness`
+  /// and `color_temperature` — from the name→value pairs a state call
+  /// returned.
+  Future<List<NetworkRoleReadingDto>> readNetworkEntityRoles({
+    required String entityName,
+    required Map<String, String> returned,
+  });
+
   /// Read one child's roles out of an instanced entity's state reply.
   Future<List<NetworkRoleReadingDto>> readNetworkInstance({
     required String entityName,

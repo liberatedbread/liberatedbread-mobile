@@ -92,6 +92,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   final Map<String, Map<String, String>> _stateByCommand = {};
   final Map<String, NetworkReadingDto?> _readings = {};
 
+  /// A light's readings by role (`is_on`, `brightness`, `color_temperature`).
+  /// A light declares no `value`, so its [_readings] entry is null — its
+  /// state is these, read by [SpecCodec.readNetworkEntityRoles].
+  final Map<String, Map<String, NetworkReadingDto>> _roleReadings = {};
+
   /// Slider positions the user has set but the device has not yet confirmed,
   /// shown until the next state decode supersedes them.
   final Map<String, double> _pendingSetpoints = {};
@@ -1359,6 +1364,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               returned: returned,
             );
       _readings[entity.name] = reading;
+      // Only the light card draws roles, so only a light pays for the read.
+      final roles = returned == null || entity.platform != 'light'
+          ? const <NetworkRoleReadingDto>[]
+          : await codec.readNetworkEntityRoles(
+              specYaml: widget.controls.specYaml,
+              entityName: entity.name,
+              returned: returned,
+            );
+      _roleReadings[entity.name] = {
+        for (final role in roles) role.role: role.reading,
+      };
       // A fresh decode supersedes a slider position the user was holding —
       // the device has now said where it actually is.
       if (reading != null) _pendingSetpoints.remove(entity.name);
@@ -1367,6 +1383,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // silent about a real gap (a bulb's light_state, a variant's renamed
       // keys), which is exactly the "nothing's logged" complaint.
       if (reading == null &&
+          roles.isEmpty &&
           returned != null &&
           entity.stateCommand.isNotEmpty) {
         Log.net.debug(
@@ -1966,15 +1983,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // live reads. Any other light rides the screen's ordinary send
         // pipeline, routed by each action's declared transport; the card
         // itself only presents.
+        // Its state is its roles; the single reading stays the fallback for
+        // a light whose spec maps a `value` instead.
         final reading = _readings[entity.name];
+        final roles = _roleReadings[entity.name] ?? const {};
         return NetworkLightCard(
           entity: entity,
           specYaml: widget.controls.specYaml,
           host: widget.device.host,
           targetMac: widget.device.advertisedMac ?? '',
           sendAction: (action, values) => _send(entity, action, values: values),
-          initialOn: reading?.isOn,
-          initialBrightness: reading?.number,
+          initialOn: roles['is_on']?.isOn ?? reading?.isOn,
+          initialBrightness: roles['brightness']?.number ?? reading?.number,
+          // Both spellings the catalogue writes: Elgato's
+          // `color_temperature`, Yeelight's `color_temp`.
+          initialColorTemperature:
+              (roles['color_temperature'] ?? roles['color_temp'])?.number,
         );
       // A platform this switch has no branch for still shows its reading —
       // and, since the resolver may well have found it controls, its actions.

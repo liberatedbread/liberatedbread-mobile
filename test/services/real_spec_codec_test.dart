@@ -269,6 +269,45 @@ void main() {
     expect(profiles.single.profileName, contains('Battery'));
   });
 
+  test('a Kasa bulb reads on and brightness by role, held or not', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // A light declares roles, not a `value`, so readNetworkEntity is null
+    // for it and the role read is the light card's only live state. Asked
+    // by YAML first, then through the held parse the poll uses.
+    final kasa = await rootBundle.loadString(
+      'vendor/protocol-specs/device-specs/devices/tplink-kasa-smart-plug.yaml',
+    );
+    const returned = {
+      'light_state.on_off': '1',
+      'light_state.brightness': '60',
+    };
+    final fresh = RealSpecCodec();
+    expect(
+      await fresh.readNetworkEntity(
+        specYaml: kasa,
+        entityName: 'Bulb',
+        returned: returned,
+      ),
+      isNull,
+    );
+    for (final held in [false, true]) {
+      if (held) await fresh.prepareSpec(kasa);
+      final roles = {
+        for (final r in await fresh.readNetworkEntityRoles(
+          specYaml: kasa,
+          entityName: 'Bulb',
+          returned: returned,
+        ))
+          r.role: r.reading,
+      };
+      expect(roles['is_on']?.isOn, isTrue, reason: 'held: $held');
+      expect(roles['brightness']?.number, 60, reason: 'held: $held');
+    }
+  });
+
   test('encodeEntityValue sends the value to the entity that owns it', () async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');
