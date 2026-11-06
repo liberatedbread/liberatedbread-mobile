@@ -6,6 +6,7 @@
 import 'dart:io';
 
 import '../models/channel_plan.dart';
+import '../models/radio_profile.dart';
 import 'chirp_csv.dart';
 import 'spec_pack_service.dart' show CacheDirResolver;
 
@@ -37,7 +38,13 @@ class PlanExportService {
 
     final name = '${fileNameFor(plan)}.csv';
     final file = File('${dir.path}/$name');
-    await file.writeAsString(encodeChirpCsv(plan.channels), flush: true);
+    // Numbered as the plan's radio numbers its channels (31 up on a UV-5G
+    // Mini); a plan for a radio this build does not know counts from 1.
+    final csv = encodeChirpCsv(
+      plan.channels,
+      profile: radioProfileById(plan.radioProfileId),
+    );
+    await file.writeAsString(csv, flush: true);
     return ExportedFile(file: file, displayName: name);
   }
 

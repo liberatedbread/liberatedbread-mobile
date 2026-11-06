@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/radio_channel.dart';
+import 'package:liberated_bread_mobile/models/radio_profile.dart';
 import 'package:liberated_bread_mobile/services/chirp_csv.dart';
 
 List<String> _cells(String row) {
@@ -349,6 +350,26 @@ void main() {
       ]);
       expect(_column(csv, 0, 'Location'), '1');
       expect(_column(csv, 1, 'Location'), '2');
+    });
+
+    // CHIRP's UV5GMini holds 1-30 as the radio's fixed GMRS plan, with
+    // their frequency, duplex and offset immutable: a plan numbered from 1
+    // landed on them in a CHIRP import, and disagreed with the slots the
+    // app itself writes it to (31 up).
+    test('number slots as the radio does when the radio is known', () {
+      const channels = [
+        repeater,
+        RadioChannel(name: 'B', rxFreqHz: 146520000, txFreqHz: 146520000),
+      ];
+      final gmrs = encodeChirpCsv(channels, profile: uv5gMiniProfile);
+      expect(_column(gmrs, 0, 'Location'), '31');
+      expect(_column(gmrs, 1, 'Location'), '32');
+
+      // A radio whose whole memory is the user's starts at 1, as does the
+      // export that names no radio.
+      final mini = encodeChirpCsv(channels, profile: uv5rMiniProfile);
+      expect(_column(mini, 0, 'Location'), '1');
+      expect(_column(mini, 1, 'Location'), '2');
     });
 
     test('carry the mode, tuning step, skip and comment', () {
