@@ -499,9 +499,10 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       return;
     }
     // Likewise a channel this radio cannot tune: typed before the editor
-    // checked, or made for another model. Out of the encoder's range it was
-    // refused only after the read and backup ("The radio did not finish.");
-    // in range but off-band it was written as a channel the radio can't use.
+    // checked, or made for another model. Out of the encoder's range, or
+    // finer than the 10 Hz it stores, it was refused only after the read and
+    // backup ("The radio did not finish."); in range but off-band it was
+    // written as a channel the radio can't use.
     for (final (index, channel) in plan.channels.indexed) {
       final problem = channelRangeProblem(
         profile,

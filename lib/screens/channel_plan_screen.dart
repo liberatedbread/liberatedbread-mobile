@@ -665,6 +665,12 @@ class _ChannelEditSheetState extends State<_ChannelEditSheet> {
 /// UV17Pro drivers leave it out of `valid_bands`).
 const int _broadcastFmTopHz = 108000000;
 
+/// The finest frequency step a memory channel stores. Every codec here
+/// writes a frequency as eight BCD digits of tens of hertz and refuses one
+/// finer than that (`encode_bcd` in rust/src/protocol/radio/codeplug.rs,
+/// which the UV-5R family uses too); change both together.
+const int _channelStepHz = 10;
+
 /// The spans of [profile]'s receive coverage a memory channel can hold: its
 /// receive ranges less the broadcast-FM receiver. Without this a channel typed
 /// as 101.1 MHz passes the range gate and is written into a slot the radio
@@ -682,9 +688,12 @@ List<FreqRange> memoryChannelRanges(RadioProfile profile) => [
 /// unless the channel is receive-only, is held to the same ranges rather
 /// than to the transmit ones: whether transmit is unlocked is the radio's
 /// setting, not the plan's, and a suggested channel the radio may not
-/// transmit on is still a channel it listens to. What this catches is a
-/// typo: a frequency no memory channel on the radio can hold, or one the
-/// codeplug cannot encode.
+/// transmit on is still a channel it listens to. Both must also be whole
+/// tens of hertz ([_channelStepHz]), the finest the codeplug stores; a
+/// receive-only channel's transmit frequency is never written, so it is
+/// not asked. What this catches is a typo: a frequency no memory channel on
+/// the radio can hold, or one the codeplug cannot encode -- which the codec
+/// otherwise refuses only at write time, after the read and the backup.
 String? channelRangeProblem(
   RadioProfile profile, {
   required int rxFreqHz,
@@ -695,9 +704,14 @@ String? channelRangeProblem(
   String outside(String what, int hz) =>
       '$what ${formatHzAsMegahertz(hz)} MHz is outside what a '
       '${profile.displayName} memory channel can hold: ${ranges.join(', ')}.';
+  String tooFine(String what, int hz) =>
+      '$what ${formatHzAsMegahertz(hz)} MHz is finer than a '
+      '${profile.displayName} stores: it holds a frequency to '
+      '$_channelStepHz Hz, five decimal places of MHz at most.';
   if (!rangesContain(ranges, rxFreqHz)) return outside('Receive', rxFreqHz);
-  if (!rxOnly && !rangesContain(ranges, txFreqHz)) {
-    return outside('Transmit', txFreqHz);
-  }
+  if (rxFreqHz % _channelStepHz != 0) return tooFine('Receive', rxFreqHz);
+  if (rxOnly) return null;
+  if (!rangesContain(ranges, txFreqHz)) return outside('Transmit', txFreqHz);
+  if (txFreqHz % _channelStepHz != 0) return tooFine('Transmit', txFreqHz);
   return null;
 }

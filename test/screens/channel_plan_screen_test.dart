@@ -141,6 +141,53 @@ void main() {
         );
       });
 
+      // Every codec stores a frequency in 10 Hz steps and refuses a finer
+      // one -- but only at write time, after the radio was read and backed
+      // up. The editor and the write gate ask this first.
+      test('${profile.displayName} refuses a frequency finer than 10 Hz', () {
+        expect(
+          channelRangeProblem(
+            profile,
+            rxFreqHz: 146520005,
+            txFreqHz: 146520005,
+            rxOnly: false,
+          ),
+          contains('Receive 146.520005 MHz is finer than'),
+        );
+        expect(
+          channelRangeProblem(
+            profile,
+            rxFreqHz: 146520000,
+            txFreqHz: 146520005,
+            rxOnly: false,
+          ),
+          contains('Transmit 146.520005 MHz is finer than'),
+        );
+        // A receive-only channel's transmit frequency is never written.
+        expect(
+          channelRangeProblem(
+            profile,
+            rxFreqHz: 146520000,
+            txFreqHz: 146520005,
+            rxOnly: true,
+          ),
+          isNull,
+        );
+        // Ten hertz is what the radio holds; 12.5 kHz steps are tens.
+        for (final hz in [146520010, 462562500]) {
+          expect(
+            channelRangeProblem(
+              profile,
+              rxFreqHz: hz,
+              txFreqHz: hz,
+              rxOnly: false,
+            ),
+            isNull,
+            reason: '$hz',
+          );
+        }
+      });
+
       test('${profile.displayName} still takes 2 m and 70 cm channels', () {
         for (final hz in [146520000, 446000000]) {
           expect(
@@ -583,6 +630,34 @@ void main() {
           .channels
           .single;
       expect(channel.txFreqHz, 146340000);
+    });
+
+    // Saved, it failed only at write time, in the codec, after the radio
+    // was read and backed up.
+    testWidgets('refuses a frequency finer than the radio stores', (
+      tester,
+    ) async {
+      final harness = await _pump(tester, prefs: _seed(channels: 1));
+      await tester.tap(find.text('CH0'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextField, '146.940'),
+        '146.940005',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Receive 146.940005 MHz is finer than'),
+        findsOneWidget,
+      );
+      final channel = harness.container
+          .read(channelPlansProvider)
+          .single
+          .channels
+          .single;
+      expect(channel.rxFreqHz, 146940000);
     });
 
     testWidgets('a receive-only channel drops its transmit tone', (

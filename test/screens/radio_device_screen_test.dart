@@ -931,6 +931,45 @@ void main() {
       expect(harness.backups.saved, isEmpty);
     });
 
+    testWidgets('a frequency finer than 10 Hz is refused before a read', (
+      tester,
+    ) async {
+      // Saved before the editor checked, it reached the codec, which
+      // refuses it -- after the read and backup.
+      final now = DateTime(2026, 9, 1);
+      SharedPreferences.setMockInitialValues({
+        'radio_channel_plans_v1': jsonEncode([
+          ChannelPlan(
+            id: 'fine',
+            name: 'Fine',
+            radioProfileId: uv5rMiniProfile.id,
+            channels: const [
+              RadioChannel(
+                name: 'ODD',
+                rxFreqHz: 146520005,
+                txFreqHz: 146520005,
+              ),
+            ],
+            createdAt: now,
+            modifiedAt: now,
+          ).toJson(),
+        ]),
+      });
+      _prefs = await SharedPreferences.getInstance();
+      final harness = await _pump(tester, planId: 'fine');
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Write to Base radio?'), findsNothing);
+      expect(
+        find.textContaining('Channel 1 of "Fine" (ODD): Receive 146.520005'),
+        findsOneWidget,
+      );
+      expect(harness.programmer.readCalls, 0);
+      expect(harness.backups.saved, isEmpty);
+    });
+
     testWidgets('a failed read writes nothing, and says so', (tester) async {
       await seedPlan();
       final harness = await _pump(
