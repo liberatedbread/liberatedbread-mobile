@@ -1003,6 +1003,90 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
     });
 
+    testWidgets(
+      'an upload slower than the commit wait still waits for the commit',
+      (tester) async {
+        // A 255x255 picture is ~260 writes at iOS's MTU; that takes longer
+        // than the bounded commit wait. The wait is for the DEVICE to commit,
+        // so its clock must start once the last packet is out — started at
+        // the first packet, it expired mid-upload, the play went out before
+        // the device had committed (a silent no-op), and the confirmation
+        // that then arrived was never read.
+        final notify = StreamController<List<int>>.broadcast();
+        addTearDown(notify.close);
+        final uploadGate = Completer<void>();
+        final ble = FakeBleService(
+          notifyStream: notify.stream,
+          writeGate: uploadGate.future,
+        );
+        final codec = FakeSpecCodec(
+          storedPlan: StoredUploadPlanDto(
+            serviceUuid: 'svc',
+            uploadWrites: [
+              ImageWriteDto(
+                characteristicUuid: 'uploader',
+                bytes: Uint8List.fromList([10]),
+              ),
+            ],
+            playWrite: ImageWriteDto(
+              characteristicUuid: 'ddp',
+              bytes: Uint8List.fromList([9]),
+            ),
+            responseCharacteristicUuid: 'notify',
+            cid: 900127,
+          ),
+        );
+        await tester.pumpWidget(
+          _wrap(
+            const LedImageWidget(
+              deviceId: 'AA:BB',
+              imageUpload: _encodableSpec,
+              storedUpload: encodableStored,
+              specYaml: 'yaml',
+            ),
+            ble: ble,
+            codec: codec,
+          ),
+        );
+
+        await _scrollAndTap(tester, find.text('Save to device'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pump();
+
+        // The upload is still on the wire past the 10 s commit wait.
+        await tester.pump(const Duration(seconds: 11));
+        expect(ble.writes, isEmpty, reason: 'the upload is still in flight');
+
+        uploadGate.complete();
+        await tester.pump();
+        expect(
+          ble.writes.map((w) => w.charUuid),
+          ['uploader'],
+          reason:
+              'the device has not committed yet, so effect-list and play '
+              'must still be held',
+        );
+
+        // The device commits 50 ms after the last packet.
+        await tester.pump(const Duration(milliseconds: 50));
+        notify.add(const [1]);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(
+          ble.writes.map((w) => w.charUuid),
+          ['uploader', 'ddp', 'ddp', 'ddp'],
+          reason: 'the confirmation releases effect-list, play, autorun-fixed',
+        );
+        expect(find.textContaining('now playing'), findsOneWidget);
+        expect(find.textContaining('did not confirm'), findsNothing);
+
+        // Drain the background effect-list diagnostic timer.
+        await tester.pump(const Duration(seconds: 3));
+      },
+    );
+
     testWidgets('two replays of the same design use distinct sequences', (
       tester,
     ) async {

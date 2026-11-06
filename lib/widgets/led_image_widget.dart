@@ -1168,29 +1168,12 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         'to ${widget.deviceId}: ${plan.uploadWrites.length} uploader writes',
       );
 
-      // Listen for the device's verdict BEFORE the first upload write, so a
-      // fast completion cannot slip past between upload and subscribe.
-      final confirmed = _awaitUploadVerdict(codec, plan, specYaml);
-      // If an upload write throws first, nobody awaits `confirmed`; quench a
-      // listener COPY so a later refusal in it cannot surface as an unhandled
-      // zone error (the `await confirmed` below still observes the original).
-      unawaited(confirmed.then((_) {}, onError: (_) {}));
-
-      for (final write in plan.uploadWrites) {
-        await ble.writeCharacteristic(
-          widget.deviceId,
-          plan.serviceUuid,
-          write.characteristicUuid,
-          write.bytes,
-        );
-      }
-
-      // The device plays a cid only once it has committed it — an early play
-      // is a silent no-op (observed on hardware). Wait for M_UPLOAD_COMPLETE;
-      // a device-side refusal throws into the error path below. A silent
-      // firmware resolves this to `false` after a bounded wait rather than
-      // hanging the save.
-      final wasConfirmed = await confirmed;
+      // Stream the container, then wait for the device to commit it: it plays
+      // a cid only once it has — an early play is a silent no-op (observed on
+      // hardware). M_UPLOAD_COMPLETE resolves this `true`; a device-side
+      // refusal throws into the error path below. A silent firmware resolves
+      // it to `false` after a bounded wait rather than hanging the save.
+      final wasConfirmed = await _uploadAndAwaitCommit(codec, plan, specYaml);
 
       // Mirror the vendor's store-then-show (smartdawn_longer2 t=205.9): hand
       // the panel back from any doodle preview, refresh the effect list so the
@@ -1692,45 +1675,79 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         );
   }
 
-  /// Resolves `true` once the device confirms the stored upload committed,
-  /// `false` when it stays silent past a bounded wait; throws when the device
-  /// actively refuses it.
+  /// Write [plan]'s upload packets, then wait for the device's verdict on
+  /// them: `true` once it confirms the stored upload committed, `false` when
+  /// it stays silent past a bounded wait; throws when the device actively
+  /// refuses it (or a write fails).
   ///
-  /// Must be CALLED before the first upload write — the subscription starts
-  /// in the synchronous prefix, so a verdict cannot slip past between the
-  /// last data packet and a late subscribe. When the spec names no response
-  /// channel it returns `false` immediately (store-and-hope — the caller keeps
-  /// its messaging honest rather than claiming playback). A silent firmware
-  /// likewise returns `false` after the timeout instead of turning every save
-  /// into an error.
-  Future<bool> _awaitUploadVerdict(
+  /// The verdict listener attaches BEFORE the first write, so a fast
+  /// completion cannot slip past between the last data packet and a late
+  /// subscribe — but the bounded wait starts only once the last packet is
+  /// out, as in [_uploadFramesAndLoop]. It bounds how long the device may
+  /// take to COMMIT, not how long the link takes to carry the container: a
+  /// 255x255 picture is ~45 KB, some 260 writes at iOS's MTU, and a clock
+  /// started at the first packet ran out mid-upload — the play then went out
+  /// before the device had committed, and its confirmation went unread.
+  ///
+  /// When the spec names no response channel it returns `false` once the
+  /// writes are out (store-and-hope — the caller keeps its messaging honest
+  /// rather than claiming playback). A silent firmware likewise returns
+  /// `false` after the wait instead of turning every save into an error.
+  Future<bool> _uploadAndAwaitCommit(
     SpecCodec codec,
     StoredUploadPlanDto plan,
     String specYaml,
   ) async {
-    final respChar = plan.responseCharacteristicUuid;
-    if (respChar == null) return false;
-
+    const commitWait = Duration(seconds: 10);
     final ble = ref.read(bleServiceProvider);
+    final respChar = plan.responseCharacteristicUuid;
     final verdict = Completer<StoredUploadEventDto>();
     final reader = StoredUploadEventReader(codec: codec, specYaml: specYaml);
-    final sub = ble
-        .subscribeCharacteristic(widget.deviceId, plan.serviceUuid, respChar)
-        .listen((bytes) async {
-          final event = await reader.feed(bytes);
-          if (event == null || verdict.isCompleted) return;
-          switch (event.kind) {
-            case StoredUploadEventKind.complete:
-            case StoredUploadEventKind.failed:
-            case StoredUploadEventKind.startRejected:
-              verdict.complete(event);
-            case StoredUploadEventKind.startAccepted:
-            case StoredUploadEventKind.progress:
-              break; // transfer in flight; keep listening
-          }
-        });
+    final sub = respChar == null
+        ? null
+        : ble
+              .subscribeCharacteristic(
+                widget.deviceId,
+                plan.serviceUuid,
+                respChar,
+              )
+              .listen((bytes) async {
+                final event = await reader.feed(bytes);
+                if (event == null || verdict.isCompleted) return;
+                switch (event.kind) {
+                  case StoredUploadEventKind.complete:
+                  case StoredUploadEventKind.failed:
+                  case StoredUploadEventKind.startRejected:
+                    verdict.complete(event);
+                  case StoredUploadEventKind.startAccepted:
+                  case StoredUploadEventKind.progress:
+                    break; // transfer in flight; keep listening
+                }
+              });
     try {
-      final event = await verdict.future.timeout(const Duration(seconds: 10));
+      for (final write in plan.uploadWrites) {
+        await ble.writeCharacteristic(
+          widget.deviceId,
+          plan.serviceUuid,
+          write.characteristicUuid,
+          write.bytes,
+        );
+      }
+      if (sub == null) return false;
+
+      // Only the verdict wait is caught here: a write that times out is a
+      // failed upload, not a silent device, and must not be played.
+      final StoredUploadEventDto event;
+      try {
+        event = await verdict.future.timeout(commitWait);
+      } on TimeoutException {
+        Log.ble.warning(
+          'no upload confirmation from ${widget.deviceId} within '
+          '${commitWait.inSeconds}s of the last upload write; playing anyway '
+          'but reporting it as unconfirmed',
+        );
+        return false;
+      }
       if (event.kind != StoredUploadEventKind.complete) {
         throw StateError(
           'the device refused the stored design (code ${event.code})',
@@ -1738,17 +1755,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       }
       Log.ble.info('${widget.deviceId} committed the stored design');
       return true;
-    } on TimeoutException {
-      Log.ble.warning(
-        'no upload confirmation from ${widget.deviceId} within '
-        '10s; playing anyway but reporting it as unconfirmed',
-      );
-      return false;
     } finally {
       // Fire-and-forget: cancel() detaches the listener synchronously, which
       // is all that matters here — the returned future settles on the
       // transport's schedule (it stalled a full save when awaited).
-      unawaited(sub.cancel());
+      unawaited(sub?.cancel());
     }
   }
 
@@ -1892,7 +1903,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     });
     await _sendFramedCommand(specYaml, serviceUuid, ddpChar, 'effect_list');
     await Future<void>.delayed(const Duration(seconds: 3));
-    // Fire-and-forget, as in _awaitUploadVerdict: cancel() detaches the
+    // Fire-and-forget, as in _uploadAndAwaitCommit: cancel() detaches the
     // listener synchronously, which is all that matters here. Awaiting it
     // stalls under a fake event loop — a broadcast subscription's cancel
     // resolves via the SDK's root-zone null future — which is what kept this
