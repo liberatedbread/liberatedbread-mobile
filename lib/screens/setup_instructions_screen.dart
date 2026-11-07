@@ -28,15 +28,27 @@ import '../services/spec_codec.dart'
 /// touch the device, so it is safe to reach from an error state where there is
 /// no live connection. Sections a spec omits are simply absent — the screen
 /// never renders an empty heading.
+///
+/// Also the page the Bluetooth pairing guide opens for a device the user has
+/// not tried yet ([afterFailedConnect] false), where the same sections are
+/// read in a different order: how to pair first, what to do if it will not
+/// connect after that.
 class SetupInstructionsScreen extends ConsumerWidget {
   /// The matched product's name — "Ember Mug" — for the intro line.
   final String deviceName;
   final SetupInstructionsDto instructions;
 
+  /// Whether the user got here because a connect just failed (the default),
+  /// which puts the rejoin note and troubleshooting above the from-scratch
+  /// pairing steps. False for someone setting up a new device, who needs the
+  /// steps first and the troubleshooting only if those do not work.
+  final bool afterFailedConnect;
+
   const SetupInstructionsScreen({
     super.key,
     required this.deviceName,
     required this.instructions,
+    this.afterFailedConnect = true,
   });
 
   Future<void> _print(BuildContext context, WidgetRef ref) async {
@@ -75,11 +87,42 @@ class SetupInstructionsScreen extends ConsumerWidget {
       ],
     ];
     final rejoin = instructions.rejoin;
+    final hasRejoin = _hasText(rejoin?.notes);
+
+    final troubleshootingSection = troubleshooting.isEmpty
+        ? null
+        : _Section(
+            icon: Icons.help_outline,
+            title: 'If it won’t connect',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final t in troubleshooting) _Troubleshooting(item: t),
+              ],
+            ),
+          );
+    final pairing = <Widget>[
+      if (_hasText(instructions.notes))
+        _Section(
+          icon: Icons.info_outline,
+          title: 'Overview',
+          child: Text(
+            instructions.notes!.trim(),
+            style: text.bodyMedium?.copyWith(height: 1.4),
+          ),
+        ),
+      for (final method in instructions.methods)
+        if (_MethodSection.hasContent(method)) _MethodSection(method: method),
+    ];
 
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(
-        title: const Text('Setup & troubleshooting'),
+        title: Text(
+          afterFailedConnect
+              ? 'Setup & troubleshooting'
+              : 'Pairing instructions',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.print_outlined),
@@ -102,31 +145,25 @@ class SetupInstructionsScreen extends ConsumerWidget {
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 20),
-            if (rejoin?.notes != null && rejoin!.notes!.trim().isNotEmpty)
-              _RejoinCard(rejoin: rejoin),
-            if (troubleshooting.isNotEmpty)
-              _Section(
-                icon: Icons.help_outline,
-                title: 'If it won’t connect',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final t in troubleshooting) _Troubleshooting(item: t),
-                  ],
+            if (afterFailedConnect) ...[
+              if (hasRejoin) _RejoinCard(rejoin: rejoin!),
+              ?troubleshootingSection,
+              ...pairing,
+            ] else ...[
+              ...pairing,
+              ?troubleshootingSection,
+              // A new device has no link to drop yet, so the rejoin note is
+              // what to know for later — not "try this first".
+              if (hasRejoin)
+                _Section(
+                  icon: Icons.sync,
+                  title: 'If it disconnects later',
+                  child: Text(
+                    rejoin!.notes!.trim(),
+                    style: text.bodyMedium?.copyWith(height: 1.4),
+                  ),
                 ),
-              ),
-            if ((instructions.notes ?? '').trim().isNotEmpty)
-              _Section(
-                icon: Icons.info_outline,
-                title: 'Overview',
-                child: Text(
-                  instructions.notes!.trim(),
-                  style: text.bodyMedium?.copyWith(height: 1.4),
-                ),
-              ),
-            for (final method in instructions.methods)
-              if (_MethodSection.hasContent(method))
-                _MethodSection(method: method),
+            ],
             if (instructions.factoryReset case final reset?
                 when _FactoryResetSection.hasContent(reset))
               _FactoryResetSection(reset: reset),

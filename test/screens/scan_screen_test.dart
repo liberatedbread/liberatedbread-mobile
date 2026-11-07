@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
+import 'package:liberated_bread_mobile/providers/ble_pairing_guide_provider.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
@@ -19,6 +20,7 @@ import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/device_manager.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/screens/ble_pairing_guide_screen.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/screens/ha_settings_screen.dart';
 import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
@@ -26,6 +28,7 @@ import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart'
     show baofengUartService;
 import 'package:liberated_bread_mobile/widgets/device_list_tile.dart';
+import 'package:liberated_bread_mobile/widgets/pair_new_device_card.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -309,6 +312,53 @@ void main() {
 
     expect(find.text('ACME_A'), findsOneWidget);
     expect(find.text('Found'), findsOneWidget);
+  });
+
+  testWidgets(
+    'the pairing guide card sits below the results and opens the guide',
+    (tester) async {
+      final fake = FakeBleService(
+        devicesToEmit: [
+          _device('01', name: 'ACME_A', rssi: -40),
+          _device('02', name: 'ACME_B', rssi: -60),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+            blePairingGuideProvider.overrideWith((ref) async => const []),
+          ],
+          child: const MaterialApp(home: ScanScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final card = find.byType(PairNewDeviceCard);
+      await tester.scrollUntilVisible(card, 200);
+      expect(find.text('Pairing a new device'), findsOneWidget);
+      // Below every found row: it answers the question left once the
+      // results have not shown the device.
+      expect(
+        tester.getTopLeft(card).dy,
+        greaterThan(tester.getTopLeft(find.text('ACME_B')).dy),
+      );
+
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.byType(BlePairingGuideScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets('the pairing guide card is there before any scan result', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_wrap(FakeBleService()));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.byType(PairNewDeviceCard), 200);
+    expect(find.text('Pairing a new device'), findsOneWidget);
   });
 
   testWidgets('asks for a scan with no window of its own', (tester) async {

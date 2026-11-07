@@ -55,7 +55,11 @@ const _full = SetupInstructionsDto(
   ),
 );
 
-Future<void> _pump(WidgetTester tester, SetupInstructionsDto instructions) {
+Future<void> _pump(
+  WidgetTester tester,
+  SetupInstructionsDto instructions, {
+  bool afterFailedConnect = true,
+}) {
   // The screen is a scrolling ListView; a tall surface lets every section
   // build so the assertions do not have to scroll each one into view.
   tester.view.physicalSize = const Size(1000, 3000);
@@ -68,6 +72,7 @@ Future<void> _pump(WidgetTester tester, SetupInstructionsDto instructions) {
         home: SetupInstructionsScreen(
           deviceName: 'Ember Mug',
           instructions: instructions,
+          afterFailedConnect: afterFailedConnect,
         ),
       ),
     ),
@@ -316,5 +321,43 @@ void main() {
     expect(find.text('HomeKit pairing'), findsOneWidget);
     expect(find.text('Gen 3 setup AP'), findsOneWidget);
     expect(find.text('Depends on the hardware'), findsOneWidget);
+  });
+
+  testWidgets('from the pairing guide, the steps lead and rejoin trails', (
+    tester,
+  ) async {
+    // Someone setting up a new device has not failed to connect yet: the
+    // pairing steps come first, troubleshooting after, and the rejoin note
+    // is "for later" rather than "try this first".
+    await _pump(tester, _full, afterFailedConnect: false);
+
+    expect(find.text('Pairing instructions'), findsOneWidget);
+    expect(find.text('Setup & troubleshooting'), findsNothing);
+    expect(find.text('Try this first'), findsNothing);
+    expect(find.text('If it disconnects later'), findsOneWidget);
+    expect(find.textContaining('Close the other client'), findsOneWidget);
+
+    double top(String label) => tester.getTopLeft(find.text(label)).dy;
+    expect(top('Overview'), lessThan(top('How to pair')));
+    expect(top('How to pair'), lessThan(top('If it won’t connect')));
+    expect(
+      top('If it won’t connect'),
+      lessThan(top('If it disconnects later')),
+    );
+    expect(
+      top('If it disconnects later'),
+      lessThan(tester.getTopLeft(find.text('Factory reset').first).dy),
+    );
+  });
+
+  testWidgets('after a failed connect, troubleshooting leads the steps', (
+    tester,
+  ) async {
+    await _pump(tester, _full);
+
+    double top(String label) => tester.getTopLeft(find.text(label)).dy;
+    expect(top('Try this first'), lessThan(top('If it won’t connect')));
+    expect(top('If it won’t connect'), lessThan(top('How to pair')));
+    expect(find.text('If it disconnects later'), findsNothing);
   });
 }
