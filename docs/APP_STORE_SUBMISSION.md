@@ -150,31 +150,33 @@ App Store Connect ▸ **Apps ▸ + ▸ New App**:
 developer.apple.com ▸ Profiles ▸ **+ ▸ App Store Connect** distribution, for the
 bundle id, using the Step-2 cert, **including the multicast entitlement** (needs
 Step 1 granted). Name it `Liberated Bread App Store` to match
-`ExportOptions-appstore.plist` (or rename that string). Download it (or let
-Xcode manage it) so it's in the login keychain on the build Mac.
+`ExportOptions-appstore.plist` (or rename that string). Download it onto the
+build Mac, or let Xcode manage it. The Step-2 certificate and its private key
+belong in the login keychain; Xcode manages the provisioning profile separately.
 
-## Step 5 — Build + upload the signed IPA (on the Mac)
+## Step 5 — Build, upload and closed-test the signed IPA (on the Mac)
 
-Build from a clean checkout of main:
+Use the clean release worktree and build flow in
+[RELEASE.md](RELEASE.md#2-create-and-test-a-clean-worktree) Steps 2–4. Do not
+clone `main` and build its moving tip; `release.sh` requires an exact tag whose
+version matches `pubspec.yaml`:
+
 ```sh
 # release.sh puts the repo-managed SDK (~/.flutter-sdk, or FLUTTER_HOME) first
 # on PATH and upgrades it to CI's pinned Flutter, so the SDK on PATH here is
 # not the one that builds; ./scripts/setup.sh installs that SDK.
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
-git clone -b main git@github.com:liberatedbread/liberatedbread-mobile.git ~/lb && cd ~/lb
-# Preflight: the privacy manifest MUST declare the Rust core's file-timestamp
-# APIs or App Store Connect rejects the upload (ITMS-91053). `unfuck`, which
-# this line used to clone, predates that declaration AND the committed
-# DEVELOPMENT_TEAM; following the runbook verbatim reproduced the rejection it
-# says is fixed. main carries the declaration; the grep stops a build from
-# an older branch that does not.
-grep -q NSPrivacyAccessedAPICategoryFileTimestamp ios/Runner/PrivacyInfo.xcprivacy || { echo "privacy manifest lacks the FileTimestamp declaration — wrong branch"; exit 1; }
-flutter pub get
-# release.sh refuses an untagged or dirty checkout (docs/RELEASE.md): check out
-# the release tag first, or set LB_RELEASE_UNTAGGED=1 for a TestFlight-only
-# throwaway that is stamped with its commit instead of a version.
-./scripts/release.sh ios   # flutter build ipa, timestamp build number, this
-                           # ExportOptions plist, plus the build stamp
+cd /path/to/liberatedbread-release-0.1.0
+git describe --tags --exact-match   # must print the intended vX.Y.Z
+test -z "$(git status --porcelain)"
+
+# Preflight: without this declaration App Store Connect rejects the upload
+# with ITMS-91053 for the Rust core's file-timestamp API use.
+grep -q NSPrivacyAccessedAPICategoryFileTimestamp ios/Runner/PrivacyInfo.xcprivacy
+flutter pub get --enforce-lockfile
+./scripts/release.sh ios   # timestamp build number, App Store export plist,
+                           # and the git-describe build stamp
+./scripts/verify_ios_app.sh build/ios/ipa/*.ipa
 ```
 
 **`--build-number` is not optional on a re-upload.** `release.sh` always
@@ -187,21 +189,86 @@ multicast entitlement is granted — is refused by App Store Connect for a
 duplicate build number, and the refusal arrives by email after the upload, not
 during it. Any monotonic value works; the script's timestamp needs no state.
 `.github/workflows/ios-adhoc.yml` uses `github.run_number` for the same reason.
-That needs the Step-2 cert + Step-4 profile in the keychain. Then upload the IPA
-(`build/ios/ipa/*.ipa`) one of:
-- **Transporter.app** (Mac App Store) — drag the IPA in, Deliver. Simplest.
-- **Xcode** ▸ Organizer ▸ Distribute App.
-- **`xcrun altool`** (needs an App Store Connect API key in
-  `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8`):
-  ```sh
-  xcrun altool --upload-app -f build/ios/ipa/*.ipa -t ios \
-    --apiKey <KEYID> --apiIssuer <ISSUER-UUID>
-  ```
 
-## Step 6 — Export-compliance questionnaire (at submit, in ASC)
+The build needs the Step-2 certificate and private key in the keychain, and the
+Step-4 multicast-bearing profile available to Xcode. After
+`verify_ios_app.sh` passes, push the release tag as in
+[RELEASE.md](RELEASE.md#5-publish-the-tag-and-upload-to-closed-testing) Step 5.
 
-When prompted: **Yes**, uses encryption → **standard algorithms (AES-128)** →
-**qualifies for exemption** under EAR **740.17(b)(1)** (mass-market,
+### Upload the IPA to App Store Connect
+
+The recommended route is **Transporter**, not the App Store Connect web UI:
+
+1. Install and open **Transporter** from the Mac App Store. Sign in with an Apple
+   ID that has access to **Pigs Can Fly Labs LLC (`GQ358PSWM3`)**.
+2. Choose **Add App**, select `build/ios/ipa/*.ipa`, and choose **Deliver**.
+   Transporter uploads that exact IPA to App Store Connect; it does not submit or
+   publish it.
+3. Open [App Store Connect](https://appstoreconnect.apple.com/) → **Apps** →
+   **Liberated Bread** → **TestFlight**. Wait for Apple's processing-complete
+   email; the build cannot be tested until processing finishes.
+
+The command-line alternative uploads the same IPA using an App Store Connect API
+key stored at `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8`:
+
+```sh
+export ASC_KEY_ID="PASTE_THE_KEY_ID"
+export ASC_ISSUER_UUID="PASTE_THE_ISSUER_UUID"
+xcrun altool --upload-app -f build/ios/ipa/*.ipa -t ios \
+  --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_UUID"
+```
+
+To obtain those values, open App Store Connect → **Users and Access** →
+**Integrations** → **App Store Connect API** → **Team Keys**. Someone with
+permission to manage team keys may need to create the key first. A key with
+**Developer** access can upload builds. The page shows the **key ID** and
+**issuer ID**; Apple offers the `.p8` private-key download only once. Store it at
+the path above with owner-only access, and never commit it, paste it into the
+runbook, or print its contents into CI logs.
+
+### Closed-test the uploaded build
+
+1. Under **TestFlight**, create or open an **Internal Testing** group and add the
+   processed build to it. If Apple marks the build **Missing Compliance**, answer
+   the export-compliance questions in Step 6 first. External groups can require
+   Beta App Review; internal testers are enough for this release check.
+2. Internal testers must already be App Store Connect users with access to this
+   app. Add them under **Users and Access**, then add them to the internal group.
+   For a tester who is not in the Apple team, use an external group instead and
+   allow time for any required Beta App Review.
+3. On each iPhone, install Apple's **TestFlight** app, accept the invitation, and
+   install the selected build. This is the installation path for an App Store
+   distribution IPA; it is not an ad-hoc IPA that can be sideloaded directly.
+4. Complete the real-phone checklist in
+   [RELEASE.md](RELEASE.md#6-validate-the-exact-store-artifacts) Step 6. Passing
+   TestFlight testing still does **not** publish the app: Step 9 selects this
+   same build for App Review and public release.
+
+### If the build or invitation does not appear
+
+- Check that Transporter finished **Deliver**, that you are viewing the Pigs Can
+  Fly Labs LLC team, and that the IPA's bundle id is
+  `ca.pigscanfly.liberatedbread`. Then wait for Apple's processing email; a build
+  cannot be assigned to testers before processing completes.
+- Check the email for an upload or processing rejection. A duplicate
+  `CFBundleVersion` is reported there rather than by a usable new TestFlight
+  build. Rebuild the unchanged source with a higher build number; do not select
+  an older build or overwrite the tag. See RELEASE.md Step 5 about timestamp
+  resolution.
+- **Missing Compliance** means the build exists but needs Step 6's answers, not
+  that the upload vanished. For a missing invitation, confirm the tester belongs
+  to the group and that this specific build is assigned to that group.
+- If processing fails, use Apple's message to fix the signing or package issue,
+  rerun `verify_ios_app.sh`, and upload a higher build number. Do not submit a
+  different, untested build to App Review just to keep moving.
+
+## Step 6 — Export-compliance questionnaire (when App Store Connect asks)
+
+App Store Connect can request these answers while processing a TestFlight build
+as well as during App Store submission; do not wait until Step 9 if it is
+blocking testers. When prompted: **Yes**, uses encryption → **standard
+algorithms (AES-128)** → **qualifies for exemption** under EAR **740.17(b)(1)**
+(mass-market,
 self-classification; no CCATS/compliance code). Then file the **annual**
 self-classification report — a once-a-year email (template at the bottom) to
 `crypt@bis.doc.gov` and `enc@nsa.gov`. Set a yearly calendar reminder.
@@ -311,13 +378,65 @@ Use a 6.9" sim (iPhone 17 Pro Max) and a 6.7"/6.5" sim. Curate a few real
 screens (device list, a control card, the camera view) — App Review dislikes
 empty placeholder shots.
 
-## Step 9 — Age rating, category, submit
+## Step 9 — Create the App Store version, submit and release
 
-- **Category:** Utilities (primary), Lifestyle (secondary).
-- **Age rating:** run the ASC questionnaire honestly; the app has no objectionable
-  content → expected **4+**.
-- Attach the build, fill "What's New" / description, add the support +
-  marketing URLs, then **Add for Review**.
+TestFlight testing is not App Store submission. Use the same processed build,
+but attach it to an App Store version and send that version through review.
+Submission and release require **Account Holder**, **Admin**, or **App Manager**
+access. A **Developer** can upload builds, but may not see the submission and
+release controls; ask a role holder to complete this step rather than uploading
+another build in the hope that the buttons appear.
+
+### A. Prepare the version
+
+1. Open [App Store Connect](https://appstoreconnect.apple.com/) → **Apps** →
+   **Liberated Bread**. In the **App Store** section, open the existing
+   **Prepare for Submission** version, or choose **+ Version** to create one.
+2. Enter the marketing version `X.Y.Z` from `pubspec.yaml` (`0.1.0` for the
+   current draft). Do not include the pubspec `+N`; the clock-derived integer is
+   the separate **build number**, not the public App Store version.
+3. Confirm Steps 6–8 are complete: export compliance, App Privacy, description,
+   keywords, support/marketing URLs, screenshots and What's New. Under **Pricing
+   and Availability**, set the app's price and destination territories.
+4. Set **Category** to **Utilities** (primary) and **Lifestyle** (secondary), and
+   complete the age-rating questionnaire honestly; no objectionable content is
+   expected, so the anticipated rating is **4+**.
+5. Scroll to **Build**, choose **Select Build**, and pick the exact build that
+   passed TestFlight validation. Check the displayed build number against the
+   number recorded from `release.sh`; do not rebuild or select an older IPA.
+6. Complete **App Review Information** with contact details and the review notes
+   and mock-device video described in [RELEASE.md](RELEASE.md#review).
+7. Under **Version Release**, choose:
+   - **Manually release this version** — recommended for a controlled launch; or
+   - automatic release, if Apple should publish as soon as the version is
+     approved.
+
+### B. Send it to App Review
+
+1. Choose **Add for Review** at the top right and create a new submission (or add
+   the version to an intentional existing draft). The status becomes **Ready for
+   Review**; Apple has not received it yet.
+2. Open the draft submission and choose **Submit for Review**. This second action
+   is required. The status becomes **In Review**. See
+   [Apple's submission guide](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-app/)
+   if the current console labels differ.
+3. A metadata-only rejection can be corrected and resubmitted with the same
+   build. If the code changes, follow RELEASE.md's new-version/new-tag rule and
+   upload, closed-test and select the replacement build instead.
+
+### C. Publish after approval
+
+- For **manual release**, approval moves the version to **Pending Developer
+  Release**. Open the App Store version and choose **Release This Version**.
+  This is the action that makes the app public in the selected territories.
+- For **automatic release**, Apple publishes the approved version without that
+  final button.
+- For a **later update**, App Store Connect also offers phased release for
+  automatic updates. It is an update rollout option, not the initial app launch;
+  the first public release uses the manual or automatic path above.
+
+After public release, install from the App Store, check Diagnostics for the
+release tag, and complete the release record in RELEASE.md Step 7.
 
 ## Step 10 — (optional, not blocking)
 
