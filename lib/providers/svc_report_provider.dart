@@ -13,6 +13,8 @@ import '../core/log.dart';
 import '../core/unexpected_services.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/network_device.dart';
+import '../models/radio_profile.dart';
+import '../models/radio_target.dart';
 import '../models/svc_report.dart';
 import '../services/spec_codec.dart' show CatalogueSpec, DeviceSpecDto;
 import '../services/svc_report_service.dart';
@@ -137,6 +139,44 @@ SvcReport? buildWifiSvcReport({
     ]..sort(),
     appVersion: AppConstants.appVersion,
     platform: svcReportPlatform(),
+  );
+}
+
+/// The key a radio's programming failures are recorded under: per radio
+/// AND profile, because a failure says the profile and this radio disagree,
+/// and picking another model is a different question. Local only.
+String radioAnomalyKey(RadioTarget target, RadioProfile profile) =>
+    'radio:${target.transport.name}:${target.id}:${profile.id}';
+
+/// The report for a radio whose programming session went wrong in a way the
+/// [profile] does not expect, or null when [responses] is empty. Its subject
+/// is the profile: radios are not spec-driven, and nothing about the radio
+/// itself (its id, its name, its memory) goes in.
+SvcReport? buildRadioSvcReport({
+  required RadioProfile profile,
+  required RadioTransport link,
+  required List<SvcReportResponse> responses,
+  String? reportId,
+}) {
+  if (responses.isEmpty) return null;
+  return SvcReport(
+    reportId: reportId ?? newReportId(),
+    transport: SvcReportTransport.radio,
+    specKey: 'radio:${profile.id}',
+    specDeviceName: profile.displayName,
+    specManufacturer: '',
+    advertisedName: null,
+    unexpected: const [],
+    responses: responses,
+    discovered: const [],
+    declared: const [],
+    appVersion: AppConstants.appVersion,
+    platform: svcReportPlatform(),
+    radio: SvcReportRadio(
+      profileId: profile.id,
+      family: profile.programmingFamily.name,
+      link: link.name,
+    ),
   );
 }
 

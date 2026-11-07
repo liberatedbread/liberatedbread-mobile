@@ -9,6 +9,7 @@ import '../core/error_text.dart';
 import '../models/radio_band_limits.dart';
 import '../models/radio_channel.dart';
 import '../models/radio_profile.dart';
+import '../models/svc_report.dart' show SvcReportResponse;
 
 /// What stage a programming session has reached.
 enum RadioProgressStage {
@@ -36,11 +37,97 @@ class RadioProgressEvent {
   });
 }
 
+/// A radio failure the user can choose to report: what the radio said that
+/// the programmer did not expect, described for a protocol author. Carried
+/// by [RadioProtocolException] and [RadioUnsupportedException] when the
+/// throw site knows it; the radio screen turns it into the "unexpected
+/// response" banner.
+///
+/// PRIVACY: never codeplug contents — those are the owner's channels. The
+/// ident a radio answers with (a model and firmware string), a reply's
+/// header, an acknowledgement byte and block addresses are what may go in a
+/// [SvcReportResponse.sample]; see [RadioDiagnostics].
+typedef RadioDiagnostic = SvcReportResponse;
+
+/// Builders for [RadioDiagnostic]s, one per thing a radio can get wrong, so
+/// every throw site describes the same failure the same way.
+abstract final class RadioDiagnostics {
+  static String _hex(int addr) => '0x${addr.toRadixString(16).padLeft(4, '0')}';
+
+  /// The radio answered the ident request with something no profile knows.
+  static RadioDiagnostic unrecognizedIdent(List<int> reply) =>
+      SvcReportResponse(
+        problem: 'unrecognized_ident',
+        where: 'radio:ident',
+        detail: '${reply.length}-byte ident reply',
+        sample: SvcReportResponse.hexSample(reply),
+      );
+
+  /// The radio answered the session request, but not with an acceptance.
+  static RadioDiagnostic sessionRefused(List<int> reply) => SvcReportResponse(
+    problem: 'session_refused',
+    where: 'radio:session',
+    detail: '${reply.length}-byte answer instead of an acknowledgement',
+    sample: SvcReportResponse.hexSample(reply.take(4).toList()),
+  );
+
+  /// A read reply that did not parse. Only its header goes in the sample:
+  /// the rest is the radio's memory.
+  static RadioDiagnostic badReadReply(
+    int addr,
+    int len,
+    List<int> reply,
+    Object error,
+  ) => SvcReportResponse(
+    problem: 'bad_read_reply',
+    where: 'radio:read@${_hex(addr)}',
+    detail: 'asked for $len bytes, got ${reply.length}; $error',
+    sample: SvcReportResponse.hexSample(reply.take(4).toList()),
+  );
+
+  /// The radio answered a block write with something other than an ack.
+  static RadioDiagnostic writeRefused(int addr, List<int> ack) =>
+      SvcReportResponse(
+        problem: 'write_refused',
+        where: 'radio:write@${_hex(addr)}',
+        detail: 'answered a write with ${ack.length} byte(s), not an ack',
+        sample: SvcReportResponse.hexSample(ack.take(4).toList()),
+      );
+
+  /// Reading back a written block gave different bytes. The bytes stay on
+  /// the phone; the address is enough to find the region.
+  static RadioDiagnostic verifyMismatch(int addr) => SvcReportResponse(
+    problem: 'verify_mismatch',
+    where: 'radio:verify@${_hex(addr)}',
+    detail: 'read-back differs from what was written',
+  );
+
+  /// A whole read came back the wrong size.
+  static RadioDiagnostic shortImage(int got, int want) => SvcReportResponse(
+    problem: 'short_image',
+    where: 'radio:read',
+    detail: 'image is $got bytes, expected $want',
+  );
+}
+
 /// The radio said something that is not part of the conversation.
 class RadioProtocolException implements UserFacingException {
   @override
   final String message;
+
+  /// What went wrong, for the report banner, when the throw site knows.
+  final RadioDiagnostic? diagnostic;
+
   const RadioProtocolException([
+    this.message =
+        'The radio did not answer the way this app expects. '
+        'Disconnect it, turn it off and on, and try again.',
+  ]) : diagnostic = null;
+
+  /// [RadioProtocolException] carrying [diagnostic]. [message] is what the
+  /// screen says, unchanged by the diagnostic.
+  const RadioProtocolException.diagnosed(
+    this.diagnostic, [
     this.message =
         'The radio did not answer the way this app expects. '
         'Disconnect it, turn it off and on, and try again.',
@@ -87,11 +174,18 @@ class RadioTimeoutException implements UserFacingException {
 class RadioUnsupportedException implements UserFacingException {
   @override
   final String message;
+
+  /// What the radio said, when it answered as a model no profile knows —
+  /// the report a protocol author needs to add the variant.
+  final RadioDiagnostic? diagnostic;
+
   const RadioUnsupportedException([
     this.message =
         'This app cannot program that radio yet. You can still '
         'export a plan as a CHIRP file.',
-  ]);
+  ]) : diagnostic = null;
+
+  const RadioUnsupportedException.diagnosed(this.diagnostic, this.message);
 
   @override
   String toString() => message;

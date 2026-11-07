@@ -210,16 +210,17 @@ self-classification report — a once-a-year email (template at the bottom) to
 
 - **Privacy Policy URL:** `https://liberatedbread.com/privacy/` (matches the
   in-app link).
-- **Data collection:** answer **"Data Collected"**, with exactly one type:
-  - **Diagnostics ▸ Other Diagnostic Data**
-  - Used for: **App Functionality** only
-  - Linked to the user's identity: **No**
-  - Used for tracking: **No**
+- **Data collection:** answer **"Data Collected"**, with exactly two types,
+  each used for **App Functionality** only, **not** linked to the user's
+  identity, and **not** used for tracking:
+  - **Diagnostics ▸ Other Diagnostic Data**: the device or radio report a
+    user chooses to send from the "unexpected services" / "unexpected
+    response" banner (last bullet below);
+  - **User Content ▸ Customer Support**: the optional note the user may type
+    in that banner's details box, which travels with the report.
 
-  This is the device report a user chooses to send from the "unexpected
-  services" / "unexpected response" banner (last bullet below). It is
-  **user-initiated diagnostics**: never sent in the background, shown
-  verbatim before it is sent, and sent again only on another tap. The App
+  Both are **user-initiated**: never sent in the background, shown verbatim
+  before they are sent, and sent again only on another tap. The App
   Privacy form has no field for "optional" or "user-initiated", so say it in
   the description (Step 8) and the review notes (`docs/RELEASE.md`
   § Review), and make sure the privacy policy says it too.
@@ -261,7 +262,12 @@ self-classification report — a once-a-year email (template at the bottom) to
     describe and/or the responses the app could not read (a Wi-Fi reply's
     key names only; at most 32 bytes of a BLE value that would not decode),
     the app version and the platform, and carries no identifier
-    (`lib/models/svc_report.dart`). The server keeps no IP address.
+    (`lib/models/svc_report.dart`). A radio's report names its programming
+    profile and what the radio answered (its ident, a reply header, an
+    acknowledgement byte, a block address), never the radio's id, name or
+    memory (`lib/services/radio_programmer.dart`). Anything the user types
+    in the optional details box goes with it. The server keeps no IP
+    address.
 
   Declared rather than claimed under Apple's *optional disclosure*
   exemption. That exemption fits in most respects: user-initiated,
@@ -353,9 +359,11 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > within your search radius go to the repeater directories you have turned on (myGMRS, and
 > RepeaterBook with your own access token); your position stays on your phone.
 > And if a device does something its profile doesn't describe, the app offers
-> to send us a diagnostics report so we can fix the profile. It is only ever
-> sent when you tap Send, it shows you exactly what it contains first, and it
-> carries no addresses, names or identifiers.
+> to send us a diagnostics report so we can fix the profile, with a note if
+> you want to add one. The same goes for a radio that answers in a way its
+> programming profile doesn't expect. It is only ever sent when you tap Send,
+> it shows you exactly what it contains first, and it carries no addresses,
+> names or identifiers.
 >
 > This is independent, community-maintained software provided as-is. Please read the in-app terms and
 > the disclaimer at https://liberatedbread.com/disclaimer/ before use — some

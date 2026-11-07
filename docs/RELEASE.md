@@ -132,8 +132,14 @@ lost upload key. Back the upload key up off every build machine anyway.
     and it is accurate: nothing is sent without a tap;
   - purpose: **App functionality**.
 
-  This covers the device report a user chooses to send from the "unexpected
-  services" / "unexpected response" banner to `svc-reports.liberatedbread.com`,
+  **And declare** *App activity ▸ Other user-generated content*, with the
+  same answers (collected, not shared, not ephemeral, users can choose,
+  App functionality). This is the optional note a user may type in the
+  report's details box.
+
+  These cover the device or radio report a user chooses to send from the
+  "unexpected services" / "unexpected response" banner to
+  `svc-reports.liberatedbread.com`,
   our own server. It carries no identifier. Play has no exemption for
   user-initiated data that reaches the developer, so it is declared, and the
   optional answer is where Play lets you say it is user-initiated. The iOS
@@ -196,7 +202,10 @@ The privacy page should say what the code does:
     `svc-reports.liberatedbread.com` and/or by email to
     `svc-reports@liberatedbread.com`, **only when the user taps Send**. It
     shows its contents first, carries no addresses, names or identifiers,
-    and the server keeps no IP address;
+    and the server keeps no IP address. A radio's report names its
+    programming profile and what the radio answered, never its id, name or
+    memory. If the user types a note in the optional details box, the note
+    goes too;
 - the last position used for a repeater search stays on the phone, rounded to
   about 1 km, until the user forgets it;
 - the banner is an affiliate link.

@@ -344,4 +344,28 @@ void main() {
       expect(report.toJson()['responses'], hasLength(1));
     });
   });
+
+  group('user note', () {
+    SvcReport report() => buildBleSvcReport(
+      spec: _bleSpec,
+      services: [_service(_dfuUuid)],
+      advertisedName: 'ACME_1',
+    )!;
+
+    test('blank is no note', () {
+      expect(report().withUserNote('   ').userNote, isNull);
+      expect(
+        report().withUserNote(null).toJson(),
+        isNot(contains('user_note')),
+      );
+    });
+
+    test('trimmed, capped, and kept through without()', () {
+      final long = 'x' * (SvcReport.maxUserNoteChars + 50);
+      final r = report().withUserNote('  $long  ');
+      expect(r.userNote, hasLength(SvcReport.maxUserNoteChars));
+      expect(r.without(const {})!.userNote, r.userNote);
+      expect(r.itemKeys, report().itemKeys);
+    });
+  });
 }

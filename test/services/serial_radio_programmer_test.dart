@@ -496,11 +496,10 @@ void main() {
             )
             .drain<void>(),
         throwsA(
-          isA<RadioProtocolException>().having(
-            (e) => e.message,
-            'message',
-            contains('not the radio'),
-          ),
+          isA<RadioProtocolException>()
+              .having((e) => e.message, 'message', contains('not the radio'))
+              // The user's mistake, not the protocol's: nothing to report.
+              .having((e) => e.diagnostic, 'diagnostic', isNull),
         ),
       );
       expect(r.radio.writes, isEmpty);
@@ -524,11 +523,18 @@ void main() {
             )
             .drain<void>(),
         throwsA(
-          isA<RadioProtocolException>().having(
-            (e) => e.message,
-            'message',
-            contains('0x1010'),
-          ),
+          isA<RadioProtocolException>()
+              .having((e) => e.message, 'message', contains('0x1010'))
+              .having(
+                (e) => e.diagnostic?.toJson(),
+                'diagnostic',
+                // The address only: the bytes are the owner's channels.
+                {
+                  'problem': 'verify_mismatch',
+                  'where': 'radio:verify@0x1010',
+                  'detail': 'read-back differs from what was written',
+                },
+              ),
         ),
       );
       expect(r.ports.openLinks, 0);
@@ -550,11 +556,13 @@ void main() {
             )
             .drain<void>(),
         throwsA(
-          isA<RadioProtocolException>().having(
-            (e) => e.message,
-            'message',
-            contains('restore'),
-          ),
+          isA<RadioProtocolException>()
+              .having((e) => e.message, 'message', contains('restore'))
+              .having(
+                (e) => e.diagnostic?.where,
+                'diagnostic',
+                'radio:write@0x1000',
+              ),
         ),
       );
       expect(r.ports.openLinks, 0);
@@ -885,7 +893,20 @@ void main() {
         deviceId: EmulatedSerialPortService.cable.id,
         profile: uv5rProfile,
       ),
-      throwsA(isA<RadioUnsupportedException>()),
+      throwsA(
+        isA<RadioUnsupportedException>().having(
+          (e) => e.diagnostic?.toJson(),
+          'diagnostic',
+          // The ident itself is what a protocol author needs to add the
+          // variant; it names the model, not the unit.
+          {
+            'problem': 'unrecognized_ident',
+            'where': 'radio:ident',
+            'detail': '8-byte ident reply',
+            'sample': 'aa307602000520dd',
+          },
+        ),
+      ),
     );
   });
 }

@@ -6,10 +6,12 @@
   The app tracks no one: no advertising SDK, no analytics, no identifiers
   leave the device, and nothing about what the user controls is reported
   anywhere on its own. It collects ONE thing, and only when the user asks it
-  to: a diagnostics report about a device that did something its spec does
-  not describe, sent when the user taps Send on the banner that offers it.
-  That is the single NSPrivacyCollectedDataTypes entry below (Other
-  Diagnostic Data, not linked, not tracking, App Functionality).
+  to: a diagnostics report about a device, or a radio, that did something
+  its spec or programming profile does not describe, sent when the user taps
+  Send on the banner that offers it. That report is the Other Diagnostic
+  Data entry below. The report may carry a note the user chose to type in
+  its optional details box, which is the Customer Support entry. Both are
+  not linked, not tracking, App Functionality.
 
   It is not, however, offline-only, and the previous wording here ("its only
   outbound request is an anonymous GET for the banner config") was wrong. Every
@@ -52,8 +54,14 @@
       that would not decode, at most 32 bytes of it; for an unknown option,
       that option. It carries no identifier: no Bluetooth or IP address, no
       hostname, no TXT record and no Wi-Fi instance name
-      (lib/models/svc_report.dart). The server does not store the sender's
-      IP address.
+      (lib/models/svc_report.dart). A radio's report names its programming
+      profile and what the radio answered (the ident it sent, a reply's
+      header, an acknowledgement byte, a block address), never the radio's
+      id or name and never its memory, which holds the owner's channels
+      (lib/services/radio_programmer.dart, RadioDiagnostics). If the user
+      types anything in the banner's optional details box, that text goes
+      too, as user_note. The server does not store the sender's IP
+      address.
 
   The device report is the one that DOES reach a server of ours, so it is
   declared: NSPrivacyCollectedDataTypeOtherDiagnosticData, not linked to the
@@ -133,6 +141,18 @@
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCustomerSupport</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<false/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>

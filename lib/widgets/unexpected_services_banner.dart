@@ -20,6 +20,9 @@ import '../services/svc_report_service.dart';
 /// something the app could not make sense of, and the user can tell us in
 /// one tap. One banner for both, so a device with both does not stack two.
 ///
+/// **Add details** opens an optional free-text box whose contents travel
+/// with the report as `user_note`.
+///
 /// **Send report** does both at once — posts the report to the svc-reports
 /// backend and opens the user's mail app with the same report addressed to
 /// us, so whichever half works, we hear about it. **Email only** skips the
@@ -56,6 +59,17 @@ class _UnexpectedServicesBannerState
   String? _forKey;
   bool _busy = false;
 
+  /// The optional details box: hidden until the user asks for it, so Send
+  /// stays one tap. What is typed goes in the report as `user_note`.
+  final TextEditingController _note = TextEditingController();
+  bool _noteOpen = false;
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
   /// The findings still to report, under this banner's report id.
   SvcReport? _visible(Set<String> handled) {
     final draft = widget.report?.without(handled);
@@ -66,7 +80,9 @@ class _UnexpectedServicesBannerState
       _forKey = key;
       _reportId = newReportId();
     }
-    return draft.without(const {}, reportId: _reportId);
+    return draft
+        .without(const {}, reportId: _reportId)!
+        .withUserNote(_note.text);
   }
 
   SvcReport? get _report => _visible(ref.read(svcReportHandledProvider));
@@ -187,18 +203,24 @@ class _UnexpectedServicesBannerState
 
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final spec = '${report.specManufacturer} ${report.specDeviceName} spec';
+    final isRadio = report.transport == SvcReportTransport.radio;
+    final subject = report.subject;
     final services = report.unexpected.length;
     final answers = report.responses.length;
     final shows = services == 1 ? 'a service' : '$services services';
     final said = answers == 1
         ? 'answered in a way'
         : 'answered $answers times in ways';
-    final what = switch ((services > 0, answers > 0)) {
-      (true, false) => "shows $shows that its $spec doesn't describe",
-      (false, true) => "$said its $spec doesn't describe",
-      _ => "shows $shows and $said its $spec doesn't describe",
-    };
+    final what = isRadio
+        ? "This radio $said $subject doesn't expect. Telling us helps fix "
+              'the profile — the report names the model, never your channels '
+              'or you.'
+        : 'This device ${switch ((services > 0, answers > 0)) {
+                (true, false) => "shows $shows that $subject doesn't describe",
+                (false, true) => "$said $subject doesn't describe",
+                _ => "shows $shows and $said $subject doesn't describe",
+              }}. Telling us helps fix the spec — the report identifies the '
+              'device type, not you.';
 
     return Padding(
       padding: widget.padding,
@@ -242,13 +264,34 @@ class _UnexpectedServicesBannerState
               Padding(
                 padding: const EdgeInsets.only(right: 12),
                 child: Text(
-                  'This device $what. Telling us helps fix the spec — the '
-                  'report identifies the device type, not you.',
+                  what,
                   style: text.bodyMedium?.copyWith(
                     color: scheme.onSecondaryContainer,
                   ),
                 ),
               ),
+              if (_noteOpen)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 12, 12, 0),
+                  child: TextField(
+                    key: const ValueKey('svc-report-note'),
+                    controller: _note,
+                    enabled: !_busy,
+                    autofocus: true,
+                    minLines: 2,
+                    maxLines: 5,
+                    maxLength: SvcReport.maxUserNoteChars,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Details (optional)',
+                      hintText:
+                          'Model number, firmware, what you were doing… '
+                          "Please don't include personal information.",
+                      border: OutlineInputBorder(),
+                      filled: true,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -272,8 +315,16 @@ class _UnexpectedServicesBannerState
                         : () => unawaited(_send(toServer: false)),
                     child: const Text('Email only'),
                   ),
+                  if (!_noteOpen)
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() => _noteOpen = true),
+                      child: const Text('Add details'),
+                    ),
                   TextButton(
-                    onPressed: () => unawaited(_showDetails(report)),
+                    // Built at tap time, so it shows what was just typed.
+                    onPressed: () => unawaited(_showDetails(_report ?? report)),
                     child: const Text("What's sent?"),
                   ),
                 ],

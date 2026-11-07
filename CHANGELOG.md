@@ -35,9 +35,18 @@ heading.
   bytes of the Bluetooth value that would not decode. A report never carries
   a Bluetooth or IP address, a hostname, TXT records or a Wi-Fi device's
   instance name. Each finding the user sent or dismissed stays hidden, and
-  the banner returns only for new ones. Nothing is sent without a tap, mock
-  mode sends nothing at all, and the iOS privacy manifest declares the
-  report as user-initiated Other Diagnostic Data.
+  the banner returns only for new ones. **Radios** get the same banner on
+  their programming screen when a session fails because the radio answered
+  in a way its profile does not expect: an ident no profile knows, a refused
+  session, a malformed read reply, a refused write, a read-back that differs,
+  or a short image. That report names the programming profile and what the
+  radio answered (the ident, a reply header, an acknowledgement byte, a
+  block address), never the radio's id, name or memory. Timeouts and
+  dropped links are not offered; they are usually the cable or the range.
+  **Add details** opens an optional box whose text travels with the report
+  as `user_note`. Nothing is sent without a tap, and mock mode sends nothing
+  at all. The iOS privacy manifest declares the report as user-initiated
+  Other Diagnostic Data, and the note as Customer Support.
 
 - **Orba 2 and Mousr join the local BLE catalogue.** Orba 2's SysEx
   configuration and transport commands are packetized as complete BLE-MIDI

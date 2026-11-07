@@ -86,11 +86,22 @@ void main() {
               'NSPrivacyCollectedDataTypePurposeAppFunctionality',
             ],
           },
+          // The optional note the user may type with the report.
+          {
+            'NSPrivacyCollectedDataType':
+                'NSPrivacyCollectedDataTypeCustomerSupport',
+            'NSPrivacyCollectedDataTypeLinked': false,
+            'NSPrivacyCollectedDataTypeTracking': false,
+            'NSPrivacyCollectedDataTypePurposes': [
+              'NSPrivacyCollectedDataTypePurposeAppFunctionality',
+            ],
+          },
         ],
         reason:
             'NSPrivacyCollectedDataTypes in $_manifestPath must declare the '
-            'user-initiated device report as Other Diagnostic Data (not '
-            'linked, not tracking, App Functionality) and nothing else. If '
+            'user-initiated device report as Other Diagnostic Data, and its '
+            'optional user note as Customer Support (both not linked, not '
+            'tracking, App Functionality), and nothing else. If '
             'that changes, the App Privacy answers in App Store Connect and '
             'docs/APP_STORE_SUBMISSION.md Step 7 have to move with it.',
       );
@@ -113,6 +124,7 @@ void main() {
         'lib/services/repeaterbook_client.dart',
         'lib/widgets/unexpected_services_banner.dart',
         'lib/models/svc_report.dart',
+        'lib/services/radio_programmer.dart',
       };
       final hostPin = RegExp(r"static const String host = '");
       final services = Directory('${repoRoot.path}/lib/services');

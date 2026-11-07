@@ -6,13 +6,45 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 /// Which transport saw the unexpected services. The wire values are the
-/// backend's (`ble` / `wifi`); renaming one is a schema change.
+/// backend's (`ble` / `wifi` / `radio`); renaming one is a schema change.
 enum SvcReportTransport {
-  ble('ble'),
-  wifi('wifi');
+  ble('ble', 'Bluetooth'),
+  wifi('wifi', 'Wi-Fi'),
+
+  /// A handheld radio's programming session, over its own Bluetooth or a
+  /// USB cable ([SvcReportRadio.link]). Radios are not spec-driven: the
+  /// report's subject is the programming profile.
+  radio('radio', 'Radio programming');
 
   final String wire;
-  const SvcReportTransport(this.wire);
+  final String label;
+  const SvcReportTransport(this.wire, this.label);
+}
+
+/// Which radio programming profile a [SvcReportTransport.radio] report is
+/// about. Profile and protocol, never the radio's own identity.
+@immutable
+class SvcReportRadio {
+  /// `RadioProfile.id`, e.g. `uv5r`.
+  final String profileId;
+
+  /// `ProgrammingFamily.name`, e.g. `serialUv5r`.
+  final String family;
+
+  /// `ble` or `usb`.
+  final String link;
+
+  const SvcReportRadio({
+    required this.profileId,
+    required this.family,
+    required this.link,
+  });
+
+  Map<String, Object?> toJson() => {
+    'profile_id': profileId,
+    'family': family,
+    'link': link,
+  };
 }
 
 /// A GATT characteristic of an unexpected service: what a spec author needs
@@ -215,7 +247,9 @@ class SvcReportResponse {
 class SvcReport {
   /// Bumped when the payload shape changes; the backend accepts the versions
   /// it knows and rejects the rest.
-  static const int schemaVersion = 1;
+  ///
+  /// 2: the `radio` transport and block, and the optional `user_note`.
+  static const int schemaVersion = 2;
 
   /// Random per report, generated on the phone. Lets the backend drop a
   /// retried POST and lets an email be matched to its server copy. Not
@@ -248,6 +282,17 @@ class SvcReport {
   /// `android`, `ios`, `linux`, `macos`, `windows`.
   final String platform;
 
+  /// Set on, and only on, a [SvcReportTransport.radio] report.
+  final SvcReportRadio? radio;
+
+  /// What the user chose to add in the banner's optional details box, or
+  /// null. Free text the user typed and sees before sending; capped at
+  /// [maxUserNoteChars].
+  final String? userNote;
+
+  /// Longest [userNote] sent.
+  static const int maxUserNoteChars = 1000;
+
   const SvcReport({
     required this.reportId,
     required this.transport,
@@ -261,6 +306,8 @@ class SvcReport {
     required this.declared,
     required this.appVersion,
     required this.platform,
+    this.radio,
+    this.userNote,
   });
 
   bool get isEmpty => unexpected.isEmpty && responses.isEmpty;
@@ -275,6 +322,43 @@ class SvcReport {
 
   String get _scope => '${transport.wire}|$specKey|';
 
+  /// This report with [note] as its [userNote]: trimmed and capped, and
+  /// null when blank.
+  SvcReport withUserNote(String? note) {
+    final trimmed = note?.trim() ?? '';
+    return _copy(
+      userNote: trimmed.isEmpty
+          ? null
+          : trimmed.length <= maxUserNoteChars
+          ? trimmed
+          : trimmed.substring(0, maxUserNoteChars),
+      clearNote: trimmed.isEmpty,
+    );
+  }
+
+  SvcReport _copy({
+    String? reportId,
+    List<SvcReportEntry>? unexpected,
+    List<SvcReportResponse>? responses,
+    String? userNote,
+    bool clearNote = false,
+  }) => SvcReport(
+    reportId: reportId ?? this.reportId,
+    transport: transport,
+    specKey: specKey,
+    specDeviceName: specDeviceName,
+    specManufacturer: specManufacturer,
+    advertisedName: advertisedName,
+    unexpected: unexpected ?? this.unexpected,
+    responses: responses ?? this.responses,
+    discovered: discovered,
+    declared: declared,
+    appVersion: appVersion,
+    platform: platform,
+    radio: radio,
+    userNote: clearNote ? null : userNote ?? this.userNote,
+  );
+
   /// This report narrowed to the findings not in [handled], or null when
   /// none are left.
   SvcReport? without(Set<String> handled, {String? reportId}) {
@@ -287,21 +371,20 @@ class SvcReport {
         if (!handled.contains('$_scope${r.itemKey}')) r,
     ];
     if (services.isEmpty && answers.isEmpty) return null;
-    return SvcReport(
-      reportId: reportId ?? this.reportId,
-      transport: transport,
-      specKey: specKey,
-      specDeviceName: specDeviceName,
-      specManufacturer: specManufacturer,
-      advertisedName: advertisedName,
-      unexpected: services,
-      responses: answers,
-      discovered: discovered,
-      declared: declared,
-      appVersion: appVersion,
-      platform: platform,
-    );
+    return _copy(reportId: reportId, unexpected: services, responses: answers);
   }
+
+  /// What the report is about, in a sentence: "its Acme Bulb spec", or for a
+  /// radio "the Baofeng UV-5R programming profile".
+  String get subject => transport == SvcReportTransport.radio
+      ? 'the $specDeviceName programming profile'
+      : "its ${specManufacturer.isEmpty ? '' : '$specManufacturer '}"
+            '$specDeviceName spec';
+
+  /// The subject's name alone, for a subject line.
+  String get subjectName => specManufacturer.isEmpty
+      ? specDeviceName
+      : '$specManufacturer $specDeviceName';
 
   /// What the banner and email call it.
   String get headline => switch ((unexpected.isEmpty, responses.isEmpty)) {
@@ -325,6 +408,8 @@ class SvcReport {
     'discovered': discovered,
     'declared': declared,
     'app': {'version': appVersion, 'platform': platform},
+    if (radio != null) 'radio': radio!.toJson(),
+    if (userNote != null) 'user_note': userNote,
   };
 
   /// [toJson], indented: what the details dialog shows and the email carries.
@@ -332,19 +417,23 @@ class SvcReport {
 
   String get emailSubject {
     final h = headline;
-    return '${h[0].toUpperCase()}${h.substring(1)}: '
-        '$specManufacturer $specDeviceName';
+    return '${h[0].toUpperCase()}${h.substring(1)}: $subjectName';
   }
 
   /// A human-readable summary followed by the exact JSON, so a person can
   /// read it and a script can parse it.
   String get emailBody {
     final lines = <String>[
-      'Liberated Bread saw a device do something its spec does not '
-          'describe.',
+      transport == SvcReportTransport.radio
+          ? 'Liberated Bread saw a radio answer in a way its programming '
+                'profile does not expect.'
+          : 'Liberated Bread saw a device do something its spec does not '
+                'describe.',
       '',
-      'Spec: $specManufacturer $specDeviceName',
-      'Transport: ${transport == SvcReportTransport.ble ? 'Bluetooth' : 'Wi-Fi'}',
+      '${transport == SvcReportTransport.radio ? 'Profile' : 'Spec'}: '
+          '$subjectName',
+      'Transport: ${transport.label}'
+          '${radio == null ? '' : ' (${radio!.link})'}',
       if (unexpected.isNotEmpty) ...[
         'Unexpected services:',
         for (final s in unexpected) '  - ${s.kind} ${s.id}',
@@ -356,8 +445,10 @@ class SvcReport {
               '${r.detail}',
       ],
       '',
-      'Anything you can add (model number, firmware version, what the device '
-          'does that the app does not show) helps.',
+      if (userNote != null) ...['', 'From the user:', userNote!],
+      if (userNote == null)
+        'Anything you can add (model number, firmware version, what the '
+            'device does that the app does not show) helps.',
       '',
       '--- report $reportId ---',
       toPrettyJson(),

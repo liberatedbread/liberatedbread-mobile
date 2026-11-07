@@ -227,4 +227,46 @@ void main() {
     expect(sent['unexpected'], isEmpty);
     expect(sent['responses'], hasLength(1));
   });
+
+  testWidgets('no details box until asked, and no note unless typed', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await tester.pumpWidget(h.build());
+    expect(find.byKey(const ValueKey('svc-report-note')), findsNothing);
+    await tester.tap(find.text('Send report'));
+    await tester.pumpAndSettle();
+    expect(h.posted.single.containsKey('user_note'), isFalse);
+  });
+
+  testWidgets('typed details travel in the POST, the email and the preview', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await tester.pumpWidget(h.build());
+    await tester.tap(find.text('Add details'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('svc-report-note')),
+      '  Firmware 2.1, bought 2025.  ',
+    );
+    await tester.pump();
+
+    await tester.tap(find.text("What's sent?"));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('"user_note": "Firmware 2.1, bought 2025."'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Send report'));
+    await tester.pumpAndSettle();
+    expect(h.posted.single['user_note'], 'Firmware 2.1, bought 2025.');
+    expect(
+      h.opened.single.queryParameters['body'],
+      contains('From the user:\nFirmware 2.1, bought 2025.'),
+    );
+  });
 }
