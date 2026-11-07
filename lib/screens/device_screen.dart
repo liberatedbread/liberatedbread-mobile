@@ -1114,30 +1114,32 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             navigator.pop();
           },
         );
-        final header = Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            connectedHeader,
-            UnexpectedServicesBanner(
-              report: svcReport,
-              // The same inset as _ConnectedHeader's card above it.
-              padding: scrollsWithPanel
-                  ? const EdgeInsets.fromLTRB(8, 4, 8, 4)
-                  : const EdgeInsets.fromLTRB(16, 4, 16, 4),
-            ),
-          ],
+        // Never pinned: in the pinned layouts (the safety gate, the setup
+        // view) the body is not a list, and a banner above it took the
+        // gate's consent step off a phone screen. It scrolls with the
+        // controls instead, so behind a safety gate it appears only once
+        // the warning is acknowledged.
+        final banner = UnexpectedServicesBanner(
+          report: svcReport,
+          // The same inset as _ConnectedHeader's card when it scrolls.
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
         );
         final panel = DeviceControlPanel(
           deviceId: widget.device.id,
           deviceName: widget.device.displayName,
           services: _services,
           manufacturerData: widget.device.manufacturerData,
-          header: scrollsWithPanel ? header : null,
+          header: scrollsWithPanel
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [connectedHeader, banner],
+                )
+              : banner,
         );
         if (scrollsWithPanel) return panel;
         return Column(
           children: [
-            header,
+            connectedHeader,
             Expanded(
               child: isRabbitAirSetup
                   ? RabbitAirSetupInfoPanel(
