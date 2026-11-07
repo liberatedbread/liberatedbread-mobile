@@ -70,6 +70,27 @@ class FakeHaApiClient implements HaApiClient {
     return entities[entityId];
   }
 
+  /// What `/api/components` answers: the integrations this fake HA has
+  /// loaded.
+  Set<String> components = {};
+
+  /// Thrown by [loadedComponents] when set.
+  Object? componentsError;
+
+  /// How many times `/api/components` was asked.
+  int componentReads = 0;
+
+  @override
+  Future<Set<String>> loadedComponents({
+    required String baseUrl,
+    required String token,
+  }) async {
+    componentReads++;
+    final error = componentsError;
+    if (error != null) throw error;
+    return components;
+  }
+
   @override
   Future<void> callService({
     required String baseUrl,
