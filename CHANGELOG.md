@@ -540,14 +540,42 @@ heading.
 - **Wi-Fi lights show whether they are on, how bright they are, and their
   white point.** A light's spec names roles (`is_on`, `brightness`,
   `color_temperature`) and no single `value`. The network read looked only at
-  `value`, so a Kasa bulb or light strip, a Divoom Pixoo and a ratgdo garage
-  light all opened on "Ready" with the brightness slider at the top, whatever
-  the light was doing. A new role read (`read_network_entity_roles`) feeds the
+  `value`, so a Kasa bulb or light strip, an Elgato light, a Divoom Pixoo and
+  a ratgdo garage light all opened on "Ready" with the brightness slider at
+  the top, whatever the light was doing. A new role read (`read_network_entity_roles`) feeds the
   light card. The power rule (`on_when` / `on_value`, including a text
   `on_value` such as "ON") decides only `is_on`. A path into an array, such as
   an Elgato's `lights[0].on`, is read from the JSON the reply carried. On a
   hub, an instanced light no longer reads a brightness of 77 as "on" because
   the mapping declared `on_when: nonzero`.
+
+- **An Elgato light keeps its controls after the first poll.** The Elgato
+  family tells a Key Light from a Light Strip by what its reply's
+  `lights[0]` carries (`temperature`, `hue`, `scene`). Those checks step into
+  an array, and the app only looked for them as plain keys of the reply, so
+  none of them ever matched. The light's card was on screen until
+  `/elgato/lights` answered and then disappeared, leaving only Identify. A
+  variant check can now look inside an array the reply carried, the same way
+  the light's own readings already do.
+
+- **A garage door shows whether it is open, and where.** A ratgdo door
+  reports `state` (OPEN or CLOSED) and `position` (0 to 1), not one value.
+  The cover card looked only for a single value, so it showed no state and,
+  without a live position, never drew its position slider. The card now
+  reads both. After a send, the door's next reading also replaces a position
+  you dragged to, as it already did for covers that report a single value.
+
+- **Switches that report power by name show whether they are on.** A Denon
+  receiver's Power and Mute, and ratgdo's remote lock-out, report their
+  on/off as `is_on` rather than a single value. The switch card read "State
+  unknown" and drew its toggle Off, whether the receiver was on or in
+  standby. It now reads `is_on`.
+
+- **A group "turn off" reaches a Wi-Fi light that is on.** A group turn-off
+  sends a toggle only after reading that the device is on. That read
+  looked only for a single value, which no Wi-Fi light reports, so every
+  such light came back "Power state unknown" and was left on. The group
+  runner now reads the light's `is_on`, as the device screen does.
 
 - **A command split across packets reaches the device in one piece.** An
   Orba's BLE-MIDI SysEx goes out as several GATT writes that the device
