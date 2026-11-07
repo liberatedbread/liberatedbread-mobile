@@ -86,6 +86,20 @@ Future<void> _pumpUntil(
   // on screen, which is far more useful than "timed out".
 }
 
+/// Pump until [finder] matches nothing, or the deadline passes. The converse
+/// of [_pumpUntil], and like it, leaves the verdict to the expect() after it.
+Future<void> _pumpUntilGone(
+  WidgetTester tester,
+  Finder finder, {
+  Duration timeout = const Duration(seconds: 90),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    await _tick(tester);
+    if (finder.evaluate().isEmpty) return;
+  }
+}
+
 /// Pump a few frames without waiting for anything in particular.
 Future<void> _pumpAWhile(WidgetTester tester, {int rounds = 8}) async {
   for (var i = 0; i < rounds; i++) {
@@ -235,6 +249,23 @@ void main() {
       );
       // The light card draws this service's controls, so its generic card
       // starts folded; open it to reach the typed command buttons.
+      //
+      // Wait for the fold to land before tapping. When discovery beats the
+      // spec match — routine under load, since matching parses the whole
+      // catalogue over FFI — the card mounts expanded and folds itself in a
+      // post-frame callback of the very frame that renames it "Control
+      // Service". ExpansionTile picks its header's onTap (collapse or expand)
+      // at build time, so until the next frame the header still holds
+      // `collapse`: a tap there is a no-op, the fold finishes, and "Power on"
+      // goes offstage for good — which is what the loop below then ran out
+      // on. Folded and settled means the body is offstage, where find.text
+      // cannot see it.
+      await _pumpUntilGone(tester, find.text('Power on'));
+      expect(
+        find.text('Power on'),
+        findsNothing,
+        reason: 'the Control Service card folds under the light card',
+      );
       await tester.tap(find.text('Control Service'));
       await _pumpAWhile(tester, rounds: 4);
       expect(

@@ -1111,6 +1111,43 @@ void _catalogueProbeTests() {
       expect(read, isEmpty);
     });
 
+    test('a malformed XML reply reads nothing rather than throwing', () {
+      // XmlDocument.parse validates nesting, and a mismatched or unclosed tag
+      // throws XmlTagException — a sibling of XmlParserException, not a
+      // subclass. One escaping here ends the catalogue receive loop, and
+      // every reply after it, for the rest of the scan. Any host on the LAN
+      // can send one, and a truncated reply is one by accident.
+      for (final reply in const [
+        '<a></b>',
+        '<LogicBox mac="x">',
+        '<LogicBox mac="x"',
+        '<LogicBox mac="x"><',
+        '',
+        '   ',
+      ]) {
+        expect(
+          readUdpIdentityFields(utf8.encode(reply), [
+            field('xml', 'mac', 'mac'),
+          ]),
+          isEmpty,
+          reason: reply,
+        );
+      }
+    });
+
+    test('an undeclared namespace prefix does not throw', () {
+      // package:xml 7's XmlDocument.parse resolves namespaces without
+      // validating them, so this reads as the element it names. Were that
+      // to change, XmlNamespaceException is a FormatException too, and the
+      // reader must still answer rather than throw.
+      expect(
+        () => readUdpIdentityFields(utf8.encode('<p:LogicBox mac="x"/>'), [
+          field('xml', 'mac', 'mac'),
+        ]),
+        returnsNormally,
+      );
+    });
+
     test(
       'a TLV field reads nothing — the tag numbering is not in the spec',
       () {

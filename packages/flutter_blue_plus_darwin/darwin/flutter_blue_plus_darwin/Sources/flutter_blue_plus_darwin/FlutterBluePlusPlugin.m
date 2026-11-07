@@ -1631,7 +1631,9 @@ didDiscoverCharacteristicsForService:(CBService *)service
         @"characteristic_uuid":    [descriptor.characteristic.UUID uuidStr],
         @"instance_id":            instanceId,
         @"descriptor_uuid":        [descriptor.UUID uuidStr],
-        @"value":                  data ? data : [NSNull null],
+        // Never NSNull: Dart casts `value` to a non-nullable Uint8List, so a
+        // null would throw in the handler and the read would never hear back.
+        @"value":                  data ?: [NSData data],
         @"success":                @(error == nil),
         @"error_string":           error ? [error localizedDescription] : @"success",
         @"error_code":             error ? @(error.code) : @(0),

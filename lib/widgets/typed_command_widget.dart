@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../core/unit_display.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -582,6 +584,7 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     if (allowed != null && allowed.isNotEmpty) {
       return _buildAllowedParam(p, allowed);
     }
+    if (p.valueType == 'float32') return _buildFloatSlider(p, range, value);
     // Presentation transform. `min`/`max` (and `range`) are RAW — what the
     // encoder validates against — while scale/valueOffset/unit describe what
     // the number means: display = raw * scale + valueOffset. A parameter
@@ -661,6 +664,59 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     );
   }
 
+  /// A float32 parameter with both bounds declared: a continuous slider.
+  ///
+  /// The integer sliders below round every drag and step in whole numbers,
+  /// which is the encoder's resolution for an integer type and none of a
+  /// float's — a -1..1 bend could otherwise send only -1, 0 or 1, though
+  /// [_send] deliberately leaves float32 values unrounded. So: no divisions,
+  /// no rounding, and a drag snapped only to the precision the label prints
+  /// (about a hundredth of the span), so the value shown is the value sent.
+  /// A presentation transform still applies, as for the integer slider; a
+  /// zero scale (malformed) falls back to raw units.
+  Widget _buildFloatSlider(
+    ParameterDto p,
+    ({double min, double max}) range,
+    double value,
+  ) {
+    final scale = (p.scale ?? 1) == 0 ? null : p.scale;
+    var displayMin = displayValueFor(range.min, scale, p.valueOffset);
+    var displayMax = displayValueFor(range.max, scale, p.valueOffset);
+    if (displayMin > displayMax) {
+      (displayMin, displayMax) = (displayMax, displayMin);
+    }
+    final decimals = floatDecimalsForSpan(displayMax - displayMin);
+    final resolution = 1 / math.pow(10, decimals);
+    final unit = displayUnit(p.unit);
+    final unitSuffix = unit == null ? '' : ' $unit';
+    final displayValue = displayValueFor(
+      value,
+      scale,
+      p.valueOffset,
+    ).clamp(displayMin, displayMax).toDouble();
+    String fmt(double d) => d.toStringAsFixed(decimals);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${humanizeName(p.name)}: ${fmt(displayValue)}$unitSuffix',
+          style: const TextStyle(fontSize: 13),
+        ),
+        Slider(
+          min: displayMin,
+          max: displayMax,
+          value: displayValue,
+          label: '${fmt(displayValue)}$unitSuffix',
+          onChanged: (v) => setState(() {
+            _placeholder.remove(p.name);
+            final snapped = snapToStep(v, displayMin, displayMax, resolution);
+            _values[p.name] = rawValueFor(snapped, scale, p.valueOffset);
+          }),
+        ),
+      ],
+    );
+  }
+
   /// Enumerated parameter: the spec says the device accepts only these
   /// values, so offer exactly those in a dropdown instead of a free slider.
   /// Entries read "Label (value)" when the spec pairs labels with the values
@@ -722,11 +778,23 @@ List<BigInt>? choicesFor(ParameterDto p) {
   final min = p.min;
   final max = p.max;
   if (min == null || max == null) return null;
+  // A float's range is a continuum, not the whole numbers inside it.
+  if (p.valueType == 'float32') return null;
   if (p.scale != null || p.valueOffset != null || p.unit != null) return null;
   if (min != min.roundToDouble() || max != max.roundToDouble()) return null;
   final count = max - min + 1;
   if (count < 2 || count > maxRangeChoices) return null;
   return [for (var v = min.toInt(); v <= max.toInt(); v++) BigInt.from(v)];
+}
+
+/// Fraction digits for a continuous float slider spanning [span]: about a
+/// hundredth of the range, so -1..1 reads "0.37" and 0..300 reads "137".
+/// Capped at six, and whole numbers for a non-finite or non-positive span.
+@visibleForTesting
+int floatDecimalsForSpan(double span) {
+  if (!span.isFinite || span <= 0) return 0;
+  final magnitude = (math.log(span) / math.ln10).floor();
+  return (2 - magnitude).clamp(0, 6);
 }
 
 /// The widest unlabelled range [choicesFor] offers as a picker. Eight covers

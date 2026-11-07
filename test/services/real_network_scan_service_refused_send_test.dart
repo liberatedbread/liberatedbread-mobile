@@ -21,10 +21,12 @@
 // Every case makes SSDP hear a device first, because that is the condition
 // under which a false `denied` is visible at all.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/services/multicast_lock.dart';
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
 import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
@@ -45,9 +47,30 @@ const _ssdpReply =
 /// M-SEARCH is answered so one transport hears a device.
 class _Network {
   final bool Function(InternetAddress address, int port) refuse;
+
+  /// Answers any other send, the way a device on the network would: called
+  /// with the datagram, and free to [deliver] to whichever port the device
+  /// replies to — which for Govee and BiSecur is not the one probed.
+  final void Function(_Network network, SentDatagram datagram)? answer;
   final sockets = <FakeDatagramSocket>[];
 
-  _Network({required this.refuse});
+  _Network({required this.refuse, this.answer});
+
+  /// A unicast datagram from [from] arriving at [port].
+  ///
+  /// Delivered to ONE socket, the most recently bound that is still open —
+  /// what Linux does when two sockets share a UDP port through SO_REUSEADDR
+  /// (measured with dart:io: every datagram went to the later bind, none to
+  /// the earlier). A fake that copied it to every socket on the port would
+  /// hide exactly the loss a second bind of a port causes.
+  void deliver(int port, String data, {required String from}) {
+    final open = sockets.where((s) => s.port == port && !s.closed);
+    if (open.isEmpty) return;
+    open.last.deliver(utf8.encode(data), from: InternetAddress(from));
+  }
+
+  /// How many times a socket was bound to [port].
+  int bindsOf(int port) => sockets.where((s) => s.port == port).length;
 
   Future<RawDatagramSocket> bind(
     dynamic host,
@@ -58,7 +81,11 @@ class _Network {
   }) async {
     final socket = FakeDatagramSocket(port: port, refuse: refuse)
       ..onSend = (socket, datagram) {
-        if (datagram.port == 1900) socket.deliver(_ssdpReply.codeUnits);
+        if (datagram.port == 1900) {
+          socket.deliver(_ssdpReply.codeUnits);
+        } else {
+          answer?.call(this, datagram);
+        }
       };
     sockets.add(socket);
     return socket;
@@ -77,6 +104,8 @@ UdpProbeDto _probe({
   required String address,
   required int port,
   int? listenPort,
+  List<UdpIdentityFieldDto> stableKeys = const [],
+  List<String> lanProtocols = const [],
 }) => UdpProbeDto(
   specKey: specKey,
   index: 0,
@@ -86,8 +115,8 @@ UdpProbeDto _probe({
   broadcastAddress: address,
   probe: Uint8List.fromList(const [0x01]),
   passiveOk: false,
-  lanProtocols: const [],
-  stableKeys: const [],
+  lanProtocols: lanProtocols,
+  stableKeys: stableKeys,
 );
 
 // The two shapes a spec can name, on the SAME port. aqara-hub really declares
@@ -129,6 +158,44 @@ Future<Object?> _verdict(_Network network, {required bool apple}) async {
   } catch (e) {
     return e;
   }
+}
+
+/// BiSecur as its spec declares it: probed on 4001, answered on 4002, and
+/// identified by the reply's `mac` attribute.
+final _bisecur = _probe(
+  specKey: 'hormann-bisecur-gateway.yaml',
+  address: '255.255.255.255',
+  port: 4001,
+  listenPort: 4002,
+  stableKeys: const [
+    UdpIdentityFieldDto(dialect: 'xml', path: 'mac', name: 'mac'),
+  ],
+  lanProtocols: const ['bisecur'],
+);
+
+const _bisecurReply =
+    '<LogicBox swVersion="2.5.0" hwVersion="1.0.0" '
+    'mac="54:10:EC:00:00:01" protocol="MCP V3.0"/>';
+
+const _goveeReply =
+    '{"msg":{"cmd":"scan","data":{"ip":"192.0.2.50",'
+    '"device":"AA:BB:CC:DD:EE:FF:00:11","sku":"H6159"}}}';
+
+/// Every device a short scan with [probes] found on [network].
+Future<List<NetworkDevice>> _scan(_Network network, List<UdpProbeDto> probes) {
+  final service = RealNetworkScanService(
+    multicastLock: MulticastLock(isSupported: false),
+    interfaceLister:
+        ({
+          bool includeLoopback = false,
+          bool includeLinkLocal = false,
+          InternetAddressType type = InternetAddressType.any,
+        }) async => [],
+    probeSource: () async => probes,
+    binder: network.bind,
+    isApplePlatform: false,
+  );
+  return service.scan(timeout: const Duration(milliseconds: 300)).toList();
 }
 
 bool _is(InternetAddress a, int p, String address, int port) =>
@@ -319,6 +386,60 @@ void main() {
     final socket = network.sentTo('255.255.255.255', 4001).single;
     expect(socket.port, 4002);
     expect(socket.sent, hasLength(2));
+  });
+
+  test('a malformed XML reply does not deafen the port to the next', () async {
+    // A mismatched tag throws XmlTagException out of XmlDocument.parse, not
+    // the XmlParserException the reader caught. Uncaught, it left the await
+    // for over the socket, closed :4002, and the gateway answering a moment
+    // later was never heard — so any LAN host, or one truncated reply, could
+    // hide every BiSecur gateway from the scan.
+    final network = _Network(
+      refuse: (a, p) => false,
+      answer: (network, datagram) {
+        if (datagram.port != 4001) return;
+        network
+          ..deliver(4002, '<a></b>', from: '192.0.2.40')
+          ..deliver(4002, '<p:LogicBox mac="x"/>', from: '192.0.2.41')
+          ..deliver(4002, _bisecurReply, from: '192.0.2.42');
+      },
+    );
+
+    final devices = await _scan(network, [_bisecur]);
+
+    expect(devices.map((d) => d.host), contains('192.0.2.42'));
+  });
+
+  test('Govee and BiSecur share one :4002 and both are heard', () async {
+    // Both protocols are answered on UDP 4002: Govee's JSON to its 4001
+    // multicast scan, BiSecur's XML to its 4001 broadcast. Each transport
+    // used to bind 4002 for itself in the same scan. On iOS and macOS the
+    // second bind fails with EADDRINUSE; on Linux and Android it succeeds and
+    // each unicast reply then reaches one of the two sockets, so one
+    // protocol's devices go missing.
+    final network = _Network(
+      refuse: (a, p) => false,
+      answer: (network, datagram) {
+        if (datagram.port != 4001) return;
+        if (datagram.address.address == '239.255.255.250') {
+          network.deliver(4002, _goveeReply, from: '192.0.2.50');
+        } else if (datagram.address.address == '255.255.255.255') {
+          network.deliver(4002, _bisecurReply, from: '192.0.2.42');
+        }
+      },
+    );
+
+    final devices = await _scan(network, [_bisecur]);
+
+    expect(network.bindsOf(4002), 1, reason: 'one :4002 per scan');
+    final hosts = devices.map((d) => d.host).toSet();
+    expect(hosts, contains('192.0.2.50'), reason: 'the Govee strip');
+    expect(hosts, contains('192.0.2.42'), reason: 'the BiSecur gateway');
+    // Each parser ignored the other's reply rather than inventing a device.
+    final bisecur = devices.singleWhere((d) => d.host == '192.0.2.42');
+    expect(bisecur.answeredLanProtocols, ['bisecur']);
+    final govee = devices.singleWhere((d) => d.host == '192.0.2.50');
+    expect(govee.txt['device'], 'AA:BB:CC:DD:EE:FF:00:11');
   });
 
   test(

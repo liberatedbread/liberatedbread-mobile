@@ -1572,6 +1572,17 @@ impl From<(&str, &Parameter)> for ParameterDto {
     }
 }
 
+/// [`DecodedValueDto`]'s numbers only when they are numbers.
+///
+/// A float32 field is four bytes straight from the device, and NaN or an
+/// infinity is a bit pattern like any other. Dart clamps a decoded number into
+/// a `Slider`, which asserts on NaN, and a setpoint seeded from infinity is no
+/// setpoint. So a non-finite reading crosses as no number at all, while
+/// [`DecodedValueDto::display`] and `decoded_text` still say what was sent.
+fn finite(number: Option<f64>) -> Option<f64> {
+    number.filter(|n| n.is_finite())
+}
+
 impl From<(&str, &DecodedValue)> for DecodedValueDto {
     fn from((name, value): (&str, &DecodedValue)) -> Self {
         let mut dto = Self {
@@ -1598,8 +1609,8 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
             // No `format:` metadata is in hand at this point, so the reading
             // is its own transform. `decode_value` re-states all four once it
             // has looked the field's semantics up.
-            raw_number: value.as_number(),
-            decoded_number: value.as_number(),
+            raw_number: finite(value.as_number()),
+            decoded_number: finite(value.as_number()),
             decoded_text: Some(value.display()),
             decimals: Some(0),
             is_on: match value {
@@ -6142,8 +6153,10 @@ pub(crate) fn decode_with_protocol(
                 // produce three different answers.
                 let semantics =
                     crate::codec::number::NumberSemantics::from_field(m.scale, m.value_offset);
-                if let Some(raw) = dto.raw_number {
-                    dto.decoded_number = Some(semantics.transform(raw));
+                // From the value itself, not `dto.raw_number`: a non-finite
+                // reading has no number there but still renders as text.
+                if let Some(raw) = value.as_number() {
+                    dto.decoded_number = finite(Some(semantics.transform(raw)));
                     if matches!(value, DecodedValue::Float(_))
                         && m.scale.is_none()
                         && m.value_offset.is_none()
@@ -9878,6 +9891,61 @@ services:
             DecodedValueDto::from(("blob", &DecodedValue::Bytes(vec![1, 2]))).is_on,
             None
         );
+    }
+
+    #[test]
+    fn a_non_finite_float_is_not_a_number_but_keeps_its_text() {
+        // A float32 is four bytes straight from the device, and NaN or
+        // infinity is a bit pattern like any other. Dart clamps a decoded
+        // number into a Slider, which asserts on NaN, so a non-finite reading
+        // crosses as no number at all; the text still says what was sent.
+        for (value, text) in [
+            (f32::NAN, "NaN"),
+            (f32::INFINITY, "Infinity"),
+            (f32::NEG_INFINITY, "-Infinity"),
+        ] {
+            for scale in ["", "\n            scale: 0.5"] {
+                let yaml = format!(
+                    r#"
+device:
+  name: "Float Probe"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Probe"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "reading"
+        properties: ["read"]
+        format:
+          - name: "reading"
+            type: "float32"
+            offset: 0
+            length: 4{scale}
+"#
+                );
+                let values = decode_value(
+                    Some(yaml),
+                    None,
+                    "0000fff1-0000-1000-8000-00805f9b34fb".to_string(),
+                    value.to_le_bytes().to_vec(),
+                )
+                .unwrap();
+                assert_eq!(values[0].raw_number, None, "{text}{scale}");
+                assert_eq!(values[0].decoded_number, None, "{text}{scale}");
+                assert_eq!(values[0].decoded_text.as_deref(), Some(text));
+            }
+            // Without a spec's metadata, too.
+            let dto = DecodedValueDto::from(("reading", &DecodedValue::Float(value as f64)));
+            assert_eq!(dto.raw_number, None);
+            assert_eq!(dto.decoded_number, None);
+            assert!(dto.decoded_text.is_some());
+        }
+        // A finite float is untouched.
+        let dto = DecodedValueDto::from(("reading", &DecodedValue::Float(1.5)));
+        assert_eq!(dto.decoded_number, Some(1.5));
     }
 
     #[test]
