@@ -83,9 +83,10 @@ pub struct HttpRequest {
     /// Request headers the command declares, name → value, in declared
     /// order and with every `{name}` placeholder filled — a header-borne
     /// credential (Vizio's `AUTH`) resolves through exactly the path a body
-    /// placeholder does, stored-credential remap included. Empty for the
-    /// whole catalogue as vendored today. A `Content-Type` here overrides
-    /// the one the caller would infer from the body.
+    /// placeholder does, stored-credential remap included. Empty for every
+    /// command declaring none; Vizio SmartCast, Sony Bravia and the Harmony
+    /// hub declare them. A `Content-Type` here overrides the one the caller
+    /// would infer from the body.
     pub headers: Vec<(String, String)>,
 }
 

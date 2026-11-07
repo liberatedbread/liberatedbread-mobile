@@ -551,6 +551,27 @@ heading.
 
 ### Fixed
 
+- **A Roomba screen closed during its TLS handshake no longer leaves a ghost
+  session on the robot.** Closing the session while the socket was still
+  connecting found nothing to shut, and the connect that finished afterwards
+  logged in, held the robot's one local client slot and kept pinging it until
+  the robot evicted it. A connect now checks, after each wait, that nothing
+  closed it meanwhile.
+- **Android radio cables report permission and connection failures correctly.**
+  Refusing the USB permission prompt now says to allow it, where it read "The
+  radio did not finish" (the plugin reports a refusal as an error, not the
+  empty answer the app expected); a cable yanked mid-session fails the next
+  read at once instead of after its timeout.
+- **Home Assistant on an IPv6-only LAN.** A unique-local (`fd00::/8`),
+  link-local or loopback IPv6 address is classed as the home network, not as a
+  public address to be warned about and told to check its port forwarding.
+- **A spec pack every spec of which was refused says why.** It read as a
+  download failure ("check your connection"); the install result now carries
+  each spec's reason — not a valid spec, or weakens the built-in it replaces.
+- **Linux: a device the direct-ATT path took over mid-discovery reports its
+  real MTU.** It was flagged "unknown" while BlueZ still held the link and kept
+  reading as 512 after the hand-over.
+
 - **A BF-F8HP is no longer programmed as a UV-5R, or a UV-5R as a BF-F8HP.**
   The cable driver's firmware check guarded only the UV-82HP. The F8HP's
   first ident is the UV-5R's, so each radio answers the other's profile, and
@@ -889,7 +910,8 @@ heading.
   test no longer connects to the machine's real D-Bus; the network-discovery
   job builds and requires the Rust library its hub test needs instead of
   letting it skip; `test.sh` shows a skipped spec validation instead of
-  discarding the warning.
+  discarding the warning; the emulator-runner selftest waits for a killed
+  stub to finish dying instead of reading it mid-exit as a survivor.
 - **Forgetting a device forgets it, and only it.** Removing a saved Hue
   bridge now clears its pairing (username, client key, TLS pin, scheme),
   and removing any device no longer clears the pin and credentials stored

@@ -383,10 +383,12 @@ void main() {
 
         final result = await service.install(_manifestUrl);
         expect(result, isA<InstallFailed>());
-        expect(
-          (result as InstallFailed).error.kind,
-          SpecPackErrorKind.noSpecsInstalled,
-        );
+        final error = (result as InstallFailed).error;
+        expect(error.kind, SpecPackErrorKind.noSpecsInstalled);
+        expect(error.message, contains('bad1.yaml'));
+        expect(error.message, contains('bad2.yaml'));
+        expect(error.message, contains('not a valid device spec'));
+        expect(error.message, isNot(contains('could be downloaded')));
         // Nothing was recorded as installed.
         expect(await service.listInstalledPacks(), isEmpty);
       },

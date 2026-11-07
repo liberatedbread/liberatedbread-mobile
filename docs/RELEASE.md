@@ -220,14 +220,17 @@ The iOS verifier checks the bundle id, permission declarations, Rust FFI symbols
 and signed multicast entitlement. It does not prove that LAN discovery works;
 the phone checks below do.
 
-The release script refuses to build when the result could not be traced back to
-one commit:
+The release script refuses these unsafe release builds:
 
 - **HEAD carries no tag.** The stamp would name a commit (`vX.Y.Z-N-g<sha>`, or
   a bare SHA before the first tag), not a release. `LB_RELEASE_UNTAGGED=1`
   overrides for a throwaway build.
 - **Uncommitted changes.** `-dirty` names no commit, and an untracked source
   file leaves no trace at all. `LB_RELEASE_DIRTY=1` overrides.
+- **An Android build without `android/key.properties`.** Gradle would fall back
+  to the debug signing config with only a warning, and Play rejects a
+  debug-signed bundle. `LB_RELEASE_DEBUG_SIGNED=1` overrides for a local smoke
+  test of the build itself.
 - **The tag disagrees with `pubspec.yaml`.** One version in the listing, another
   in every bug report. No override: fix the version and cut a new tag.
 - **Untracked or ignored files under `device-specs/devices/` or
@@ -241,8 +244,8 @@ the gitignored local index that `run-*.sh` rebuilds on every launch and the app
 prefers over `index.json`, so a release always reads the committed index. It
 deletes a Finder `.DS_Store` in either directory for the same reason: ignored,
 so the guard would refuse it, and written by merely opening the folder on the
-Mac that builds for iOS. The two overrides are for a throwaway build on a
-branch; a store upload should need neither.
+Mac that builds for iOS. The three overrides are for throwaway builds on a
+branch; a store upload should need none of them.
 
 ### 5. Publish the tag and upload to closed testing
 

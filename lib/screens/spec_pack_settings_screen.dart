@@ -531,8 +531,10 @@ class _SpecPackSettingsScreenState
       // many specs it lists).
       SpecPackErrorKind.tooLarge =>
         '${error.message} The pack was not installed.',
-      SpecPackErrorKind.noSpecsInstalled =>
-        'None of the specs could be downloaded.',
+      // The service's message names each spec and why it was refused: a
+      // fetch that failed, a file that is not a spec, a spec that weakens
+      // the built-in it replaces.
+      SpecPackErrorKind.noSpecsInstalled => error.message,
       SpecPackErrorKind.cacheIo => error.message,
     };
   }

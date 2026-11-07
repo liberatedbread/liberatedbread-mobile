@@ -6,6 +6,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:usb_serial/usb_serial.dart';
 
 import '../core/log.dart';
@@ -25,6 +26,12 @@ import 'serial_port_service.dart';
 /// it in the manifest, and nothing to ask for up front.
 ///
 /// Ports are listed under ids that outlive a replug; see [_identify].
+/// What open() says when Android would not hand the cable over.
+const _notGranted = SerialPortException(
+  'The cable could not be used. If Android asked for permission, allow it; '
+  'if the cable was unplugged, plug it back in and try again.',
+);
+
 class AndroidUsbSerialService implements SerialPortService {
   @override
   SerialAvailability get availability => const SerialAvailability.supported();
@@ -56,15 +63,18 @@ class AndroidUsbSerialService implements SerialPortService {
       );
     }
     // Raises the system's permission dialog when the app has not been
-    // granted this device yet, and answers null if the person says no.
-    final usb = await UsbSerial.createFromDeviceId(device.deviceId);
-    if (usb == null) {
-      throw const SerialPortException(
-        'The cable could not be used. If Android asked for permission, '
-        'allow it; if the cable was unplugged, plug it back in and try '
-        'again.',
-      );
+    // granted this device yet. A refusal comes back as a PlatformException
+    // ("Failed to acquire permissions." from the plugin's openDevice), as
+    // does a cable that went away between the list and this call; the null
+    // the plugin's Dart signature allows for is kept for completeness.
+    final UsbPort? usb;
+    try {
+      usb = await UsbSerial.createFromDeviceId(device.deviceId);
+    } on PlatformException catch (error) {
+      Log.radio.info('USB serial: the cable was not granted', error: error);
+      throw _notGranted;
     }
+    if (usb == null) throw _notGranted;
     if (!await usb.open()) {
       throw const SerialPortException(
         'The cable is plugged in but could not be opened. Unplug it, plug '
@@ -147,8 +157,19 @@ class _AndroidLink implements SerialLink {
   _AndroidLink(this._port) {
     _input = _port.inputStream?.listen(
       _inbox.add,
-      onError: (Object error) =>
-          Log.radio.warning('USB serial input failed', error: error),
+      // Failed into the inbox as well as logged, as the BLE link does: a
+      // reader otherwise learned of a yanked cable only by waiting out its
+      // timeout, and then reported silence instead of the cause.
+      onError: (Object error) {
+        Log.radio.warning('USB serial input failed', error: error);
+        _inbox.fail(error);
+      },
+      onDone: () => _inbox.fail(
+        const SerialPortException(
+          'The cable stopped answering. Check that it is still plugged in, '
+          'then try again.',
+        ),
+      ),
     );
   }
 
