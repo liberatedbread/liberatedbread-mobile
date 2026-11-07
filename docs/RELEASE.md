@@ -37,50 +37,332 @@ Ad-hoc IPAs from `.github/workflows/ios-adhoc.yml` carry the same
 `dev build`. That checkout is shallow: a tagged ref stamps as its tag, any
 other ref as its bare SHA.
 
+## Where the release goes
+
+There are three different destinations, and uploading to one does not publish
+anywhere else:
+
+- **Android AAB:** open [Play Console](https://play.google.com/console) →
+  **Liberated Bread** → **Testing** → **Internal testing** → **Releases**, and
+  upload `build/app/outputs/bundle/release/app-release.aab` there. After testing,
+  promote that release to **Production** in the same console.
+- **iOS IPA:** on the release Mac, upload `build/ios/ipa/*.ipa` with
+  **Transporter**. It arrives in [App Store
+  Connect](https://appstoreconnect.apple.com/) → **Apps** → **Liberated Bread**
+  as a build. **TestFlight** is where that build is beta-tested; it is not the
+  public release. To publish it, select the same build in the app's **App Store
+  version**, submit that version to App Review, then release the approved
+  version. Step 7 below and Apple runbook Step 9 walk through those screens.
+- **Source tag and notes:** `git push origin "$TAG"` publishes the tag to GitHub;
+  a [GitHub Release](https://github.com/liberatedbread/liberatedbread-mobile/releases)
+  publishes the notes. Neither uploads an app binary to either store.
+
+Before starting, confirm that the release manager can push to the GitHub
+repository, create Internal testing and Production releases in Play Console,
+and access the correct Apple team. Apple permits a **Developer** to upload
+builds, but submission for review requires **Account Holder**, **Admin**, or
+**App Manager**. The release Mac, Android upload key, Apple distribution
+certificate/profile, both test phones and a supported LAN device must be
+available; a green build alone is not a release sign-off.
+
+Keep a release record outside the worktree, starting with these fields. Fill in
+the store links and numbers as they appear so nobody has to reconstruct which
+binary was tested and published later:
+
+```text
+VERSION=0.1.0
+TAG=v0.1.0
+RELEASE_SHA=<full commit SHA>
+CI_RUN_URL=<green CI run for that exact SHA>
+ANDROID_VERSION_CODE=<from release.sh / Play Console>
+IOS_BUILD_NUMBER=<from release.sh / App Store Connect>
+AAB_SHA256=<artifact hash>
+IPA_SHA256=<artifact hash>
+PLAY_INTERNAL_RELEASE_URL=<internal-track release>
+TESTFLIGHT_BUILD_URL=<processed TestFlight build>
+APP_STORE_VERSION_URL=<version submitted to App Review>
+PRODUCTION_RELEASE_DATE=<YYYY-MM-DD, after actual publication>
+```
+
 ## Cutting a release
 
-1. If the version is changing, edit it in `pubspec.yaml` and commit.
-2. Run `./scripts/test.sh`. If the Wi-Fi path changed, also run
-   `./scripts/ci-netdisco-tests.sh`.
-3. Tag the commit and push the tag:
-   ```bash
-   git tag -a v0.1.0 -m "Liberated Bread 0.1.0"
-   git push origin v0.1.0
-   ```
-4. Build from a clean checkout of the tag:
-   ```bash
-   ./scripts/release.sh android   # -> build/app/outputs/bundle/release/app-release.aab
-   ./scripts/release.sh ios       # -> build/ios/ipa/*.ipa (on the Mac; runbook Step 5)
-   ```
-   The script refuses to build when the result could not be traced back to
-   one commit:
+This is the release manager's end-to-end checklist. The examples ship `0.1.0`;
+substitute the version actually in `pubspec.yaml`. A store build must use
+**neither** `LB_RELEASE_UNTAGGED=1` nor `LB_RELEASE_DIRTY=1`.
 
-   - **HEAD carries no tag.** The stamp would name a commit (`vX.Y.Z-N-g<sha>`,
-     or a bare SHA before the first tag), not a release.
-     `LB_RELEASE_UNTAGGED=1` overrides for a throwaway build.
-   - **Uncommitted changes.** `-dirty` names no commit, and an untracked
-     source file leaves no trace at all. `LB_RELEASE_DIRTY=1` overrides.
-   - **The tag disagrees with `pubspec.yaml`.** One version in the listing,
-     another in every bug report. No override: fix the tag.
-   - **Untracked or ignored files under `device-specs/devices/` or
-     `device-specs/examples/`.** pubspec bundles those directories, so they
-     ship, and the stamp cannot see them. No override: remove them, or land
-     them upstream. (`assets/radio/` is listed file by file, so nothing stray
-     there ships.)
+### 1. Finalize and gate the source
 
-   Before it looks, the script deletes `device-specs/examples/index-temp.json`,
-   the gitignored local index that `run-*.sh` rebuilds on every launch and the
-   app prefers over `index.json`, so a release always reads the committed
-   index. It deletes a Finder `.DS_Store` in either directory for the same
-   reason: ignored, so the guard would refuse it, and written by merely
-   opening the folder on the Mac that builds for iOS. The two overrides are
-   for a throwaway build on a branch; a store upload should need neither.
-5. Before uploading, install each build on a real phone. Check that Diagnostics
-   shows the tag, and on the iPhone run a Wi-Fi scan.
-   `./scripts/verify_ios_app.sh build/ios/ipa/*.ipa` checks the signed
-   multicast entitlement, but only a real LAN proves discovery works.
-6. Upload the AAB in the Play Console. Upload the IPA with Transporter (runbook
-   Step 5).
+1. Edit `pubspec.yaml` if the marketing version is changing. Move everything
+   under `CHANGELOG.md`'s **Unreleased** heading into a dated
+   `## [X.Y.Z] - YYYY-MM-DD` section, leave a new empty **Unreleased** section,
+   and prepare the stores' release notes from it. Do not date the section until
+   the release is actually being cut.
+2. Finish the one-time gates before building:
+   - the required [websites](#websites) resolve and the support page has a
+     visible contact method;
+   - Android's upload key is backed up, and the Play listing, Data safety, ads,
+     location declaration and content rating below are complete;
+   - Apple runbook Steps 1–4 are done, including a distribution profile that
+     carries multicast, and the Step 6–9 metadata has been reviewed;
+   - the privacy policy, App Privacy answers and `PrivacyInfo.xcprivacy` still
+     describe the app's actual outbound connections.
+3. Commit those changes and push the release commit to `main`. Record its full
+   SHA and require the CI run for **that SHA**, not an older green `main`, to
+   complete successfully:
+   ```bash
+   git fetch origin main --tags
+   export RELEASE_SHA="PASTE_THE_FULL_RELEASE_COMMIT_SHA"
+   test "$(git rev-parse origin/main)" = "$RELEASE_SHA"
+   gh run list --workflow ci.yml --commit "$RELEASE_SHA" --limit 20
+   ```
+   Every required job in that commit's CI run must be green. A running or failed
+   job is a stop, not something to explain away in the release notes.
+
+### 2. Create and test a clean worktree
+
+Build both platforms on the release Mac where possible. Start from the exact CI-
+green commit, not a dirty working copy or a moving branch. Run
+`./scripts/setup.sh` first on a new release machine:
+
+```bash
+git fetch origin main --tags
+test "$(git rev-parse origin/main)" = "$RELEASE_SHA"  # main has not moved
+export VERSION="0.1.0"
+export TAG="v$VERSION"
+export RELEASE_DIR="$PWD/../liberatedbread-release-$VERSION"
+test -z "$(git tag --list "$TAG")"       # never reuse a release tag
+git worktree add --detach "$RELEASE_DIR" "$RELEASE_SHA"
+cd "$RELEASE_DIR"
+test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+test "$(sed -n 's/^version:[[:space:]]*\([^+[:space:]]*\).*/\1/p' pubspec.yaml)" = "$VERSION"
+test -z "$(git status --porcelain)"
+flutter pub get --enforce-lockfile
+./scripts/test.sh
+./scripts/ci-netdisco-tests.sh
+```
+
+Stay in this worktree for every later step. If anything source-controlled
+changes, stop: commit it, get the new SHA through CI, and start again with a new
+clean worktree.
+
+### 3. Run the physical-phone preflight, then tag
+
+From the release worktree, use an Android phone and an iPhone on a LAN with at
+least one supported device. These commands exercise real Bluetooth, Wi-Fi
+discovery and the mock end-to-end flows against `$RELEASE_SHA`;
+`--live-ble-any` also connects read-only to a nearby peripheral:
+
+```bash
+./scripts/run-android-device-tests.sh --all --expect-lan-devices --live-ble-any
+./scripts/run-ios-device-tests.sh --all --expect-lan-devices --live-ble-any --keep-multicast
+```
+
+`--keep-multicast` is valid only after the iPhone's development profile includes
+the entitlement. Do not add `--allow-keychain-wipe` unless every credential the
+app holds on that phone is disposable. See
+[BUILD_AND_TEST.md](BUILD_AND_TEST.md#integration-tests-on-a-physical-iphone)
+for device selection, named BLE devices and the test builds these runners leave
+installed. These tests are the preflight; the exact store artifacts get their
+own check below.
+
+When every suite passes, confirm that the runners restored the source tree and
+create the local tag:
+
+```bash
+test -z "$(git status --porcelain)"
+git tag -a "$TAG" -m "Liberated Bread $VERSION"
+```
+
+The build script needs this tag. It stays local until the artifacts pass their
+static checks in Step 4.
+
+### 4. Build and inspect the artifacts
+
+For Android, install `android/key.properties` in the release worktree as
+described under [Android signing](#android-signing), using an absolute path to
+the backed-up upload keystore. It is gitignored deliberately. This check must
+succeed: without the file Gradle silently falls back to the shared debug key,
+and Play will reject the AAB:
+
+```bash
+test -s android/key.properties
+```
+
+For iOS, the runbook's Steps 1–4 must already be complete. Then build and verify:
+
+```bash
+./scripts/release.sh android   # -> build/app/outputs/bundle/release/app-release.aab
+./scripts/release.sh ios       # -> build/ios/ipa/*.ipa
+jarsigner -verify --strict build/app/outputs/bundle/release/app-release.aab
+./scripts/verify_ios_app.sh build/ios/ipa/*.ipa
+```
+
+Record each artifact's SHA-256 and the build number printed by `release.sh`.
+The iOS verifier checks the bundle id, permission declarations, Rust FFI symbols
+and signed multicast entitlement. It does not prove that LAN discovery works;
+the phone checks below do.
+
+The release script refuses to build when the result could not be traced back to
+one commit:
+
+- **HEAD carries no tag.** The stamp would name a commit (`vX.Y.Z-N-g<sha>`, or
+  a bare SHA before the first tag), not a release. `LB_RELEASE_UNTAGGED=1`
+  overrides for a throwaway build.
+- **Uncommitted changes.** `-dirty` names no commit, and an untracked source
+  file leaves no trace at all. `LB_RELEASE_DIRTY=1` overrides.
+- **The tag disagrees with `pubspec.yaml`.** One version in the listing, another
+  in every bug report. No override: fix the version and cut a new tag.
+- **Untracked or ignored files under `device-specs/devices/` or
+  `device-specs/examples/`.** pubspec bundles those directories, so they ship,
+  and the stamp cannot see them. No override: remove them, or land them
+  upstream. (`assets/radio/` is listed file by file, so nothing stray there
+  ships.)
+
+Before it looks, the script deletes `device-specs/examples/index-temp.json`,
+the gitignored local index that `run-*.sh` rebuilds on every launch and the app
+prefers over `index.json`, so a release always reads the committed index. It
+deletes a Finder `.DS_Store` in either directory for the same reason: ignored,
+so the guard would refuse it, and written by merely opening the folder on the
+Mac that builds for iOS. The two overrides are for a throwaway build on a
+branch; a store upload should need neither.
+
+### 5. Publish the tag and upload to closed testing
+
+Only after the static checks pass:
+
+```bash
+git push origin "$TAG"
+```
+
+**Android — Play Console:**
+
+1. Open [Play Console](https://play.google.com/console) → **Liberated Bread** →
+   **Testing** → **Internal testing** → **Releases**. Create a release and upload
+   `build/app/outputs/bundle/release/app-release.aab`.
+2. Add the release notes, review the release, and start the rollout to **Internal
+   testing**. This reaches testers, not Production.
+3. Add the test Google account as a tester, open the track's tester link on the
+   Android phone, and install the release from Play.
+
+**iOS — Transporter and TestFlight:**
+
+1. On the release Mac, open **Transporter** and sign in with an Apple ID that has
+   access to the Pigs Can Fly Labs LLC team. Choose **Add App**, select
+   `build/ios/ipa/*.ipa`, then choose **Deliver**. This uploads to App Store
+   Connect; it does not publish the app.
+2. Open [App Store Connect](https://appstoreconnect.apple.com/) → **Apps** →
+   **Liberated Bread** → **TestFlight**. Wait for the processing-complete email.
+   If the build says compliance information is missing, answer the export-
+   compliance questions in Apple runbook Step 6.
+3. Add the processed build to an internal tester group. On the iPhone, open the
+   tester invitation in **TestFlight** and install that build. External tester
+   groups can require Beta App Review; they are not needed for this preflight.
+
+An AAB is not an APK, and an App Store distribution IPA is not an ad-hoc IPA;
+neither can be installed directly with the usual phone installer. These closed
+tracks are how to test the exact artifacts before production.
+
+Uploading freezes the tag. If a source fix is needed after an upload, do not
+move or reuse the tag to make the stamp point somewhere else: bump the version,
+cut a new tag and repeat the checklist. Store build numbers must rise on every
+re-upload, including a rejection or a failed closed-test build. A packaging or
+upload retry with **no source change** keeps the same tag, but still needs a new
+build number. Both timestamps have minute resolution, so compare the new logged
+number with the store's previous upload and wait until the next minute if they
+would be identical.
+
+### 6. Validate the exact store artifacts
+
+On each phone, using the Internal testing / TestFlight install:
+
+- [ ] Diagnostics shows exactly `vX.Y.Z` — not `dev build`, a bare SHA, another
+      tag, or `-dirty` — and the store shows the build number just recorded.
+- [ ] A fresh launch presents the current Terms, and its privacy and disclaimer
+      links open the required pages.
+- [ ] Bluetooth permission, scan, connect and a safe read or control work on a
+      real peripheral.
+- [ ] Local-network permission and Wi-Fi discovery work, and a supported LAN
+      device can be opened and controlled. On iOS this also exercises the signed
+      multicast entitlement in the real sandbox.
+- [ ] Location-based repeater suggestions and every other feature changed since
+      the previous release get a real-device smoke test.
+- [ ] For an upgrade rather than the first release, install over the previous
+      store version and confirm saved devices and credentials survive.
+
+Do not substitute a debug build, a simulator, or a different commit for these
+checks. Any failure stops submission and publication.
+
+### 7. Submit and publish
+
+#### Google Play
+
+1. In Play Console, open the tested **Internal testing** release and choose
+   **Promote release** → **Production**. This carries forward the same AAB; do
+   not rebuild it or substitute an APK.
+2. Check the release notes and store forms, review the Production release, and
+   start its rollout. Use a staged rollout when available.
+
+#### Apple App Store
+
+TestFlight is beta distribution only; there is no "promote TestFlight to the App
+Store" button. Publish the tested build as follows (also expanded in Apple
+runbook Step 9):
+
+1. Open [App Store Connect](https://appstoreconnect.apple.com/) → **Apps** →
+   **Liberated Bread**. Under **App Store**, open the existing **Prepare for
+   Submission** version, or choose **+ Version**. The version is the pubspec
+   `X.Y.Z`, without `+N` and without the clock-derived build number.
+2. Complete Apple runbook Steps 6–8. In the version's **Build** section, choose
+   **Select Build** and select the exact TestFlight-validated build, checking
+   its build number against the release record.
+3. Under **Version Release**, choose **Manually release this version** to control
+   launch timing, or automatic release if approval should publish it directly.
+4. Choose **Add for Review**, create the submission, then open that submission
+   and choose **Submit for Review**. These are two separate actions; the first
+   alone sends nothing to Apple. Wait for the status to become **In Review**.
+5. If manual release was selected, approval leaves the version in **Pending
+   Developer Release**. Open it and choose **Release This Version** to publish.
+   With automatic release, Apple publishes after approval instead.
+
+For a later app update, Apple also offers phased release for automatic updates.
+That is an update rollout control, not the way to publish the app's first
+version. See [Apple's submission
+guide](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-app/)
+for the current review UI.
+
+#### Release record, public smoke test and cleanup
+
+1. On the release Mac, hash the exact uploaded files and put the output in the
+   release record:
+   ```bash
+   shasum -a 256 \
+     build/app/outputs/bundle/release/app-release.aab \
+     build/ios/ipa/*.ipa
+   ```
+   If the directory contains more than one IPA, match each hash to its build
+   number before recording it; never guess which artifact was uploaded.
+2. Preserve the AAB, the selected IPA, their hashes, the build logs and the
+   completed release record in the team's release archive. Record the Play
+   `versionCode`, Apple `CFBundleVersion`, closed-test links, review submission
+   and actual publication date as each happens.
+3. Open [GitHub Releases](https://github.com/liberatedbread/liberatedbread-mobile/releases)
+   → **Draft a new release**. Choose the already-pushed `$TAG` (do not create a
+   different tag), title it `Liberated Bread $VERSION`, paste the curated notes
+   from the matching CHANGELOG section, and choose **Publish release**. Store
+   uploads and App Review do not depend on this step.
+4. Install each public store build on a real phone. Check Diagnostics for the
+   tag, repeat a BLE and LAN smoke test, and confirm the public listing's version
+   and release notes. Watch Play's release/vitals pages, App Store Connect's
+   analytics/crash reports, TestFlight feedback and incoming bug reports.
+5. Only after preserving the artifacts and record, leave the release worktree
+   and remove it from the original checkout:
+   ```bash
+   cd /path/to/the/original/liberatedbread-mobile
+   git worktree remove "$RELEASE_DIR"
+   ```
+   If Git says the worktree is not clean, inspect what remains rather than using
+   `--force`; the keystore properties, artifacts or an accidental source edit may
+   still need to be preserved.
 
 ## Android signing
 
