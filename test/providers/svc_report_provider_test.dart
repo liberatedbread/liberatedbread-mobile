@@ -327,6 +327,19 @@ void main() {
       expect(c.read(responseAnomaliesProvider)['ble:x'], isNull);
     });
 
+    test('anomaly keys are scoped by spec, so a switch starts clean', () {
+      expect(
+        bleAnomalyKey('d', 'spec: a'),
+        isNot(bleAnomalyKey('d', 'spec: b')),
+      );
+      expect(bleAnomalyKey('d', 'spec: a'), bleAnomalyKey('d', 'spec: a'));
+      final device = _netDevice();
+      expect(
+        wifiAnomalyKey(device, 'Hub|Acme'),
+        isNot(wifiAnomalyKey(device, 'Plug|Acme')),
+      );
+    });
+
     test('a Wi-Fi report built from responses alone', () {
       final report = buildWifiSvcReport(
         entry: _wifiEntry(),

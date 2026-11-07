@@ -290,6 +290,7 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
         recordUndecodableBle(
           ref,
           deviceId: widget.deviceId,
+          specYaml: widget.specYaml,
           charUuid: stateChar,
           entity: widget.entity.name,
           bytes: bytes,

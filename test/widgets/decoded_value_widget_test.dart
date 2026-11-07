@@ -699,11 +699,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final recorded = captured.read(responseAnomaliesProvider)['ble:d'];
+    final recorded = captured.read(
+      responseAnomaliesProvider,
+    )[bleAnomalyKey('d', 'y')];
     expect(recorded, hasLength(1));
     expect(recorded!.single.problem, 'undecodable_value');
     expect(recorded.single.where, 'gatt:fff2');
     expect(recorded.single.sample, '090909');
     expect(recorded.single.entity, 'Status');
+    // Recorded against the spec it was decoded with, so a different spec
+    // for the same device starts clean (the "Change" chooser).
+    expect(
+      captured.read(responseAnomaliesProvider)[bleAnomalyKey('d', 'other')],
+      isNull,
+    );
   });
 }

@@ -1393,10 +1393,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Hand a response the app could not make sense of to the device's
   /// report banner. Recording sends nothing.
   void _recordAnomaly(SvcReportResponse response) {
-    if (!mounted) return;
+    // No spec key, no banner to show it in (WifiDeviceReportBanner).
+    final specKey = widget.specKey;
+    if (!mounted || specKey == null) return;
     ref
         .read(responseAnomaliesProvider.notifier)
-        .record(wifiAnomalyKey(widget.device), response);
+        .record(wifiAnomalyKey(widget.device, specKey), response);
   }
 
   Future<void> _decodeEntities() async {

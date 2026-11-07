@@ -181,11 +181,22 @@ SvcReport? buildRadioSvcReport({
 }
 
 /// The key a Wi-Fi device's responses are recorded under in
-/// [responseAnomaliesProvider]. Local only — never sent.
-String wifiAnomalyKey(NetworkDevice device) => 'wifi:${device.host}';
+/// [responseAnomaliesProvider], per device AND the spec they were read
+/// against ([specKey]): a failure under one spec says nothing about
+/// another, and must not be reported as that one's. Local only — never
+/// sent.
+String wifiAnomalyKey(NetworkDevice device, String specKey) =>
+    'wifi:${device.host}|$specKey';
 
-/// The key a BLE device's responses are recorded under. Local only.
-String bleAnomalyKey(String deviceId) => 'ble:$deviceId';
+/// The key a BLE device's responses are recorded under, per device AND the
+/// spec text they were decoded with ([specYaml], the matched spec's yaml the
+/// control panel hands its value widgets). Scoped for the reason
+/// [wifiAnomalyKey] is: after the user picks another spec in the chooser,
+/// the old spec's decode failures (and entity names) stay under the old
+/// key instead of turning up in the new spec's report. A hash, not the
+/// text, because the key is held for the life of the process. Local only.
+String bleAnomalyKey(String deviceId, String specYaml) =>
+    'ble:$deviceId|${specYaml.hashCode}';
 
 /// The Wi-Fi report for a device whose matched spec is known by [specKey],
 /// resolved against the loaded catalogue, folding in whatever responses from
@@ -198,7 +209,7 @@ final wifiSvcReportProvider = FutureProvider.autoDispose
     ) async {
       final responses = ref.watch(
         responseAnomaliesProvider.select(
-          (all) => all[wifiAnomalyKey(args.device)] ?? const [],
+          (all) => all[wifiAnomalyKey(args.device, args.specKey)] ?? const [],
         ),
       );
       final catalogue = await ref.watch(specCatalogueProvider.future);
@@ -248,6 +259,7 @@ class ResponseAnomalyNotifier
 void recordUndecodableBle(
   WidgetRef ref, {
   required String deviceId,
+  required String specYaml,
   required String charUuid,
   String? entity,
   required List<int> bytes,
@@ -257,7 +269,7 @@ void recordUndecodableBle(
   ref
       .read(responseAnomaliesProvider.notifier)
       .record(
-        bleAnomalyKey(deviceId),
+        bleAnomalyKey(deviceId, specYaml),
         SvcReportResponse.undecodableBle(
           charUuid: normalizeUuid(charUuid),
           entity: entity,

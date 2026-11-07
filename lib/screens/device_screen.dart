@@ -1035,16 +1035,17 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               ),
             )
             .valueOrNull
-            ?.chosen
-            ?.spec;
-        final safety = matched?.safetyAdvisory;
+            ?.chosen;
+        final safety = matched?.spec.safetyAdvisory;
         // Services the matched spec does not describe, or values it could not
-        // decode, if any: the "oh hey" banner offers to tell us. Null (and no banner) for an unmatched
-        // device — there is no spec to be surprised against.
+        // decode, if any: the "oh hey" banner offers to tell us. Null (and no
+        // banner) for an unmatched device — there is no spec to be surprised
+        // against. Only failures recorded under THIS spec count: after the
+        // chooser picks another, the last one's stay with it.
         final svcReport = matched == null
             ? null
             : buildBleSvcReport(
-                spec: matched,
+                spec: matched.spec,
                 services: _services,
                 advertisedName: widget.device.name,
                 // Values from this device the spec's format rejected,
@@ -1052,7 +1053,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 responses: ref.watch(
                   responseAnomaliesProvider.select(
                     (all) =>
-                        all[bleAnomalyKey(widget.device.id)] ??
+                        all[bleAnomalyKey(widget.device.id, matched.yaml)] ??
                         const <SvcReportResponse>[],
                   ),
                 ),

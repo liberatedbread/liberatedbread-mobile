@@ -201,6 +201,7 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
         recordUndecodableBle(
           ref,
           deviceId: widget.deviceId,
+          specYaml: widget.specYaml,
           charUuid: widget.specChar.uuid,
           entity: widget.specChar.name,
           bytes: bytes,
