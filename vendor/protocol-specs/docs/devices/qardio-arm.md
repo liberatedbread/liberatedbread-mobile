@@ -44,7 +44,7 @@ daily with no cloud or account, and this spec is read from them.
 | Property | Value |
 |----------|-------|
 | Setup required | No — no account, no network, no cloud |
-| Method | `ble_direct`: unwrap, connect, bond, enable notifications, write start |
+| Method | `ble_direct`: unwrap, connect, bond, enable measurement updates, write start |
 | Advertised | Service `00001810-0000-1000-8000-00805f9b34fb`; name believed to begin `Qardio` |
 | Passphrase protection | not_applicable |
 | Confidence | medium (two working open clients; not replayed here) |
@@ -75,13 +75,13 @@ and the cuff stores nothing but the bond.
 | Confidence | medium |
 
 **Entering pairing mode**: nothing to do; the cuff is pairable whenever it is
-on. The first secured operation (enabling notifications on `0x2a35`) raises
+on. The first secured operation (enabling measurement updates on `0x2a35`) raises
 the OS pairing prompt.
 
 **Unpairing**: the pinhole press, which is the whole factory reset.
 
 **Recovery**: an ATT error `0x05`, `0x08`, `0x0c` or `0x0f` on the
-notification enable or the start write means the bond on one side no longer
+enabling measurement updates or the start write means the bond on one side no longer
 matches the other. Forget the cuff on the phone, press the pinhole, reconnect.
 
 ## Protocol Summary
@@ -91,7 +91,7 @@ matches the other. Forget the cuff on the phone, press the pinhole, reconnect.
 | UUID | Name | Properties | Description |
 |------|------|-----------|-------------|
 | `00001810-0000-1000-8000-00805f9b34fb` | Blood Pressure Service | | Standard SIG service plus one vendor characteristic |
-| `00002a35-0000-1000-8000-00805f9b34fb` | Blood Pressure Measurement | notify | Standard SIG record; both clients enable notifications (CCCD `01 00`) |
+| `00002a35-0000-1000-8000-00805f9b34fb` | Blood Pressure Measurement | indicate (SIG) | Enable the exposed update mechanism and wait for confirmation; indications use CCCD `02 00`. The Android port's hard-coded `01 00` is not a protocol requirement |
 | `583cb5b3-875d-40ed-9098-c39eb0c1983d` | QardioArm control | write | Two-byte command, first byte `f1` |
 | `0000180f-0000-1000-8000-00805f9b34fb` | Battery Service | | Standard; "when the cuff exposes it" |
 | `00002a19-0000-1000-8000-00805f9b34fb` | Battery Level | read | 0–100 %; LibreArm blocks a start at ≤ 10 % |
@@ -131,7 +131,7 @@ value. kPa × 7.500617 = mmHg.
 Records arrive **while the cuff inflates and deflates**. A record is a result
 only when systolic and diastolic both decode finite and above zero with
 systolic greater than diastolic; both clients debounce 1.5 s after the last
-notification and keep that record. Worked example:
+measurement update and keep that record. Worked example:
 `04 78 00 50 00 5f 00 48 00` = mmHg, pulse present: 120 / 80, MAP 95, pulse 72.
 
 Which optional fields the cuff actually sets has not been published, which is

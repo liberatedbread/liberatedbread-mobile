@@ -673,6 +673,33 @@ commands:
     example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"value":{"type":"Constant","value":true}}}'
     example_notes: "Rendered with value=true."
 
+  set_siren_channel:
+    description: >
+      Set what an indoor siren (SIR) is sounding: SetState of activeChannel
+      on its SirenActuator capability. "None" silences it. This is how the
+      planbnet integration drives the siren, both its alarm tone and its
+      notification and feedback tones.
+    transport: "http"
+    method: "POST"
+    path: "/action"
+    headers:
+      Content-Type: "application/json"
+    auth: ["bearer"]
+    body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/{capability_id}","params":{"activeChannel":{"type":"Constant","value":"{active_channel}"}}}'
+    parameters:
+      capability_id:
+        type: "string"
+        required: true
+        description: "Id of the siren device's SirenActuator capability."
+      active_channel:
+        type: "string"
+        required: true
+        enum: ["None", "Alarm", "Notification", "Feedback"]
+        description: "The tone to sound, spelled exactly so; \"None\" stops the siren."
+    verification: "reported"
+    example_body: '{"type":"SetState","namespace":"core.RWE","target":"/capability/0123456789abcdef0123456789abcdef","params":{"activeChannel":{"type":"Constant","value":"Notification"}}}'
+    example_notes: "Rendered with active_channel=Notification."
+
   restart_controller:
     description: "Reboot the controller (Restart action addressed to the controller DEVICE, not a capability)."
     advanced: true
@@ -998,7 +1025,7 @@ payload_formats:
       - name: "isSmokeAlarm"
         description: "Boolean. SmokeDetectorSensor."
       - name: "activeChannel"
-        description: "String None, Alarm, Notification or Feedback. SirenActuator; write it with SetState like onState."
+        description: "String None, Alarm, Notification or Feedback. SirenActuator; written with commands.set_siren_channel."
       - name: "value"
         description: "Boolean. BooleanStateActuator (VariableActuator)."
       - name: "powerConsumptionWatt"
@@ -1170,7 +1197,7 @@ local_access:
 remaining_unknowns:
   - "Per-device entities are not declared. GET /device, /capability and /capability/states answer JSON arrays, and the schema's `instances` needs an object keyed by child id, so a spec-driven client cannot enumerate switches, dimmers or thermostats from this file. The commands are complete; binding them needs array-keyed instances (`instances.keyed_by` over an array element field) or a join of capability -> device."
   - "Token reply fields beyond access_token (token_type, expires_in, refresh_token) and the token lifetime are not stated by either reference client; the example's extra fields are illustrative."
-  - "Whether /status carries controllerType at the top level on SHC 2 alongside the `gateway` object: the planbnet library reads it there, while openHAB's SHC 2 fixture shows only `gateway`. The GET /device controller type (SHC vs SHCA) is the safe fallback discriminator."
+  - "controllerType at the top level of /status on SHC 2 is not shown by openHAB's SHC 2 fixture, which has only the `gateway` object. It is effectively confirmed by the planbnet library, which chooses the SHC 2 event port (9090) from a top-level controllerType of Avatar and could not reach an SHC 2 otherwise; the fixture most likely omits it. The GET /device controller type (SHC vs SHCA) stays the fallback discriminator."
   - "Namespace for shutterLevel SetState: CosipDevices.RWE (planbnet) vs core.RWE (openHAB)."
   - "Which button confirms first-time Local SmartHome setup on SHC 1 from software 3.1.1056.0, and whether SHC 2 has an equivalent step."
   - "Factory reset procedure and local password recovery for either generation."

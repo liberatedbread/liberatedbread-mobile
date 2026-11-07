@@ -24,7 +24,7 @@ better evidence rather than a premature app claim.
 | Spec | Origin | Notes |
 |---|---|---|
 | [Artiphon Orba 2](../devices/artiphon-orba-2.md) | `research-notes/artiphon-orba.*` + new Orba 2 app/protocol research | Corrects the old note's Orba-1 scope: the capture-verified map is Orba 2, with the recovered `com.artiphon.kestrel` companion. Standard BLE-MIDI, LSB-first 7-bit SysEx packing, zero-init CRC-16 and fragmented writes. Transport, quantization, tempo and FX; destructive erase commands are advanced. `scripts/test_artiphon_orba_2_spec.py`. |
-| [Petronics Mousr](../devices/petronics-mousr.md) | `research-notes/mousr-cat-toy.*` + recovered 1.0.7 app | Fifteen-byte command envelope, decimal command IDs, Nordic UART and three-float32-LE drive vectors. STOP and CHIRP are fixed commands; movement is advanced and drive units/ranges stay unclaimed. Notifications and auto-mode layouts remain open. `scripts/test_petronics_mousr_spec.py`. |
+| [Petronics Mousr](../devices/petronics-mousr.md) | `research-notes/mousr-cat-toy.*` + recovered 1.0.7 app | Fifteen-byte command envelope, decimal command IDs (the second byte of a one-digit code is unresolved), Nordic UART and three-float32-LE drive vectors. Stop and chirp are fixed commands; movement is advanced and drive units/ranges stay unclaimed. Notifications and auto-mode layouts remain open. `scripts/test_petronics_mousr_spec.py`. |
 
 The schema now carries `float32` for fields and command parameters, closing
 the gap previously recorded for Hot Wheels and Mousr, and names the
@@ -34,9 +34,10 @@ the gap previously recorded for Hot Wheels and Mousr, and names the
 
 - **Hot Wheels id Race Portal**: the recovered official app identifies the
   `000a` service as MPID session setup and `000b` as signed-image OTA. The
-  manufacturing token is variable-length (136-byte generation one, at least
-  182 bytes in another format), not the community note's fixed 148-byte
-  certificate. The read-only community control path remains valid and no
+  manufacturing token is variable-length per the app analysis (136-byte
+  generation one, at least 182 bytes in another format). The community
+  note's 148-byte read is kept as an observation from its unit; it matches
+  neither format and is unexplained. The read-only community control path remains valid and no
   official command write is offered. The speed field is now `float32`; its
   unit is still unresolved.
 - **Wilson X**: assigned to the `fa10` three-axis family, not 94Fifty or the
@@ -65,6 +66,29 @@ the gap previously recorded for Hot Wheels and Mousr, and names the
   raw-BLE streaming but still needs the write sequence and capture evidence.
   **Pantelligent** still lacks a GATT map and **Lockitron Bolt** lacks a
   proven local pairing/key path; neither gains an invented spec.
+
+### Additional research integrations
+
+A second pass over the newly validated research packs added two receive/read
+protocols and corrected two existing specs. All four remain untested on
+hardware by this project; passing upstream or synthetic checks are not
+relabelled as physical verification.
+
+| Spec | Origin | Notes |
+|---|---|---|
+| [Qingping / ClearGrass stock BLE sensors](../devices/qingping-stock-ble.md) | `qingping-ble` 1.3.0 parser and fixtures, 2026-11-01 | Passive stock `0xFDCD` service data, 20 model IDs, complete TLV framing and units. Corrects two older assumptions: CGDK2 is supported, and TLV `0x18` is a capability bitmap rather than CO2. Event packets update motion without overwriting illuminance. `scripts/test_qingping_stock_ble_spec.py`. |
+| [Ecosense / FTLab RadonEye RD200](../devices/ecosense-radoneye-rd200.md) | `rd200v2` + `radonpy`, 2026-11-01 | Both RD200 generations: V1 float32 pCi/L with command/length framing, configuration and chunked history; V2 exact-length uint16 Bq/m³ responses. Generation selection requires name plus GATT shape, no V1 opcode is reused on V2, and history erase is advanced. `scripts/test_ecosense_radoneye_rd200_spec.py`. |
+
+- **QardioArm**: the standard Blood Pressure Measurement characteristic uses
+  indications. Enable the update mechanism the characteristic actually exposes
+  and wait for confirmation; the Android port's hard-coded notification CCCD
+  write is not a protocol requirement. Its incomplete SFLOAT handling likewise
+  remains a client limitation, not wire-format evidence.
+- **WeatherFlow Tempest**: completed the `obs_st`, legacy AIR/SKY, wind and
+  lightning layouts. Tempest index 12 is rain over the **previous minute**, not
+  a reporting-interval or daily total; short arrays and nulls stay unavailable.
+  Added sensor-status bits and the lightning energy/distance quirks from the
+  validated parser research.
 
 ## 2026-10-11
 
@@ -354,3 +378,91 @@ Considered and left out:
 - **Arc browser** (ends 2026-12-22): not a device.
 - **Cambium cnMaestro Cloud** (enterprise APs, end of October 2026, *unverified*): there is an on-prem controller; enterprise gear, out of scope.
 - **wibutler** (DBT insolvency 2026-07-17, [Dr. Web](https://www.drweb.de/smart-home-plattform-wibutler-insolvenz/)): older than this window, and operations continue. EnOcean/Z-Wave devices behind it already have local paths. Worth a separate look only if the platform's servers are announced off.
+
+## 2026-11-01 (weekly sweep)
+
+The routine sweep for this date. A separate research pass on the same day is
+logged in [2026-11-01](#2026-11-01) above.
+
+### Added this week
+
+Two *Do these next* picks and one category-table row that this week's news
+made urgent. Every spec is `testing: untested`; wire facts from client code
+or vendor notes are `reported`.
+
+| Spec | Source | Notes |
+|---|---|---|
+| [SolarEdge Inverters (Modbus TCP / SunSpec)](../devices/solaredge-modbus-tcp.md) | category table (re-scoped from SetApp `/web/v1` to Modbus, as the 2026-10-11 entry asked); news below | Turning Modbus TCP on (SetApp: port 1502; display inverters: 502), unit id 1, the reported `_solaredge-modbus._tcp` announcement, the Modbus TCP header, the SunSpec common block at 40000 and inverter models 101/102/103 with scale factors, Synergy model 160 and meter models 201–204. Power-limit, export-limit and commit writes are `advanced`, with a `safety_advisory`. One client at a time and a 2-minute idle drop, per SolarEdge's own note. Five read-only sensors. `scripts/test_solaredge_modbus_tcp_spec.py`. |
+| [Apple AirPort Extreme / Time Capsule / Express (ACP)](../devices/apple-airport-acp.md) | #11 | Bonjour `_airport._tcp`, the 128-byte ACP header with both Adler-32 checksums, the legacy XOR password key, SRP-6a login with AES-128-CTR session keys, the property element framing and a property catalogue. Reads (name, status, WAN address, log); rename and reboot are `advanced`. A `security_advisory` (reported) for the legacy password encoding, citing airpyrt-tools. Flashing is left out. `scripts/test_apple_airport_acp_spec.py`; the rules were cross-checked against node-acp's own vectors, none of which are copied in. |
+| [Philips Wi-Fi Air Purifiers and Humidifiers (encrypted CoAP)](../devices/philips-air-coap.md) | #12 | CoAP on UDP 5683: `/sys/dev/sync` counter exchange, observed `/sys/dev/status`, `/sys/dev/control`. The envelope is AES-128-CBC with key and IV taken from the MD5 of a published constant plus the counter, and an unkeyed SHA-256 trailer (the survey row's "HMAC" wording is wrong). Three key sets as variants (classic names, `D03-xx`, compact `D03xxx`), with fan, mode, speed, child lock, display, timer, air quality, humidity, water and filter entities per set. Older HTTP and plain-CoAP generations are named, not specified. Which firmware removes local access is still unsourced. `scripts/test_philips_air_coap_spec.py`. |
+
+Schema gaps that came up, each in its spec's `remaining_unknowns`: no binary
+socket-frame or Modbus register block (SolarEdge, AirPort), no
+"register × 10^scale-factor" state mapping for entities, no field for a
+one-client-at-a-time device, no CoAP transport block or encrypted-CoAP body
+scheme (Philips), no DHCP discovery method, and no way to tie a command to a
+variant.
+
+### New candidates
+
+None worth a row this week. The searches turned up no new cloud shutdowns,
+bankruptcies or withdrawn apps dated since 2026-10-25.
+
+### Status changes to items already listed
+
+- **SolarEdge Monitoring API V1**: retired at the start of November. Forum
+  posts give 2026-11-01 (one quotes an API error reading "The V1 Monitoring
+  API is retired on 2026-11-01") or 2026-11-03; no SolarEdge page was
+  fetched. V2 uses OAuth through developer.solaredge.com. Home Assistant
+  users report the cloud integration broken during the deprecation window,
+  with local Modbus as the fallback (battery data reported missing on some
+  sites) ([HA community](https://community.home-assistant.io/t/solaredge-api-v2-uses-oauth-old-api-will-be-turned-off-in-november/1026150),
+  [HA community](https://community.home-assistant.io/t/solaredge-api-error/1028039)).
+  This is why SolarEdge was specced this week.
+- **Eargo / Lexie**: no new coverage after 2026-10-22. Whether the apps or
+  the cloud actually went off is still *unverified*.
+- **Samsung SmartThings API**: secondary coverage still says paid personal
+  plans start in October 2026 ($4.99/month) and that Home Assistant's
+  integration falls under them; no Samsung post confirming that billing
+  started was found. Cloud only, so no spec.
+- **SPAN**: nothing new beyond last week's entry.
+
+## 2026-11-06 (research follow-up)
+
+A review of the newly consolidated research packs against the merged catalogue.
+Two uncovered read-only protocols were promoted, and one existing spec gained
+substantial corrections. Every new or updated spec remains `testing: untested`;
+upstream tests and public captures are not relabelled as hardware verification
+by this project.
+
+### Added this pass
+
+| Spec | Origin | Notes |
+|---|---|---|
+| [Quicklynks BM2](../devices/quicklynks-bm2.md) | Two public BM2 clients, 2026-11-03 | Active FFF4 encrypted voltage/percentage/status notifications, enhanced and legacy advertisements, strict validation and staleness rules. History, configuration and BM6 are excluded. `scripts/test_quicklynks_bm2_spec.py`. |
+| [WaterRower ComModule / SmartRow](../devices/waterrower-smartrow.md) | FTMS profile + V3.10 capture-backed SmartRow follow-up | ComModule stays on standard FTMS. SmartRow gets its actual 0x1234 service, checksummed ASCII telemetry, session commands, keylock transform and 24-point raw force curve. The ComModule f364 extension and calibrated force/work units remain unresolved. `scripts/test_waterrower_smartrow_spec.py`. |
+
+### Existing-device corrections
+
+- **Oral-B iO Smart Brush**: charger characteristics now live in the recovered
+  `a0f03e00` service rather than the brush service. Added the captured native
+  and 0x37 passthrough grammar, charger status bits, length-gated FF05,
+  protocol-7/8 FF29 retained-session record, ServiceDataA/B and V008+
+  SonosMetadata. Provisioning writes, protocol-6 FF29 and unresolved units stay
+  open. Added the missing user guide and `scripts/test_oral_b_io_smartbrush_spec.py`.
+
+### Evaluated but not promoted yet
+
+- **Big Ass Fans**: both legacy SenseME ASCII/UDP and newer clear-TCP
+  SLIP/protobuf exist in the recovered app, but model/firmware selection needs
+  hardware evidence. Do not send both protocols as a discovery probe.
+- **Furbo**: ongoing control is authenticated TUTK P2P, not simply cloud-only,
+  and some Furbo 2 units expose authenticated RTSP. An offline path using
+  account-exported credentials is not yet established, nor is a current-model
+  RTSP/ONVIF contract. A full local-control spec would overstate the evidence.
+- **Ecowitt gateways**: four local HTTP reads are well supported, but several
+  weather/rain/light field and unit mappings conflict between clients. A future
+  spec should preserve raw IDs and units rather than inventing normalization.
+- **Eye-Fi**: the consolidated receiver, credential and TAR findings improve
+  the existing research trail, but hardware discovery/retry and reset-card
+  provisioning still need validation. No outbound camera-client spec is added.

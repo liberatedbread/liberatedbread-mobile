@@ -1,0 +1,341 @@
+# Quicklynks BM2 battery monitor — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (public, clean-room; derived facts only):
+#   - KrystianD/bm2-battery-monitor, commit
+#     494a39c5edfbf5c76906469f0da545e42882b28c (MIT).
+#   - andystewart999/ha_bm2monitor, commit
+#     cbd9630b2204c91c9ab3b555774fb431f749dbed (MIT).
+
+device:
+  name: "Quicklynks BM2 Battery Monitor"
+  manufacturer: "Quicklynks"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Two public clients establish
+      the wire formats; 19 source-level checks passed on 2026-11-03. The
+      vectors below are synthetic and independently checked with the published
+      protocol transform, not captured vehicle data or electrical calibration.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "sensor"
+  type: "battery-monitor"
+  notes: >
+    Read-only BM2 / Battery Monitor 2 telemetry over BLE. Active monitoring
+    subscribes to FFF4 and decrypts one 16-byte notification; passive monitoring
+    can decode enhanced and legacy manufacturer advertisements. Do not extend
+    this spec to BM6, whose encrypted/rotating advertisements are different.
+
+    The shared published AES key and zero IV are protocol constants, not owner
+    credentials or secure pairing. Deterministic encryption does not
+    authenticate a sender. Require the expected GATT shape, packet type,
+    voltage/percentage ranges and known status before publishing active data.
+    The 5.0-20.0 V and 0-100 percent ranges are client sanity bounds, not
+    verified electrical operating limits.
+
+    History, FFF3 writes, cranking/charging-test retrieval, FEE0/FEE1, OAD,
+    firmware, configuration, chemistry selection, voltage-curve interpolation
+    and alarm thresholds are outside this read-only spec.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/KrystianD/bm2-battery-monitor"
+    license: "MIT"
+    notes: >
+      The first client supplies AES framing, notification handling and voltage
+      extraction. The second independently supplies percentage/status fields,
+      enhanced/legacy advertisements and active/passive behavior.
+
+  identification:
+    local_name_prefixes: ["Battery Monitor", "Li Battery Monitor", "ZX-1689"]
+    service_uuids:
+      - "0000fff0-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 76
+      company_id_hex: "0x004c"
+      description: >
+        Legacy percentage-only advertisements use company ID 0x004c and a fixed
+        prefix. Enhanced advertisements instead derive their manufacturer ID
+        from the first two ciphertext bytes, so there is no second fixed ID to
+        declare. Length and plausible decoded values alone are weak identity.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fff0-0000-1000-8000-00805f9b34fb"
+          local_name:
+            match: "regex"
+            value: "^(Battery Monitor|Li Battery Monitor|ZX-1689)"
+          manufacturer_data:
+            company_id: 76
+            description: "Legacy BM2 percentage advertisement; enhanced records use a ciphertext-derived ID."
+        notes: >
+          Names and service UUIDs are selection leads, not telemetry
+          authentication. Active validation requires FFF4, a decryptable
+          16-byte F5 notification, plausible values and a known status. Missing
+          FFF4 is incompatible; a timeout or connection failure is inconclusive.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: "No account, cloud, pairing key or application credential is needed for the read-only paths."
+    methods:
+      - type: "ble_direct"
+        name: "Active FFF4 telemetry"
+        role: "primary"
+        verified: false
+        description: "Connect, subscribe to FFF4, decrypt and validate one fresh F5 notification, then stop notifications and disconnect."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Select a BM2 using the established name/service leads and discover FFF4."
+            actor: "client"
+          - action: "Subscribe to FFF4 and wait for a fresh notification without writing FFF3."
+            actor: "client"
+            timeout_seconds: 15
+          - action: "Require exactly 16 ciphertext bytes, decrypt using protocol_details.encryption, then validate the F5 type, values and status."
+            actor: "client"
+          - action: "Stop notifications and disconnect, including on timeout. Preserve cache age if falling back to advertisements."
+            actor: "client"
+      - type: "ble_direct"
+        name: "Passive advertisement telemetry"
+        role: "alternative"
+        verified: false
+        description: "Decode enhanced or legacy manufacturer data without connecting, preferring a valid enhanced observation."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Passively scan manufacturer data and decode protocol_details.enhanced_advertisement or legacy_advertisement."
+            actor: "client"
+          - action: "If an enhanced observation is followed by legacy data, refresh only percentage; retain enhanced voltage/generation and clear status."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: "No genuine BM2 manual or factory-reset procedure was established. Passive use has no state to reset."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No bond is required for these paths; reconnect or resume scanning."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "The published protocol AES constant is not an owner credential. No account or protected owner data is required."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: "The fixed protocol transform is not pairing and provides no sender authentication."
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "BM2 telemetry service"
+    characteristics:
+      - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+        name: "Encrypted voltage/status notification"
+        properties: ["notify"]
+        notes: >
+          One 16-byte AES-128-CBC ciphertext block. The plaintext starts with
+          F5. The big-endian word at bytes 1-2 packs voltage in its upper 12
+          bits and status in its low nibble: voltage = (word >> 4) / 100 V;
+          status = word & 0x0f. Percentage is byte 3. Require the complete
+          block and expected type before applying protocol_details decoding.
+        format:
+          - {offset: 0, length: 1, name: "packet_type", type: "uint8", notes: "0xf5 after decryption; ignore other packet types for this read-only profile."}
+          - {offset: 1, length: 2, name: "voltage", type: "uint16", endianness: "big", mask: 0xfff0, scale: 0.01, unit: "V", device_class: "voltage", notes: "Upper 12 bits. The mask shifts them down four places before scale, so 0x5080 becomes 1288 x 0.01 = 12.88 V. Status is a separate low-nibble field."}
+          - {offset: 2, length: 1, name: "status", type: "uint8", mask: 0x0f, values: {0: "Critical", 1: "Low", 2: "Normal", 4: "Charging", 8: "Floating"}, notes: "Other values are unknown. The reference charging flag is status >= 4, not a complete state model."}
+          - {offset: 3, length: 1, name: "battery_percent", type: "uint8", unit: "%", device_class: "battery", notes: "Accept 0-100; other values are invalid."}
+
+payload_formats:
+  FFF4_Voltage_Status:
+    description: "Decrypted FFF4 plaintext: 16 bytes in the validated example, with F5 type, packed voltage/status and percentage."
+    fields:
+      - {index: 0, name: "packet_type", description: "Must be 0xf5."}
+      - {index: 1, name: "voltage", unit: "V", mask: 0xfff0, scale: 0.01, description: "Big-endian packed word; the mask shifts the upper 12 bits down four before scale, giving (word >> 4) x 0.01 V. Status is separate."}
+      - {index: 2, name: "status", description: "Low nibble of the word: 0 Critical, 1 Low, 2 Normal, 4 Charging, 8 Floating; other values unknown."}
+      - {index: 3, name: "battery_percent", unit: "%", description: "Unsigned percentage, 0-100."}
+      - {index: 4, name: "padding_or_other", description: "No additional read-only telemetry established."}
+    parse_rules:
+      - "Require exactly 16 ciphertext bytes, then decrypt AES-128-CBC with protocol_details.encryption."
+      - "Require F5, percentage 0-100, voltage 5.0-20.0 V for active validation, and a known status nibble. These are client sanity bounds, not hardware ratings."
+      - "A notification timeout is inconclusive, not proof of incompatibility. Always stop notifications and clear advertisement-ignore state afterward."
+    example: "f5 50 82 50 00 00 00 00 00 00 00 00 00 00 00 00"
+
+  Enhanced_Advertisement:
+    description: "Fourteen-byte manufacturer body. Prepend its two-byte manufacturer ID in little-endian order to reconstruct one 16-byte encrypted block."
+    fields:
+      - {index: 6, name: "voltage", unit: "V", scale: 0.01, description: "Big-endian uint16 at decrypted bytes 6-7."}
+      - {index: 8, name: "battery_percent", unit: "%", description: "Unsigned byte at decrypted offset 8."}
+      - {name: "status", description: "Unavailable in this generation; do not infer it."}
+    parse_rules:
+      - "Decrypt the reconstructed block and accept voltage 5.0-20.0 V and percentage 0-100 inclusive; reject malformed or implausible values."
+      - "Prefer a valid enhanced record over legacy. A later legacy record may refresh percentage but retains enhanced voltage/generation and clears status."
+    example: "00 00 00 00 00 00 05 08 50 00 00 00 00 00 00 00"
+
+  Legacy_Advertisement:
+    description: "Company 0x004c, 23-byte manufacturer body: fixed 18-byte prefix, two major bytes, two minor bytes and one percentage byte."
+    fields:
+      - {index: 0, name: "fixed_prefix", description: "Must equal 02 15 65 5f 83 ca ae 16 a1 0a 70 2e 31 f3 0d 58 dd 82."}
+      - {index: 18, name: "major", description: "Two bytes with no established telemetry meaning."}
+      - {index: 20, name: "minor", description: "Two bytes with no established telemetry meaning."}
+      - {index: 22, name: "battery_percent", unit: "%", description: "Unsigned percentage, 0-100."}
+    parse_rules:
+      - "Require the exact length and prefix. Voltage and status are unavailable; do not invent them from major/minor."
+
+protocol_details:
+  encryption:
+    algorithm: "AES-128-CBC"
+    public_protocol_key_hex: "6c656167656e64fffe31383832343636"
+    iv_hex: "00000000000000000000000000000000"
+    block_bytes: 16
+    padding: "Zero-fill plaintext to a complete block for encryption; the public decryptor retains zero padding."
+    security: "Published shared constant, not an owner credential. Fixed key/IV encryption is deterministic and does not authenticate a device or constitute secure pairing."
+  active_validation:
+    ciphertext_bytes: 16
+    packet_type: 0xf5
+    voltage_formula: "(big_endian_uint16(bytes[1:3]) >> 4) / 100"
+    voltage_unit: "V"
+    status_formula: "big_endian_uint16(bytes[1:3]) & 0x0f"
+    percentage_offset: 3
+    accepted_voltage_range: [5.0, 20.0]
+    accepted_percentage_range: [0, 100]
+    known_status: {0: "Critical", 1: "Low", 2: "Normal", 4: "Charging", 8: "Floating"}
+    unknown_status_policy: "Unknown, never Normal or healthy; reference charging flag is status >= 4 but raw status is retained."
+    range_semantics: "Client sanity bounds, not verified hardware electrical limits."
+  enhanced_advertisement:
+    manufacturer_body_bytes: 14
+    reconstruction: "manufacturer_id little-endian uint16 || body = 16 ciphertext bytes; derive a fixture's ID from the first two ciphertext bytes, not an arbitrary value."
+    decrypted_voltage_offsets: [6, 7]
+    decrypted_voltage_encoding: "big-endian uint16 / 100"
+    decrypted_percentage_offset: 8
+    generation: "Enhanced (voltage + percentage advertisement)"
+    identity_caution: "Length and plausible values are weak identification; confirm via established discovery or active validation."
+  legacy_advertisement:
+    manufacturer_id: 76
+    manufacturer_body_bytes: 23
+    fixed_prefix_hex: "0215655f83caae16a10a702e31f30d58dd82"
+    major_offsets: [18, 19]
+    minor_offsets: [20, 21]
+    percentage_offset: 22
+    voltage: null
+    status: null
+    generation: "Legacy (percentage advertisement)"
+  read_behavior:
+    preference: "Fresh FFF4 notification first, then latest valid cached advertisement only if active access fails or no connectable path exists."
+    enhanced_legacy_coexistence: "Legacy can refresh percentage after enhanced data; retain enhanced voltage/generation and clear cached status."
+    cleanup: "Stop notifications and clear advertisement-ignore state on success, failure and timeout; disconnect after active polling."
+    no_path_behavior: "If neither active nor valid passive data exists, report unavailable rather than a healthy default."
+    freshness: "The upstream passive cache has no demonstrated expiry. Timestamp it and expose staleness rather than presenting old data as fresh."
+  test_vectors:
+    active_gatt:
+      plaintext_hex: "f5508250000000000000000000000000"
+      ciphertext_hex: "cd9da1bfc3eb131c5990df265d064dc4"
+      voltage_v: 12.88
+      battery_percent: 80
+      status: 2
+      status_text: "Normal"
+      constructed: true
+    enhanced_advertisement:
+      plaintext_hex: "00000000000005085000000000000000"
+      ciphertext_hex: "f0a8aa0a2e42b2a68aafdd2e23559079"
+      manufacturer_id: 43248
+      manufacturer_body_hex: "aa0a2e42b2a68aafdd2e23559079"
+      voltage_v: 12.88
+      battery_percent: 80
+      status: null
+      constructed: true
+    legacy_advertisement:
+      manufacturer_id: 76
+      manufacturer_body_hex: "0215655f83caae16a10a702e31f30d58dd820001000250"
+      battery_percent: 80
+      voltage_v: null
+      status: null
+      constructed: true
+
+entities:
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_characteristic: "0000fff4-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "voltage"}
+    notes: "FFF4: (big-endian word >> 4) / 100. Enhanced advertisement: uint16 BE at decrypted bytes 6-7 divided by 100. Legacy: unavailable."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "0000fff4-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "battery_percent"}
+    notes: "FFF4 byte 3, enhanced decrypted byte 8, or legacy body byte 22; always require 0-100."
+  - platform: "sensor"
+    name: "Battery Status"
+    notes: "FFF4 low nibble only: Critical, Low, Normal, Charging, Floating, or Unknown. Advertisements do not supply status."
+  - platform: "binary_sensor"
+    name: "Charging"
+    device_class: "battery_charging"
+    notes: "Reference client flag is FFF4 status >= 4; preserve the raw enum because this flag is not a complete state model."
+
+local_access:
+  status: "native"
+  summary: "Active and passive BM2 telemetry work locally without an account or vendor cloud."
+  covers:
+    - "FFF4 encrypted voltage, percentage and raw status notifications"
+    - "Enhanced voltage/percentage and legacy percentage-only advertisements"
+    - "Validation, fallback and staleness boundaries"
+  not_covered:
+    - "FFF3/history, cranking/charging-test history, FEE0/FEE1 and OAD"
+    - "Firmware/configuration, chemistry settings, interpolation and alarms"
+    - "BM6 and other battery-monitor families"
+
+cloud:
+  required: false
+  notes: "No cloud interface or account is needed for these local BLE paths."
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      url: "https://github.com/KrystianD/bm2-battery-monitor"
+      artifact: "KrystianD/bm2-battery-monitor, commit 494a39c5edfbf5c76906469f0da545e42882b28c (MIT)"
+      description: "AES framing, FFF4 notification handling and the big-endian/shift voltage decoder; four source checks passed."
+    - type: "public_implementation"
+      url: "https://github.com/andystewart999/ha_bm2monitor"
+      artifact: "andystewart999/ha_bm2monitor 1.4.1, commit cbd9630b2204c91c9ab3b555774fb431f749dbed (MIT)"
+      description: "Percentage/status fields, enhanced/legacy advertisements, active validation and passive fallback; fifteen source checks passed."
+  documentation_review: >
+    Reviewed 2026-11-03 research and normalized profile. The spec's independent
+    tests decrypt constructed vectors and check both advertisement generations,
+    packed values and malformed inputs. No live BLE or vehicle was used.
+  open_questions: >
+    Electrical accuracy, installation limits, actual firmware population,
+    packet cadence, advertisement identity strength and physical reset behavior.
+
+remaining_unknowns:
+  - "No genuine BM2 manual was found; electrical, installation and environmental ratings are not asserted."
+  - "No physical BM2 was used. Source-level checks do not prove firmware coverage, accuracy or rebrand compatibility."
+  - "The enhanced advertisement's manufacturer ID is ciphertext-derived; length and plausible values alone are weak identity."
+  - "Passive-cache expiry, notification cadence and all major/minor legacy fields remain unresolved."
+
+helpful_urls:
+  - title: "KrystianD/bm2-battery-monitor (MIT)"
+    url: "https://github.com/KrystianD/bm2-battery-monitor"
+    kind: "implementation"
+    description: "Public BM2 client supplying AES framing, FFF4 notification handling and voltage extraction."
+  - title: "andystewart999/ha_bm2monitor (MIT)"
+    url: "https://github.com/andystewart999/ha_bm2monitor"
+    kind: "implementation"
+    description: "Local BM2 integration supplying percentage/status, enhanced/legacy advertisements and active/passive behavior."

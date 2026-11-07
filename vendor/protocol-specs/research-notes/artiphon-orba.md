@@ -15,7 +15,10 @@ owner guide is `docs/devices/artiphon-orba-2.md`.
 
 - Standard BLE-MIDI service `03b80e5a-ede8-4b33-a751-6ce34ec4c700` and I/O
   characteristic `7772e5db-3868-4112-a1a9-f2669d106bf3`, write + notify.
-  Filter on the service because the post-connection name can differ.
+  Identify by the exact advertised name `Artiphon Orba 2` together with the
+  service: the service is shared by every BLE-MIDI product and the spec has
+  erase commands. The GAP name read after connecting can differ from the
+  advertised one. A renamed or differently named unit is chosen by the user.
 - One BLE central at a time. No account or cloud is needed for playing or
   configuration. USB-MIDI carries the same SysEx command layer.
 - SysEx contains `00` followed by LSB-first 8-to-7-bit packing of
@@ -38,3 +41,16 @@ local browser controller and should be the first owner recommendation.
 
 Metronome's exact enum, battery reply semantics, the preset-file workflow,
 firmware/content archives, and compatibility with every other Artiphon model.
+
+## Sources for manufacturer status
+
+The spec's `manufacturer_status: shutdown` rests on these dated reports,
+carried over from the pre-November note:
+
+- Artiphon suspended operations in August 2025
+  ([polyexpression.com community thread, 2025-08-19](https://community.polyexpression.com/t/artiphon-out-of-business/2347)).
+- A Chapter 7 (liquidation, not restructuring) bankruptcy was reported
+  ([Zynthian discourse, 2025-10-24](https://discourse.zynthian.org/t/artiphon-chorda-orba-instrument-1-and-bankruptcy/12524)).
+- The holofermes/orba-protocol README (2026-06) states that the company
+  ceased operations and entered liquidation in 2025 and that the official
+  app and cloud are abandoned.

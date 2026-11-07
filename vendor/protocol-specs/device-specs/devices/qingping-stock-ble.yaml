@@ -1,0 +1,446 @@
+# Qingping / ClearGrass stock BLE advertisements — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (public, clean-room; derived facts only):
+#   - Bluetooth-Devices/qingping-ble 1.3.0, commit
+#     27d07f8d93648400024f1f1205c8f3fbd8982d72 (MIT), parser and fixtures.
+#   - Home Assistant's Qingping integration documentation (passive local reads).
+#   - Archived Qingping CGG1 user guide (setup and model-specific reset only).
+
+device:
+  name: "Qingping / ClearGrass Sensors (stock BLE broadcasts)"
+  manufacturer: "Qingping / ClearGrass"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not scanned or driven against hardware by this project. The envelope,
+      model IDs and TLV decodes come from qingping-ble 1.3.0 and its anonymized
+      fixtures. Its 39 tests passed upstream; the independent tests shipped
+      with this spec check the documented decoding, not physical compatibility.
+  protocol: "ble"
+  category: "sensor"
+  type: "environmental-sensor-family"
+  notes: >
+    A receive-only decoder for the stock Qingping/ClearGrass service-data
+    broadcasts under 0xFDCD. No connection, pairing, account, hub or cloud is
+    needed for current readings. This is NOT the PVVX/custom 0x181A format,
+    MiBeacon, BTHome, a LoRaWAN transport, or a GATT configuration API.
+
+    The packet starts with an flags/type header and a six-byte address-like
+    field, followed by type-length-value records. Different models emit
+    different subsets. Update only fields present in a packet and retain the
+    previous value for fields it omits. In particular, TLV 0x18 is a static
+    capability bitmap, NOT CO2; only TLV 0x13 carries CO2. On event packets
+    (header bit 6), TLV 0x08 updates motion but its illuminance bytes are not
+    a valid light reading.
+
+    Broadcasts have no sender authentication, encryption, signature or replay
+    protection in the documented parser. Validate lengths and do not use one
+    unauthenticated reading as the sole input to a medical alarm, safety
+    interlock or high-confidence occupancy decision.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/Bluetooth-Devices/qingping-ble"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://www.home-assistant.io/integrations/qingping/"
+        title: "Home Assistant — Qingping"
+        covers: "Passive local reception without a cloud account, polling or a hub; app-only configuration boundary."
+    notes: >
+      Qingping does not publish this stock service-data layout here. The
+      maintained open parser and its fixtures are the protocol evidence.
+
+  identification:
+    service_uuids:
+      - "0000fdcd-0000-1000-8000-00805f9b34fb"
+    notes: >
+      Match service DATA under 16-bit UUID 0xFDCD, not a connectable GATT
+      service. The second service-data byte selects the model using
+      protocol_details.device_types; unknown IDs remain unknown.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fdcd-0000-1000-8000-00805f9b34fb"
+        notes: >
+          Passively read the service-data value associated with 0xFDCD. Do not
+          connect or write to discover support. Check the model byte and every
+          TLV length before decoding. Unknown model and TLV IDs are skipped
+          without discarding valid neighboring values.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No setup is needed for the passive subset. Historical apps, optional
+      Bluetooth gateways, display settings and history synchronization are
+      separate surfaces and are not required to receive these broadcasts.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for stock 0xFDCD service data, select the model from byte 1,
+          then walk complete TLVs and update only the values they carry.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Passively scan for service data under 0000fdcd-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+          - action: "Require at least the eight-byte header, accept only a known device-type byte, and walk each complete type-length-value record."
+            actor: "client"
+            expect: "Known measurements update; omitted fields retain their previous values and malformed TLVs are skipped."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No family-wide reset procedure is established. The archived CGG1 guide
+        says its factory reset erases local history and releases app pairing;
+        do not generalize that procedure or its effects to the other models.
+      description: >
+        Passive reception creates no pairing state to clear. A model-specific
+        reset is a destructive owner operation in the vendor app or device UI,
+        not part of this receive-only protocol.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No network membership or passive-client bond; resume scanning."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No credential is needed for stock advertisements. Optional app/gateway accounts are outside this spec."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: >
+      Nothing pairs for passive reception. The frames themselves provide no
+      pairing proof or sender authentication. This does not rule out bonding
+      on a separate GATT history or configuration surface not covered here.
+
+payload_formats:
+  FDCD_Service_Data:
+    description: >
+      One stock Qingping service-data VALUE, excluding the two-byte 0xFDCD
+      UUID. All offsets below start at the first value byte. TLVs begin at
+      offset 8 and repeat as type, length, payload until the value ends.
+    fields:
+      - index: 0
+        name: "header"
+        description: "Flags byte. Bit 6 (0x40) marks an event packet; other bits are not fully established."
+      - index: 1
+        name: "device_type"
+        description: "One-byte model ID; see protocol_details.device_types. Unknown IDs are not guessed."
+      - index: 2
+        name: "address_like"
+        description: "Six bytes. The source parser does not use them to prove identity or select a model; redact them in published captures."
+      - index: 8
+        name: "first_tlv"
+        description: "Type byte, one-byte payload length, then exactly that many payload bytes. Subsequent TLVs use the same envelope."
+    parse_rules:
+      - "Require the complete eight-byte header before walking TLVs. A packet with no TLV payload carries no new measurement."
+      - "At offset 8, read type and length, then require the whole declared payload to fit. Skip a truncated TLV rather than decoding a partial value."
+      - "Skip unknown TLV IDs and continue with the next complete record. Do not let an unknown record discard valid known measurements."
+      - "If header & 0x40 is nonzero, this is an event packet: TLV 0x08 may update motion, but do not update illuminance from that TLV."
+      - "All multibyte numbers in protocol_details.tlvs are little-endian. Apply the declared scale once. Preserve missing values as unavailable, never zero."
+      - "Worked CGDK2-shaped example: 08 10 00 00 00 00 00 00 01 04 1c 01 af 02 02 01 64 = model 0x10, temperature 28.4 C, humidity 68.7 percent, battery 100 percent. The six zero bytes are a placeholder address-like field."
+    example: "08 10 00 00 00 00 00 00 01 04 1c 01 af 02 02 01 64"
+
+  FDCD_TLVs:
+    description: >
+      Measurement payloads carried by FDCD_Service_Data. The authoritative
+      machine-readable lengths, field offsets, types, scales and special cases
+      are in protocol_details.tlvs. A packet may contain any subset.
+    fields:
+      - name: "temperature_humidity"
+        description: "TLV 0x01: int16 LE temperature x 0.1 C, then uint16 LE relative humidity x 0.1 percent."
+      - name: "battery"
+        description: "TLV 0x02: one byte percent. 0xff means externally powered and is displayed as 100, not measured battery capacity."
+      - name: "door"
+        description: "TLV 0x04: values 0 and 2 mean door/open true; only 2 also means left-open/problem true."
+      - name: "pressure"
+        description: "TLV 0x07: uint16 LE x 0.1 mbar."
+      - name: "motion_illuminance_24"
+        description: "TLV 0x08: one motion byte followed by low uint16 and high uint8 illuminance. Ignore the light bytes on event packets."
+      - name: "illuminance_32"
+        description: "TLV 0x09: uint32 LE lux."
+      - name: "ambient_light"
+        description: "TLV 0x11: one-byte ambient-light boolean."
+      - name: "particulates"
+        description: "TLV 0x12: uint16 LE PM2.5 and uint16 LE PM10, both ug/m3."
+      - name: "co2"
+        description: "TLV 0x13: uint16 LE ppm. This is the only CO2 measurement TLV; 0x18 is a capability bitmap."
+      - name: "voc_index"
+        description: "TLV 0x15: uint16 LE unitless VOC index. Do not convert it to a concentration or assert a precise range."
+      - name: "capability_bitmap"
+        description: "TLV 0x18: two-byte static hardware capability bitmap, not a sensor output."
+      - name: "sound_pressure"
+        description: "TLV 0x19: one-byte sound pressure in dB."
+      - name: "packet_id"
+        description: "TLV 0x0f: one-byte packet identifier, metadata rather than a measurement."
+    parse_rules:
+      - "Select the decoder by TLV ID and require the exact declared payload length before reading fields."
+      - "For TLV 0x08 in a non-event packet, illuminance = uint16_le(payload[1:3]) + (payload[3] << 16)."
+      - "Retain the last value when a later packet omits a field or an event packet invalidates only the illuminance portion of TLV 0x08."
+
+protocol_details:
+  service_data_uuid: "0000fdcd-0000-1000-8000-00805f9b34fb"
+  transport: "passive BLE service data; no GATT connection"
+  envelope:
+    header_bytes: 8
+    event_mask: 0x40
+    device_type_offset: 1
+    address_like_offset: 2
+    address_like_length: 6
+    first_tlv_offset: 8
+    tlv_header_bytes: 2
+    authenticated: false
+  device_types:
+    "0x01": "CGG1"
+    "0x07": "CGG1"
+    "0x04": "CGH1 Door/Window Sensor"
+    "0x09": "CGP1W"
+    "0x0c": "CGD1 Alarm Clock"
+    "0x0e": "CGDN1 Air Monitor Lite"
+    "0x24": "CGDN1 Air Monitor Lite"
+    "0x0f": "CGM1 Lee Guitars Thermo-Hygrometer"
+    "0x10": "CGDK2 Temp & RH Monitor Lite"
+    "0x12": "CGPR1 Motion & Light"
+    "0x15": "CGF1W Temp RH Pro E"
+    "0x16": "CGG1 Temp RH M"
+    "0x18": "CGP23W Temp & RH Monitor Pro"
+    "0x1e": "CGC1 BT Clock Lite"
+    "0x26": "CGP23W Temp RH Baro Pro S"
+    "0x33": "CGP22C CO2 Temp RH"
+    "0x5d": "CGP22C CO2 Temp RH"
+    "0x4f": "CGG3 Temp RH M"
+    "0x52": "CGR1PC Indoor Environment Monitor"
+    "0x62": "CGR1PC Indoor Environment Monitor"
+  tlvs:
+    "0x01":
+      length: 4
+      fields:
+        - {name: "temperature", offset: 0, type: "int16", endianness: "little", scale: 0.1, unit: "C"}
+        - {name: "relative_humidity", offset: 2, type: "uint16", endianness: "little", scale: 0.1, unit: "%"}
+    "0x02":
+      length: 1
+      fields:
+        - {name: "battery", offset: 0, type: "uint8", scale: 1, unit: "%", externally_powered_value: 255, externally_powered_display: 100}
+    "0x04":
+      length: 1
+      fields:
+        - {name: "door_open", offset: 0, type: "uint8", true_values: [0, 2]}
+        - {name: "left_open_or_problem", offset: 0, type: "uint8", true_values: [2]}
+    "0x07":
+      length: 2
+      fields:
+        - {name: "pressure", offset: 0, type: "uint16", endianness: "little", scale: 0.1, unit: "mbar"}
+    "0x08":
+      length: 4
+      fields:
+        - {name: "motion", offset: 0, type: "uint8", valid_on_event: true}
+        - {name: "illuminance_low", offset: 1, type: "uint16", endianness: "little", valid_on_event: false}
+        - {name: "illuminance_high", offset: 3, type: "uint8", valid_on_event: false}
+      illuminance_formula: "low + (high << 16)"
+      illuminance_unit: "lux"
+    "0x09":
+      length: 4
+      fields:
+        - {name: "illuminance", offset: 0, type: "uint32", endianness: "little", scale: 1, unit: "lux"}
+    "0x11":
+      length: 1
+      fields:
+        - {name: "ambient_light", offset: 0, type: "uint8", true_values: [1]}
+    "0x12":
+      length: 4
+      fields:
+        - {name: "pm25", offset: 0, type: "uint16", endianness: "little", scale: 1, unit: "ug/m3"}
+        - {name: "pm10", offset: 2, type: "uint16", endianness: "little", scale: 1, unit: "ug/m3"}
+    "0x13":
+      length: 2
+      fields:
+        - {name: "co2", offset: 0, type: "uint16", endianness: "little", scale: 1, unit: "ppm"}
+    "0x15":
+      length: 2
+      fields:
+        - {name: "voc_index", offset: 0, type: "uint16", endianness: "little", scale: 1, unit: "index", range: "unresolved; source comments disagree on 0-500 versus 1-500"}
+    "0x18":
+      length: 2
+      fields:
+        - {name: "hardware_capabilities", offset: 0, type: "uint16", endianness: "little", sensor_output: false, notes: "Capability bitmap, not CO2."}
+    "0x19":
+      length: 1
+      fields:
+        - {name: "sound_pressure", offset: 0, type: "uint8", scale: 1, unit: "dB"}
+    "0x0f":
+      length: 1
+      fields:
+        - {name: "packet_id", offset: 0, type: "uint8", sensor_output: false}
+  update_policy:
+    omitted_fields: "retain previous value"
+    malformed_fields: "skip; never substitute zero"
+    unknown_models: "ignore rather than guess"
+    unknown_tlvs: "skip without discarding valid known TLVs"
+    event_tlv_08: "update motion only; retain previous illuminance"
+  test_vectors:
+    cgdk2_temperature_humidity_battery:
+      packet_hex: "08 10 00 00 00 00 00 00 01 04 1c 01 af 02 02 01 64"
+      model: "CGDK2 Temp & RH Monitor Lite"
+      temperature_c: 28.4
+      relative_humidity_percent: 68.7
+      battery_percent: 100
+      address_placeholder: true
+    capability_is_not_co2:
+      packet_hex: "08 10 00 00 00 00 00 00 18 02 34 12"
+      expected_co2: null
+      hardware_capabilities: 0x1234
+    event_motion_does_not_replace_illuminance:
+      packet_hex: "48 12 00 00 00 00 00 00 08 04 01 34 12 01"
+      motion: 1
+      expected_illuminance_update: false
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    notes: "TLV 0x01, only on models that emit it; passive service data, not a GATT characteristic."
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    notes: "TLV 0x01; retain the previous value when omitted."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: "TLV 0x02. 0xff denotes external power, not a battery measurement."
+  - platform: "sensor"
+    name: "Pressure"
+    device_class: "atmospheric_pressure"
+    unit: "mbar"
+    notes: "TLV 0x07."
+  - platform: "sensor"
+    name: "Illuminance"
+    device_class: "illuminance"
+    unit: "lux"
+    notes: "TLV 0x09, or 0x08 only on non-event packets."
+  - platform: "sensor"
+    name: "PM2.5"
+    device_class: "pm25"
+    unit: "ug/m3"
+    notes: "TLV 0x12."
+  - platform: "sensor"
+    name: "PM10"
+    device_class: "pm10"
+    unit: "ug/m3"
+    notes: "TLV 0x12."
+  - platform: "sensor"
+    name: "CO2"
+    device_class: "carbon_dioxide"
+    unit: "ppm"
+    notes: "TLV 0x13 only. Never infer CO2 from the 0x18 capability bitmap."
+  - platform: "sensor"
+    name: "VOC Index"
+    unit: "index"
+    notes: "TLV 0x15, unitless; exact valid range unresolved."
+  - platform: "sensor"
+    name: "Sound Pressure"
+    device_class: "sound_pressure"
+    unit: "dB"
+    notes: "TLV 0x19."
+  - platform: "binary_sensor"
+    name: "Door"
+    device_class: "door"
+    notes: "TLV 0x04 values 0 and 2 are open/true; value 2 additionally indicates left-open/problem."
+  - platform: "binary_sensor"
+    name: "Motion"
+    device_class: "motion"
+    notes: "TLV 0x08 first byte, including event packets."
+  - platform: "binary_sensor"
+    name: "Ambient Light"
+    device_class: "light"
+    notes: "TLV 0x11 boolean."
+
+local_access:
+  status: "native"
+  summary: "Current sensor values are available entirely from passive local advertisements."
+  covers:
+    - "Stock 0xFDCD model identification and complete TLV framing"
+    - "Temperature, humidity, battery, pressure, light, particulates, CO2, VOC index, sound, door and motion where emitted"
+  not_covered:
+    - "History download, display/configuration writes, alarms, naming and firmware update"
+    - "PVVX custom firmware, MiBeacon, BTHome, LoRaWAN and cloud/gateway APIs"
+
+cloud:
+  required: false
+  vendor_service: "Optional Qingping app account and Bluetooth gateway"
+  notes: "Neither is needed for the passive local subset. No cloud interface is specified here."
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      url: "https://github.com/Bluetooth-Devices/qingping-ble"
+      artifact: "Bluetooth-Devices/qingping-ble 1.3.0, commit 27d07f8d93648400024f1f1205c8f3fbd8982d72"
+      description: >
+        Source and anonymized fixtures for the 0xFDCD envelope, model IDs,
+        TLV lengths/scales, event handling and last-value behavior. Its 39
+        parser tests passed upstream on 2026-11-01. No implementation code
+        is copied into this spec.
+    - type: "public_implementation"
+      url: "https://www.home-assistant.io/integrations/qingping/"
+      description: >
+        Confirms passive local updates without an account or hub and the
+        separate app-only configuration surface. Its published model list is
+        narrower than the parser mapping and is not treated as exhaustive.
+    - type: "vendor_documentation"
+      url: "https://web.archive.org/web/20230101000000/https://mi-house.ru/asserts/instructions/2321/1/CGG1.pdf"
+      artifact: "Qingping CGG1 user guide, archived five-page copy"
+      description: "Model-specific setup, historical app/gateway roles and destructive CGG1 reset; no byte layout."
+  documentation_review: >
+    Reviewed 2026-11-01 after the maintained parser's tests passed. This
+    project's independent test transcribes the envelope and TLV rules with
+    the standard library; it does not claim a physical scan or connection.
+  open_questions: >
+    Remaining header bits and model-specific event variants; physical captures
+    for CGDK2, CGR1PC and CGP23W Pro S; VOC index range; complete per-model
+    TLV support; stock GATT history/configuration and family-wide reset rules.
+
+remaining_unknowns:
+  - "No physical advertisements were captured by this project; all byte-level facts are source/fixture-derived and untested here."
+  - "The remaining header bits, and whether individual models add event variants beyond the documented bit-6 rule."
+  - "The VOC index range: upstream comments say 0-500 while a constant says 1-500. Keep it unitless and unbounded until resolved."
+  - "Home Assistant advertises fewer models than the parser recognizes. Parser support is not proof of physical support for CGDK2, CGR1PC or CGP23W Pro S."
+  - "History, configuration, alarms, naming, display content and firmware update use separate surfaces not documented here."
+
+helpful_urls:
+  - title: "Bluetooth-Devices/qingping-ble (MIT)"
+    url: "https://github.com/Bluetooth-Devices/qingping-ble"
+    kind: "implementation"
+    description: "Maintained parser and anonymized fixtures for stock 0xFDCD advertisements; source of the envelope, model and TLV maps."
+  - title: "Home Assistant Qingping integration"
+    url: "https://www.home-assistant.io/integrations/qingping/"
+    kind: "implementation"
+    description: "Passive local-update behavior, account/hub independence and app-only configuration boundary."
+  - title: "Qingping CGG1 user guide (archived PDF)"
+    url: "https://web.archive.org/web/20230101000000/https://mi-house.ru/asserts/instructions/2321/1/CGG1.pdf"
+    kind: "manual"
+    description: "Archived five-page guide for CGG1 specifically: setup, historical app/gateway roles and the destructive local-history/pairing reset. Not a family-wide reset guide."
+  - title: "Qingping Bluetooth gateway"
+    url: "https://qingping.co/bluetooth-gateway"
+    kind: "vendor_support"
+    description: "Official optional gateway path; not required for passive local reception."

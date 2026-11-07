@@ -21,6 +21,13 @@ A 2026-08 teardown of the vendor app (Japanese OMRON connect
 split-channel reassembly rule and the pairing exchange below, and ships
 per-model EEPROM memory-map configs for 86 model variants.
 
+!!! warning "Medical device"
+    Readings synced through this spec are a personal log, not a clinical
+    measurement, and must never be the sole basis for a medication decision
+    or for deciding whether to seek care. Chart them if you like; dose from
+    the monitor's own display and your care team's instructions. The spec
+    carries a `safety_advisory` saying so.
+
 ## Hardware
 
 | Property | Value |

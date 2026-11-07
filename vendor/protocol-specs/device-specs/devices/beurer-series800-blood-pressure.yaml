@@ -73,6 +73,26 @@ device:
     the printed manual should carry it); (5) whether a user-slot selection
     write precedes sync — the Pro app has a user-selection view model, but
     the relevant methods could not be read cleanly.
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      Blood-pressure readings synced from the monitor are a personal log,
+      not a basis for a medication decision.
+    detail: >
+      A third-party client reads measurements the monitor has already taken
+      and stored; it starts nothing, takes no measurement and adds no
+      accuracy of its own. Show systolic, diastolic and pulse exactly as the
+      record carries them, in the unit its flag says (a kPa record must be
+      converted and labelled, never shown as mmHg), with the timestamp and
+      the irregular-heartbeat flag when set. A number that arrived through
+      this spec must never decide a dose, a skipped dose or whether to seek
+      care: the monitor's own display, its instructions for use and a
+      healthcare professional govern. The record layout here is
+      reconstructed from the sister BM85 and not yet confirmed on a BM92, so
+      a field may be wrong. This spec and any client built from it are
+      experimental and unaffiliated with Beurer.
+    acknowledge_required: true
+
   identification:
     local_name_prefix: "PREMIUM800"
     service_uuids:

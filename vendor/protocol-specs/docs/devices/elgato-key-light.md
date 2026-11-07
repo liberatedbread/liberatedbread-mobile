@@ -26,13 +26,19 @@ unknowns.
 | Model / board id | Local surface |
 | --- | --- |
 | Key Light (53), Key Light Air (200), Key Light MK.2 (205), Key Light Neo (210), Key Light Mini (202), Ring Light (201) | CCT: on/off, brightness, mired white point |
-| Light Strip (70), Light Strip Pro (206) | HSV: on/off, brightness, hue/saturation; read-only scene state |
+| Light Strip (70), Light Strip Pro (206) | Colour-capable: on/off, brightness, hue/saturation, and a white point limited to 153–285 mired; read-only scene state |
 | Key Light Air MK.2 (214) | **Excluded** — mutual-TLS WebSocket, not this API |
 
-Board ids are naming hints, not the capability test. A client should inspect
-`GET /elgato/lights`: `temperature` means CCT, `hue` means direct HSV, and
-`scene` means a running scene. Probe `GET /elgato/battery-info` once for the
-Mini's battery surface; a 404 means no battery.
+Board ids are naming hints, not the capability test. `GET /elgato/lights`
+alone cannot tell a white-only light from a strip: a Light Strip in white mode
+answers with `temperature` and no `hue`, exactly like a Key Light. Decide the
+device type once, from `GET /elgato/lights/settings` (a strip reports
+`powerOnHue`; white-only lights do not) and `GET /elgato/accessory-info`
+(`productName` "Elgato Light Strip" or "Elgato Light Strip Pro"). Then the
+lights reply gives a strip's mode: `hue` means colour, `temperature` without
+`hue` means white, and `scene` means a running scene. Probe
+`GET /elgato/battery-info` once for the Mini's battery surface; a 404 means no
+battery.
 
 ## Initial Setup
 
@@ -81,6 +87,7 @@ per light and serialize requests.
 | --- | --- | --- |
 | GET | `/elgato/accessory-info` | Identity, model, firmware and Wi-Fi metadata |
 | GET / PUT | `/elgato/lights` | Read state / apply a partial state update |
+| GET | `/elgato/lights/settings` | Power-on defaults; `powerOnHue` marks a strip |
 | GET | `/elgato/battery-info` | Key Light Mini battery and charging data |
 | POST | `/elgato/identify` | Blink the selected light |
 | PUT | `/elgato/firmware-update/prepare` | Advanced: start a signed firmware upload |
@@ -93,13 +100,13 @@ trusted LAN and do not expose TCP 9123 to the internet.
 
 ### State and control examples
 
-CCT reply:
+White-only light, or a Light Strip in white mode:
 
 ```json
 {"numberOfLights": 1, "lights": [{"on": 1, "brightness": 43, "temperature": 221}]}
 ```
 
-Direct HSV reply:
+Light Strip in colour mode:
 
 ```json
 {"numberOfLights": 1, "lights": [{"on": 1, "hue": 200.0, "saturation": 100.0, "brightness": 50}]}
@@ -116,10 +123,16 @@ are intentional; do not replay fields the user did not change.
 | White point 221 mired | `{"lights":[{"temperature":221}]}` |
 | Hue 200°, saturation 100% | `{"lights":[{"hue":200,"saturation":100}]}` |
 
-Use brightness 3–100 and temperature 143–344 mired. `on` is an integer 0/1,
+Use brightness 3–100, and temperature 143–344 mired on white-only lights
+but 153–285 mired on a Light Strip (Home Assistant's limits for the two). `on` is an integer 0/1,
 not a JSON boolean. Brightness zero does not switch the light off; it leaves
 `on=1` with no visible output. Clamp client-side because range handling is not
 consistent across models.
+
+A brightness-only write to a Light Strip in white mode makes it jump back to
+colour mode. Home Assistant's integration therefore resends the current
+temperature with every brightness write in white mode, for example
+`{"lights":[{"brightness":50,"temperature":200}]}`; do the same.
 
 A running Light Strip scene needs special care: a bare power, brightness or
 colour write discards it, and there is no scene-list endpoint. The scene entity
@@ -127,6 +140,12 @@ is therefore read-only in this spec. Cache the complete observed scene before
 implementing any scene-preserving write or restore flow.
 
 ## Firmware Update
+
+Elgato runs no separate firmware service: images ship inside the Control
+Center application. Its public release index at `https://gc-updates.elgato.com/`
+points at the current macOS build, and python-elgato reads the per-board
+images straight out of that zip. On a battery light, connect power first;
+python-elgato refuses to start an update on battery below 20%.
 
 Classic models accept a complete, board-specific vendor image through the
 three advanced update endpoints. Images carry a 128-byte header and an Ed25519

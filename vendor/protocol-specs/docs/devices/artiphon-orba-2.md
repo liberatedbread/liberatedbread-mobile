@@ -24,8 +24,13 @@ a browser controller using Web Bluetooth or Web MIDI with no account.
 ## Initial Setup and Pairing
 
 No account or provisioning is required. Wake the Orba and close any other
-central, then connect by the **service UUID**, not only by name. The name can
-change after connection. The device holds one BLE central at a time.
+central, then connect to the device whose advertised name is exactly
+`Artiphon Orba 2` **and** which carries the BLE-MIDI service. Neither signal is
+enough alone: the BLE-MIDI service is on every BLE-MIDI product, and this spec
+has destructive erase commands. The name read after connecting can differ
+from the advertised one, so match on the advertisement. A unit advertising
+another name is not matched automatically; the user picks it. The device
+holds one BLE central at a time.
 
 | Property | Value |
 |----------|-------|

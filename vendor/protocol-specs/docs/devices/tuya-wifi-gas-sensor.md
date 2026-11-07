@@ -29,7 +29,11 @@ is fully controllable over the LAN forever — no Tuya cloud, no DNS redirect.
 
 > **SAFETY**: this is a life-safety device. Local control must never replace
 > its standalone alarm function, and DP 12 (`alarm_switch`) can silence the
-> buzzer entirely — treat that toggle with care.
+> buzzer entirely — treat that toggle with care. A notification that travels
+> through Wi-Fi, a hub and an app can be late, lost or stale: never make it the
+> thing that tells you about a leak, and treat a sensor that stops reporting as
+> a fault to surface, not as quiet. The spec carries a `safety_advisory`
+> (`danger`, acknowledgement required) saying so.
 
 ## Hardware
 

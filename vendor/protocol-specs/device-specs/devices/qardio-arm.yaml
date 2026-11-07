@@ -147,8 +147,8 @@ device:
         description: >
           The whole flow as LibreArm runs it. The cuff is switched on by
           unwrapping it, bonds on the first secured operation, streams
-          0x2a35 records once notifications are enabled, and measures when
-          f1 01 is written to the control characteristic.
+          0x2a35 records once measurement updates are enabled, and measures
+          when f1 01 is written to the control characteristic.
         ble:
           pairing_required: true
         steps:
@@ -161,7 +161,7 @@ device:
           - action: "Discover services 00001810-0000-1000-8000-00805f9b34fb and 0000180f-0000-1000-8000-00805f9b34fb; read Battery Level 00002a19-0000-1000-8000-00805f9b34fb if present."
             actor: "client"
             expect: "One byte, 0-100 percent. LibreArm refuses to start below 10 percent and warns below 20."
-          - action: "Enable notifications on 00002a35-0000-1000-8000-00805f9b34fb (CCCD 01 00)."
+          - action: "Enable updates on 00002a35-0000-1000-8000-00805f9b34fb using its exposed mechanism: indications in the SIG profile (CCCD 02 00), rather than assuming notifications."
             actor: "client"
             expect: >
               On a fresh cuff the OS raises a pairing prompt here; accept
@@ -173,7 +173,7 @@ device:
           - action: "Write f1 01 to 583cb5b3-875d-40ed-9098-c39eb0c1983d to start the measurement."
             actor: "client"
             expect: >
-              The cuff inflates. 0x2a35 notifications follow while it
+              The cuff inflates. 0x2a35 measurement updates follow while it
               inflates and deflates; keep the one whose systolic and
               diastolic are both finite and positive with systolic above
               diastolic. LibreArm abandons a run that produces none within
@@ -214,7 +214,7 @@ device:
               expect: "A green light shines through the hatch; the stored bond is gone."
             - action: "On the phone that was paired, open Bluetooth settings and forget the QardioArm entry so the phone does not try to reuse the old keys."
               actor: "user"
-            - action: "Connect and enable notifications on 00002a35-0000-1000-8000-00805f9b34fb; accept the new pairing prompt."
+            - action: "Connect and enable 00002a35-0000-1000-8000-00805f9b34fb updates using its exposed property (indications in the SIG profile); accept the new pairing prompt."
               actor: "client"
     rejoin:
       in_place_supported: false
@@ -271,7 +271,7 @@ device:
       cuff appears in the phone's Bluetooth device list, and LibreArm maps
       ATT errors 0x05 (insufficient authentication), 0x08 (insufficient
       authorization), 0x0c (insufficient encryption key size) and 0x0f
-      (insufficient encryption) on its notification enable or start write to
+      (insufficient encryption) on its measurement-update enable or start write to
       "the cuff needs re-pairing". That pattern is a secured characteristic
       behind a Just Works bond. The Android port never calls for a bond
       itself and still works, which is consistent with the stack bonding on
@@ -286,12 +286,12 @@ services:
       characteristic. The standard Blood Pressure Feature (0x2a49) and
       Intermediate Cuff Pressure (0x2a36) characteristics are not reported
       by either open client; whether the cuff exposes them is unknown. The
-      measurement characteristic is secured: enabling its notifications is
-      what triggers the bond.
+      measurement characteristic is secured: enabling its measurement updates
+      is what triggers the bond.
     characteristics:
       - uuid: "00002a35-0000-1000-8000-00805f9b34fb"
         name: "Blood Pressure Measurement"
-        properties: ["notify"]
+        properties: ["indicate"]
         notes: >
           The SIG Blood Pressure Measurement record, little-endian
           throughout, decoded exactly as the characteristic definition says
@@ -311,13 +311,18 @@ services:
           and carry no value. The pressure unit follows flags bit 0: mmHg
           when clear, kPa when set (multiply by 7.500617 for mmHg).
 
-          The SIG profile specifies this characteristic as INDICATE; both
-          open clients enable NOTIFY (the Android port writes CCCD 01 00)
-          and receive records, so the cuff at least supports notifications.
-          Records arrive while the cuff inflates and deflates, not only at
-          the end: a client keeps the last record whose systolic and
-          diastolic both decode finite and above zero with systolic greater
-          than diastolic, debounces 1.5 s after the last notification, and
+          The SIG profile specifies INDICATE (CCCD 02 00). The current iOS
+          client calls CoreBluetooth's update-enable API and waits for the
+          configuration callback; that API enables the mechanism the
+          characteristic offers. The Android port instead writes CCCD 01 00
+          (notification), which is a client assumption, not evidence that the
+          cuff declares or requires notifications. Use the exposed property
+          and its corresponding CCCD value; the cuff's actual GATT property
+          still needs a dump. Records arrive while the cuff inflates and
+          deflates, not only at the end: a client keeps the last record whose
+          systolic and diastolic both decode finite and above zero with
+          systolic greater than diastolic, debounces 1.5 s after the last
+          measurement update, and
           treats a special-value systolic or diastolic as "no result".
           LibreArm additionally refuses to save a result outside systolic
           40-260, diastolic 20-200, pulse 20-220.
@@ -480,7 +485,8 @@ services:
 payload_formats:
   BloodPressureMeasurement:
     description: >
-      One 0x2a35 notification. Offsets 0-6 are fixed and declared in the
+      One 0x2a35 measurement update (an indication in the SIG profile).
+      Offsets 0-6 are fixed and declared in the
       characteristic's format block; this entry gives the walk over the
       optional tail and the SFLOAT rule, with worked examples that
       scripts/test_qardio_arm_spec.py decodes. The examples are constructed
@@ -697,7 +703,7 @@ protocol_details:
     notes: >
       ATT insufficient authentication, insufficient authorization,
       insufficient encryption key size and insufficient encryption,
-      returned on the 0x2a35 notification enable or the f1 01 write. All
+      returned on the 0x2a35 measurement-update enable or the f1 01 write. All
       four mean the same thing operationally: the bond on one side does not
       match the other. Remedy under device.pairing.exclusivity.recovery.
   hardware:
@@ -713,26 +719,27 @@ evidence:
   artifacts:
     - type: "public_implementation"
       url: "https://github.com/ptylr/LibreArm"
-      artifact: "ptylr/LibreArm, Core/BPClient.swift and Core/BloodPressureMeasurement.swift (main, read 2026-10-11)"
+      artifact: "ptylr/LibreArm, Core/BPClient.swift and Core/BloodPressureMeasurement.swift (commit 517c5b8495f88dbd47e158520feab688cbdcd7e4, reviewed 2026-11-01)"
       description: >
         MIT-licensed iOS client in daily use against real cuffs. Source of
         the control characteristic UUID, the f1 01 / f1 02 bytes, the
-        notify-on-0x2a35 flow, the battery handling, the pairing-class ATT
-        error list and recovery advice, the SFLOAT decode with its special
-        values, the kPa factor, and the completeness and save-range rules.
-        Scans on service 0x1810 only; no name filter. Facts only were
-        taken; no code was transcribed.
+        update-enable flow and configuration callback, the battery handling,
+        the pairing-class ATT error list and recovery advice, the SFLOAT
+        decode with its special values, the kPa factor, and the completeness
+        and save-range rules. Scans on service 0x1810 only; no name filter.
+        Facts only were taken; no code was transcribed.
     - type: "public_implementation"
       url: "https://github.com/agreenbhm/LibreArm_Android"
-      artifact: "agreenbhm/LibreArm_Android, app/src/main/java/com/ptylr/librearm/ble/BpClient.kt (main, read 2026-10-11)"
+      artifact: "agreenbhm/LibreArm_Android, app/src/main/java/com/ptylr/librearm/ble/BpClient.kt (commit 415735a08a0dd71b86a192dd57a0309528087ed5, reviewed 2026-11-01)"
       description: >
         MIT-licensed Android port by Drew Green. Independently confirms the
         same service, characteristic and control UUIDs and the same two
-        command bytes; writes CCCD 01 00 (notifications) on 0x2a35 and
-        receives records; writes the control characteristic with response.
-        It never requests a bond itself and does no kPa or special-value
-        handling — recorded here as a weaker parser, not as a protocol
-        fact.
+        command bytes, and writes the control characteristic with response.
+        It writes CCCD 01 00 directly on 0x2a35: a client assumption, not a
+        device requirement. It also lacks kPa conversion, signed-exponent and
+        special-value handling, complete optional-field length checks and
+        battery support — recorded here as a weaker parser, not as wire-format
+        evidence.
     - type: "public_research"
       url: "https://ptylr.com/posts/2025-09-28-librearm-breathing-new-life-into-qardioarm-devices"
       description: >
@@ -785,19 +792,21 @@ evidence:
         the stores, the vendor domain seen listed for sale, and the cuff
         unusable without its app — with LibreArm named as the way out.
   documentation_review: >
-    Two independent open-source clients, the vendor manual and the SIG
-    characteristic definition were read on 2026-10-11 and agree on every
-    fact declared above. The two clients share an author lineage (the
-    Android port is a deliberate mirror of the iOS client), so they count
-    as one recovery confirmed twice, not two recoveries. The vendor app's
-    string table was used only to confirm UUIDs and to note the DFU
-    library.
+    Two open-source clients, the vendor manual and the SIG characteristic
+    definition were first read on 2026-10-11. A 2026-11-01 review of the
+    pinned revisions corrected the update setup: the SIG characteristic uses
+    indications, and the current iOS client waits for the configuration
+    callback. The Android port's direct notification CCCD write and incomplete
+    SFLOAT/optional-field handling are client limitations, not protocol facts.
+    The clients share an author lineage, so they count as one recovery checked
+    twice, not two independent recoveries. The vendor app's string table was
+    used only to confirm UUIDs and to note the DFU library.
   open_questions: >
     Which flags the cuff actually sets in its 0x2a35 records (timestamp?
     user ID? status?), and therefore where pulse sits; whether the
     characteristic is declared notify, indicate or both; whether the
     control characteristic is write, write-without-response or both; the
-    exact ATT error the cuff returns on an unbonded notification enable;
+    exact ATT error the cuff returns on an unbonded measurement-update enable;
     whether the Battery Service is present on every hardware revision;
     whether any DFU service appears in the cuff's own GATT table; and the
     advertised local name, which rests on the manual's phone screenshots.

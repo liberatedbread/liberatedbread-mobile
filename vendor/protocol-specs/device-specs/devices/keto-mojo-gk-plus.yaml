@@ -351,7 +351,7 @@ payload_formats:
         unit: "mmol/L"
         scale: 0.01
     parse_rules:
-      - "Concatenate notifications in arrival order and cut frames at 7b ... 7d. A frame whose length byte pair (7-8) is 00 09 and whose bytes 1-17 pass the check is a record; the end-of-records frame (cmd 0xd1, status 0x66, len 0) ends the dump."
+      - "Concatenate notifications in arrival order and cut frames at 7b ... 7d. A 23-byte frame is a record candidate: decode bytes 9-17 and keep it only if byte 17 is one of the six known types, as the open client does. The 00 09 length and the check are expected but unconfirmed (see remaining_unknowns): log a mismatch, do not reject on it. The end-of-records frame (cmd 0xd1, status 0x66, len 0) ends the dump."
       - "Timestamp = (2000 + byte9)-byte10-byte11 byte12:byte13, a naive local time on the meter's clock. Skip a record whose date or time is invalid."
       - "raw = byte14 x 100 + byte15. Scale by record_type and the unit from get_unit: ketone types (0x55, 0x56, 0x66) raw / 100 mmol/L; glucose types (0x11, 0x12, 0x22) raw mg/dL, or raw / 10 mmol/L on a meter set to mmol/L."
       - "Meal marker = high nibble of byte 16: 1 pre-meal, 2 post-meal, anything else general."

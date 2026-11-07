@@ -19,6 +19,30 @@ Part of the [Liberated Bread](https://github.com/liberatedbread/liberatedbread) 
 - **Tool Recommendations**: Software and hardware for capturing and analyzing traffic
 - **Common Patterns**: BLE and WiFi protocol patterns we see across devices
 
+## Use caution, especially for anything safety-critical
+
+Everything here is reverse-engineered from the outside, mostly unverified on
+hardware, and maintained in spare time. It is for keeping your own gadgets
+useful, and every byte of it deserves the caution that description earns:
+check what you can against the device's own display and manual, and treat a
+surprising value as a reason to look closer, not as a fact. Where being wrong
+could hurt someone, it is **not** the tool at all.
+
+The catalogue's glucose meter is the example. Syncing its history to see which
+breakfast spikes you is fine — dealer's choice, with the usual caution that a
+number may be off. Using a number that came through this spec to decide an
+insulin dose is not: that is the meter's own display and your care team. The
+same line holds for the blood-pressure monitors and oximeters (a personal log,
+not a clinical reading), the gas alarm (its own buzzer is the safety device; a
+report routed through Wi-Fi, a hub and an app is not), motorised doors and
+gates, and anything on wheels.
+
+Specs for such devices carry a `device.safety_advisory` so a client shows the
+warning before the controls; `scripts/test_device_specs.py` fails a
+`category: health` spec without one. The block is a reminder of this section,
+not a certification of anything around it. The scope rule is in
+[docs/CLEANROOM_RULES.md](docs/CLEANROOM_RULES.md#scope-limitations).
+
 ## Viewing the Docs
 
 ### Locally

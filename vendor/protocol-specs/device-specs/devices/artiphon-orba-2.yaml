@@ -46,8 +46,15 @@ device:
     service_uuids:
       - "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
     notes: >
-      Filter on the standard BLE-MIDI service. The advertised and
-      post-connection names can differ, so the name alone is not sufficient.
+      Name and service are a narrowing pair: an advertisement is this
+      instrument when its name is exactly "Artiphon Orba 2" AND it carries
+      the standard BLE-MIDI service. The BLE-MIDI service is generic -- every
+      BLE-MIDI keyboard, controller and adapter advertises it -- and this
+      spec declares destructive erase commands, so the service alone must
+      never select it. The cited source notes that the GAP name read after
+      connecting can differ from the advertised one; match on the
+      advertised name. A unit advertising under another name is not
+      auto-matched: the user chooses it from a generic BLE-MIDI scan.
   discovery:
     methods:
       - type: "ble_scan"
@@ -55,11 +62,14 @@ device:
           local_name:
             match: "exact"
             value: "Artiphon Orba 2"
-          service_uuids:
-            - "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
         notes: >
-          Service UUID is the primary matcher. The local name is an
-          additional hint, not a reason to select another Artiphon model.
+          Exact advertised name only. The BLE-MIDI service
+          (03b80e5a-ede8-4b33-a751-6ce34ec4c700) is deliberately not listed
+          here: within a ble_scan method a name and a service are
+          alternatives, and the service alone would match every BLE-MIDI
+          device. Confirm the service is present before any SysEx write.
+          The name does not select other Artiphon models. A unit under
+          another name is chosen by the user, not matched.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -75,14 +85,15 @@ device:
         name: "BLE-MIDI connection"
         verified: false
         description: >
-          Connect by the BLE-MIDI service UUID, subscribe to the MIDI I/O
+          Connect to the device advertising the exact name and the BLE-MIDI
+          service (or the one the user chose), subscribe to the MIDI I/O
           characteristic, then send documented SysEx commands in order.
         ble:
           pairing_required: false
         steps:
           - action: "Wake the Orba 2 and close every other app connected to it."
             actor: "user"
-          - action: "Connect to the peripheral advertising the BLE-MIDI service."
+          - action: "Connect to the peripheral advertising both the name Artiphon Orba 2 and the BLE-MIDI service, or to the unit the user picked by hand if it advertises another name. Never auto-select a device by the BLE-MIDI service alone."
             actor: "client"
           - action: "Enable notifications on 7772e5db-3868-4112-a1a9-f2669d106bf3."
             actor: "client"

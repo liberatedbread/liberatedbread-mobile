@@ -13,6 +13,13 @@ upper-arm Bluetooth blood-pressure monitor with voice output, a 2-user ×
 indicators. It belongs to Beurer's HealthManager family and pairs with the
 "beurer HealthManager Pro" app (`com.beurer.healthmanager`).
 
+!!! warning "Medical device"
+    Readings synced through this spec are a personal log, not a clinical
+    measurement, and must never be the sole basis for a medication decision
+    or for deciding whether to seek care. Chart them if you like; dose from
+    the monitor's own display and your care team's instructions. The spec
+    carries a `safety_advisory` saying so.
+
 The good news up front: the BM92 implements the **standard Bluetooth SIG Blood
 Pressure Profile**, so there is no proprietary command protocol to liberate —
 any generic BLE BP-profile client can read it, and the vendor cloud is optional

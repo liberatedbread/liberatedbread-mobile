@@ -155,6 +155,11 @@ nav:
           - Yummly Smart Thermometer: devices/yummly-smart-thermometer.md
           - Keto-Mojo GK+ Glucose & Ketone Meter: devices/keto-mojo-gk-plus.md
           - Orbit B-hyve Bluetooth Hose Timers: devices/orbit-bhyve-ble.md
+          - Qingping / ClearGrass Stock BLE Sensors: devices/qingping-stock-ble.md
+          - Ecosense / FTLab RadonEye RD200: devices/ecosense-radoneye-rd200.md
+          - Quicklynks BM2 Battery Monitor: devices/quicklynks-bm2.md
+          - WaterRower ComModule / SmartRow: devices/waterrower-smartrow.md
+          - Oral-B iO Smart Brush and iO Sense Charger: devices/oral-b-io-smartbrush.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md
@@ -237,6 +242,9 @@ nav:
           - Hörmann BiSecur Gateway: devices/hormann-bisecur-gateway.md
           - Insteon Hub (2245-222 / 2242-222): devices/insteon-hub.md
           - LIVISI SmartHome (SHC 1 / SHC 2): devices/livisi-smarthome.md
+          - SolarEdge Inverters (Modbus TCP / SunSpec): devices/solaredge-modbus-tcp.md
+          - Apple AirPort Extreme / Time Capsule / Express (ACP): devices/apple-airport-acp.md
+          - Philips Wi-Fi Air Purifiers and Humidifiers (encrypted CoAP): devices/philips-air-coap.md
       - Zigbee Devices:
           - Zigbee Soil Tester (TS0601 family): devices/zigbee-soil-tester.md
       - Z-Wave Devices:

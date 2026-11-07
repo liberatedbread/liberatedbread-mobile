@@ -16,7 +16,7 @@ device:
     - model: "iO Series 8"
     - model: "iO Series 9"
     - model: "iO Series 10"
-  category: health
+  category: personal_care
   type: electric-toothbrush
   transport: "ble-gatt"
   # 'gatt' is not a schema protocol; GATT is the attribute protocol carried over
@@ -188,12 +188,11 @@ services:
   - uuid: "a0f0ff00-5047-4d53-8208-4f72616c2d42"
     name: Oral-B iO Brush Service
     notes: >
-      The only service UUID recovered from the app. Per the device notes above,
-      A0F0FF** characteristics are the Brush device class and A0F03C** are the
-      Charger device class; no separate charger service UUID was recovered, so
-      both sets are listed here under the one documented service.
-      Older (pre-iO) brushes additionally expose FF01 DeviceID, FF02 DeviceInfo,
-      FF03 UserID and FF2A (purpose unknown), per MatrixEditor/oralb-io and
+      Brush service. The iO Sense charger has its own recovered service,
+      a0f03e00-5047-4d53-8208-4f72616c2d42, declared separately below; its 3Cxx
+      characteristics do not belong in this brush service. Older (pre-iO)
+      brushes additionally expose FF01 DeviceID, FF02 DeviceInfo, FF03 UserID
+      and FF2A (purpose unknown), per MatrixEditor/oralb-io and
       Bluetooth-Devices/oralb-ble; app v10 does not reference them.
     characteristics:
       - uuid: "a0f0ff04-5047-4d53-8208-4f72616c2d42"
@@ -213,7 +212,19 @@ services:
       - uuid: "a0f0ff05-5047-4d53-8208-4f72616c2d42"
         name: BatteryLevel
         properties: ["read"]
-        description: Battery level percentage
+        notes: >
+          Length-gated, little-endian battery record. The older one-byte
+          percentage still works. Protocol 6 introduced remaining runtime;
+          protocol 8 added the electrical fields. Protocol 6 treats zero
+          runtime as unavailable, while later versions can return a genuine
+          zero. Runtime 0xffff is unavailable; current -1 is unavailable.
+          Do not decode absent electrical fields from a shorter record.
+        format:
+          - {offset: 0, length: 1, name: "battery_percent", type: "uint8", unit: "%", device_class: "battery"}
+          - {offset: 1, length: 2, name: "remaining_brushing_seconds", type: "uint16", endianness: "little", unit: "s", device_class: "duration", notes: "0xffff unavailable; zero is unavailable only on protocol 6."}
+          - {offset: 3, length: 2, name: "battery_millivolts", type: "uint16", endianness: "little", unit: "mV", device_class: "voltage"}
+          - {offset: 5, length: 2, name: "battery_current", type: "int16", endianness: "little", unit: "mA", device_class: "current", notes: "Signed; -1 unavailable."}
+          - {offset: 7, length: 1, name: "battery_temperature", type: "int8", unit: "C", device_class: "temperature"}
       - uuid: "a0f0ff06-5047-4d53-8208-4f72616c2d42"
         name: ButtonState
         properties: ["notify"]
@@ -290,8 +301,13 @@ services:
         description: Pressure sensor config (visual signal, reduced speed)
       - uuid: "a0f0ff29-5047-4d53-8208-4f72616c2d42"
         name: SelectedData
-        properties: ["notify"]
-        description: Session data retrieval (shared UUID for read req + notify)
+        properties: ["read", "notify"]
+        notes: >
+          Retained latest-session summary, also readable through the charger's
+          0x37 passthrough. Protocol 7/8 uses the 21-byte layout in
+          protocol_details.retained_session_ff29; protocol 6 differs. The
+          captured direct client reads it after session settlement without an
+          FF21 control command.
       - uuid: "a0f0ff2b-5047-4d53-8208-4f72616c2d42"
         name: MyColor
         properties: ["write"]
@@ -308,22 +324,6 @@ services:
         name: PostBrushingStatisticsConfiguration
         properties: ["write"]
         description: Post-brushing statistics screen configuration
-      - uuid: "a0f03c00-5047-4d53-8208-4f72616c2d42"
-        name: ChargerCommand
-        properties: ["write"]
-        description: Charger control commands
-      - uuid: "a0f03c01-5047-4d53-8208-4f72616c2d42"
-        name: ChargerRead
-        properties: ["read"]
-        description: Charger data read (log items, passthrough)
-      - uuid: "a0f03c02-5047-4d53-8208-4f72616c2d42"
-        name: ChargerWrite
-        properties: ["write"]
-        description: Charger config (WiFi, clock, night light, demo mode)
-      - uuid: "a0f03c03-5047-4d53-8208-4f72616c2d42"
-        name: ChargerStatus
-        properties: ["notify"]
-        description: Charger status notifications
       - uuid: "a0f0ff81-5047-4d53-8208-4f72616c2d42"
         name: OTACommand
         properties: ["write"]
@@ -344,6 +344,33 @@ services:
         name: OTATransferSize
         properties: ["read"]
         description: Firmware transfer block size
+
+  - uuid: "a0f03e00-5047-4d53-8208-4f72616c2d42"
+    name: "Oral-B iO Sense charger service"
+    notes: >
+      Independently captured charger service, separate from the brush service.
+      Protocol-2 headers are [operation, command]: GET c0, POST c1, EXECUTE c2.
+      Every transaction ends with e0 on 3C00. Use the exact sequence in
+      protocol_details.charger_bridge rather than issuing an isolated header.
+    characteristics:
+      - uuid: "a0f03c00-5047-4d53-8208-4f72616c2d42"
+        name: "Charger command header and transaction delimiter"
+        properties: ["write"]
+        role: "command"
+        notes: "Carries the [operation, command] header and final e0 delimiter. The captured implementation serializes one complete transaction at a time."
+      - uuid: "a0f03c01-5047-4d53-8208-4f72616c2d42"
+        name: "Charger returned data"
+        properties: ["read", "notify"]
+        notes: "Returned data is [command, operation, payload…]. A passthrough brush read returns 37 c1 uuid_lsb uuid_msb operation success length data…."
+      - uuid: "a0f03c02-5047-4d53-8208-4f72616c2d42"
+        name: "Charger command payload"
+        properties: ["write"]
+        role: "bulk"
+        notes: "Payload for the command named by the 3C00 header. A brush characteristic read uses uuid_lsb uuid_msb 01 00, then e0 on 3C00."
+      - uuid: "a0f03c03-5047-4d53-8208-4f72616c2d42"
+        name: "Charger command status"
+        properties: ["read", "notify"]
+        notes: "Status is [command, operation, result], with 01 observed for success. Validate this before accepting returned data."
 
 advertising:
   discovery_method: manufacturer_data
@@ -410,6 +437,43 @@ advertising:
       description: Total quadrant count
   minimum_length: 5
 
+entities:
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "a0f0ff05-5047-4d53-8208-4f72616c2d42"
+    state_mapping: {value: "battery_percent"}
+    notes: "First byte of the length-gated FF05 battery record."
+  - platform: "sensor"
+    name: "Remaining Brushing Time"
+    device_class: "duration"
+    unit: "s"
+    state_characteristic: "a0f0ff05-5047-4d53-8208-4f72616c2d42"
+    state_mapping: {value: "remaining_brushing_seconds"}
+    notes: "Protocol 6+ only; 0xffff unavailable, zero unavailable only on protocol 6."
+  - platform: "sensor"
+    name: "Battery Voltage"
+    device_class: "voltage"
+    unit: "mV"
+    state_characteristic: "a0f0ff05-5047-4d53-8208-4f72616c2d42"
+    state_mapping: {value: "battery_millivolts"}
+    notes: "Protocol 8+ only; absent on shorter records."
+  - platform: "sensor"
+    name: "Battery Current"
+    device_class: "current"
+    unit: "mA"
+    state_characteristic: "a0f0ff05-5047-4d53-8208-4f72616c2d42"
+    state_mapping: {value: "battery_current"}
+    notes: "Signed protocol 8+ field; -1 unavailable. No charge/discharge sign convention is inferred."
+  - platform: "sensor"
+    name: "Battery Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "a0f0ff05-5047-4d53-8208-4f72616c2d42"
+    state_mapping: {value: "battery_temperature"}
+    notes: "Signed protocol 8+ byte; absent on shorter records."
+
 features:
   - type: "firmware_update"
     dfu:
@@ -454,6 +518,158 @@ features:
 # Vendor-specific protocol detail this schema does not model. Namespaced so the
 # top level can stay closed; nothing here is a declared contract.
 protocol_details:
+  charger_advertisement:
+    full_packet_bytes: 18
+    manufacturer_value_bytes: 14
+    company_id: 220
+    company_id_hex: "0x00DC"
+    fields:
+      - {offset: 4, name: "protocol_version", type: "uint8"}
+      - {offset: 5, name: "device_type", type: "uint8", value: 0xa2, meaning: "Stargate / iO Sense charger"}
+      - {offset: 6, name: "software_major_minor_patch", length: 3, type: "bytes"}
+      - {offset: 9, name: "server_mode", type: "uint8", notes: "Enumeration not established"}
+      - {offset: 10, name: "advertised_ble_mac", length: 6, type: "bytes", notes: "Owner identifier; redact from public fixtures"}
+      - {offset: 16, name: "body_color", type: "uint8"}
+      - {offset: 17, name: "connection_status", type: "uint8", notes: "Bitfield, not an enum"}
+    connection_status_bits:
+      0: "Wi-Fi connected"
+      1: "Internet connected"
+      2: "Cloud connected"
+      3: "Brush connected"
+      4: "Brush charging"
+      5: "Touchpad active"
+      6: "Brush paired"
+      7: "Demo mode"
+    notes: >
+      Offsets are in the complete manufacturer AD structure. The 14-byte
+      manufacturer value starts at full-packet offset 4. The vendor filter only
+      requires length >9, but its builder reads through byte 17, so a robust
+      parser requires all 18 bytes before decoding every field. Advertisements
+      contain availability, not timer, pressure, zone, score or session data.
+
+  charger_bridge:
+    service: "a0f03e00-5047-4d53-8208-4f72616c2d42"
+    operations: {get: 0xc0, post: 0xc1, execute: 0xc2, end_transaction: 0xe0}
+    transaction: "3C00 [operation, command]; optional 3C02 payload; 3C00 e0; validate 3C03 [command, operation, result] with result 01 before using returned 3C01 data"
+    serialization: "One complete transaction at a time; the tested charger rejects batched records. The charger forwards brush reads only while it owns the single brush connection."
+    brush_passthrough_read:
+      header_hex: "c1 37"
+      payload: "uuid_lsb uuid_msb 01 00 on 3C02"
+      example: "08 ff 01 00 reads FF08; finish with e0 on 3C00"
+      success_status_hex: "37 c1 01"
+      returned_data: "37 c1 uuid_lsb uuid_msb operation success length data…"
+    native_read_only_commands:
+      "03": "device ID"
+      "14": "Wi-Fi status"
+      "15": "RSSI"
+      "16": "IoT status"
+      "1a": "internet type"
+      "1b": "timezone"
+      "1e": "firmware"
+      "1f": "uptime"
+      "25": "hardware"
+      "26": "server mode"
+      "30": "brightness"
+      "31": "clock mode"
+      "33": "brush status"
+      "34": "brush connection policy"
+      "36": "ring color"
+      "37": "brush passthrough"
+      "39": "brush data"
+      "3a": "session status"
+      "3b": "automatic update"
+      "3d": "touchpad"
+      "3f": "date mode"
+      "42": "night light"
+      "44": "clock text"
+      "46": "brush paired"
+    boundaries: >
+      These native IDs are read-only observations, not permission for
+      POST/EXECUTE. Wi-Fi provisioning credential sequencing, durable upload
+      queue enumeration and firmware-container decryption are unknown. The
+      charger is an outbound network client, not an inbound HTTP/HTTPS/SSH/
+      MQTT management API; authenticated vendor upload is not bypassed.
+
+  battery_record:
+    characteristic: "a0f0ff05-5047-4d53-8208-4f72616c2d42"
+    endianness: "little"
+    older_layout_bytes: 1
+    protocol_6: "Adds remaining runtime; zero runtime is unavailable on this generation"
+    protocol_8: "Adds millivolts, signed milliamps and temperature; shorter records omit absent fields"
+    runtime_unavailable: 0xffff
+    current_unavailable: -1
+
+  retained_session_ff29:
+    protocol_7_8:
+      length_bytes: 21
+      endianness: "little"
+      fields:
+        - {offset: 0, length: 4, name: "brush_clock_start", type: "uint32", unit: "s", notes: "Brush-clock value, not automatically Unix epoch"}
+        - {offset: 4, length: 2, name: "packed_session_user", type: "uint16", session_mask: 0x1fff, user_shift: 13, user_mask: 0xe000}
+        - {offset: 6, length: 2, name: "packed_target_sectors", type: "uint16", target_mask: 0x1fff, sector_shift: 13, sector_mask: 0xe000, target_unit: "s"}
+        - {offset: 8, length: 2, name: "duration", type: "uint16", unit: "s"}
+        - {offset: 10, length: 2, name: "high_pressure_duration", type: "uint16", scale: 0.1, unit: "s", wire_unit: "100 ms"}
+        - {offset: 12, length: 2, name: "low_pressure_duration", type: "uint16", scale: 0.1, unit: "s", wire_unit: "100 ms"}
+        - {offset: 14, length: 1, name: "average_pressure", type: "uint8", scale: 100, unit: "mN", wire_unit: "100 mN"}
+        - {offset: 15, length: 1, name: "maximum_pressure", type: "uint8", scale: 100, unit: "mN", wire_unit: "100 mN"}
+        - {offset: 16, length: 1, name: "high_pressure_events", type: "uint8", unit: "count"}
+        - {offset: 17, length: 1, name: "low_pressure_events", type: "uint8", unit: "count"}
+        - {offset: 18, length: 1, name: "power_on_count", type: "uint8", unit: "count"}
+        - {offset: 19, length: 1, name: "mode", type: "uint8", notes: "Decode using the packet's protocol version"}
+        - {offset: 20, length: 1, name: "ending_battery_percent", type: "uint8", unit: "%", notes: "Present only when <=100"}
+      protocol_6: "Different 20-byte layout; do not decode with this table"
+      protocol_9: "The public implementation registers this decoder for compatibility; physical verification remains limited"
+      availability: "Latest retained summary can change seconds after a session; anonymous direct read worked in the captured implementation, while charger availability has a settlement window"
+
+  service_data_diagnostics:
+    service_data_a:
+      length_bytes: 16
+      endianness: "little"
+      fields:
+        - {offset: 0, length: 2, name: "ideal_full_capacity", type: "uint16", notes: "Unit not established"}
+        - {offset: 2, length: 2, name: "average_motor_current", type: "uint16", notes: "Unit not established"}
+        - {offset: 4, length: 4, name: "total_motor_runtime", type: "uint32", unit: "s"}
+        - {offset: 8, length: 4, name: "total_pressure_time", type: "uint32", unit: "s"}
+        - {offset: 12, length: 4, name: "total_charge_time", type: "uint32", unit: "s"}
+    service_data_b:
+      length_bytes: 16
+      endianness: "little"
+      fields:
+        - {offset: 0, length: 2, name: "total_charge_events", type: "uint16", unit: "count"}
+        - {offset: 2, length: 2, name: "total_full_charge_events", type: "uint16", unit: "count"}
+        - {offset: 4, length: 2, name: "total_over_temp_events", type: "uint16", unit: "count"}
+        - {offset: 6, length: 2, name: "total_low_temp_events", type: "uint16", unit: "count"}
+        - {offset: 8, length: 2, name: "total_brushing_cycles", type: "uint16", unit: "count"}
+        - {offset: 10, length: 2, name: "short_term_motor_current", type: "uint16", notes: "Unit not established"}
+        - {offset: 12, length: 2, name: "total_recharge_events", type: "uint16", unit: "count"}
+        - {offset: 14, length: 2, name: "total_recharge_time", type: "uint16", unit: "h"}
+    notes: "These are 16-byte GATT diagnostic structures, not advertisement content."
+
+  sonos_metadata:
+    protocol_7_length_bytes: 14
+    protocol_8_plus_length_bytes: 30
+    fields:
+      - {offset: 0, name: "start_marker", value: 0xff}
+      - {offset: 1, name: "model", values: {6: "M4", 5: "M5", 4: "M6", 3: "M7", 2: "M8", 1: "M9", 16: "M10"}}
+      - {offset: 2, name: "color", notes: "Enumeration retained from the vendor model"}
+      - {offset: 3, name: "language", notes: "Enumeration retained from the vendor model"}
+      - {offset: 4, length: 8, name: "available_brushing_modes", notes: "Decode each value using the packet's protocol version"}
+      - {offset: 12, name: "position_resolution", notes: "Preserve the raw byte"}
+      - {offset: 13, name: "gum_guard", values: {0: "off", 1: "on", 2: "HD", 255: "unavailable"}}
+      - {offset: 14, length: 16, name: "post_brushing_statistics", protocol: "V008+"}
+    statistics_screen_values:
+      1: "smiley"
+      2: "pressure default"
+      3: "pressure high/low"
+      4: "pressure complete"
+      5: "battery"
+      6: "refill status"
+      7: "enable via app"
+      8: "session tracker week"
+      9: "session tracker day"
+      10: "session tracker week bars"
+    statistics_markers: {default_available_separator: 0xfe, end: 0xff}
+
   brushing_modes:
     - id: 0x00
       name: OFF
@@ -554,8 +770,28 @@ protocol_details:
 evidence:
   static_analysis: "Official Oral-B Android app"
   date_extracted: "2026-07-28"
+  follow_up: >
+    Reviewed 2026-11-06: corrected charger service and advertisement map,
+    native read-only command grammar, charger status bits, length-gated FF05,
+    retained-session FF29, ServiceDataA/B and V008+ SonosMetadata.
+  captured_implementation: >
+    thomasgregg/oralb-ha at c0910404ab3f4dffffcf6c3eb994a030d63f7306,
+    covering an iO Series 10 with iO Sense on firmware 0.3.4. Its 488 tests
+    passed. This is independent upstream capture evidence, not a physical test
+    performed by this project.
+  remaining_unknowns:
+    - "Wi-Fi provisioning credential payloads and sequencing, charger durable upload queue enumeration, and firmware-container decryption"
+    - "Protocol-6 FF29 layout, current/capacity units in ServiceDataA/B, and physical meaning of the second drive-target word"
+    - "Hardware confirmation across other brush and charger firmware generations"
 
 helpful_urls:
+  - title: "thomasgregg/oralb-ha — captured iO Sense protocol"
+    url: "https://github.com/thomasgregg/oralb-ha"
+    kind: "implementation"
+    description: >-
+      Captured iO Series 10 / iO Sense implementation and protocol reference:
+      charger service and passthrough, read-only native commands, battery and
+      retained-session layouts, advertisement status and 488 passing tests.
   # MatrixEditor/oralb-io (GPL) additionally ships a working OTA client and
   # the extracted P&G RSA public key used to verify firmware manifests.
   - title: "MatrixEditor/oralb-io"

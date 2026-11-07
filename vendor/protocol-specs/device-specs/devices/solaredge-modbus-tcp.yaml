@@ -1,0 +1,1013 @@
+# SolarEdge inverters over local Modbus TCP (SunSpec) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, paraphrased):
+#   - SolarEdge technical note "SolarEdge Inverters - SunSpec Logging",
+#     version 3.2 (June 2025): enabling Modbus TCP, port, unit id, single
+#     connection, idle timeout, common/inverter/MPPT/meter register maps,
+#     status values, the request/response layout and timing.
+#   - SolarEdge technical note "Power Control Protocol for SolarEdge
+#     Inverters", version 1.3 (2017): the 0xF000 / 0xF100 / 0xE000 control
+#     registers. Not obtained from SolarEdge directly; mirrored in
+#     solaredge-modbus-multi's doc/ folder.
+#   - SunSpec Alliance "Common Models" specification 1.6: model chain,
+#     not-implemented values, string padding, 32-bit word order.
+#   - WillCodeForCats/solaredge-modbus-multi (Home Assistant custom
+#     integration): register definitions, word order of the control block,
+#     mDNS service type, write-handling and flash-wear warnings, and its
+#     COMPARISON_WITH_CORE.md notes on leader/follower behaviour.
+#   - Home Assistant core solaredge_modbus integration (2026.10) and its
+#     documentation page: default port 1502, unit id 1, the MODBUS_ID TXT
+#     record, the Wi-Fi caveat and the connection limit.
+#   - binsentsu/home-assistant-solaredge-modbus: how owners enable Modbus TCP
+#     on Ethernet and Wi-Fi units, and the RRCR prerequisite for control.
+#   - sunspec/pysunspec2: reference SunSpec client and model definitions.
+# Every frame in this file was built from the MBAP rule in protocol_details
+# with unit id 1 and invented transaction ids. Example replies carry invented
+# readings, an invented serial and the placeholder address 192.168.1.50.
+
+device:
+  name: "SolarEdge Inverter (Modbus TCP / SunSpec)"
+  manufacturer: "SolarEdge Technologies"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Register addresses,
+      types and the enable procedure come from SolarEdge's own SunSpec
+      technical note (v3.2); control registers come from SolarEdge's 2017
+      power-control note as implemented by solaredge-modbus-multi and Home
+      Assistant core. scripts/test_solaredge_modbus_tcp_spec.py rebuilds
+      every example frame from the MBAP rule and decodes the example
+      replies with their scale factors.
+  protocol: "wifi"
+  transport: "tcp"
+  category: "energy"
+  pictogram: "power-station"
+  type: "solar-inverter"
+  notes: >
+    SolarEdge grid-tied PV inverters (HD-Wave single phase, three phase,
+    Synergy three phase, and the Energy Hub / StorEdge families) carry a
+    Modbus TCP server that speaks SunSpec. It is the inverter's own local
+    interface: no account, no cloud, no app. It is off by default and is
+    switched on once from SetApp or the inverter's display (see setup).
+    Home Assistant 2026.10 replaced its "SolarEdge Local" integration with
+    a core SolarEdge Modbus integration built on this path, and community
+    reports say SolarEdge's cloud Monitoring API V1 is being retired at the
+    start of November 2026 in favour of an OAuth-based V2. Modbus TCP keeps
+    working without either.
+
+    WHY protocol "wifi": the inverters have a radio and many join the home
+    Wi-Fi (and host a commissioning access point), so by the schema's rule
+    they are not radio-less "lan" boxes. SolarEdge itself documents Modbus
+    TCP over Ethernet only; Home Assistant's documentation says it also
+    works over Wi-Fi today but warns SolarEdge may drop that in a future
+    firmware. Prefer Ethernet. Provisioning the network itself is done with
+    SolarEdge's tools and is out of scope here.
+
+    PROTOCOL: standard Modbus TCP (MBAP header, no CRC) on TCP 1502 by
+    default, unit id 1 by default. Read holding registers (function 0x03)
+    from the SunSpec map that starts at register 40000 (zero-based): the
+    common block (manufacturer, model, firmware version, serial), the
+    inverter model 101/102/103 block (AC current, voltage, power,
+    frequency, lifetime energy, DC values, heat-sink temperature, operating
+    state), the Synergy multiple-MPPT model 160 block, and up to three
+    meter blocks (models 201-204). Values are integers with a separate
+    signed power-of-ten scale-factor register. SolarEdge's proprietary
+    power-control registers (0xF000 onward, 0xE000 onward) take function
+    0x06 / 0x10 writes; they are documented here as advanced.
+
+    ONE CLIENT AT A TIME: SolarEdge's note says the Modbus TCP server
+    supports a single connection and session, and that a site has a single
+    Modbus leader (either RTU or TCP). A second client (another home
+    automation system, a datalogger, the HA core integration and a custom
+    integration both opening their own socket) is refused or starves the
+    first. Use one poller, or put a Modbus proxy in front of the inverter.
+
+    SECURITY: Modbus TCP has no authentication or encryption. Anyone who
+    can reach the port can read the inverter and, where the control block
+    is enabled, change its power limits. Keep the port on a trusted LAN
+    segment and never forward it to the internet.
+
+  safety_advisory:
+    severity: "caution"
+    summary: "The control registers change what a grid-connected inverter produces and exports; leave them alone unless you know the site's grid agreement."
+    detail: >
+      The active-power, export-limit and storage registers change how much
+      power a grid-tied inverter feeds into the home and the grid. Export
+      limits are often a condition of the site's interconnection agreement
+      with the grid operator and can affect billing. Persistent settings are
+      kept in the inverter's flash memory, which both community integrations
+      warn is meant for occasional writes, not automations that write every
+      few minutes. Read-only monitoring changes nothing. If a control write
+      goes wrong, the Restore Power Control Default Settings register
+      (0xF101) returns the power-control block to the country defaults, and
+      the installer can reset the same settings from SetApp.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://github.com/WillCodeForCats/solaredge-modbus-multi/blob/main/doc/sunspec-implementation-technical-note.pdf"
+        title: "SolarEdge Inverters - SunSpec Logging, technical note v3.2 (mirror)"
+        covers: "Enabling Modbus TCP, port and unit id, the common, inverter, multiple-MPPT and meter register maps, status values, framing example and timing."
+      - url: "https://github.com/WillCodeForCats/solaredge-modbus-multi/blob/main/doc/Power-Control-Open-Protocol-for-SolarEdge-Inverters.pdf"
+        title: "Power Control Protocol for SolarEdge Inverters, technical note v1.3 (mirror)"
+        covers: "Dynamic power control (0xF000), commit and restore (0xF100), advanced power control (0xF102 on), export limit (0xE000) and StorEdge control."
+    notes: >
+      The monitoring registers are vendor-documented SunSpec. The control
+      registers come from an older SolarEdge note that the vendor no longer
+      lists; solaredge-modbus-multi treats them as unofficial and keeps them
+      off by default, and Home Assistant's page says SolarEdge does not
+      document them and firmware varies. Nothing here was reverse-engineered
+      by this project.
+
+  identification:
+    default_port: 1502
+    mdns_service_type: "_solaredge-modbus._tcp.local."
+    notes: >
+      Inverters with SetApp default to port 1502; SolarEdge's note gives 502
+      as the default on older display (LCD) inverters, and the port can be
+      changed on both. The mDNS service type is the one both Home Assistant
+      integrations register for; which firmware versions announce it is not
+      documented. The only positive identification is reading register
+      40000 and finding "SunS", then "SolarEdge" in C_Manufacturer.
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_solaredge-modbus._tcp.local."
+          txt_record_keys: ["MODBUS_ID"]
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+            display:
+              source: "name"
+        notes: >
+          Home Assistant core reads the unit id from the MODBUS_ID TXT key
+          (falling back to 1 when it is missing or outside 1-247), and both
+          integrations connect to the address and port the announcement
+          gives. Confirm the device by reading the common block before
+          trusting it. Inverters that do not announce are added by address
+          (for example 192.168.1.50) and port.
+    identity:
+      stable_keys: ["serial"]
+      display: "model"
+      notes: "C_SerialNumber (registers 40052-40067) after connecting; Home Assistant core keys its entries on it and rejects a different serial at a known address."
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Modbus TCP is disabled from the factory and has to be switched on once
+      at the inverter. No credential is issued and nothing pairs: after that
+      any client on the LAN connects to the port. The inverter must already
+      be on the network (Ethernet recommended). The default unit id of the
+      inverter on the network is 1.
+    methods:
+      - type: "device_ui"
+        name: "SetApp inverter: Site Communication menu"
+        role: "primary"
+        verified: false
+        description: >
+          On inverters configured with SetApp (all current models), open
+          SetApp's Commissioning > Site Communication menu and enable Modbus
+          TCP. The port menu appears with 1502. Home Assistant's page and
+          binsentsu's README add that the same Site Communication page is
+          reachable without the app: switch the inverter's red P switch
+          briefly (under five seconds) to start its commissioning Wi-Fi
+          access point, join it and open the address the inverter shows.
+        steps:
+          - action: "Connect the inverter to the router, preferably by Ethernet, using SetApp's communication settings."
+            actor: "user"
+          - action: "In SetApp (or the commissioning page), open Commissioning > Site Communication > Modbus TCP and choose Enable."
+            actor: "user"
+            expect: "A Port entry appears showing 1502. Change it only if needed."
+          - action: "Open a TCP connection to the inverter's address on the port (for example 192.168.1.50:1502) and read 69 registers from 40000 with unit id 1."
+            actor: "client"
+            expect: "Registers 40000-40001 hold 0x5375 0x6E53 (\"SunS\"), 40002 holds 1 and 40003 holds 65."
+      - type: "device_ui"
+        name: "Display (LCD) inverter: LAN Conf menu"
+        role: "variant"
+        verified: false
+        description: >
+          Older inverters with an LCD and buttons need CPU firmware 3.xxxx or
+          later for SunSpec. Enter the setup menu as the installation guide
+          describes (Home Assistant's page: hold OK and enter the menu
+          password), then Communication > LAN Conf > Modbus TCP. The default
+          port on these is 502 per SolarEdge's note; Modbus TCP > TCP Port
+          changes it. The display then shows the server state: Init (about
+          10 s after first configuration), Ready, Connected or Failed, with
+          errors such as Disconnected (no cable), Gateway Ping Failed or No
+          IP.
+        steps:
+          - action: "Check the CPU firmware version on the ID screen (short presses of the display button); it must be 3.xxxx or later."
+            actor: "user"
+          - action: "Enter the setup menu and select Communication > LAN Conf > Modbus TCP to enable it; set the TCP port if 502 is not wanted."
+            actor: "user"
+            expect: "The Modbus TCP status reads Ready."
+          - action: "Connect to the port with unit id 1 and read the common block at 40000."
+            actor: "client"
+            expect: "\"SunS\" in 40000-40001; the display status changes to Connected."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established for the Modbus setting. A reset of the inverter's
+        communication settings would presumably turn Modbus TCP off again
+        (its factory state), after which it has to be re-enabled as above.
+        The power-control block has its own documented restore (0xF101),
+        which returns those settings to the country defaults without
+        touching the country setting.
+      description: >
+        No public source read for this spec gives an inverter factory-reset
+        procedure, and SolarEdge directs resets of installed inverters
+        through the installer and SetApp. Nothing is transcribed here.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Network settings (DHCP or static, Ethernet or Wi-Fi) are changed in place from SetApp or the display. The Modbus TCP setting survives a change of address; a client that keys on the serial number can follow the inverter to its new address."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: ["network settings", "Modbus TCP enable flag and port", "power-control settings"]
+      issued_to_client: []
+      notes: "Modbus TCP has no credentials of any kind."
+
+protocol_handler: "modbus_tcp_sunspec"
+
+protocol_details:
+  modbus_tcp:
+    framing: >
+      Standard Modbus TCP. Every request and reply is an MBAP header then a
+      PDU, all big-endian, no CRC: transaction id (2 bytes, chosen by the
+      client and echoed in the reply), protocol id (2 bytes, always 0),
+      length (2 bytes, the number of bytes that follow it: unit id plus
+      PDU), unit id (1 byte), then the PDU (function code and data).
+      SolarEdge's note describes the same fields and adds that over UDP the
+      reply carries two extra CRC bytes; this spec covers TCP only.
+    functions:
+      "0x03 Read Holding Registers": "Request: start address (2), quantity (2, 1-125). Reply: byte count (1) = 2 x quantity, then the registers, each big-endian."
+      "0x06 Write Single Register": "Request: address (2), value (2). The reply echoes the request."
+      "0x10 Write Multiple Registers": "Request: start address (2), quantity (2), byte count (1), values. Reply: start address and quantity. SolarEdge's note says two-register values must be written together with this function."
+    exceptions: >
+      An error reply sets bit 7 on the function code (0x83 for a failed
+      read) and carries one exception code: 0x01 illegal function, 0x02
+      illegal data address, 0x03 illegal data value, 0x04 server device
+      failure. SolarEdge's note maps a read of a wrong address to illegal
+      data address and an incorrect value to device failure. Both community
+      integrations report that some firmware does not answer at all for
+      registers or blocks it does not support, so a client must treat a
+      timeout on an optional block as "absent" and not retry it on every
+      poll; Home Assistant core remembers such silent blocks.
+    unit_ids: >
+      The inverter on the network answers as unit id 1 by default
+      (C_DeviceAddress, register 40068, reports it). In a leader/follower
+      site the leader with the network connection forwards requests to
+      followers on its RS485 bus by their own device ids (1-247, each
+      unique); solaredge-modbus-multi scans ids 1-32 (or 1-247) to find
+      them. One request is in flight at a time through the leader.
+    session: >
+      SolarEdge's note: the server accepts only a single connection and
+      session, and a site has a single Modbus leader (one RTU or one TCP
+      client). The server closes a connection after 2 minutes without a
+      request; an open connection with requests at least every 2 minutes
+      stays up. Home Assistant's documentation says the inverter accepts a
+      limited number of simultaneous connections and that a second system
+      polling the inverter can lock Home Assistant out.
+    timing: >
+      From SolarEdge's note (measured on three-phase commercial inverters
+      with SetApp firmware 4.13.5xx and later): read and write responses
+      under 0.5 s, leave at least 0.1 s between transfers, active-power
+      setpoints take effect within 1 s and reactive power within 5 s, and
+      a commit takes up to 1.5 s (the 2017 power-control note says 5-10 s).
+      Home Assistant core reads with a 30 s timeout because inverters on
+      Wi-Fi can answer later than 10 s; solaredge-modbus-multi defaults to a
+      3 s timeout with retries and a 10 s poll.
+  sunspec:
+    addressing: >
+      All addresses in this spec are zero-based Modbus protocol addresses
+      (what goes on the wire). SolarEdge's tables also print the one-based
+      "PLC" form, one higher: the common block is 40001 in that form and
+      40000 on the wire.
+    model_chain: >
+      40000-40001 hold the 32-bit marker "SunS" (0x53756E53). Then models
+      follow back to back, each as an id register, a length register (the
+      number of registers after it) and the data: the common model (id 1,
+      length 65) at 40002, the inverter model (id 101 single phase, 102
+      split phase, 103 three phase; length 50) at 40069, then, depending on
+      the site, the multiple-MPPT model (id 160) at 40121 on Synergy
+      inverters, and meter blocks. SunSpec ends the chain with id 0xFFFF and
+      length 0. A client may walk the chain by id and length instead of
+      using fixed addresses; SolarEdge's fixed addresses are below.
+    numbers: >
+      Each register is a big-endian 16-bit word. SunSpec 32-bit values
+      (acc32, uint32) span two registers with the most significant word
+      first. A reading is value x 10^SF, where SF is the signed 16-bit
+      scale-factor register named beside it (range -10 to 10). Example from
+      the note: 2071 with SF -2 is 20.71. Scale factors can change between
+      reads, so read each value and its scale factor in the same request.
+    not_implemented: >
+      SunSpec marks a register the device does not support with a sentinel:
+      0x8000 for int16 and scale factors, 0xFFFF for uint16 and enum16,
+      0xFFFFFFFF for uint32, 0x00000000 for acc32 ("not accumulated"), and
+      all zero bytes for a string. SolarEdge sets C_Options to
+      not-implemented; the heat-sink temperature is its only implemented
+      temperature (cabinet, transformer and other read 0x8000).
+    strings: "ASCII, NUL-padded to the field width (two characters per register, first character in the high byte)."
+    word_order_exception: >
+      SolarEdge's proprietary control registers (0xE000 and 0xF000 ranges)
+      are not SunSpec: their 32-bit integers and float32 values are sent
+      least-significant word first ("little-endian word order"), each word
+      still big-endian, per SolarEdge's note and solaredge-modbus-multi.
+      The note adds that a big-endian-word-order copy of that map sits at
+      an offset of 0x800; see remaining_unknowns.
+  register_map:
+    common_block: >
+      40000 C_SunSpec_ID uint32 "SunS"; 40002 C_SunSpec_DID uint16 = 1;
+      40003 C_SunSpec_Length uint16 = 65; 40004 C_Manufacturer string(32)
+      "SolarEdge"; 40020 C_Model string(32), e.g. SE5000; 40036 C_Options
+      string(16), not implemented; 40044 C_Version string(16), CPU firmware
+      with leading zeros, e.g. 0002.0611; 40052 C_SerialNumber string(32);
+      40068 C_DeviceAddress uint16, the unit id. Read once at setup.
+    inverter_block: >
+      40069 id (101/102/103); 40070 length 50; 40071 I_AC_Current uint16 A;
+      40072-40074 phase A/B/C current uint16 A; 40075 I_AC_Current_SF;
+      40076-40078 line-to-line voltage AB/BC/CA uint16 V; 40079-40081
+      line-to-neutral voltage AN/BN/CN uint16 V; 40082 I_AC_Voltage_SF;
+      40083 I_AC_Power int16 W; 40084 SF; 40085 I_AC_Frequency uint16 Hz;
+      40086 SF; 40087 I_AC_VA int16 VA; 40088 SF; 40089 I_AC_VAR int16 var;
+      40090 SF; 40091 I_AC_PF int16 %; 40092 SF; 40093-40094
+      I_AC_Energy_WH acc32 Wh (lifetime production); 40095
+      I_AC_Energy_WH_SF (printed as uint16 by SolarEdge); 40096
+      I_DC_Current uint16 A; 40097 SF; 40098 I_DC_Voltage uint16 V; 40099
+      SF; 40100 I_DC_Power int16 W; 40101 SF; 40103 I_Temp_Sink int16 C;
+      40106 I_Temp_SF; 40107 I_Status enum16 (see payload_formats.
+      InverterStatus); 40108 I_Status_Vendor uint16, SolarEdge error code,
+      for firmware up to 3.19.xx; 40119-40120 I_Status_Vendor4 uint32 on
+      later firmware, high 16 bits the controller type (3x, 8x, 18x), low
+      16 bits the error code. Single-phase inverters leave phase B/C
+      values unimplemented. solaredge-modbus-multi reads 40113 (SunSpec
+      EvtVnd1) as an undocumented on-grid flag.
+    multiple_mppt_block: >
+      Synergy three-phase inverters with firmware 4.13.xx or later add model
+      160 at 40121: 40123-40125 current, voltage and power scale factors,
+      40129 number of units (2 or 3), then a 20-register block per unit from
+      40131 (unit id, 8-register id string, DCA at +9, DCV at +10, DCW at
+      +11, Tmp int16 C at +16). Energy, timestamp, state and event fields
+      read 0 (not supported).
+    meter_blocks: >
+      Meters attached to the inverter appear after the inverter block, each
+      as a 67-register common block (id 1, length 65: manufacturer, model,
+      C_Option naming the meter role such as Export+Import, Production or
+      Consumption, version, serial, unit id) followed by a meter model block
+      (id 201 single phase, 202 split phase, 203 wye three phase, 204 delta;
+      length 105). Base addresses (common block id register): 1st meter
+      40121, 2nd 40295, 3rd 40469. On Synergy inverters add 50 (2-unit) or
+      70 (3-unit) because the MPPT block comes first. Only enabled meters
+      are present and they pack forward: with meters 1 and 3 enabled, the
+      3rd is read at the 1st meter's address. Meter model registers relative
+      to the meter's model id register (40188 for meter 1): +2 M_AC_Current
+      int16 A, +3..+5 phases, +6 SF; +7 M_AC_Voltage_LN int16 V, +8..+10
+      AN/BN/CN, +11 M_AC_Voltage_LL, +12..+14 AB/BC/CA, +15 SF; +16
+      M_AC_Freq int16 Hz, +17 SF; +18 M_AC_Power int16 W (sum of phases),
+      +19..+21 phases, +22 SF; +23 M_AC_VA, +24..+26, +27 SF; +28 M_AC_VAR,
+      +29..+31, +32 SF; +33 M_AC_PF int16 %, +34..+36, +37 SF; +38 / +40 /
+      +42 / +44 M_Exported total and per phase (uint32 Wh); +46 / +48 / +50
+      / +52 M_Imported total and per phase (uint32 Wh); +54
+      M_Energy_W_SF; +55..+71 apparent energy (VAh) with SF at +71; +72..+104
+      reactive energy by quadrant (varh) with SF at +104; +105 M_Events
+      uint32 (see payload_formats.MeterEvents). SolarEdge's own meter does
+      not report line-to-line voltages. Power signs and energy quadrants
+      follow IEEE 1459-2000 per the note. The per-meter tables in
+      SolarEdge's note contain copy errors (meter 2's energy rows repeat
+      meter 1's addresses); the relative layout above is the consistent
+      reading, and it is the one solaredge-modbus-multi uses.
+  power_control:
+    status: >
+      Not in SolarEdge's current SunSpec note; documented in its 2017
+      power-control note and implemented by solaredge-modbus-multi (opt-in,
+      off by default) and Home Assistant core (created when the block
+      answers). Supported from CPU firmware 3.xxxx. Support varies by model
+      and firmware; probe before offering.
+    prerequisites: >
+      Dynamic power control and the export/storage blocks only take effect
+      after AdvancedPwrControlEn (0xF142, int32) is set to 1 and
+      ReactivePwrConfig (0xF104, int32) to 4 (RRCR mode), followed by a
+      commit (write 1 to 0xF100). Both default to 0. binsentsu's README asks
+      owners to make the same two settings on the inverter (Advanced Power
+      Control on, reactive power mode RRCR).
+    registers: >
+      0xF000 RRCR state (uint16, read-only, the four RRCR input lines);
+      0xF001 active power limit (uint16, 0-100 % of the inverter's rated
+      power; dynamic, not saved, lost on restart); 0xF002 CosPhi (float32,
+      -1.0 to 1.0; dynamic). 0xF100 commit power-control settings (write 1;
+      read back 0 success, 0x1-0x4 internal error, 0xF102 or higher the
+      address of a bad register, 0xFFFF unknown error). 0xF101 restore
+      power-control defaults (write 1; read back 0 or 0xFFFF). 0xF102
+      onward: the persistent advanced power-control block (written, then
+      committed). 0xF300 onward: enhanced dynamic power control (enable,
+      limits in W, fallback limits, ramp rates, command timeout). 0xE000
+      export control mode (uint16 bit field: bit 0 direct export limitation
+      with a grid meter, bit 1 indirect via a consumption meter, bit 2
+      production limitation (only one of bits 0-2), bit 10 external
+      production present, bit 11 negative site limit); 0xE001 export limit
+      mode (0 total, 1 per phase); 0xE002 site limit (float32 W); 0xE012
+      external production maximum (float32 W). 0xE004 onward: StorEdge
+      battery control (mode, AC charge policy, backup reserve, remote
+      command mode, timeout, charge and discharge limits). Battery status
+      blocks at 0xE100 (57600) onward. The power-control note says the
+      export block is mirrored at 0xF700.
+    persistence: >
+      The note marks 0xF001 and 0xF002 as dynamic (not saved). The other
+      control registers are persistent settings; both community
+      integrations warn they live in flash meant for occasional writes, and
+      solaredge-modbus-multi counts writes to them for that reason. Settings
+      can also be changed by SetApp, by SolarEdge remotely or by a utility
+      programme, and such a change can overwrite a value written over
+      Modbus.
+
+payload_formats:
+  CommonBlockReply:
+    description: >
+      Reply to read_common_block: 69 registers from 40000. This example has
+      transaction id 1, unit 1, "SunS", DID 1, length 65, manufacturer
+      "SolarEdge", model "SE8K", C_Options not implemented (all zero),
+      version "0004.0020.0000", an invented serial "00000000-00", unit id 1.
+    example: "00010000008D01038A53756E5300010041536F6C61724564676500000000000000000000000000000000000000000000005345384B0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000303030342E303032302E30303030000030303030303030302D30300000000000000000000000000000000000000000000001"
+  InverterBlockReply:
+    description: >
+      Reply to read_inverter_block: 40 registers from 40069 (byte count 80).
+      Field offsets below are register offsets from 40069; each value is
+      raw x 10^SF with the scale-factor register named.
+    fields:
+      - name: "C_SunSpec_DID"
+        offset: 0
+        type: "uint16"
+        description: "101 single phase, 102 split phase, 103 three phase."
+      - name: "C_SunSpec_Length"
+        offset: 1
+        type: "uint16"
+        description: "50."
+      - name: "I_AC_Current"
+        offset: 2
+        type: "uint16"
+        unit: "A"
+        description: "Total AC current; scale I_AC_Current_SF (offset 6). Phases A/B/C at offsets 3-5."
+      - name: "I_AC_Current_SF"
+        offset: 6
+        type: "int16"
+      - name: "I_AC_VoltageAB"
+        offset: 7
+        type: "uint16"
+        unit: "V"
+        description: "Line-to-line AB; BC and CA at 8-9, line-to-neutral AN/BN/CN at 10-12; scale I_AC_Voltage_SF (offset 13)."
+      - name: "I_AC_Voltage_SF"
+        offset: 13
+        type: "int16"
+      - name: "I_AC_Power"
+        offset: 14
+        type: "int16"
+        unit: "W"
+        description: "AC output power; scale I_AC_Power_SF (offset 15)."
+      - name: "I_AC_Power_SF"
+        offset: 15
+        type: "int16"
+      - name: "I_AC_Frequency"
+        offset: 16
+        type: "uint16"
+        unit: "Hz"
+        description: "Scale at offset 17."
+      - name: "I_AC_VA"
+        offset: 18
+        type: "int16"
+        unit: "VA"
+        description: "Apparent power; scale at offset 19."
+      - name: "I_AC_VAR"
+        offset: 20
+        type: "int16"
+        unit: "var"
+        description: "Reactive power; scale at offset 21."
+      - name: "I_AC_PF"
+        offset: 22
+        type: "int16"
+        unit: "%"
+        description: "Power factor in percent; scale at offset 23."
+      - name: "I_AC_Energy_WH"
+        offset: 24
+        type: "uint32"
+        endianness: "big"
+        unit: "Wh"
+        description: "Lifetime AC energy (acc32, high word first); scale I_AC_Energy_WH_SF (offset 26). 0 means not accumulated."
+      - name: "I_AC_Energy_WH_SF"
+        offset: 26
+        type: "int16"
+      - name: "I_DC_Current"
+        offset: 27
+        type: "uint16"
+        unit: "A"
+        description: "Scale at offset 28."
+      - name: "I_DC_Voltage"
+        offset: 29
+        type: "uint16"
+        unit: "V"
+        description: "Scale at offset 30."
+      - name: "I_DC_Power"
+        offset: 31
+        type: "int16"
+        unit: "W"
+        description: "Scale at offset 32."
+      - name: "I_Temp_Sink"
+        offset: 34
+        type: "int16"
+        unit: "C"
+        description: "Heat-sink temperature; scale I_Temp_SF (offset 37). Offsets 33, 35 and 36 (cabinet, transformer, other) read 0x8000."
+      - name: "I_Temp_SF"
+        offset: 37
+        type: "int16"
+      - name: "I_Status"
+        offset: 38
+        type: "uint16"
+        description: "Operating state; see InverterStatus."
+      - name: "I_Status_Vendor"
+        offset: 39
+        type: "uint16"
+        description: "SolarEdge error code (firmware up to 3.19.xx); see the inverter installation guide."
+    example: "0002000000530103500067003204E201A101A101A0FFFE0FA20FA50F9E090609080905FFFF21CA00001389FFFE21FC0000FF6A000026DEFFFE00BC614E00000497FFFE1D4CFFFF226C0000800011A080008000FFFE00040000"
+    example_notes: >
+      Model 103; AC current 12.50 A (1250, SF -2), phases 4.17/4.17/4.16 A;
+      L-L 400.2/400.5/399.8 V and L-N 231.0/231.2/230.9 V (SF -1); AC power
+      8650 W (SF 0); 50.01 Hz (SF -2); 8700 VA; -150 var; PF 99.50 %
+      (SF -2); lifetime energy 12345678 Wh (0x00BC614E, SF 0); DC 11.75 A
+      (SF -2), 750.0 V (SF -1), 8812 W (SF 0); heat sink 45.12 C (SF -2);
+      status 4 (producing); vendor status 0.
+  MeterPowerReply:
+    description: >
+      Reply to read_meter_1_power: five registers from 40206 (meter 1's
+      M_AC_Power, its three phases and M_AC_Power_SF), single-phase meter.
+    example: "00060000000D01030AC4A0C4A080008000FFFF"
+    example_notes: "Total -1520.0 W (raw -15200, SF -1), phase A the same, phases B and C 0x8000 (not implemented on a single-phase meter). Which sign means export is not stated by SolarEdge beyond citing IEEE 1459-2000."
+  ExceptionReply:
+    description: "Modbus exception: function code with bit 7 set, then one exception code."
+    example: "000500000003018302"
+    example_notes: "Transaction 5, unit 1: read (0x03) failed with 0x02 illegal data address, which SolarEdge returns for a read of a wrong address."
+  InverterStatus:
+    description: "I_Status (register 40107) values SolarEdge supports."
+    values:
+      "1": "Off"
+      "2": "Sleeping (night mode, auto-shutdown)"
+      "3": "Starting (grid monitoring, wake-up)"
+      "4": "Producing (MPPT)"
+      "5": "Producing, curtailed (throttled)"
+      "6": "Shutting down"
+      "7": "Fault"
+      "8": "Standby (maintenance or setup)"
+  MeterEvents:
+    description: "M_Events bit flags (uint32) in a meter model block."
+    values:
+      "0x00000004": "Power failure (loss of power or phase)"
+      "0x00000008": "Under voltage (phase loss)"
+      "0x00000010": "Low power factor (can mean crossed voltage and current inputs)"
+      "0x00000020": "Over current (out of measurement range)"
+      "0x00000040": "Over voltage (out of measurement range)"
+      "0x00000080": "Missing sensor"
+  ExportControlMode:
+    description: "Register 0xE000, a bit field. Choose at most one of bits 0-2; bits 10 and 11 may be added."
+    values:
+      "0": "Export control disabled (default)"
+      "bit 0": "Direct export limitation (meter at the grid connection point)"
+      "bit 1": "Indirect export limitation (meter on the consumption side)"
+      "bit 2": "Production limitation"
+      "bit 10": "External (non-SolarEdge) production present"
+      "bit 11": "Negative site limit allowed (minimum import)"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only, to satisfy the schema's access-surface rule. The
+      inverter is driven over Modbus TCP on a raw socket (port 1502 by
+      default; see protocol_details.modbus_tcp), not HTTP.
+
+commands:
+  read_common_block:
+    description: "Read the SunSpec common block: 69 registers from 40000 (SunS marker, manufacturer, model, firmware version, serial, unit id). Read once at connect."
+    body: "{transaction_id}0000{length}{unit_id}039C400045"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id, echoed in the reply."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "Bytes after this field: unit id plus PDU (6 for a read)."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "Modbus unit id; 1 for the inverter on the network."
+    returns:
+      - name: "CommonBlockReply"
+        type: "payload_format"
+        description: "Register data as laid out in payload_formats.CommonBlockReply."
+    example_body: "00010000000601039C400045"
+    example_notes: "Transaction 1, unit 1, function 0x03, start 0x9C40 (40000), quantity 0x0045 (69)."
+    verification: "reported"
+  read_inverter_block:
+    description: >
+      Read the inverter model block: 40 registers from 40069 (id, length,
+      AC, energy, DC, temperatures, status, vendor status). Poll this. To
+      include I_Status_Vendor4 on newer firmware read 52 registers instead.
+    body: "{transaction_id}0000{length}{unit_id}039C850028"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id, echoed in the reply."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "6 for a read."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "Modbus unit id."
+    returns:
+      - name: "InverterBlockReply"
+        type: "payload_format"
+        description: "Register data as laid out in payload_formats.InverterBlockReply."
+    example_body: "00020000000601039C850028"
+    example_notes: "Transaction 2, unit 1, start 0x9C85 (40069), quantity 0x0028 (40)."
+    verification: "reported"
+  read_meter_1_common:
+    description: "Read meter 1's common block: 67 registers from 40121 (id 1, length 65, manufacturer, model, role option, version, serial, unit id). Absent when no meter is enabled. On Synergy inverters add 50 or 70 to the address."
+    body: "{transaction_id}0000{length}{unit_id}039CB90043"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "6 for a read."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "The inverter's unit id; the meter is read through it."
+    example_body: "00030000000601039CB90043"
+    example_notes: "Start 0x9CB9 (40121), quantity 0x0043 (67)."
+    verification: "reported"
+  read_meter_1_block:
+    description: "Read meter 1's model block: 107 registers from 40188 (id 201-204, length 105, currents, voltages, frequency, power, energy, events). See protocol_details.register_map.meter_blocks."
+    body: "{transaction_id}0000{length}{unit_id}039CFC006B"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "6 for a read."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "The inverter's unit id."
+    example_body: "00040000000601039CFC006B"
+    example_notes: "Start 0x9CFC (40188), quantity 0x006B (107)."
+    verification: "reported"
+  read_meter_1_power:
+    description: "Read meter 1's real power: 5 registers from 40206 (total, phases A-C, scale factor)."
+    body: "{transaction_id}0000{length}{unit_id}039D0E0005"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "6 for a read."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "The inverter's unit id."
+    returns:
+      - name: "MeterPowerReply"
+        type: "payload_format"
+        description: "Register data as laid out in payload_formats.MeterPowerReply."
+    example_body: "00060000000601039D0E0005"
+    example_notes: "Transaction 6, start 0x9D0E (40206), quantity 5."
+    verification: "reported"
+  set_active_power_limit:
+    description: >
+      Limit the inverter's output to a percentage of its rated power by
+      writing 0xF001 (function 0x06). Dynamic: not saved, lost on restart,
+      and only effective once advanced power control is enabled in RRCR
+      mode (see enable_advanced_power_control and set_reactive_power_rrcr).
+      100 removes the limit.
+    body: "{transaction_id}0000{length}{unit_id}06F001{limit}"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "6 for a single-register write."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "Modbus unit id."
+      limit:
+        type: "uint16"
+        required: true
+        min: 0
+        max: 100
+        unit: "%"
+        description: "Percent of rated power; 20 on an SE5000 is 1000 W."
+    example_body: "0010000000060106F0010032"
+    example_notes: "Transaction 0x10, 50 %. The reply echoes the request."
+    advanced: true
+    advanced_reason: >
+      Curtails the inverter's production. A limit left in place silently
+      costs generation until the inverter restarts or 100 is written back.
+      Some sites are under a grid-operator power-control scheme this can
+      conflict with.
+    verification: "reported"
+  set_export_site_limit:
+    description: >
+      Set the export control site limit in watts: float32 at 0xE002-0xE003,
+      written with function 0x10 in SolarEdge's little-endian word order
+      (low word first). Only acts when an export control mode is set in
+      0xE000 and a meter is installed.
+    body: "{transaction_id}0000{length}{unit_id}10E002000204{site_limit}"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "11 for a two-register write."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "Modbus unit id."
+      site_limit:
+        type: "float32"
+        required: true
+        min: 0
+        unit: "W"
+        description: "Site export limit. IEEE 754 single precision, sent as two registers, low word first."
+    example_body: "00140000000B0110E0020002044000459C"
+    example_notes: "5000.0 W = 0x459C4000, sent as 4000 459C."
+    advanced: true
+    advanced_reason: >
+      Export limits are usually part of the site's grid connection
+      agreement and can change what the owner is paid. The value is a
+      persistent setting stored in flash; write it rarely. Restore with
+      restore_power_control_defaults or SetApp if it goes wrong.
+    verification: "reported"
+  enable_advanced_power_control:
+    description: "Set AdvancedPwrControlEn (0xF142, int32, little-endian word order) to 1. Takes effect after commit_power_control."
+    body: "{transaction_id}0000{length}{unit_id}10F142000204{value}"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "11."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "Modbus unit id."
+      value:
+        type: "int32"
+        enum: [0, 1]
+        default: 1
+        description: "1 enable, 0 disable (default). Sent low word first: 0001 0000."
+    example_body: "00120000000B0110F14200020400010000"
+    example_notes: "Transaction 0x12, value 1."
+    advanced: true
+    advanced_reason: >
+      Turns on the inverter's external power-control mode, a persistent
+      setting stored in flash. It changes how the inverter responds to
+      grid and RRCR signals. Restore with restore_power_control_defaults.
+    verification: "reported"
+  set_reactive_power_rrcr:
+    description: "Set ReactivePwrConfig (0xF104, int32, little-endian word order) to 4 (RRCR mode), the mode dynamic power control needs. Default is 0 (fixed CosPhi). Takes effect after commit_power_control."
+    body: "{transaction_id}0000{length}{unit_id}10F104000204{mode}"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "11."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "Modbus unit id."
+      mode:
+        type: "int32"
+        enum: [0, 4]
+        default: 4
+        description: "4 RRCR mode; 0 fixed CosPhi (default). Other modes exist in the power-control note and are not offered here."
+    example_body: "00130000000B0110F10400020400040000"
+    example_notes: "Transaction 0x13, mode 4."
+    advanced: true
+    advanced_reason: >
+      Changes the inverter's reactive-power behaviour, which grid codes
+      regulate. Persistent and stored in flash. Restore with
+      restore_power_control_defaults.
+    verification: "reported"
+  commit_power_control:
+    description: "Write 1 to 0xF100 to apply the advanced power-control settings (0xF102 onward). Read 0xF100 back: 0 success, 0x1-0x4 internal error, 0xF102 or higher the address of the bad register, 0xFFFF unknown error."
+    body: "{transaction_id}0000{length}{unit_id}06F1000001"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "6."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "Modbus unit id."
+    example_body: "0011000000060106F1000001"
+    example_notes: "Transaction 0x11. Allow up to 10 s before reading the result."
+    advanced: true
+    advanced_reason: "Writes the pending power-control settings to the inverter's flash and applies them. Check the read-back code; restore defaults if it reports an error."
+    verification: "reported"
+  restore_power_control_defaults:
+    description: "Write 1 to 0xF101 to restore the power-control settings to the country defaults (the country setting itself is unchanged). Reads back 0 on success, 0xFFFF on error; takes 3-6 s."
+    body: "{transaction_id}0000{length}{unit_id}06F1010001"
+    parameters:
+      transaction_id:
+        type: "uint16"
+        auto: "sequence"
+        description: "Client-chosen id."
+      length:
+        type: "uint16"
+        auto: "packet_length"
+        description: "6."
+      unit_id:
+        type: "integer"
+        min: 1
+        max: 247
+        default: 1
+        description: "Modbus unit id."
+    example_body: "0016000000060106F1010001"
+    example_notes: "Transaction 0x16."
+    advanced: true
+    advanced_reason: "Discards every power-control setting the installer or owner made, including export limits and reactive-power configuration. It is also the recovery path for a bad control write."
+    verification: "reported"
+
+entities:
+  - platform: "sensor"
+    name: "AC Power"
+    device_class: "power"
+    unit: "W"
+    state_command: "read_inverter_block"
+    notes: "I_AC_Power (40083, int16) x 10^I_AC_Power_SF (40084), from the read_inverter_block reply (offsets 14 and 15)."
+  - platform: "sensor"
+    name: "Lifetime Energy"
+    device_class: "energy"
+    unit: "Wh"
+    state_command: "read_inverter_block"
+    notes: "I_AC_Energy_WH (40093-40094, acc32, high word first) x 10^I_AC_Energy_WH_SF (40095). 0 means not accumulated; never let the total go backwards on a bad read."
+  - platform: "sensor"
+    name: "DC Power"
+    device_class: "power"
+    unit: "W"
+    state_command: "read_inverter_block"
+    notes: "I_DC_Power (40100, int16) x 10^I_DC_Power_SF (40101)."
+  - platform: "sensor"
+    name: "Heat Sink Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_command: "read_inverter_block"
+    notes: "I_Temp_Sink (40103, int16) x 10^I_Temp_SF (40106)."
+  - platform: "sensor"
+    name: "Operating State"
+    state_command: "read_inverter_block"
+    state_mapping:
+      1: "Off"
+      2: "Sleeping"
+      3: "Starting"
+      4: "Producing"
+      5: "Throttled"
+      6: "Shutting down"
+      7: "Fault"
+      8: "Standby"
+    notes: "I_Status (40107); see payload_formats.InverterStatus."
+
+evidence:
+  documentation_review: >
+    SolarEdge's SunSpec technical note v3.2 (June 2025) and power-control
+    note v1.3 (2017), as mirrored in solaredge-modbus-multi's doc/ folder,
+    and the SunSpec Common Models 1.6 specification were read on
+    2026-11-01, together with solaredge-modbus-multi's register
+    definitions, write handling, mDNS manifest and its comparison with Home
+    Assistant core (dated 2026-10-10), Home Assistant core's solaredge_modbus
+    manifest and config flow (MODBUS_ID TXT key, default unit id), the Home
+    Assistant integration page, and binsentsu's README. Community threads on
+    the Monitoring API V1 retirement were read the same day.
+  open_questions: >
+    The control registers are not in SolarEdge's current documentation;
+    which current firmware versions still honour them is reported only by
+    users. The meter power sign convention and the 0x800 big-endian mirror
+    are not pinned down.
+
+remaining_unknowns:
+  - "Which sign of M_AC_Power and of the inverter's meter readings means export. SolarEdge only cites IEEE 1459-2000; no source read here states it for a SolarEdge meter."
+  - "SolarEdge's note says a big-endian-word-order copy of the map sits at an offset of 0x800 for controllers that cannot use little-endian word order. Whether that applies to the 0xE000/0xF000 control registers only, and on which firmware, is not established."
+  - "Whether Modbus TCP over Wi-Fi is supported on all SetApp firmware. SolarEdge documents Ethernet only; Home Assistant and binsentsu say Wi-Fi works now and may be dropped."
+  - "Which firmware announces _solaredge-modbus._tcp over mDNS, and what the instance name and hostname look like. Only the MODBUS_ID TXT key is known, from Home Assistant core's code."
+  - "Exact connection limit: SolarEdge says one connection and session; Home Assistant says 'a limited number'. Whether a second connection is refused or replaces the first is not stated."
+  - "Whether writes to the 0xE000 export block need a commit (0xF100) to take effect. The power-control note asks for the F142/F104 prerequisites and a commit before the block is enabled, and solaredge-modbus-multi does not commit after a site-limit write."
+  - "The factory-reset procedure and whether it clears the Modbus TCP setting; no source found."
+  - "No control entities are declared. The active-power limit and export limit would be `number` controls, but they only work after the persistent RRCR prerequisites and differ by model and firmware; a client that offers them builds the control itself behind the safety advisory."
+  - "The command vocabulary has no envelope for an MBAP frame, so `body` is a hex template whose placeholders are big-endian fields (transaction_id 2 bytes, length 2 bytes, unit_id 1 byte, values per their type) and `protocol_handler` names the encoder."
+  - "The SunSpec note's I_AC_Energy_WH_SF is printed as uint16 while every other scale factor is int16; solaredge-modbus-multi reads it unsigned. Values seen in practice are not documented."
+
+helpful_urls:
+  - title: "SolarEdge Inverters - SunSpec Logging, technical note v3.2 (mirror in solaredge-modbus-multi)"
+    url: "https://github.com/WillCodeForCats/solaredge-modbus-multi/blob/main/doc/sunspec-implementation-technical-note.pdf"
+    kind: "vendor_support"
+    description: >
+      SolarEdge's own note for SetApp and display (LCD) inverters: enabling
+      Modbus TCP, port and unit id, the single-connection limit, and the
+      common, inverter, multiple-MPPT and meter register maps. Version 3.2,
+      June 2025, mirrored by the solaredge-modbus-multi project.
+  - title: "Power Control Protocol for SolarEdge Inverters, technical note v1.3 (mirror)"
+    url: "https://github.com/WillCodeForCats/solaredge-modbus-multi/blob/main/doc/Power-Control-Open-Protocol-for-SolarEdge-Inverters.pdf"
+    kind: "vendor_support"
+    description: >
+      SolarEdge's 2017 note on the 0xF000/0xF100/0xE000 control registers
+      for inverters with CPU firmware 3.xxxx or later. Not currently listed
+      by SolarEdge.
+  - title: "WillCodeForCats/solaredge-modbus-multi"
+    url: "https://github.com/WillCodeForCats/solaredge-modbus-multi"
+    kind: "implementation"
+    description: "Home Assistant custom integration: multi-inverter Modbus TCP polling, meters, batteries and opt-in controls; its COMPARISON_WITH_CORE.md documents leader/follower behaviour."
+  - title: "Home Assistant: SolarEdge Modbus integration"
+    url: "https://www.home-assistant.io/integrations/solaredge_modbus/"
+    kind: "implementation"
+    description: "Core integration since 2026.10: enabling Modbus TCP, port 1502, unit id 1, the Wi-Fi caveat, connection limits and flash-wear warning."
+  - title: "Home Assistant 2026.10 release notes"
+    url: "https://www.home-assistant.io/blog/2026/10/07/release-202610/"
+    kind: "other"
+    description: "The release that removed SolarEdge Local and added the core SolarEdge Modbus integration."
+  - title: "binsentsu/home-assistant-solaredge-modbus"
+    url: "https://github.com/binsentsu/home-assistant-solaredge-modbus"
+    kind: "implementation"
+    description: "Earlier Home Assistant custom component; README covers enabling Modbus TCP over Ethernet and Wi-Fi and the RRCR prerequisite for power control."
+  - title: "frenck/python-solaredged"
+    url: "https://github.com/frenck/python-solaredged"
+    kind: "implementation"
+    description: "Python library behind the Home Assistant core integration."
+  - title: "sunspec/pysunspec2"
+    url: "https://github.com/sunspec/pysunspec2"
+    kind: "implementation"
+    description: "SunSpec Alliance's reference Python client and model definitions (models 1, 101-103, 160, 201-204)."
+  - title: "HA Community: SolarEdge API V2 uses OAuth; old API turned off in November"
+    url: "https://community.home-assistant.io/t/solaredge-api-v2-uses-oauth-old-api-will-be-turned-off-in-november/1026150"
+    kind: "forum"
+    description: "Community reports of the Monitoring API V1 retirement (1 or 3 November 2026) and the move to V2."

@@ -60,37 +60,47 @@ device:
         match: "absent"
         description: "Classic firmware publishes no tls TXT key. Air MK.2 publishes tls=CERT_1_VER_EN and speaks mutual-TLS WebSocket rather than HTTP."
     notes: >
-      TXT `dt` is a model hint, not a sufficient capability check: select CCT,
-      HSV, scene and battery support from the response shapes declared in
-      `variants`. TXT `id` is not reliably the MAC address. Use
+      TXT `dt` is a model hint, not a sufficient capability check: select
+      white-only (CCT), colour-capable strip and battery support with the
+      probes declared in `variants`. TXT `id` is not reliably the MAC address. Use
       accessory-info.serialNumber as the durable identity.
 
   variants:
+    # Variants are fixed per device, not per mode. A Light Strip in white
+    # mode answers GET /elgato/lights with on/brightness/temperature and no
+    # hue -- exactly a Key Light's shape -- so the lights reply cannot tell a
+    # white-only light from a strip. The probes below read settings and
+    # accessory info instead; the lights reply then gives the strip's mode.
     - model: "CCT"
       identification:
         state_probe:
-          command: "get_lights"
-          keys_present: ["lights[0].temperature"]
+          command: "get_light_settings"
+          keys_present: ["powerOnTemperature"]
+          keys_absent: ["powerOnHue"]
       notes: >
-        Key Light family and Ring Light: `on`, `brightness` and white-point
-        `temperature` in mireds.
-    - model: "HSV"
+        White-only lights: the Key Light family and Ring Light. `on`,
+        `brightness` and white-point `temperature`, 143-344 mireds. Their
+        power-on settings carry no hue. Home Assistant's elgato integration
+        treats a device as colour-capable when its product name is a Light
+        Strip, its settings report a power-on hue, or its state reports a
+        hue; this probe uses the settings signal, which needs no model table.
+    - model: "Strip"
       identification:
         state_probe:
-          command: "get_lights"
-          keys_present: ["lights[0].hue"]
-          keys_absent: ["lights[0].scene"]
+          command: "get_accessory_info"
+          value_contains:
+            productName: "Light Strip"
       notes: >
-        Light Strip in direct-colour mode: `on`, `brightness`, `hue` and
-        `saturation`. Never add `temperature` to an HSV write.
-    - model: "Scene"
-      identification:
-        state_probe:
-          command: "get_lights"
-          keys_present: ["lights[0].scene"]
-      notes: >
-        A Light Strip running a scene. A bare power, brightness or colour write
-        discards the running scene, so this entity is intentionally read-only.
+        Light Strip and Light Strip Pro (product names "Elgato Light Strip"
+        and "Elgato Light Strip Pro"). Colour-capable: hue/saturation, and
+        also a white point limited to 153-285 mireds (about 6500-3500 K),
+        narrower than the white-only lights. The GET /elgato/lights reply
+        shows the current mode: `hue` present means colour mode;
+        `temperature` without `hue` means white mode (this does NOT make it
+        a white-only light); `scene` present means a running scene. If a
+        strip's settings ever lack powerOnHue it would also satisfy the CCT
+        probe; a consumer that sees both match should treat it as Strip,
+        whose narrower range is safe on either.
     - model: "Battery"
       identification:
         state_probe:
@@ -134,7 +144,7 @@ device:
     notes: >
       Initial onboarding uses the light's own setup network and the vendor
       Control Center flow. The classic wifi-info payload is obfuscated rather
-      than securely encrypted; this spec does not claim an independent
+      than securely encrypted, so the passphrase is effectively plaintext; this spec does not claim an independent
       provisioning implementation. Once onboarded, control needs no account.
     methods:
       - type: "device_ui"
@@ -198,15 +208,16 @@ device:
         The documented Mini and Neo route to a new network is the Wi-Fi reset
         above. Reset procedures for the other models remain unverified here.
     credentials:
-      wifi_passphrase_protection: "device_encrypted"
+      wifi_passphrase_protection: "plaintext"
       stored_on_device:
         - "Wi-Fi credentials"
         - "Light state and power-on defaults"
       issued_to_client: []
       notes: >
-        Classic provisioning uses an obfuscated payload, not a secret suitable
-        for protecting a network from a determined reader. Steady-state HTTP
-        control itself is unauthenticated.
+        Classic provisioning uses an obfuscated payload, not encryption with
+        a secret, so the passphrase is recorded as effectively plaintext:
+        anyone who knows the transform and can see the setup traffic can
+        recover it. Steady-state HTTP control itself is unauthenticated.
 
 http_endpoints:
   - method: "GET"
@@ -234,7 +245,7 @@ http_endpoints:
           description: "Brightness percent. Integer in ordinary modes; may be fractional in a scene."
         - name: "temperature"
           type: "int"
-          description: "CCT white point in mireds, useful range 143-344."
+          description: "White point in mireds. Present on white-only lights (143-344) and on a Light Strip in white mode (153-285); its presence alone does not mean a white-only light."
         - name: "hue"
           type: "number"
           description: "HSV hue in degrees, 0-360."
@@ -251,13 +262,24 @@ http_endpoints:
     request_body:
       content_type: "application/json"
   - method: "GET"
+    path: "/elgato/lights/settings"
+    name: "Light Settings"
+    description: >
+      Power-on behaviour and defaults: powerOnBehavior, powerOnBrightness,
+      powerOnTemperature, transition durations, and on colour-capable strips
+      powerOnHue and powerOnSaturation. The Key Light Mini adds a battery
+      object. Read here only to tell a white-only light from a strip.
+  - method: "GET"
     path: "/elgato/battery-info"
     name: "Battery Information"
     description: >
-      Key Light Mini only: level (fractional percent), status (0 not charging,
-      1 pre-charge, 2 fast charge, 3 complete), powerSource (0 unknown, 1 USB,
-      2 battery), currentBatteryVoltage and inputChargeVoltage (mV), and
-      inputChargeCurrent (mA). A 404 means no battery surface.
+      Key Light Mini only: level (fractional percent), status, powerSource,
+      currentBatteryVoltage and inputChargeVoltage (mV), and
+      inputChargeCurrent (mA). status, per python-elgato's models.py: 0 not
+      charging (draining), 2 charging, 3 charged; 1 is unknown -- the
+      library's author never saw it. powerSource, per the same file: 0
+      unknown, 1 external power (the library calls it mains), 2 battery. A
+      404 means no battery surface.
   - method: "POST"
     path: "/elgato/identify"
     name: "Identify"
@@ -267,8 +289,11 @@ http_endpoints:
     name: "Firmware Update Prepare"
     advanced: true
     advanced_reason: >
-      Erases the inactive firmware slot in preparation for replacement. Only a
-      vendor image for the exact board should be supplied.
+      Erases the inactive firmware slot in preparation for replacement; the
+      light answers nothing else while it erases. Only a vendor image for the
+      exact board should be supplied. On a battery light, connect power
+      first: python-elgato refuses to start an update while the light runs on
+      battery below 20%, so an update cannot die halfway.
     description: "Body {\"size\":N} with the complete image length including the 128-byte header. Allow at least 60 seconds."
     request_body:
       content_type: "application/json"
@@ -278,7 +303,8 @@ http_endpoints:
     advanced: true
     advanced_reason: >
       Writes one 4096-byte firmware chunk. An incorrect or interrupted image
-      can leave the light unavailable until recovery.
+      can leave the light unavailable until recovery. Keep a battery light on
+      external power (python-elgato will not start below 20% on battery).
     description: >
       Raw chunk at the byte offset in the query string. Chunks are sent in
       order with Connection: close; an accepted intermediate chunk answers
@@ -302,6 +328,18 @@ commands:
     method: "GET"
     path: "/elgato/lights"
     verification: "confirmed"
+  get_accessory_info:
+    description: "Read product name, board type, serial number, display name and firmware version. Used to identify the Strip variant by productName."
+    transport: "http"
+    method: "GET"
+    path: "/elgato/accessory-info"
+    verification: "reported"
+  get_light_settings:
+    description: "Read power-on settings. A powerOnHue key marks a colour-capable strip; used by the CCT variant probe."
+    transport: "http"
+    method: "GET"
+    path: "/elgato/lights/settings"
+    verification: "reported"
   get_battery_info:
     description: "Read Key Light Mini battery state; a 404 means this capability is absent."
     transport: "http"
@@ -325,7 +363,14 @@ commands:
     example_body: '{"lights":[{"on":0}]}'
     verification: "confirmed"
   set_brightness:
-    description: "Set brightness percent, preserving power and colour. Zero is legal but leaves on=1 with no visible output, so the control starts at 3."
+    description: >
+      Set brightness percent. Zero is legal but leaves on=1 with no visible
+      output, so the control starts at 3. On a white-only light this leaves
+      the white point alone. On a colour-capable strip in white mode a
+      brightness-only write makes it jump back to colour mode, so Home
+      Assistant's elgato integration resends the current temperature with
+      every brightness write. For that case use set_strip_white_brightness,
+      which declares both fields.
     transport: "http"
     method: "PUT"
     path: "/elgato/lights"
@@ -341,7 +386,7 @@ commands:
         description: "Brightness percent; clamp client-side because firmware range behaviour differs."
     verification: "confirmed"
   set_color_temperature:
-    description: "Set CCT white point in mireds. Do not combine temperature with hue or saturation."
+    description: "Set the white point of a white-only light (CCT variant) in mireds. Do not combine temperature with hue or saturation."
     transport: "http"
     method: "PUT"
     path: "/elgato/lights"
@@ -356,6 +401,51 @@ commands:
         unit: "mired"
         description: "White point in mireds: 143 is about 7000 K and 344 about 2900 K. Keep native mireds rather than converting through an assumed linear Kelvin curve."
     verification: "confirmed"
+  set_strip_color_temperature:
+    description: "Switch a Light Strip to white and set its white point in mireds. The strip's range is narrower than a Key Light's. Do not combine temperature with hue or saturation; any running scene ends."
+    transport: "http"
+    method: "PUT"
+    path: "/elgato/lights"
+    body: '{"lights":[{"temperature":{mireds}}]}'
+    example_body: '{"lights":[{"temperature":200}]}'
+    parameters:
+      mireds:
+        type: "integer"
+        required: true
+        min: 153
+        max: 285
+        unit: "mired"
+        description: "White point in mireds: 153 is about 6500 K and 285 about 3500 K (Home Assistant's colour-capable range)."
+    verification: "reported"
+  set_strip_white_brightness:
+    description: >
+      Set a Light Strip's brightness while it is in white mode, keeping it
+      in white mode. A brightness-only write (set_brightness) switches a
+      strip in white mode back to colour mode, so Home Assistant's elgato
+      integration sends the current temperature with every brightness
+      write. Fill `mireds` from lights[0].temperature of the last get_lights
+      reply. Use only while that reply has `temperature` and no `hue`.
+    transport: "http"
+    method: "PUT"
+    path: "/elgato/lights"
+    body: '{"lights":[{"brightness":{brightness},"temperature":{mireds}}]}'
+    example_body: '{"lights":[{"brightness":50,"temperature":200}]}'
+    parameters:
+      brightness:
+        type: "integer"
+        required: true
+        min: 3
+        max: 100
+        unit: "%"
+        description: "Brightness percent, as set_brightness."
+      mireds:
+        type: "integer"
+        required: true
+        min: 153
+        max: 285
+        unit: "mired"
+        description: "The strip's current white point, read back from lights[0].temperature; not a user choice."
+    verification: "reported"
   set_hsv:
     description: "Set direct HSV colour on a Light Strip, ending any running scene. Deliberately not bound to the RGB-oriented generic colour role."
     transport: "http"
@@ -396,7 +486,7 @@ features:
       image:
         signing: "signed"
         algorithm: "ed25519"
-        source: "bundled_in_app"
+        source: "public_url"
         format: >
           Complete vendor image including its 128-byte little-endian header:
           board type, four u16 version components, payload size/offset,
@@ -404,7 +494,14 @@ features:
           SHA-512(header[0:64] || payload), signed with Ed25519.
         notes: >
           Only the vendor image for the exact board id is appropriate. No
-          image or signing material is distributed with this spec.
+          image or signing material is distributed with this spec. Elgato
+          runs no separate firmware service: the images ship inside the
+          Control Center application, whose current macOS build is announced
+          by a public release index at https://gc-updates.elgato.com/ (the
+          `cc-mac` entry's downloadURL). python-elgato's catalog.py reads
+          that index and pulls the per-board images out of the zip with HTTP
+          range requests; its update routine checks the board type before
+          uploading.
       enter:
         how: "in_place"
         notes: >
@@ -445,8 +542,8 @@ entities:
       point stays in native mireds (143-344), not a mislabeled Kelvin slider.
   - platform: "light"
     name: "Light Strip"
-    variants: ["HSV"]
-    features: ["brightness", "rgb"]
+    variants: ["Strip"]
+    features: ["brightness", "rgb", "color_temp"]
     state_command: "get_lights"
     state_mapping:
       is_on: "lights[0].on"
@@ -454,17 +551,27 @@ entities:
       brightness: "lights[0].brightness"
       hue: "lights[0].hue"
       saturation: "lights[0].saturation"
+      color_temperature: "lights[0].temperature"
     commands:
       turn_on: "turn_on"
       turn_off: "turn_off"
       set_brightness: "set_brightness"
+      set_color_temperature: "set_strip_color_temperature"
     notes: >
-      `set_hsv` declares the wire write but is not bound: the generic
-      set_color role expects red/green/blue channels, not hue/saturation.
-      A client with an HSV picker can bind it directly.
+      Colour mode when the reply has `hue`; white mode when it has
+      `temperature` and no `hue`. White point 153-285 mireds. In white mode
+      a brightness change must go through set_strip_white_brightness with
+      the current temperature; the brightness role is bound to
+      set_brightness because the schema has no way to fill a parameter
+      from state (GAPS.md), so a generic consumer that only reads the
+      binding will knock a white strip into colour mode. `set_hsv` declares the colour write but is not bound:
+      the generic set_color role expects red/green/blue channels, not
+      hue/saturation. A client with an HSV picker can bind it directly.
+      While the reply carries `scene`, any write here ends the running
+      scene; the Light Strip Scene entity shows it.
   - platform: "light"
     name: "Light Strip Scene"
-    variants: ["Scene"]
+    variants: ["Strip"]
     features: ["brightness"]
     state_command: "get_lights"
     state_mapping:
@@ -473,9 +580,11 @@ entities:
       brightness: "lights[0].brightness"
       effect: "lights[0].id"
     notes: >
-      Read-only deliberately. A bare on/off, brightness or HSV write discards
-      the running scene and there is no scene-list endpoint. Cache the full
-      scene object before considering a restore command.
+      Read-only deliberately. Meaningful only while the lights reply carries
+      `scene`; otherwise its effect is absent. A bare on/off, brightness,
+      temperature or HSV write discards the running scene and there is no
+      scene-list endpoint. Cache the full scene object before considering a
+      restore command.
   - platform: "sensor"
     name: "Battery"
     variants: ["Battery"]
@@ -496,7 +605,9 @@ remaining_unknowns:
   - "Wi-Fi reset procedures for original Key Light, Key Light Air, Key Light MK.2, Ring Light, Light Strip and Light Strip Pro need vendor citations or hardware confirmation."
   - "An independent provisioning client still needs the classic wifi-info key schedule reviewed for clean-room redistribution; steady-state control does not depend on it."
   - "The full scene catalogue is not enumerable from the device. A safe scene-preserving write path should cache complete observed scenes first."
-  - "Battery charge-status values 0, 1 and 3, and powerSource 0 and 2, are from public prior art rather than the live Mini sample."
+  - "Battery status 1 has no established meaning (python-elgato's author never observed it; an earlier 'pre-charge' label had no cited source), and whether status 2 distinguishes fast from slow charging is unknown. status 0/2/3 and powerSource 0/1/2 follow python-elgato's models.py, not this project's capture."
+  - "Strip detection relies on settings carrying powerOnHue (one python-elgato strip fixture and Home Assistant's use of the key) and on the productName containing 'Light Strip'. Whether every strip firmware reports powerOnHue is unconfirmed."
+  - "Whether a temperature write to a Light Strip outside 153-285 mireds is rejected, clamped or accepted is not established; Home Assistant simply limits its slider to that range."
   - "Firmware-update recovery at every power-loss point, and whether every classic model uses the same inactive-slot behaviour, remain untested by this project."
   - "Air MK.2 mutual-TLS WebSocket control and BLE onboarding are outside this spec; its client-certificate issuance path is unresolved."
 
@@ -514,7 +625,8 @@ evidence:
   open_questions: >
     The remaining work is scoped in remaining_unknowns: per-model reset
     procedures, independent provisioning, scene-preserving writes, battery
-    enum coverage, firmware recovery and the separate Air MK.2 transport.
+    enum coverage, strip detection, the strip's white-point limits, firmware
+    recovery and the separate Air MK.2 transport.
 
 helpful_urls:
   - title: "Elgato local HTTP + mDNS protocol"

@@ -37,7 +37,11 @@ u16 LE battery/voltage (unit unknown), signed temperature (unit unknown),
 signed RSSI, then position (0 unlocked, 1 locked, 2 between, 3 invalid).
 
 Configuration `d3995e80` carries reset `e81`, adjustment `e82`, serial `e83`
-and touchpad `e84`. A numeric touchpad PIN is padded with ASCII `0` to 16
+and touchpad `e84`. The app defines three reset-mode values for writes to the
+reset characteristic: `0xbc` shipping mode, `0xbd` factory mode and `0xbe`
+development mode (from the August static triage; the exact write framing,
+whether an owner session is required first, and what each mode clears are not
+established). A numeric touchpad PIN is padded with ASCII `0` to 16
 characters, hex-decoded to eight bytes and written to `e84`; whether this is
 accepted before owner authentication is unknown. Firmware `d01-d04` resolve
 through configuration service `e80` in this build; a separate `d3995d00`
@@ -46,7 +50,12 @@ service is not established.
 ## Safety and remaining work
 
 Lock/unlock is property-security control and must require a validated owner
-session. Shipping/factory/development reset modes are excluded from ordinary
-control. Freshly reset locks without a surviving account backend remain
+session. The shipping, factory and development reset modes above are
+documented, not withheld, and any spec must flag them `advanced`. If a reset
+clears the lock's owner binding (not established), a freshly reset lock is
+not re-provisionable without the account backend, so the realistic
+consequence is a lock no phone can open. No recovery path is established;
+the owner export described above is the most plausible one and should be in
+hand before any reset is tried. Freshly reset locks without a surviving account backend remain
 unprovisionable on current evidence. The next useful evidence is an owner
 export plus one HCI snoop of a successful session, not more guessing at keys.

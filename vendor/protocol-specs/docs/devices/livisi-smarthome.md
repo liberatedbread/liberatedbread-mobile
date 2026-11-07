@@ -123,9 +123,10 @@ command set but binds entities only for controller-level readings.
 ## Remaining unknowns
 
 - The token lifetime and the reply fields beyond `access_token`.
-- Whether SHC 2 puts `controllerType` at the top level of `/status`. The
-  planbnet library reads it there, while openHAB's fixture shows only
-  `gateway`. Fall back to the `SHC`/`SHCA` device type.
+- `controllerType` at the top level of `/status` on SHC 2. openHAB's fixture
+  shows only `gateway`, but the planbnet library picks the SHC 2 event port
+  from a top-level `Avatar`, so it is almost certainly there. The
+  `SHC`/`SHCA` device type remains the fallback.
 - The namespace for a shutter `SetState`: `CosipDevices.RWE` (planbnet) or
   `core.RWE` (openHAB).
 - Factory reset, local-password recovery, and which button confirms setup on

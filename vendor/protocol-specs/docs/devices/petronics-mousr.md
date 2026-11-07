@@ -29,12 +29,19 @@ persistent bond is required on every firmware/phone combination is unverified.
 | Service | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
 | Command input | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
 | Notifications | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
-| Alternate identity | Laird VSP `8ec90001-f315-4f60-9fb8-838830daea50` |
+| Firmware update | Nordic Secure DFU service `0000fe59-0000-1000-8000-00805f9b34fb` (bootloader control point `8ec90001-f315-4f60-9fb8-838830daea50`, packet `8ec90002-f315-4f60-9fb8-838830daea50`) |
 | Factory reset | Unknown; DFU and tail calibration are not resets |
 
-The advertised factory name is `Mousr`, but it is user-renamable. `MousrDfu`
-is the bootloader identity, not a target for ordinary commands. Prefer the
-Nordic UART service for discovery.
+An earlier note called `8ec90001`/`8ec90002` a Laird virtual serial port. They
+are the Nordic Secure DFU bootloader characteristics; no Laird VSP UUID
+(`569a1101-…`) was recorded for this toy.
+
+The factory name is reported as exactly `Mousr`, and the spec matches it as
+an exact name together with the Nordic UART service. The service alone is
+not a match: many unrelated products carry it, and this spec has movement
+commands. The exact match also keeps out `MousrDfu`, the bootloader name,
+which the spec declares as update mode. The app lets an owner rename the toy;
+a renamed unit is not auto-matched and has to be added by hand.
 
 ## Command packet
 
@@ -43,45 +50,59 @@ Every ordinary command is exactly 15 bytes:
 ```text
 offset 0:  ASCII 30
 offset 1:  12-byte payload, zero-filled when unused
-offset 13: two-character decimal command code
+offset 13: two-byte command code
 ```
 
-A one-digit code has NUL as its second character. Thus code 2 ends in ASCII
-`02`, code 18 in `18`, and code 0 in ASCII `0` followed by NUL.
+A two-digit code is its two ASCII digits: code 18 ends `31 38`. **The second
+byte of a one-digit code is unresolved.** The analysis behind this spec gave
+two readings that contradict each other, and no capture settles which is
+right:
+
+- form A, ASCII `0` then the digit: code 2 ends `30 32`, code 0 ends `30 30`;
+- form B, the digit then NUL: code 2 ends `32 00`, code 0 ends `30 00`.
+
+The declared commands keep the bytes recorded for each, which mix the two
+(stop is form B; spin, move, reset heading and turn off are form A). Each
+one-digit command is therefore marked `verification: hypothesis` and its
+description gives the other form. Try stop in both forms first and keep
+whichever the toy obeys.
 
 | Code | Command | Code | Command |
 |---:|---|---:|---|
-| 0 | STOP | 18 | CHIRP |
-| 1 | SPIN | 19 | SOUND_VOLUME |
-| 2 | MOVE | 23 | Flick_SIGNAL |
-| 3 | RESET_HEADING | 24 | Reverse_SIGNAL |
-| 4 | GET_DEBUG_LOG | 25 | Tail_Calib_SIGNAL |
-| 5 | SPIN_PLAN | 26 | Set_Tail_SIGNAL |
-| 8 | ENTER_DFU_MODE | 28 | INITIALIZE_DEVICE |
-| 9 | TURN_OFF | 31 | FLIP_ROBOT |
-| 10 | SLEEP | 41 | CFG_DRIVER_ASSIST |
-| 15 | CONFIG_AUTO_MODE | 45 | TUTORIAL_STEP |
-| 46 | CMD_SET_TIME | 100 | INVALID |
+| 0 | stop | 18 | chirp |
+| 1 | spin | 19 | set sound volume |
+| 2 | move (drive vector) | 23 | tail flick |
+| 3 | reset heading | 24 | reverse |
+| 4 | request debug log | 25 | tail calibration |
+| 5 | planned spin | 26 | set tail |
+| 8 | enter bootloader (DFU) mode | 28 | initialize device |
+| 9 | turn off | 31 | flip the robot over |
+| 10 | sleep | 41 | configure driver assist |
+| 15 | configure autonomous play mode | 45 | tutorial step |
+| 46 | set time | 100 | invalid command |
 
-Only commands with an established envelope and clear scope are declared in
-the YAML. Auto-mode offsets, debug-log transfer, calibration, driver assist,
-set-time and DFU are not safe to infer from a code number alone.
+Only commands with an established payload are declared in the YAML.
+Auto-mode offsets, debug-log transfer, calibration, driver assist, set time
+and bootloader entry are listed so they can be captured, but their payloads
+cannot be inferred from a code number alone. Move and spin are flagged
+`advanced` because they drive a robot with no established physical scaling;
+sleep, turn off and reset heading are ordinary app controls and are not.
 
 ### Drive vector
 
-MOVE places three little-endian IEEE-754 binary32 values in the payload:
+The move command places three little-endian IEEE-754 binary32 values in the payload:
 
 ```text
 offset 1: speed, float32 LE
 offset 5: hold, float32 LE
 offset 9: angle, float32 LE
-offset 13: ASCII 02
+offset 13: code 2 (ASCII 02 as declared; see above)
 ```
 
 These are app control values, **not established m/s, degrees or percent**.
 Valid ranges need a capture. The app therefore presents them as raw,
 unbounded float32 inputs with an attended-motion warning rather than
-inventing a physical scale. STOP is an independent fixed command and should
+inventing a physical scale. Stop is an independent fixed command and should
 be tested first.
 
 ### Notifications
@@ -94,14 +115,19 @@ does not invent battery or pose decoders.
 
 ## Safety and recovery
 
-This is a moving robot and tail assembly. Test STOP and small movement in a
+This is a moving robot and tail assembly. Test stop and small movement in a
 clear area away from pets, people, cables and edges. Tail calibration needs
 a flat, unobstructed surface. Do not attempt DFU until ordinary control and
 charging state are established. The app's bundled recovery firmware is
-valuable, but is not shipped here and has no verified update sequence.
+valuable, but is not shipped here and has no verified update sequence. The
+spec's `features` block records the Nordic Secure DFU path and the
+`MousrDfu` update-mode name.
 
-`scripts/test_petronics_mousr_spec.py` checks packet lengths, decimal codes,
-and integer and fractional float32 vectors.
+`scripts/test_petronics_mousr_spec.py` checks packet lengths, that the
+declared stop and chirp bytes equal the spec's own vectors, and the integer
+and fractional float32 drive vectors. It does not establish the one-digit
+code byte: it checks that every one-digit command is marked `hypothesis` and
+that both forms are written down.
 
 See `device-specs/devices/petronics-mousr.yaml` for the full spec.
 

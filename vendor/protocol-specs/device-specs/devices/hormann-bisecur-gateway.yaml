@@ -112,7 +112,9 @@ device:
               - source: "xml:mac"
                 key: "mac"
             display:
-              source: "xml:protocol"
+              # The protocol attribute ("MCP V3.0") is the same on every
+              # gateway, so it cannot name one; the MAC can.
+              source: "xml:mac"
           response_match:
             - source: "xml:protocol"
               match: "prefix"

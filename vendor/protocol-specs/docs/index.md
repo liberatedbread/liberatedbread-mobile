@@ -12,6 +12,20 @@ documentation project is dedicated to reverse engineering the communication prot
 of abandoned IoT devices so the community can build open replacements for proprietary
 apps and cloud services.
 
+!!! warning "Use caution, especially for anything safety-critical"
+    These documents are reverse-engineered from the outside, mostly unverified
+    on hardware, and maintained in spare time. Use them to keep your own
+    gadgets useful, and treat every value and command they describe with care:
+    check against the device's own display and manual where you can. Where
+    being wrong could hurt someone, do not rely on them at all. A glucose
+    reading that reaches you through one of these specs is fine for seeing
+    which breakfast spikes you and unfit for deciding an insulin dose; the
+    same holds for blood-pressure and SpO2 readings (a personal log, not a
+    clinical one), gas alarms (the buzzer is the safety device, not a
+    notification), motorised doors and anything on wheels. Specs for such
+    devices carry a `safety_advisory` that says so again where a client will
+    show it.
+
 ## Getting Started
 
 New to IoT reverse engineering? Start with our [methodology guide](getting-started/methodology.md)
