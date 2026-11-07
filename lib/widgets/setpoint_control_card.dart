@@ -8,6 +8,7 @@ import '../core/error_text.dart';
 import '../core/value_format.dart';
 import '../providers/spec_codec_provider.dart';
 import '../core/entity_icon.dart';
+import '../services/ble_service.dart';
 import '../services/spec_codec.dart';
 import 'decoded_value_widget.dart';
 import 'entity_value.dart';
@@ -155,12 +156,31 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
       setState(() {
         _sendingRole = null;
         _errorText = text;
+        // A refused setpoint goes back to what the device last reported:
+        // held, the slider sat at the refused value with only the error line
+        // saying otherwise. Untouched again, the reading re-seeds it in
+        // [_buildTile]; a write-only setpoint returns to the last value it
+        // took. Only this send's own value (a failed action that carried
+        // none says nothing about it), and not when the device never
+        // answered — a timed-out write, or one whose link dropped before the
+        // reply, may have been taken after all. The network screen's
+        // sliders keep the same rule.
+        if (applied != null && !_outcomeUnknown(e)) {
+          _touched = false;
+          _pending = _sent;
+        }
       });
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(SnackBar(content: Text(text)));
     }
   }
+
+  /// Whether [error] leaves it open that the device took the write: it never
+  /// answered, rather than answering no.
+  static bool _outcomeUnknown(Object error) =>
+      error is BleCharacteristicSilentException ||
+      error is BleLinkDroppedException;
 
   Future<void> _send(double value) => _write(
     role: _setpointRole,

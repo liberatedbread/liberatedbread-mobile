@@ -81,6 +81,60 @@ heading.
 
 ### Security
 
+- **A spec cannot file one device's credential under another device's key.**
+  The generic credential store keys values `credential.<identity>.<name>`
+  and tells devices apart by the name being one dotless segment, but the
+  only check was an assert, which release builds compile out. There, a pack
+  naming a credential `local.serial` for `host:bulb` stored it under the
+  very key `host:bulb.local` keeps its `serial` in: the token was never
+  found again (the TV re-paired on every open), forgetting `host:bulb` left
+  it in the keychain, and `host:bulb.local` was handed it. A dotted or empty
+  credential name is now refused in every build, for saves, reads and
+  deletes alike; the credentials card shows the reason and a pairing logs it.
+
+- **A spec's HTTP command can no longer be aimed at another host.** A
+  command's `path` was resolved as a full URL reference against the device's
+  address, so a path such as `https://attacker.example/key_command/` or
+  `//203.0.113.7/steal` sent the request there instead, with the spec's
+  declared headers attached. A spec-pack copy of the Vizio SmartCast spec
+  with one path swapped would have sent every key press, its stored `AUTH`
+  token included, to that host. The spec-pack security floor compares
+  scheme and TLS posture, not paths. The Rust renderer now refuses a command
+  path, a `path_fallback`, an `http_endpoints` path or a bare state path
+  that opens with a URI scheme or with two slashes. The Dart sender refuses
+  any resolved URL whose scheme, host or port is not the device's, with a
+  message saying the command was not sent. Nothing in the vendored catalogue
+  is written that way: all 297 HTTP command paths and 348 endpoint paths
+  are device-relative, and a vendored test now pins that.
+
+- **A device's mDNS TXT address must be a LAN address.** The scan placed a
+  device at the `ip=` (or `address=`, `ipv4=`, ...) its TXT record
+  advertised, and accepted any IP literal. It was the one self-reported
+  address not held to the LAN rule every other one follows (R-024), so a
+  TXT record could put a public host on the device list, and an IPv6 literal
+  broke the HTTP sender with a bare FormatException. A TXT address is now
+  used only when it is an IPv4 literal on the local network: private,
+  link-local or loopback.
+
+- **A spec's camera URL is fetched only from the device.** The camera card
+  filled `{address}` into the spec's snapshot and keepalive URLs and fetched
+  the result as written. A template that left `{address}` out, or put it
+  outside the host (`http://{address}.evil.example/`), polled another host up
+  to five times a second and held a WebSocket open there while the card was
+  on screen. Both URLs are now checked once, before anything is opened. If
+  either names any host but the device's, the feed does not start, and the
+  camera card says why at once instead of reporting 15 s later that the
+  camera isn't responding.
+
+- **A string value can no longer inject members into an MQTT JSON payload.**
+  A literal MQTT `body` was filled by plain substitution, so a string value
+  containing a quote closed its JSON string and wrote members of its own.
+  For a Sengled bulb, whose payload is a JSON array carrying the stored MAC,
+  that meant extra fields in the bulb's command. A body that is JSON (it
+  opens with `[` or `{`) now escapes string values and validates typed ones,
+  as the HTTP transport does. A bare-string payload (Hisense's `KEY_POWER`,
+  a whole-body `{volume}`) still goes out verbatim.
+
 - **Tokio 1.53.1 -> 1.54.1.** Picks up the fix for the `AsyncFd` I/O-safety
   advisory RUSTSEC-2026-0386. `cargo audit` is clean of known vulnerabilities;
   only the already-known unmaintained `unsafe-libyaml` warning remains.
@@ -461,6 +515,307 @@ heading.
   ABI assertions no longer name it.
 
 ### Fixed
+
+- **A BF-F8HP is no longer programmed as a UV-5R, or a UV-5R as a BF-F8HP.**
+  The cable driver's firmware check guarded only the UV-82HP. The F8HP's
+  first ident is the UV-5R's, so each radio answers the other's profile, and
+  a mismatch went through: an F8HP reporting `BFT`, `N5R3` or `BFP3V3 F`,
+  programmed as the two-level UV-5R, had a new Low channel written as its
+  Med (4 W), and a UV-5R reporting `BFB297`, programmed as the F8HP, as an
+  index its two-level table never defined. The check now refuses a profile
+  whenever the firmware names only CHIRP models with another power table,
+  and the refusal names the model to choose. Firmware CHIRP lists for models
+  of both tables (`N5RV`, `HN5RV01`, `N5R2`) still allows either.
+
+- **A Wi-Fi slider sends a whole number when its step is whole.** Flutter's
+  Slider reports a stop as `k / n * (max - min) + min`, which floating point
+  does not always land exactly: stop 23 of OpenEVSE's 6–48 A charge limit is
+  29.000000000000004, and several stops of a SoundTouch's 0–100 volume are a
+  hair off a whole number too. The number card sent those as "29.0", Rust
+  refused it for an integer parameter, and the slider rolled back. The number,
+  fan and cover sliders now snap to the entity's declared step and send the
+  value printed to that step's precision. A cover with no step drops a whole
+  number's ".0" too, so a position of 50 goes out as "50".
+
+- **Wi-Fi lights show whether they are on, how bright they are, and their
+  white point.** A light's spec names roles (`is_on`, `brightness`,
+  `color_temperature`) and no single `value`. The network read looked only at
+  `value`, so a Kasa bulb or light strip, an Elgato light, a Divoom Pixoo and
+  a ratgdo garage light all opened on "Ready" with the brightness slider at
+  the top, whatever the light was doing. A new role read (`read_network_entity_roles`) feeds the
+  light card. The power rule (`on_when` / `on_value`, including a text
+  `on_value` such as "ON") decides only `is_on`. A path into an array, such as
+  an Elgato's `lights[0].on`, is read from the JSON the reply carried. On a
+  hub, an instanced light no longer reads a brightness of 77 as "on" because
+  the mapping declared `on_when: nonzero`.
+
+- **An Elgato light keeps its controls after the first poll.** The Elgato
+  family tells a Key Light from a Light Strip by what its reply's
+  `lights[0]` carries (`temperature`, `hue`, `scene`). Those checks step into
+  an array, and the app only looked for them as plain keys of the reply, so
+  none of them ever matched. The light's card was on screen until
+  `/elgato/lights` answered and then disappeared, leaving only Identify. A
+  variant check can now look inside an array the reply carried, the same way
+  the light's own readings already do.
+
+- **A garage door shows whether it is open, and where.** A ratgdo door
+  reports `state` (OPEN or CLOSED) and `position` (0 to 1), not one value.
+  The cover card looked only for a single value, so it showed no state and,
+  without a live position, never drew its position slider. The card now
+  reads both. After a send, the door's next reading also replaces a position
+  you dragged to, as it already did for covers that report a single value.
+
+- **Switches that report power by name show whether they are on.** A Denon
+  receiver's Power and Mute, and ratgdo's remote lock-out, report their
+  on/off as `is_on` rather than a single value. The switch card read "State
+  unknown" and drew its toggle Off, whether the receiver was on or in
+  standby. It now reads `is_on`.
+
+- **A group "turn off" reaches a Wi-Fi light that is on.** A group turn-off
+  sends a toggle only after reading that the device is on. That read
+  looked only for a single value, which no Wi-Fi light reports, so every
+  such light came back "Power state unknown" and was left on. The group
+  runner now reads the light's `is_on`, as the device screen does.
+
+- **A command split across packets reaches the device in one piece.** An
+  Orba's BLE-MIDI SysEx goes out as several GATT writes that the device
+  reassembles in arrival order. Each packet was its own write, and
+  flutter_blue_plus queues writes one call at a time, so a second command
+  tapped mid-send put its packets between the first's (`a1 b1 a2 b2 a3 f7 f7`
+  on the wire). Both messages were corrupt, and the screen said "Sent" for
+  both. RealBleService now queues every write to a device in order and sends
+  a packetized command as a single unit, so no other write can land in the
+  middle of it. A command cut off partway still reports how many of its
+  packets were sent.
+
+- **A float32 setpoint is sent with its fraction.** A `number` entity whose
+  `set_value` command takes a float32 parameter, or that writes straight to a
+  one-field float32 characteristic, had its value rounded to a whole number
+  on the way out: 0.3 went out as 0.0, 0.5 as 1.0, and a 23.5 direct write as
+  24.0, while the same command sent from the command browser kept 0.5. The
+  setpoint write now inverts the spec's transform without rounding for a
+  float target. A float32 direct write also no longer advertises ±2^53 as its
+  setpoint range when the entity declares none (that number was the
+  parser's cap on the schema's integer bounds, not a device limit), so the
+  card offers its stepper instead of a slider across nine quadrillion.
+
+- **Home Assistant receives a float32 reading as the number it decodes to.**
+  The forwarder re-derived a reading's decimals from its scale and offset, and
+  a bare float32 has neither, so it rounded: the Hot Wheels portal's 0.144641
+  m/s speed reached Home Assistant's long-term statistics as 0. It now sends
+  the reading at the places the decoder rendered it at.
+
+- **The UV-5G Mini's GMRS channels 1–30 are left as the radio has them.**
+  CHIRP treats the first 30 memories of a UV-5G Mini as its fixed GMRS plan
+  (frequency, duplex and offset immutable; 8–14 held to narrow and low
+  power), but the app wrote a plan over them from channel 1, and read them
+  into a plan that then wrote them again after it. A write now leaves
+  records 1–30 byte for byte as read and places the plan from channel 31; a
+  read leaves them out of the plan; the plan holds 969 channels and the
+  screens number and describe it that way. Not yet confirmed on a radio.
+
+- **A UV-5G Mini plan exported for CHIRP is numbered from 31.** The CSV
+  export numbered every plan's `Location` from 1, but CHIRP holds a UV-5G
+  Mini's 1–30 as its fixed GMRS channels and will not change their
+  frequencies, so an exported plan imported into CHIRP landed on them, and
+  disagreed with where the app itself writes the plan. A plan's export is
+  now numbered as its radio numbers it; every other radio, and a plan for a
+  radio this build does not know, still counts from 1.
+
+- **A slow stored save waits for the device to commit before playing it.**
+  Saving a picture or text to an LED panel started its 10 s "did it commit?"
+  wait at the first upload packet instead of the last. A container that takes
+  longer than that to write (a 255x255 picture is ~260 writes at iOS's MTU)
+  ran the wait out mid-upload, so the app played a design the device had not
+  committed yet (which the device ignores), reported "did not confirm — try
+  Replay", and never read the confirmation that arrived a moment later. The
+  wait now starts once the last packet is out, as animation saves already
+  did.
+
+- **A new stored design no longer lands on another design's device slot.** A
+  fresh picture, text or animation id was taken from the clock and checked
+  against nothing. An animation is stored as one still per frame, each under
+  its own id, but its replay-list entry names only the first. So a later
+  picture could get the id of one of its frames: it overwrote that frame on
+  the device, and the list held two entries pointing at one slot. New ids now
+  skip every id the saved designs use, frame ids included, and an animation
+  gets a run of ids that are all free.
+
+- **A refused BLE setpoint puts the slider back.** On a BLE `number`/`climate`
+  card, a value the device or the codec refused left the slider at that
+  value, with only the error line saying otherwise, until the user dragged
+  again. The slider now goes back to the device's reading, or to the last
+  value a write-only setpoint accepted. A write the device never answered
+  (timed out, or the link dropped first) keeps its value, because the device
+  may have taken it. So does a failed action that carried no value. This is
+  the same rule the network screen's sliders follow.
+
+- **A light's colour temperature reads "not set" until something sets it.**
+  With no reading, the card made up 3500 K and clamped it into the light's
+  range. An Elgato (143–344 mired) opened at "344 mired", and the screen
+  reader announced that as the light's setting. Until a reading or a drag
+  gives a value, the card now shows "—" and the screen reader says "Colour
+  temperature not set".
+
+- **A background poll no longer briefly undoes a change you just made.** A
+  state poll that was already in flight when a command went out could land
+  after the command's own read-back. It then put the old state back on
+  screen, and dropped a slider you were holding, for up to four seconds. The
+  poll now ignores its reply if a send began while it was waiting, the same
+  guard the keyboard-focus poll already had.
+
+- **A SOAP command refuses an argument its spec says cannot exist.** The
+  SOAP renderer was the one network transport that checked no declared type
+  or bounds. A Wemo Crock-Pot cook time of `-5<x/>` went out as
+  `<time>-5&lt;x/&gt;</time>`, which is well-formed XML and an impossible
+  time, sent to a cooker that is running. A substituted argument whose
+  parameter declares a non-string type must now be that type and inside its
+  `min`/`max`, or the command fails naming the parameter, as on HTTP, MQTT
+  and BLE. String arguments, such as a Wi-Fi SSID, are escaped as before.
+  All 116 SOAP commands in the catalogue still render.
+
+- **A pulled programming cable fails the session at once on Linux and
+  macOS.** A serial read that returned end of file was counted as progress,
+  so the read spun a CPU core at 100% until the step timed out, and then
+  passed for a slow radio. It is now an error straight away; in the middle
+  of a write the screen still says the radio may hold part of the write and
+  names the backup to restore.
+
+- **A frequency finer than 10 Hz is refused on every radio.** The UV-17Pro
+  family's encoder truncated it (146.520005 MHz went to a Mini as 146.52000)
+  while the UV-5R family's refused the same channel; both now refuse it.
+
+- **The channel editor refuses a frequency finer than 10 Hz.** Every radio
+  here stores a frequency in tens of hertz, and the codecs refuse a finer
+  one — but only at write time, after the radio had been read and backed
+  up. A frequency such as 146.520005 MHz is now refused as it is typed,
+  with a message saying the radio holds five decimal places of MHz at most,
+  and a plan saved before this is refused on the radio screen before
+  anything is read.
+
+- **A RepeaterBook tone the radios cannot hold is read as no tone.** A DCS
+  code off the standard table (`D777`) made the whole write fail after the
+  read and backup with only "The radio did not finish.", and a value such as
+  `1750` was written as a 1750.0 Hz CTCSS tone. Only tones on the app's
+  CTCSS and DCS tables are taken now, as for a radio's own channels.
+
+- **A stored plan's tone off the standard tables loads as no tone.** A plan
+  saved or imported with a DCS code off the table (or a CTCSS value under
+  60 Hz) loaded as it was and then failed the write after the read and
+  backup; any other off-table CTCSS value was written as a tone the editor
+  never offers. Loading now keeps only the tones the radio's own read and
+  the RepeaterBook reader keep, as no tone otherwise; the channel and the
+  rest of the plan load as before.
+
+- **A number typed with a decimal comma is accepted.**
+  An iOS decimal pad in German, French, Spanish, Italian, Portuguese or
+  Dutch has a comma key and no period, so "146,940" was refused as not
+  looking like 146.940, and a latitude could not be typed at all. The
+  channel editor, the hand-entered position, the network device number
+  dialog, a typed command's raw float field and the Rabbit Air Set dialog
+  now read one decimal comma as the point. The Rabbit Air dialog also
+  refuses a value that is not finite: "NaN" passed its bounds check and went
+  out to the purifier as a `set_value`.
+
+- **A long channel name is shortened between whole characters.** Names were
+  cut by UTF-16 code units, so an emoji at the limit was split in half and
+  reached the radio as a space; a name with one emoji was also cut a letter
+  early. The limit is now counted the way the radio stores names, and a
+  character is kept or dropped whole.
+
+- **With two packs carrying the same device, the newer one wins.** Packs
+  were fed to the catalogue newest first, and the catalogue keeps the last
+  copy of a device, so the older pack's spec was the one in force — and
+  refreshing a pack to pick up its fix made it lose. Packs now load oldest
+  first: the most recently installed or refreshed pack's copy wins, as a pack
+  already wins over the built-in spec it replaces.
+
+- **Two packs can no longer hide each other's specs.** A pack spec was keyed
+  by the pack's name and the manifest path, so a pack "a" listing
+  `b/c.yaml` and a pack "a/b" listing `c.yaml` shared one key: both
+  installed, and one spec silently vanished from the catalogue, while the
+  install screen credited "a" with the built-ins "a/b" replaces. Keys now
+  name the pack's directory and the spec's file in it, which are unique;
+  stored spec choices are unaffected.
+
+- **A removed spec pack stays removed.** When a reinstall could not delete
+  the previous version it had set aside, removing the pack later left that
+  copy behind, and the next launch restored it — the pack came back at its
+  old version. Removing a pack now deletes its set-aside and staging copies
+  too.
+
+- **Repeater listings are no longer kept in Documents.** The RepeaterBook and
+  myGMRS listings cache, several megabytes per state and re-downloadable,
+  lived in the app's Documents directory, which iOS backs up to iCloud. It
+  now lives in Application Support, like the spec packs. On iOS, Android and
+  macOS, where Documents is the app's own, an existing copy is moved there on
+  first use (or deleted when one is already there), so existing installs do
+  not keep the orphaned megabytes. On Linux and Windows desktop, Documents is
+  the user's shared folder, so the old copy is left alone. Codeplug backups
+  stay in Documents.
+
+- **A float32 reading keeps its decimals under an integral scale.** A float32
+  field rendered with six places only when it declared neither `scale` nor
+  `value_offset`; any whole-number transform rendered it with none, so a
+  `scale: 64` speed of 9.257 read "9" and `scale: 1.0` turned 0.1446 into "0".
+  The same happened in the app when an entity's own `state_mapping.scale`
+  applied. A float now keeps every place worth showing whatever its
+  transform, still narrowed by an entity's declared `precision`.
+
+- **Orba-framed commands no longer appear as switches, sliders or find
+  buttons that can only fail.** The Orba's BLE-MIDI framing is sent as
+  several ordered writes, but the entity cards, group operations, setpoint
+  writes and the find-device button each send one, and the one-write encoder
+  refuses the scheme. A spec binding a switch or number entity, or declaring
+  a `locate` command, on such a characteristic therefore drew a control whose
+  every press failed. Those controls are no longer offered there; the
+  commands stay in the command browser, which sends every write they take.
+
+- **Mock mode shows a float32 field's fractional `mock_default`.** The
+  simulator read every `mock_default` as an integer, so `mock_default: 0.5` on
+  a float32 field was refused and the field demoed as 0. A float32 now takes
+  its default as a float, in the field's byte order; one no float32 can hold
+  falls back to the usual heuristic.
+
+- **The spec parser refuses a NaN default and an integer `auto` role on a
+  float32.** `default: .nan` passed the range check (every comparison with
+  NaN is false), so the command loaded, resolved into controls, and failed
+  every send. And `type: float32` with `auto: packet_length` or a checksum
+  role loaded clean, then wrote the integer's bytes into the four-byte float
+  slot, or sent the checksum as a float. Both are now load errors that name
+  the parameter; `auto: sequence` on a float32 still loads. No bundled spec
+  declares either.
+
+- **A double tap on a typed command sends it once.** The Send button only
+  disabled itself on the next frame, so two taps in one frame both encoded
+  and wrote the command. An advanced command's confirmation dialog left the
+  same opening for as long as it was up. A command now ignores a second send
+  while its first is still running.
+
+- **A blank value hidden with the spec's defaults no longer blocks Send.**
+  Showing the "values the spec fills in", clearing one of the raw number
+  fields (Mousr's `move` has three) and hiding them again made Send answer
+  "Enter a finite number for Speed" with no Speed field on screen, although
+  the encoder would fill that value in itself. Only a field whose value would
+  be sent can block the send now.
+
+- **A partly sent command no longer shows internal error text.** "Only 1 of 3
+  packets were sent" went on to print the raw cause, e.g. "Cause: Bad state:
+  …" or "PlatformException(…)". The cause now goes through the same filter as
+  every other error message: a reason written for the user, such as the
+  device disconnecting, is still shown, and anything else goes to the log.
+
+- **A failed save no longer leaves the LED editor listening for a reply.**
+  When the effect-list request that follows a stored upload failed (a dropped
+  link, a refused write), the editor kept its subscription to the device's
+  reply channel until it was closed. It now lets go as soon as the request
+  fails.
+
+- **A text save the phone cannot draw says so.** If the graphics engine failed
+  to hand back the rendered text, the save stopped on a bare null-check error
+  and showed "Could not save to the device.", blaming a device that had been
+  sent nothing. It now reports that the text could not be drawn and nothing
+  was sent.
 
 - **Darwin BLE no longer crashes on null options or descriptor values.** The
   last BSD-licensed `flutter_blue_plus_darwin` now comes from a local override

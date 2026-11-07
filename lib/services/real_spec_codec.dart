@@ -792,6 +792,29 @@ class RealSpecCodec implements SpecCodec {
   }
 
   @override
+  Future<List<NetworkRoleReadingDto>> readNetworkEntityRoles({
+    required String specYaml,
+    required String entityName,
+    required Map<String, String> returned,
+  }) {
+    // A light's half of the poll, beside readNetworkEntity: the held spec,
+    // not the YAML again.
+    final held = _held(specYaml);
+    if (held != null) {
+      return held.readNetworkEntityRoles(
+        entityName: entityName,
+        returned: returned,
+      );
+    }
+    unawaited(_holdSpec(specYaml));
+    return rust.readNetworkEntityRoles(
+      specYaml: specYaml,
+      entityName: entityName,
+      returned: returned,
+    );
+  }
+
+  @override
   Future<StoredUploadPlanDto> encodeStoredImage({
     required String specYaml,
     int? maxWrite,

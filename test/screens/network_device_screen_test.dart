@@ -25,6 +25,7 @@ import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
+import 'package:liberated_bread_mobile/widgets/network_light_card.dart';
 import 'package:liberated_bread_mobile/widgets/rabbit_air_controls_panel.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/models/ha_config.dart';
@@ -443,6 +444,55 @@ void main() {
       find.widgetWithText(ChoiceChip, 'warm'),
     );
     expect(warm.selected, isTrue);
+  });
+
+  // A background poll asked before a send answers with the state the send
+  // is about to change. The tick skipped only NEW ticks while a send was in
+  // flight, so one already on the wire landed after the send's read-back
+  // and redrew the old mode until the next tick, four seconds later.
+  testWidgets('a poll overtaken by a send does not redraw the old state', (
+    tester,
+  ) async {
+    var mode = 51;
+    Completer<void>? held;
+    final device = MockClient((request) async {
+      if (request.url.path == '/setup.xml') {
+        return http.Response(_setupXml, 200);
+      }
+      final action = request.headers['SOAPACTION'] ?? '';
+      if (action.contains('GetCrockpotState')) {
+        // What the device holds when the poll ASKS, whenever it answers.
+        final asked = mode;
+        final gate = held;
+        held = null;
+        if (gate != null) await gate.future;
+        return http.Response(_stateResponse(mode: asked, time: 240), 200);
+      }
+      final picked = RegExp('<mode>(\\d+)</mode>').firstMatch(request.body);
+      if (picked != null) mode = int.parse(picked.group(1)!);
+      return http.Response(_ackResponse, 200);
+    });
+    await pump(tester, device);
+    bool selected(String label) => tester
+        .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label))
+        .selected;
+    expect(selected('low'), isTrue);
+
+    // The next tick's poll goes out and is held on the wire, carrying low.
+    final gate = held = Completer<void>();
+    await tester.pump(const Duration(seconds: 4));
+    expect(held, isNull, reason: 'the tick has asked');
+
+    // A send now: its read-back reports warm.
+    await tester.tap(find.widgetWithText(ChoiceChip, 'warm'));
+    await tester.pumpAndSettle();
+    expect(selected('warm'), isTrue);
+
+    // The stale reply lands last.
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(selected('warm'), isTrue, reason: 'low is what the device WAS');
+    expect(selected('low'), isFalse);
   });
 
   testWidgets('an unknown mode reads as unrecognized, never as off', (
@@ -2287,16 +2337,11 @@ void main() {
               raw: on ? '1' : '0',
             );
           }
-          if (entity == 'Bulb' || entity == 'Light Strip') {
-            // The dotted keys the flattener now emits for light_state.
-            final on = returned['light_state.on_off'] == '1';
-            return NetworkReadingDto(
-              kind: NetworkReadingKind.onOff,
-              isOn: on,
-              number: double.tryParse(returned['light_state.brightness'] ?? ''),
-              raw: on ? '1' : '0',
-            );
-          }
+          // A light declares no `value`, so the real single read answers
+          // null for it; its state is the role read below. This fake used to
+          // answer both at once, which is how a card that real Rust never
+          // seeded passed here.
+          if (entity == 'Bulb' || entity == 'Light Strip') return null;
           // The sensors: the dotted path the flattener keys the reply by.
           final field = switch (entity) {
             'Voltage' => 'emeter.get_realtime.voltage',
@@ -2310,6 +2355,34 @@ void main() {
             number: double.parse(raw),
             raw: raw,
           );
+        },
+        // The spec's `is_on: light_state.on_off` (on_when: nonzero) and
+        // `brightness: light_state.brightness`, over the dotted keys the
+        // flattener emits for light_state.
+        networkRoleReadings: (entity, returned) {
+          if (entity != 'Bulb' && entity != 'Light Strip') return const [];
+          final onOff = returned['light_state.on_off'];
+          final brightness = returned['light_state.brightness'];
+          return [
+            if (onOff != null)
+              NetworkRoleReadingDto(
+                role: 'is_on',
+                reading: NetworkReadingDto(
+                  kind: NetworkReadingKind.onOff,
+                  isOn: onOff != '0',
+                  raw: onOff,
+                ),
+              ),
+            if (brightness != null)
+              NetworkRoleReadingDto(
+                role: 'brightness',
+                reading: NetworkReadingDto(
+                  kind: NetworkReadingKind.number,
+                  number: double.parse(brightness),
+                  raw: brightness,
+                ),
+              ),
+          ];
         },
       );
 
@@ -3921,12 +3994,15 @@ void main() {
       List<NetworkEntityDto> entities = utilityEntities,
       List<String> hiddenNames = const [],
       NetworkReadingDto? Function(String, Map<String, String>)? reading,
+      List<NetworkRoleReadingDto> Function(String, Map<String, String>)? roles,
+      MockClient? device,
     }) async {
       posts = [];
       codec = FakeSpecCodec(
         networkEntities: (_) => entities,
         networkHiddenNames: hiddenNames,
         networkReading: reading ?? readUtility,
+        networkRoleReadings: roles,
       );
       codec.networkRequest = (name, values) => SoapRequestDto(
         service: 'urn:Belkin:service:basicevent:1',
@@ -3940,7 +4016,7 @@ void main() {
           overrides: [
             specCodecProvider.overrideWithValue(codec),
             soapControlClientProvider.overrideWithValue(
-              SoapControlClient(httpClient: cooker(mode: 1, time: 3)),
+              SoapControlClient(httpClient: device ?? cooker(mode: 1, time: 3)),
             ),
           ],
           child: const MaterialApp(home: SizedBox()),
@@ -4210,6 +4286,23 @@ void main() {
       });
     }
 
+    // An iOS decimal pad in de/fr/es/it/pt/nl locales has a comma key and no
+    // period, so a comma is the only way such a user can type a fraction.
+    testWidgets('a value typed with a decimal comma is sent as a number', (
+      tester,
+    ) async {
+      await pumpNumberReading(tester, 21.0);
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '21,5');
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
+      final call = codec.renderNetworkCommandCalls.lastWhere(
+        (c) => c.commandName == 'set_speed',
+      );
+      expect(call.values['speed'], '21.5');
+    });
+
     // The cover's position slider drew only the live reading and its
     // onChanged did nothing, so the thumb sat still under the finger and the
     // door was sent to a position the user never saw.
@@ -4351,6 +4444,390 @@ void main() {
         (c) => c.commandName == 'set_speed',
       );
       expect(double.parse(call.values['speed']!), inInclusiveRange(0, 6));
+    });
+
+    // Flutter's Slider reports stop k of n as `k / n * (max - min) + min`,
+    // which binary floating point does not always land exactly: stop 23 of
+    // OpenEVSE's 6..48 A charge limit is 29.000000000000004, and stop 29 of
+    // a SoundTouch's 0..100 volume is 28.999999999999996. Both went out as
+    // "29.0", which Rust's integer parameters refuse ("declared integer, and
+    // this is not an integer") — the send failed and the slider rolled back.
+    // The fake codec takes any string, so the assertion is the exact text.
+    for (final (label, min, max, step, stop, sent) in [
+      ('a 6..48 A charge limit', 6.0, 48.0, 1.0, 23, '29'),
+      ('a 0..100 volume', 0.0, 100.0, 1.0, 29, '29'),
+      ('a 0..100 volume', 0.0, 100.0, 1.0, 57, '57'),
+      ('a -80..18 dB half-step volume', -80.0, 18.0, 0.5, 187, '13.5'),
+    ]) {
+      testWidgets('$label sends stop $stop as "$sent"', (tester) async {
+        final entity = NetworkEntityDto(
+          isInstanced: false,
+          name: 'Setpoint',
+          platform: 'number',
+          stateCommand: 'GetCrockpotState',
+          valueField: 'time',
+          setpointMin: min,
+          setpointMax: max,
+          setpointStep: step,
+          options: const [],
+          actions: const [
+            NetworkActionDto(
+              credentials: [],
+              instanceParams: [],
+              role: 'set_value',
+              transport: 'soap',
+              commandName: 'set_point',
+              userParams: ['value'],
+              readBack: [],
+            ),
+          ],
+        );
+        await pumpUtility(tester, entities: [entity], reading: (_, _) => null);
+
+        final slider = tester.widget<Slider>(find.byType(Slider));
+        final divisions = ((max - min) / step).round();
+        expect(slider.divisions, divisions);
+        // The value Slider itself hands its callbacks for that stop.
+        final released = stop / divisions * (max - min) + min;
+        slider.onChanged!(released);
+        slider.onChangeEnd!(released);
+        await tester.pumpAndSettle();
+
+        final call = codec.renderNetworkCommandCalls.lastWhere(
+          (c) => c.commandName == 'set_point',
+        );
+        expect(call.values['value'], sent);
+      });
+    }
+
+    // The fan and cover sliders sent the same noisy doubles: the fan through
+    // the one-decimal trim, the cover through toString(), so a cover at 50
+    // went out as "50.0".
+    testWidgets('a stepped fan speed sends a whole percentage', (tester) async {
+      final fan = utilityEntities.firstWhere((e) => e.platform == 'fan');
+      await pumpUtility(
+        tester,
+        entities: [
+          NetworkEntityDto(
+            isInstanced: fan.isInstanced,
+            name: fan.name,
+            platform: fan.platform,
+            stateCommand: fan.stateCommand,
+            valueField: fan.valueField,
+            setpointStep: 1,
+            options: fan.options,
+            actions: fan.actions,
+          ),
+        ],
+      );
+
+      final slider = tester.widget<Slider>(find.byType(Slider));
+      expect(slider.divisions, 100);
+      slider.onChanged!(28.999999999999996);
+      slider.onChangeEnd!(28.999999999999996);
+      await tester.pumpAndSettle();
+
+      final call = codec.renderNetworkCommandCalls.lastWhere(
+        (c) => c.commandName == 'fan_speed',
+      );
+      expect(call.values['value'], '29');
+    });
+
+    for (final (label, step, released, sent) in [
+      ('an unstepped cover position', null, 50.0, '50'),
+      ('a stepped cover position', 1.0, 49.99999999999999, '50'),
+    ]) {
+      testWidgets('$label at $released sends "$sent"', (tester) async {
+        final cover = utilityEntities.firstWhere((e) => e.platform == 'cover');
+        await pumpUtility(
+          tester,
+          entities: [
+            NetworkEntityDto(
+              isInstanced: cover.isInstanced,
+              name: cover.name,
+              platform: cover.platform,
+              deviceClass: cover.deviceClass,
+              stateCommand: cover.stateCommand,
+              valueField: cover.valueField,
+              setpointStep: step,
+              options: cover.options,
+              actions: [
+                ...cover.actions,
+                const NetworkActionDto(
+                  credentials: [],
+                  instanceParams: [],
+                  role: 'set_cover_position',
+                  transport: 'soap',
+                  commandName: 'door_position',
+                  userParams: ['position'],
+                  min: 0,
+                  max: 100,
+                  readBack: [],
+                ),
+              ],
+            ),
+          ],
+          reading: (entity, ret) => const NetworkReadingDto(
+            kind: NetworkReadingKind.number,
+            number: 20,
+            raw: '20',
+          ),
+        );
+
+        final slider = tester.widget<Slider>(find.byType(Slider));
+        slider.onChanged!(released);
+        slider.onChangeEnd!(released);
+        await tester.pumpAndSettle();
+
+        final call = codec.renderNetworkCommandCalls.lastWhere(
+          (c) => c.commandName == 'door_position',
+        );
+        expect(call.values['position'], sent);
+      });
+    }
+
+    // A light declares roles, not a `value`: the single read is null for it,
+    // and the card was built with no reading at all — an Elgato opened
+    // "Ready", its brightness pinned at the top and its white point at an
+    // invented 344 mired, whatever the light was doing.
+    testWidgets('a light card is seeded from its role readings', (
+      tester,
+    ) async {
+      NetworkActionDto action(
+        String role,
+        String command, {
+        List<String> params = const [],
+        double? min,
+        double? max,
+        String? unit,
+      }) => NetworkActionDto(
+        credentials: const [],
+        instanceParams: const [],
+        role: role,
+        transport: 'soap',
+        commandName: command,
+        userParams: params,
+        min: min,
+        max: max,
+        unit: unit,
+        readBack: const [],
+      );
+      NetworkRoleReadingDto number(String role, double value) =>
+          NetworkRoleReadingDto(
+            role: role,
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: value,
+              raw: '$value',
+            ),
+          );
+      await pumpUtility(
+        tester,
+        entities: [
+          NetworkEntityDto(
+            isInstanced: false,
+            name: 'Key Light',
+            platform: 'light',
+            stateCommand: 'GetCrockpotState',
+            options: const [],
+            actions: [
+              action('turn_on', 'light_on'),
+              action('turn_off', 'light_off'),
+              action(
+                'set_brightness',
+                'set_brightness',
+                params: ['brightness'],
+                min: 3,
+                max: 100,
+              ),
+              action(
+                'set_color_temperature',
+                'set_temperature',
+                params: ['temperature'],
+                min: 143,
+                max: 344,
+                unit: 'mired',
+              ),
+            ],
+          ),
+        ],
+        reading: (_, _) => null,
+        roles: (entity, _) => [
+          const NetworkRoleReadingDto(
+            role: 'is_on',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.onOff,
+              isOn: true,
+              raw: '1',
+            ),
+          ),
+          number('brightness', 40),
+          number('color_temperature', 213),
+        ],
+      );
+
+      final card = tester.widget<NetworkLightCard>(
+        find.byType(NetworkLightCard),
+      );
+      expect(card.initialOn, isTrue);
+      expect(card.initialBrightness, 40);
+      expect(card.initialColorTemperature, 213);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      final sliders = tester
+          .widgetList<Slider>(find.byType(Slider))
+          .map((s) => s.value)
+          .toList();
+      expect(sliders, [40, 213]);
+      expect(find.text('213 mired'), findsOneWidget);
+    });
+
+    // A ratgdo's door maps `state` and `position` and no `value`, so the
+    // single read is null for it, the way it is for a light: the card showed
+    // no OPEN/CLOSED and, with no live position to anchor it, never drew its
+    // position slider at all.
+    testWidgets('a cover card reads its state and position by role', (
+      tester,
+    ) async {
+      final cover = utilityEntities.firstWhere((e) => e.platform == 'cover');
+      final door = NetworkEntityDto(
+        isInstanced: false,
+        name: cover.name,
+        platform: cover.platform,
+        deviceClass: cover.deviceClass,
+        stateCommand: cover.stateCommand,
+        options: const [],
+        actions: [
+          ...cover.actions,
+          // ratgdo's set_cover_position: ESPHome's 0.0..1.0 fraction.
+          const NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
+            role: 'set_cover_position',
+            transport: 'soap',
+            commandName: 'door_set_position',
+            userParams: ['position'],
+            min: 0,
+            max: 1,
+            readBack: [],
+          ),
+        ],
+      );
+      await pumpUtility(
+        tester,
+        entities: [door],
+        // A device that takes the position, so the read-back after it runs.
+        device: MockClient((request) async {
+          if (request.url.path == '/setup.xml') {
+            return http.Response(_setupXml, 200);
+          }
+          final action = request.headers['SOAPACTION'] ?? '';
+          return http.Response(
+            action.contains('GetCrockpotState')
+                ? _stateResponse(mode: 1, time: 3)
+                : _ackResponse,
+            200,
+          );
+        }),
+        reading: (_, _) => null,
+        // What read_network_entity_roles answers for the vendored ratgdo
+        // door given {"state":"OPEN","position":0.25,...}: the state as
+        // text, the position as a number on the wire's own scale.
+        roles: (entity, _) => const [
+          NetworkRoleReadingDto(
+            role: 'state',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.text,
+              raw: 'OPEN',
+            ),
+          ),
+          NetworkRoleReadingDto(
+            role: 'position',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: 0.25,
+              raw: '0.25',
+            ),
+          ),
+          NetworkRoleReadingDto(
+            role: 'current_operation',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.text,
+              raw: 'IDLE',
+            ),
+          ),
+        ],
+      );
+
+      expect(find.text('OPEN'), findsOneWidget);
+      final slider = find.byType(Slider);
+      expect(slider, findsOneWidget);
+      expect(tester.widget<Slider>(slider).value, 0.25);
+
+      // A drag is held until the device's next reading supersedes it — a
+      // role reading is that reading too, or the dragged position would
+      // stand for the door's own for as long as the screen stayed open.
+      final gesture = await tester.startGesture(tester.getCenter(slider));
+      await tester.pump();
+      await gesture.moveBy(const Offset(40, 0));
+      await tester.pump();
+      expect(tester.widget<Slider>(slider).value, isNot(0.25));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(
+        codec.renderNetworkCommandCalls.map((c) => c.commandName),
+        contains('door_set_position'),
+      );
+      expect(find.textContaining('did not accept'), findsNothing);
+      expect(
+        tester.widget<Slider>(slider).value,
+        0.25,
+        reason: 'the read-back after the send is where the door is',
+      );
+    });
+
+    // A Denon receiver's Power and Mute, and ratgdo's remote lock-out, map
+    // `is_on` (with an `on_value`) and no `value`: the single read is null,
+    // and the switch read "State unknown" with its toggle drawn Off whether
+    // the receiver was on or in standby.
+    testWidgets('a switch reads its power from its is_on role', (tester) async {
+      NetworkActionDto action(String role) => NetworkActionDto(
+        credentials: const [],
+        instanceParams: const [],
+        role: role,
+        transport: 'soap',
+        commandName: 'power_$role',
+        userParams: const [],
+        readBack: const [],
+      );
+      await pumpUtility(
+        tester,
+        entities: [
+          NetworkEntityDto(
+            isInstanced: false,
+            name: 'Power',
+            platform: 'switch',
+            stateCommand: 'GetCrockpotState',
+            options: const [],
+            actions: [action('turn_on'), action('turn_off')],
+          ),
+        ],
+        reading: (_, _) => null,
+        // What the real codec answers for the vendored Denon's
+        // `is_on: Power.value` / `on_value: "ON"` over a powered-on status.
+        roles: (_, _) => const [
+          NetworkRoleReadingDto(
+            role: 'is_on',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.onOff,
+              isOn: true,
+              raw: 'ON',
+            ),
+          ),
+        ],
+      );
+
+      expect(find.text('State unknown'), findsNothing);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
     });
 
     testWidgets('hidden declared controls are counted, not vanished', (

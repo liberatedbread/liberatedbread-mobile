@@ -46,9 +46,10 @@ dependencies:
   # sha256 for the hub TLS trust-on-first-use pin (hub_http_client.dart) and
   # for the ECP2 signed-session handshake (ecp2_control_service.dart).
   crypto: ^3.0.7
-  # A test-advanceable clock: hue_pairing_service.dart reads its pairing
-  # deadline off clock.now() so widget tests cross the window with pump(),
-  # while production stays on DateTime.now(). Already transitive via fake_async.
+  # A test-advanceable clock: the Hue pairing deadline, the scan screen's
+  # device freshness and the LED editor's stored-design ids read clock.now(),
+  # so widget tests can pin or advance time while production stays on
+  # DateTime.now(). Already transitive via fake_async.
   clock: ^1.1.1
   path_provider: ^2.1.0
   permission_handler: ^11.3.0

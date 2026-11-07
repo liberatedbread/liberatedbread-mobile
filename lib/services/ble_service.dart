@@ -369,3 +369,36 @@ abstract interface class BleConnectCanceller implements BleService {
   /// its caller owns (and must release) the claim it took.
   Future<void> cancelConnect(String deviceId);
 }
+
+/// An optional [BleService] capability: write one command's packets as a
+/// unit.
+///
+/// Some commands only mean something as a run of GATT writes. An Orba's
+/// BLE-MIDI SysEx is split across several packets that the device reassembles
+/// in arrival order, so another write to the same device landing between two
+/// of them corrupts the message while every write on its own succeeds — the
+/// screen said "Sent" over a SysEx the device could not parse. Issuing the
+/// packets one [BleService.writeCharacteristic] at a time cannot prevent
+/// that: flutter_blue_plus queues each call separately, so a second command
+/// tapped mid-send slots its packets between the first's.
+///
+/// A separate interface rather than a member of [BleService], for the reason
+/// [BleConnectCanceller] gives: only a stack that can actually hold other
+/// writes back has anything to offer here. A caller without it writes the
+/// packets one by one, which is all such a stack can do anyway.
+abstract interface class BlePacketWriter implements BleService {
+  /// Write [packets] to one characteristic, in order, with no other write to
+  /// [deviceId] — through this method or [BleService.writeCharacteristic] —
+  /// landing between the first and the last.
+  ///
+  /// Stops at the first packet that fails and throws what it threw, after
+  /// calling [onPacketWritten] once for each packet that landed before it, so
+  /// a caller can tell a command refused outright from one cut off partway.
+  Future<void> writeCharacteristicPackets(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<List<int>> packets, {
+    void Function()? onPacketWritten,
+  });
+}

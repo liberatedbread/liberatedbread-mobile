@@ -3,7 +3,9 @@
 //
 //! Parse device spec YAML into Rust types.
 
-use super::types::{AutoRole, Command, DeviceSpec, FormatField, Parameter, TemplateElement};
+use super::types::{
+    AutoRole, Command, DeviceSpec, FormatField, Parameter, TemplateElement, ValueType,
+};
 use crate::error::SpecError;
 
 /// Maximum byte position (`offset + length`) a format field may extend to.
@@ -298,6 +300,19 @@ fn validate_auto_role(name: &str, param: &Parameter) -> Result<(), SpecError> {
             value_type: param.value_type.clone(),
         });
     }
+    // A length and every checksum are INTEGERS. A float32 has a fixed width
+    // and a ±2^53 `integer_range`, so it passed both checks around this one,
+    // and then the length went into its four bytes as integer bytes (a 6-byte
+    // frame reads back as 8.4e-45) and a checksum as the float 90.0 rather
+    // than the byte 0x5A. `sequence` is the caller's counter, sent through the
+    // ordinary numeric path, and keeps its exemption.
+    if role != AutoRole::Sequence && param.value_type == ValueType::Float32 {
+        return Err(SpecError::AutoRoleOnFloatType {
+            parameter_name: name.to_string(),
+            role: role.to_string(),
+            value_type: param.value_type.clone(),
+        });
+    }
     if role == AutoRole::PacketLength {
         return Ok(());
     }
@@ -405,7 +420,11 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
         ("default", param.default),
     ] {
         let Some(value) = bound else { continue };
-        if value < lo as f64 || value > hi as f64 {
+        // Finite first: every comparison with NaN is false, so `default:
+        // .nan` sat "inside" every range, counted as spec-supplied, and
+        // failed every send in `coerce_param`. (An infinity was already out
+        // of range; it is named here for the same reason.)
+        if !value.is_finite() || value < lo as f64 || value > hi as f64 {
             return Err(SpecError::ParameterRangeOutsideType {
                 parameter_name: name.to_string(),
                 value_type: param.value_type.clone(),
@@ -1586,6 +1605,58 @@ services:
     fn accepts_a_sequence_on_a_varint() {
         parse_device_spec(&spec_with_auto("varint", "sequence"))
             .expect("a varint sequence encodes like any number");
+    }
+
+    /// A length or a checksum is an INTEGER patched into its slot, and a
+    /// float32 slot is four bytes of IEEE 754: `auto: packet_length` wrote
+    /// the length's integer bytes there (a 6-byte frame read back as 8.4e-45),
+    /// and a checksum went out as the float 90.0 rather than the byte 0x5A.
+    /// Float32's ±2^53 `integer_range` passed every width check. `sequence`
+    /// is the caller's own counter, sent through the ordinary numeric path, so
+    /// it keeps its exemption here as it does for a varint.
+    #[test]
+    fn rejects_an_integer_auto_role_on_a_float32() {
+        for role in [
+            "packet_length",
+            "checksum",
+            "xor_checksum",
+            "subtract_checksum",
+            "crc8",
+            "crc16_modbus",
+        ] {
+            let err = parse_device_spec(&spec_with_auto("float32", role))
+                .expect_err("an integer auto role does not fit a float32 slot");
+            let msg = err.to_string();
+            assert!(msg.contains(role) && msg.contains("float32"), "{msg}");
+        }
+        parse_device_spec(&spec_with_auto("float32", "sequence"))
+            .expect("a float32 sequence encodes like any number");
+    }
+
+    /// `default` is compared against the type's range, and every comparison
+    /// with NaN is false, so `default: .nan` slipped past the bounds check —
+    /// then counted as spec-supplied, resolved into controls, and failed
+    /// every send in `coerce_param` ("value is NaN or infinity").
+    #[test]
+    fn rejects_a_non_finite_default() {
+        for ty in ["float32", "uint8"] {
+            let yaml = make_minimal_spec(&format!(
+                r#"        properties: ["write"]
+        commands:
+          send:
+            description: x
+            template: [0x01, "{{v}}"]
+            parameters:
+              v:
+                type: {ty}
+                default: .nan"#
+            ));
+            let err = parse_device_spec(&yaml).expect_err("NaN is not a default");
+            assert!(
+                matches!(err, SpecError::ParameterRangeOutsideType { ref bound, .. } if bound == "default"),
+                "{ty}: {err:?}"
+            );
+        }
     }
 
     /// An `auto` role on a `bytes` parameter has no number to fill in at all.

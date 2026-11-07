@@ -231,6 +231,30 @@ void main() {
       expect(find.text('Connecticut'), findsOneWidget);
     });
 
+    testWidgets('accepts coordinates typed with a decimal comma', (
+      tester,
+    ) async {
+      // What an iOS decimal pad types in de/fr/es/it/pt/nl, which has no
+      // period key; double.tryParse refused it.
+      await _pump(tester, location: FakeLocationService());
+
+      await tester.tap(find.text('Enter by hand'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Latitude'),
+        '41,7658',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Longitude'),
+        '-72,6734',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Use this'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('both coordinates'), findsNothing);
+      expect(find.text('Connecticut'), findsOneWidget);
+    });
+
     testWidgets('rejects a grid square that is not one', (tester) async {
       await _pump(tester, location: FakeLocationService());
 

@@ -282,6 +282,23 @@ void main() {
       expect(decodedTextOf(_field(uintValue: 100), scaleOverride: 2), '200');
     });
 
+    test('an entity scale on a float keeps the float\'s places', () {
+      // A float32 carries its own fraction, so an integral entity scale
+      // says nothing about how many places the reading has: the Hot Wheels
+      // portal's 0.1446 m/s scaled by 64 is 9.257, not "9". The twin of
+      // `NumberSemantics::float_decimals`.
+      final speed = _field(
+        valueType: 'float',
+        rawNumber: 0.14464068412780762,
+        decodedText: '0.144641',
+        decimals: 6,
+      );
+      expect(decodedTextOf(speed, scaleOverride: 64), '9.257004');
+      expect(decodedTextOf(speed, scaleOverride: 1), '0.144641');
+      // A declared precision still says how finely the device knows it.
+      expect(decodedTextOf(speed, scaleOverride: 64, precision: 0.1), '9.3');
+    });
+
     test('a code-table label still wins over any rounding', () {
       // For an enumerated field the number IS the code, so there is nothing
       // to round — ember's `liquid_state: 5` means "heating".

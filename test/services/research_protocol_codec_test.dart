@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/ha_sensor_mapping.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../helpers/host_rust_lib.dart';
 
@@ -160,6 +162,38 @@ void main() {
       expect(values.single.decodedNumber, closeTo(0.1446, 0.00005));
       expect(values.single.decodedText, '0.144641');
       expect(values.single.unit, isNull);
+    },
+  );
+
+  test(
+    'Hot Wheels speed reaches Home Assistant as the number it decodes to',
+    () async {
+      if (!rustReady) {
+        markTestSkipped('Rust lib not loaded');
+        return;
+      }
+      // A bare float32 has no transform to imply decimals; the forwarder
+      // re-deriving them from scale/offset sent this 0.1446 to HA as 0.
+      final values = await codec.decodeValue(
+        specYaml: hotWheelsYaml,
+        charUuid: _speedChar,
+        bytes: const [0xB0, 0x1C, 0x14, 0x3E],
+      );
+      final sensor = mapDecodedValue(
+        deviceId: 'portal',
+        deviceName: 'Portal',
+        specChar: const CharacteristicDto(
+          uuid: _speedChar,
+          name: 'Speed',
+          canRead: false,
+          canWrite: false,
+          canNotify: true,
+          commands: [],
+          formatFields: [],
+        ),
+        value: values.single,
+      );
+      expect(sensor.state, 0.144641);
     },
   );
 }

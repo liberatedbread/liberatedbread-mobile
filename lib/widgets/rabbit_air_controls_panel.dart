@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
+import '../core/decimal_input.dart';
 import '../models/ble_discovered_service.dart';
 import '../providers/ble_provider.dart';
 import '../providers/network_control_provider.dart';
@@ -601,8 +602,11 @@ class RabbitAirControlsPanelState
     // assertion in debug and a use-after-dispose in release. Dialog-scoped;
     // collected with the tree.
     if (entered == null || entered.isEmpty || !mounted) return;
-    final value = double.tryParse(entered);
+    // A decimal comma read as the point, and nothing that is not finite:
+    // "NaN" parses and slips past every bound comparison.
+    final value = double.tryParse(normalizeDecimalInput(entered));
     if (value == null ||
+        !value.isFinite ||
         (min != null && value < min) ||
         (max != null && value > max)) {
       setState(() => _error = 'That is not a value the device accepts.');

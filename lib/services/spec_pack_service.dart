@@ -22,7 +22,7 @@ import 'ws_control_service.dart'
 /// The manifest URL points at JSON of the shape
 /// `{"name": str, "version": str, "specs": ["bulb.yaml", ...]}` where each entry
 /// is a filename resolved *relative to the manifest URL*. Downloaded manifests
-/// and YAML files are cached under the app documents directory; [loadCachedSpecs]
+/// and YAML files are cached under Application Support; [loadCachedSpecs]
 /// re-reads them for [deviceSpecsProvider] to merge with the bundled assets.
 ///
 /// Every network and parse path is defensive: timeouts, non-2xx responses,
@@ -30,7 +30,7 @@ import 'ws_control_service.dart'
 /// a typed [InstallResult] — this class never throws for expected error paths.
 
 /// A cache directory resolver. Injected so unit tests can point at a temp dir
-/// instead of the real (platform-channel-backed) app documents directory.
+/// instead of the real (platform-channel-backed) Application Support directory.
 typedef CacheDirResolver = Future<Directory> Function();
 
 /// Validates that a downloaded spec's YAML actually parses as a device spec.
@@ -866,13 +866,23 @@ class SpecPackService {
         );
       }
     }
-    packs.sort((a, b) => b.installedAt.compareTo(a.installedAt));
+    // Name breaks a tie (two records with no readable timestamp both read
+    // as the epoch), so the order — which [loadCachedSpecs] turns into
+    // which pack wins — does not depend on the directory listing's.
+    packs.sort((a, b) {
+      final byAge = b.installedAt.compareTo(a.installedAt);
+      return byAge != 0 ? byAge : a.name.compareTo(b.name);
+    });
     return packs;
   }
 
   /// Where [_persist] moves the installed pack while it swaps the new one
   /// in. Dot-prefixed, which `_slug` strips, so no pack can own the name.
   static const String _asidePrefix = '.old-';
+
+  /// Where [_persist] writes a pack before swapping it in. Dot-prefixed for
+  /// the reason [_asidePrefix] is.
+  static const String _stagingPrefix = '.staging-';
 
   /// Put back a pack [_persist] had renamed aside when it died before the
   /// new one took its place; drop one whose replacement did land.
@@ -895,8 +905,37 @@ class SpecPackService {
     }
   }
 
-  /// Every cached spec YAML, keyed by a namespaced id `pack:<name>/<file>` so
+  /// The catalogue key [loadCachedSpecs] files [specFile] of the pack called
+  /// [packName] under: `pack:<slug>/<on-disk file name>`.
+  ///
+  /// Both halves are names the pack occupies on disk, neither can hold a
+  /// `/`, and each is unique where it lives: no two installed packs share a
+  /// slug (two names that reduce to one are refused at install, R-062) and
+  /// no two specs in a pack share a file name (refused at write, R-061). So
+  /// the key is unambiguous, which `pack:<name>/<entry>` was not: a pack
+  /// "a" listing "b/c.yaml" and a pack "a/b" listing "c.yaml" both spelled
+  /// `pack:a/b/c.yaml`, both installed, and the catalogue kept one of the
+  /// two specs. Nothing persists these keys — stored spec choices and saved
+  /// devices hold the identity key (`deviceName|manufacturer`) — so the
+  /// change of spelling orphans nothing.
+  static String specKey(String packName, String specFile) =>
+      '${packKeyPrefix(packName)}${_safeFileName(specFile)}';
+
+  /// What every [specKey] of the pack called [packName] starts with, and no
+  /// other pack's does — the test for "this entry came from that pack".
+  static String packKeyPrefix(String packName) => 'pack:${_slug(packName)}/';
+
+  /// Every cached spec YAML, keyed by [specKey] — namespaced `pack:` so
   /// remote specs never collide with bundled asset keys.
+  ///
+  /// Packs are emitted OLDEST first, so the most recently installed or
+  /// refreshed pack's specs come last. That order is the pack-vs-pack
+  /// shadowing rule: the catalogue resolves two entries for one device
+  /// last-wins (`specEntriesByKey`), exactly as it lets a pack beat the
+  /// bundled copy it loads after. Walking [listInstalledPacks]'
+  /// newest-first order instead made the OLDER of two packs carrying the
+  /// same device win — and refreshing a pack to pick up its fix made it
+  /// newest, and so made it lose.
   ///
   /// This feeds live device matching, which must always fall back to the bundled
   /// specs, so a catastrophic cache-read failure is tolerated (empty map) rather
@@ -917,9 +956,10 @@ class SpecPackService {
     if (packs.isEmpty) return result;
     // One root resolution for the whole walk, not one per pack.
     final root = await _cacheRoot();
-    for (final pack in packs) {
+    for (final pack in packs.reversed) {
       final dir = _packDir(root, pack.name);
       for (final file in pack.specFiles) {
+        final key = specKey(pack.name, file);
         try {
           final f = File('${dir.path}/specs/${_safeFileName(file)}');
           if (await f.exists()) {
@@ -929,22 +969,17 @@ class SpecPackService {
             final weaker = await _belowFloor(yaml);
             if (weaker != null) {
               Log.packs.warning(
-                'skipping pack:${pack.name}/$file: it weakens the built-in '
-                'spec it replaces ($weaker)',
+                'skipping $key: it weakens the built-in spec it replaces '
+                '($weaker)',
               );
               continue;
             }
-            result['pack:${pack.name}/$file'] = yaml;
+            result[key] = yaml;
           } else {
-            Log.packs.warning(
-              'cached spec missing on disk: pack:${pack.name}/$file',
-            );
+            Log.packs.warning('cached spec missing on disk: $key');
           }
         } catch (e) {
-          Log.packs.warning(
-            'skipping unreadable cached spec pack:${pack.name}/$file',
-            error: e,
-          );
+          Log.packs.warning('skipping unreadable cached spec $key', error: e);
         }
       }
     }
@@ -961,16 +996,32 @@ class SpecPackService {
   /// the user a failure instead of a false "Removed" message. The path-safety
   /// guard still refuses (silently, as a no-op) to recursively delete anything
   /// that is not strictly inside the cache root.
+  ///
+  /// The pack's aside and staging copies go with it, and go FIRST. A
+  /// reinstall whose cleanup of the old copy failed (only logged, in
+  /// [_persist]) leaves `.old-<slug>` beside the new pack; deleting just
+  /// `<slug>` turned that into exactly the interrupted swap
+  /// [_restoreSwappedAside] repairs, and the next listing put the removed
+  /// pack back at its previous version. Deleting them before the pack
+  /// itself means a failure part-way still leaves the pack installed and
+  /// says so, rather than reporting a removal the next launch undoes.
   Future<void> removePack(String name) async {
     final root = await _cacheRoot();
-    final dir = _packDir(root, name);
+    final slug = _slug(name);
+    final dirs = [
+      Directory('${root.path}/$_asidePrefix$slug'),
+      Directory('${root.path}/$_stagingPrefix$slug'),
+      _packDir(root, name),
+    ];
     // Never recursively delete a path that isn't strictly inside the cache
     // root, mirroring the guard in _persist.
-    if (!_isStrictlyInside(root, dir)) {
+    if (!dirs.every((d) => _isStrictlyInside(root, d))) {
       Log.packs.warning('refusing to remove pack "$name": unsafe path');
       return;
     }
-    if (await dir.exists()) await dir.delete(recursive: true);
+    for (final dir in dirs) {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    }
     Log.packs.info('removed pack "$name"');
   }
 
@@ -1043,7 +1094,7 @@ class SpecPackService {
     // a name a pack could hold itself — installing "foo" then deleted the
     // installed pack "foo.staging" without a word.
     final stagingDir = Directory(
-      '${root.path}/.staging-${_slug(manifest.name)}',
+      '${root.path}/$_stagingPrefix${_slug(manifest.name)}',
     );
     if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
     final specsDir = Directory('${stagingDir.path}/specs');
@@ -1116,6 +1167,9 @@ class SpecPackService {
       rethrow;
     }
     if (hadOld) {
+      // Not fatal: the new pack is in place, the next listing drops an aside
+      // copy that has a pack in front of it, and [removePack] deletes it
+      // with the pack (left behind, it would outlive a removal).
       try {
         await aside.delete(recursive: true);
       } catch (e) {

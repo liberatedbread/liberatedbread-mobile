@@ -213,7 +213,9 @@ pub fn radio_models() -> Vec<RadioModelDto> {
     let newer = models::MODELS.iter().map(|model| RadioModelDto {
         id: model.id.to_string(),
         image_len: model.image_len,
-        channel_count: model.channel_count,
+        // What a plan may hold, which is what the profile's capacity is:
+        // the UV-5G Mini's 999 slots less its 30 fixed GMRS ones.
+        channel_count: model.plan_capacity(),
         name_len: models::NAME_LEN as u32,
         power_levels: power_names(model.power_levels),
     });
@@ -328,26 +330,34 @@ pub fn radio_is_ack(reply: Vec<u8>) -> bool {
 }
 
 /// The channels in a codeplug image. Empty slots are omitted; each channel
-/// carries the slot it came from.
+/// carries the slot it came from. A model's fixed channels (the UV-5G
+/// Mini's GMRS 1-30) are not plan channels and are not returned.
 pub fn radio_decode_channels(
     image: Vec<u8>,
     model_id: String,
 ) -> anyhow::Result<Vec<RadioChannelDto>> {
     let model = model_or_error(&model_id)?;
+    // Only the slots a plan occupies: a model's fixed ones (the UV-5G
+    // Mini's GMRS 1-30) are never written, so read into a plan they would
+    // be written again after it. Each keeps its own slot number.
+    let first = usize::from(codeplug::plan_slots(model).start);
     Ok(codeplug::decode_channels(&image, model)?
         .into_iter()
         .enumerate()
+        .skip(first)
         .filter_map(|(index, channel)| {
             channel.map(|c| RadioChannelDto::from_channel(index as u16 + 1, &c))
         })
         .collect())
 }
 
-/// A copy of `image` with `channels` written from slot 1 up and the rest of
-/// the slots cleared.
+/// A copy of `image` with `channels` written from the model's first plan
+/// slot up (slot 1, or 31 on the UV-5G Mini) and the rest of the slots
+/// cleared.
 ///
-/// Everything outside the channel records survives: the settings, the DTMF
-/// codes, the parts of each record this codec does not model.
+/// Everything outside the plan's records survives: the settings, the DTMF
+/// codes, the parts of each record this codec does not model, and a model's
+/// fixed channels (the UV-5G Mini's GMRS 1-30), byte for byte.
 pub fn radio_encode_channels(
     image: Vec<u8>,
     channels: Vec<RadioChannelDto>,
@@ -358,6 +368,8 @@ pub fn radio_encode_channels(
         .iter()
         .map(RadioChannelDto::to_channel)
         .collect::<anyhow::Result<Vec<ChannelRecord>>>()?;
+    // From the first slot a plan occupies: slot 1 on most radios, 31 on the
+    // UV-5G Mini, whose 1-30 are left as they are (`codeplug::plan_slots`).
     Ok(codeplug::encode_channels(&image, &decoded, model)?)
 }
 
@@ -493,12 +505,13 @@ pub fn uv5r_parse_probe(
 /// as `model_id`: an error when its firmware string says it is another
 /// model with another power table.
 ///
-/// The UV-82HP answers the two-level UV-82's ident, so only its firmware
-/// string tells it apart; this refuses an HP chosen as the UV-5R and a radio
-/// that is not an HP chosen as one, as CHIRP's basetype lists name them. A
-/// string in the HP's list and another's (`N5R2`) allows either (see
-/// `uv5r::check_firmware`). Called on every session with a radio, where
-/// the firmware is always there to read.
+/// The idents cannot hold the power tables apart: the BF-F8HP answers the
+/// UV-5R's, and the UV-82HP the two-level UV-82's. So the firmware string
+/// decides, as CHIRP's basetype lists name it: a radio is refused as a
+/// model whose power table no model its firmware names shares, and the
+/// UV-82HP only as itself. A string naming models of both tables (`N5RV`,
+/// `N5R2`) allows either (see `uv5r::check_firmware`). Called on every
+/// session with a radio, where the firmware is always there to read.
 pub fn uv5r_check_firmware(model_id: String, firmware: String) -> anyhow::Result<()> {
     Ok(uv5r::check_firmware(
         uv5r_model_or_error(&model_id)?,
@@ -684,6 +697,52 @@ mod tests {
         );
         assert!(uv5r_ident_magics("uv-5g".into()).is_err());
         assert_eq!(uv5r_ident_magics("uv5r".into()).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn the_uv5g_minis_gmrs_channels_are_neither_read_into_a_plan_nor_written() {
+        // Slots 1-30 are its fixed GMRS plan (CHIRP UV5GMini). Read into a
+        // plan they would be written back after it, at 31-60; written over,
+        // the plan replaced them. Fails on the slot-1 bridge.
+        let mut image = vec![0xFFu8; models::UV5G_MINI.image_len as usize];
+        let gmrs: Vec<RadioChannelDto> = (1..=30)
+            .map(|slot| dto(slot, "GMRS", 462_550_000 + u32::from(slot) * 25_000))
+            .collect();
+        image = radio_encode_channels(image, gmrs, "uv-5r-mini".into()).unwrap();
+        let before = image.clone();
+
+        assert!(radio_decode_channels(image.clone(), "uv-5g-mini".into())
+            .unwrap()
+            .is_empty());
+        let plan = vec![dto(1, "ONE", 146_520_000), dto(2, "TWO", 446_000_000)];
+        let written = radio_encode_channels(image, plan, "uv-5g-mini".into()).unwrap();
+        assert_eq!(written[..30 * 32], before[..30 * 32]);
+        let read = radio_decode_channels(written.clone(), "uv-5g-mini".into()).unwrap();
+        assert_eq!(
+            read.iter()
+                .map(|c| (c.slot, c.name.as_str()))
+                .collect::<Vec<_>>(),
+            [(31, "ONE"), (32, "TWO")]
+        );
+        // The UV-5R Mini reads the same bytes from slot 1.
+        assert_eq!(
+            radio_decode_channels(written, "uv-5r-mini".into())
+                .unwrap()
+                .len(),
+            32
+        );
+
+        // The capacity the Dart profile is held to is what a plan may hold.
+        let count = |id: &str| {
+            radio_models()
+                .into_iter()
+                .find(|m| m.id == id)
+                .unwrap()
+                .channel_count
+        };
+        assert_eq!(count("uv-5g-mini"), 969);
+        assert_eq!(count("uv-5r-mini"), 999);
+        assert_eq!(count("uv-32"), 1000);
     }
 
     #[test]

@@ -42,6 +42,17 @@ pub struct RadioModel {
     /// image.
     pub channel_count: u16,
 
+    /// Slots at the start of the table that hold the radio's own fixed
+    /// channel plan: a write leaves them exactly as read, and a plan starts
+    /// after them (see [`RadioModel::plan_capacity`]). 0 on a radio whose
+    /// whole table is the user's.
+    ///
+    /// The UV-5G Mini's first 30 are its GMRS channels. CHIRP's `UV5GMini`
+    /// makes their frequency, duplex and offset immutable, and forces 8-14
+    /// (the 467 MHz interstitials) to NFM and low power; this app wrote a
+    /// plan over them from slot 1. Nothing here has been run against one.
+    pub fixed_channels: u16,
+
     /// The transmit power levels, indexed as a record's power bits index
     /// them (CHIRP's `POWER_LEVELS`, in its order).
     pub power_levels: &'static [Power],
@@ -74,6 +85,7 @@ pub const UV5R_MINI: RadioModel = RadioModel {
     regions: &[(0x0000, 0x8040), (0x9000, 0x0040), (0xA000, 0x01C0)],
     image_len: 0x8240,
     channel_count: 999,
+    fixed_channels: 0,
     power_levels: TWO_POWER_LEVELS,
     ble_write_frame: Some(0x80),
 };
@@ -86,6 +98,8 @@ pub const UV5G_MINI: RadioModel = RadioModel {
     // answers only the GMRS string, v0.01 only the UV-5R Mini's. The newer
     // one goes first so most radios ack on the first try.
     idents: &[b"PROGRAMGMRS5RMIU", b"PROGRAMCOLORPROU"],
+    // CHIRP UV5GMini.get_memory: 1-30 are the GMRS plan.
+    fixed_channels: 30,
     ..UV5R_MINI
 };
 
@@ -117,6 +131,7 @@ pub const UV32: RadioModel = RadioModel {
     ],
     image_len: 0x8380,
     channel_count: 1000,
+    fixed_channels: 0,
     power_levels: &[Power::High, Power::Low, Power::Medium],
     ble_write_frame: None,
 };
@@ -137,6 +152,7 @@ pub const UV17R_PLUS: RadioModel = RadioModel {
     ],
     image_len: 0x8380,
     channel_count: 1000,
+    fixed_channels: 0,
     power_levels: TWO_POWER_LEVELS,
     // No Bluetooth: it needs a cable.
     ble_write_frame: None,
@@ -151,6 +167,12 @@ pub fn model_by_id(id: &str) -> Option<&'static RadioModel> {
 }
 
 impl RadioModel {
+    /// How many channels a plan written to this radio may hold: the slots
+    /// after its fixed ones.
+    pub fn plan_capacity(&self) -> u16 {
+        self.channel_count - self.fixed_channels
+    }
+
     /// Byte range of channel `index` (0-based) in the flat image.
     pub fn channel_range(&self, index: u16) -> Option<(usize, usize)> {
         if index >= self.channel_count {
@@ -325,5 +347,20 @@ mod tests {
         assert_eq!(UV5G_MINI.handshake, UV5R_MINI.handshake);
         assert_eq!(UV5G_MINI.channel_count, UV5R_MINI.channel_count);
         assert_ne!(UV5G_MINI.id, UV5R_MINI.id);
+    }
+
+    #[test]
+    fn only_the_uv5g_mini_keeps_a_fixed_channel_plan() {
+        // CHIRP UV5GMini.get_memory: slots 1-30 are its GMRS channels.
+        for model in MODELS {
+            let fixed = if model.id == "uv-5g-mini" { 30 } else { 0 };
+            assert_eq!(model.fixed_channels, fixed, "{}", model.id);
+            assert_eq!(
+                model.plan_capacity(),
+                model.channel_count - fixed,
+                "{}",
+                model.id
+            );
+        }
     }
 }

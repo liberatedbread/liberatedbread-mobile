@@ -174,6 +174,15 @@ class FakeSpecCodec implements SpecCodec {
   NetworkReadingDto? Function(String entityName, Map<String, String> returned)?
   networkReading;
 
+  /// Returned by [readNetworkEntityRoles], as a function of entity name and
+  /// the returned values. Defaults to no roles — what the real reader gives
+  /// an entity whose mapping names only `value`.
+  List<NetworkRoleReadingDto> Function(
+    String entityName,
+    Map<String, String> returned,
+  )?
+  networkRoleReadings;
+
   /// Returned by [renderNetworkKasaCommand] / [renderNetworkKasaStateRequest];
   /// the default echoes the command name into a JSON object so a transport
   /// test can tell requests apart.
@@ -251,6 +260,7 @@ class FakeSpecCodec implements SpecCodec {
     this.networkRequest,
     this.networkHttpRequest,
     this.networkReading,
+    this.networkRoleReadings,
     this.instances = const [],
     this.instanceReadings,
     this.httpRenderError,
@@ -626,6 +636,13 @@ class FakeSpecCodec implements SpecCodec {
     required String entityName,
     required Map<String, String> returned,
   }) async => networkReading?.call(entityName, returned);
+
+  @override
+  Future<List<NetworkRoleReadingDto>> readNetworkEntityRoles({
+    required String specYaml,
+    required String entityName,
+    required Map<String, String> returned,
+  }) async => networkRoleReadings?.call(entityName, returned) ?? const [];
 
   @override
   Future<KasaRequestDto> renderNetworkKasaCommand({

@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/decimal_input.dart';
 import '../core/error_text.dart';
 import '../core/geo.dart';
 import '../core/maidenhead.dart';
@@ -660,8 +661,10 @@ class _ManualLocationDialogState extends State<_ManualLocationDialog> {
       return;
     }
 
-    final lat = double.tryParse(_lat.text.trim());
-    final lon = double.tryParse(_lon.text.trim());
+    // Typed, so a decimal comma is the point (an iOS decimal pad in several
+    // locales has no period key).
+    final lat = double.tryParse(normalizeDecimalInput(_lat.text));
+    final lon = double.tryParse(normalizeDecimalInput(_lon.text));
     if (lat == null || lon == null) {
       setState(() => _error = 'Enter a grid square, or both coordinates.');
       return;

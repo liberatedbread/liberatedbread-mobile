@@ -54,6 +54,45 @@ void main() {
       );
     });
 
+    // What channelFromDto and the RepeaterBook reader already do. Taken as
+    // stored, an off-table DCS code reached the codec, which refused the
+    // whole write after the read and the backup; an off-table CTCSS value
+    // was written as a tone no radio here offers.
+    test('a tone off the tables reads as no tone', () {
+      for (final tone in <Object>[17500, 1001, 500, 1]) {
+        expect(
+          ToneSetting.fromJson({'mode': 'ctcss', 'ctcss': tone}),
+          ToneSetting.none,
+          reason: 'CTCSS $tone',
+        );
+      }
+      for (final code in <Object>[777, 24, 1, 999]) {
+        expect(
+          ToneSetting.fromJson({'mode': 'dcs', 'dcs': code}),
+          ToneSetting.none,
+          reason: 'DCS $code',
+        );
+        expect(
+          ToneSetting.fromJson({'mode': 'dcs', 'dcs': code, 'inverted': true}),
+          ToneSetting.none,
+          reason: 'DCS $code inverted',
+        );
+      }
+    });
+
+    test('every tone on the tables round-trips', () {
+      for (final tone in ctcssTonesTenthHz) {
+        final setting = ToneSetting.ctcss(tone);
+        expect(ToneSetting.fromJson(setting.toJson()), setting);
+      }
+      for (final code in dcsCodes) {
+        for (final inverted in [false, true]) {
+          final setting = ToneSetting.dcs(code, inverted: inverted);
+          expect(ToneSetting.fromJson(setting.toJson()), setting);
+        }
+      }
+    });
+
     test('has value equality', () {
       expect(const ToneSetting.ctcss(1000), const ToneSetting.ctcss(1000));
       expect(
@@ -214,6 +253,21 @@ void main() {
       expect(channel, isNotNull);
       expect(channel!.txFreqHz, 146520000);
       expect(channel.isSimplex, isTrue);
+    });
+
+    test('a stored tone off the tables costs the tone, not the channel', () {
+      final channel = RadioChannel.fromJson(const {
+        'name': 'Odd',
+        'rx': 146940000,
+        'tx': 146340000,
+        'txTone': {'mode': 'dcs', 'dcs': 777},
+        'rxTone': {'mode': 'ctcss', 'ctcss': 17500},
+      });
+      expect(channel, isNotNull);
+      expect(channel!.rxFreqHz, 146940000);
+      expect(channel.txFreqHz, 146340000);
+      expect(channel.txTone, ToneSetting.none);
+      expect(channel.rxTone, ToneSetting.none);
     });
 
     test('unknown enum values fall back rather than dropping the channel', () {

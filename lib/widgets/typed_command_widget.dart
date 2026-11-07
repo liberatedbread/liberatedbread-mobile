@@ -10,6 +10,7 @@ import '../core/value_format.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 import '../core/error_text.dart';
+import '../core/decimal_input.dart';
 import 'decoded_value_widget.dart';
 
 class _PartialWriteException implements UserFacingException {
@@ -17,12 +18,30 @@ class _PartialWriteException implements UserFacingException {
   final int total;
   final Object cause;
 
-  const _PartialWriteException(this.completed, this.total, this.cause);
+  /// [cause] in words fit for the screen, or empty. Through
+  /// [friendlyErrorText] like any other error: this class is user-facing, so
+  /// its message passes straight to the snackbar, and interpolating the raw
+  /// cause put "Bad state: ..." or "PlatformException(...)" there. A BLE
+  /// exception written for the user still says why the rest did not go;
+  /// anything else is logged instead.
+  final String _why;
+
+  _PartialWriteException(this.completed, this.total, this.cause)
+    : _why = friendlyErrorText(
+        cause,
+        context: 'packet $completed of $total',
+        fallback: '',
+      );
 
   @override
   String get message =>
       'Only $completed of $total packets were sent. '
-      'Check the device before retrying. Cause: $cause';
+      'Check the device before retrying.${_why.isEmpty ? '' : ' $_why'}';
+
+  /// The raw cause, for the log line [friendlyErrorText] writes about this.
+  @override
+  String toString() =>
+      'Only $completed of $total packets were sent; cause: $cause';
 }
 
 /// Renders the commands of a spec-described writable characteristic as typed
@@ -161,6 +180,14 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   final Map<String, TextEditingController> _floatControllers = {};
   final Set<String> _invalidFloats = {};
   bool _sending = false;
+
+  /// Set on entry to [_send], before its first await, and cleared when it
+  /// returns. [_sending] cannot do this job: it disables the button only
+  /// from the next frame, while a tap fires during pointer dispatch, so two
+  /// taps in one frame both encoded and wrote. And it is set only once an
+  /// advanced command's confirmation is answered, which left the whole time
+  /// the dialog was up unguarded — two activations stacked two dialogs.
+  bool _inFlight = false;
   String? _status;
   bool _failed = false;
 
@@ -288,10 +315,25 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       if (!p.userSettable && p.auto == null && p.source == null) p,
   ];
 
+  /// One send at a time per command — see [_inFlight].
   Future<void> _send() async {
-    if (_invalidFloats.isNotEmpty) {
-      final text =
-          'Enter a finite number for ${humanizeName(_invalidFloats.first)}.';
+    if (_inFlight) return;
+    _inFlight = true;
+    try {
+      await _sendOnce();
+    } finally {
+      _inFlight = false;
+    }
+  }
+
+  Future<void> _sendOnce() async {
+    // Only a field whose value would be sent can block the send. A defaulted
+    // one left blank and then folded away is filled in by the encoder, as the
+    // folded label promises, and refusing over it named a field that was not
+    // on screen.
+    final invalid = _invalidFloats.where(_isSendable).firstOrNull;
+    if (invalid != null) {
+      final text = 'Enter a finite number for ${humanizeName(invalid)}.';
       setState(() {
         _status = text;
         _failed = true;
@@ -337,16 +379,17 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       }
       var completed = 0;
       try {
-        for (final bytes in writes) {
-          await writeServiceCommand(
-            container,
-            deviceId: widget.deviceId,
-            serviceUuid: widget.serviceUuid,
-            charUuid: widget.charUuid,
-            bytes: bytes.toList(),
-          );
-          completed++;
-        }
+        // As one run, not a loop of single writes: a fragmented command
+        // (an Orba's BLE-MIDI SysEx) only means something if no other write
+        // to the device lands between its packets.
+        await writeServiceCommandPackets(
+          container,
+          deviceId: widget.deviceId,
+          serviceUuid: widget.serviceUuid,
+          charUuid: widget.charUuid,
+          packets: [for (final bytes in writes) bytes.toList()],
+          onPacketWritten: () => completed++,
+        );
       } catch (e) {
         if (completed > 0) {
           throw _PartialWriteException(completed, writes.length, e);
@@ -555,7 +598,9 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
               : null,
         ),
         onChanged: (text) => setState(() {
-          final parsed = double.tryParse(text);
+          // A decimal comma read as the point: on an iOS decimal pad in
+          // many locales it is the only separator there is.
+          final parsed = double.tryParse(normalizeDecimalInput(text));
           if (parsed == null || !parsed.isFinite) {
             _invalidFloats.add(p.name);
           } else {

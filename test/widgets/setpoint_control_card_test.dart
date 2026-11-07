@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/decoded_number.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
 import 'package:liberated_bread_mobile/widgets/setpoint_control_card.dart';
@@ -137,6 +138,25 @@ FakeSpecCodec _codecReading(
     bytes: Uint8List.fromList([60]),
   ),
 );
+
+/// A device that answers writes with [error] while it is set, and takes them
+/// otherwise.
+class _AnsweringBle extends FakeBleService {
+  Object? error;
+  _AnsweringBle([this.error]);
+
+  @override
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  ) async {
+    final refusal = error;
+    if (refusal != null) throw refusal;
+    return super.writeCharacteristic(deviceId, serviceUuid, charUuid, value);
+  }
+}
 
 void main() {
   testWidgets('a setpoint sent from the card re-reads the Status in the '
@@ -541,6 +561,129 @@ void main() {
       reason: 'nothing is written when encoding fails',
     );
     expect(find.byType(SnackBar), findsOneWidget);
+    expect(
+      tester.widget<Slider>(find.byType(Slider)).value,
+      40,
+      reason: 'the slider goes back to the reading, not the refused value',
+    );
+  });
+
+  testWidgets('a value the device refuses puts the slider back on the '
+      'reading', (tester) async {
+    // The write itself refused, past the codec: the slider sat at 100 over
+    // a device still at 40, as the network screen's did before it learned
+    // the same rule.
+    final ble = _AnsweringBle(Exception('GATT_ERROR'));
+    await tester.pumpWidget(
+      _wrap(_heatEntity(), codec: _codecReading(40), ble: ble),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(Slider), const Offset(400, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 40);
+  });
+
+  testWidgets('a write the device never answered keeps the value it was '
+      'sent', (tester) async {
+    // A timeout is not a refusal: the device may have taken the value, so
+    // drawing the old one back would be the guess in the other direction.
+    final ble = _AnsweringBle(const BleCharacteristicSilentException());
+    await tester.pumpWidget(
+      _wrap(_heatEntity(), codec: _codecReading(40), ble: ble),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(Slider), const Offset(400, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 100);
+  });
+
+  testWidgets('another action failing leaves the setpoint where it was set', (
+    tester,
+  ) async {
+    // Only a send that carried the setpoint can take it back: a refused
+    // power toggle says nothing about the heat level.
+    final entity = EntityDto(
+      options: const [],
+      name: 'Heat Level 1',
+      platform: 'number',
+      unit: '%',
+      stateCharacteristic: _stateChar,
+      canNotify: false,
+      hasFormat: true,
+      valueField: 'heat_percent',
+      onWhenNonzero: false,
+      actions: [
+        _setValue(),
+        const EntityActionDto(
+          role: 'turn_on',
+          serviceUuid: 's',
+          characteristicUuid: _stateChar,
+          commandName: 'power_on',
+          userParams: [],
+        ),
+      ],
+      setpointMin: 0,
+      setpointMax: 100,
+      setpointStep: 1,
+      variants: const [],
+    );
+    final ble = _AnsweringBle();
+    await tester.pumpWidget(_wrap(entity, codec: _codecReading(40), ble: ble));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(Slider), const Offset(400, 0));
+    await tester.pumpAndSettle();
+    expect(ble.writes, hasLength(1));
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 100);
+
+    ble.error = Exception('GATT_ERROR');
+    await tester.tap(find.text('Turn on'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 100);
+  });
+
+  testWidgets('a refused value on a write-only setpoint goes back to the last '
+      'one it took', (tester) async {
+    // No reading to fall back on, so the slider returns to what the device
+    // last accepted rather than holding the value it turned down.
+    final entity = EntityDto(
+      options: const [],
+      name: 'Heat Level 1',
+      platform: 'number',
+      unit: '%',
+      canNotify: false,
+      hasFormat: false,
+      onWhenNonzero: false,
+      actions: [_setValue()],
+      setpointMin: 0,
+      setpointMax: 100,
+      setpointStep: 1,
+      variants: const [],
+    );
+    final ble = _AnsweringBle();
+    await tester.pumpWidget(
+      _wrap(entity, codec: _codecReading(0), ble: ble, stateServiceUuid: null),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(Slider), const Offset(400, 0));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 100);
+
+    ble.error = Exception('GATT_ERROR');
+    await tester.drag(find.byType(Slider), const Offset(-200, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsWidgets);
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 100);
   });
 
   testWidgets('without a declared range the control offers steppers', (

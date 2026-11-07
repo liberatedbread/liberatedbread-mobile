@@ -142,7 +142,8 @@ abstract class SpecCodec {
   /// scan, adopt and group paths ask through.
   ///
   /// [specs] is key → YAML in catalogue order (bundled assets first, then
-  /// installed packs — the order the pack-shadows-bundled rule depends on).
+  /// installed packs oldest first — the order the pack-shadows-bundled rule,
+  /// and the newer-pack-shadows-older one, depend on).
   ///
   /// The catalogue is loaded, not returned: parsing 203 specs into 203
   /// [DeviceSpecDto]s and decoding them on the UI isolate was a ~70-77 ms
@@ -685,6 +686,17 @@ abstract class SpecCodec {
     required Map<String, String> returned,
   });
 
+  /// Decode every role an entity's `state_mapping` names besides its one
+  /// `value` — a light's `is_on`, `brightness` and `color_temperature` —
+  /// from the same name→value pairs [readNetworkEntity] reads. A light
+  /// declares no `value`, so that read is null for it. Empty when the reply
+  /// carried none of the roles, rendered as unknown.
+  Future<List<NetworkRoleReadingDto>> readNetworkEntityRoles({
+    required String specYaml,
+    required String entityName,
+    required Map<String, String> returned,
+  });
+
   /// Encode the BLE writes that PERSIST a picture on the device so it plays
   /// standalone after disconnect, dispatched on the spec's `stored_upload`
   /// feature.
@@ -1116,7 +1128,7 @@ class CatalogueSpec {
   final int index;
 
   /// The key the catalogue was loaded under: a bundled asset path, or
-  /// `pack:<name>/<file>` for an installed pack.
+  /// `pack:<slug>/<file>` for an installed pack (`SpecPackService.specKey`).
   final String key;
 
   /// The spec's text. Still here because most entry points still take it;

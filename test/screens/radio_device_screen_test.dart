@@ -6,6 +6,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge.dart'
+    show AnyhowException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/channel_plan.dart';
 import 'package:liberated_bread_mobile/models/radio_band_limits.dart';
@@ -415,6 +417,28 @@ void main() {
       expect(find.textContaining('closed up'), findsNothing);
     });
 
+    testWidgets(
+      'from a UV-5G Mini, says its GMRS channels are not the plan\'s',
+      (tester) async {
+        await _pump(
+          tester,
+          initialProfile: uv5gMiniProfile,
+          decoded: const DecodedChannels(channels: channels, hadGaps: false),
+        );
+
+        await tester.tap(find.text('Read its channels into a new plan'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining(
+            '2 channels read into "From Base radio". Channels 1-30 are the '
+            'radio\'s own fixed channels',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
     testWidgets('says so when the radio had gaps a plan cannot keep', (
       tester,
     ) async {
@@ -767,6 +791,25 @@ void main() {
       expect(find.textContaining('No channel plans yet'), findsOneWidget);
     });
 
+    testWidgets('on a UV-5G Mini, says which channels a write replaces and '
+        'that its GMRS channels stay', (tester) async {
+      // Its slots 1-30 are its fixed GMRS plan, which a write now leaves
+      // as read; the dialog said every channel was replaced.
+      await seedPlan();
+      await _pump(tester, initialProfile: uv5gMiniProfile);
+      await pickAndConfirm(tester);
+
+      expect(
+        find.textContaining(
+          'This replaces memory channels 31-999 on the radio with the 2 in '
+          '"Local repeaters". Channels 1-30, its own fixed GMRS channels, '
+          'and its other settings are left alone.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('replaces the 969'), findsNothing);
+    });
+
     testWidgets('asks first, and a cancel touches nothing', (tester) async {
       await seedPlan();
       final harness = await _pump(tester);
@@ -888,6 +931,45 @@ void main() {
       expect(harness.backups.saved, isEmpty);
     });
 
+    testWidgets('a frequency finer than 10 Hz is refused before a read', (
+      tester,
+    ) async {
+      // Saved before the editor checked, it reached the codec, which
+      // refuses it -- after the read and backup.
+      final now = DateTime(2026, 9, 1);
+      SharedPreferences.setMockInitialValues({
+        'radio_channel_plans_v1': jsonEncode([
+          ChannelPlan(
+            id: 'fine',
+            name: 'Fine',
+            radioProfileId: uv5rMiniProfile.id,
+            channels: const [
+              RadioChannel(
+                name: 'ODD',
+                rxFreqHz: 146520005,
+                txFreqHz: 146520005,
+              ),
+            ],
+            createdAt: now,
+            modifiedAt: now,
+          ).toJson(),
+        ]),
+      });
+      _prefs = await SharedPreferences.getInstance();
+      final harness = await _pump(tester, planId: 'fine');
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Write to Base radio?'), findsNothing);
+      expect(
+        find.textContaining('Channel 1 of "Fine" (ODD): Receive 146.520005'),
+        findsOneWidget,
+      );
+      expect(harness.programmer.readCalls, 0);
+      expect(harness.backups.saved, isEmpty);
+    });
+
     testWidgets('a failed read writes nothing, and says so', (tester) async {
       await seedPlan();
       final harness = await _pump(
@@ -928,6 +1010,33 @@ void main() {
       expect(error, contains('may now hold part of the write'));
       expect(error, contains('uv-5r-mini_0.bin'));
       expect(error, contains('"Restore a backup"'));
+    });
+
+    testWidgets('a cable pulled out mid-write, which the desktop port reports '
+        'as an error rather than a timeout, still says the radio may be '
+        'half written', (tester) async {
+      // rust/src/serial.rs answers a port at end of file (a tty whose cable
+      // was pulled) with an error at once, where it used to spin until the
+      // step deadline and report a timeout. The bridge raises that error as
+      // an AnyhowException, which the cable driver passes on untranslated.
+      await seedPlan();
+      final harness = await _pump(
+        tester,
+        programmer: _CutOffProgrammer(
+          AnyhowException('the serial port closed after 0 of 1 bytes'),
+        ),
+      );
+      await pickAndConfirm(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Write'));
+      await tester.pumpAndSettle();
+
+      expect(harness.backups.saved, hasLength(1));
+      final error = tester
+          .widgetList<Text>(find.textContaining('did not finish'))
+          .first
+          .data!;
+      expect(error, contains('may now hold part of the write'));
+      expect(error, contains('uv-5r-mini_0.bin'));
     });
 
     testWidgets('a refused block names the backup without repeating the '

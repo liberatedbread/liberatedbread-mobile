@@ -71,11 +71,12 @@ void main() {
       expect(ok.pack.version, '1.0.0');
       expect(ok.pack.specCount, 2);
 
-      // Cached specs come back namespaced and keyed by file.
+      // Cached specs come back namespaced, keyed by the pack's directory
+      // slug and the spec's file name in it.
       final cached = await service.loadCachedSpecs();
       expect(cached, hasLength(2));
-      expect(cached['pack:Test Pack/bulb.yaml'], 'device_name: Bulb');
-      expect(cached['pack:Test Pack/sensor.yaml'], 'device_name: Sensor');
+      expect(cached['pack:test_pack/bulb.yaml'], 'device_name: Bulb');
+      expect(cached['pack:test_pack/sensor.yaml'], 'device_name: Sensor');
 
       final packs = await service.listInstalledPacks();
       expect(packs, hasLength(1));
@@ -119,7 +120,7 @@ void main() {
       expect(packs, hasLength(1));
       expect(packs.single.version, '2.0.0');
       final cached = await service.loadCachedSpecs();
-      expect(cached['pack:Test Pack/bulb.yaml'], 'v2.0.0');
+      expect(cached['pack:test_pack/bulb.yaml'], 'v2.0.0');
     });
   });
 
@@ -155,11 +156,11 @@ void main() {
         final cached = await service.loadCachedSpecs();
         expect(cached, hasLength(2));
         expect(
-          cached['pack:Test Pack/subdir/sensor.yaml'],
+          cached['pack:test_pack/subdir_sensor.yaml'],
           'device_name: Subdir Sensor',
         );
         expect(
-          cached['pack:Test Pack/other/sensor.yaml'],
+          cached['pack:test_pack/other_sensor.yaml'],
           'device_name: Other Sensor',
         );
 
@@ -287,6 +288,49 @@ void main() {
         expect(files, hasLength(1));
       },
     );
+
+    // `pack:<name>/<file>` was ambiguous across packs: a pack called "a"
+    // listing "b/c.yaml" and one called "a/b" listing "c.yaml" both keyed
+    // `pack:a/b/c.yaml`. Both installed (their directories, "a" and "a_b",
+    // differ), and the catalogue kept one key and silently dropped a spec.
+    test('a pack name and a spec path that split one string differently do not '
+        'share a key', () async {
+      final service = _service(tempDir, (request) async {
+        final dir = request.url.pathSegments.first;
+        if (request.url.path.endsWith('pack.json')) {
+          return http.Response(
+            dir == 'one'
+                ? _manifestJson(name: 'a', specs: ['b/c.yaml'])
+                : _manifestJson(name: 'a/b', specs: ['c.yaml']),
+            200,
+          );
+        }
+        return http.Response('$dir-yaml', 200);
+      });
+
+      expect(
+        await service.install('https://specs.example.com/one/pack.json'),
+        isA<InstallOk>(),
+      );
+      expect(
+        await service.install('https://specs.example.com/two/pack.json'),
+        isA<InstallOk>(),
+      );
+
+      final cached = await service.loadCachedSpecs();
+      expect(cached.values, unorderedEquals(['one-yaml', 'two-yaml']));
+      expect(
+        cached.keys,
+        unorderedEquals(['pack:a/b_c.yaml', 'pack:a_b/c.yaml']),
+      );
+      expect(
+        cached.keys,
+        unorderedEquals([
+          SpecPackService.specKey('a', 'b/c.yaml'),
+          SpecPackService.specKey('a/b', 'c.yaml'),
+        ]),
+      );
+    });
   });
 
   group('install - spec validation', () {
@@ -319,7 +363,7 @@ void main() {
         expect(ok.partialFailures.single.reason, contains('valid device spec'));
 
         final cached = await service.loadCachedSpecs();
-        expect(cached.keys, ['pack:Test Pack/good.yaml']);
+        expect(cached.keys, ['pack:test_pack/good.yaml']);
       },
     );
 
@@ -474,7 +518,7 @@ void main() {
       expect(ok.partialFailures.single.specFile, 'missing.yaml');
 
       final cached = await service.loadCachedSpecs();
-      expect(cached.keys, ['pack:Test Pack/good.yaml']);
+      expect(cached.keys, ['pack:test_pack/good.yaml']);
     });
   });
 
@@ -663,7 +707,7 @@ void main() {
         final packs = await service.listInstalledPacks();
         expect(packs.map((p) => p.name), ['Test Pack']);
         expect(await service.loadCachedSpecs(), {
-          'pack:Test Pack/bulb.yaml': 'yaml',
+          'pack:test_pack/bulb.yaml': 'yaml',
         });
         expect(
           await Directory('${dir.parent.path}/.old-$slug').exists(),
@@ -671,6 +715,50 @@ void main() {
         );
       },
     );
+
+    // Fails on the old code: removePack deleted only `<slug>`. A reinstall
+    // whose cleanup of the old copy failed (that delete is only logged)
+    // leaves `.old-<slug>` beside the new pack, and with `<slug>` gone that
+    // is exactly the interrupted swap the next listing puts back — so the
+    // pack the user just removed came back, at its previous version.
+    test('a removed pack stays removed when a reinstall left its old copy '
+        'aside', () async {
+      var version = '1.0.0';
+      final service = _service(tempDir, (request) async {
+        if (request.url.path.endsWith('pack.json')) {
+          return http.Response(_manifestJson(version: version), 200);
+        }
+        return http.Response('v$version', 200);
+      });
+      await service.install(_manifestUrl);
+      final dir = await packDir();
+      final slug = dir.uri.pathSegments.lastWhere((p) => p.isNotEmpty);
+      // v1 as it stood, to put aside where the failed cleanup left it.
+      final v1 = {
+        for (final f in await dir.list(recursive: true).toList())
+          if (f is File)
+            f.path.substring(dir.path.length): await f.readAsBytes(),
+      };
+      version = '2.0.0';
+      await service.install(_manifestUrl);
+      for (final MapEntry(key: path, value: bytes) in v1.entries) {
+        final f = File('${dir.parent.path}/.old-$slug$path');
+        await f.parent.create(recursive: true);
+        await f.writeAsBytes(bytes);
+      }
+      // And a staging directory a crashed install left, for good measure.
+      await Directory('${dir.parent.path}/.staging-$slug').create();
+
+      await service.removePack('Test Pack');
+
+      expect(
+        (await service.listInstalledPacks()).map((p) => p.version),
+        isEmpty,
+        reason: 'the old code put v1 back on the next listing',
+      );
+      expect(await service.loadCachedSpecs(), isEmpty);
+      expect(await dir.parent.list().toList(), isEmpty);
+    });
 
     test('a reinstall leaves nothing aside', () async {
       final service = await installed();
@@ -682,6 +770,65 @@ void main() {
       ];
       expect(names.where((n) => n.startsWith('.')), isEmpty);
       expect(await service.listInstalledPacks(), hasLength(1));
+    });
+
+    group('two packs carrying the same spec', () {
+      // The catalogue resolves a duplicate identity last-wins
+      // (specEntriesByKey): whatever loads later is the copy in force. So
+      // the ORDER loadCachedSpecs emits packs in is the pack-vs-pack rule,
+      // and it has to put the most recently installed or refreshed pack
+      // last. It used to walk listInstalledPacks' newest-first order, so
+      // the OLDER pack won, and refreshing a pack to pick up a fix made it
+      // newest — and made it lose.
+      SpecPackService twoPacks() => _service(tempDir, (request) async {
+        final dir = request.url.pathSegments.first;
+        if (request.url.path.endsWith('pack.json')) {
+          return http.Response(
+            _manifestJson(
+              name: dir == 'older' ? 'Older' : 'Newer',
+              specs: ['x.yaml'],
+            ),
+            200,
+          );
+        }
+        return http.Response('$dir-yaml', 200);
+      });
+      const olderUrl = 'https://specs.example.com/older/pack.json';
+      const newerUrl = 'https://specs.example.com/newer/pack.json';
+
+      // installedAt is the clock, so two installs a few microseconds apart
+      // are kept a visible step apart rather than trusting its resolution.
+      Future<void> tick() =>
+          Future<void>.delayed(const Duration(milliseconds: 2));
+
+      test('the pack installed last loads last', () async {
+        final service = twoPacks();
+        expect(await service.install(olderUrl), isA<InstallOk>());
+        await tick();
+        expect(await service.install(newerUrl), isA<InstallOk>());
+
+        final cached = await service.loadCachedSpecs();
+        expect(cached.keys, ['pack:older/x.yaml', 'pack:newer/x.yaml']);
+        expect(cached.values.last, 'newer-yaml');
+        // The settings list keeps its newest-first order.
+        expect((await service.listInstalledPacks()).map((p) => p.name), [
+          'Newer',
+          'Older',
+        ]);
+      });
+
+      test('refreshing a pack makes its copy the one in force', () async {
+        final service = twoPacks();
+        await service.install(olderUrl);
+        await tick();
+        await service.install(newerUrl);
+        await tick();
+        expect(await service.refresh(olderUrl), isA<InstallOk>());
+
+        final cached = await service.loadCachedSpecs();
+        expect(cached.keys, ['pack:newer/x.yaml', 'pack:older/x.yaml']);
+        expect(cached.values.last, 'older-yaml');
+      });
     });
 
     test('loadCachedSpecs is empty before anything is installed', () async {

@@ -51,10 +51,13 @@ class NetworkLightCard extends ConsumerStatefulWidget {
   sendAction;
 
   /// The generic path's live state, from the screen's ordinary poll: the
-  /// entity's decoded on/off and brightness readings. A LIFX light reads its
-  /// own state and ignores these. Null means the poll has not said.
+  /// entity's decoded on/off, brightness and colour temperature readings
+  /// (the last in the set_color_temperature action's own unit — an
+  /// Elgato's mireds). A LIFX light reads its own state and ignores these.
+  /// Null means the poll has not said.
   final bool? initialOn;
   final double? initialBrightness;
+  final double? initialColorTemperature;
 
   const NetworkLightCard({
     super.key,
@@ -65,6 +68,7 @@ class NetworkLightCard extends ConsumerStatefulWidget {
     this.sendAction,
     this.initialOn,
     this.initialBrightness,
+    this.initialColorTemperature,
   });
 
   /// Whether this entity rides the dedicated LIFX binary-UDP handler.
@@ -90,7 +94,13 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   /// touches a control their position wins.
   Color _color = lightSwatches.first;
   double _brightness = 255;
-  double _colorTemperature = 3500;
+
+  /// Null until a reading or a drag says what it is. It used to start at an
+  /// invented 3500 K, clamped into the action's range: an Elgato (143..344
+  /// mired) opened at "344 mired" and the screen reader announced that as
+  /// the light's setting. Unset, the thumb rests at the bottom and nothing
+  /// names that resting place as a temperature.
+  double? _colorTemperature;
   bool _seeded = false;
 
   /// The strip's zones, once a live read reports them. Empty until then; drives
@@ -206,7 +216,10 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
   double get _colorTemperatureMax =>
       (_setColorTemperature?.max ?? 9000).toDouble();
   double get _colorTemperatureValue =>
-      _colorTemperature.clamp(_colorTemperatureMin, _colorTemperatureMax);
+      (_colorTemperature ?? _colorTemperatureMin).clamp(
+        _colorTemperatureMin,
+        _colorTemperatureMax,
+      );
 
   String _formatColorTemperature(double value, {bool spoken = false}) {
     final unit = _setColorTemperature?.unit ?? 'K';
@@ -234,6 +247,7 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     } else {
       _assumedOn = widget.initialOn;
       _brightness = widget.initialBrightness ?? _brightnessMax;
+      _colorTemperature = widget.initialColorTemperature;
     }
   }
 
@@ -247,6 +261,10 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     if (widget.initialBrightness != null &&
         widget.initialBrightness != old.initialBrightness) {
       _brightness = widget.initialBrightness!;
+    }
+    if (widget.initialColorTemperature != null &&
+        widget.initialColorTemperature != old.initialColorTemperature) {
+      _colorTemperature = widget.initialColorTemperature;
     }
   }
 
@@ -268,6 +286,8 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
     _assumedOn = widget.initialOn ?? assumeOn ?? _assumedOn;
     final brightness = widget.initialBrightness;
     if (brightness != null) _brightness = brightness;
+    final colorTemperature = widget.initialColorTemperature;
+    if (colorTemperature != null) _colorTemperature = colorTemperature;
   }
 
   Map<String, double> _colorParams({double? brightnessOverride}) {
@@ -557,22 +577,35 @@ class _NetworkLightCardState extends ConsumerState<NetworkLightCard> {
                       max: _colorTemperatureMax,
                       value: _colorTemperatureValue,
                       semanticFormatterCallback: (v) =>
-                          'Colour temperature ${_formatColorTemperature(v, spoken: true)}',
-                      label: _formatColorTemperature(_colorTemperatureValue),
+                          _colorTemperature == null
+                          ? 'Colour temperature not set'
+                          : 'Colour temperature ${_formatColorTemperature(v, spoken: true)}',
+                      label: _colorTemperature == null
+                          ? null
+                          : _formatColorTemperature(_colorTemperatureValue),
                       onChanged: _sending
                           ? null
                           : (v) => setState(() => _colorTemperature = v),
+                      // The released value itself, which is never null and
+                      // is what the drag's last onChanged already set.
                       onChangeEnd: _sending
                           ? null
-                          : (_) => _send('set_color_temperature', {
-                              'kelvin': _colorTemperature.roundToDouble(),
-                              if (_hasBrightness)
-                                'brightness': _brightness.roundToDouble(),
-                            }),
+                          : (v) {
+                              setState(() => _colorTemperature = v);
+                              _send('set_color_temperature', {
+                                'kelvin': v.roundToDouble(),
+                                if (_hasBrightness)
+                                  'brightness': _brightness.roundToDouble(),
+                              });
+                            },
                     ),
                   ),
                   Text(
-                    _formatColorTemperature(_colorTemperatureValue),
+                    // The '—' a treadmill with no target shows, said aloud
+                    // above as "not set".
+                    _colorTemperature == null
+                        ? '—'
+                        : _formatColorTemperature(_colorTemperatureValue),
                     style: text.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),

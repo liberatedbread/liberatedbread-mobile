@@ -12,6 +12,7 @@
 // implementation.
 
 import '../models/radio_channel.dart';
+import '../models/radio_profile.dart';
 
 /// The columns CHIRP writes, minus `Power`.
 ///
@@ -67,15 +68,20 @@ String chirpFrequency(int hz) {
 
 /// Encode [channels] as a CHIRP generic CSV document.
 ///
-/// Slots are numbered from 1, matching what the plan screen shows and what
-/// every radio in the catalogue calls its first channel.
-String encodeChirpCsv(List<RadioChannel> channels) {
+/// Slots are numbered as [profile]'s radio numbers them, which is what the
+/// plan screen shows and where the app writes them: from its
+/// [RadioProfile.firstPlanSlot], 31 on the UV-5G Mini. CHIRP holds that
+/// radio's 1-30 as its fixed GMRS channels and will not change their
+/// frequencies, so a plan numbered from 1 landed on them in an import.
+/// Without a [profile] the file names no radio and counts from 1.
+String encodeChirpCsv(List<RadioChannel> channels, {RadioProfile? profile}) {
+  final first = profile?.firstPlanSlot ?? 1;
   final buffer = StringBuffer()
     ..write(_csvRow(chirpCsvHeader))
     ..write(_lineEnding);
   for (var i = 0; i < channels.length; i++) {
     buffer
-      ..write(_csvRow(chirpRow(channels[i], location: i + 1)))
+      ..write(_csvRow(chirpRow(channels[i], location: first + i)))
       ..write(_lineEnding);
   }
   return buffer.toString();

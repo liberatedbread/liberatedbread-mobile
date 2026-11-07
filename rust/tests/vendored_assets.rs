@@ -1309,6 +1309,68 @@ fn vendored_literal_http_bodies_render_filled_not_empty() {
     assert_eq!(volume.body, "<volume>30</volume>");
 }
 
+/// Every HTTP path the catalogue declares is a path on the device, not an
+/// address of its own.
+///
+/// The renderer refuses a path that names a scheme or an authority
+/// (`https://elsewhere/`, `//elsewhere/`), because the sender resolves it
+/// against the device's address and would otherwise follow it — headers and
+/// a stored credential with it. That refusal is only free while nothing
+/// legitimate is spelled that way, which is what this pins: a subtree pull
+/// that adds one fails here, naming it, rather than as a control that stops
+/// working on the phone.
+#[test]
+fn every_vendored_http_path_is_device_relative() {
+    let mut offenders = Vec::new();
+    let mut checked = 0;
+    for path in vendored_yaml_paths() {
+        let file = path.file_name().unwrap().to_string_lossy().into_owned();
+        let yaml = fs::read_to_string(&path).expect("spec file should be readable");
+        let spec = parse_device_spec(&yaml).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+        let mut paths: Vec<(String, &str)> = Vec::new();
+        for (name, command) in &spec.commands {
+            if command.transport.as_deref() != Some("http") {
+                continue;
+            }
+            paths.extend(command.path.as_deref().map(|p| (name.clone(), p)));
+            paths.extend(
+                command
+                    .path_fallback
+                    .as_deref()
+                    .map(|p| (format!("{name}.path_fallback"), p)),
+            );
+        }
+        let endpoints = spec
+            .extensions
+            .get("http_endpoints")
+            .and_then(|e| e.as_sequence())
+            .into_iter()
+            .flatten();
+        for endpoint in endpoints {
+            let name = endpoint.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+            if let Some(p) = endpoint.get("path").and_then(|p| p.as_str()) {
+                paths.push((format!("http_endpoints.{name}"), p));
+            }
+        }
+        for (what, p) in paths {
+            checked += 1;
+            let second = p.as_bytes().get(1).copied();
+            if !p.starts_with('/') || matches!(second, Some(b'/' | b'\\')) {
+                offenders.push(format!("  {file}: {what} = {p:?}"));
+            }
+        }
+    }
+    assert!(
+        checked > 200,
+        "expected the catalogue's HTTP paths, checked only {checked}"
+    );
+    assert!(
+        offenders.is_empty(),
+        "these HTTP paths would be refused as pointing off the device:\n{}",
+        offenders.join("\n")
+    );
+}
+
 /// The vendored iDotMatrix spec now reports its image uploads encodable.
 ///
 /// This is the DTO the editor keys off: `encodable` must flip to true the
@@ -1970,6 +2032,182 @@ fn the_vendored_hisense_spec_resolves_a_remote_over_mqtt() {
     assert!(
         unaddressed.is_err(),
         "an unaddressed command must not render, got {unaddressed:?}"
+    );
+}
+
+/// Every SOAP command in the catalogue renders, given values its parameters
+/// declare acceptable.
+///
+/// The SOAP renderer holds a substituted argument to its parameter's declared
+/// type and bounds, as every other transport does. That is only safe while
+/// the values the catalogue's own commands are driven with pass it. Each
+/// parameter here gets its `default`, else its first coded value, else its
+/// declared `min` (or a plain value of its declared type), which is what a
+/// control resolved from the spec would offer.
+#[test]
+fn every_vendored_soap_command_renders_with_values_its_parameters_accept() {
+    use liberated_bread_core::protocol::soap;
+    use liberated_bread_core::spec::types::SpecCommandParameter;
+    use std::collections::BTreeMap;
+
+    fn scalar_to_string(value: &serde_yaml::Value) -> Option<String> {
+        match value {
+            serde_yaml::Value::String(s) => Some(s.clone()),
+            serde_yaml::Value::Number(n) => Some(n.to_string()),
+            serde_yaml::Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        }
+    }
+
+    fn acceptable(parameter: &SpecCommandParameter) -> String {
+        if let Some(default) = parameter.default.as_ref().and_then(scalar_to_string) {
+            return default;
+        }
+        let coded = parameter
+            .values
+            .as_ref()
+            .and_then(|v| v.as_mapping())
+            .and_then(|m| m.keys().next())
+            .and_then(scalar_to_string);
+        if let Some(code) = coded {
+            return code;
+        }
+        match parameter.value_type.as_deref() {
+            Some("boolean" | "bool") => "1".to_string(),
+            Some("number" | "float" | "double") => parameter.min.unwrap_or(0.0).to_string(),
+            Some(t) if t.starts_with("int") || t.starts_with("uint") || t == "varint" => {
+                (parameter.min.unwrap_or(0.0) as i64).to_string()
+            }
+            // A string is escaped, never validated: give it the characters
+            // escaping exists for.
+            _ => "Cats & <Dogs>".to_string(),
+        }
+    }
+
+    let mut rendered = 0;
+    let mut failures = Vec::new();
+    for path in vendored_yaml_paths() {
+        let file = path.file_name().unwrap().to_string_lossy().into_owned();
+        let yaml = fs::read_to_string(&path).expect("spec file should be readable");
+        let spec = parse_device_spec(&yaml).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+        for (name, command) in &spec.commands {
+            if command.service.is_none()
+                || command.action.is_none()
+                || command.transport.as_deref().unwrap_or(soap::TRANSPORT) != soap::TRANSPORT
+            {
+                continue;
+            }
+            let values: BTreeMap<String, String> = command
+                .parameters
+                .iter()
+                .map(|(param, declared)| (param.clone(), acceptable(declared)))
+                .collect();
+            match soap::render_command(&spec, name, command, &values) {
+                Ok(_) => rendered += 1,
+                Err(e) => failures.push(format!("  {file}: {name}: {e}")),
+            }
+        }
+    }
+    assert!(
+        rendered >= 100,
+        "expected the catalogue's SOAP commands, rendered only {rendered}"
+    );
+    assert!(
+        failures.is_empty(),
+        "these vendored SOAP commands no longer render:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// Every MQTT `body` in the catalogue, filled through the FFI, and the one
+/// shape that needed escaping driven with a value that would inject.
+///
+/// Sengled writes its payloads as JSON ARRAYS in a literal `body` (an
+/// `arguments` block can only build an object), with the bulb's MAC, a stored
+/// credential, inside a string. A `string` value was pasted in verbatim, so a
+/// stored MAC carrying a quote wrote members of its own into the command. The
+/// Hisense and Bambu bodies are the other two shapes, a bare key name and a
+/// fixed JSON object, and must come out exactly as before.
+#[test]
+fn vendored_mqtt_bodies_fill_by_their_own_shape() {
+    use liberated_bread_core::api::device_api::render_network_mqtt_command;
+    use std::collections::HashMap;
+
+    let yaml = |file: &str| fs::read_to_string(spec_path(file)).expect("spec reads");
+    let values = |pairs: &[(&str, &str)]| -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    };
+
+    let sengled = yaml("sengled-wifi-bulb.yaml");
+    let on = render_network_mqtt_command(
+        sengled.clone(),
+        "mqtt_turn_on".to_string(),
+        values(&[("mac", "B0:CE:18:00:00:01"), ("time", "5")]),
+    )
+    .expect("mqtt_turn_on renders");
+    assert_eq!(on.topic, "wifielement/B0:CE:18:00:00:01/update");
+    assert_eq!(
+        on.payload,
+        r#"[{"dn":"B0:CE:18:00:00:01","type":"switch","value":"1","time":5}]"#
+    );
+    let color = render_network_mqtt_command(
+        sengled.clone(),
+        "mqtt_set_color".to_string(),
+        values(&[
+            ("mac", "B0:CE:18:00:00:01"),
+            ("red", "255"),
+            ("green", "0"),
+            ("blue", "16"),
+            ("time", "5"),
+        ]),
+    )
+    .expect("mqtt_set_color renders");
+    assert!(
+        color.payload.contains(r#""value":"255:0:16""#),
+        "{}",
+        color.payload
+    );
+
+    let hostile = r#"AA","type":"reset","value":"1","x":""#;
+    let injected = render_network_mqtt_command(
+        sengled,
+        "mqtt_turn_on".to_string(),
+        values(&[("mac", hostile), ("time", "5")]),
+    )
+    .expect("a quote in a string value is escaped, not refused");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&injected.payload).expect("the payload is still JSON");
+    assert_eq!(parsed[0]["dn"], hostile, "{}", injected.payload);
+    assert_eq!(parsed[0]["type"], "switch", "{}", injected.payload);
+    assert_eq!(
+        parsed[0].as_object().map(|m| m.len()),
+        Some(4),
+        "no member may be added: {}",
+        injected.payload
+    );
+
+    let hisense = yaml("hisense-vidaa.yaml");
+    let volume = render_network_mqtt_command(
+        hisense,
+        "set_volume".to_string(),
+        values(&[("client_id", "phone1"), ("volume", "30")]),
+    )
+    .expect("set_volume renders");
+    assert_eq!(volume.payload, "30", "a whole-body placeholder stays bare");
+
+    let bambu = yaml("bambu-lab-lan.yaml");
+    let pause = render_network_mqtt_command(
+        bambu,
+        "pause".to_string(),
+        values(&[("serial", "01P00A000000000")]),
+    )
+    .expect("pause renders");
+    assert_eq!(
+        pause.payload,
+        r#"{"print":{"sequence_id":"0","command":"pause"}}"#
     );
 }
 

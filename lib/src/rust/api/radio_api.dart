@@ -90,7 +90,8 @@ Future<bool> radioIsAck({required List<int> reply}) =>
     RustLib.instance.api.crateApiRadioApiRadioIsAck(reply: reply);
 
 /// The channels in a codeplug image. Empty slots are omitted; each channel
-/// carries the slot it came from.
+/// carries the slot it came from. A model's fixed channels (the UV-5G
+/// Mini's GMRS 1-30) are not plan channels and are not returned.
 Future<List<RadioChannelDto>> radioDecodeChannels({
   required List<int> image,
   required String modelId,
@@ -99,11 +100,13 @@ Future<List<RadioChannelDto>> radioDecodeChannels({
   modelId: modelId,
 );
 
-/// A copy of `image` with `channels` written from slot 1 up and the rest of
-/// the slots cleared.
+/// A copy of `image` with `channels` written from the model's first plan
+/// slot up (slot 1, or 31 on the UV-5G Mini) and the rest of the slots
+/// cleared.
 ///
-/// Everything outside the channel records survives: the settings, the DTMF
-/// codes, the parts of each record this codec does not model.
+/// Everything outside the plan's records survives: the settings, the DTMF
+/// codes, the parts of each record this codec does not model, and a model's
+/// fixed channels (the UV-5G Mini's GMRS 1-30), byte for byte.
 Future<Uint8List> radioEncodeChannels({
   required List<int> image,
   required List<RadioChannelDto> channels,
@@ -166,12 +169,13 @@ Future<Uv5rProbeDto> uv5RParseProbe({
 /// as `model_id`: an error when its firmware string says it is another
 /// model with another power table.
 ///
-/// The UV-82HP answers the two-level UV-82's ident, so only its firmware
-/// string tells it apart; this refuses an HP chosen as the UV-5R and a radio
-/// that is not an HP chosen as one, as CHIRP's basetype lists name them. A
-/// string in the HP's list and another's (`N5R2`) allows either (see
-/// `uv5r::check_firmware`). Called on every session with a radio, where
-/// the firmware is always there to read.
+/// The idents cannot hold the power tables apart: the BF-F8HP answers the
+/// UV-5R's, and the UV-82HP the two-level UV-82's. So the firmware string
+/// decides, as CHIRP's basetype lists name it: a radio is refused as a
+/// model whose power table no model its firmware names shares, and the
+/// UV-82HP only as itself. A string naming models of both tables (`N5RV`,
+/// `N5R2`) allows either (see `uv5r::check_firmware`). Called on every
+/// session with a radio, where the firmware is always there to read.
 Future<void> uv5RCheckFirmware({
   required String modelId,
   required String firmware,

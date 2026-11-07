@@ -123,7 +123,10 @@ class _RadioPicker extends ConsumerWidget {
   /// Says what this build can actually do with the radio, rather than letting
   /// someone find out by trying.
   static String _capabilityLine(RadioProfile profile) {
-    final channels = '${profile.channelCapacity} channels';
+    final fixed = profile.fixedChannels;
+    final channels = fixed == 0
+        ? '${profile.channelCapacity} channels'
+        : '${profile.channelCapacity} channels after its $fixed fixed ones';
     final over = profile.programmingTransport?.overPhrase;
     if (over == null) return '$channels · export to CHIRP';
     return switch (profile.programmerSupport) {

@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -30,6 +31,38 @@ List<int> diyEffectCidsToClear(Iterable<EffectEntryDto> entries) => [
   for (final e in entries)
     if (e.diy == 1) e.cid,
 ];
+
+/// The first id of a fresh stored design spanning [count] consecutive cids:
+/// one for a picture or text, one per frame for an animation (stored as a
+/// still per frame at `base..base+count-1`).
+///
+/// Ids come from a high band, unlikely to collide with catalogue effects
+/// (hardware accepts ids it has never seen). The search starts where [seed]
+/// (the clock) lands in the band and walks forward, wrapping within it, to the
+/// first base whose whole range is clear of [saved] — every design's `cid`
+/// AND its `frameCids`, because an animation occupies each frame's id on the
+/// device while its entry records only the base as `cid`. A clash would store
+/// the new design over another's slot, and leave the replay list with two
+/// entries addressing it. Pure so the choice is unit-testable.
+int freshStoredCid(int seed, Iterable<SavedDesign> saved, {int count = 1}) {
+  const first = 900001;
+  const band = 90000;
+  final taken = {
+    for (final d in saved) ...[d.cid, ...d.frameCids],
+  };
+  bool clear(int base) {
+    for (var i = 0; i < count; i++) {
+      if (taken.contains(base + i)) return false;
+    }
+    return true;
+  }
+
+  for (var step = 0; step < band; step++) {
+    final base = first + (seed + step) % band;
+    if (clear(base)) return base;
+  }
+  throw StateError('no free stored-design id left on this device');
+}
 
 /// Usable bytes per BLE write for a given ATT MTU.
 ///
@@ -1094,13 +1127,18 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       final contentHash = designContentHash(hashInput.takeBytes());
 
       // Same content already on the device -> same cid (the device just
-      // overwrites its slot); otherwise a novel app-chosen id in a high band,
-      // unlikely to collide with catalogue effects (hardware accepts ids it
-      // has never seen).
+      // overwrites its slot); otherwise a novel app-chosen id clear of every
+      // slot this app's saved designs hold — an animation's whole frame range
+      // included ([freshStoredCid]). clock.now(), not DateTime.now(): the
+      // same in production, and a test can pin it onto a taken id.
       final prior = store.findByContent(widget.deviceId, contentHash);
       final cid =
           prior?.cid ??
-          900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
+          freshStoredCid(
+            clock.now().millisecondsSinceEpoch,
+            store.load(widget.deviceId),
+            count: options.kind == _StoredKind.animation ? allFrames.length : 1,
+          );
 
       // A multi-frame animation can't be one stored blob on this curtain: the
       // firmware has no .eff renderer (hardware-confirmed — a committed .eff
@@ -1168,29 +1206,12 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         'to ${widget.deviceId}: ${plan.uploadWrites.length} uploader writes',
       );
 
-      // Listen for the device's verdict BEFORE the first upload write, so a
-      // fast completion cannot slip past between upload and subscribe.
-      final confirmed = _awaitUploadVerdict(codec, plan, specYaml);
-      // If an upload write throws first, nobody awaits `confirmed`; quench a
-      // listener COPY so a later refusal in it cannot surface as an unhandled
-      // zone error (the `await confirmed` below still observes the original).
-      unawaited(confirmed.then((_) {}, onError: (_) {}));
-
-      for (final write in plan.uploadWrites) {
-        await ble.writeCharacteristic(
-          widget.deviceId,
-          plan.serviceUuid,
-          write.characteristicUuid,
-          write.bytes,
-        );
-      }
-
-      // The device plays a cid only once it has committed it — an early play
-      // is a silent no-op (observed on hardware). Wait for M_UPLOAD_COMPLETE;
-      // a device-side refusal throws into the error path below. A silent
-      // firmware resolves this to `false` after a bounded wait rather than
-      // hanging the save.
-      final wasConfirmed = await confirmed;
+      // Stream the container, then wait for the device to commit it: it plays
+      // a cid only once it has — an early play is a silent no-op (observed on
+      // hardware). M_UPLOAD_COMPLETE resolves this `true`; a device-side
+      // refusal throws into the error path below. A silent firmware resolves
+      // it to `false` after a bounded wait rather than hanging the save.
+      final wasConfirmed = await _uploadAndAwaitCommit(codec, plan, specYaml);
 
       // Mirror the vendor's store-then-show (smartdawn_longer2 t=205.9): hand
       // the panel back from any doodle preview, refresh the effect list so the
@@ -1385,7 +1406,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           }
         });
     _effectListSub = sub;
-    await _sendFramedCommand(specYaml, serviceUuid, charUuid, 'effect_list');
+    try {
+      await _sendFramedCommand(specYaml, serviceUuid, charUuid, 'effect_list');
+    } catch (_) {
+      // No timer is armed to release a request that never went out, so the
+      // listener (and the notify interest under it) would stay held until
+      // dispose.
+      unawaited(sub.cancel());
+      if (identical(_effectListSub, sub)) _effectListSub = null;
+      rethrow;
+    }
     // The await above is where dispose lands: a timer created after it
     // belongs to a dead widget — dispose already ran its cancels, so this
     // one would tick for 2.5 s and log from a screen that no longer exists.
@@ -1437,7 +1467,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final ble = ref.read(bleServiceProvider);
 
     // A distinct cid per frame, contiguous from the design's base id, so a
-    // byte-identical re-save re-uses the very same device slots.
+    // byte-identical re-save re-uses the very same device slots. A new
+    // design's base was picked with the whole range clear ([freshStoredCid]).
     final frameCids = [for (var i = 0; i < frames.length; i++) baseCid + i];
 
     // Encode every frame's upload plan up front (no BLE) so we can subscribe to
@@ -1692,45 +1723,79 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         );
   }
 
-  /// Resolves `true` once the device confirms the stored upload committed,
-  /// `false` when it stays silent past a bounded wait; throws when the device
-  /// actively refuses it.
+  /// Write [plan]'s upload packets, then wait for the device's verdict on
+  /// them: `true` once it confirms the stored upload committed, `false` when
+  /// it stays silent past a bounded wait; throws when the device actively
+  /// refuses it (or a write fails).
   ///
-  /// Must be CALLED before the first upload write — the subscription starts
-  /// in the synchronous prefix, so a verdict cannot slip past between the
-  /// last data packet and a late subscribe. When the spec names no response
-  /// channel it returns `false` immediately (store-and-hope — the caller keeps
-  /// its messaging honest rather than claiming playback). A silent firmware
-  /// likewise returns `false` after the timeout instead of turning every save
-  /// into an error.
-  Future<bool> _awaitUploadVerdict(
+  /// The verdict listener attaches BEFORE the first write, so a fast
+  /// completion cannot slip past between the last data packet and a late
+  /// subscribe — but the bounded wait starts only once the last packet is
+  /// out, as in [_uploadFramesAndLoop]. It bounds how long the device may
+  /// take to COMMIT, not how long the link takes to carry the container: a
+  /// 255x255 picture is ~45 KB, some 260 writes at iOS's MTU, and a clock
+  /// started at the first packet ran out mid-upload — the play then went out
+  /// before the device had committed, and its confirmation went unread.
+  ///
+  /// When the spec names no response channel it returns `false` once the
+  /// writes are out (store-and-hope — the caller keeps its messaging honest
+  /// rather than claiming playback). A silent firmware likewise returns
+  /// `false` after the wait instead of turning every save into an error.
+  Future<bool> _uploadAndAwaitCommit(
     SpecCodec codec,
     StoredUploadPlanDto plan,
     String specYaml,
   ) async {
-    final respChar = plan.responseCharacteristicUuid;
-    if (respChar == null) return false;
-
+    const commitWait = Duration(seconds: 10);
     final ble = ref.read(bleServiceProvider);
+    final respChar = plan.responseCharacteristicUuid;
     final verdict = Completer<StoredUploadEventDto>();
     final reader = StoredUploadEventReader(codec: codec, specYaml: specYaml);
-    final sub = ble
-        .subscribeCharacteristic(widget.deviceId, plan.serviceUuid, respChar)
-        .listen((bytes) async {
-          final event = await reader.feed(bytes);
-          if (event == null || verdict.isCompleted) return;
-          switch (event.kind) {
-            case StoredUploadEventKind.complete:
-            case StoredUploadEventKind.failed:
-            case StoredUploadEventKind.startRejected:
-              verdict.complete(event);
-            case StoredUploadEventKind.startAccepted:
-            case StoredUploadEventKind.progress:
-              break; // transfer in flight; keep listening
-          }
-        });
+    final sub = respChar == null
+        ? null
+        : ble
+              .subscribeCharacteristic(
+                widget.deviceId,
+                plan.serviceUuid,
+                respChar,
+              )
+              .listen((bytes) async {
+                final event = await reader.feed(bytes);
+                if (event == null || verdict.isCompleted) return;
+                switch (event.kind) {
+                  case StoredUploadEventKind.complete:
+                  case StoredUploadEventKind.failed:
+                  case StoredUploadEventKind.startRejected:
+                    verdict.complete(event);
+                  case StoredUploadEventKind.startAccepted:
+                  case StoredUploadEventKind.progress:
+                    break; // transfer in flight; keep listening
+                }
+              });
     try {
-      final event = await verdict.future.timeout(const Duration(seconds: 10));
+      for (final write in plan.uploadWrites) {
+        await ble.writeCharacteristic(
+          widget.deviceId,
+          plan.serviceUuid,
+          write.characteristicUuid,
+          write.bytes,
+        );
+      }
+      if (sub == null) return false;
+
+      // Only the verdict wait is caught here: a write that times out is a
+      // failed upload, not a silent device, and must not be played.
+      final StoredUploadEventDto event;
+      try {
+        event = await verdict.future.timeout(commitWait);
+      } on TimeoutException {
+        Log.ble.warning(
+          'no upload confirmation from ${widget.deviceId} within '
+          '${commitWait.inSeconds}s of the last upload write; playing anyway '
+          'but reporting it as unconfirmed',
+        );
+        return false;
+      }
       if (event.kind != StoredUploadEventKind.complete) {
         throw StateError(
           'the device refused the stored design (code ${event.code})',
@@ -1738,17 +1803,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       }
       Log.ble.info('${widget.deviceId} committed the stored design');
       return true;
-    } on TimeoutException {
-      Log.ble.warning(
-        'no upload confirmation from ${widget.deviceId} within '
-        '10s; playing anyway but reporting it as unconfirmed',
-      );
-      return false;
     } finally {
       // Fire-and-forget: cancel() detaches the listener synchronously, which
       // is all that matters here — the returned future settles on the
       // transport's schedule (it stalled a full save when awaited).
-      unawaited(sub.cancel());
+      unawaited(sub?.cancel());
     }
   }
 
@@ -1892,7 +1951,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     });
     await _sendFramedCommand(specYaml, serviceUuid, ddpChar, 'effect_list');
     await Future<void>.delayed(const Duration(seconds: 3));
-    // Fire-and-forget, as in _awaitUploadVerdict: cancel() detaches the
+    // Fire-and-forget, as in _uploadAndAwaitCommit: cancel() detaches the
     // listener synchronously, which is all that matters here. Awaiting it
     // stalls under a fake event loop — a broadcast subscription's cancel
     // resolves via the SDK's root-zone null future — which is what kept this
@@ -2141,7 +2200,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final Uint8List bits;
     try {
       final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      final rgba = data!.buffer.asUint8List();
+      if (data == null) throw _TextRasterException(width, height);
+      final rgba = data.buffer.asUint8List();
       bits = Uint8List(width * height);
       for (var i = 0; i < width * height; i++) {
         // Lit where the glyph painted brightly over the black ground.
@@ -2608,6 +2668,29 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 const String _animationWipesOthersNote =
     'Storing an animation clears the device\'s other saved designs, '
     'including any stored by the vendor app.';
+
+/// The engine could not read back the bitmap a text save rendered.
+///
+/// `Image.toByteData` is documented to return null when the encode fails. It
+/// was null-asserted, so the save died on a bare null-check error and the user
+/// read the generic "Could not save to the device." — blaming a device that
+/// had not yet been sent anything.
+class _TextRasterException implements UserFacingException {
+  final int width;
+  final int height;
+
+  const _TextRasterException(this.width, this.height);
+
+  @override
+  String get message =>
+      'Could not draw the text for the device; nothing was sent. '
+      'Try saving again.';
+
+  @override
+  String toString() =>
+      '_TextRasterException: toByteData returned null for the '
+      '${width}x$height text raster';
+}
 
 /// What the user chose in the "Save to device" dialog.
 /// What kind of content to persist on the device.

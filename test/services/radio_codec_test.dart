@@ -211,6 +211,15 @@ void main() {
       expect(decodedFromDtos([_dto(2)]).hadGaps, isTrue);
     });
 
+    test('counts from a radio\'s first plan slot', () {
+      // The UV-5G Mini's plan starts at 31, after its fixed GMRS channels.
+      expect(
+        decodedFromDtos([_dto(31), _dto(32)], firstSlot: 31).hadGaps,
+        isFalse,
+      );
+      expect(decodedFromDtos([_dto(32)], firstSlot: 31).hadGaps, isTrue);
+    });
+
     test('an empty radio is empty, with nothing to report', () {
       final decoded = decodedFromDtos(const []);
       expect(decoded.channels, isEmpty);
@@ -395,6 +404,56 @@ void main() {
         await rust.uv5RFirmware(image: base.image),
         reason: 'what the app does not model survives from the base',
       );
+    });
+
+    test('leaves the UV-5G Mini\'s fixed GMRS channels as read, and reads '
+        'and writes a plan from slot 31', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // CHIRP's UV5GMini makes slots 1-30 its fixed GMRS plan. The app wrote
+      // a plan over them from slot 1, and read them into the plan, which
+      // then wrote them again after it. Fails on the slot-1 codec.
+      expect(uv5gMiniProfile.fixedChannels, 30);
+      expect(uv5gMiniProfile.firstPlanSlot, 31);
+      expect(uv5gMiniProfile.channelCapacity, 969);
+      // The radio as it might arrive: its GMRS plan in 1-30.
+      final gmrs = [
+        for (var n = 0; n < 30; n++)
+          RadioChannel(
+            name: 'GMRS ${n + 1}',
+            rxFreqHz: 462550000 + n * 25000,
+            txFreqHz: 462550000 + n * 25000,
+          ),
+      ];
+      final factory = await const CodeplugEncoder().encode(
+        await _blank(uv5rMiniProfile),
+        uv5rMiniProfile,
+        gmrs,
+      );
+      final base = RadioCodeplug(
+        modelId: uv5gMiniProfile.id,
+        image: factory,
+        readAt: DateTime(2026, 9, 1),
+      );
+      final read = await const CodeplugDecoder().decode(base, uv5gMiniProfile);
+      expect(read.channels, isEmpty, reason: '1-30 are not the plan\'s');
+      expect(read.hadGaps, isFalse);
+
+      final written = await const CodeplugEncoder().encode(
+        base,
+        uv5gMiniProfile,
+        channels,
+      );
+      expect(written.sublist(0, 30 * 32), factory.sublist(0, 30 * 32));
+      final back = await const CodeplugDecoder().decode(
+        RadioCodeplug(
+          modelId: uv5gMiniProfile.id,
+          image: written,
+          readAt: DateTime(2026, 9, 2),
+        ),
+        uv5gMiniProfile,
+      );
+      expect([for (final c in back.channels) c.name], ['ONE', 'TWO']);
+      expect(back.hadGaps, isFalse, reason: 'a plan from 31 has no gap');
     });
 
     test('refuses more channels than the radio has slots', () async {

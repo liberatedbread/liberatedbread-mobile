@@ -1546,6 +1546,150 @@ void main() {
         );
       },
     );
+
+    group('a command split across packets', () {
+      // An Orba's BLE-MIDI SysEx: one message, several writes, reassembled
+      // by the device in arrival order. Each packet used to be its own
+      // writeCharacteristic, and flutter_blue_plus queues those one call at
+      // a time, so a second command started mid-send put its packets
+      // between the first's: on the wire `a1 b1 a2 b2 a3 f7 f7`, two
+      // corrupt messages, and "Sent" on screen for both.
+      late EmulatedCharacteristic command;
+
+      setUp(() async {
+        // Warm the GATT cache so both sends go straight to writing.
+        await service.discoverServices(_bulbId);
+        command = ble
+            .peripheral(_bulbId)!
+            .characteristic(EmulatedUuids.controlCommand)!;
+        // A request genuinely in flight, long enough for the second send to
+        // start inside the first.
+        ble.latency = const Duration(milliseconds: 5);
+      });
+
+      List<List<int>> wire() => [for (final w in command.writes) w.value];
+
+      test(
+        'reaches the device contiguously while a second one is sent',
+        () async {
+          final first = service.writeCharacteristicPackets(
+            _bulbId,
+            EmulatedUuids.controlService,
+            EmulatedUuids.controlCommand,
+            [
+              [0xa1],
+              [0xa2],
+              [0xa3],
+              [0xf7],
+            ],
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 2));
+          final second = service.writeCharacteristicPackets(
+            _bulbId,
+            EmulatedUuids.controlService,
+            EmulatedUuids.controlCommand,
+            [
+              [0xb1],
+              [0xb2],
+              [0xf7],
+            ],
+          );
+          await Future.wait([first, second]);
+
+          expect(wire(), [
+            [0xa1],
+            [0xa2],
+            [0xa3],
+            [0xf7],
+            [0xb1],
+            [0xb2],
+            [0xf7],
+          ]);
+        },
+      );
+
+      test(
+        'a single write started mid-send waits for the last packet',
+        () async {
+          final packets = service.writeCharacteristicPackets(
+            _bulbId,
+            EmulatedUuids.controlService,
+            EmulatedUuids.controlCommand,
+            [
+              [1],
+              [2],
+              [3],
+            ],
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 2));
+          final single = service.writeCharacteristic(
+            _bulbId,
+            EmulatedUuids.controlService,
+            EmulatedUuids.controlCommand,
+            [9],
+          );
+          await Future.wait([packets, single]);
+
+          expect(wire(), [
+            [1],
+            [2],
+            [3],
+            [9],
+          ]);
+        },
+      );
+
+      test('a refused packet stops the run, says how far it got, and frees '
+          'the device for the next write', () async {
+        // Refuse from the third packet on.
+        command.onWrite = (_, _) {
+          if (command.writes.length == 2) {
+            command.writeError = EmulatedGattError.refused;
+          }
+        };
+        var landed = 0;
+        final packets = service.writeCharacteristicPackets(
+          _bulbId,
+          EmulatedUuids.controlService,
+          EmulatedUuids.controlCommand,
+          [
+            [1],
+            [2],
+            [3],
+            [4],
+          ],
+          onPacketWritten: () => landed++,
+        );
+        final refused = expectLater(packets, throwsA(isA<Exception>()));
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+        // Queued behind the run, on another characteristic of the same
+        // device: the hold is per device, and a failed run must not leave
+        // it held.
+        final after = service.writeCharacteristic(
+          _bulbId,
+          EmulatedUuids.controlService,
+          EmulatedUuids.controlState,
+          [7],
+        );
+        await refused;
+        await after;
+
+        expect(landed, 2);
+        expect(wire(), [
+          [1],
+          [2],
+        ]);
+        expect(
+          ble
+              .peripheral(_bulbId)!
+              .characteristic(EmulatedUuids.controlState)!
+              .writes
+              .single
+              .value,
+          [7],
+        );
+      });
+    });
   });
 
   group('subscribeCharacteristic', () {
@@ -1979,11 +2123,13 @@ void main() {
 
     test('keeps the subscription alive when the Linux backend never confirms '
         'the CCCD write', () async {
-      // flutter_blue_plus_linux applies StartNotify synchronously and never
-      // emits the descriptor-written event flutter_blue_plus waits for, so
-      // every setNotifyValue times out AFTER succeeding. isSpuriousLinuxNotify-
-      // Timeout is what turns that into a warning instead of a dead
-      // subscription — this is that path, running for real.
+      // flutter_blue_plus_linux 3.0.2 applied StartNotify synchronously and
+      // never emitted the descriptor-written event flutter_blue_plus waited
+      // for, so every setNotifyValue timed out AFTER succeeding. 7.0.3 makes
+      // flutter_blue_plus skip that wait, but a Linux CCCD write confirmed
+      // later than the wait (the direct-ATT route's) still lands here.
+      // isSpuriousLinuxNotifyTimeout is what turns that into a warning
+      // instead of a dead subscription — this is that path, running for real.
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
       bulb.confirmsCccdWrites = false;
       // Linux behaviour on whatever host runs this, so the tolerance is

@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'package:flutter/widgets.dart' show StringCharacters;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/channel_plan.dart';
@@ -213,7 +214,22 @@ class ChannelPlansNotifier extends StateNotifier<List<ChannelPlan>> {
 }
 
 /// Trim a channel's name to what [profile] can hold.
+///
+/// Counted as the codecs store a name, one byte per Unicode scalar value
+/// (a rune), and cut only between whole characters. `String.length` counts
+/// UTF-16 code units, so a `substring` at the limit cut an emoji in half,
+/// and the lone surrogate crossed the bridge as U+FFFD, a space on the
+/// radio. A character of several scalar values (an emoji with a skin tone,
+/// a letter with a combining accent) that does not fit whole is left out
+/// whole.
 RadioChannel clampChannelName(RadioChannel channel, RadioProfile profile) {
-  if (channel.name.length <= profile.nameLength) return channel;
-  return channel.copyWith(name: channel.name.substring(0, profile.nameLength));
+  if (channel.name.runes.length <= profile.nameLength) return channel;
+  final kept = StringBuffer();
+  var slots = 0;
+  for (final character in channel.name.characters) {
+    slots += character.runes.length;
+    if (slots > profile.nameLength) break;
+    kept.write(character);
+  }
+  return channel.copyWith(name: kept.toString());
 }

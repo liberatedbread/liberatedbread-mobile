@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use liberated_bread_core::api::device_api::{
     encode_command, encode_set_playlist, encode_stored_animation, encode_stored_image,
 };
+use liberated_bread_core::protocol::daniao_store::{crc8, BASE_AMX};
 use std::collections::HashMap;
 
 const DDP_WRITE: &str = "01020074-1972-1925-3022-077119514e44";
@@ -335,26 +336,107 @@ fn solid_stills_are_byte_uniform_across_colours() {
     );
     assert_eq!(red.len(), green.len());
     assert_eq!(green.len(), blue.len());
+
+    // Where the image layer's palette and indices sit, walked from the
+    // container's own structure (the layout `daniao_store` documents) rather
+    // than hard-coded, so a change to an earlier block moves the regions
+    // instead of quietly comparing the wrong bytes.
+    let layer = image_layer(&red);
+    for (name, c) in [("green", &green), ("blue", &blue)] {
+        assert_eq!(image_layer(c), layer, "{name} lays out like red");
+    }
+    println!("image layer: {layer:?}");
+
     // Which byte offsets differ between the three solids? A uniform solid image
     // (1 palette colour, all indices identical) means ONLY the palette colour
     // bytes differ — a small, contiguous set — never the index region.
-    let diffs_rg: Vec<usize> = (0..red.len()).filter(|&i| red[i] != green[i]).collect();
-    let diffs_gb: Vec<usize> = (0..green.len()).filter(|&i| green[i] != blue[i]).collect();
-    println!(
-        "bytes differing red vs green: {} at {:?}",
-        diffs_rg.len(),
-        &diffs_rg[..diffs_rg.len().min(12)]
-    );
-    println!(
-        "bytes differing green vs blue: {} at {:?}",
-        diffs_gb.len(),
-        &diffs_gb[..diffs_gb.len().min(12)]
-    );
-    // Dump the differing bytes' values for green vs blue to see the palette.
-    for &i in diffs_gb.iter().take(12) {
+    for (label, a, b) in [
+        ("red vs green", &red, &green),
+        ("green vs blue", &green, &blue),
+        ("red vs blue", &red, &blue),
+    ] {
+        let diffs: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
         println!(
-            "  offset {i}: green={:#04x} blue={:#04x}",
-            green[i], blue[i]
+            "bytes differing {label}: {} at {:?}",
+            diffs.len(),
+            &diffs[..diffs.len().min(12)]
         );
+        for &i in diffs.iter().take(12) {
+            println!("  offset {i}: {:#04x} vs {:#04x}", a[i], b[i]);
+        }
+        // The one byte outside the palette allowed to differ is the
+        // container's header CRC (byte 9, over bytes [10..]), which covers
+        // the palette and so must change with it. Anything else — above all
+        // an index byte — means the solids are not structurally identical.
+        let stray: Vec<usize> = diffs
+            .iter()
+            .copied()
+            .filter(|&i| i != HEADER_CRC_AT && !layer.palette.contains(&i))
+            .collect();
+        assert!(
+            stray.is_empty(),
+            "{label}: bytes outside the palette differ at {stray:?} \
+             (index region {:?})",
+            layer.indices
+        );
+        assert!(
+            diffs.iter().any(|i| layer.palette.contains(i)),
+            "{label}: two different colours must differ in the palette"
+        );
+    }
+
+    // And the regions say what a solid says: one palette entry holding the
+    // colour, every pixel pointing at it.
+    for (name, c, rgb) in [
+        ("red", &red, [255, 0, 0]),
+        ("green", &green, [0, 255, 0]),
+        ("blue", &blue, [0, 0, 255]),
+    ] {
+        assert_eq!(&c[layer.palette.clone()], &rgb, "{name}'s palette");
+        assert!(
+            c[layer.indices.clone()].iter().all(|&b| b == 0),
+            "{name}: every pixel is palette index 0"
+        );
+        assert_eq!(
+            c[HEADER_CRC_AT],
+            crc8(&c[HEADER_CRC_AT + 1..]),
+            "{name}: byte 9 is the header CRC"
+        );
+    }
+}
+
+/// The container header's CRC8 byte, computed over everything after it.
+const HEADER_CRC_AT: usize = 9;
+
+/// Byte ranges of a stored still's image layer inside its "DN" container.
+#[derive(Debug, Clone, PartialEq)]
+struct ImageLayerRegions {
+    palette: std::ops::Range<usize>,
+    indices: std::ops::Range<usize>,
+}
+
+/// Walk a "DN" image container — `[256B header][base AMX][options][text
+/// layer][image layer]`, as `protocol::daniao_store` lays it down — to its
+/// image layer, checking each block's marker on the way so a layout change
+/// fails here rather than pointing the comparison at the wrong bytes.
+fn image_layer(c: &[u8]) -> ImageLayerRegions {
+    assert_eq!(&c[..2], b"DN", "container magic");
+    let options_at = 256 + BASE_AMX.len();
+    assert_eq!(c[options_at], 0xFD, "options block marker");
+    let records = c[options_at + 9] as usize;
+    let text_at = options_at + 10 + 51 * records;
+    assert_eq!(&c[text_at..text_at + 2], [253, 1], "text layer marker");
+    let text_len = u16::from_be_bytes([c[text_at + 4], c[text_at + 5]]) as usize;
+    let image_at = text_at + 8 + text_len;
+    assert_eq!(&c[image_at..image_at + 2], [254, 1], "image layer marker");
+    let (height, width) = (c[image_at + 2] as usize, c[image_at + 3] as usize);
+    let data_len = u16::from_be_bytes([c[image_at + 4], c[image_at + 5]]) as usize;
+    let index_len = (width * height).div_ceil(2);
+    let palette_len = data_len - index_len;
+    assert_eq!(palette_len % 3, 0, "the palette is whole RGB triplets");
+    let palette_at = image_at + 8;
+    ImageLayerRegions {
+        palette: palette_at..palette_at + palette_len,
+        indices: palette_at + palette_len..palette_at + data_len,
     }
 }

@@ -230,4 +230,13 @@ pub enum SpecError {
         role: String,
         value_type: crate::spec::types::ValueType,
     },
+
+    #[error(
+        "parameter '{parameter_name}' declares auto: {role}, which computes an integer, but type {value_type} is a float; the slot would carry the wrong bytes"
+    )]
+    AutoRoleOnFloatType {
+        parameter_name: String,
+        role: String,
+        value_type: crate::spec::types::ValueType,
+    },
 }

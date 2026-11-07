@@ -168,6 +168,70 @@ void main() {
     });
   });
 
+  group('a name that would end inside another device\'s key is refused', () {
+    // The name is the segment that ENDS the key, and the store tells one
+    // device's keys from another's by that segment holding no dot. A spec is
+    // free to name a credential anything — neither Rust nor the schema
+    // restricts `issues_credentials:` keys or `credential_name` — and the
+    // only guard was an assert, which a release build compiles out. There,
+    // `credential_name: local.serial` for `host:bulb` wrote
+    // `credential.host:bulb.local.serial`: the very key `host:bulb.local`
+    // keeps ITS serial under. These expect an ArgumentError, not an
+    // AssertionError, so they hold with asserts off as well as on.
+    const short = 'host:bulb';
+    const dotted = 'host:bulb.local';
+
+    test('a dotted name is refused and nothing is written', () async {
+      await expectLater(
+        () => store.save(short, 'local.serial', 'SHORT-TOKEN'),
+        throwsA(isA<InvalidCredentialName>()),
+      );
+      expect(settings.values, isEmpty);
+    });
+
+    test('nor can it overwrite, read or delete the longer identity\'s '
+        'value', () async {
+      await store.save(dotted, 'serial', 'DOTTED');
+
+      await expectLater(
+        () => store.save(short, 'local.serial', 'SHORT-TOKEN'),
+        throwsArgumentError,
+      );
+      await expectLater(
+        () => store.read(short, 'local.serial'),
+        throwsArgumentError,
+        reason: 'the same key read back is another device\'s secret',
+      );
+      await expectLater(
+        () => store.forgetOne(short, 'local.serial'),
+        throwsArgumentError,
+        reason: 'and deleted, it unpairs a device nobody asked to forget',
+      );
+      expect(await store.credentials(dotted), {'serial': 'DOTTED'});
+    });
+
+    // `credential.host:bulb.` is a key credentials() and forget() both pass
+    // over (the name they find is empty), so a value filed under it would
+    // never reach a send and never be forgotten — the dotted name's failure,
+    // in short.
+    test('an empty name is refused for the same reason', () async {
+      await expectLater(
+        () => store.save(short, '', 'SHORT-TOKEN'),
+        throwsA(isA<InvalidCredentialName>()),
+      );
+      expect(settings.values, isEmpty);
+    });
+
+    // The credentials card shows a failed save as "Could not store <name> —
+    // <error>", so the error has to read as a reason.
+    test('the error says which name and why', () {
+      expect(
+        InvalidCredentialName('local.serial').toString(),
+        allOf(contains('"local.serial"'), contains('"."')),
+      );
+    });
+  });
+
   test(
     'the namespace does not collide with the device-specific stores',
     () async {

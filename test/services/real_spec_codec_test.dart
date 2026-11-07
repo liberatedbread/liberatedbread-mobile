@@ -11,6 +11,7 @@ import 'dart:typed_data' show Uint16List;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
+import 'package:liberated_bread_mobile/services/json_fields.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/services/ws_control_service.dart';
@@ -267,6 +268,123 @@ void main() {
     expect(profiles, hasLength(1));
     expect(profiles.single.serviceUuid, '0000180f-0000-1000-8000-00805f9b34fb');
     expect(profiles.single.profileName, contains('Battery'));
+  });
+
+  test('a Kasa bulb reads on and brightness by role, held or not', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // A light declares roles, not a `value`, so readNetworkEntity is null
+    // for it and the role read is the light card's only live state. Asked
+    // by YAML first, then through the held parse the poll uses.
+    final kasa = await rootBundle.loadString(
+      'vendor/protocol-specs/device-specs/devices/tplink-kasa-smart-plug.yaml',
+    );
+    const returned = {
+      'light_state.on_off': '1',
+      'light_state.brightness': '60',
+    };
+    final fresh = RealSpecCodec();
+    expect(
+      await fresh.readNetworkEntity(
+        specYaml: kasa,
+        entityName: 'Bulb',
+        returned: returned,
+      ),
+      isNull,
+    );
+    for (final held in [false, true]) {
+      if (held) await fresh.prepareSpec(kasa);
+      final roles = {
+        for (final r in await fresh.readNetworkEntityRoles(
+          specYaml: kasa,
+          entityName: 'Bulb',
+          returned: returned,
+        ))
+          r.role: r.reading,
+      };
+      expect(roles['is_on']?.isOn, isTrue, reason: 'held: $held');
+      expect(roles['brightness']?.number, 60, reason: 'held: $held');
+    }
+  });
+
+  test('a ratgdo door reads its state and position by role', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // The cover maps `state`, `position` and `current_operation`, and no
+    // `value`: the role read is the cover card's only live state. The reply
+    // is the spec's own GET /cover/Door example as jsonStateFields
+    // flattens it.
+    final ratgdo = await rootBundle.loadString(
+      'vendor/protocol-specs/device-specs/devices/ratgdo.yaml',
+    );
+    final returned = jsonStateFields(
+      '{"id":"cover/Door","state":"OPEN","current_operation":"IDLE",'
+      '"position":0.25}',
+    );
+    final codec = RealSpecCodec();
+    expect(
+      await codec.readNetworkEntity(
+        specYaml: ratgdo,
+        entityName: 'Garage Door',
+        returned: returned,
+      ),
+      isNull,
+    );
+    final roles = {
+      for (final r in await codec.readNetworkEntityRoles(
+        specYaml: ratgdo,
+        entityName: 'Garage Door',
+        returned: returned,
+      ))
+        r.role: r.reading,
+    };
+    expect(roles['state']?.raw, 'OPEN');
+    // ESPHome's 0..1 fraction, the scale set_cover_position's bounds use.
+    expect(roles['position']?.number, 0.25);
+    expect(roles['current_operation']?.raw, 'IDLE');
+  });
+
+  test('a Denon receiver reads its power switch by role', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // `is_on: Power.value` with `on_value: "ON"`, and no `value`: the role
+    // read is the switch card's only live state. The status document as
+    // xmlStateFields flattens it.
+    final denon = await rootBundle.loadString(
+      'vendor/protocol-specs/device-specs/devices/denon-avr-s720w.yaml',
+    );
+    final codec = RealSpecCodec();
+    for (final (power, on) in [('ON', true), ('STANDBY', false)]) {
+      final returned = xmlStateFields(
+        '<item><Power><value>$power</value></Power>'
+        '<MasterVolume><value>-40.0</value></MasterVolume></item>',
+      );
+      expect(
+        await codec.readNetworkEntity(
+          specYaml: denon,
+          entityName: 'Power',
+          returned: returned,
+        ),
+        isNull,
+        reason: power,
+      );
+      final roles = await codec.readNetworkEntityRoles(
+        specYaml: denon,
+        entityName: 'Power',
+        returned: returned,
+      );
+      expect(
+        roles.singleWhere((r) => r.role == 'is_on').reading.isOn,
+        on,
+        reason: power,
+      );
+    }
   });
 
   test('encodeEntityValue sends the value to the entity that owns it', () async {

@@ -251,6 +251,95 @@ void main() {
     });
   });
 
+  group('the BF-F8HP and the UV-5R', () {
+    // The F8HP's first magic is the UV-5R's, so each radio answers the
+    // other's profile; only the firmware string says which power table its
+    // records index. Fails on the UV-82HP-only check, which let both
+    // through: a fresh Low went out as an F8HP's Med, or as an index a
+    // UV-5R never defined.
+    Matcher names(RadioProfile fits, String levels) =>
+        isA<RadioUnsupportedException>().having(
+          (e) => e.message,
+          'message',
+          allOf(
+            contains(fits.displayName),
+            contains('$levels power levels'),
+            isNot(contains(uv82hpProfile.displayName)),
+          ),
+        );
+
+    test('an F8HP is refused as a UV-5R before anything is read, and told '
+        'to choose its own model', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      expect(
+        (await rust.uv5RIdentMagics(modelId: bfF8hpProfile.id)).first,
+        uv5rMagics[0],
+      );
+      for (final firmware in ['BFT V3.01', 'N5R3', 'BFP3V3 F']) {
+        final r = rig(firmware: firmware);
+        await expectLater(
+          read(r.programmer),
+          throwsA(names(bfF8hpProfile, 'three')),
+          reason: firmware,
+        );
+        expect(r.radio.reads.length, 3, reason: 'the probe only');
+        expect(r.radio.writes, isEmpty);
+        expect(r.ports.openLinks, 0);
+      }
+    });
+
+    test('a UV-5R is refused as an F8HP or an AR-152', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      for (final profile in [bfF8hpProfile, ar152Profile]) {
+        final r = rig(firmware: 'BFB297');
+        await expectLater(
+          r.programmer.identify(
+            deviceId: EmulatedSerialPortService.cable.id,
+            profile: profile,
+          ),
+          throwsA(names(uv5rProfile, 'two')),
+          reason: profile.id,
+        );
+        expect(r.radio.writes, isEmpty);
+      }
+    });
+
+    test('an HP answering the F8HP\'s magic is pointed at the HP, whose '
+        'table is the same', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      final r = rig(firmware: 'N82-3');
+      await expectLater(
+        r.programmer.identify(
+          deviceId: EmulatedSerialPortService.cable.id,
+          profile: bfF8hpProfile,
+        ),
+        throwsA(
+          isA<RadioUnsupportedException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('Choose ${uv82hpProfile.displayName} and try again'),
+              isNot(contains('where the')),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('a firmware CHIRP lists for both may be either', () async {
+      if (!rustReady) return markTestSkipped('host Rust library unavailable');
+      // CHIRP's BASETYPE_UV5R and BASETYPE_F8HP both list N5RV.
+      for (final profile in [uv5rProfile, bfF8hpProfile, ar152Profile]) {
+        final r = rig(firmware: 'N5RV');
+        final identity = await r.programmer.identify(
+          deviceId: EmulatedSerialPortService.cable.id,
+          profile: profile,
+        );
+        expect(identity.reported, 'firmware N5RV', reason: profile.id);
+      }
+    });
+  });
+
   test(
     'an N5R2 radio may be programmed as either model CHIRP lists it for',
     () async {

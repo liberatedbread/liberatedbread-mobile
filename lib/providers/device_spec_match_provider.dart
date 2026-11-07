@@ -7,6 +7,7 @@ import '../core/hex.dart';
 import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
 import '../services/spec_codec.dart';
+import '../services/spec_pack_service.dart' show SpecPackService;
 import 'device_spec_provider.dart';
 import 'spec_choice_provider.dart';
 import 'spec_codec_provider.dart';
@@ -178,16 +179,20 @@ final bleVariantNamesProvider = FutureProvider.autoDispose
 
 /// Insertion order makes duplicates resolve the way [matchedDeviceSpecProvider]
 /// does: remote pack specs load after bundled ones, so on an identity
-/// collision the pack entry wins. This is the ONE place that shadowing rule
-/// is encoded for key lookups — consumers that need it (the group member
-/// resolver) build the map here rather than re-implementing the scan.
+/// collision the pack entry wins. Between two packs carrying one identity
+/// the same last-wins rule picks the most recently installed or refreshed:
+/// `SpecPackService.loadCachedSpecs` emits packs oldest first for exactly
+/// that. This is the ONE place that shadowing rule is encoded for key
+/// lookups — consumers that need it (the group member resolver) build the
+/// map here rather than re-implementing the scan.
 Map<String, CatalogueSpec> specEntriesByKey(List<CatalogueSpec> parsed) => {
   for (final entry in parsed)
     specKeyOf(entry.deviceName, entry.manufacturer): entry,
 };
 
 /// Whether [entry] came from an installed pack rather than the app bundle.
-/// Pack entries are keyed `pack:<name>/<file>` by the spec-pack cache.
+/// Pack entries are keyed by the spec-pack cache ([SpecPackService.specKey]),
+/// always under `pack:`.
 bool isPackSpec(CatalogueSpec entry) => entry.key.startsWith('pack:');
 
 /// The built-in specs the installed pack [packName] REPLACES under
@@ -198,11 +203,19 @@ bool isPackSpec(CatalogueSpec entry) => entry.key.startsWith('pack:');
 /// replaced spec brings its own commands, TLS policy and credential mapping,
 /// and the install screen used to report only "Installed X (N specs)" — the
 /// user was never told a built-in definition had been swapped out.
+///
+/// Pack against bundled, the pack always wins. Pack against pack, the most
+/// recently installed or refreshed wins (see [specEntriesByKey]); a built-in
+/// is still named here for every pack that carries a copy, because either
+/// pack's copy replaces it, and the screen asks right after an install or a
+/// refresh — when this pack is the newest, so its copy is the one in force.
 List<String> builtInSpecsShadowedByPack(
   List<CatalogueSpec> specs,
   String packName,
 ) {
-  final prefix = 'pack:$packName/';
+  // The pack's slug, not its name: `pack:a/` was also the start of every
+  // key of a pack called "a/b", whose copies were credited to "a".
+  final prefix = SpecPackService.packKeyPrefix(packName);
   final builtIn = {
     for (final e in specs)
       if (!isPackSpec(e)) specKeyOf(e.deviceName, e.manufacturer),

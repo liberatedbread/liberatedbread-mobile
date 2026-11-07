@@ -525,13 +525,17 @@ app-store release:
   are same-origin-only (redirects included), size-capped, and every downloaded
   spec is validated through the real Rust codec *before* install, so a spec
   that won't parse is rejected up front instead of silently skipped later.
-  Installed packs are cached under the app documents directory at
-  `spec_packs/<slug>/`. `lib/providers/spec_pack_provider.dart` drives it all.
+  Installed packs are cached under the app's Application Support directory
+  at `spec_packs/<slug>/` (not Documents, which iOS backs up to iCloud). `lib/providers/spec_pack_provider.dart` drives it all.
 - **UI** — the puzzle-piece icon in the scan screen's AppBar opens
   `SpecPackSettingsScreen`: install/refresh/remove packs, edit the URL.
 - **Merging** — `deviceSpecsProvider` merges the bundled assets with every
-  cached pack. Pack specs are namespaced `pack:<name>/<file>` so they can never
-  collide with bundled keys, and a pack failure never removes a bundled spec.
+  cached pack. Pack specs are namespaced `pack:<slug>/<file>` (the pack's
+  directory and the spec's file name in it) so they can never collide with
+  bundled keys or with each other, and a pack failure never removes a bundled
+  spec.
+  A pack's copy of a bundled device replaces it, and when two packs carry the
+  same device the one installed or refreshed most recently wins.
 
 The bundled fallback specs are discovered from the subtree's own
 `vendor/protocol-specs/device-specs/index.json` (or the gitignored local

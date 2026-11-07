@@ -11,6 +11,7 @@ import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/services/spec_pack_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_spec_codec.dart';
@@ -913,10 +914,30 @@ void main() {
       final specs = [
         entry(0, 'vendor/a/roomba.yaml', 'Roomba', 'iRobot'),
         entry(1, 'vendor/a/envoy.yaml', 'Envoy', 'Enphase'),
-        entry(2, 'pack:Fixes/roomba.yaml', 'Roomba', 'iRobot'),
-        entry(3, 'pack:Fixes/new.yaml', 'Brand New', 'Acme'),
-        entry(4, 'pack:Other/envoy.yaml', 'Envoy', 'Enphase'),
-        entry(5, 'pack:Fixes Two/envoy.yaml', 'Envoy', 'Enphase'),
+        entry(
+          2,
+          SpecPackService.specKey('Fixes', 'roomba.yaml'),
+          'Roomba',
+          'iRobot',
+        ),
+        entry(
+          3,
+          SpecPackService.specKey('Fixes', 'new.yaml'),
+          'Brand New',
+          'Acme',
+        ),
+        entry(
+          4,
+          SpecPackService.specKey('Other', 'envoy.yaml'),
+          'Envoy',
+          'Enphase',
+        ),
+        entry(
+          5,
+          SpecPackService.specKey('Fixes Two', 'envoy.yaml'),
+          'Envoy',
+          'Enphase',
+        ),
       ];
       expect(builtInSpecsShadowedByPack(specs, 'Fixes'), ['Roomba (iRobot)']);
       expect(builtInSpecsShadowedByPack(specs, 'Other'), ['Envoy (Enphase)']);
@@ -935,9 +956,19 @@ void main() {
         ),
         entry(1, 'vendor/a/wemo.yaml', 'Belkin Wemo Smart Devices', 'Belkin'),
         entry(2, 'vendor/a/bare.yaml', 'Bare Thing', ''),
-        entry(3, 'pack:P/wave.yaml', 'Airthings Wave Family', 'Airthings ASA'),
-        entry(4, 'pack:P/wemo.yaml', 'Belkin Wemo Smart Devices', 'Belkin'),
-        entry(5, 'pack:P/bare.yaml', 'Bare Thing', ''),
+        entry(
+          3,
+          SpecPackService.specKey('P', 'wave.yaml'),
+          'Airthings Wave Family',
+          'Airthings ASA',
+        ),
+        entry(
+          4,
+          SpecPackService.specKey('P', 'wemo.yaml'),
+          'Belkin Wemo Smart Devices',
+          'Belkin',
+        ),
+        entry(5, SpecPackService.specKey('P', 'bare.yaml'), 'Bare Thing', ''),
       ];
       expect(builtInSpecsShadowedByPack(specs, 'P'), [
         'Airthings Wave Family',
@@ -956,10 +987,23 @@ void main() {
       );
     });
 
+    // `'pack:$packName/'` was the test, and pack "a/b"'s keys start with
+    // pack "a"'s prefix: installing "a" was reported as replacing a built-in
+    // that only "a/b" carries.
+    test('a pack is not credited with a copy another pack carries', () {
+      final specs = [
+        entry(0, 'vendor/a/x.yaml', 'X', 'Acme'),
+        entry(1, SpecPackService.specKey('a/b', 'c.yaml'), 'X', 'Acme'),
+        entry(2, SpecPackService.specKey('a', 'b/other.yaml'), 'Y', 'Acme'),
+      ];
+      expect(builtInSpecsShadowedByPack(specs, 'a'), isEmpty);
+      expect(builtInSpecsShadowedByPack(specs, 'a/b'), ['X (Acme)']);
+    });
+
     test('a pack spec shadowing another pack is not a built-in', () {
       final specs = [
-        entry(0, 'pack:A/x.yaml', 'X', 'Acme'),
-        entry(1, 'pack:B/x.yaml', 'X', 'Acme'),
+        entry(0, SpecPackService.specKey('A', 'x.yaml'), 'X', 'Acme'),
+        entry(1, SpecPackService.specKey('B', 'x.yaml'), 'X', 'Acme'),
       ];
       expect(builtInSpecsShadowedByPack(specs, 'B'), isEmpty);
     });

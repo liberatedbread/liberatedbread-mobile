@@ -1042,3 +1042,160 @@ Ubiquiti platform prefixes that map to glyph tokens in
 known at discovery, from the wire — explains when the value arrives, not why
 the MAP lives in the app. A `platform_pictograms:` table on the UniFi spec
 would close it.
+
+## Found 2026-11-07, while reading Wi-Fi state by role
+
+The app now reads every role an entity's `state_mapping` names, not only
+`value` (`read_network_entity_roles`), walks a path that steps into an array
+inside the JSON text the flatteners keep for it (R-043), and seeds the light,
+cover and switch cards and the group runner's power check from those roles.
+These are the Wi-Fi entities that still read nothing, because the spec
+does not say where their state is in a form a consumer can follow.
+
+### S-27 — wled-controller maps its readings as paths into `GET /json`, but polls `/json/state` and `/json/info`; and names its power `on` and its readings `state`
+
+**Where.** vendor/protocol-specs/device-specs/devices/wled-controller.yaml:886-913
+(the three entities), against the same file's `/json/state` endpoint
+(:380-418) and `/json/info` (:460-); and `device-specs/schema.json`, the
+`state_mapping` description.
+
+**Evidence.**
+
+All three entities poll a `state_topic`: the light and "Realtime source
+active" `/json/state`, "Uptime" `/json/info`. The spec's own `/json/state`
+endpoint is "The state object alone": `on`, `bri`, `transition`, `ps`, `pl`,
+`nl`, `udpn`, `live`, `lor` and `seg` at the root, so a real reply reads
+`{"on":true,"bri":128,"seg":[{"col":[[255,160,0],[0,0,0],[0,0,0]],"fx":0,…}],"live":false,…}`.
+The mappings are written as if the reply were `GET /json`'s envelope, where
+that object sits under `state`: `"on": "state.on"`, `brightness: "state.bri"`,
+`rgb: "state.seg[0].col[0]"`, `effect: "state.seg[0].fx"`, `state:
+"state.live"` — and Uptime's `state: "info.uptime"` against a `/json/info`
+reply whose `uptime` is at its root. The schema says a mapping path is
+"resolved from the response root", so none of the six resolves. The schema's
+own example for HTTP paths (`'state.on'`, `'state.bri'`) is the `/json` shape,
+which is likely where these came from.
+
+The role names miss too. The light's power is `"on"` (quoted, since YAML 1.1
+reads a bare `on` as `true`) where the schema's vocabulary and every other
+light in the catalogue write `is_on`; the binary sensor and the sensor name
+their reading `state` where the schema's "the reading itself" is `value`, as
+ratgdo's binary sensors and every Envoy sensor write it.
+
+Checked against the app on 2026-11-07: `read_network_entity_roles(wled,
+"WLED", {on: "true", bri: "128", live: "false", seg: "[…]"})` — the reply
+above as the flattener keys it — answers no roles, and `read_network_entity`
+for "Realtime source active" answers None. The WLED light card opens with its
+power and brightness unknown, and the realtime and uptime tiles never read.
+
+**Fix (upstream).**
+
+Write the paths from the root of the reply the entity polls, with the
+catalogue's role names:
+
+```yaml
+state_mapping:
+  is_on: "on"
+  brightness: "bri"
+  rgb: "seg[0].col[0]"
+  effect: "seg[0].fx"
+```
+
+`value: "live"` on "Realtime source active" and `value: "uptime"` on
+"Uptime". (Polling `/json` instead and keeping the `state.` prefix would also
+resolve, but the spec itself calls `/json` wasteful as a poll.) And reword the
+schema's `state_mapping` example so it does not teach the `/json` envelope for
+a `/json/state` poll: the paths are relative to what the entity's own
+`state_command` or `state_topic` returns.
+
+What the app needs: `is_on` is the role the light card and a group turn-off
+read power from (a JSON boolean needs no `on_when`/`on_value`); `brightness`
+is the slider's; `value` is what a sensor and a binary sensor read. A path
+into `seg` needs nothing new — the app walks `[n]` and `.name` inside the
+array text the flattener keeps under `seg`.
+
+### S-28 — sengled-wifi-bulb's light declares no `state_mapping`; its state rules are prose the vocabulary cannot yet hold
+
+**Where.** vendor/protocol-specs/device-specs/devices/sengled-wifi-bulb.yaml:968-987
+(the entity), :449 (the reply envelope), :469-473 (`state_decoding`),
+:519-546 (`payload_formats.SearchDevicesReply`), :723-732 (`get_state`,
+`get_brightness`).
+
+**Evidence.**
+
+The light names `state_command: "get_state"` (search_devices) and no
+`state_mapping`, so a consumer has nothing to read its state by. The rules
+are in prose: power is on when ANY of R, G, B, W reports `freq == 0` (white
+bulbs carry W alone); brightness is "best read with get_brightness", a
+different command (`result.brightness`, 0-100); colour and colour temperature
+are not readable back and should be cached. Two of these the `state_mapping`
+vocabulary cannot say today: a power rule over several paths (a role is one
+path, which `on_when`/`on_value` compare), and a role read from a command
+other than the entity's own `state_command`. The reply also wraps its fields
+in `result` (`{"func":"search_devices","result":{"R":{"freq":0,"value":255},…}}`,
+line 449), while SearchDevicesReply names them relative to it (`R.freq`), so
+a mapping copied from that table would miss by one level.
+
+Judgement: a spec (and schema) gap, though not what blocks the bulb in this
+app today. Its commands are plain JSON over `udp`, and the app's only `udp`
+handler is Rabbit Air's, admitted by `protocol_handler`, which this spec does
+not declare — so the entity is hidden and counted. When a Sengled handler
+exists it will still have no state to read.
+
+**Fix (upstream).**
+
+1. Give the schema an any-of power rule — e.g. `is_on_any: [<path>, …]`
+   beside `on_value`, "on when any listed path reads as on" — and a way for a
+   role to name its own command (`brightness: {command: get_brightness,
+   path: result.brightness}`), or say which of the two the catalogue would
+   rather do instead.
+2. Map the light with them: `is_on_any: ["result.R.freq", "result.G.freq",
+   "result.B.freq", "result.W.freq"]`, `on_value: 0`, and brightness from
+   `get_brightness`'s `result.brightness`.
+3. Declare a `protocol_handler` naming the plain-UDP JSON framing, as
+   tplink-kasa-smart-plug names `tplink_smarthome`, so a consumer can tell
+   whose framing this `udp` is.
+
+### S-29 — Yeelight's state mapping names `get_prop`'s request parameters, not paths into its positional reply; yeelight-wifi maps no state at all
+
+**Where.** vendor/protocol-specs/device-specs/devices/yeelight-cube-lamp.yaml:426-460
+(`get_prop` and its `returns`), :621-650 (the entity), :277
+(`protocol_handler`); yeelight-wifi.yaml:252-265 (`get_state`, the entity).
+
+**Evidence.**
+
+`get_prop` is `tcp-json`: one CRLF-terminated line,
+`{"id":1,"method":"get_prop","params":["power","bright","ct","rgb","hue","sat","color_mode","name"]}`,
+answered `{"id":1,"result":["on","100","4000","16711680","359","100","2","Desk"]}`
+— the values in request order, keyed by nothing. The cube lamp maps
+`is_on: "power"`, `brightness: "bright"`, `color_rgb: "rgb"`, `color_temp:
+"ct"`: the request's parameter names. A mapping path is "resolved from the
+response root", where there is no `power`, only `id` and `result`. The
+entity's notes say the reply is positional and leave the zip to the consumer
+("track the request's own order"), and `returns:`, which does list the eight
+in order, is documented as descriptive ("What the call answers with, when
+that is worth stating"), not as a positional decoder.
+
+yeelight-wifi.yaml is a step behind: its `get_state` command exists, but the
+"Yeelight" light names neither a `state_command` nor a `state_mapping`.
+
+Judgement: spec gaps, both. Separately there is an app gap, and it is what
+hides both lights today: the app frames `tcp-json` only for TP-Link
+(`protocol_handler: tplink_smarthome`). The cube lamp names `yeelight_lan`,
+which the app does not implement yet; yeelight-wifi names no handler at all,
+so even an app that spoke Yeelight's CRLF framing could not tell from that
+file that it applies.
+
+**Fix (upstream).**
+
+1. Write the cube lamp's paths from the reply root, by position in the
+   request: `is_on: "result[0]"` (keeping `on_value: "on"`), `brightness:
+   "result[1]"`, `color_temp: "result[2]"`, `color_rgb: "result[3]"`. The
+   app walks `[n]` inside the array text its flatteners keep under `result`,
+   so these read as written. Or, if names are preferred, let the schema state
+   that a command's `result` array lines up with its `returns`, and that a
+   mapping path may name a `returns` entry.
+2. yeelight-wifi: bind `state_command: "get_state"` and the same mapping, and
+   declare `protocol_handler: "yeelight_lan"` as the cube lamp does.
+3. Minor, while there: the catalogue spells the white-point role two ways,
+   Elgato's `color_temperature` and Yeelight's `color_temp`. The app reads
+   both; the schema's role list names neither.

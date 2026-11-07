@@ -433,8 +433,9 @@ pub fn unsupported_write_kind(
 /// build does not implement, or a framing block that names no scheme at all
 /// (coolledx's length prefix) — makes a raw write wrong.
 ///
-/// Public on its own for the one caller with no command to ask about: the
-/// entity binder's direct write of a value to a one-field characteristic.
+/// Public on its own for the callers with no command to ask about — the
+/// entity binder's direct write of a value to a one-field characteristic,
+/// through [`unsupported_single_write_transform`].
 pub fn unsupported_characteristic_transform(characteristic: &Characteristic) -> Option<String> {
     if characteristic.encryption.is_some() {
         return Some("characteristic encryption".to_string());
@@ -451,10 +452,9 @@ pub fn unsupported_characteristic_transform(characteristic: &Characteristic) -> 
 }
 
 /// Canonical names of fragment-framing schemes this build executes. Defined
-/// at the codec layer so the encodability gates
-/// ([`unsupported_write_kind`], `spec::bindings::needs_unimplemented_transform`)
-/// and protocol implementations name the same strings without a dependency
-/// cycle. `protocol::daniao` re-exports its constant as `FRAGMENT_SCHEME`.
+/// at the codec layer so the encodability gates ([`unsupported_write_kind`],
+/// [`unsupported_characteristic_transform`] and their single-write forms) and
+/// protocol implementations name the same strings without a dependency cycle. `protocol::daniao` re-exports its constant as `FRAGMENT_SCHEME`.
 pub const DANIAO_FRAGMENT_SCHEME: &str = "daniao_fragment";
 pub const ORBA_FRAGMENT_SCHEME: &str = "orba_sysex_ble_midi";
 
@@ -463,6 +463,52 @@ pub const ORBA_FRAGMENT_SCHEME: &str = "orba_sysex_ble_midi";
 /// sendable through the generic encoder; an unknown one is not.
 pub fn implemented_framing_scheme(name: &str) -> bool {
     matches!(name, DANIAO_FRAGMENT_SCHEME | ORBA_FRAGMENT_SCHEME)
+}
+
+/// Whether `name` is an implemented scheme whose one packet goes out as
+/// SEVERAL ordered writes. Daniao's fragment header wraps a command into one
+/// write; the Orba's BLE-MIDI SysEx framing splits it into a start, a run of
+/// continuations and an end, and only `encode_command_writes` produces that.
+pub fn multi_write_framing_scheme(name: &str) -> bool {
+    name == ORBA_FRAGMENT_SCHEME
+}
+
+/// Why a command on `characteristic` cannot be sent as ONE write, or `None`
+/// when it can.
+///
+/// [`unsupported_write_kind`] answers "can this be sent at all", which is the
+/// typed-command surface's question — it sends through
+/// `encode_command_writes` and handles any write count. Every other sender
+/// writes once: an entity card, a group op, a locator, a direct setpoint
+/// write. For those an Orba-framed command is unsendable — the single-write
+/// encoders refuse its scheme — so the gates offering them controls ask this
+/// instead, and a control that could only fail is never drawn.
+pub fn unsupported_single_write_kind(
+    characteristic: &Characteristic,
+    command: &Command,
+) -> Option<String> {
+    unsupported_write_kind(characteristic, command)
+        .or_else(|| unsupported_multi_write_framing(characteristic))
+}
+
+/// The characteristic half of [`unsupported_single_write_kind`], for the
+/// direct write of a value that has no command to ask about.
+pub fn unsupported_single_write_transform(characteristic: &Characteristic) -> Option<String> {
+    unsupported_characteristic_transform(characteristic)
+        .or_else(|| unsupported_multi_write_framing(characteristic))
+}
+
+/// Whether every packet written to `characteristic` must go out as several
+/// ordered writes — see [`multi_write_framing_scheme`].
+pub fn requires_ordered_writes(characteristic: &Characteristic) -> bool {
+    unsupported_multi_write_framing(characteristic).is_some()
+}
+
+/// `characteristic`'s framing, when it is a scheme that needs ordered writes.
+fn unsupported_multi_write_framing(characteristic: &Characteristic) -> Option<String> {
+    let scheme = framing_scheme_name(characteristic)?;
+    multi_write_framing_scheme(&scheme)
+        .then(|| format!("characteristic framing ({scheme}) requires ordered writes"))
 }
 
 /// The `framing.scheme` a characteristic declares, if it declares a framing

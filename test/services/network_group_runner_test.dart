@@ -219,6 +219,68 @@ void main() {
     }
   });
 
+  // A light maps `is_on` as a role beside its brightness, and no `value`, so
+  // the single read answers null for it — every Wi-Fi light in a group read
+  // as "power state unknown", and a turn-off gated on a reading of "on"
+  // never went out to one.
+  test('a gated toggle reads a light\'s power from its is_on role', () async {
+    for (final (isOn, sends, status, detail) in [
+      (true, 2, GroupDeviceStatus.ok, '1 command sent'),
+      (false, 1, GroupDeviceStatus.skipped, 'Already off'),
+    ]) {
+      final received = <http.Request>[];
+      final roleReads = <String>[];
+      final codec = FakeSpecCodec()
+        ..networkReading = ((_, _) => null)
+        ..networkRoleReadings = (entityName, returned) {
+          roleReads.add(entityName);
+          return [
+            NetworkRoleReadingDto(
+              role: 'is_on',
+              reading: NetworkReadingDto(
+                kind: NetworkReadingKind.onOff,
+                isOn: isOn,
+                raw: isOn ? '1' : '0',
+              ),
+            ),
+            const NetworkRoleReadingDto(
+              role: 'brightness',
+              reading: NetworkReadingDto(
+                kind: NetworkReadingKind.number,
+                number: 60,
+                raw: '60',
+              ),
+            ),
+          ];
+        };
+      final light = NetworkEntityDto(
+        name: 'Lamp',
+        platform: 'light',
+        stateCommand: 'get_state',
+        transport: 'http',
+        isInstanced: false,
+        options: const [],
+        actions: [_action('toggle')],
+      );
+      final events =
+          runner(
+            codec,
+            MockClient((request) async {
+              received.add(request);
+              return http.Response('{"on": ${isOn ? 1 : 0}}', 200);
+            }),
+          ).run(GroupOp.turnOff, [
+            _member([light]),
+          ], stop: StopSignal());
+
+      final last = await lastEventOf(events);
+      expect(last.status, status, reason: 'isOn=$isOn');
+      expect(last.detail, detail, reason: 'isOn=$isOn');
+      expect(received, hasLength(sends), reason: 'isOn=$isOn');
+      expect(roleReads, ['Lamp'], reason: 'isOn=$isOn');
+    }
+  });
+
   test('a member whose spec never resolved skips honestly', () async {
     final events =
         runner(

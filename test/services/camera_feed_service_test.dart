@@ -49,6 +49,129 @@ void main() {
     );
   });
 
+  group('a camera URL must name the device', () {
+    // The template is the spec's, and filling `{address}` is the only thing
+    // that ties it to the device: one written without it, or with it
+    // somewhere other than the host, was fetched as written — up to five
+    // times a second for as long as the monitor stayed open.
+    test('a template on the device fills and passes', () {
+      expect(
+        cameraUrlOnDevice('http://{address}/monitor.jpg', '10.0.0.9'),
+        Uri.parse('http://10.0.0.9/monitor.jpg'),
+      );
+      // Its own port is the template's business (Wyze's :8889, RTSP's :554).
+      expect(
+        cameraUrlOnDevice('ws://{address}:7125/websocket', 'Snapmaker.local'),
+        Uri.parse('ws://snapmaker.local:7125/websocket'),
+      );
+      // A host handed over with its port still names the same host.
+      expect(
+        cameraUrlOnDevice('http://{address}/x', '127.0.0.1:8080'),
+        Uri.parse('http://127.0.0.1:8080/x'),
+      );
+    });
+
+    for (final (name, template) in const [
+      ('no {address} at all', 'http://203.0.113.7/monitor.jpg'),
+      ('{address} as a subdomain', 'http://{address}.evil.example/x.jpg'),
+      ('{address} only in the query', 'http://evil.example/x.jpg?h={address}'),
+      ('{address} as userinfo', 'http://{address}@evil.example/x.jpg'),
+      ('no host at all', 'file:///etc/passwd'),
+    ]) {
+      test('$name is refused', () {
+        expect(
+          () => cameraUrlOnDevice(template, '10.0.0.9'),
+          throwsA(isA<CameraUrlRefusedException>()),
+        );
+      });
+    }
+  });
+
+  group('a camera feed pointed off the device', () {
+    // Stands in for the host the spec names instead of the device. Bound on
+    // 127.0.0.1 while the "device" is `localhost`: the same machine, a
+    // different host as far as the URL is concerned — which is the only
+    // comparison this rule makes.
+    late HttpServer elsewhere;
+    var fetches = 0;
+    var upgrades = 0;
+
+    setUp(() async {
+      fetches = 0;
+      upgrades = 0;
+      elsewhere = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      elsewhere.listen((req) async {
+        if (WebSocketTransformer.isUpgradeRequest(req)) {
+          upgrades++;
+          // ignore: close_sinks
+          final ws = await WebSocketTransformer.upgrade(req);
+          ws.listen((_) {}, onError: (_) {}, cancelOnError: false);
+          return;
+        }
+        fetches++;
+        req.response
+          ..statusCode = 200
+          ..headers.contentType = ContentType('image', 'jpeg')
+          ..add(jpeg(1));
+        await req.response.close();
+      });
+    });
+
+    tearDown(() async => elsewhere.close(force: true));
+
+    test('a poll URL elsewhere is never fetched, and says why', () async {
+      const service = CameraFeedService();
+      final got = <Uint8List>[];
+      final errors = <Object>[];
+      final sub = service
+          .frames(
+            host: 'localhost:1',
+            stream: CameraStreamDto(
+              transport: 'mjpeg_snapshot_poll',
+              urlTemplate: 'http://127.0.0.1:${elsewhere.port}/monitor.jpg',
+              targetFps: 30,
+            ),
+          )
+          .listen(got.add, onError: errors.add);
+      try {
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        expect(fetches, 0, reason: 'nothing may be fetched from elsewhere');
+        expect(got, isEmpty);
+        expect(errors, [isA<CameraUrlRefusedException>()]);
+      } finally {
+        await sub.cancel();
+      }
+    });
+
+    test('a keepalive socket elsewhere is never opened', () async {
+      const service = CameraFeedService();
+      final errors = <Object>[];
+      final sub = service
+          .frames(
+            host: 'localhost:1',
+            stream: const CameraStreamDto(
+              transport: 'mjpeg_snapshot_poll',
+              urlTemplate: 'http://{address}/monitor.jpg',
+              targetFps: 1,
+            ),
+            keepalive: CameraKeepaliveDto(
+              transport: 'websocket_jsonrpc',
+              urlTemplate: 'ws://127.0.0.1:${elsewhere.port}/websocket',
+              startMethod: 'camera.start_monitor',
+              intervalSeconds: 1,
+            ),
+          )
+          .listen((_) {}, onError: errors.add);
+      try {
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        expect(upgrades, 0, reason: 'no socket may be opened elsewhere');
+        expect(errors, [isA<CameraUrlRefusedException>()]);
+      } finally {
+        await sub.cancel();
+      }
+    });
+  });
+
   group('frames (loopback poll + websocket keepalive)', () {
     late HttpServer server;
     late String host;

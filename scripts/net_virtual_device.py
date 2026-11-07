@@ -88,6 +88,12 @@ SERVICE_ENUMERATION = '_services._dns-sd._udp.local'
 # sharing one address would correctly merge into a single row and the scenario
 # would quietly stop being two devices. Nothing ever connects to them; the
 # address is data the responder hands out, not a place it listens.
+#
+# One exception: the TXT-address-only Snapmaker publishes an RFC1918 address.
+# The scan holds a TXT `ip=` to the same rule as every other self-reported
+# address (R-024), a LAN IPv4 literal or nothing, so a documentation-space
+# address there would be refused as off-LAN, which is the very thing that
+# rule exists to do.
 DEFAULT_SCENARIO = [
     {
         'name': 'Philips Hue Bridge',
@@ -158,7 +164,7 @@ DEFAULT_SCENARIO = [
     # never sees it — the scan must be handed the type to find it.
     {
         'name': 'Snapmaker U1 (TXT address only)',
-        'address': '198.51.100.14',
+        'address': '10.254.100.14',
         'mdns': [
             {
                 'instance': 'Snapmaker U1 - txtonly',
@@ -168,7 +174,7 @@ DEFAULT_SCENARIO = [
                 'hide_from_meta_query': True,
                 'no_a_record': True,
                 'txt': {
-                    'ip': '198.51.100.14',
+                    'ip': '10.254.100.14',
                     'sn': 'SNAPU1TXT0000',
                     'device_name': 'Snapmaker U1',
                 },

@@ -11,13 +11,15 @@
 //! — comes out of the YAML, so a second SOAP device is a spec, not a patch.
 //!
 //! What lives here is what a transport cannot work out for itself: parameter
-//! defaulting, argument substitution, XML escaping, and the read-back rule
-//! that keeps a two-argument action from clearing the argument nobody meant
-//! to change. What deliberately does NOT live here is I/O. This crate has no
-//! HTTP client and wants none: the caller resolves the address, sends the
-//! request and hands the reply back as name→value pairs, exactly as the BLE
-//! path hands back the bytes it read.
+//! defaulting, argument substitution held to each parameter's declared type
+//! and bounds, XML escaping, and the read-back rule that keeps a two-argument
+//! action from clearing the argument nobody meant to change. What
+//! deliberately does NOT live here is I/O. This crate has no HTTP client and
+//! wants none: the caller resolves the address, sends the request and hands
+//! the reply back as name→value pairs, exactly as the BLE path hands back the
+//! bytes it read.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use crate::error::ProtocolError;
@@ -68,8 +70,8 @@ const DEFAULT_TEMPLATE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 /// this fails rather than sending a half-filled action. A `source` parameter
 /// has no default by the spec's own rule, so skipping its read-back is one of
 /// the failures — the alternative was a renderer quietly substituting 0 into
-/// a cook timer. Values are matched by name and stringified as the spec
-/// author wrote them.
+/// a cook timer. Values are matched by name, and one whose parameter declares
+/// a non-string type must be of that type and inside its bounds.
 pub fn render_request(
     spec: &DeviceSpec,
     command_name: &str,
@@ -109,7 +111,11 @@ pub fn render_command(
                 reason: "argument value is not a scalar".to_string(),
             })?;
         let value = match placeholder(&literal) {
-            Some(param) => resolve_param(command, command_name, param, values)?,
+            Some(param) => typed_value(
+                command,
+                param,
+                resolve_param(command, command_name, param, values)?,
+            )?,
             None => literal,
         };
         rendered.push(format!("<{name}>{}</{name}>", escape_xml(&value)));
@@ -151,6 +157,26 @@ fn template_for(spec: &DeviceSpec) -> String {
                 && template.contains("{arguments}")
         })
         .map_or_else(|| DEFAULT_TEMPLATE.to_string(), str::to_string)
+}
+
+/// A resolved argument, held to its parameter's declared type and bounds.
+///
+/// Escaping keeps a value from breaking the envelope; it does nothing about a
+/// value that is well-formed XML and wrong. Wemo's `set_cook_time` declares
+/// `time` an `integer` with `min: 0`, and `-5<x/>` went out as
+/// `<time>-5&lt;x/&gt;</time>`, to a cooker that is running. Every other
+/// transport already refuses that by name, BLE through the codec and the
+/// network renderers through `http::typed_json`. This is the same check, as
+/// `http::substitute_markup` applies it to XML bodies. A non-string is written
+/// in `typed_json`'s rendering (`240`, not ` 240`), and a `string` or
+/// undeclared type passes through to be escaped, as before.
+fn typed_value(command: &SpecCommand, param: &str, raw: String) -> Result<String, ProtocolError> {
+    use super::http::{declared_type, typed_json, DeclaredType};
+    let parameter = command.parameters.get(param);
+    match declared_type(parameter.and_then(|p| p.value_type.as_deref())) {
+        DeclaredType::String => Ok(raw),
+        _ => typed_json(parameter, param, &raw).map(|value| value.to_string()),
+    }
 }
 
 /// `"{name}"` → `name`. Anything else is a literal the command already chose.
@@ -325,6 +351,139 @@ pub fn read_entity(
             number * entity.value_scale().unwrap_or(1.0),
         )),
         None => Some(EntityReading::Text(raw.to_string())),
+    }
+}
+
+/// Read every role an entity's `state_mapping` names — besides its one
+/// `value`, which is [`read_entity`]'s — out of the name→value pairs a state
+/// call returned.
+///
+/// The reading of an entity with no single `value`: a light's `is_on`,
+/// `brightness` and `color_temperature`. [`read_entity`] answers None for
+/// every such light, so its card never learned the bulb was on. The power
+/// rule ([`is_on_by_rule`]) decides `is_on` alone, and the entity's `scale`
+/// applies to the numeric roles as [`read_entity`] applies it to `value`. A
+/// role the reply does not carry is omitted rather than invented. Keyed by
+/// role in a BTreeMap, the shape a hub's child reads in
+/// (`http::read_instance_entity`).
+pub fn read_entity_roles(
+    spec: &DeviceSpec,
+    entity: &Entity,
+    returned: &BTreeMap<String, String>,
+) -> BTreeMap<String, EntityReading> {
+    let mut readings = BTreeMap::new();
+    for (role, path) in &entity.state_mapping {
+        // The rule keys qualify a role rather than name one.
+        if matches!(role.as_str(), "value" | "on_when" | "on_value") {
+            continue;
+        }
+        let Some(field) = path.as_str() else {
+            continue;
+        };
+        let Some(raw) = state_field(returned, field) else {
+            continue;
+        };
+        // The same packed-value rule read_entity applies to `value`.
+        let raw = match spec.payload_formats.get(field) {
+            Some(format) => match format.primary_value(&raw) {
+                Some(primary) => primary,
+                None => continue,
+            },
+            None => raw.as_ref(),
+        }
+        .trim();
+        let power = (role == "is_on")
+            .then(|| is_on_by_rule(entity, raw))
+            .flatten();
+        let reading = match (power, parse_number(raw)) {
+            (Some(on), _) => EntityReading::OnOff(on),
+            // A JSON boolean flattens to "true"/"false"; see read_entity.
+            _ if raw == "true" || raw == "false" => EntityReading::OnOff(raw == "true"),
+            (None, Some(number)) => {
+                EntityReading::Number(number * entity.value_scale().unwrap_or(1.0))
+            }
+            (None, None) => EntityReading::Text(raw.to_string()),
+        };
+        readings.insert(role.clone(), reading);
+    }
+    readings
+}
+
+/// A `state_mapping` path's raw text in a flattened state reply.
+///
+/// Verbatim first: the flatteners key every nested member by its dotted path
+/// (`light_state.on_off`). A path that steps into an array — an Elgato's
+/// `lights[0].on` — is never a key, so it is walked by [`array_path_node`].
+/// A leaf that is itself an array comes back as its JSON text, the
+/// flatteners' own convention; an object or null is not a reading.
+fn state_field<'a>(returned: &'a BTreeMap<String, String>, path: &str) -> Option<Cow<'a, str>> {
+    if let Some(raw) = returned.get(path) {
+        return Some(Cow::Borrowed(raw));
+    }
+    match array_path_node(|key| returned.get(key).map(String::as_str), path)? {
+        serde_json::Value::String(s) => Some(Cow::Owned(s)),
+        serde_json::Value::Number(n) => Some(Cow::Owned(n.to_string())),
+        serde_json::Value::Bool(b) => Some(Cow::Owned(b.to_string())),
+        node @ serde_json::Value::Array(_) => Some(Cow::Owned(node.to_string())),
+        serde_json::Value::Object(_) | serde_json::Value::Null => None,
+    }
+}
+
+/// The JSON node a path names inside an array a flattened reply kept whole.
+///
+/// The flatteners keep an array as its JSON text under its own path
+/// (R-043), so a path that steps into one (`lights[0].on`) is never a key of
+/// the reply. The longest key the path starts with — cut at a `[` or `.` —
+/// is parsed, and the rest of the path (`[n]` indices, `.name` members)
+/// walked inside it. `field` looks a key up in the flattened reply: the one
+/// walk serves the entity reader here and the variant probes in
+/// `spec::bindings`, so a path means the same thing to both. None when no
+/// key prefixes the path, its text is not JSON, or the walk steps past an
+/// end, through a scalar, or over a malformed index.
+pub(crate) fn array_path_node<'a>(
+    field: impl Fn(&str) -> Option<&'a str>,
+    path: &str,
+) -> Option<serde_json::Value> {
+    let (text, rest) = path
+        .char_indices()
+        .rev()
+        .filter(|&(_, c)| c == '[' || c == '.')
+        .find_map(|(at, _)| field(&path[..at]).map(|text| (text, &path[at..])))?;
+    let mut node: serde_json::Value = serde_json::from_str(text).ok()?;
+    let mut rest = rest;
+    while !rest.is_empty() {
+        if let Some(tail) = rest.strip_prefix('[') {
+            let close = tail.find(']')?;
+            node = node.get_mut(tail[..close].parse::<usize>().ok()?)?.take();
+            rest = &tail[close + 1..];
+        } else {
+            let tail = rest.strip_prefix('.')?;
+            let end = tail.find(['.', '[']).unwrap_or(tail.len());
+            node = node.get_mut(&tail[..end])?.take();
+            rest = &tail[end..];
+        }
+    }
+    Some(node)
+}
+
+/// What an `is_on` role reads as under the entity's power rule:
+/// `on_when: nonzero` (any nonzero number is on) or `on_value` (exactly that
+/// value is on — a number compared as a number, a string such as ratgdo's
+/// `"ON"` compared as text). `None` when the entity declares neither, or
+/// `raw` is not something the rule can compare; the role then reads as its
+/// plain value.
+///
+/// The rule is the power role's alone. A light's mapping puts `on_when`
+/// beside `brightness`, and applied to every numeric role it read a dimmer
+/// at 77 as "on" with no level.
+pub(crate) fn is_on_by_rule(entity: &Entity, raw: &str) -> Option<bool> {
+    if entity.on_when_nonzero() {
+        return parse_number(raw).map(|n| n != 0.0);
+    }
+    match entity.state_mapping.get("on_value")? {
+        serde_yaml::Value::String(on) => Some(raw == on),
+        // The comparison read_entity makes for a switch's `value`.
+        on => Some(parse_number(raw)? as i64 == on.as_i64()?),
     }
 }
 
@@ -645,5 +804,32 @@ soap_common:
         // Not an error and not a zero: a control with no reading shows as
         // unknown, where a fabricated 0 would show a plug as off.
         assert_eq!(read_entity(&spec, &spec.entities[0], &returned(&[])), None);
+    }
+
+    #[test]
+    fn a_path_into_an_array_walks_the_text_the_flattener_kept() {
+        // The flatteners keep an array as its JSON text under its own path,
+        // so a WLED-shaped `state.seg[0].col[0]` is never a key.
+        let reply = returned(&[
+            ("state.on", "true"),
+            ("state.seg", r#"[{"col":[[255,160,0],[0,0,0]],"fx":3}]"#),
+        ]);
+        assert_eq!(state_field(&reply, "state.on").as_deref(), Some("true"));
+        assert_eq!(state_field(&reply, "state.seg[0].fx").as_deref(), Some("3"));
+        assert_eq!(
+            state_field(&reply, "state.seg[0].col[0]").as_deref(),
+            Some("[255,160,0]")
+        );
+        assert_eq!(
+            state_field(&reply, "state.seg[0].col[0][1]").as_deref(),
+            Some("160")
+        );
+        // Past the end, through a scalar, or malformed: nothing, not a guess.
+        assert_eq!(state_field(&reply, "state.seg[1].fx"), None);
+        assert_eq!(state_field(&reply, "state.on.x"), None);
+        assert_eq!(state_field(&reply, "state.seg[x].fx"), None);
+        assert_eq!(state_field(&reply, "state.seg[0"), None);
+        // An object is not a reading.
+        assert_eq!(state_field(&reply, "state.seg[0]"), None);
     }
 }

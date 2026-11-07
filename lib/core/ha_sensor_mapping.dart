@@ -185,15 +185,21 @@ HaSensorRegistration mapDecodedValue({
 /// [decoded] as the narrowest JSON number that still says what the transform
 /// produced.
 ///
-/// An untransformed field stays an `int`, exactly as before — the common case,
-/// and `85` reads better than `85.0` in HA. A transform with decimals sends a
-/// double rounded to the places the transform actually carries, so float error
-/// in `raw * 0.1` does not reach the server as 23.000000000000004.
+/// An untransformed integer field stays an `int`, exactly as before — the
+/// common case, and `85` reads better than `85.0` in HA. A reading with
+/// decimals sends a double rounded to the places it actually carries, so float
+/// error in `raw * 0.1` does not reach the server as 23.000000000000004.
+///
+/// The places are the ones Rust rendered [DecodedValueDto.decodedText] at, not
+/// re-derived here from `scale`/`valueOffset`: the transform alone cannot see
+/// a float32 field, whose fraction is on the wire rather than in the scale.
+/// Re-deriving it sent the Hot Wheels portal's bare-float 0.1446 m/s to HA as
+/// 0. Only a DTO built without the field's semantics in hand carries no
+/// decimals, and only that falls back to the transform's.
 num _haNumber(double decoded, DecodedValueDto value) {
-  final decimals = decimalsForTransform(
-    scale: value.scale,
-    valueOffset: value.valueOffset,
-  );
+  final decimals =
+      value.decimals ??
+      decimalsForTransform(scale: value.scale, valueOffset: value.valueOffset);
   if (decimals == 0) return decoded.round();
   return double.parse(decoded.toStringAsFixed(decimals));
 }

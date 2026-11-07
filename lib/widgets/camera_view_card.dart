@@ -60,6 +60,13 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
   /// unreachable feed.
   static const _firstFrameGrace = Duration(seconds: 15);
 
+  /// What a feed refused for pointing off the device says: the spec, not the
+  /// camera, is at fault, and a pack is the only way such a spec arrives.
+  static const _refusedText =
+      'This device’s spec points its camera at a different address than the '
+      'device’s own, so it is not shown. If the spec came from a spec pack, '
+      'remove that pack.';
+
   @override
   void initState() {
     super.initState();
@@ -95,6 +102,14 @@ class _CameraViewCardState extends ConsumerState<CameraViewCard> {
               },
               onError: (Object e) {
                 Log.spec.debug('camera feed error', error: e);
+                // A refused camera URL is final: the feed started nothing and
+                // never will, so waiting out the first-frame grace would only
+                // end on "isn't responding", blaming a camera nobody asked.
+                if (e is CameraUrlRefusedException && mounted) {
+                  _firstFrameTimeout?.cancel();
+                  _firstFrameTimeout = null;
+                  setState(() => _error = _refusedText);
+                }
               },
             );
         // The feed service swallows transient fetch failures and keeps polling,

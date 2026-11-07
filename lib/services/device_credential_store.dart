@@ -39,19 +39,33 @@ class DeviceCredentialStore {
   ///
   /// The name is the LAST segment and holds no dot of its own — see
   /// [_nameIn], which is what makes one device's keys separable from
-  /// another's. Spec credential names are identifiers (`serial`, `username`,
-  /// `blid`, `appliance_id`, `mqtt_client_id`), so the restriction costs
-  /// nothing; the assert is here so a spec that broke it would fail loudly in
-  /// development rather than store a value [credentials] then silently drops.
+  /// another's. The identity may hold dots (`host:bulb.local`); the name is
+  /// what may not, because the key is read back by splitting at its LAST
+  /// dot, and with a dotless name that split is unambiguous: two different
+  /// (identity, name) pairs can never spell one key. The catalogue's names
+  /// are identifiers (`serial`, `username`, `blid`, `appliance_id`,
+  /// `mqtt_client_id`), so the rule costs a real spec nothing.
+  ///
+  /// Refused with [InvalidCredentialName] in every build, not asserted.
+  /// Names come straight from the spec (`issues_credentials:` keys,
+  /// `websocket.pairing.credential_name`) and neither Rust nor the schema
+  /// restricts them, so this is the only check there is — and it used to be
+  /// an assert, which a release build compiles out. There a pack declaring
+  /// `credential_name: local.serial` for `host:bulb` filed the issued token
+  /// under `credential.host:bulb.local.serial`, byte for byte the key
+  /// `host:bulb.local` keeps its `serial` under: the sender never found it
+  /// (a re-pair on every open), `forget('host:bulb')` left it in the
+  /// keychain, and `credentials('host:bulb.local')` served it to the other
+  /// device. An empty name is refused for the same reason: `credential.<id>.`
+  /// is a key [credentials] and [forget] both pass over.
   static String _key(String identity, String name) {
-    assert(
-      !name.contains('.'),
-      'a credential name may not contain "." — it is the segment that ends '
-      'the key, and a dotted one cannot be told from part of the next '
-      'device\'s identity',
-    );
-    return 'credential.$identity.$name';
+    if (name.isEmpty || name.contains('.')) throw InvalidCredentialName(name);
+    return '${_prefix(identity)}$name';
   }
+
+  /// What every key of [identity]'s starts with — and, on its own, NOT a
+  /// test of membership: see [_nameIn].
+  static String _prefix(String identity) => 'credential.$identity.';
 
   /// The credential name [key] holds for [identity], or null when the key is
   /// not this device's.
@@ -91,12 +105,18 @@ class DeviceCredentialStore {
     return value;
   }
 
-  Future<void> save(String identity, String name, String value) {
+  /// File [value] as [identity]'s [name]. Fails with
+  /// [InvalidCredentialName] — as a failed future, like a keystore refusal,
+  /// so the callers that already catch one (the sender logs it, the
+  /// credentials card shows it) catch this — when [name] could not be read
+  /// back as this device's (see [_key]).
+  Future<void> save(String identity, String name, String value) async {
+    final key = _key(identity, name);
     Log.registerSecret(value);
-    return _store.write(_key(identity, name), value);
+    await _store.write(key, value);
   }
 
-  Future<void> forgetOne(String identity, String name) =>
+  Future<void> forgetOne(String identity, String name) async =>
       _store.delete(_key(identity, name));
 
   /// Every credential stored for one device, name → value.
@@ -106,7 +126,7 @@ class DeviceCredentialStore {
   /// before reading the spec. Values that are empty are omitted for the reason
   /// [read] gives.
   Future<Map<String, String>> credentials(String identity) async {
-    final prefix = _key(identity, '');
+    final prefix = _prefix(identity);
     final all = await _store.readAll();
     final found = {
       for (final entry in all.entries)
@@ -125,10 +145,26 @@ class DeviceCredentialStore {
   /// Forget everything stored for one device — the un-pair half, which the
   /// forget-device flow calls so a removed device leaves nothing behind.
   Future<void> forget(String identity) async {
-    final prefix = _key(identity, '');
+    final prefix = _prefix(identity);
     final all = await _store.readAll();
     for (final key in all.keys) {
       if (_nameIn(key, prefix) != null) await _store.delete(key);
     }
   }
+}
+
+/// A credential name [DeviceCredentialStore] cannot file without it reaching
+/// into another device's keys: one that is empty or holds a `.`.
+///
+/// An [ArgumentError], because the name is the caller's (the spec's) to fix,
+/// with a [toString] that reads as a reason — the credentials card shows a
+/// failed save as `Could not store <name> — <error>`.
+class InvalidCredentialName extends ArgumentError {
+  InvalidCredentialName(String name)
+    : super.value(name, 'name', 'not a usable credential name');
+
+  @override
+  String toString() =>
+      'the spec names a credential "$invalidValue", and a credential name '
+      'may not be empty or contain "."';
 }

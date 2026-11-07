@@ -39,12 +39,12 @@ use super::device_api::{
     ble_provisioning_profiles_over, decode_with_protocol, encode_command_with_spec,
     encode_command_writes_with_spec, encode_entity_value_with_spec,
     list_network_instances_with_spec, match_connected_device, match_network_over,
-    match_scanned_over, read_network_entity_with_spec, read_network_instance_with_spec,
-    render_network_http_state_request_with_spec, render_network_state_request_with_spec,
-    soft_ap_profiles_over, BleProvisioningProfileDto, DecodedValueDto, DeviceSpecDto,
-    EntityWriteDto, HttpRequestDto, MatchConfidence, NetworkDeviceDto, NetworkInstanceDto,
-    NetworkReadingDto, NetworkRoleReadingDto, ScanMatch, ScannedDeviceDto, SoapRequestDto,
-    SoftApProfileDto, SpecIdentityDto,
+    match_scanned_over, read_network_entity_roles_with_spec, read_network_entity_with_spec,
+    read_network_instance_with_spec, render_network_http_state_request_with_spec,
+    render_network_state_request_with_spec, soft_ap_profiles_over, BleProvisioningProfileDto,
+    DecodedValueDto, DeviceSpecDto, EntityWriteDto, HttpRequestDto, MatchConfidence,
+    NetworkDeviceDto, NetworkInstanceDto, NetworkReadingDto, NetworkRoleReadingDto, ScanMatch,
+    ScannedDeviceDto, SoapRequestDto, SoftApProfileDto, SpecIdentityDto,
 };
 
 /// One parsed spec, held by Rust for as long as Dart holds the handle.
@@ -179,6 +179,17 @@ impl LoadedSpec {
         read_network_entity_with_spec(&self.spec, entity_name, returned)
     }
 
+    /// Decode every role besides `value` — a light's `is_on`, `brightness`
+    /// and `color_temperature` — from the name→value pairs a state call
+    /// returned.
+    pub fn read_network_entity_roles(
+        &self,
+        entity_name: String,
+        returned: HashMap<String, String>,
+    ) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+        read_network_entity_roles_with_spec(&self.spec, entity_name, returned)
+    }
+
     /// Enumerate the children an instanced entity's state reply carries.
     pub fn list_network_instances(
         &self,
@@ -288,7 +299,7 @@ fn parse_chunk(
 #[derive(Debug, Clone)]
 pub struct SpecLoadFailureDto {
     /// The key the caller filed the spec under (an asset path, or
-    /// `pack:<name>/<file>`).
+    /// `pack:<slug>/<file>` for a spec pack's).
     pub key: String,
     /// What the parser said.
     pub message: String,

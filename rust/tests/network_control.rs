@@ -370,6 +370,7 @@ use liberated_bread_core::api::device_api::{
     network_entities_for_device, read_network_entity, render_network_command,
     render_network_state_request, NetworkReadingKind,
 };
+use liberated_bread_core::error::ProtocolError;
 use std::collections::HashMap;
 
 fn targets(list: &[&str]) -> Vec<String> {
@@ -455,6 +456,93 @@ fn a_state_request_renders_from_the_endpoint_catalogue() {
         .contains("<u:GetCrockpotState xmlns:u=\"urn:Belkin:service:basicevent:1\">"));
     // Argument-less: the action element is empty, with no stray blank line.
     assert!(!request.body.contains("\n\n"));
+}
+
+/// A SOAP argument is held to its parameter's declared type and bounds, as
+/// every other transport's is.
+///
+/// `set_cook_time` declares `time` an `integer` with `min: 0`, and `mode`,
+/// read back from the device, an `integer`. The SOAP renderer only escaped
+/// what it was handed, so `-5<x/>` went out as
+/// `<time>-5&lt;x/&gt;</time>`: well-formed XML, and a cook time the spec
+/// says cannot exist, sent to a running cooker. HTTP, MQTT, Kasa and BLE all
+/// refuse that value by name.
+#[test]
+fn a_soap_argument_is_held_to_its_declared_type_and_bounds() {
+    let render = |time: &str, mode: &str| {
+        render_network_command(
+            WEMO.to_string(),
+            "set_cook_time".to_string(),
+            HashMap::from([
+                ("time".to_string(), time.to_string()),
+                ("mode".to_string(), mode.to_string()),
+            ]),
+        )
+    };
+
+    for (time, mode, named) in [
+        ("-5<x/>", "50", "time"),
+        ("-5", "50", "time"),
+        ("four hours", "50", "time"),
+        ("240", "51</mode><time>0", "mode"),
+        ("240", "", "mode"),
+    ] {
+        let err = render(time, mode).expect_err(&format!("time={time:?} mode={mode:?}"));
+        let protocol = err
+            .downcast_ref::<ProtocolError>()
+            .unwrap_or_else(|| panic!("a protocol error, got {err}"));
+        assert!(
+            matches!(
+                protocol,
+                ProtocolError::ParameterInvalid { name, .. }
+                    | ProtocolError::ParameterOutOfRange { name, .. }
+                    if name == named
+            ),
+            "time={time:?} mode={mode:?} should name {named}: {protocol:?}"
+        );
+    }
+
+    // A valid pair still renders, the value written as the device expects.
+    let request = render("240", "51").expect("a valid cook time renders");
+    assert!(
+        request.body.contains("<time>240</time>"),
+        "{}",
+        request.body
+    );
+    assert!(request.body.contains("<mode>51</mode>"), "{}", request.body);
+    // The declared floor is inclusive.
+    render("0", "50").expect("zero minutes is in range");
+}
+
+/// A `string` argument is not a number to validate: it is escaped and sent.
+/// The Wemo setup action carries the home network's SSID and password, and an
+/// ampersand in either is the case the spec calls out.
+#[test]
+fn a_soap_string_argument_is_escaped_not_validated() {
+    let request = render_network_command(
+        WEMO.to_string(),
+        "setup_connect_home_network".to_string(),
+        HashMap::from([
+            ("ssid".to_string(), "Cats & <Dogs>".to_string()),
+            ("auth".to_string(), "WPA2PSK".to_string()),
+            ("password".to_string(), "hunter2".to_string()),
+            ("encrypt".to_string(), "AES".to_string()),
+            ("channel".to_string(), "6".to_string()),
+        ]),
+    )
+    .expect("the setup action renders");
+    assert!(
+        request
+            .body
+            .contains("<ssid>Cats &amp; &lt;Dogs&gt;</ssid>"),
+        "{}",
+        request.body
+    );
+    assert!(
+        request.body.contains("<channel>6</channel>"),
+        "{}",
+        request.body
+    );
 }
 
 #[test]

@@ -351,5 +351,42 @@ void main() {
         'TOOLO',
       );
     });
+
+    test('never splits a character, and counts what the radio stores', () {
+      // The codecs store one byte per Unicode scalar value. Clamped by
+      // UTF-16 code units, an emoji straddling the limit was cut in half,
+      // and the lone surrogate crossed the bridge as U+FFFD, a space on
+      // the radio. Fails on the substring clamp.
+      String clamp(String name) =>
+          clampChannelName(_channel(name, 146940000), _small).name;
+      // A paired surrogate reads as one rune past 0xFFFF; a lone one reads
+      // as itself.
+      bool whole(String s) => !s.runes.any((r) => r >= 0xD800 && r <= 0xDFFF);
+
+      // Five scalar values, six code units: it fits as it is.
+      final fits = _channel('WX\u{1F4FB}12', 146940000);
+      expect(clampChannelName(fits, _small), same(fits));
+      // The fifth slot is an emoji: kept whole.
+      expect(clamp('ABCD\u{1F4FB}XYZ'), 'ABCD\u{1F4FB}');
+      // The limit falls inside a character made of more than one scalar
+      // value (a thumbs-up and its skin tone): the whole of it goes.
+      expect(clamp('ABCD\u{1F44D}\u{1F3FD}'), 'ABCD');
+      expect(clamp('ABC\u{1F44D}\u{1F3FD}Z'), 'ABC\u{1F44D}\u{1F3FD}');
+      // A decomposed e-acute is two scalar values and one character:
+      // kept when both fit, left out when the limit falls between them.
+      expect(clamp('CAFE\u{301}S'), 'CAFE\u{301}');
+      expect(clamp('CAFFE\u{301}'), 'CAFF');
+      expect(clamp('CAF\u{E9}S'), 'CAF\u{E9}S');
+      for (final name in [
+        '\u{1F4FB}\u{1F4FB}\u{1F4FB}\u{1F4FB}\u{1F4FB}\u{1F4FB}',
+        'A\u{1F4FB}\u{1F4FB}\u{1F4FB}\u{1F4FB}\u{1F4FB}',
+        'AB\u{1F44D}\u{1F3FD}\u{1F44D}\u{1F3FD}',
+      ]) {
+        final clamped = clamp(name);
+        expect(whole(clamped), isTrue, reason: name);
+        expect(clamped.runes.length, lessThanOrEqualTo(5), reason: name);
+        expect(name.startsWith(clamped), isTrue, reason: name);
+      }
+    });
   });
 }

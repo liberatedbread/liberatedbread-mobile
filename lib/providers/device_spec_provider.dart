@@ -55,7 +55,7 @@ String specAssetPath(String indexPath) => '$specsRoot/$indexPath';
 ///
 /// Two sources are merged: the bundled assets (keyed by asset path, which
 /// always begins `vendor/`) and any remote packs the user has installed (keyed
-/// `pack:<name>/<file>`). The two key spaces cannot collide, and a failure
+/// `pack:<slug>/<file>`). The two key spaces cannot collide, and a failure
 /// loading remote packs never removes a bundled spec.
 final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   // Both sources watched before the first await: a watch after one throws

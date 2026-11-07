@@ -361,6 +361,43 @@ void main() {
       expect(sensor.state, 2.3);
     });
 
+    test('a float32 reading keeps the places Rust rendered it at', () {
+      // The Hot Wheels portal's `speed_raw` is a bare float32 (b0 1c 14 3e)
+      // with no scale or offset, so the transform implies no decimals — and
+      // recomputing them here rounded 0.1446 into HA as 0. Rust already said
+      // how many places the reading has; the forwarder sends those.
+      final sensor = map(
+        const DecodedValueDto(
+          name: 'speed_raw',
+          valueType: 'float',
+          display: '0.14464068412780762',
+          rawNumber: 0.14464068412780762,
+          decodedNumber: 0.14464068412780762,
+          decodedText: '0.144641',
+          decimals: 6,
+        ),
+      );
+      expect(sensor.state, isA<double>().having((s) => s, 'value', 0.144641));
+    });
+
+    test('a reading Rust gave no decimals still derives them', () {
+      // A DTO built without the field's number semantics in hand (decimals
+      // null) falls back to the transform's own places.
+      final sensor = map(
+        const DecodedValueDto(
+          name: 'level',
+          valueType: 'uint',
+          display: '23',
+          uintValue: 23,
+          rawNumber: 23.0,
+          decodedNumber: 2.3000000000000003,
+          decodedText: '2.3',
+          scale: 0.1,
+        ),
+      );
+      expect(sensor.state, 2.3);
+    });
+
     test(
       'a declared unit overrides the conventional one, and drops the class',
       () {

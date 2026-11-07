@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import '../core/unit_display.dart';
+import '../core/value_format.dart' show decimalsForStep, snapToStep;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +13,7 @@ import '../core/entity_keys.dart';
 import '../core/sensor_reading_level.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
+import '../core/decimal_input.dart';
 import '../models/network_device.dart';
 import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
@@ -90,6 +92,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   SoapDeviceDescription? _description;
   final Map<String, Map<String, String>> _stateByCommand = {};
   final Map<String, NetworkReadingDto?> _readings = {};
+
+  /// A light's, cover's or switch's readings by role: a light's `is_on`,
+  /// `brightness` and `color_temperature`, a cover's `state` and `position`,
+  /// a switch's `is_on`. Such an entity may declare no `value` (every
+  /// catalogue light, ratgdo's door, a Denon's Power), leaving its
+  /// [_readings] entry null — its state is these, read by
+  /// [SpecCodec.readNetworkEntityRoles].
+  final Map<String, Map<String, NetworkReadingDto>> _roleReadings = {};
+
+  /// The platforms whose cards draw [_roleReadings].
+  static const _roleCards = {'light', 'cover', 'switch'};
 
   /// Slider positions the user has set but the device has not yet confirmed,
   /// shown until the next state decode supersedes them.
@@ -174,6 +187,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Timer? _mqttRetry;
   Duration _mqttBackoff = Duration.zero;
   bool _polling = false;
+
+  /// Bumped when a send begins. A background poll captures it before its
+  /// round trip and drops its reply if it changed meanwhile: that reply was
+  /// asked for before the command, so it reports the state the command is
+  /// changing, and one landing after the send's own read-back redrew the old
+  /// state (and dropped the slider the user was holding) until the next
+  /// tick. The tick already skips its turn while a send is in flight; this
+  /// covers the one that was on the wire when the send began. The same guard
+  /// [_keyboardStateGen] gives the keyboard poll.
+  int _stateGen = 0;
 
   /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
   /// round trip and discards its answer if it changed meanwhile — so a stale
@@ -794,8 +817,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<void> _tickStatePoll() async {
     if (!mounted || _polling || _loading || _sending.isNotEmpty) return;
     _polling = true;
+    final gen = _stateGen;
     try {
-      await _refreshState();
+      await _refreshState(superseded: () => gen != _stateGen);
     } catch (_) {
       // Keep the last-known readings until a poll succeeds.
     } finally {
@@ -804,9 +828,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   /// Send every state request and re-decode every entity from the replies.
-  Future<void> _refreshState() async {
+  ///
+  /// [superseded], when given, is asked as each reply lands: true means a
+  /// send began after this refresh asked, so its replies describe the state
+  /// before that send and are dropped, decode and all (see [_stateGen]).
+  Future<void> _refreshState({bool Function()? superseded}) async {
     if (_isKasa) {
-      await _refreshStateKasa();
+      await _refreshStateKasa(superseded: superseded);
       return;
     }
     // An MQTT device PUSHES. There is no request whose reply is the battery
@@ -837,7 +865,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     var anySucceeded = false;
     for (final command in _stateCommands) {
       try {
-        if (await _pollStateCommand(command, codec, client)) {
+        if (await _pollStateCommand(
+          command,
+          codec,
+          client,
+          superseded: superseded,
+        )) {
           anySucceeded = true;
         }
       } catch (e, st) {
@@ -851,19 +884,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     if (firstFailure != null && !anySucceeded) {
       Error.throwWithStackTrace(firstFailure, firstTrace!);
     }
+    if (superseded?.call() ?? false) return;
     await _decodeEntities();
   }
 
   /// One state command's poll. True when a reading was taken, false when this
   /// command has nothing to poll on this device (no description to address a
-  /// SOAP read through).
+  /// SOAP read through). A reply [superseded] disowns is not stored.
   Future<bool> _pollStateCommand(
     String command,
     SpecCodec codec,
-    SoapControlClient client,
-  ) async {
+    SoapControlClient client, {
+    bool Function()? superseded,
+  }) async {
     if (_stateTransport(command) == 'http') {
-      await _refreshStateHttp(command);
+      await _refreshStateHttp(command, superseded: superseded);
       return true;
     }
     // Everything left resolves its address out of the description, so
@@ -887,13 +922,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     final path = description.controlPathFor(request);
     if (path == null) return false;
-    _stateByCommand[command] = await client.send(
+    final returned = await client.send(
       description.host,
       description.port,
       path,
       request,
       urlBase: description.urlBase,
     );
+    if (!(superseded?.call() ?? false)) _stateByCommand[command] = returned;
     return true;
   }
 
@@ -912,7 +948,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// device-side policy a refused write is, so it raises the standing note
   /// and leaves the readings unknown rather than erroring the screen of a
   /// device that is otherwise answering.
-  Future<void> _refreshStateHttp(String command) async {
+  Future<void> _refreshStateHttp(
+    String command, {
+    bool Function()? superseded,
+  }) async {
     final codec = ref.read(specCodecProvider);
     final request = await codec.renderNetworkHttpStateRequest(
       specYaml: widget.controls.specYaml,
@@ -927,6 +966,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     try {
       final body = await _sendNetworkHttp(request);
+      if (superseded?.call() ?? false) return;
       _stateByCommand[command] = httpStateFields(body);
     } on ControlRefusedException {
       _controlRefused = true;
@@ -942,7 +982,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// [kasaStateFields] dispatches per reply shape: sysinfo lifts flat (the
   /// switch's `relay_state`), an emeter reply flattens to the dotted paths
   /// the HS110's sensors name.
-  Future<void> _refreshStateKasa() async {
+  Future<void> _refreshStateKasa({bool Function()? superseded}) async {
     final codec = ref.read(specCodecProvider);
     final client = ref.read(kasaControlClientProvider);
 
@@ -956,6 +996,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         _kasaHostPort,
         request,
       );
+      // Overtaken by a send: this reply and the rest of the round describe
+      // the plug before it (see [_stateGen]).
+      if (superseded?.call() ?? false) return;
       _stateByCommand[command] = kasaStateFields(reply);
       _rawStateReply[command] = reply;
       // The reply, so an "unknown state" is diagnosable from a log instead of a
@@ -964,6 +1007,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // earns its keep.
       Log.net.debug('kasa $command <- ${widget.device.host}: $reply');
     }
+    if (superseded?.call() ?? false) return;
     await _decodeInstances();
     await _decodeEntities();
   }
@@ -1358,14 +1402,30 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               returned: returned,
             );
       _readings[entity.name] = reading;
+      // Only the cards in [_roleCards] draw roles, so only they pay for the
+      // read.
+      final roles = returned == null || !_roleCards.contains(entity.platform)
+          ? const <NetworkRoleReadingDto>[]
+          : await codec.readNetworkEntityRoles(
+              specYaml: widget.controls.specYaml,
+              entityName: entity.name,
+              returned: returned,
+            );
+      _roleReadings[entity.name] = {
+        for (final role in roles) role.role: role.reading,
+      };
       // A fresh decode supersedes a slider position the user was holding —
-      // the device has now said where it actually is.
-      if (reading != null) _pendingSetpoints.remove(entity.name);
+      // the device has now said where it actually is. A role reading says
+      // so as much as the single one: a ratgdo door's position is a role.
+      if (reading != null || roles.isNotEmpty) {
+        _pendingSetpoints.remove(entity.name);
+      }
       // Say WHY a card reads "State unknown": the state command answered, but
       // no field in it mapped to this entity's reading. Without this the app is
       // silent about a real gap (a bulb's light_state, a variant's renamed
       // keys), which is exactly the "nothing's logged" complaint.
       if (reading == null &&
+          roles.isEmpty &&
           returned != null &&
           entity.stateCommand.isNotEmpty) {
         Log.net.debug(
@@ -1453,6 +1513,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _sending.add(entity.name);
       if (!independent) _soapSending = entity.name;
       _error = null;
+      // A poll already on the wire now answers for the state before this.
+      _stateGen++;
     });
     try {
       final sent = <String, String>{...?values};
@@ -1578,6 +1640,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     setState(() {
       _sending.add(key);
       _error = null;
+      // As in [_send]: an in-flight poll now describes the strip before this.
+      _stateGen++;
     });
     try {
       await _sender.sendAction(action, {
@@ -1965,15 +2029,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // live reads. Any other light rides the screen's ordinary send
         // pipeline, routed by each action's declared transport; the card
         // itself only presents.
+        // Its state is its roles; the single reading stays the fallback for
+        // a light whose spec maps a `value` instead.
         final reading = _readings[entity.name];
+        final roles = _roleReadings[entity.name] ?? const {};
         return NetworkLightCard(
           entity: entity,
           specYaml: widget.controls.specYaml,
           host: widget.device.host,
           targetMac: widget.device.advertisedMac ?? '',
           sendAction: (action, values) => _send(entity, action, values: values),
-          initialOn: reading?.isOn,
-          initialBrightness: reading?.number,
+          initialOn: roles['is_on']?.isOn ?? reading?.isOn,
+          initialBrightness: roles['brightness']?.number ?? reading?.number,
+          // Both spellings the catalogue writes: Elgato's
+          // `color_temperature`, Yeelight's `color_temp`.
+          initialColorTemperature:
+              (roles['color_temperature'] ?? roles['color_temp'])?.number,
         );
       // A platform this switch has no branch for still shows its reading —
       // and, since the resolver may well have found it controls, its actions.
@@ -2488,8 +2559,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   Widget _switchCard(NetworkEntityDto entity) {
-    final reading = _readings[entity.name];
-    final isOn = reading?.isOn;
+    // A switch that maps its power as the `is_on` role and no `value` — a
+    // Denon receiver's Power and Mute, ratgdo's remote lock-out — reads it
+    // there; the single reading answers for one that maps a `value`.
+    final isOn =
+        _roleReadings[entity.name]?['is_on']?.isOn ??
+        _readings[entity.name]?.isOn;
     final turnOn = _actionFor(entity, 'turn_on');
     final turnOff = _actionFor(entity, 'turn_off');
     final busy = _sending.contains(entity.name);
@@ -2812,12 +2887,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               label: shown == null ? null : _trimNumber(shown),
               onChanged: (busy || _lockedFor(action))
                   ? null
-                  : (value) =>
-                        setState(() => _pendingSetpoints[entity.name] = value),
+                  : (value) => setState(
+                      () => _pendingSetpoints[entity.name] = _onStep(
+                        value,
+                        min,
+                        max,
+                        step,
+                      ),
+                    ),
               onChangeEnd: (busy || _lockedFor(action))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, action, value: _trimNumber(value)),
+                      _send(
+                        entity,
+                        action,
+                        value: _sliderText(value, min, max, step),
+                      ),
                     ),
             ),
           _unclaimedActions(entity, const {'set_value'}),
@@ -2826,8 +2911,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
   }
 
-  /// A number rendered the way it will be sent: whole when it is whole, one
-  /// decimal otherwise (the finest step the specs declare). Non-finite
+  /// A number for display, and as an unstepped slider sends it: whole when
+  /// it is whole, one decimal otherwise (the finest step the specs declare;
+  /// a stepped slider sends through [_sliderText] instead). Non-finite
   /// values print as themselves: Rust's f64 parse takes "inf" and "NaN", so
   /// a device can report either, and `round()` threw on Infinity mid-build —
   /// the whole screen became an error page over one odd reading.
@@ -2866,6 +2952,45 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       ? value.round().toString()
       : value.toString();
 
+  /// [value] on the declared [step]'s grid, or as it is when nothing is
+  /// declared — where the finger is, as far as the device can follow it.
+  static double _onStep(double value, double min, double max, double? step) =>
+      step == null ? value : snapToStep(value, min, max, step);
+
+  /// A released slider position as the text that is sent.
+  ///
+  /// Slider reports stop k of n as `k / n * (max - min) + min`, which binary
+  /// floating point does not always land exactly: stop 23 of OpenEVSE's
+  /// 6..48 A charge limit is 29.000000000000004, and stop 29 of a
+  /// SoundTouch's 0..100 volume 28.999999999999996. [_trimNumber] printed
+  /// both as "29.0", and Rust parses an integer parameter as an integer —
+  /// "declared integer, and this is not an integer" — so the send failed and
+  /// the slider rolled back. Snapped to the declared step and printed to
+  /// that step's precision (and the grid's origin's: min 0.5 by whole steps
+  /// is 1.5, not "2"), a whole step sends a whole number.
+  ///
+  /// With no step declared nothing says which grid the device holds, so
+  /// [unstepped] stands.
+  static String _sliderText(
+    double value,
+    double min,
+    double max,
+    double? step, {
+    String Function(double) unstepped = _trimNumber,
+  }) {
+    if (step == null || !step.isFinite || step <= 0) return unstepped(value);
+    final snapped = snapToStep(value, min, max, step);
+    final stepDecimals = decimalsForStep(step);
+    final originDecimals = decimalsForStep(min.abs());
+    final decimals = stepDecimals > originDecimals
+        ? stepDecimals
+        : originDecimals;
+    final text = snapped.toStringAsFixed(decimals);
+    // A grid point at zero can land a hair below it, and toStringAsFixed
+    // keeps the sign: "-0.0" is not what anybody set.
+    return double.parse(text) == 0 ? 0.0.toStringAsFixed(decimals) : text;
+  }
+
   /// Slider detents from the declared step, capped so a wide range with a
   /// tiny step does not build thousands of divisions.
   static int? _sliderDivisions(double min, double max, double? step) {
@@ -2902,7 +3027,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       ),
     );
     if (entered == null || entered.isEmpty || !mounted) return;
-    final value = double.tryParse(entered);
+    // A decimal comma read as the point: on an iOS decimal pad in many
+    // locales it is the only separator there is.
+    final value = double.tryParse(normalizeDecimalInput(entered));
     // Not finite is refused too: "Infinity" and "NaN" parse, NaN slips past
     // every bound comparison, and neither is a value any device accepts.
     if (value == null ||
@@ -2922,7 +3049,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// reports one, and a position slider only when there is a live position
   /// to anchor it to.
   Widget _coverCard(NetworkEntityDto entity) {
-    final reading = _readings[entity.name];
+    // A cover that maps `state` and `position` rather than one `value` — a
+    // ratgdo's OPEN/CLOSED and its 0..1 travel — reads them by role; the
+    // single reading stays the fallback for one that maps a `value`.
+    final roles = _roleReadings[entity.name] ?? const {};
+    final status = roles['state'] ?? _readings[entity.name];
     final open = _actionFor(entity, 'open_cover');
     final close = _actionFor(entity, 'close_cover');
     final stop = _actionFor(entity, 'stop_cover');
@@ -2935,7 +3066,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             : Icons.curtains_outlined);
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
-    final positionValue = reading?.number;
+    final positionValue =
+        roles['position']?.number ?? _readings[entity.name]?.number;
     // Where the finger is during a drag, as the number and fan sliders keep
     // it. The slider drew only the live reading with a no-op onChanged, so
     // the thumb sat still while dragged and a garage door was sent to a
@@ -2943,6 +3075,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final pendingPosition = _pendingSetpoints[entity.name];
     final positionMin = position?.min ?? 0;
     final positionMax = position?.max ?? 1;
+    final positionStep = entity.setpointStep;
 
     Widget motion(NetworkActionDto? action, IconData icon, String label) =>
         Expanded(
@@ -2977,8 +3110,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              else if (reading != null)
-                Text(reading.label ?? reading.raw, style: text.bodyMedium),
+              else if (status != null)
+                Text(status.label ?? status.raw, style: text.bodyMedium),
             ],
           ),
           const SizedBox(height: 10),
@@ -3008,14 +3141,40 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               ),
               min: positionMin,
               max: positionMax,
+              divisions: _sliderDivisions(
+                positionMin,
+                positionMax,
+                positionStep,
+              ),
               onChanged: (busy || _lockedFor(position))
                   ? null
-                  : (value) =>
-                        setState(() => _pendingSetpoints[entity.name] = value),
+                  : (value) => setState(
+                      () => _pendingSetpoints[entity.name] = _onStep(
+                        value,
+                        positionMin,
+                        positionMax,
+                        positionStep,
+                      ),
+                    ),
+              // Unstepped, the position goes out exact rather than trimmed:
+              // ratgdo's is a 0..1 fraction, where one decimal would be ten
+              // stops. Exact still drops a whole number's ".0" — toString()
+              // sent a cover at 50 as "50.0", which an integer parameter
+              // refuses.
               onChangeEnd: (busy || _lockedFor(position))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, position, value: value.toString()),
+                      _send(
+                        entity,
+                        position,
+                        value: _sliderText(
+                          value,
+                          positionMin,
+                          positionMax,
+                          positionStep,
+                          unstepped: _exactNumber,
+                        ),
+                      ),
                     ),
             ),
           _unclaimedActions(entity, const {
@@ -3043,6 +3202,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final isOn = reading?.isOn;
     final min = percentage?.min ?? 0;
     final max = percentage?.max ?? 100;
+    final step = entity.setpointStep;
     final pending = _pendingSetpoints[entity.name];
     final speed = pending ?? reading?.number;
 
@@ -3089,15 +3249,26 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               value: (speed ?? min).clamp(min, max),
               min: min,
               max: max,
+              divisions: _sliderDivisions(min, max, step),
               label: speed == null ? null : _trimNumber(speed),
               onChanged: (busy || _lockedFor(percentage))
                   ? null
-                  : (value) =>
-                        setState(() => _pendingSetpoints[entity.name] = value),
+                  : (value) => setState(
+                      () => _pendingSetpoints[entity.name] = _onStep(
+                        value,
+                        min,
+                        max,
+                        step,
+                      ),
+                    ),
               onChangeEnd: (busy || _lockedFor(percentage))
                   ? null
                   : (value) => unawaited(
-                      _send(entity, percentage, value: _trimNumber(value)),
+                      _send(
+                        entity,
+                        percentage,
+                        value: _sliderText(value, min, max, step),
+                      ),
                     ),
             ),
           if (oscillating != null)

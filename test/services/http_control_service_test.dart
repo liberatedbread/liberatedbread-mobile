@@ -540,6 +540,121 @@ void main() {
     },
   );
 
+  group('a command goes to its device and nowhere else', () {
+    // The rendered path is resolved against the device's address, and a
+    // resolve honours whatever the reference carries: a spec-pack copy of
+    // vizio-smartcast.yaml whose path read `https://attacker.example/...`
+    // had the key press — AUTH token and all — sent to that host instead.
+    // The SOAP controlURL, the probes and the WebSocket hand-over already
+    // keep to the device's address; this is the same rule.
+    const vizioAuth = [HttpHeaderDto(name: 'AUTH', value: 'Z2x6aHh4eQ==')];
+
+    for (final (name, path, scheme) in const [
+      ('an absolute URL on another host', 'http://203.0.113.7/steal', null),
+      ('a network-path reference', '//203.0.113.7/steal', null),
+      (
+        'an https URL on another host, credential attached',
+        'https://attacker.example/key_command/',
+        'https',
+      ),
+      (
+        'the device host on another port',
+        'http://10.0.0.9:9999/keypress/Home',
+        null,
+      ),
+      (
+        'the device host on another scheme',
+        'https://10.0.0.9:7345/keypress/Home',
+        null,
+      ),
+    ]) {
+      test('$name is refused before the wire', () async {
+        final reached = <Uri>[];
+        Future<http.Response> record(http.Request request) async {
+          reached.add(request.url);
+          return http.Response('', 200);
+        }
+
+        final client = HttpControlClient(
+          httpClient: MockClient(record),
+          httpsClient: MockClient(record),
+        );
+
+        await expectLater(
+          client.send(
+            '10.0.0.9',
+            7345,
+            HttpRequestDto(
+              method: 'PUT',
+              path: path,
+              body: '',
+              headers: vizioAuth,
+              scheme: scheme,
+            ),
+          ),
+          throwsA(isA<ControlForeignTargetException>()),
+        );
+        expect(reached, isEmpty, reason: 'nothing may leave for $path');
+      });
+    }
+
+    test('a declared fallback is held to the same rule', () async {
+      // The second spelling travels the same road as the first, so a 404 on
+      // a legitimate primary must not become the way out.
+      final reached = <Uri>[];
+      final client = HttpControlClient(
+        httpClient: MockClient((request) async {
+          reached.add(request.url);
+          return http.Response('', 404);
+        }),
+      );
+
+      await expectLater(
+        client.send(
+          '10.0.0.9',
+          80,
+          const HttpRequestDto(
+            method: 'POST',
+            path: '/cover/Door/open',
+            body: '',
+            pathFallback: '//203.0.113.7/cover/door/open',
+          ),
+        ),
+        throwsA(isA<ControlForeignTargetException>()),
+      );
+      expect(reached.map((u) => u.toString()), [
+        'http://10.0.0.9/cover/Door/open',
+      ]);
+    });
+
+    test('the refusal is written for the screen', () {
+      final refusal = ControlForeignTargetException(
+        Uri.parse('http://203.0.113.7/steal'),
+      );
+      expect(refusal, isA<UserFacingException>());
+      expect(refusal.message, contains('not sent'));
+      // The log line names where it would have gone; the screen need not.
+      expect(refusal.toString(), contains('203.0.113.7'));
+    });
+
+    test('a host spelled in capitals is still the device', () async {
+      // Uri lowercases a host, discovery records whatever the device
+      // advertised ("LGwebOSTV.local"); the comparison must not refuse the
+      // device its own commands over letter case.
+      late http.Request seen;
+      final client = HttpControlClient(
+        httpClient: MockClient((request) async {
+          seen = request;
+          return http.Response('', 200);
+        }),
+      );
+
+      await client.send('LGwebOSTV.local', 8060, press);
+
+      expect(seen.url.toString(), 'http://lgwebostv.local:8060/keypress/Home');
+    });
+  });
+
   group('a response body is text, and the device rarely says in which code', () {
     // R-040. package:http reads a body whose Content-Type states no charset as
     // Latin-1 (what RFC 2616 required and RFC 7231 withdrew), and almost no LAN

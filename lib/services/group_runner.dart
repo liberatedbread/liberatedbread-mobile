@@ -782,10 +782,16 @@ class NetworkGroupRunner {
         );
   }
 
-  /// Read one entity's power state and decode it through the same
-  /// [SpecCodec.readNetworkEntity] path the device screen uses, so a group
-  /// row and the screen cannot disagree about what a reading means. Null —
-  /// from a failed exchange as much as an undecodable one — means unknown.
+  /// Read one entity's power state and decode it through the same codec
+  /// reads the device screen uses, so a group row and the screen cannot
+  /// disagree about what a reading means. Null — from a failed exchange as
+  /// much as an undecodable one — means unknown.
+  ///
+  /// The `is_on` role first: a light maps its power as that role beside its
+  /// brightness and declares no `value`, so [SpecCodec.readNetworkEntity]
+  /// answers null for every one, and a turn-off gated on "on" never went
+  /// out to a Wi-Fi light. The single reading stays the answer for an
+  /// entity whose mapping names a `value` (a plug's relay state).
   Future<bool?> _readIsOn(
     NetworkEntityDto entity,
     String specYaml,
@@ -820,6 +826,14 @@ class NetworkGroupRunner {
           request,
           urlBase: desc.urlBase,
         );
+      }
+      final roles = await _codec.readNetworkEntityRoles(
+        specYaml: specYaml,
+        entityName: entity.name,
+        returned: returned,
+      );
+      for (final role in roles) {
+        if (role.role == 'is_on') return role.reading.isOn;
       }
       final reading = await _codec.readNetworkEntity(
         specYaml: specYaml,

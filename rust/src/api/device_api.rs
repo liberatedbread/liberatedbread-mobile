@@ -1505,8 +1505,15 @@ impl From<(&Characteristic, &str, &Command)> for CommandDto {
             // Normalized through `locate_kind` rather than forwarded raw, so
             // a spelling this build does not understand crosses the FFI as
             // "not a locator" instead of as a string the Dart side would have
-            // to re-validate.
-            locate: cmd.locate_kind().map(|kind| kind.as_str().to_string()),
+            // to re-validate. And only for a command one write can carry: the
+            // find-device button sends a single `encode_command` write, which
+            // an Orba-framed command can never be, so offering it as a
+            // locator drew a button whose every press failed. It stays
+            // encodable — the command browser sends every write it takes.
+            locate: cmd
+                .locate_kind()
+                .filter(|_| !crate::codec::types::requires_ordered_writes(characteristic))
+                .map(|kind| kind.as_str().to_string()),
             advanced: cmd.advanced,
             advanced_reason: cmd.advanced_reason.clone(),
             // Same as commands: `params` is an IndexMap, so plain iteration
@@ -1794,12 +1801,14 @@ pub(crate) fn encode_entity_value_with_spec(
         }
     }
 
-    let transform = bindings::setpoint_transform(spec, entity, action);
-    let raw = transform.encode(value).ok_or_else(|| {
-        anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
-    })?;
     let value_type = bindings::setpoint_value_type(action)
         .ok_or_else(|| anyhow::anyhow!("entity '{entity_name}' does not declare a value type"))?;
+    // Inverted for the type it is written as: an integer field rounds to the
+    // nearest whole raw value, a float32 keeps its fraction.
+    let transform = bindings::setpoint_transform(spec, entity, action);
+    let raw = transform.encode_for(value, &value_type).ok_or_else(|| {
+        anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
+    })?;
 
     let bytes = match action.command_name {
         // The command owns the byte layout; hand it the raw value for its one
@@ -3524,6 +3533,45 @@ pub(crate) fn read_network_entity_with_spec(
     let entity = find_entity(spec, &entity_name)?;
     let returned = returned.into_iter().collect();
     Ok(crate::protocol::soap::read_entity(spec, entity, &returned).map(reading_to_dto))
+}
+
+/// Decode every role an entity's `state_mapping` names — besides its one
+/// `value`, which is [`read_network_entity`]'s — from the name→value pairs a
+/// state call returned: a light's `is_on`, `brightness` and
+/// `color_temperature`. A light declares no `value`, so the single read
+/// answers None for it and its card never learned the bulb was on.
+///
+/// The non-instanced sibling of [`read_network_instance`], in the same
+/// shape. Empty when the reply carried none of the roles — which renders as
+/// unknown, never as a fabricated "off".
+pub fn read_network_entity_roles(
+    spec_yaml: String,
+    entity_name: String,
+    returned: HashMap<String, String>,
+) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    read_network_entity_roles_with_spec(&spec, entity_name, returned)
+}
+
+/// [`read_network_entity_roles`] against a spec that is already parsed — the
+/// body both the by-YAML entry point and [`super::spec_handle::LoadedSpec`]
+/// run. It rides the four-second poll beside [`read_network_entity`].
+pub(crate) fn read_network_entity_roles_with_spec(
+    spec: &DeviceSpec,
+    entity_name: String,
+    returned: HashMap<String, String>,
+) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+    let entity = find_entity(spec, &entity_name)?;
+    let returned = returned.into_iter().collect();
+    Ok(
+        crate::protocol::soap::read_entity_roles(spec, entity, &returned)
+            .into_iter()
+            .map(|(role, reading)| NetworkRoleReadingDto {
+                role,
+                reading: reading_to_dto(reading),
+            })
+            .collect(),
+    )
 }
 
 /// One [`EntityReading`] as the DTO Dart draws — shared by the SOAP and HTTP
@@ -6157,15 +6205,13 @@ pub(crate) fn decode_with_protocol(
                 // reading has no number there but still renders as text.
                 if let Some(raw) = value.as_number() {
                     dto.decoded_number = finite(Some(semantics.transform(raw)));
-                    if matches!(value, DecodedValue::Float(_))
-                        && m.scale.is_none()
-                        && m.value_offset.is_none()
-                    {
-                        dto.decoded_text = Some(crate::codec::number::render(
-                            raw,
-                            crate::codec::number::MAX_DECIMALS,
-                        ));
-                        dto.decimals = Some(crate::codec::number::MAX_DECIMALS);
+                    // A float32 carries its own fraction, so its places do
+                    // not come from the transform — an integral `scale: 64`
+                    // used to send it down the integer path and render
+                    // 9.257 as "9". See `NumberSemantics::float_decimals`.
+                    if matches!(value, DecodedValue::Float(_)) {
+                        dto.decoded_text = Some(semantics.render_float(raw));
+                        dto.decimals = Some(semantics.float_decimals());
                     } else {
                         dto.decoded_text = Some(semantics.render(raw));
                         dto.decimals = Some(semantics.decimals());
@@ -10009,5 +10055,289 @@ device:
   protocol: "ble"
 "#;
         assert!(setup_instructions(yaml.to_string()).is_none());
+    }
+
+    /// A number entity whose `set_value` command carries its value in a
+    /// float32 parameter (the Mousr's `move` shape).
+    const FLOAT_COMMAND_SETPOINT_YAML: &str = r#"
+device:
+  name: "Float Drive"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "UART"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          move:
+            description: "Drive"
+            template: [0x30, "{speed}", "{hold}", 0x32]
+            parameters:
+              speed:
+                type: "float32"
+                endianness: "little"
+              hold:
+                type: "float32"
+                default: 0.0
+entities:
+  - platform: number
+    name: Drive
+    min: -1
+    max: 1
+    step: 0.1
+    commands:
+      set_value: move
+"#;
+
+    /// A number entity that writes straight to a one-field float32
+    /// characteristic, declaring no bounds of its own.
+    const FLOAT_DIRECT_SETPOINT_YAML: &str = r#"
+device:
+  name: "Float Target"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Target"
+        properties: ["read", "write"]
+        format:
+          - offset: 0
+            length: 4
+            name: "target"
+            type: "float32"
+entities:
+  - platform: number
+    name: Target
+    command_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+"#;
+
+    #[test]
+    fn a_float32_setpoint_parameter_is_not_rounded_to_a_whole_number() {
+        // The entity path used to invert the transform and ROUND, which is
+        // right for an integer wire value and wrong for a float: 0.3 went out
+        // as 0.0, -0.7 as -1.0 and 0.5 as 1.0, while the typed-command path
+        // sent the same 0.5 as 0.5.
+        for value in [0.3_f64, -0.7, 0.5] {
+            let write = encode_entity_value(
+                FLOAT_COMMAND_SETPOINT_YAML.to_string(),
+                "Drive".to_string(),
+                None,
+                value,
+            )
+            .unwrap();
+            let mut want = vec![0x30];
+            want.extend_from_slice(&(value as f32).to_le_bytes());
+            want.extend_from_slice(&0.0_f32.to_le_bytes());
+            want.push(0x32);
+            assert_eq!(write.bytes, want, "setpoint {value}");
+        }
+        // And the two doors now agree about the same value.
+        let generic = encode_command(
+            Some(FLOAT_COMMAND_SETPOINT_YAML.to_string()),
+            None,
+            "6e400002-b5a3-f393-e0a9-e50e24dcca9e".to_string(),
+            "move".to_string(),
+            HashMap::from([("speed".to_string(), 0.5)]),
+        )
+        .unwrap();
+        let entity = encode_entity_value(
+            FLOAT_COMMAND_SETPOINT_YAML.to_string(),
+            "Drive".to_string(),
+            None,
+            0.5,
+        )
+        .unwrap();
+        assert_eq!(entity.bytes, generic);
+    }
+
+    #[test]
+    fn a_float32_direct_write_is_not_rounded_to_a_whole_number() {
+        for value in [23.5_f64, 0.1446, -1.5, 0.25] {
+            let write = encode_entity_value(
+                FLOAT_DIRECT_SETPOINT_YAML.to_string(),
+                "Target".to_string(),
+                None,
+                value,
+            )
+            .unwrap();
+            assert_eq!(
+                write.bytes,
+                (value as f32).to_le_bytes().to_vec(),
+                "setpoint {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_float32_direct_write_advertises_no_invented_bounds() {
+        // `ValueType::integer_range` gives a float32 ±2^53 — the widest
+        // integer every f64 holds exactly, a parse-time cap on the schema's
+        // integer `min`/`max`, not anything the device accepts. Shown as a
+        // setpoint range it put a slider from -9007199254740992 to
+        // 9007199254740992 on screen. With no bounds of its own declared, the
+        // entity has none to show.
+        let dto = load_device_spec(FLOAT_DIRECT_SETPOINT_YAML.to_string()).unwrap();
+        let entity = &dto.entities[0];
+        let action = entity
+            .actions
+            .iter()
+            .find(|a| a.role == "set_value")
+            .expect("the direct write still resolves");
+        assert_eq!(entity.setpoint_min, None);
+        assert_eq!(entity.setpoint_max, None);
+        assert_eq!(action.min, None);
+        assert_eq!(action.max, None);
+    }
+
+    #[test]
+    fn a_float32_with_an_integral_transform_keeps_its_decimals() {
+        // The 6-place rendering a bare float32 gets used to need BOTH scale
+        // and offset absent; an integral `scale: 64` sent the reading down
+        // the integer path, whose transform implies no places, so the Hot
+        // Wheels portal's 9.257 rendered "9" and `scale: 1.0` turned 0.1446
+        // into "0". A float's fraction is on the wire, not in its scale.
+        let yaml = |extra: &str| {
+            format!(
+                r#"
+device:
+  name: "Portal"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "af0a6ec7-0001-000c-84a0-91559fc6f0de"
+    name: "Portal"
+    characteristics:
+      - uuid: "af0a6ec7-0006-000c-84a0-91559fc6f0de"
+        name: "Speed"
+        properties: ["indicate"]
+        format:
+          - offset: 0
+            length: 4
+            name: "speed_raw"
+            type: "float32"
+            endianness: "little"{extra}
+"#
+            )
+        };
+        let bytes = vec![0xB0, 0x1C, 0x14, 0x3E]; // 0.14464068...
+        for (extra, text) in [
+            ("", "0.144641"),
+            ("\n            scale: 64", "9.257004"),
+            ("\n            scale: 1.0", "0.144641"),
+            ("\n            value_offset: 2", "2.144641"),
+            // A fractional transform's places are a floor, not a ceiling.
+            ("\n            scale: 0.5", "0.072320"),
+        ] {
+            let values = decode_value(
+                Some(yaml(extra)),
+                None,
+                "af0a6ec7-0006-000c-84a0-91559fc6f0de".to_string(),
+                bytes.clone(),
+            )
+            .unwrap();
+            assert_eq!(values[0].decoded_text.as_deref(), Some(text), "{extra}");
+            assert_eq!(
+                values[0].decimals,
+                Some(crate::codec::number::MAX_DECIMALS),
+                "{extra}"
+            );
+        }
+    }
+
+    /// An Orba-framed characteristic with entities and a locator bound to
+    /// it. Its commands encode only as several ordered writes.
+    const ORBA_ENTITY_YAML: &str = r#"
+device:
+  name: "Orba 2"
+  manufacturer: "Artiphon"
+  manufacturer_status: "shutdown"
+  protocol: "ble"
+services:
+  - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    name: "MIDI"
+    characteristics:
+      - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        name: "MIDI I/O"
+        properties: ["write", "notify"]
+        framing:
+          scheme: "orba_sysex_ble_midi"
+          max_chunk_size: 20
+        commands:
+          transport_play:
+            description: "Play"
+            value: [0x03, 0x07, 0x00, 0x02, 0x05]
+          transport_pause:
+            description: "Pause"
+            value: [0x03, 0x07, 0x00, 0x02, 0x06]
+          chirp:
+            description: "Make a sound"
+            value: [0x03, 0x01, 0x00, 0x03, 0x02]
+            locate: "sound"
+          set_tempo:
+            description: "Tempo"
+            template: [0x03, 0x07, 0x00, 0x07, "{tempo}"]
+            parameters:
+              tempo:
+                type: "uint16"
+                endianness: "big"
+                min: 1
+                max: 65535
+entities:
+  - platform: switch
+    name: Transport
+    commands:
+      turn_on: transport_play
+      turn_off: transport_pause
+  - platform: number
+    name: Tempo
+    min: 1
+    max: 300
+    commands:
+      set_value: set_tempo
+"#;
+
+    #[test]
+    fn a_multi_write_characteristic_offers_no_single_write_controls() {
+        // Every caller of an entity action, a group op or a locator sends ONE
+        // write through `encode_command`/`encode_entity_value`, and both
+        // refuse the Orba's framing. Offered, each was a button that could
+        // only fail. The typed-command browser sends through
+        // `encode_command_writes`, so the commands stay there.
+        let dto = load_device_spec(ORBA_ENTITY_YAML.to_string()).unwrap();
+        assert!(
+            dto.entities.iter().all(|e| e.actions.is_empty()),
+            "{:?}",
+            dto.entities
+        );
+        assert!(
+            encode_entity_value(ORBA_ENTITY_YAML.to_string(), "Tempo".into(), None, 120.0)
+                .unwrap_err()
+                .to_string()
+                .contains("no settable value"),
+            "refused at the gate, not at the framer"
+        );
+
+        let commands = &dto.services[0].characteristics[0].commands;
+        let chirp = commands.iter().find(|c| c.name == "chirp").unwrap();
+        assert_eq!(chirp.locate, None, "a locator is a one-write button");
+        assert!(commands.iter().all(|c| c.is_encodable));
+        let writes = encode_command_writes(
+            Some(ORBA_ENTITY_YAML.to_string()),
+            None,
+            "7772e5db-3868-4112-a1a9-f2669d106bf3".to_string(),
+            "chirp".to_string(),
+            HashMap::new(),
+        )
+        .unwrap();
+        assert!(writes.len() >= 2, "{writes:?}");
     }
 }

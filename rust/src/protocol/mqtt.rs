@@ -382,7 +382,9 @@ pub struct MqttRequest {
 ///   One rule, one implementation, one set of tests.
 /// - `body:` is a literal payload template, for the many device commands whose
 ///   payload is not JSON at all (a Hisense key press publishes the bare string
-///   `KEY_POWER`).
+///   `KEY_POWER`), and for the JSON that `arguments` cannot build (Sengled's
+///   payload is an ARRAY). Which of the two a body is decides how a value is
+///   written into it — see `json_shaped`.
 ///
 /// Neither means an empty payload, which is what a "please republish your
 /// state" poke sends.
@@ -421,13 +423,18 @@ pub fn render_command(
     let payload = if !command.arguments.is_empty() {
         crate::protocol::http::render_body(command, command_name, values)?
     } else if let Some(body) = command.body.as_deref() {
-        // Plain substitution, NOT the JSON escaping a `body` gets on the Kasa
-        // transport: this payload is a bare string as often as it is JSON, and
-        // escaping `KEY_POWER` into a non-JSON payload would corrupt any value
-        // carrying a quote or a backslash rather than protect it. A spec whose
-        // payload is JSON declares `arguments` and gets the typed, escaped
-        // path.
-        substitute_plain(body, command, command_name, values)?
+        // This payload is a bare string as often as it is JSON, and the two
+        // need opposite treatment. In JSON a `string` value must be escaped,
+        // or a quote in it closes the string and the rest is syntax: a stored
+        // Sengled `mac` of `AA","type":"reset",...` wrote members into the
+        // bulb's command. In a bare string there is no syntax to protect, and
+        // escaping `KEY_POWER`-style payloads would corrupt a value carrying a
+        // quote. So the body's own shape decides, as it does on HTTP.
+        if json_shaped(body, command) {
+            crate::protocol::kasa::substitute(body, command, command_name, values)?
+        } else {
+            substitute_plain(body, command, command_name, values)?
+        }
     } else {
         String::new()
     };
@@ -494,12 +501,31 @@ fn substitute_topic(
     })
 }
 
-/// Fill `{name}` placeholders in a payload.
+/// Whether a literal `body` is a JSON document, by its first non-space
+/// character: `[` or `{` is JSON, anything else a bare string.
 ///
-/// No ESCAPING, unlike the same field on the Kasa transport: this payload is a
-/// bare string as often as it is JSON, and escaping `KEY_POWER` would corrupt
-/// a value carrying a quote rather than protect it. A spec whose payload is
-/// JSON declares `arguments` and gets the typed, escaped path.
+/// The dispatch `http::render_literal_body` makes, with one difference the
+/// MQTT catalogue needs. A body OPENING with a declared `{name}` is a
+/// placeholder, not object syntax: Hisense's `set_volume` publishes `{volume}`
+/// as its whole payload, and `{id}|{secret}` is a bare string that happens to
+/// start with a brace. No JSON object starts that way (its first brace is
+/// followed by a quote, a space or `}`), so the test cannot misread one.
+fn json_shaped(body: &str, command: &SpecCommand) -> bool {
+    let trimmed = body.trim_start();
+    match trimmed.as_bytes().first() {
+        Some(b'[') => true,
+        Some(b'{') => !super::placeholder_name(trimmed)
+            .is_some_and(|name| command.parameters.contains_key(name)),
+        _ => false,
+    }
+}
+
+/// Fill `{name}` placeholders in a bare-string payload.
+///
+/// No ESCAPING, unlike a JSON body ([`json_shaped`], filled by
+/// `kasa::substitute`): a bare-string payload has no syntax to inject into,
+/// and escaping `KEY_POWER` would corrupt a value carrying a quote rather than
+/// protect it.
 ///
 /// A value IS validated against its parameter's declared type, which is the
 /// half escaping could not have covered anyway. Hisense's `set_volume`
@@ -517,8 +543,8 @@ fn substitute_topic(
 /// verbatim — a bare-string payload has no syntax to inject into.
 ///
 /// A brace naming something the command does not declare is left as written
-/// rather than refused — a JSON payload written as a `body` template is full
-/// of braces, and none of them are placeholders.
+/// rather than refused — the body is the author's text, and a brace in it
+/// need not be a placeholder (the JSON-shaped ones never reach here).
 fn substitute_plain(
     template: &str,
     command: &SpecCommand,
@@ -1044,6 +1070,81 @@ commands:
         assert_eq!(request.payload, r#"a"b\c"#);
     }
 
+    /// The Sengled shape: a JSON ARRAY written as a literal `body`, because
+    /// `arguments` can only build an object. Its `mac` is a stored credential
+    /// — whatever the bulb's provisioning reply said — and a `string` value
+    /// went into the template verbatim, so one carrying a quote closed the
+    /// `"dn"` string and wrote members of its own choosing into the command.
+    #[test]
+    fn a_string_value_in_a_json_body_is_escaped_not_pasted() {
+        const BULB: &str = r#"
+device:
+  name: "Test Bulb"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "light"
+  transport: "mqtt"
+commands:
+  turn_on:
+    description: "A JSON array body."
+    transport: "mqtt"
+    path: "wifielement/{mac}/update"
+    body: '[{"dn":"{mac}","type":"switch","value":"1","time":{time}}]'
+    parameters:
+      mac:
+        type: "string"
+        source: "credential:mac"
+      time:
+        type: "integer"
+        required: true
+  set_name:
+    description: "A JSON object body, padded."
+    transport: "mqtt"
+    path: "wifielement/name"
+    body: '  {"name":"{label}"}'
+    parameters:
+      label:
+        type: "string"
+        required: true
+"#;
+        let spec = parse_device_spec(BULB).expect("fixture parses");
+        let hostile = r#"AA","type":"reset","value":"1","x":""#;
+        let request = render_request(
+            &spec,
+            "turn_on",
+            &values(&[("mac", hostile), ("time", "1700000000000")]),
+        )
+        .expect("renders");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&request.payload).expect("the payload is still JSON");
+        let member = &parsed[0];
+        assert_eq!(member["dn"], hostile, "{}", request.payload);
+        assert_eq!(member["type"], "switch", "{}", request.payload);
+        assert_eq!(
+            member.as_object().map(|m| m.len()),
+            Some(4),
+            "no member may be added: {}",
+            request.payload
+        );
+
+        let request =
+            render_request(&spec, "set_name", &values(&[("label", r#"a"b\c"#)])).expect("renders");
+        assert_eq!(request.payload, r#"  {"name":"a\"b\\c"}"#);
+
+        // An ordinary MAC is untouched by the escaping.
+        let request = render_request(
+            &spec,
+            "turn_on",
+            &values(&[("mac", "B0:CE:18:00:00:01"), ("time", "5")]),
+        )
+        .expect("renders");
+        assert_eq!(
+            request.payload,
+            r#"[{"dn":"B0:CE:18:00:00:01","type":"switch","value":"1","time":5}]"#
+        );
+    }
+
     /// A topic placeholder the command never declared as a parameter would be
     /// left standing, and a publish to a topic containing a literal
     /// `{client_id}` succeeds while nothing happens — the worst kind of
@@ -1158,6 +1259,21 @@ commands:
         ]);
         let request = render_request(&spec, "poke", &values).expect("renders");
         assert_eq!(request.payload, r#"{"on": true, "id": "abc", "extra": {}}"#);
+    }
+
+    /// A body that OPENS with a brace is not therefore JSON: `{id}|{secret}`
+    /// opens with a placeholder, and is the bare-string payload it looks like.
+    /// Escaping it as though it were JSON would corrupt a value carrying a
+    /// quote rather than protect anything.
+    #[test]
+    fn a_bare_body_that_opens_with_a_placeholder_stays_verbatim() {
+        let spec = parse_device_spec(TWO_PARAMS).expect("fixture parses");
+        let values = BTreeMap::from([
+            ("id".to_string(), r#"a"b"#.to_string()),
+            ("secret".to_string(), r#"c\d"#.to_string()),
+        ]);
+        let request = render_request(&spec, "poke", &values).expect("renders");
+        assert_eq!(request.payload, r#"a"b|c\d"#);
     }
 
     /// An unclosed brace is the author's literal, the same reading the HTTP
