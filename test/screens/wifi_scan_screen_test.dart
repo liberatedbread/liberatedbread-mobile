@@ -860,9 +860,13 @@ void main() {
       );
     });
 
-    testWidgets('a connected HA without LocalThings offers only the install', (
+    testWidgets('a connected HA without LocalThings loaded offers both', (
       tester,
     ) async {
+      // /api/components lists LOADED integrations. LocalThings installed from
+      // HACS but with no appliance yet has no config entry, so Home Assistant
+      // has not loaded it and it is absent here — and the add flow is exactly
+      // what that user needs next, so it must not be hidden.
       final api = FakeHaApiClient()..components = {'http', 'smartthings'};
       await tester.pumpWidget(
         wrapWithHa(
@@ -875,7 +879,7 @@ void main() {
 
       expect(find.text('Take your Samsung appliances local'), findsOneWidget);
       expect(find.text('Get LocalThings'), findsOneWidget);
-      expect(find.text('Already installed? Add one'), findsNothing);
+      expect(find.text('Already installed? Add one'), findsOneWidget);
     });
 
     testWidgets('a Home Assistant that cannot answer still gets the advice', (

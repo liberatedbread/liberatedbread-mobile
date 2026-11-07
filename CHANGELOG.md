@@ -20,9 +20,10 @@ heading.
   [LocalThings](https://github.com/mbillow/localthings), the Home Assistant
   integration that runs Samsung appliances locally with no Samsung account.
   With Home Assistant connected, the app asks it over `GET /api/components`
-  whether `localthings` is loaded, then offers either the HACS install or the
-  instance's own `/_my_redirect/config_flow_start?domain=localthings` to add
-  an appliance. The scan now asks for `_home-assistant._tcp` by name, and the
+  whether `localthings` is loaded. Loaded: it offers the instance's own
+  `/_my_redirect/config_flow_start?domain=localthings` to add an appliance.
+  Not loaded: the HACS install and that same add flow, since a LocalThings
+  installed but with no appliance yet is not loaded either. The scan now asks for `_home-assistant._tcp` by name, and the
   hub's details sheet explains why the hub is identify-only and links
   LocalThings. `HaApiClient` gains `loadedComponents`.
 

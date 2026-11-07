@@ -19,7 +19,9 @@ import '../providers/localthings_provider.dart';
 ///
 /// When Home Assistant is connected the card asks it (over `/api/components`)
 /// whether LocalThings is already loaded, and turns from "get it" into "add
-/// an appliance" when it is.
+/// an appliance" when it is. "Not loaded" still offers the add flow beside
+/// the install link, because a freshly installed LocalThings with no
+/// appliance yet is not loaded either.
 class LocalThingsSuggestionCard extends ConsumerWidget {
   /// A Home Assistant this scan found over mDNS, as [homeAssistantUrlOf]
   /// resolved it. Null when the scan found none.
@@ -117,15 +119,15 @@ class LocalThingsSuggestionCard extends ConsumerWidget {
                     child: const Text('Add an appliance'),
                   )
                 else ...[
-                  // "Already have it?" only when nobody could say: a Home
-                  // Assistant that answered "not installed" has no appliance
-                  // flow to start.
-                  if (status != LocalThingsStatus.notInstalled)
-                    TextButton(
-                      style: TextButton.styleFrom(foregroundColor: foreground),
-                      onPressed: () => onOpen(addAppliance),
-                      child: const Text('Already installed? Add one'),
-                    ),
+                  // Offered even when Home Assistant answered without
+                  // LocalThings: it lists LOADED integrations, and one just
+                  // installed from HACS is not loaded until its first
+                  // appliance is added — through exactly this flow.
+                  TextButton(
+                    style: TextButton.styleFrom(foregroundColor: foreground),
+                    onPressed: () => onOpen(addAppliance),
+                    child: const Text('Already installed? Add one'),
+                  ),
                   TextButton(
                     style: TextButton.styleFrom(foregroundColor: foreground),
                     onPressed: () => onOpen(localThingsHacsUrl),
