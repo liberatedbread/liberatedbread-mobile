@@ -14,8 +14,8 @@
 use std::collections::HashMap;
 
 use liberated_bread_core::api::device_api::{
-    network_entities_for_state_keys, read_network_entity, read_network_entity_roles,
-    NetworkReadingKind, NetworkRoleReadingDto,
+    network_entities_for_device, network_entities_for_state_keys, read_network_entity,
+    read_network_entity_roles, NetworkReadingKind, NetworkRoleReadingDto,
 };
 
 const KASA: &str =
@@ -105,17 +105,22 @@ fn an_elgato_key_light_reads_on_brightness_and_colour_temperature() {
 
 #[test]
 fn an_elgato_reply_keeps_the_light_its_variant_probe_names() {
-    // The family's variants are told apart by what `lights[0]` carries:
-    // `temperature` is a CCT Key Light, `hue` without `scene` a Light Strip,
-    // `scene` a strip running one. Those probe paths step into the array,
-    // which the flatteners keep whole as its JSON text, and matched only as
-    // keys they never held — so after the first poll no light variant
-    // matched, and the Key Light's card left the screen beside Identify.
-    let surface = |lights: &str| {
-        let state = HashMap::from([(
-            "get_lights".to_string(),
-            returned(&[("numberOfLights", "1"), ("lights", lights)]),
-        )]);
+    // A Light Strip in white mode answers get_lights with on/brightness/
+    // temperature and no hue — a Key Light's exact shape — so the family is
+    // told apart by its settings (`powerOnHue` marks a colour-capable strip)
+    // and its accessory info (`productName`), never by the lights reply.
+    let surface = |settings: &[(&str, &str)], product: &str, lights: &str| {
+        let state = HashMap::from([
+            (
+                "get_lights".to_string(),
+                returned(&[("numberOfLights", "1"), ("lights", lights)]),
+            ),
+            ("get_light_settings".to_string(), returned(settings)),
+            (
+                "get_accessory_info".to_string(),
+                returned(&[("productName", product)]),
+            ),
+        ]);
         let mut names: Vec<String> = network_entities_for_state_keys(ELGATO.into(), vec![], state)
             .unwrap()
             .entities
@@ -125,32 +130,96 @@ fn an_elgato_reply_keeps_the_light_its_variant_probe_names() {
         names.sort();
         names
     };
-    // The spec's own worked CCT and HSV replies.
+    let key_light_settings = [("powerOnBrightness", "20"), ("powerOnTemperature", "213")];
+    let strip_settings = [
+        ("powerOnBrightness", "20"),
+        ("powerOnTemperature", "213"),
+        ("powerOnHue", "40.0"),
+        ("powerOnSaturation", "15.0"),
+    ];
+
     assert_eq!(
-        surface(r#"[{"on":1,"brightness":43,"temperature":221}]"#),
+        surface(
+            &key_light_settings,
+            "Elgato Key Light",
+            r#"[{"on":1,"brightness":43,"temperature":221}]"#
+        ),
         ["Identify", "Key Light"]
     );
+    // The strip in colour mode, and in white mode: the reply shape changes,
+    // the variant does not.
+    let strip = ["Identify", "Light Strip", "Light Strip Scene"];
     assert_eq!(
-        surface(r#"[{"on":1,"hue":200.0,"saturation":100.0,"brightness":50}]"#),
-        ["Identify", "Light Strip"]
+        surface(
+            &strip_settings,
+            "Elgato Light Strip",
+            r#"[{"on":1,"hue":200.0,"saturation":100.0,"brightness":50}]"#
+        ),
+        strip
     );
-    // A running scene: id/name/scene/numberOfSceneElements in place of the
-    // colour fields. Neither writable light claims it.
-    let scene = surface(
-        r#"[{"on":1,"brightness":30.5,"id":"sunrise","name":"Sunrise","numberOfSceneElements":1,"scene":[{"hue":10,"saturation":80,"brightness":100}]}]"#,
+    assert_eq!(
+        surface(
+            &strip_settings,
+            "Elgato Light Strip Pro",
+            r#"[{"on":1,"brightness":50,"temperature":200}]"#
+        ),
+        strip
     );
-    assert!(!scene.contains(&"Key Light".to_string()), "{scene:?}");
-    assert!(!scene.contains(&"Light Strip".to_string()), "{scene:?}");
-    // The HSV probe's keys_absent steps into the array too: should a scene
-    // reply also carry `hue`, the strip's writable entity, whose bare writes
-    // discard the scene, still stays off it.
-    let scene_with_hue = surface(r#"[{"on":1,"brightness":30,"hue":10,"scene":[]}]"#);
-    assert!(
-        !scene_with_hue.contains(&"Light Strip".to_string()),
-        "{scene_with_hue:?}"
+    // The spec's tie-break: a strip whose settings lack powerOnHue satisfies
+    // the CCT probe too, and both entities surface for the consumer to
+    // resolve toward Strip.
+    let both = surface(
+        &key_light_settings,
+        "Elgato Light Strip",
+        r#"[{"on":1,"brightness":50,"temperature":200}]"#,
     );
-    // An array the reply did not fill decides nothing.
-    assert_eq!(surface("[]"), ["Identify"]);
+    assert!(both.contains(&"Light Strip".to_string()), "{both:?}");
+    assert!(both.contains(&"Key Light".to_string()), "{both:?}");
+
+    // A probe whose reply never came decides nothing: the lights reply
+    // alone, which is all a screen polling only the entities' own state
+    // commands ever had, matches no light variant. This is why the surface
+    // names its probe commands (below).
+    let lights_only = HashMap::from([(
+        "get_lights".to_string(),
+        returned(&[("lights", r#"[{"on":1,"brightness":43,"temperature":221}]"#)]),
+    )]);
+    let names: Vec<String> = network_entities_for_state_keys(ELGATO.into(), vec![], lights_only)
+        .unwrap()
+        .entities
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+    assert_eq!(names, ["Identify"]);
+}
+
+#[test]
+fn the_elgato_surface_names_the_probe_commands_a_screen_must_poll() {
+    let surface = network_entities_for_device(ELGATO.into(), vec![]).unwrap();
+    let mut probes: Vec<(String, Option<String>)> = surface
+        .state_probes
+        .into_iter()
+        .map(|p| (p.command, p.transport))
+        .collect();
+    probes.sort();
+    let http = Some("http".to_string());
+    assert_eq!(
+        probes,
+        [
+            ("get_accessory_info".to_string(), http.clone()),
+            ("get_battery_info".to_string(), http.clone()),
+            ("get_light_settings".to_string(), http),
+        ]
+    );
+    // Neither of the light probes is an entity's state command: polling
+    // only those would never feed them.
+    let state_commands: Vec<String> = surface
+        .entities
+        .iter()
+        .map(|e| e.state_command.clone())
+        .collect();
+    assert!(!state_commands.contains(&"get_light_settings".to_string()));
+    assert!(!state_commands.contains(&"get_accessory_info".to_string()));
 }
 
 #[test]

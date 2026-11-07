@@ -1619,6 +1619,33 @@ fn probe_variant_names(spec: &DeviceSpec) -> Vec<String> {
         .collect()
 }
 
+/// The distinct commands the spec's `state_probe`s read, in declaration
+/// order — what a consumer must poll before [`entities_for_state_keys`] can
+/// decide a probe variant.
+///
+/// A probe need not read an entity's own state command. The Elgato family
+/// tells a white-only light from a Light Strip by `get_light_settings` and
+/// `get_accessory_info`, which no entity polls, because the strip's
+/// white-mode `get_lights` reply is a Key Light's exact shape. A consumer
+/// that polled only the entities' state commands handed the resolver no
+/// reply for either probe, so neither light variant matched and both lights
+/// left the screen after the first poll.
+pub fn probe_commands(spec: &DeviceSpec) -> Vec<&str> {
+    let mut commands: Vec<&str> = Vec::new();
+    for command in variant_entries(spec).filter_map(|variant| {
+        variant
+            .get("identification")?
+            .get("state_probe")?
+            .get("command")?
+            .as_str()
+    }) {
+        if !commands.contains(&command) {
+            commands.push(command);
+        }
+    }
+    commands
+}
+
 /// Names of the probe variants whose declared conditions hold against the
 /// reply: every `keys_present` path present, every `keys_absent` path
 /// absent, and every `value_contains` entry's value carrying its substring —

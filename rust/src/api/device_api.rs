@@ -2250,6 +2250,22 @@ fn resolve_query_source(
 pub struct NetworkEntitySurfaceDto {
     pub entities: Vec<NetworkEntityDto>,
     pub hidden_names: Vec<String>,
+    /// The state commands the spec's variant probes read, which the caller
+    /// must poll alongside the entities' own before the post-poll surface
+    /// ([`network_entities_for_state_keys`]) can decide a probe variant.
+    /// Empty for a spec with no probes, and for a handler-owned surface.
+    pub state_probes: Vec<NetworkStateProbeDto>,
+}
+
+/// One command a variant `state_probe` reads, with the transport its poll
+/// rides. A probe command need not be any entity's state command (the
+/// Elgato family's `get_accessory_info`), so the caller cannot borrow an
+/// entity's transport for it.
+#[derive(Debug, Clone)]
+pub struct NetworkStateProbeDto {
+    pub command: String,
+    /// The command's declared transport; None when it declares none.
+    pub transport: Option<String>,
 }
 
 /// The controls a spec declares for one discovered network device.
@@ -2297,6 +2313,7 @@ fn network_surface_for(
         return Ok(NetworkEntitySurfaceDto {
             entities: Vec::new(),
             hidden_names: spec.entities.iter().map(|e| e.name.clone()).collect(),
+            state_probes: Vec::new(),
         });
     }
     // LIFX is driven by a dedicated binary-UDP handler, not the generic
@@ -2412,9 +2429,17 @@ fn network_surface_for(
         .filter(|e| !entities.iter().any(|dto| dto.name == e.name))
         .map(|e| e.name.clone())
         .collect();
+    let state_probes = bindings::probe_commands(&spec)
+        .into_iter()
+        .map(|command| NetworkStateProbeDto {
+            command: command.to_string(),
+            transport: bindings::transport_of_command(&spec, command).map(str::to_string),
+        })
+        .collect();
     Ok(NetworkEntitySurfaceDto {
         entities,
         hidden_names,
+        state_probes,
     })
 }
 
@@ -2429,9 +2454,11 @@ fn handler_surface(spec: &DeviceSpec, entities: Vec<NetworkEntityDto>) -> Networ
         .filter(|e| !entities.iter().any(|dto| dto.name == e.name))
         .map(|e| e.name.clone())
         .collect();
+    // The handler owns its surface and polls (or listens) on its own terms.
     NetworkEntitySurfaceDto {
         entities,
         hidden_names,
+        state_probes: Vec::new(),
     }
 }
 

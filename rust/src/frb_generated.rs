@@ -8299,6 +8299,20 @@ impl SseDecode for Vec<crate::api::device_api::NetworkSourceParamDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::NetworkStateProbeDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::NetworkStateProbeDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::ParameterDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -9066,9 +9080,12 @@ impl SseDecode for crate::api::device_api::NetworkEntitySurfaceDto {
         let mut var_entities =
             <Vec<crate::api::device_api::NetworkEntityDto>>::sse_decode(deserializer);
         let mut var_hiddenNames = <Vec<String>>::sse_decode(deserializer);
+        let mut var_stateProbes =
+            <Vec<crate::api::device_api::NetworkStateProbeDto>>::sse_decode(deserializer);
         return crate::api::device_api::NetworkEntitySurfaceDto {
             entities: var_entities,
             hidden_names: var_hiddenNames,
+            state_probes: var_stateProbes,
         };
     }
 }
@@ -9164,6 +9181,18 @@ impl SseDecode for crate::api::device_api::NetworkSourceParamDto {
         return crate::api::device_api::NetworkSourceParamDto {
             param: var_param,
             name: var_name,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::NetworkStateProbeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_command = <String>::sse_decode(deserializer);
+        let mut var_transport = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::NetworkStateProbeDto {
+            command: var_command,
+            transport: var_transport,
         };
     }
 }
@@ -12708,6 +12737,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkEntitySurf
         [
             self.entities.into_into_dart().into_dart(),
             self.hidden_names.into_into_dart().into_dart(),
+            self.state_probes.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -12874,6 +12904,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::NetworkSourcePara
     for crate::api::device_api::NetworkSourceParamDto
 {
     fn into_into_dart(self) -> crate::api::device_api::NetworkSourceParamDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkStateProbeDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.command.into_into_dart().into_dart(),
+            self.transport.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::NetworkStateProbeDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::NetworkStateProbeDto>
+    for crate::api::device_api::NetworkStateProbeDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::NetworkStateProbeDto {
         self
     }
 }
@@ -14980,6 +15031,16 @@ impl SseEncode for Vec<crate::api::device_api::NetworkSourceParamDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::NetworkStateProbeDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::NetworkStateProbeDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::ParameterDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -15530,6 +15591,10 @@ impl SseEncode for crate::api::device_api::NetworkEntitySurfaceDto {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <Vec<crate::api::device_api::NetworkEntityDto>>::sse_encode(self.entities, serializer);
         <Vec<String>>::sse_encode(self.hidden_names, serializer);
+        <Vec<crate::api::device_api::NetworkStateProbeDto>>::sse_encode(
+            self.state_probes,
+            serializer,
+        );
     }
 }
 
@@ -15601,6 +15666,14 @@ impl SseEncode for crate::api::device_api::NetworkSourceParamDto {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.param, serializer);
         <String>::sse_encode(self.name, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::NetworkStateProbeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.command, serializer);
+        <Option<String>>::sse_encode(self.transport, serializer);
     }
 }
 

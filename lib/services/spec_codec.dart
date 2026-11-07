@@ -50,6 +50,7 @@ export '../src/rust/api/device_api.dart'
         ProfileCharacteristicDto,
         NetworkEntityDto,
         NetworkEntitySurfaceDto,
+        NetworkStateProbeDto,
         NetworkCapabilitiesDto,
         NetworkCredentialDto,
         NetworkCredentialIssuanceDto,

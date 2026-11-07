@@ -8217,6 +8217,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<NetworkStateProbeDto> dco_decode_list_network_state_probe_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_network_state_probe_dto)
+        .toList();
+  }
+
+  @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_parameter_dto).toList();
@@ -8704,11 +8714,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkEntitySurfaceDto dco_decode_network_entity_surface_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return NetworkEntitySurfaceDto(
       entities: dco_decode_list_network_entity_dto(arr[0]),
       hiddenNames: dco_decode_list_String(arr[1]),
+      stateProbes: dco_decode_list_network_state_probe_dto(arr[2]),
     );
   }
 
@@ -8791,6 +8802,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return NetworkSourceParamDto(
       param: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  NetworkStateProbeDto dco_decode_network_state_probe_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return NetworkStateProbeDto(
+      command: dco_decode_String(arr[0]),
+      transport: dco_decode_opt_String(arr[1]),
     );
   }
 
@@ -11406,6 +11429,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<NetworkStateProbeDto> sse_decode_list_network_state_probe_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <NetworkStateProbeDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_network_state_probe_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ParameterDto> sse_decode_list_parameter_dto(
     SseDeserializer deserializer,
   ) {
@@ -12138,9 +12175,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_entities = sse_decode_list_network_entity_dto(deserializer);
     var var_hiddenNames = sse_decode_list_String(deserializer);
+    var var_stateProbes = sse_decode_list_network_state_probe_dto(deserializer);
     return NetworkEntitySurfaceDto(
       entities: var_entities,
       hiddenNames: var_hiddenNames,
+      stateProbes: var_stateProbes,
     );
   }
 
@@ -12223,6 +12262,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_param = sse_decode_String(deserializer);
     var var_name = sse_decode_String(deserializer);
     return NetworkSourceParamDto(param: var_param, name: var_name);
+  }
+
+  @protected
+  NetworkStateProbeDto sse_decode_network_state_probe_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_command = sse_decode_String(deserializer);
+    var var_transport = sse_decode_opt_String(deserializer);
+    return NetworkStateProbeDto(command: var_command, transport: var_transport);
   }
 
   @protected
@@ -14872,6 +14921,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_network_state_probe_dto(
+    List<NetworkStateProbeDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_network_state_probe_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_parameter_dto(
     List<ParameterDto> self,
     SseSerializer serializer,
@@ -15502,6 +15563,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_network_entity_dto(self.entities, serializer);
     sse_encode_list_String(self.hiddenNames, serializer);
+    sse_encode_list_network_state_probe_dto(self.stateProbes, serializer);
   }
 
   @protected
@@ -15575,6 +15637,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.param, serializer);
     sse_encode_String(self.name, serializer);
+  }
+
+  @protected
+  void sse_encode_network_state_probe_dto(
+    NetworkStateProbeDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.command, serializer);
+    sse_encode_opt_String(self.transport, serializer);
   }
 
   @protected

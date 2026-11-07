@@ -61,6 +61,7 @@
 		<string>_adb-tls-pairing._tcp</string>
 		<string>_adb._tcp</string>
 		<string>_airplay._tcp</string>
+		<string>_airport._tcp</string>
 		<string>_androidtvremote2._tcp</string>
 		<string>_ankivector._tcp</string>
 		<string>_aqara._tcp</string>
@@ -95,6 +96,7 @@
 		<string>_smartthings-hedge._tcp</string>
 		<string>_smartthings._tcp</string>
 		<string>_snapmaker._tcp</string>
+		<string>_solaredge-modbus._tcp</string>
 		<string>_soundtouch._tcp</string>
 		<string>_spotify-connect._tcp</string>
 		<string>_tivo-remote._tcp</string>
