@@ -3012,6 +3012,131 @@ void main() {
     );
   });
 
+  group('variant probes on commands no entity polls (Elgato)', () {
+    final elgatoDevice = NetworkDevice(
+      host: '10.0.0.12',
+      name: 'Elgato Light Strip',
+      port: 9123,
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    NetworkEntityDto light(String name) => NetworkEntityDto(
+      name: name,
+      platform: 'light',
+      stateCommand: 'get_lights',
+      transport: 'http',
+      options: const [],
+      isInstanced: false,
+      actions: const [],
+    );
+
+    // The spec tells a white-only light from a strip by its settings and
+    // accessory info: a strip in white mode answers get_lights exactly as a
+    // Key Light does. Neither probe command is any entity's state command.
+    const probes = [
+      NetworkStateProbeDto(command: 'get_light_settings', transport: 'http'),
+      NetworkStateProbeDto(command: 'get_accessory_info', transport: 'http'),
+    ];
+    const paths = {
+      'get_lights': '/elgato/lights',
+      'get_light_settings': '/elgato/lights/settings',
+      'get_accessory_info': '/elgato/accessory-info',
+    };
+
+    testWidgets('the first poll reads the probes, and the strip stays on '
+        'screen', (tester) async {
+      final received = <String>[];
+      final optimistic = [light('Key Light'), light('Light Strip')];
+      codec = FakeSpecCodec(
+        networkEntities: (_) => optimistic,
+        networkStateProbes: probes,
+        networkHttpRequest: (name, _) =>
+            HttpRequestDto(method: 'GET', path: paths[name]!, body: ''),
+        // The real resolver's contract (rust/tests/network_light_state.rs):
+        // a probe with no reply matches nothing.
+        networkEntitiesForState: (replies) => [
+          if (replies['get_accessory_info']?['productName']?.contains(
+                'Light Strip',
+              ) ??
+              false)
+            light('Light Strip')
+          else if (replies['get_light_settings']?.containsKey(
+                'powerOnTemperature',
+              ) ??
+              false)
+            light('Key Light'),
+        ],
+      );
+      final elgato = MockClient((request) async {
+        received.add(request.url.path);
+        return http.Response(switch (request.url.path) {
+          '/elgato/lights/settings' =>
+            '{"powerOnBrightness":20,"powerOnTemperature":213,'
+                '"powerOnHue":40.0,"powerOnSaturation":15.0}',
+          '/elgato/accessory-info' => '{"productName":"Elgato Light Strip"}',
+          _ =>
+            '{"numberOfLights":1,'
+                '"lights":[{"on":1,"brightness":50,"temperature":200}]}',
+        }, 200);
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(
+              SoapControlClient(
+                httpClient: MockClient(
+                  (r) async =>
+                      fail('fetched a description for an Elgato: ${r.url}'),
+                ),
+              ),
+            ),
+            httpControlClientProvider.overrideWithValue(
+              HttpControlClient(httpClient: elgato),
+            ),
+            ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+          ],
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NetworkDeviceScreen(
+              device: elgatoDevice,
+              controls: NetworkControls(
+                specYaml: 'yaml',
+                entities: optimistic,
+                stateProbes: probes,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(received.toSet(), {
+        '/elgato/lights',
+        '/elgato/lights/settings',
+        '/elgato/accessory-info',
+      }, reason: 'the first round must feed every probe');
+      final refined = codec.networkEntitiesForStateKeysCalls.single;
+      expect(refined.keys, containsAll(paths.keys));
+      expect(find.text('Light Strip'), findsOneWidget);
+      expect(find.text('Key Light'), findsNothing);
+
+      // Settled: the variant cannot change while the screen is open, so the
+      // background poll goes back to the entities' own state command alone.
+      received.clear();
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+      expect(received, ['/elgato/lights']);
+      expect(find.text('Light Strip'), findsOneWidget);
+    });
+  });
+
   // ── A device that needs something before it can be driven ───────────────
   //
   // A `credential:` parameter is a value the client was GIVEN — a printer's

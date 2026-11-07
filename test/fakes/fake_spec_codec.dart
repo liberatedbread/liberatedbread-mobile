@@ -118,6 +118,9 @@ class FakeSpecCodec implements SpecCodec {
   /// declared controls the resolver could not offer.
   final List<String> networkHiddenNames;
 
+  /// The variant-probe commands both network surfaces carry.
+  final List<NetworkStateProbeDto> networkStateProbes;
+
   /// Returned by [networkCapabilities]; null answers an empty capability set.
   final NetworkCapabilitiesDto? networkCapabilitiesResult;
 
@@ -254,6 +257,7 @@ class FakeSpecCodec implements SpecCodec {
     this.networkEntities,
     this.networkCredentials = const [],
     this.networkHiddenNames = const [],
+    this.networkStateProbes = const [],
     this.cameraResult,
     this.networkCapabilitiesResult,
     this.networkEntitiesForState,
@@ -497,6 +501,7 @@ class FakeSpecCodec implements SpecCodec {
   }) async => NetworkEntitySurfaceDto(
     entities: networkEntities?.call(ssdpTargets) ?? const [],
     hiddenNames: networkHiddenNames,
+    stateProbes: networkStateProbes,
   );
 
   @override
@@ -510,6 +515,7 @@ class FakeSpecCodec implements SpecCodec {
     return NetworkEntitySurfaceDto(
       entities: refined ?? networkEntities?.call(ssdpTargets) ?? const [],
       hiddenNames: networkHiddenNames,
+      stateProbes: networkStateProbes,
     );
   }
 

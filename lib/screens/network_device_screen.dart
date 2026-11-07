@@ -423,6 +423,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       .where((command) => command.isNotEmpty)
       .toSet();
 
+  /// What one poll round asks: the entities' state commands, plus — until
+  /// [_refineSurface] has settled the surface — every command a variant
+  /// probe reads. A probe can read a command no entity polls (the Elgato
+  /// family tells a Light Strip from a Key Light by `get_accessory_info` and
+  /// `get_light_settings`), and a probe with no reply matches nothing, so
+  /// refining on the entities' replies alone dropped every probe-scoped
+  /// light from the screen. Once settled the variant cannot change while
+  /// the screen is open, so later rounds skip the probe-only commands.
+  Set<String> get _pollCommands => {
+    ..._stateCommands,
+    if (!_surfaceRefined)
+      for (final probe in widget.controls.stateProbes) probe.command,
+  };
+
   /// Whether this device is driven over the Kasa TCP-JSON transport rather than
   /// SOAP/HTTP. It has no `setup.xml` and no UPnP control URLs; state and sends
   /// go over a raw socket instead, so the load and refresh paths fork on it.
@@ -503,7 +517,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       if (entity.actions.isEmpty) return transport;
       fromActions ??= transport;
     }
-    return fromActions;
+    // A probe-only command has no entity to borrow a transport from; the
+    // surface carries the one it declares.
+    return fromActions ??
+        widget.controls.stateProbes
+            .where((probe) => probe.command == command)
+            .map((probe) => probe.transport)
+            .firstOrNull;
   }
 
   /// Whether this device's readings arrive over MQTT — a Roomba, a Hisense
@@ -866,7 +886,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     Object? firstFailure;
     StackTrace? firstTrace;
     var anySucceeded = false;
-    for (final command in _stateCommands) {
+    for (final command in _pollCommands) {
       try {
         if (await _pollStateCommand(
           command,
@@ -989,7 +1009,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final codec = ref.read(specCodecProvider);
     final client = ref.read(kasaControlClientProvider);
 
-    for (final command in _stateCommands) {
+    for (final command in _pollCommands) {
       final request = await codec.renderNetworkKasaStateRequest(
         specYaml: widget.controls.specYaml,
         stateCommand: command,

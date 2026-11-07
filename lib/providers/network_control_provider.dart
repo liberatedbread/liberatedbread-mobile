@@ -336,12 +336,21 @@ class NetworkControls {
   /// sheet.
   final String? rasterPrintHandler;
 
+  /// The state commands the spec's variant probes read. The screen polls
+  /// these with the entities' own state commands until the surface has
+  /// settled on the replies: a probe can read a command no entity polls (the
+  /// Elgato family's `get_accessory_info`), and a probe with no reply matches
+  /// nothing, so polling only the entities' commands dropped every probe-
+  /// scoped light from the screen after the first poll.
+  final List<NetworkStateProbeDto> stateProbes;
+
   const NetworkControls({
     required this.specYaml,
     required this.entities,
     this.hiddenNames = const [],
     this.capabilities,
     this.rasterPrintHandler,
+    this.stateProbes = const [],
   });
 
   /// Whether these controls describe a hub — a device fronting children that
@@ -403,6 +412,7 @@ final networkControlsProvider = FutureProvider.autoDispose
           hiddenNames: surface.hiddenNames,
           capabilities: await codec.networkCapabilities(specYaml: spec.yaml),
           rasterPrintHandler: rasterPrintHandler,
+          stateProbes: surface.stateProbes,
         );
       } catch (e) {
         Log.spec.warning(

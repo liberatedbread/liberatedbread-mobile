@@ -41,8 +41,74 @@ _stamp() {
   _tprev=$now
   STAMP="$(printf '%3dm%02ds (+%3ds)' $((tot / 60)) $((tot % 60)) "$d")"
 }
-log()  { _stamp; printf '\033[1;32m[test]\033[0m %s %s\n' "$STAMP" "$*"; }
-warn() { _stamp; printf '\033[1;33m[test]\033[0m %s %s\n' "$STAMP" "$*"; }
+# The step a failure is attributed to: every `log` line names the step that
+# follows it, so whatever `log` said last is what was running when `set -e`
+# fired. "FAILED: cargo" alone sent the reader scrolling through three replayed
+# legs to find out which of fmt, clippy or test it was, and which test.
+CURRENT_STEP="(before the first step)"
+
+# The helpers' own lines are left out of the trace below: each `log` would
+# otherwise add half a dozen `+ printf`/`+ local` lines around the one line it
+# prints. `{ ...; } 2>/dev/null` hides the `set +x` itself, and tracing is
+# restored only when it was on (an `if`, not `&&`, so a helper never returns
+# non-zero under `set -e`).
+_quiet_begin() { _was_tracing=0; [[ $- == *x* ]] && _was_tracing=1; return 0; }
+log() {
+  { _quiet_begin; set +x; } 2>/dev/null
+  _stamp; printf '\033[1;32m[test]\033[0m %s %s\n' "$STAMP" "$*"
+  CURRENT_STEP="$*"
+  if (( _was_tracing )); then set -x; fi
+}
+warn() {
+  { _quiet_begin; set +x; } 2>/dev/null
+  _stamp; printf '\033[1;33m[test]\033[0m %s %s\n' "$STAMP" "$*"
+  if (( _was_tracing )); then set -x; fi
+}
+fail_line() { printf '\033[1;31m[test]\033[0m %s\n' "$*" >&2; }
+
+# What a failed step left in its log worth repeating at the bottom: the tests
+# that failed, and cargo's own rerun hint. The leg's whole log has just been
+# replayed above the summary; this is the part a reader was going to search it
+# for. `tr '\r'`: flutter's compact reporter redraws one status line with
+# carriage returns, so a failed test's `[E]` sits mid-line in the file.
+_failure_digest() {
+  local log=$1
+  [[ -f "$log" ]] || return 0
+  tr '\r' '\n' < "$log" | grep -E \
+    -e '^test .* \.\.\. FAILED$' \
+    -e '^error: test failed, to rerun pass' \
+    -e '^error(\[E[0-9]+\])?: ' \
+    -e '\[E\]$' \
+    | sed -E 's/^[0-9]+:[0-9]+ \+[0-9]+( ~[0-9]+)?( -[0-9]+)?: //' \
+    | awk '!seen[$0]++' | head -20 || true
+}
+
+# A failure anywhere outside the parallel legs (a gate step, or a leg under
+# LB_TEST_SERIAL=1) ends the script through `set -e` with nothing but the
+# failing tool's own output. Say which step it was and how it exited.
+_FAILURE_REPORTED=0
+_on_exit() {
+  local rc=$1
+  (( rc == 0 || _FAILURE_REPORTED )) && return 0
+  if (( rc == 130 )); then
+    fail_line "INTERRUPTED during: ${CURRENT_STEP}"
+  else
+    fail_line "FAILED (exit $rc) during: ${CURRENT_STEP}"
+  fi
+}
+# $? is taken, and tracing dropped, inside a silenced group: as a plain first
+# line of the handler each would be traced itself.
+_rc=0
+trap '{ _rc=$?; set +x; } 2>/dev/null; _on_exit "$_rc"' EXIT
+
+# Trace every command the script runs, with the file and line it came from,
+# so a failure's exact command line (variables expanded) is in the log beside
+# its output. Child scripts are not traced (xtrace is not exported), which
+# keeps it to this file's own commands. LB_TEST_TRACE=0 turns it off.
+if [[ "${LB_TEST_TRACE:-1}" != "0" ]]; then
+  PS4='+ ${BASH_SOURCE[0]##*/}:${LINENO}: '
+  set -x
+fi
 
 # CI regenerates the flutter_rust_bridge bindings and fails if the committed
 # ones differ, so a change to rust/src/api/ that was never re-generated is a
@@ -286,6 +352,18 @@ log "cargo test --locked --all-features"
 (cd rust && cargo test --locked --all-features)
 }
 
+# A leg subshell's EXIT trap, handed the leg's exit status.
+_leg_closed() {
+  local rc=$1 name=$2 t=$3 dir=$4
+  if (( rc == 0 )); then
+    printf '\033[1;32m[test]\033[0m %s leg took %ds\n' "$name" $((SECONDS - t))
+  else
+    printf '\033[1;31m[test]\033[0m %s leg FAILED after %ds (exit %d) during: %s\n' \
+      "$name" $((SECONDS - t)) "$rc" "$CURRENT_STEP"
+    printf '%s\n%s\n' "$rc" "$CURRENT_STEP" > "$dir/$name.failed"
+  fi
+}
+
 run_legs() {
   local -a names=(selftests cargo dart)
   local -a pids=()
@@ -311,8 +389,15 @@ run_legs() {
     # The leg closes its own log with the time it took: the header printed
     # below is written when the leg is REPLAYED, and the interval between
     # two replays is the wait, not the work.
-    ( t=$SECONDS; "leg_$name"; rc=$?
-      printf '\033[1;32m[test]\033[0m %s leg took %ds\n' "$name" $((SECONDS - t)); exit "$rc" ) \
+    #
+    # Closed from an EXIT trap rather than after the call: under `set -e` a
+    # failing step ends the subshell right there, so a line after the call
+    # never ran for a failed leg — the one leg whose duration and failing
+    # step the reader wanted. The trap records both for the summary.
+    ( t=$SECONDS
+      # shellcheck disable=SC2064  # $name, $t and $dir are meant to expand now
+      trap "{ _rc=\$?; set +x; } 2>/dev/null; _leg_closed \$_rc '$name' '$t' '$dir'" EXIT
+      "leg_$name" ) \
       < /dev/null > "$dir/$name.log" 2>&1 &
     pids+=("$!")
   done
@@ -331,11 +416,26 @@ run_legs() {
     cat "$dir/${names[$i]}.log"
   done
   trap - INT TERM
-  rm -rf "$dir"
   if (( ${#failed[@]} )); then
-    printf '\033[1;31m[test]\033[0m FAILED: %s\n' "${failed[*]}" >&2
+    # The summary is this script talking, not a step running: untraced.
+    { set +x; } 2>/dev/null
+    fail_line "FAILED: ${#failed[@]} of ${#names[@]} legs (${failed[*]})"
+    local rc step line
+    for name in "${failed[@]}"; do
+      rc="?" step="(unknown: the leg died before its first step was logged)"
+      if [[ -f "$dir/$name.failed" ]]; then
+        { read -r rc; read -r step; } < "$dir/$name.failed"
+      fi
+      fail_line "  $name leg: step \"$step\" exited $rc (its log is replayed above, under \"── $name leg ──\")"
+      while IFS= read -r line; do
+        fail_line "      $line"
+      done < <(_failure_digest "$dir/$name.log")
+    done
+    rm -rf "$dir"
+    _FAILURE_REPORTED=1
     return 1
   fi
+  rm -rf "$dir"
 }
 
 run_legs
