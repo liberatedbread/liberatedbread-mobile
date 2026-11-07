@@ -193,9 +193,27 @@ For iOS, the runbook's Steps 1–4 must already be complete. Then build and veri
 ```bash
 ./scripts/release.sh android   # -> build/app/outputs/bundle/release/app-release.aab
 ./scripts/release.sh ios       # -> build/ios/ipa/*.ipa
-jarsigner -verify --strict build/app/outputs/bundle/release/app-release.aab
 ./scripts/verify_ios_app.sh build/ios/ipa/*.ipa
+(
+  set -e
+  read -r -s -p 'Android upload keystore password: ' \
+    ANDROID_UPLOAD_STORE_PASSWORD
+  printf '\n'
+  export ANDROID_UPLOAD_STORE_PASSWORD
+  jarsigner -verify --strict \
+    -keystore /absolute/path/to/upload-keystore.jks \
+    -storepass:env ANDROID_UPLOAD_STORE_PASSWORD \
+    build/app/outputs/bundle/release/app-release.aab upload
+)
 ```
+
+For `jarsigner`, use `storeFile`, `storePassword` and `keyAlias` from
+`android/key.properties`; replace the example path and trailing `upload` if
+yours differ. The keystore is the trust source for the self-signed upload
+certificate, and the alias makes a bundle signed by another key fail the check.
+The subshell keeps the password out of shell history and command arguments,
+then discards it. Without the keystore, `--strict` rejects the self-signed
+certificate even though its signature is valid.
 
 Record each artifact's SHA-256 and the build number printed by `release.sh`.
 The iOS verifier checks the bundle id, permission declarations, Rust FFI symbols
