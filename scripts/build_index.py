@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import jsonschema
 import yaml
@@ -80,11 +80,29 @@ def load_yaml(path: Path) -> Dict[str, Any]:
     return data
 
 
+# The checked validator for the schema object last validated against.
+# `check_schema` validates the whole schema against its metaschema and was
+# run once PER SPEC: about 0.4 s each, which made `--check` and the tests that
+# sweep the catalogue spend minutes re-proving the same schema 200 times.
+# One slot, not a map: a long-lived caller (the `mkdocs serve` hook loads a
+# fresh schema on every rebuild) would otherwise keep every schema it ever
+# loaded. Matched by identity, and the schema is held so its id cannot be
+# reused; a schema dict is never mutated after load_schema() returns it.
+_VALIDATOR: Optional[Tuple[Dict[str, Any], Any]] = None
+
+
+def _validator_for(schema: Dict[str, Any]) -> Any:
+    global _VALIDATOR
+    if _VALIDATOR is None or _VALIDATOR[0] is not schema:
+        validator_cls = jsonschema.validators.validator_for(schema)
+        validator_cls.check_schema(schema)
+        _VALIDATOR = (schema, validator_cls(schema))
+    return _VALIDATOR[1]
+
+
 def validate_spec(spec: Dict[str, Any], schema: Dict[str, Any], path: Path) -> None:
     """Validate *spec* against *schema*; raise on failure."""
-    validator_cls = jsonschema.validators.validator_for(schema)
-    validator_cls.check_schema(schema)
-    errors = list(validator_cls(schema).iter_errors(spec))
+    errors = list(_validator_for(schema).iter_errors(spec))
     if errors:
         lines = [f"Validation failed for {path.relative_to(REPO_ROOT)}:"]
         for err in errors:

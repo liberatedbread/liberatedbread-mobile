@@ -364,8 +364,8 @@ protocol_details:
         commands work.
       button_frame_template: 'type:button\nname:{button}\n\n'
     power:
-      off: "ssap://system/turnOff — a normal request frame; the TV drops the socket as it shuts down, so do not wait for the response."
-      on: >
+      "off": "ssap://system/turnOff — a normal request frame; the TV drops the socket as it shuts down, so do not wait for the response."
+      "on": >
         There is no network power-on: ssap://system/turnOn is listed by
         bscpylgtv among the URIs firmware removed. Wake is Wake-on-LAN — a
         magic packet to the subnet broadcast — and it is gated on the TV:
@@ -988,3 +988,194 @@ entities:
     name: "Current Channel"
     state_topic: "ssap://tv/getCurrentChannel"
     notes: "Meaningful only while Live TV is foreground."
+
+# What the TV reaches out to, and what blocking each costs. Local control over
+# SSAP needs none of it; the reason to write this down is that a firmware
+# update is what closes the root exploits and moves the SSAP surface, and the
+# obvious move -- block every lge.com name -- takes the TV's clock with it.
+# `egress` is what scripts/generate_blocklists.py renders into DNS lists.
+cloud:
+  required: false
+  vendor_service: "LG webOS services: the firmware update service (SNU), the Service Delivery Platform (SDP: Content Store and the TV's clock), LG Smart Ad"
+  failure_mode: >
+    Nothing this spec documents: SSAP control stays on the LAN. What the
+    cloud carries is the TV's clock (from the SDP, not NTP), the Content
+    Store and app updates, firmware updates, ads and viewing telemetry — so
+    blocking everything costs the clock and the store, not just the ads.
+    Staying on old firmware can itself eventually restrict Content Store
+    installs, per RootMyTV.
+  egress:
+    # --- Firmware updates. The four names the Homebrew Channel's own
+    # "Block system updates" option points at localhost.
+    - host: "snu.lge.com"
+      contacted_by: "device"
+      roles: ["firmware_check"]
+      when_blocked:
+        impact: "none"
+        effect: >
+          The TV cannot check for firmware. A pending-update prompt may still
+          appear at every boot (reported with the Homebrew Channel's hosts-file
+          block on, which one tester says applies only after the boot-time
+          check): decline it, and keep the TV's own automatic updates off.
+      verification: "reported"
+      basis: >
+        One of the four names the webOS Homebrew Channel's "Block system
+        updates" option writes into the TV's hosts file
+        (webosbrew/webos-homebrew-channel services/startup.sh), the option
+        RootMyTV's post-install advice tells owners to use. webos-unclutter's
+        list labels it the update check.
+    - host: "su.lge.com"
+      contacted_by: "device"
+      roles: ["firmware_download"]
+      when_blocked:
+        impact: "none"
+        effect: "No firmware image can be fetched from this name."
+      verification: "reported"
+      basis: >
+        Blocked by the Homebrew Channel option alongside snu.lge.com, and
+        redirected by openlgtv's nsu_emu update-server emulator. Which of
+        su./su-ssl. carries the image on a given generation is not
+        established; both are listed.
+    - host: "su-ssl.lge.com"
+      contacted_by: "device"
+      roles: ["firmware_download"]
+      when_blocked:
+        impact: "none"
+        effect: "No firmware image can be fetched from this name."
+      verification: "reported"
+      basis: "Blocked by the Homebrew Channel option; labelled the firmware download host in webos-unclutter's list."
+    - host: "su-dev.lge.com"
+      contacted_by: "device"
+      roles: ["firmware_check"]
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: "Blocked by the Homebrew Channel option alongside the production names; a development update server."
+    - host: "nsu.lge.com"
+      contacted_by: "device"
+      roles: ["firmware_check"]
+      when_blocked:
+        impact: "none"
+      verification: "hypothesis"
+      basis: >
+        Added to the update block by one tester's 2026 write-up on a G5
+        (forum.level1techs.com/t/255178); not in the Homebrew Channel's list.
+    # --- The Service Delivery Platform. NOT blockable: it is the clock.
+    - host: "lgtvsdp.com"
+      match: "subdomains"
+      contacted_by: "device"
+      roles: ["time", "content", "api"]
+      when_blocked:
+        impact: "breaks"
+        effect: >
+          The TV takes its clock from this service — a header on its HTTPS
+          API rather than NTP — and the Content Store, app updates and home-screen
+          configuration live here too. Blocked, the clock resets after a cold
+          boot (to 2019-12-31 on one report) and apps then fail their
+          certificate checks.
+      verification: "reported"
+      basis: >
+        The webosbrew glossary (SDP: Content Store and the TV's time
+        synchronisation); wisq/lgtv-sdp's account of time arriving in an
+        X-Server-Time header and of what blocking the LG zones broke;
+        Perflyst/PiHoleBlocklist issue 117 for the reset clock.
+      notes: >
+        Names are country-prefixed (us., gb., ca. …). The rdx2. telemetry
+        names under it are listed separately and are safe to block. Some
+        public smart-TV blocklists have blocked this name (the clock-reset
+        reports in Perflyst/PiHoleBlocklist issue 117 came from one); doing so
+        breaks the clock.
+    - host: "nextlgsdp.com"
+      match: "subdomains"
+      contacted_by: "device"
+      roles: ["time", "content", "api"]
+      when_blocked:
+        impact: "breaks"
+        effect: "The newer SDP family: blocking it is reported to stop the TV setting its clock and to disable the Content Store."
+      verification: "reported"
+      basis: >
+        hagezi/dns-blocklists issue 11438 (2026-09-11: blocking it "prevents
+        LG TVs from setting their system time"); a C5/C1 owner on
+        forum.level1techs.com/t/255178 for the Content Store.
+    - host: "ngfts.lge.com"
+      contacted_by: "device"
+      roles: ["content"]
+      when_blocked:
+        impact: "breaks"
+        effect: "Content Store icons and screenshots, EULA acceptance and app downloads fail."
+      verification: "reported"
+      basis: >
+        Pi-hole Discourse "commonly blacklisted domains" (2017): "You have to
+        allow it in order to sign any EULA agreements and to download apps";
+        Perflyst's SmartTV list leaves it commented out for the same reason.
+      notes: "Regional siblings (aic-, eic-, kic-, qt2-ngfts.lge.com) serve the same role."
+    - host: "lgtvonline.lge.com"
+      contacted_by: "device"
+      roles: ["connectivity_check"]
+      when_blocked:
+        impact: "breaks"
+        effect: >
+          The TV's internet-connection check fails and it reports itself
+          offline. One list's author says it must stay reachable; other lists
+          block it. What else follows from a failed check is not documented.
+      verification: "reported"
+      basis: "sonodima/webos-unclutter's list (\"cannot be blocked, it is used for internet connection check\"); wisq/lgtv-sdp on connection tests failing with LG zones blocked."
+    # --- Ads and telemetry. Safe to block, per the community lists.
+    - host: "lgsmartad.com"
+      match: "subdomains"
+      contacted_by: "device"
+      roles: ["advertising"]
+      when_blocked:
+        impact: "none"
+        effect: "Ads in the home screen and Content Store stop; community reports find nothing else breaks."
+      verification: "reported"
+      basis: >
+        Pi-hole Discourse "commonly blacklisted domains" (2017: "Every other
+        smart TV feature works"); samsapti/LG-webOS-Blocklist's non-breaking
+        list blocks the whole domain.
+    - host: "lgad.cjpowercast.com.edgesuite.net"
+      contacted_by: "device"
+      roles: ["advertising"]
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: "Pi-hole Discourse \"commonly blacklisted domains\" (2017); Perflyst/PiHoleBlocklist SmartTV.txt."
+    - host: "emp.lgsmartplatform.com"
+      match: "subdomains"
+      contacted_by: "device"
+      roles: ["telemetry"]
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: "Blocked unconditionally by sonodima/webos-unclutter (\"LG Smart Platform EMP\") and listed as telemetry by furkan-bayrak/lg-tv-blocklist; seen with country prefixes."
+    - host: "lgtvcommon.com"
+      match: "subdomains"
+      contacted_by: "device"
+      roles: ["telemetry", "content"]
+      when_blocked:
+        impact: "degraded"
+        effect: "Home-screen recommendation and promotion rows stop loading. The beacon and crash-upload services here go with them; nothing else is reported to break."
+      verification: "reported"
+      basis: "sonodima/webos-unclutter, furkan-bayrak/lg-tv-blocklist and a 2026 Level1Techs write-up (\"wildcard-safe\")."
+    - host: "rdx2.lgtvsdp.com"
+      match: "subdomains"
+      contacted_by: "device"
+      roles: ["telemetry"]
+      when_blocked:
+        impact: "none"
+      verification: "reported"
+      basis: "Listed as diagnostics upload by Perflyst/PiHoleBlocklist, samsapti/LG-webOS-Blocklist and a 2026 Level1Techs write-up; country-prefixed forms sit under it."
+  notes: >
+    DNS: the TV uses the resolver DHCP (or its manual DNS setting) gives it;
+    community write-ups report some firmware falling back to hardcoded public
+    resolvers, so redirect outbound port 53 to your own resolver and block
+    853, as liberatedbread.com/firewall describes. The Homebrew Channel's own
+    block edits the TV's hosts file, and one tester reports the boot-time
+    update check runs before that edit applies — a block at the router has
+    no such gap. The same write-up reports a hard-coded fallback update
+    address that no DNS block catches; it is unverified here, and it is the
+    reason a firewall rule remains the recommendation. Turn off the TV's own
+    automatic updates as well (All Settings > Support > Software Update, under
+    General on newer webOS), as RootMyTV advises. The TV is not known to take
+    its time from NTP or from DHCP's NTP option, so there is nothing to
+    redirect: the SDP names must stay reachable.

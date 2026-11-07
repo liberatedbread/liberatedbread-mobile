@@ -772,6 +772,61 @@ do read it keep older hardware working.
 
 **Effort.** Small. The judgement is in the 404-only rule, not the plumbing.
 
+### P16 — Scope a surface to the discovery method that proves it { #p16 }
+
+**Problem.** A spec's `protocol_handler`, `http_endpoints` and `entities` are
+unconditional: whatever method discovered the device, the whole surface
+applies. That is right for a product spec and wrong for a platform spec
+that claims several service types of unequal capability. The generic
+printer spec claims `_ipp._tcp`, `_ipps._tcp`, `_pdl-datastream._tcp` and
+`_printer._tcp` as fallbacks, and reads status over IPP; a printer that
+advertises only the raw-socket or LPD type has no IPP resource to ask, yet
+a consumer reading the spec by key offers it the status entities and the
+`ipp_status` handler, and gets `connection refused` or a 404 for its
+trouble. The restriction lives in prose and in a `protocol_details` key
+(`ipp_status.requires_service_types`), where only a consumer that knows
+to look will find it.
+
+**Evidence.** `ipp-network-printer` today. The same shape waits in any spec
+that pairs a rich service type with a poorer one for the same hardware:
+a device advertising both `_hap._tcp` and a vendor type, where only the
+vendor type carries the local API.
+
+**Proposal.** One additive key, `requires_discovery`, on each entry of
+`entities` and `http_endpoints`, and a top-level sibling for the handler,
+because `protocol_handler` is a plain string and can carry no key of its
+own:
+
+```yaml
+protocol_handler: "ipp_status"
+protocol_handler_requires_discovery:  # same shape as below
+  - service_type: "_ipp._tcp.local."
+  - service_type: "_ipps._tcp.local."
+entities:
+  - platform: "sensor"
+    name: "Printer State"
+    requires_discovery:               # any of; absent = any method
+      - service_type: "_ipp._tcp.local."
+      - service_type: "_ipps._tcp.local."
+http_endpoints:
+  - method: "POST"
+    path: "/{rp}"
+    requires_discovery: [...]
+```
+
+A consumer that matched the device through a method not listed hides the
+entity, endpoint or handler, as it hides an entity whose `variants` exclude
+the unit. The IPP spec's `protocol_details.ipp_status.requires_service_types`
+is the interim form: its two values would move into these keys, in the
+object shape above.
+
+**Compatibility.** Additive. A consumer that ignores the key behaves as
+today (the surface is offered everywhere); one that reads it stops
+offering a status it cannot fetch. No existing spec changes meaning.
+
+**Effort.** Small schema; small consumer work (the method that matched is
+already known at resolution time, so it is one filter at render time).
+
 ## Strategic / optional
 
 ### P7 — A normalized capability vocabulary { #p7 }
@@ -877,6 +932,7 @@ this page classifiable.
 | [P13](#p13) | Power as a stateful control + `toggle` role | High | Low | With consumer |
 | [P14](#p14) | Disambiguating a shared discovery service type | High | Very low | **Landed** |
 | [P15](#p15) | A second address for the same invocation | Medium | Very low | **Landed** |
+| [P16](#p16) | Scope a surface to the discovery method that proves it | Medium | Very low | With consumer — the IPP printer spec needs it today |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |

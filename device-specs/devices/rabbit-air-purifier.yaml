@@ -838,8 +838,8 @@ protocol_details:
     example_wire:
       description: "cmd 255 get_info, cleartext, as framed on BLE. id is a per-client counter starting at 0."
       payload: '{"id":0,"cmd":255}'
-      framed_hex: "0d00"  # 13 = len('{"id":0,"cmd":255}'), LE; then the 13 payload bytes
-      note: "13+2 = 15 bytes fit one chunk, so this example is a single write; a cmd 1 join message with a long passphrase crosses one chunk boundary at 510 bytes."
+      framed_hex: "1200"  # 18 = len('{"id":0,"cmd":255}'), LE; then the 18 payload bytes
+      note: "18+2 = 20 bytes fit one chunk, so this example is a single write; a cmd 1 join message with a long passphrase crosses one chunk boundary at 510 bytes."
 
 # The invocations entities bind. Each is one Rabbit Air LAN message whose
 # `body` carries only the STATIC envelope fields (cmd, and `data` when the

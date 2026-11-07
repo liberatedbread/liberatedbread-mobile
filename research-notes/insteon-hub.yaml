@@ -2,6 +2,8 @@
 # SmartLabs died 2022-04; revived as Insteon Technologies 2022; site live 2026-08-07.
 # Local control never depended on cloud: v2 = HTTP 25105 (label basic-auth),
 # v1 = raw PLM over TCP 9761.
+# PROMOTED: graduated to device-specs/devices/insteon-hub.yaml (authoritative);
+# this note is kept as the dated trail.
 
 device:
   id: insteon-hub

@@ -1,0 +1,32 @@
+# Spotify Car Thing — structured research note (2026-10-31)
+
+device:
+  id: spotify-car-thing
+  name: Spotify Car Thing (superbird)
+  manufacturer: Spotify (stock product discontinued)
+  category: vehicle_display
+
+stock_firmware:
+  local_protocol_recovered: false
+  rescue_claim: none established
+
+custom_firmware:
+  mira: standalone after USB install; Spotify account and internet required
+  nocturne: open daemon types; private/paid mobile tier
+  bridgething: documented v2 host protocol and stock-webapp gateway contract
+
+bridgething:
+  payload: MessagePack normally; JSON accepted
+  transports:
+    - Bluetooth Classic RFCOMM dead0000-854d-408e-81f0-fb6147f918fd channel 1
+    - iAP2 com.bridgething.gateway
+    - network WebSocket 8892
+  local_webapp: WebSocket 8891; stock compatibility 8890
+  frame: "dead, version 2, compression, encoding, priority, reserved, u64be length, envelope"
+  limits: 16 MiB frame, 1 MiB network message, 4 KiB daemon fragment, 256 KiB transfer memory
+
+status:
+  evidence: active source and protocol documentation; no physical test
+  custom_install_warning: flashing wipes prior firmware
+  app_transport: no stock claim; bridgething needs a dedicated gateway integration
+  validated_spec: null

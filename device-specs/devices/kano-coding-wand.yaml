@@ -1,0 +1,826 @@
+# Kano Harry Potter Coding Kit Wand — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only, no code transcription):
+#   - @kano/devices-sdk 1.0.1 on npm (Kano Computing, MIT, 2018-10-15):
+#     lib/wand.js (GATT map, byte layouts), lib/dfu.js and lib/devices.js
+#     (Nordic Secure DFU flow, scan-name prefix). The vendor's own SDK; its
+#     GitHub home (KanoComputing/kano-devices-sdk) is gone, the npm tarball
+#     is not.
+#   - GammaGames/kano_wand (Python/bluepy, MIT): kano_wand.py and wiki
+#   - anzellai/wandkit (Go, no licence file): libwandkit/libwandkit.go
+#   - wizofe/bluewand-python (GPL-3.0; facts only): README, magic/bluewand.py
+#   - sabas1080/KanoWandHack (Arduino emulator, MIT) and its Hackaday page
+#     "Kano Wand Hack" (project 161832): GATT map, advertised name pattern
+#   - Nordic Semiconductor press release, 2018-10-09: nRF52832 / S132 / 9-DoF
+#   - Kano "Harry Potter Coding Kit" build book PDF (kano.me CMS): batteries,
+#     button, LED behaviour, help codes
+#   - The Gazette notice 4374009 and Companies House 08375450 insolvency
+#     record: administration from 2023-06-06
+
+device:
+  name: "Kano Harry Potter Coding Kit Wand"
+  manufacturer: "Kano Computing Limited (London; in administration since 2023-06-06)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Every UUID and byte
+      layout below is read from the vendor's own published SDK
+      (@kano/devices-sdk 1.0.1, MIT) and cross-checked against three
+      independent hobby clients; nothing has been replayed on a wand.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "other"
+  type: "gesture-input-wand"
+  notes: >
+    The wand from Kano's 2018 Harry Potter Coding Kit: a Nordic nRF52832
+    (SoftDevice S132) with a 9-axis IMU (accelerometer, gyroscope,
+    magnetometer), one push button, a vibration motor and an RGB LED,
+    powered by two AAA cells. It talks BLE GATT directly to the tablet or
+    computer running the Kano app; there is no hub and no cloud in the
+    control path. The wand streams its orientation as a quaternion, reports
+    button presses, and takes LED colour and vibration-pattern writes. The
+    Kano app did the rest — turning the orientation stream into on-screen
+    "spells" — on the host, so gesture recognition is out of scope here:
+    this spec makes the wand a gesture-input device and stops there.
+
+    Why it is here: Kano Computing Limited entered administration on
+    2023-06-06 (The Gazette, notice 4374009; Companies House 08375450). In
+    January 2023 TechCrunch reported Kano was no longer actively marketing
+    the wand, and retailers list the kit as discontinued. The companion
+    app's last iPad release is 1.3.11 (2021-02-06), still listed as of
+    2026-10. A phone-direct BLE device whose vendor is insolvent and whose
+    app has not been updated in five years is the case this registry exists
+    for.
+
+    The vendor published an SDK for the wand under MIT (@kano/devices-sdk on
+    npm, October 2018), so the GATT layout and byte formats below are the
+    vendor's own statement, not a reconstruction; see openness. The LED
+    boot animation plays at power-up and may override an early colour
+    write. The wand disconnects on its own after inactivity without any
+    notification; the SDK writes a keep-alive byte to hold it.
+
+  openness:
+    status: "documented_api"
+    reverse_engineered: false
+    source_code: "https://www.npmjs.com/package/@kano/devices-sdk"
+    license: "MIT"
+    notes: >
+      Kano published @kano/devices-sdk (MIT, author "Kano Computing") on npm
+      in 2018: a platform-independent JavaScript SDK whose wand module names
+      every service and characteristic and encodes every write. That makes
+      this a vendor-documented interface in all but prose; the SDK's GitHub
+      repository has since vanished (404), so the npm tarball is the
+      surviving copy. Units and scaling of the sensor values are NOT stated
+      by the SDK (it emits raw integers) and come from the hobby clients.
+
+  identification:
+    local_name_prefix: "Kano-Wand"
+    notes: >
+      The vendor SDK identifies a wand by local name alone: anything whose
+      advertised name starts with "Kano-Wand". The full name is reported as
+      "Kano-Wand-75-XX-XX" (Hackaday project 161832; the SDK's own demos
+      search for "Kano-Wand-75"); the two trailing groups are probably the
+      last two bytes of the BLE address, by analogy with the SDK's
+      bootloader naming, but that is unconfirmed. No advertised service
+      UUID or manufacturer data is documented. Kano holds Bluetooth company
+      ID 0x07d4 and MA-M block 18:74:e2:8; whether the wand uses either is
+      not established, so neither is a matcher here.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Kano-Wand"
+        notes: >
+          Prefix match on the local name, as the vendor SDK does. The
+          sensor service UUID (64a70011-f691-4b93-a6f4-0968f5b648f8) is not
+          known to be advertised, so the name is the only pre-connection
+          signal.
+    identity:
+      stable_keys: ["local_name", "address"]
+      display: "local_name"
+      notes: >
+        The local name carries a per-unit suffix and is the better key. The
+        address is an nRF52 random-static address in all likelihood (the
+        SDK derives a per-unit bootloader name from its last two bytes),
+        stable across reboots but not hardware-confirmed.
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision: fit two AAA cells, press the button to wake the
+      wand, connect, subscribe. The build book says the blue Bluetooth LED
+      flashes while the wand is looking for a connection and goes steady
+      once connected. No account, no cloud, no bond. The vendor SDK is a
+      working open implementation of exactly this, which is where the
+      medium confidence comes from; this project has not run it.
+    methods:
+      - type: "ble_direct"
+        name: "Connect and subscribe"
+        verified: false
+        description: >
+          Scan for a "Kano-Wand" name, connect, enable notifications on the
+          button and quaternion characteristics, write the orientation
+          reset once, then write the keep-alive byte periodically so the
+          wand does not sleep. Button presses and the orientation stream
+          then arrive as notifications; LED colour and vibration are plain
+          writes.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Fit two AAA cells. The blue LED on the board should light; if not, check battery polarity."
+            actor: "user"
+            expect: "Blue LED on; it flashes while the wand searches for a connection."
+          - action: "If the wand is dark, press its button once to wake it. Close the Kano app if it is running — the wand holds one connection."
+            actor: "user"
+          - action: "Scan for a local name starting Kano-Wand and connect."
+            actor: "client"
+            expect: "The blue LED stops flashing and stays on."
+          - action: "Enable notifications on 64a7000d-f691-4b93-a6f4-0968f5b648f8 (button) and 64a70002-f691-4b93-a6f4-0968f5b648f8 (quaternions)."
+            actor: "client"
+          - action: "Write 01 to 64a70004-f691-4b93-a6f4-0968f5b648f8 so the orientation stream is zeroed to the wand's current pose."
+            actor: "client"
+            expect: "Eight-byte quaternion notifications begin; the button characteristic notifies 01 on press and 00 on release."
+          - action: "Write 01 to 64a7000f-f691-4b93-a6f4-0968f5b648f8 periodically to keep the wand awake; it otherwise disconnects after inactivity without notice."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No reset procedure is documented. The wand stores no pairing, no
+        credentials and no owner; the only state a reset could touch is the
+        magnetometer calibration, and whether that persists across a
+        battery change is not known.
+      description: >
+        The build book's troubleshooting is limited to battery polarity, the
+        wake button and four help codes (WA2 power, WA3 connection, WA4 app,
+        WA5 unsupported device) for the vendor help site, which is gone. In
+        practice "pull the batteries" is the reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE-only; there is no network to rejoin. Any central may connect once
+        the current one has disconnected or the wand has timed out.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No secrets anywhere: open GATT, no PIN, no bond, no account."
+
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Close the Kano app (or whichever client holds the wand), or pull a battery for a moment, then connect."
+    enter_pairing_mode:
+      required: false
+    notes: >
+      No link-layer pairing, no bonding, no application-layer handshake:
+      the vendor SDK and all three hobby clients connect with no security
+      parameters and read and write every characteristic on a bare
+      connection. One central at a time is the ordinary BLE peripheral
+      limit, assumed rather than observed.
+
+services:
+  - uuid: "64a70010-f691-4b93-a6f4-0968f5b648f8"
+    name: "Wand information service"
+    notes: >
+      Three read-only identity values. The vendor SDK reads organisation
+      and software version as UTF-8 strings and the hardware build as a
+      single byte. An Arduino emulator that the Kano desktop app recognised
+      served "Kano Computing", "1.0.4" and 3 respectively; those are the
+      emulator's values, not a reading from a wand.
+    characteristics:
+      - uuid: "64a7000b-f691-4b93-a6f4-0968f5b648f8"
+        name: "Organisation"
+        properties: ["read"]
+        notes: "UTF-8 string, variable length; the whole read is the value."
+        format:
+          - offset: 0
+            length: 20
+            name: "organisation"
+            type: "string"
+            notes: "Variable length — 20 is the longest a default-MTU read returns, not a fixed width."
+      - uuid: "64a70013-f691-4b93-a6f4-0968f5b648f8"
+        name: "Software version"
+        properties: ["read"]
+        notes: "UTF-8 version string of the wand firmware, e.g. a dotted triple."
+        format:
+          - offset: 0
+            length: 20
+            name: "software_version"
+            type: "string"
+            notes: "Variable length — 20 is the longest a default-MTU read returns, not a fixed width."
+      - uuid: "64a70001-f691-4b93-a6f4-0968f5b648f8"
+        name: "Hardware build"
+        properties: ["read"]
+        notes: >
+          The vendor SDK takes byte 0 as the hardware build number. The
+          Python client decodes it as a string instead; the SDK's reading
+          is the one declared here.
+        format:
+          - offset: 0
+            length: 1
+            name: "hardware_build"
+            type: "uint8"
+
+  - uuid: "64a70012-f691-4b93-a6f4-0968f5b648f8"
+    name: "Wand IO service"
+    notes: >
+      Button, battery, vibration motor, LED and keep-alive. The vendor SDK's
+      Node platform writes without response wherever the characteristic
+      allows it and with response otherwise; the Python client writes
+      vibration, LED and keep-alive with response. Either works.
+    characteristics:
+      - uuid: "64a70007-f691-4b93-a6f4-0968f5b648f8"
+        name: "Battery status"
+        properties: ["read", "notify"]
+        notes: >
+          One byte. The vendor SDK surfaces it as "battery status" with no
+          unit; the Python client's author reports reads returning 0. Until
+          someone checks it against a meter, treat it as an unscaled raw
+          value rather than a percentage.
+        format:
+          - offset: 0
+            length: 1
+            name: "battery_status"
+            type: "uint8"
+            notes: "Unit and scaling not established; probably a percentage, but reads of 0 have been reported."
+      - uuid: "64a7000d-f691-4b93-a6f4-0968f5b648f8"
+        name: "User button"
+        properties: ["read", "notify"]
+        notes: >
+          Notifies on every change: 01 when the button goes down, 00 when it
+          is released. A read returns the current level.
+        format:
+          - offset: 0
+            length: 1
+            name: "button_state"
+            type: "uint8"
+            values:
+              0: "released"
+              1: "pressed"
+      - uuid: "64a70008-f691-4b93-a6f4-0968f5b648f8"
+        name: "Vibration motor"
+        properties: ["read", "write", "write_without_response"]
+        notes: >
+          Write one byte: a pattern number. The vendor SDK passes the number
+          through untyped; the Python client names 1-7. What each pattern
+          feels like, and whether values above 7 do anything, is not
+          documented. A read returns the last pattern byte.
+        format:
+          - offset: 0
+            length: 1
+            name: "vibration_pattern"
+            type: "uint8"
+            values:
+              1: "regular"
+              2: "short"
+              3: "burst"
+              4: "long"
+              5: "short_long"
+              6: "short_short"
+              7: "big_pause"
+        commands:
+          vibrate:
+            description: >
+              Play a vibration pattern. One byte, 1-7; the names are the
+              Python client's (the vendor SDK passes a bare number). 1 is
+              what the vendor SDK's own feature test sends.
+            encoding: "bytes"
+            template: ["{pattern}"]
+            parameters:
+              pattern:
+                type: "uint8"
+                min: 1
+                max: 7
+                labels: ["regular", "short", "burst", "long", "short_long", "short_short", "big_pause"]
+                default: 1
+                description: "Pattern number."
+            verification: "reported"
+      - uuid: "64a70009-f691-4b93-a6f4-0968f5b648f8"
+        name: "LED"
+        properties: ["read", "write", "write_without_response"]
+        notes: >
+          Three bytes: [on/off, colour high byte, colour low byte]. The
+          colour is 16-bit RGB565 — red in the top five bits, green in the
+          middle six, blue in the low five — sent high byte first. Pure red
+          is 01 f8 00, pure green 01 07 e0, pure blue 01 00 1f, white
+          01 ff ff; the packing is in protocol_details.rgb565 with worked
+          vectors. A read returns byte 0 (the on/off state) per the vendor
+          SDK. The power-on boot animation can mask a colour written in the
+          first moments after battery insertion.
+        format:
+          - offset: 0
+            length: 1
+            name: "led_state"
+            type: "uint8"
+            values:
+              0: "off"
+              1: "on"
+        commands:
+          set_led:
+            description: >
+              Set the LED on or off with a colour. state is 1 (on) or 0
+              (off); rgb565 is the packed colour, big-endian. A generic
+              colour picker has to pack RGB888 into RGB565 first
+              (protocol_details.rgb565), so this command is declared with the
+              packed word rather than three channel bytes.
+            encoding: "bytes"
+            template: ["{state}", "{rgb565}"]
+            parameters:
+              state:
+                type: "uint8"
+                min: 0
+                max: 1
+                labels: ["off", "on"]
+                default: 1
+                description: "LED on or off."
+              rgb565:
+                type: "uint16"
+                endianness: "big"
+                min: 0
+                max: 65535
+                description: "RGB565 colour word: ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3)."
+            verification: "reported"
+          led_on_white:
+            description: "LED on, white (RGB565 0xffff): 01 ff ff."
+            encoding: "bytes"
+            value: [0x01, 0xff, 0xff]
+            verification: "reported"
+          led_off:
+            description: "LED off: 00 00 00 (the vendor SDK sends a zero colour with the off state)."
+            encoding: "bytes"
+            value: [0x00, 0x00, 0x00]
+            verification: "reported"
+      - uuid: "64a7000f-f691-4b93-a6f4-0968f5b648f8"
+        name: "Keep-alive"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Write 01 periodically to stop the wand sleeping. The vendor SDK
+          exposes exactly this write; the Python client's author doubted it
+          works. The inactivity timeout itself is not documented, and the
+          wand gives no notification when it drops the link.
+        commands:
+          keep_alive:
+            description: "Hold the connection open: write 01."
+            encoding: "bytes"
+            value: [0x01]
+            verification: "reported"
+
+  - uuid: "64a70011-f691-4b93-a6f4-0968f5b648f8"
+    name: "Wand sensor service"
+    notes: >
+      The orientation stream and its controls, plus a temperature. Two
+      further characteristics (raw and motion) are named by the vendor SDK
+      and never used by it or by any client; their layouts are unknown.
+    characteristics:
+      - uuid: "64a70002-f691-4b93-a6f4-0968f5b648f8"
+        name: "Quaternions"
+        properties: ["read", "notify"]
+        notes: >
+          Eight bytes per notification: four signed 16-bit little-endian
+          integers in the order w, x, y, z (vendor SDK). Each is the
+          quaternion component times 1000, so the range is -1000..1000
+          (reported independently by three clients). The frame is relative
+          to whatever pose the wand had when the orientation reset was last
+          written. The Python client reads the same bytes in a different
+          order and negates two of them to suit its own axes, and the Go
+          client reads them big-endian; both are client-side choices, and
+          the vendor SDK's reading is the one declared here. No notification
+          rate is documented. Streams whether or not the button is held.
+        format:
+          - offset: 0
+            length: 2
+            name: "quaternion_w"
+            type: "int16"
+            endianness: "little"
+            scale: 0.001
+            notes: "Dimensionless quaternion component, -1.000..1.000."
+          - offset: 2
+            length: 2
+            name: "quaternion_x"
+            type: "int16"
+            endianness: "little"
+            scale: 0.001
+            notes: "Dimensionless quaternion component, -1.000..1.000."
+          - offset: 4
+            length: 2
+            name: "quaternion_y"
+            type: "int16"
+            endianness: "little"
+            scale: 0.001
+            notes: "Dimensionless quaternion component, -1.000..1.000."
+          - offset: 6
+            length: 2
+            name: "quaternion_z"
+            type: "int16"
+            endianness: "little"
+            scale: 0.001
+            notes: "Dimensionless quaternion component, -1.000..1.000."
+      - uuid: "64a70004-f691-4b93-a6f4-0968f5b648f8"
+        name: "Quaternion reset"
+        properties: ["write", "write_without_response"]
+        notes: "Write 01 to re-zero the orientation stream to the current pose. Clients do it once right after subscribing."
+        commands:
+          reset_orientation:
+            description: "Zero the orientation stream to the wand's current pose: write 01."
+            encoding: "bytes"
+            value: [0x01]
+            verification: "reported"
+      - uuid: "64a70021-f691-4b93-a6f4-0968f5b648f8"
+        name: "Magnetometer calibration"
+        properties: ["write", "notify"]
+        notes: >
+          Write 01 to start a magnetometer calibration; the characteristic
+          then notifies a status byte, 02 when calibration has succeeded and
+          03 when it failed (vendor SDK). The SDK unsubscribes from the
+          quaternion stream for the duration and resubscribes afterwards.
+          What the user must do with the wand during calibration is not
+          documented.
+        format:
+          - offset: 0
+            length: 1
+            name: "calibration_status"
+            type: "uint8"
+            values:
+              2: "calibrated"
+              3: "failed"
+        commands:
+          calibrate_magnetometer:
+            description: "Start a magnetometer calibration: write 01, then watch the notifications for 02 (done) or 03 (failed)."
+            encoding: "bytes"
+            value: [0x01]
+            verification: "reported"
+      - uuid: "64a70014-f691-4b93-a6f4-0968f5b648f8"
+        name: "Temperature"
+        properties: ["read", "notify"]
+        notes: >
+          A signed 16-bit little-endian value (vendor SDK). Unit and scaling
+          are not stated anywhere; most likely the IMU's die temperature.
+          Declared raw until someone compares it with a thermometer.
+        format:
+          - offset: 0
+            length: 2
+            name: "temperature_raw"
+            type: "int16"
+            endianness: "little"
+            notes: "Unit and scale not established."
+      - uuid: "64a7000a-f691-4b93-a6f4-0968f5b648f8"
+        name: "Raw sensor data"
+        properties: ["notify"]
+        notes: "Named by the vendor SDK, used by nothing. Presumably the raw 9-axis samples; layout unknown. Properties are the emulator's, not confirmed."
+      - uuid: "64a7000c-f691-4b93-a6f4-0968f5b648f8"
+        name: "Motion"
+        properties: ["notify"]
+        notes: "Named by the vendor SDK, used by nothing. Layout unknown. Properties are the emulator's, not confirmed."
+
+  - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+    name: "Nordic Secure DFU service"
+    notes: >
+      Present in the running application for buttonless bootloader entry
+      (vendor SDK). In the application only the buttonless characteristic
+      is used; the control-point and packet characteristics
+      (8ec90001-f315-4f60-9fb8-838830daea50 and
+      8ec90002-f315-4f60-9fb8-838830daea50) belong to the bootloader, which
+      the SDK reconnects to under a name it set first. A GATT explorer
+      lists this service read-only; see features.
+    characteristics:
+      - uuid: "8ec90003-f315-4f60-9fb8-838830daea50"
+        name: "Buttonless DFU (no bond sharing)"
+        properties: ["write", "indicate"]
+        notes: >
+          The stack's standard buttonless characteristic. The vendor SDK
+          first writes opcode 02 with a name so the bootloader advertises
+          as "DFU-XX-XX" (the last two address bytes, hex, hyphenated),
+          waits about 100 ms, then writes opcode 01; the wand resets into
+          the bootloader and the link drops. Responses arrive as
+          indications beginning 20.
+        commands:
+          set_bootloader_name:
+            description: >
+              Tell the bootloader what to advertise as: 02, a length byte,
+              then that many ASCII bytes. The vendor SDK uses "DFU-" plus
+              the last two bytes of the wand's address as printed, e.g.
+              DFU-ee-ff for aa:bb:cc:dd:ee:ff. Harmless on its own, but it
+              exists only to precede enter_bootloader.
+            encoding: "bytes"
+            template: [0x02, "{name_length}", "{name}"]
+            parameters:
+              name_length:
+                type: "uint8"
+                min: 1
+                max: 20
+                description: "Byte length of name; must equal the number of bytes in name."
+              name:
+                type: "bytes"
+                min_length: 1
+                max_length: 20
+                description: "ASCII name the bootloader will advertise."
+            advanced: true
+            advanced_reason: >
+              Sets the name the bootloader will advertise on the next
+              bootloader entry. Nothing breaks, but it changes how the wand
+              appears mid-update, so send it only as the first half of a
+              deliberate firmware update.
+            verification: "reported"
+          enter_bootloader:
+            description: >
+              Reboot into the Nordic Secure DFU bootloader: write 01. The
+              wand disconnects and reappears under the name set with
+              set_bootloader_name (or the stack default DfuTarg if none was
+              set), expecting an init packet and image.
+            encoding: "bytes"
+            value: [0x01]
+            advanced: true
+            advanced_reason: >
+              Leaves the wand in its bootloader with no application
+              controls until a valid image is transferred or the
+              bootloader's inactivity timeout boots the old application
+              (the nRF5 SDK default is 120 s; not confirmed on this wand).
+              Have the vendor's DFU zip and a working DFU client ready
+              before sending it.
+            verification: "reported"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        format: "nrfutil DFU zip: manifest.json whose application entry names a .dat init packet and a .bin image (vendor SDK loads these two)."
+        notes: >
+          Secure DFU bootloaders verify an ECDSA P-256 signature in the init
+          packet by default, and the vendor SDK's error table includes the
+          stack's "init packet does not contain a signature" code, but
+          whether Kano's bootloader actually enforces signing has not been
+          established. Where the Kano app obtained images is unknown; no
+          public URL is known, and the Python client's author deliberately
+          omitted updates to avoid bricking wands.
+      enter:
+        how: "stack_characteristic"
+        command: "enter_bootloader"
+        notes: >
+          The stack's buttonless characteristic 8ec90003 without bond
+          sharing, preceded by the stack's set-name opcode (vendor SDK
+          sequence: set name, wait ~100 ms, write 01, wait for disconnect).
+      dfu_mode:
+        local_name_prefix: "DFU-"
+        notes: >
+          The vendor SDK names the bootloader "DFU-XX-XX" — "DFU-" plus the
+          last two bytes of the wand's address, hyphenated, in whatever
+          case the host printed them — and then scans for that exact name.
+          A bootloader entered any other way would advertise the stack
+          default "DfuTarg". Address behaviour is not observed; a stock
+          nRF5 SDK bootloader without bond sharing would advertise at
+          address+1, which is why the SDK matches on name rather than
+          address.
+      services: ["0000fe59-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The nRF5 SDK bootloader defaults (dual-bank where flash allows,
+          120 s inactivity timeout back to a valid application) are likely
+          on an nRF52832 but have not been checked on a wand.
+      verification: "reported"
+      notes: >
+        From the vendor SDK's DFU module, which transcribes Nordic's Secure
+        DFU client: packet-receipt notifications every 15 packets, 20-byte
+        packets, select/create/calculate-checksum/execute per object with
+        CRC32 checks, the init object first and the application image
+        second. Nothing device-specific beyond the bootloader name was
+        found. Not hardware-verified.
+
+payload_formats:
+  QuaternionNotification:
+    description: "One notification on 64a70002-f691-4b93-a6f4-0968f5b648f8: four int16 LE, order w x y z, each component x 1000."
+    fields:
+      - name: "quaternion_w"
+        description: "Bytes 0-1, int16 LE, divide by 1000."
+      - name: "quaternion_x"
+        description: "Bytes 2-3, int16 LE, divide by 1000."
+      - name: "quaternion_y"
+        description: "Bytes 4-5, int16 LE, divide by 1000."
+      - name: "quaternion_z"
+        description: "Bytes 6-7, int16 LE, divide by 1000."
+    parse_rules:
+      - "Accept only eight-byte notifications; the Go client uses the length to tell this stream from the one-byte button notifications on a shared handler."
+      - "Constructed worked example (not a capture): e8 03 00 00 00 00 00 00 is w = 1.000, x = y = z = 0 — the identity pose right after reset_orientation. 18 fc 00 00 00 00 00 00 is w = -1.000."
+    example: "e8 03 00 00 00 00 00 00"
+
+entities:
+  - platform: "binary_sensor"
+    name: "Button"
+    state_characteristic: "64a7000d-f691-4b93-a6f4-0968f5b648f8"
+    state_mapping:
+      value: "button_state"
+      on_when: "nonzero"
+    notes: "A level, not an event: 01 on press, 00 on release."
+  - platform: "sensor"
+    name: "Orientation W"
+    state_characteristic: "64a70002-f691-4b93-a6f4-0968f5b648f8"
+    state_mapping:
+      value: "quaternion_w"
+    notes: "Quaternion component, -1..1, relative to the last reset_orientation."
+  - platform: "sensor"
+    name: "Orientation X"
+    state_characteristic: "64a70002-f691-4b93-a6f4-0968f5b648f8"
+    state_mapping:
+      value: "quaternion_x"
+  - platform: "sensor"
+    name: "Orientation Y"
+    state_characteristic: "64a70002-f691-4b93-a6f4-0968f5b648f8"
+    state_mapping:
+      value: "quaternion_y"
+  - platform: "sensor"
+    name: "Orientation Z"
+    state_characteristic: "64a70002-f691-4b93-a6f4-0968f5b648f8"
+    state_mapping:
+      value: "quaternion_z"
+  - platform: "sensor"
+    name: "Battery Status"
+    state_characteristic: "64a70007-f691-4b93-a6f4-0968f5b648f8"
+    state_mapping:
+      value: "battery_status"
+    notes: "Raw byte; not declared as a battery percentage until its scale is checked."
+  - platform: "sensor"
+    name: "Temperature Raw"
+    state_characteristic: "64a70014-f691-4b93-a6f4-0968f5b648f8"
+    state_mapping:
+      value: "temperature_raw"
+    notes: "Raw int16; unit and scale unknown."
+  - platform: "light"
+    name: "LED"
+    state_characteristic: "64a70009-f691-4b93-a6f4-0968f5b648f8"
+    state_mapping:
+      is_on: "led_state"
+    commands:
+      turn_on: "led_on_white"
+      turn_off: "led_off"
+    notes: >
+      set_color is deliberately unbound: the LED takes a packed RGB565 word
+      (set_led's rgb565 parameter) and the command vocabulary has no way to
+      say "pack three channels into one big-endian uint16". A consumer that
+      implements the packing in protocol_details.rgb565 can drive set_led
+      directly.
+  - platform: "button"
+    name: "Vibrate"
+    commands:
+      press:
+        command: "vibrate"
+        values:
+          pattern: 1
+  - platform: "button"
+    name: "Reset Orientation"
+    commands:
+      press: "reset_orientation"
+  - platform: "button"
+    name: "Calibrate Magnetometer"
+    commands:
+      press: "calibrate_magnetometer"
+    notes: "Watch 64a70021-f691-4b93-a6f4-0968f5b648f8 for 02 (done) or 03 (failed); the orientation stream should be paused meanwhile."
+
+protocol_details:
+  rgb565:
+    packing: "rgb565 = ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | ((b & 0xf8) >> 3); sent as two bytes, high byte first, after the on/off byte"
+    note: >
+      The same formula appears in the vendor SDK and the Python client (which
+      credits the SDK). Only the top 5/6/5 bits of each channel survive,
+      so a colour read back through any other path will not round-trip.
+    examples:
+      - { rgb888: "ff0000", frame: "01f800", meaning: "red" }
+      - { rgb888: "00ff00", frame: "0107e0", meaning: "green" }
+      - { rgb888: "0000ff", frame: "01001f", meaning: "blue" }
+      - { rgb888: "ffffff", frame: "01ffff", meaning: "white (led_on_white)" }
+      - { rgb888: "2185d0", frame: "01243a", meaning: "the Python client's default blue" }
+      - { rgb888: "000000", frame: "000000", meaning: "off (led_off)" }
+  quaternion_stream:
+    layout: "8 bytes: int16 LE w, x, y, z; component = raw / 1000"
+    client_disagreement: >
+      The Python client decodes little-endian but labels the words y, -x,
+      -w, z (a remap to its own screen axes); the Go client decodes
+      big-endian unsigned w, x, y, z and never got a usable mapping out of
+      it (its own FIXME). The vendor SDK's little-endian signed w, x, y, z
+      is declared. Confirming on hardware is the top open item.
+    rate: "Not documented."
+  dfu_sequence:
+    entry: "write 02 <len> <name> to 8ec90003, wait ~100 ms, write 01; the wand disconnects"
+    bootloader_name: "DFU-<addr byte 4>-<addr byte 5>, as the host prints the address (e.g. DFU-ee-ff)"
+    transfer: >
+      Subscribe to control point 8ec90001; set packet-receipt notifications
+      to every 15 packets (02 0f 00); for the init packet then the image:
+      select (06 01 / 06 02), create (01 01 / 01 02 with a LE uint32
+      length), stream 20-byte packets to 8ec90002, calculate checksum (03)
+      and compare CRC32, execute (04). Responses are 60 <op> <result>;
+      result 01 is success, 0b carries an extended error byte.
+    source: "@kano/devices-sdk lib/dfu.js — Nordic's documented Secure DFU procedure, nothing Kano-specific except the name"
+  host_side_gesture_recognition:
+    scope: "out of scope"
+    note: >
+      Spell recognition ran in the Kano app on the host, fed by this
+      quaternion stream and the button. It is not a device protocol and is
+      not documented here. The GammaGames demos show the stream is enough
+      to drive a cursor or feed a direction-sequence gesture recogniser.
+  info_values_reported:
+    organisation: "Kano Computing"
+    software_version: "1.0.4"
+    hardware_build: 3
+    basis: >
+      Values served by sabas1080/KanoWandHack's Arduino emulator, which the
+      Kano desktop app detected (Hackaday log, 2018-12-09). They are what a
+      2018 wand plausibly returned, not a reading from one.
+
+evidence:
+  documentation_review: >
+    Read on 2026-10-11: @kano/devices-sdk 1.0.1 from npm (wand, dfu,
+    devices and platform modules, the demos and README); GammaGames/
+    kano_wand (module, wiki, FAQ); anzellai/wandkit's Go source; wizofe/
+    bluewand-python's README and scanner; sabas1080/KanoWandHack's Arduino
+    sketch and Hackaday page and logs; Nordic's 2018-10-09 press release;
+    Kano's build book PDF; The Gazette notice 4374009; Companies House
+    08375450 insolvency page; TechCrunch 2023-01-12 and 2023-01-27; the
+    App Store listing for the Kano Code / Harry Potter Wand Kit app. All
+    five code sources agree on every UUID; the vendor SDK is the only one
+    that encodes every write and decodes every read, and it is the basis
+    for each byte layout above.
+  open_questions: >
+    Quaternion byte order and sign on hardware (vendor SDK vs Python
+    client); the inactivity timeout and whether keep-alive extends it;
+    battery and temperature scaling; whether Kano's bootloader enforces
+    signed images and where images came from; the raw and motion
+    characteristic layouts; whether the wand advertises any service UUID;
+    what the "75" and the two trailing groups in the local name encode.
+
+remaining_unknowns:
+  - "Quaternion decode has not been checked on a wand: the vendor SDK (int16 LE, w x y z) is declared; the Python client remaps and negates, the Go client reads big-endian. One capture settles it."
+  - "The inactivity timeout, and whether writing 01 to the keep-alive characteristic actually extends it (the vendor SDK does it; the Python client's author doubted it)."
+  - "Battery status scaling (one byte; reads of 0 reported) and temperature unit/scale (int16 LE, raw)."
+  - "Whether the Secure DFU bootloader enforces signatures, where firmware images came from, the bootloader's address behaviour and inactivity timeout — none observed."
+  - "Layouts of the raw (64a7000a-f691-4b93-a6f4-0968f5b648f8) and motion (64a7000c-f691-4b93-a6f4-0968f5b648f8) characteristics; nothing reads them."
+  - "Whether any service UUID or manufacturer data (Kano company ID 0x07d4) is advertised; the vendor SDK matches on the local name alone."
+  - "The local-name suffix: 'Kano-Wand-75-XX-XX' is reported; whether 75 is a model code and XX-XX the address tail is a guess."
+  - "Whether a factory reset exists and whether magnetometer calibration persists across a battery change."
+
+helpful_urls:
+  - title: "Kano Harry Potter Coding Kit — coding wand build book (PDF, vendor-hosted)"
+    url: "https://kanome-cms-media-production.kano.me/media/components/0d36bf7b-2968-4af6-8e04-dc5267ffd8f6.pdf"
+    kind: "manual"
+    description: >
+      The 2018 build book packed with the Harry Potter Kano Coding Kit
+      (part 18G8041-01A): battery fitting, the wake button, the Bluetooth
+      LED's flashing/steady meaning and the WA2-WA5 help codes. The only
+      model the kit shipped; still served from Kano's CMS in 2026-10.
+  - title: "@kano/devices-sdk 1.0.1 (npm) — Kano's own wand SDK, MIT"
+    url: "https://www.npmjs.com/package/@kano/devices-sdk"
+    kind: "implementation"
+    description: "Vendor-published JavaScript SDK: GATT map, byte layouts and the Nordic Secure DFU flow this spec is built from. The GitHub repository is gone; the tarball remains."
+  - title: "GammaGames/kano_wand (Python, MIT)"
+    url: "https://github.com/GammaGames/kano_wand"
+    kind: "implementation"
+    description: "bluepy client with a wiki; names the vibration patterns and documents the inactivity disconnect and boot animation."
+  - title: "Kano Wand Hack (Hackaday.io project 161832)"
+    url: "https://hackaday.io/project/161832-kano-wand-hack"
+    kind: "protocol_writeup"
+    description: "GATT map grouped by service, the Kano-Wand-75-XX-XX name pattern, and an Arduino emulator the Kano desktop app detected."
+  - title: "anzellai/wandkit (Go)"
+    url: "https://github.com/anzellai/wandkit"
+    kind: "implementation"
+    description: "Go client; same UUIDs, button and quaternion handling (reads the quaternion words big-endian — see remaining_unknowns)."
+  - title: "wizofe/bluewand-python (GPL-3.0)"
+    url: "https://github.com/wizofe/bluewand-python"
+    kind: "implementation"
+    description: "Early bluepy experiment; its README is the source for the int16 x1000 quaternion range."
+  - title: "Nordic Semiconductor: Harry Potter Kano Coding Kit employs nRF52832"
+    url: "https://www.nordicsemi.com/Nordic-news/2018/10/Harry-Potter-Kano-Coding-Kit-employs-nRF52832-to-wirelessly-connect-magic-wand-with-app"
+    kind: "other"
+    description: "Chipset press release (2018-10-09): nRF52832, S132 SoftDevice, 9-DoF IMU, BLE direct to the host app."
+  - title: "The Gazette notice 4374009 — Kano Computing Limited, appointment of administrators"
+    url: "https://www.thegazette.co.uk/notice/4374009"
+    kind: "other"
+    description: "Administrators appointed 2023-06-06 (published 2023-06-12); the basis for manufacturer_status."
+  - title: "Companies House 08375450 — Kano Computing Limited insolvency record"
+    url: "https://find-and-update.company-information.service.gov.uk/company/08375450/insolvency"
+    kind: "other"
+    description: "Administration case from 2023-06-06 with the practitioners' progress reports."
+  - title: "TechCrunch, 2023-01-27: Kano on the Warner Bros. wand dispute"
+    url: "https://techcrunch.com/2023/01/27/warner-bros-swiped-our-harry-potter-wand-ip-says-kano/"
+    kind: "other"
+    description: "Reports Kano was no longer actively marketing the wand by January 2023."
+  - title: "Harry Potter Wand Kit by Kano (Kano Code) — App Store listing"
+    url: "https://apps.apple.com/us/app/kano-code/id1435177844"
+    kind: "vendor_support"
+    description: "The companion app's listing; last release 1.3.11 on 2021-02-06 as of 2026-10."

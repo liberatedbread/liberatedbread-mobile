@@ -1,0 +1,367 @@
+# Artiphon Orba 2 — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Clean-room derived facts. Canonical public protocol:
+# holofermes/orba-protocol (code MIT; specification CC BY 4.0), whose author
+# checked the codec against BLE captures and a live Orba 2.
+
+device:
+  name: "Artiphon Orba 2"
+  manufacturer: "Artiphon, Inc. (liquidated 2025)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    detail: capture-verified
+    notes: >
+      Not driven by this project. The framing, registers and command values
+      below consolidate holofermes/orba-protocol's public capture-verified
+      specification. Orba 2 only: Orba 1, Orba 3, Chorda and INSTRUMENT 1 are
+      not claimed compatible. The bundled vectors come from that public
+      specification and are independently rebuilt by
+      scripts/test_artiphon_orba_2_spec.py.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "other"
+  type: "midi-controller"
+  notes: >
+    Handheld instrument and looper. Performance uses standard MIDI/BLE-MIDI;
+    configuration uses the proprietary SysEx command layer declared here.
+    Both work locally without an Artiphon account. Only one BLE central may
+    connect at a time. Never blind-scan registers: invalid reads can fault
+    and reboot the instrument. Erase and fresh-record commands are marked
+    advanced because they destroy recorded material.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/holofermes/orba-protocol"
+    license: "MIT (code), CC BY 4.0 (specification)"
+    notes: >
+      Artiphon did not publish a third-party protocol specification. The
+      cited community specification reports byte-identical checks against
+      captured BLE traffic and a live Orba 2. This YAML restates its wire
+      facts without copying its implementation.
+  identification:
+    local_names: ["Artiphon Orba 2"]
+    service_uuids:
+      - "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    notes: >
+      Filter on the standard BLE-MIDI service. The advertised and
+      post-connection names can differ, so the name alone is not sufficient.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "Artiphon Orba 2"
+          service_uuids:
+            - "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+        notes: >
+          Service UUID is the primary matcher. The local name is an
+          additional hint, not a reason to select another Artiphon model.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Wake the Orba, close any other central, connect and enable MIDI
+      notifications. No account or cloud setup is needed.
+    methods:
+      - type: "ble_direct"
+        name: "BLE-MIDI connection"
+        verified: false
+        description: >
+          Connect by the BLE-MIDI service UUID, subscribe to the MIDI I/O
+          characteristic, then send documented SysEx commands in order.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Wake the Orba 2 and close every other app connected to it."
+            actor: "user"
+          - action: "Connect to the peripheral advertising the BLE-MIDI service."
+            actor: "client"
+          - action: "Enable notifications on 7772e5db-3868-4112-a1a9-f2669d106bf3."
+            actor: "client"
+          - action: "Send only documented commands, serializing all writes belonging to one SysEx message."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established: whether settings, pairings or recordings are cleared
+        is undocumented. Erase-song deletes recorded material only and is not
+        a device reset.
+      description: >
+        No factory-reset procedure is asserted by the cited protocol source.
+        Do not use erase-song as a device reset.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "BLE-only. Close the previous central and reconnect."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No credentials are required for local MIDI or SysEx control."
+  pairing:
+    required: false
+    confidence: "medium"
+    security_mode: "none"
+    bonding: "none"
+    exclusivity:
+      single_connection: true
+      single_bond: false
+      recovery: "Close the other central, then reconnect."
+    enter_pairing_mode:
+      required: false
+    notes: >
+      The public client connects directly without a PIN or application
+      account. The one-central limit is a connection limit, not bonding.
+
+initialization:
+  - characteristic: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+    subscribe: true
+    when: "connect"
+    notes: "MIDI I/O; reassemble SysEx replies through F7 before decoding."
+
+services:
+  - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+    name: "BLE-MIDI service"
+    characteristics:
+      - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+        name: "MIDI I/O and Orba SysEx control"
+        properties: ["write", "write_without_response", "notify"]
+        framing:
+          scheme: "orba_sysex_ble_midi"
+          max_chunk_size: 20
+          notes: >
+            The command template is the Orba payload (GET/SET, domain,
+            address, values), NOT a complete SysEx. Wrap it as
+            82 01 <id> <payload-length:u16be> <payload> <crc:u16be>;
+            CRC-16 uses reflected polynomial A001, initial zero, over 82
+            through the final payload byte. LSB-first 8-to-7-bit pack that
+            packet, prefix 00, and delimit with F0/F7. BLE-MIDI first writes
+            are 80 80 <up to 18 stream bytes>, continuations are 80 <up to
+            19 bytes>, and the final write is 80 80 F7. The message id is the
+            command's serial parameter (zero for a one-shot command).
+        notes: >
+          Standard MIDI performance and Orba control share this characteristic.
+          Incoming BLE-MIDI packets need stateful reassembly through F7; do
+          not interpret each notification as a complete SysEx reply.
+        commands:
+          set_active_part:
+            description: "Select Lead, Chord, Bass or Drum."
+            template: [0x03, 0x01, 0x00, 0x03, "{part}"]
+            parameters:
+              part:
+                type: "uint8"
+                min: 0
+                max: 3
+                labels: ["Lead", "Chord", "Bass", "Drum"]
+          transport_record_overdub:
+            description: "Record or overdub without erasing the existing loop."
+            value: [0x03, 0x07, 0x00, 0x02, 0x01]
+          transport_play:
+            description: "Play or resume the loop."
+            value: [0x03, 0x07, 0x00, 0x02, 0x05]
+          transport_pause:
+            description: "Pause playback while preserving the loop."
+            value: [0x03, 0x07, 0x00, 0x02, 0x06]
+          erase_active_loop:
+            description: "Erase only the active part's loop."
+            value: [0x03, 0x07, 0x00, 0x02, 0x02]
+            advanced: true
+            advanced_reason: "Permanently erases the active loop."
+          erase_song:
+            description: "Erase the entire song."
+            value: [0x03, 0x07, 0x00, 0x02, 0x03]
+            advanced: true
+            advanced_reason: "Permanently erases every recorded part."
+          fresh_record:
+            description: "Erase the existing loop and arm a fresh recording."
+            value: [0x03, 0x07, 0x00, 0x02, 0x04]
+            advanced: true
+            advanced_reason: "Wipes the existing loop before recording."
+          set_tempo:
+            description: "Set tempo; the UI displays BPM and the wire carries BPM x100."
+            template: [0x03, 0x07, 0x00, 0x07, "{tempo}"]
+            parameters:
+              tempo:
+                type: "uint16"
+                endianness: "big"
+                scale: 0.01
+                unit: "bpm"
+                min: 1
+                max: 65535
+          set_scale:
+            description: "Set the scale index."
+            template: [0x03, 0x03, 0x00, 0x13, "{scale}"]
+            parameters:
+              scale:
+                type: "uint8"
+                min: 0
+                max: 10
+                labels: ["Major", "Natural minor", "Harmonic minor", "Melodic minor", "Major pentatonic", "Minor pentatonic", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Locrian"]
+          set_lead_quantize:
+            description: "Set Lead quantization."
+            template: [0x03, 0x07, 0x00, 0x03, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 2
+                labels: ["As played", "Snap to grid", "Orba groove"]
+          set_chord_quantize:
+            description: "Set Chord quantization."
+            template: [0x03, 0x07, 0x00, 0x04, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 2
+                labels: ["As played", "Snap to grid", "Orba groove"]
+          set_bass_quantize:
+            description: "Set Bass quantization."
+            template: [0x03, 0x07, 0x00, 0x05, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 2
+                labels: ["As played", "Snap to grid", "Orba groove"]
+          set_drum_quantize:
+            description: "Set Drum quantization."
+            template: [0x03, 0x07, 0x00, 0x06, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 2
+                labels: ["As played", "Snap to grid", "Orba groove"]
+          set_lead_volume:
+            description: "Set Lead volume; 0-255 maps to 0-100%."
+            template: [0x03, 0x02, 0x50, 0x00, "{level}", 0x00, 0x01, 0x04]
+            parameters:
+              level: {type: "uint8", min: 0, max: 255}
+          set_chord_volume:
+            description: "Set Chord volume; 0-255 maps to 0-100%."
+            template: [0x03, 0x02, 0x50, 0x08, "{level}", 0x00, 0x01, 0x04]
+            parameters:
+              level: {type: "uint8", min: 0, max: 255}
+          set_bass_volume:
+            description: "Set Bass volume; 0-255 maps to 0-100%."
+            template: [0x03, 0x02, 0x50, 0x10, "{level}", 0x00, 0x01, 0x04]
+            parameters:
+              level: {type: "uint8", min: 0, max: 255}
+          set_drum_volume:
+            description: "Set Drum volume; 0-255 maps to 0-100%."
+            template: [0x03, 0x02, 0x50, 0x18, "{level}", 0x00, 0x01, 0x04]
+            parameters:
+              level: {type: "uint8", min: 0, max: 255}
+          set_lead_pan:
+            description: "Set Lead pan; 0-255 maps to 0-100%."
+            template: [0x03, 0x02, 0x50, 0x01, "{level}", 0x00, 0x01, 0x04]
+            parameters:
+              level: {type: "uint8", min: 0, max: 255}
+          set_lead_reverb:
+            description: "Set Lead reverb; 0-255 maps to 0-100%."
+            template: [0x03, 0x02, 0x50, 0x02, "{level}", 0x00, 0x01, 0x04]
+            parameters:
+              level: {type: "uint8", min: 0, max: 255}
+          set_lead_delay:
+            description: "Set Lead delay; 0-255 maps to 0-100%."
+            template: [0x03, 0x02, 0x50, 0x03, "{level}", 0x00, 0x01, 0x04]
+            parameters:
+              level: {type: "uint8", min: 0, max: 255}
+          get_battery:
+            description: "Request the battery register; decode the SysEx reply."
+            value: [0x02, 0x03, 0x00, 0x0f]
+
+payload_formats:
+  OrbaCommandPacket:
+    description: "Unwrapped command or reply before the LSB-first 8-to-7-bit encoding."
+    parse_rules:
+      - "Bytes 0-1 are 82 01; byte 2 correlates the reply; bytes 3-4 are the payload length u16 BE."
+      - "The final two bytes are CRC-16 BE, reflected polynomial A001 with initial zero, over byte 0 through the final payload byte."
+      - "Payload 02 = GET and 03 = SET, followed by a domain and a u16 BE register address."
+      - "Only read documented addresses: invalid register reads can reboot the device."
+    example: "82 01 00 00 05 03 07 00 02 05 7f 05"
+
+entities: []
+
+protocol_details:
+  part_mapping:
+    lead: {part: 0, midi_channel: 1}
+    chord: {part: 1, midi_channel: 16}
+    bass: {part: 2, midi_channel: 9}
+    drum: {part: 3, midi_channel: 10}
+  fx_addressing: >
+    Domain 02, register high byte 50. Part bases are Lead 00, Chord 08,
+    Bass 10 and Drum 18. Offsets are volume +0, pan +1, reverb +2 and delay
+    +3. Every FX SET requires the trailing 00 01 04; without it the device
+    can acknowledge the write but not apply it. Preset changes reset that
+    part's FX. The four volume commands above cover every part; the pan,
+    reverb and delay examples show the same rule for other clients.
+  reply_handling: >
+    A reply is not necessarily one GATT notification. Reassemble BLE-MIDI
+    through F7, remove header/timestamp bytes, undo the 7-bit packing and
+    verify length and CRC before using the payload. MIDI clock is not
+    supported. Preset filenames, battery response semantics and the exact
+    metronome enum need further work before being presented as typed state.
+  test_vectors:
+    play:
+      payload_hex: "03 07 00 02 05"
+      midi_hex: "f0 00 02 03 00 00 50 60 40 03 00 04 14 00 7f 05 f7"
+      writes_hex:
+        - "80 80 f0 00 02 03 00 00 50 60 40 03 00 04 14 00 7f 05"
+        - "80 80 f7"
+    active_part_bass:
+      payload_hex: "03 01 00 03 02"
+      midi_hex: "f0 00 02 03 00 00 50 60 40 00 00 06 08 50 72 0d f7"
+      writes_hex:
+        - "80 80 f0 00 02 03 00 00 50 60 40 00 00 06 08 50 72 0d"
+        - "80 80 f7"
+    bass_volume_50_percent:
+      payload_hex: "03 02 50 10 80 00 01 04"
+      midi_hex: "f0 00 02 03 00 00 00 61 00 01 50 20 00 04 10 00 41 2a 65 01 f7"
+      writes_hex:
+        - "80 80 f0 00 02 03 00 00 00 61 00 01 50 20 00 04 10 00 41 2a"
+        - "80 65 01"
+        - "80 80 f7"
+
+evidence:
+  artifacts:
+    - type: "public_protocol_specification"
+      artifact: "holofermes/orba-protocol spec/SPEC.md, read at 055610bc (2026-11-01)"
+      url: "https://github.com/holofermes/orba-protocol/blob/main/spec/SPEC.md"
+      description: >
+        Orba 2 transport, SysEx packet, 7-bit codec, CRC, BLE-MIDI
+        packetization and register map. The source reports captured-write
+        replay and synthesized writes accepted by a live Orba 2.
+    - type: "public_implementation"
+      artifact: "holofermes/orba-console"
+      url: "https://holofermes.github.io/orba-console/"
+      description: "Browser-based local controller and immediate owner alternative."
+  open_questions: >
+    Exact metronome enum, preset-file workflow, reply schemas for battery
+    and other state registers, and compatibility of other Artiphon models.
+
+remaining_unknowns:
+  - "Orba 1, Orba 3, Chorda and INSTRUMENT 1 are not proven compatible."
+  - "Preset selection requires a 129-byte filename and a separate commit; filenames are not enumerated here."
+  - "Metronome's exact value vocabulary needs a capture."
+  - "The app-level response schemas are intentionally limited to documented request/response framing; unknown register semantics stay opaque."
+
+helpful_urls:
+  - title: "Orba 2 control protocol specification"
+    url: "https://github.com/holofermes/orba-protocol/blob/main/spec/SPEC.md"
+    kind: "protocol_writeup"
+    description: "Capture-verified SysEx, CRC, BLE-MIDI packetization and register map."
+  - title: "Orba Console"
+    url: "https://holofermes.github.io/orba-console/"
+    kind: "implementation"
+    description: "Local browser controller using Web Bluetooth or Web MIDI, with no account."

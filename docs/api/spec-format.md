@@ -1060,6 +1060,12 @@ live. So the two blocks divide as:
 | `http_endpoints` | What actions exist, what they take, what they return | `SetBinaryState` takes a `BinaryState` of 0 or 1 |
 | `commands` | One invocation of one action, arguments already chosen | `plug_turn_on` is that action with `1` |
 
+`advanced` and `advanced_reason` mean the same on a top-level command as on a
+BLE characteristic's command: a signpost, not a gate, that a consumer puts
+behind a deliberate action with the reason shown there. The schema requires
+the reason wherever the flag is true; the JuiceBox current-limit commands are
+the worked case.
+
 One role deserves its own sentence: **`toggle`** declares that the bound
 command *flips* power rather than setting it, so a consumer must establish
 the current state before sending — a blind toggle turns a sleeping device on.
@@ -1376,6 +1382,80 @@ group and scope each with `variants`: names from `device.variants[].model`,
 as on an entity. hello-fairy's ST17H66, ESP32 and Bluetrum boards each get
 their own entry. No variant may be covered by two entries of the same
 `type`.
+
+### `cloud.egress` — what it phones, and what blocking it costs
+
+`cloud` records a vendor-service dependency; `egress` is the part of it an
+owner acts on. One entry per name (or literal address) that traffic leaves
+the LAN for, saying who opens the connection, what it is for, and what
+stops if it is blocked:
+
+```yaml
+cloud:
+  required: false            # works locally; this records what it phones anyway
+  egress:
+    - host: "download.tplinkcloud.com"   # bare, lowercase: no scheme, port or path
+      contacted_by: "device"             # device | app | both
+      roles: ["firmware_download"]
+      ports: [{port: 80, protocol: "tcp"}]
+      when_blocked:
+        impact: "none"                   # none | degraded | breaks | unknown
+        effect: "No image can be fetched, so an ordered update fails."
+      verification: "reported"
+      basis: "fwUrl values in python-kasa's IoT test fixtures."
+    - host: "pool.ntp.org"
+      match: "subdomains"                # this name and everything under it
+      contacted_by: "device"
+      roles: ["time"]
+      ports: [{port: 123, protocol: "udp"}]
+      when_blocked:
+        impact: "degraded"
+        effect: "Schedules run on the device clock, which has no battery backup."
+        workaround: "Resolve the name to a LAN NTP server, or set the clock locally."
+      verification: "reported"
+      basis: "An EP10/HS220 capture (lkeng.org, 2026-01-15)."
+```
+
+The fields a consumer acts on, and why each is required:
+
+- **`contacted_by`** decides whether a name belongs on a router list at all.
+  An `app` host blocked at the router breaks the vendor app for every phone
+  on the network and does nothing to the device. Record it anyway: it is how
+  a reader learns that the host from a forum post was never the device's.
+  The Roomba's three published names are all `app`.
+- **`roles`** say what the connection is for, from a closed vocabulary:
+  `device_cloud`, `firmware_check`, `firmware_download`, `provisioning`,
+  `account`, `api`, `telemetry`, `advertising`, `time`,
+  `connectivity_check`, `content`, `other`. A device's standing cloud link
+  is `device_cloud` even though updates are usually *ordered* over it; tag
+  it `firmware_check` only when the offer genuinely cannot be separated
+  from it, because that puts the relay on the updates-only list. An entry
+  carrying `time` is never blocked, whatever else it serves: plain NTP
+  (UDP 123, or no `ports`) is redirected to a LAN time server, and any
+  other clock is left reachable — so record `ports`.
+- **`when_blocked.impact`** is the effect on *local* operation. `breaks`
+  keeps a name off every generated list (LG's `lgtvsdp.com` is the TV's
+  clock), including a combined list where another spec calls it safe; `degraded` and `unknown` are listed with their `effect` and
+  `workaround` printed in the list's header, before anyone applies it.
+  Anything but `none` needs an `effect`. An entry with the `time` role is
+  never `none`.
+- **`match`** is `exact` (the default) or `subdomains`. Use `subdomains` for
+  a vendor that rotates regional or numbered names under one parent, never
+  on a parent the vendor's app also lives under. A `subdomains` rule is
+  vetoed by any protected name beneath it (a `breaks` entry or a clock in
+  any spec), because the rule would answer for that name too; a spec's own
+  more specific entry under its own `breaks` parent is a carve-out and
+  stands (LG's `rdx2.lgtvsdp.com` under `lgtvsdp.com`).
+- **`address`** replaces `host` for a literal IP or CIDR the device dials
+  without a DNS lookup. DNS cannot touch these; the generator lists them as
+  firewall rules (except a hardcoded time server, which stays reachable).
+- **`verification`** and **`basis`**: an entry not `confirmed` by this
+  project cites where it came from, as a `host_compatibility` verdict does.
+
+`cloud.hosts`, the older free-form string list, stays valid for the specs
+that carry it; new work goes in `egress`, which is what
+`scripts/generate_blocklists.py` renders into the DNS lists described in
+[Blocking Vendor Updates and the Cloud](../blocking-vendor-updates.md).
 
 ### One spec, several models
 
