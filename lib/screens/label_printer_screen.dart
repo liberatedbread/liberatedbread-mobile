@@ -12,6 +12,7 @@ import '../providers/spec_codec_provider.dart';
 import '../services/brother_ql_print_service.dart';
 import '../services/spec_codec.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/unexpected_services_banner.dart';
 
 /// Control screen for a raster label printer (Brother QL family).
 ///
@@ -224,6 +225,12 @@ class _LabelPrinterScreenState extends ConsumerState<LabelPrinterScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
           children: [
+            // Services the printer's spec does not describe: the "oh hey"
+            // banner offers to tell us.
+            WifiDeviceReportBanner(
+              specKey: widget.specKey,
+              device: widget.device,
+            ),
             _StatusCard(
               loading: _loading,
               error: _error,

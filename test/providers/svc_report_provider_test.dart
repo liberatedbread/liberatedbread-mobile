@@ -182,7 +182,7 @@ void main() {
       expect(uri.queryParameters['body'], contains(report.reportId));
     });
 
-    test('dedupeKey ignores the random report id', () {
+    test('itemKeys ignore the random report id', () {
       SvcReport build() => buildBleSvcReport(
         spec: _bleSpec,
         services: [_service(_dfuUuid)],
@@ -191,7 +191,28 @@ void main() {
       final a = build();
       final b = build();
       expect(a.reportId, isNot(b.reportId));
-      expect(a.dedupeKey, b.dedupeKey);
+      expect(a.itemKeys, b.itemKeys);
+    });
+
+    test('without() drops handled findings and keeps the rest', () {
+      final report = buildBleSvcReport(
+        spec: _bleSpec,
+        services: [_service(_dfuUuid)],
+        advertisedName: 'ACME_1',
+        responses: [
+          SvcReportResponse.undecodableBle(
+            charUuid: 'fff1',
+            bytes: const [1, 2, 3],
+            error: 'expected 4 bytes',
+          ),
+        ],
+      )!;
+      expect(report.headline, 'unexpected services and responses');
+      final rest = report.without({report.itemKeys.first})!;
+      expect(rest.unexpected, isEmpty);
+      expect(rest.responses, hasLength(1));
+      expect(rest.headline, 'unexpected response');
+      expect(report.without(report.itemKeys.toSet()), isNull);
     });
 
     test('newReportId is a version-4 UUID', () {
@@ -217,7 +238,7 @@ void main() {
       );
       final first = make();
       addTearDown(first.dispose);
-      await first.read(svcReportHandledProvider.notifier).markHandled('k1');
+      await first.read(svcReportHandledProvider.notifier).markHandled(['k1']);
       final second = make();
       addTearDown(second.dispose);
       expect(second.read(svcReportHandledProvider), {'k1'});
@@ -233,6 +254,94 @@ void main() {
       );
       addTearDown(c.dispose);
       expect(c.read(svcReportHandledProvider), isEmpty);
+    });
+  });
+
+  group('SvcReportResponse', () {
+    test('a BLE sample is hex, capped at 32 bytes', () {
+      final r = SvcReportResponse.undecodableBle(
+        charUuid: 'fff1',
+        entity: 'Temperature',
+        bytes: List<int>.generate(40, (i) => i),
+        error: 'FormatException:\n  bad length',
+      );
+      expect(r.sample, hasLength(64));
+      expect(r.sample, startsWith('000102'));
+      expect(r.detail, '40 bytes; FormatException: bad length');
+      expect(r.where, 'gatt:fff1');
+    });
+
+    test('an unmapped Wi-Fi state carries key names only, redacted', () {
+      final r = SvcReportResponse.unmappedState(
+        command: 'get_sysinfo',
+        entity: 'Power',
+        keys: const [
+          'system.get_sysinfo.relay_state',
+          'children.8006A1B2C3D4E5F60718293A4B5C6D7E.state',
+          'devices.00:11:22:33:44:55.on',
+          'hosts.192.168.1.40.up',
+          'clients.a1b2c3d4-0000-4000-8000-1234567890ab.rssi',
+        ],
+      );
+      expect(r.sample, isNull);
+      for (final leak in ['8006A1B2', '00:11:22', '192.168', 'a1b2c3d4']) {
+        expect(r.detail, isNot(contains(leak)), reason: leak);
+      }
+      expect(r.detail, contains('system.get_sysinfo.relay_state'));
+      expect(r.detail, contains('children.<id>.state'));
+      expect(r.detail, contains('hosts.<id>.up'));
+    });
+
+    test('an unrecognized value keeps a short raw sample', () {
+      final r = SvcReportResponse.unrecognizedValue(
+        where: 'command:get_mode',
+        entity: 'Mode',
+        raw: '7',
+      );
+      expect(r.toJson(), containsPair('sample', '7'));
+      expect(r.itemKey, 'resp:unrecognized_value:command:get_mode:Mode');
+    });
+  });
+
+  group('ResponseAnomalyNotifier', () {
+    test('records once per finding, and caps per device', () {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final notifier = c.read(responseAnomaliesProvider.notifier);
+      SvcReportResponse r(int i) => SvcReportResponse.unmappedState(
+        command: 'c$i',
+        entity: 'E',
+        keys: const ['a'],
+      );
+      notifier
+        ..record('wifi:h', r(0))
+        ..record('wifi:h', r(0));
+      expect(c.read(responseAnomaliesProvider)['wifi:h'], hasLength(1));
+      for (var i = 1; i < 40; i++) {
+        notifier.record('wifi:h', r(i));
+      }
+      expect(
+        c.read(responseAnomaliesProvider)['wifi:h'],
+        hasLength(ResponseAnomalyNotifier.maxPerDevice),
+      );
+      expect(c.read(responseAnomaliesProvider)['ble:x'], isNull);
+    });
+
+    test('a Wi-Fi report built from responses alone', () {
+      final report = buildWifiSvcReport(
+        entry: _wifiEntry(),
+        device: _netDevice(types: ['_acme._tcp.local']),
+        responses: [
+          SvcReportResponse.unmappedState(
+            command: 'get_state',
+            entity: 'Power',
+            keys: const ['on'],
+          ),
+        ],
+      )!;
+      expect(report.unexpected, isEmpty);
+      expect(report.headline, 'unexpected response');
+      expect(report.toJson()['responses'], hasLength(1));
     });
   });
 }

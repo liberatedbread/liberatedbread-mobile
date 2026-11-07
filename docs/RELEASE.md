@@ -190,7 +190,9 @@ The privacy page should say what the code does:
     (`www.repeaterbook.com`, with that token; saving the token also checks it
     there once). Each directory can be turned off;
   - a diagnostics report about a device that did something its profile does
-    not describe (an unexpected service or response), sent to
+    not describe (an unexpected service, or a response the app could not
+    read: a Wi-Fi reply's field names, never their values, or up to 32 bytes
+    of a Bluetooth value that would not decode), sent to
     `svc-reports.liberatedbread.com` and/or by email to
     `svc-reports@liberatedbread.com`, **only when the user taps Send**. It
     shows its contents first, carries no addresses, names or identifiers,

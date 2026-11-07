@@ -39,15 +39,19 @@
         token checks it there once.
       Stated in the location purpose string (Info.plist
       NSLocationWhenInUseUsageDescription).
-    * an "unexpected services" report, ONLY when the user taps Send report
-      or Email only on the banner that offers one
-      (lib/widgets/unexpected_services_banner.dart). Send report POSTs it to
+    * a device report ("unexpected services" / "unexpected response"),
+      ONLY when the user taps Send report or Email only on the banner that
+      offers one (lib/widgets/unexpected_services_banner.dart). Send report POSTs it to
       svc-reports.liberatedbread.com (OUR server) and opens the user's mail
       app addressed to us. Email only does the mail half alone. The banner's
       "What's sent?" shows the payload verbatim beforehand. It names the
-      matched spec, the services the spec does not describe, the app version
-      and the platform. It carries no identifier: no Bluetooth or IP address,
-      no hostname, no TXT record and no Wi-Fi instance name
+      matched spec, the services the spec does not describe and/or the
+      responses the app could not read, the app version and the platform. A
+      response is described by its shape: a Wi-Fi reply's key NAMES with
+      identifier-like segments redacted, never its values; for a BLE value
+      that would not decode, at most 32 bytes of it; for an unknown option,
+      that option. It carries no identifier: no Bluetooth or IP address, no
+      hostname, no TXT record and no Wi-Fi instance name
       (lib/models/svc_report.dart). The server does not store the sender's
       IP address.
 

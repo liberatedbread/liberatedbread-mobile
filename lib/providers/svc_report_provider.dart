@@ -30,11 +30,13 @@ String svcReportPlatform() =>
     kIsWeb ? 'web' : defaultTargetPlatform.name.toLowerCase();
 
 /// The BLE report for a connected device, or null when its matched [spec]
-/// declares every service worth mentioning.
+/// declares every service worth mentioning and nothing in [responses] went
+/// wrong.
 SvcReport? buildBleSvcReport({
   required DeviceSpecDto spec,
   required List<BleDiscoveredService> services,
   required String advertisedName,
+  List<SvcReportResponse> responses = const [],
   String? reportId,
 }) {
   final declared = [
@@ -45,7 +47,7 @@ SvcReport? buildBleSvcReport({
     declared: declared,
     discovered: [for (final s in services) s.uuid],
   );
-  if (unexpected.isEmpty) return null;
+  if (unexpected.isEmpty && responses.isEmpty) return null;
   final byUuid = {for (final s in services) normalizeUuid(s.uuid): s};
   return SvcReport(
     reportId: reportId ?? newReportId(),
@@ -79,6 +81,7 @@ SvcReport? buildBleSvcReport({
           ],
         ),
     ],
+    responses: responses,
     discovered: {for (final s in services) normalizeUuid(s.uuid)}.toList()
       ..sort(),
     declared: declared.toSet().toList()..sort(),
@@ -88,10 +91,12 @@ SvcReport? buildBleSvcReport({
 }
 
 /// The Wi-Fi report for [device] against the spec [entry] it matched, or null
-/// when the spec declares every mDNS type and SSDP target worth mentioning.
+/// when the spec declares every mDNS type and SSDP target worth mentioning
+/// and nothing in [responses] went wrong.
 SvcReport? buildWifiSvcReport({
   required CatalogueSpec entry,
   required NetworkDevice device,
+  List<SvcReportResponse> responses = const [],
   String? reportId,
 }) {
   final identity = entry.identity;
@@ -103,7 +108,7 @@ SvcReport? buildWifiSvcReport({
     declared: identity.ssdpSearchTargets,
     answered: device.ssdpTargets,
   );
-  if (mdns.isEmpty && ssdp.isEmpty) return null;
+  if (mdns.isEmpty && ssdp.isEmpty && responses.isEmpty) return null;
   return SvcReport(
     reportId: reportId ?? newReportId(),
     transport: SvcReportTransport.wifi,
@@ -117,6 +122,7 @@ SvcReport? buildWifiSvcReport({
       for (final t in mdns) SvcReportEntry(kind: 'mdns', id: t),
       for (final t in ssdp) SvcReportEntry(kind: 'ssdp', id: t),
     ],
+    responses: responses,
     discovered: [
       ...{for (final t in device.serviceTypes) normalizeServiceType(t)},
       // A uuid: target is a per-unit serial; it stays on the phone.
@@ -134,27 +140,106 @@ SvcReport? buildWifiSvcReport({
   );
 }
 
+/// The key a Wi-Fi device's responses are recorded under in
+/// [responseAnomaliesProvider]. Local only — never sent.
+String wifiAnomalyKey(NetworkDevice device) => 'wifi:${device.host}';
+
+/// The key a BLE device's responses are recorded under. Local only.
+String bleAnomalyKey(String deviceId) => 'ble:$deviceId';
+
 /// The Wi-Fi report for a device whose matched spec is known by [specKey],
-/// resolved against the loaded catalogue. Null while the catalogue loads,
-/// for an unknown key, or when nothing is unexpected.
+/// resolved against the loaded catalogue, folding in whatever responses from
+/// it have been recorded. Null while the catalogue loads, for an unknown
+/// key, or when nothing is unexpected.
 final wifiSvcReportProvider = FutureProvider.autoDispose
     .family<SvcReport?, ({String specKey, NetworkDevice device})>((
       ref,
       args,
     ) async {
+      final responses = ref.watch(
+        responseAnomaliesProvider.select(
+          (all) => all[wifiAnomalyKey(args.device)] ?? const [],
+        ),
+      );
       final catalogue = await ref.watch(specCatalogueProvider.future);
       final entry = specEntriesByKey(catalogue.specs)[args.specKey];
       if (entry == null) return null;
-      return buildWifiSvcReport(entry: entry, device: args.device);
+      return buildWifiSvcReport(
+        entry: entry,
+        device: args.device,
+        responses: responses,
+      );
     });
 
-/// [SvcReport.dedupeKey]s the user has already sent or dismissed. The banner
-/// stays hidden for those until the device shows a different set.
+/// Responses devices gave that the app could not make sense of, by device
+/// key ([bleAnomalyKey], [wifiAnomalyKey]), for the life of the process.
+///
+/// Anything that reads a device's answer — a BLE value widget, the Wi-Fi
+/// state decoder — records a failure here, and the device's screen turns it
+/// into the "unexpected response" banner. Recording never sends anything:
+/// only the user's tap on that banner does.
+class ResponseAnomalyNotifier
+    extends Notifier<Map<String, List<SvcReportResponse>>> {
+  /// Per device, so a device that fails every notification cannot grow the
+  /// list (and the report) without bound.
+  static const maxPerDevice = 16;
+
+  @override
+  Map<String, List<SvcReportResponse>> build() => const {};
+
+  /// Record [response] for [deviceKey]. The same finding twice is a no-op,
+  /// so a notify stream that keeps failing does not rebuild the screen.
+  void record(String deviceKey, SvcReportResponse response) {
+    final existing = state[deviceKey] ?? const <SvcReportResponse>[];
+    if (existing.contains(response) || existing.length >= maxPerDevice) {
+      return;
+    }
+    Log.reports.info('unexpected ${response.problem} at ${response.where}');
+    state = {
+      ...state,
+      deviceKey: [...existing, response],
+    };
+  }
+}
+
+/// Record that a BLE value from [deviceId] would not decode. Empty bytes are
+/// not recorded: that is a characteristic with nothing in it yet, not a
+/// format the spec gets wrong.
+void recordUndecodableBle(
+  WidgetRef ref, {
+  required String deviceId,
+  required String charUuid,
+  String? entity,
+  required List<int> bytes,
+  required Object error,
+}) {
+  if (bytes.isEmpty) return;
+  ref
+      .read(responseAnomaliesProvider.notifier)
+      .record(
+        bleAnomalyKey(deviceId),
+        SvcReportResponse.undecodableBle(
+          charUuid: normalizeUuid(charUuid),
+          entity: entity,
+          bytes: bytes,
+          error: error,
+        ),
+      );
+}
+
+final responseAnomaliesProvider =
+    NotifierProvider<
+      ResponseAnomalyNotifier,
+      Map<String, List<SvcReportResponse>>
+    >(ResponseAnomalyNotifier.new);
+
+/// [SvcReport.itemKeys] the user has already sent or dismissed. The banner
+/// stays hidden for those findings and comes back only for new ones.
 class SvcReportHandledNotifier extends Notifier<Set<String>> {
   static const storageKey = 'svc_report_handled_keys';
 
   /// FIFO cap so the set cannot grow without bound over the app's life.
-  static const maxKeys = 128;
+  static const maxKeys = 512;
 
   /// SharedPreferences, or null when it is not wired in this scope: the
   /// banner is optional UI and must render in a screen test without prefs.
@@ -180,9 +265,13 @@ class SvcReportHandledNotifier extends Notifier<Set<String>> {
     return <String>{};
   }
 
-  Future<void> markHandled(String dedupeKey) async {
-    if (state.contains(dedupeKey)) return;
-    final next = [...state, dedupeKey];
+  Future<void> markHandled(Iterable<String> keys) async {
+    final fresh = [
+      for (final k in keys)
+        if (!state.contains(k)) k,
+    ];
+    if (fresh.isEmpty) return;
+    final next = [...state, ...fresh];
     final kept = next.length > maxKeys
         ? next.sublist(next.length - maxKeys)
         : next;

@@ -51,8 +51,157 @@ class SvcReportEntry {
   };
 }
 
-/// "This device exposes services its spec does not describe" — the payload
-/// the banner sends to the svc-reports backend and puts in the email.
+/// What a device said back that the app could not make sense of: the
+/// "unexpected response" half of a report.
+///
+/// PRIVACY: carries the SHAPE of an answer, not its content, except where the
+/// content is the thing that failed. A Wi-Fi state reply contributes its key
+/// names only, never their values (Kasa's get_sysinfo carries the MAC, the
+/// user's name for the plug and its coordinates). A BLE value that would not
+/// decode contributes its bytes, capped at [maxSampleBytes] and shown to the
+/// user before sending, because a spec author cannot fix a format without
+/// them. An unrecognised option contributes the option's raw value, capped
+/// the same way.
+@immutable
+class SvcReportResponse {
+  /// Longest [sample] sent, in bytes for hex and characters otherwise.
+  static const int maxSampleBytes = 32;
+
+  /// `undecodable_value` (BLE bytes the spec's format rejected),
+  /// `unmapped_state` (a Wi-Fi state reply in which no field matched the
+  /// entity), or `unrecognized_value` (a value outside the spec's options).
+  final String problem;
+
+  /// What answered: `gatt:<uuid>` or `command:<name>`.
+  final String where;
+
+  /// The spec entity it was read for, when there is one.
+  final String? entity;
+
+  /// One line for a person: an error message, the reply's key names.
+  final String detail;
+
+  /// The failing value itself (hex for BLE), when the class note allows it.
+  final String? sample;
+
+  const SvcReportResponse({
+    required this.problem,
+    required this.where,
+    this.entity,
+    required this.detail,
+    this.sample,
+  });
+
+  /// A BLE value the spec's format rejected.
+  factory SvcReportResponse.undecodableBle({
+    required String charUuid,
+    String? entity,
+    required List<int> bytes,
+    required Object error,
+  }) => SvcReportResponse(
+    problem: 'undecodable_value',
+    where: 'gatt:$charUuid',
+    entity: entity,
+    detail: _oneLine('${bytes.length} bytes; $error'),
+    sample: hexSample(bytes),
+  );
+
+  /// A Wi-Fi state reply in which no field mapped to [entity]. [keys] are the
+  /// reply's field NAMES — never its values (see the class note).
+  factory SvcReportResponse.unmappedState({
+    required String command,
+    required String entity,
+    required Iterable<String> keys,
+  }) {
+    final names = {for (final k in keys) redactKey(k)}.toList()..sort();
+    return SvcReportResponse(
+      problem: 'unmapped_state',
+      where: 'command:$command',
+      entity: entity,
+      detail: _oneLine(
+        names.isEmpty ? 'empty reply' : 'reply keys: ${names.join(', ')}',
+      ),
+    );
+  }
+
+  /// A value outside the options the spec declares for [entity].
+  factory SvcReportResponse.unrecognizedValue({
+    required String where,
+    required String entity,
+    required String raw,
+  }) => SvcReportResponse(
+    problem: 'unrecognized_value',
+    where: where,
+    entity: entity,
+    detail: 'not one of the spec\'s options',
+    sample: textSample(raw),
+  );
+
+  /// A reply key with any identifier-shaped path segment replaced by `<id>`.
+  /// Some replies key their children by MAC, UUID or serial; the shape is
+  /// what a spec author needs, not which unit it was.
+  ///
+  /// IPv4 addresses go first, on the whole key, because the split on `.`
+  /// would cut one into harmless-looking numbers.
+  static String redactKey(String key) => [
+    for (final part in key.replaceAll(_ipv4, '<id>').split('.'))
+      _identifierLike.hasMatch(part) ? '<id>' : part,
+  ].join('.');
+
+  static final RegExp _ipv4 = RegExp(r'\b\d{1,3}(\.\d{1,3}){3}\b');
+
+  static final RegExp _identifierLike = RegExp(
+    // MAC (any separator), UUID, or 8+ hex digits / 6+ plain digits anywhere
+    // in the segment.
+    r'([0-9a-f]{2}[:-]){5}[0-9a-f]{2}|'
+    r'[0-9a-f]{8}-[0-9a-f]{4}-|'
+    r'[0-9a-f]{8,}|\d{6,}',
+    caseSensitive: false,
+  );
+
+  /// Longest [detail] sent.
+  static const int maxDetailChars = 240;
+
+  static String _oneLine(String text) {
+    final flat = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return flat.length <= maxDetailChars
+        ? flat
+        : '${flat.substring(0, maxDetailChars - 1)}…';
+  }
+
+  /// BLE bytes, hex-encoded and capped.
+  static String hexSample(List<int> bytes) => [
+    for (final b in bytes.take(maxSampleBytes))
+      (b & 0xff).toRadixString(16).padLeft(2, '0'),
+  ].join();
+
+  /// Text capped at [maxSampleBytes] characters.
+  static String textSample(String raw) =>
+      raw.length <= maxSampleBytes ? raw : raw.substring(0, maxSampleBytes);
+
+  /// The same failure seen twice is one finding.
+  String get itemKey => 'resp:$problem:$where:${entity ?? ''}';
+
+  Map<String, Object?> toJson() => {
+    'problem': problem,
+    'where': where,
+    if (entity != null) 'entity': entity,
+    'detail': detail,
+    if (sample != null) 'sample': sample,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is SvcReportResponse && other.itemKey == itemKey;
+
+  @override
+  int get hashCode => itemKey.hashCode;
+}
+
+/// "This device did something its spec does not describe": services the
+/// spec does not declare, responses the app could not make sense of, or
+/// both. The payload the banner sends to the svc-reports backend and puts in
+/// the email.
 ///
 /// PRIVACY: this is the whole of what leaves the phone, and it is shown to
 /// the user verbatim before they send it. It deliberately carries NO
@@ -61,6 +210,7 @@ class SvcReportEntry {
 /// name their devices after rooms and people). The BLE advertised name is
 /// included because it is what a spec's name matchers key on; it is a model
 /// string on nearly every peripheral, and the user sees it before sending.
+/// What a response may carry is [SvcReportResponse]'s note.
 @immutable
 class SvcReport {
   /// Bumped when the payload shape changes; the backend accepts the versions
@@ -81,8 +231,11 @@ class SvcReport {
   /// The BLE advertised name; always null for Wi-Fi (see the class note).
   final String? advertisedName;
 
-  /// What the spec does not declare — the reason for the report.
+  /// Services the spec does not declare.
   final List<SvcReportEntry> unexpected;
+
+  /// Responses the app could not make sense of.
+  final List<SvcReportResponse> responses;
 
   /// Everything the device exposed, in the same normalized form, so a spec
   /// author can see the unexpected ones in context.
@@ -103,20 +256,59 @@ class SvcReport {
     required this.specManufacturer,
     required this.advertisedName,
     required this.unexpected,
+    this.responses = const [],
     required this.discovered,
     required this.declared,
     required this.appVersion,
     required this.platform,
   });
 
-  /// Identifies "the same surprise" across connects, so a dismissed or sent
-  /// banner stays gone for that spec until the device shows something else.
-  /// Independent of [reportId], which is new every time.
-  String get dedupeKey => [
-    transport.wire,
-    specKey,
-    for (final s in unexpected) '${s.kind}:${s.id}',
-  ].join('|');
+  bool get isEmpty => unexpected.isEmpty && responses.isEmpty;
+
+  /// One key per finding, stable across connects and independent of
+  /// [reportId]: what a sent or dismissed banner remembers, so it stays gone
+  /// for those findings and comes back only for new ones.
+  List<String> get itemKeys => [
+    for (final s in unexpected) '${_scope}svc:${s.kind}:${s.id}',
+    for (final r in responses) '$_scope${r.itemKey}',
+  ];
+
+  String get _scope => '${transport.wire}|$specKey|';
+
+  /// This report narrowed to the findings not in [handled], or null when
+  /// none are left.
+  SvcReport? without(Set<String> handled, {String? reportId}) {
+    final services = [
+      for (final s in unexpected)
+        if (!handled.contains('${_scope}svc:${s.kind}:${s.id}')) s,
+    ];
+    final answers = [
+      for (final r in responses)
+        if (!handled.contains('$_scope${r.itemKey}')) r,
+    ];
+    if (services.isEmpty && answers.isEmpty) return null;
+    return SvcReport(
+      reportId: reportId ?? this.reportId,
+      transport: transport,
+      specKey: specKey,
+      specDeviceName: specDeviceName,
+      specManufacturer: specManufacturer,
+      advertisedName: advertisedName,
+      unexpected: services,
+      responses: answers,
+      discovered: discovered,
+      declared: declared,
+      appVersion: appVersion,
+      platform: platform,
+    );
+  }
+
+  /// What the banner and email call it.
+  String get headline => switch ((unexpected.isEmpty, responses.isEmpty)) {
+    (false, true) => 'unexpected services',
+    (true, false) => 'unexpected response',
+    _ => 'unexpected services and responses',
+  };
 
   Map<String, Object?> toJson() => {
     'schema_version': schemaVersion,
@@ -129,6 +321,7 @@ class SvcReport {
     },
     if (advertisedName != null) 'advertised_name': advertisedName,
     'unexpected': [for (final s in unexpected) s.toJson()],
+    'responses': [for (final r in responses) r.toJson()],
     'discovered': discovered,
     'declared': declared,
     'app': {'version': appVersion, 'platform': platform},
@@ -137,20 +330,31 @@ class SvcReport {
   /// [toJson], indented: what the details dialog shows and the email carries.
   String toPrettyJson() => const JsonEncoder.withIndent('  ').convert(toJson());
 
-  String get emailSubject =>
-      'Unexpected services: $specManufacturer $specDeviceName';
+  String get emailSubject {
+    final h = headline;
+    return '${h[0].toUpperCase()}${h.substring(1)}: '
+        '$specManufacturer $specDeviceName';
+  }
 
   /// A human-readable summary followed by the exact JSON, so a person can
   /// read it and a script can parse it.
   String get emailBody {
     final lines = <String>[
-      'Liberated Bread found services on a device that its spec does not '
+      'Liberated Bread saw a device do something its spec does not '
           'describe.',
       '',
       'Spec: $specManufacturer $specDeviceName',
       'Transport: ${transport == SvcReportTransport.ble ? 'Bluetooth' : 'Wi-Fi'}',
-      'Unexpected:',
-      for (final s in unexpected) '  - ${s.kind} ${s.id}',
+      if (unexpected.isNotEmpty) ...[
+        'Unexpected services:',
+        for (final s in unexpected) '  - ${s.kind} ${s.id}',
+      ],
+      if (responses.isNotEmpty) ...[
+        'Unexpected responses:',
+        for (final r in responses)
+          '  - ${r.where}${r.entity == null ? '' : ' (${r.entity})'}: '
+              '${r.detail}',
+      ],
       '',
       'Anything you can add (model number, firmware version, what the device '
           'does that the app does not show) helps.',

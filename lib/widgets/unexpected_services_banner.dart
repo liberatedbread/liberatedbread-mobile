@@ -8,14 +8,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
 import '../core/log.dart';
 import '../core/mono_text.dart';
+import '../models/network_device.dart';
 import '../models/svc_report.dart';
 import '../providers/ble_provider.dart' show isMockMode;
 import '../providers/ha_provider.dart' show urlOpenerProvider;
 import '../providers/svc_report_provider.dart';
 import '../services/svc_report_service.dart';
 
-/// "Oh hey — unexpected services": a device exposed services its matched
-/// spec does not describe, and the user can tell us in one tap.
+/// "Oh hey — unexpected services" (or "unexpected response"): a device
+/// exposed services its matched spec does not describe, or answered with
+/// something the app could not make sense of, and the user can tell us in
+/// one tap. One banner for both, so a device with both does not stack two.
 ///
 /// **Send report** does both at once — posts the report to the svc-reports
 /// backend and opens the user's mail app with the same report addressed to
@@ -23,9 +26,9 @@ import '../services/svc_report_service.dart';
 /// server. **What's sent?** shows the payload verbatim before anything leaves
 /// the phone.
 ///
-/// Renders nothing for a null [report] or one the user already sent or
-/// dismissed (by [SvcReport.dedupeKey], so a different surprise on the same
-/// spec still asks).
+/// Renders nothing for a null [report], and leaves out every finding the
+/// user already sent or dismissed ([SvcReport.itemKeys]), so it comes back
+/// only for something new.
 class UnexpectedServicesBanner extends ConsumerStatefulWidget {
   final SvcReport? report;
 
@@ -53,28 +56,20 @@ class _UnexpectedServicesBannerState
   String? _forKey;
   bool _busy = false;
 
-  SvcReport? get _report {
-    final draft = widget.report;
+  /// The findings still to report, under this banner's report id.
+  SvcReport? _visible(Set<String> handled) {
+    final draft = widget.report?.without(handled);
     if (draft == null) return null;
-    if (_forKey != draft.dedupeKey) {
-      // A different surprise: a different report.
-      _forKey = draft.dedupeKey;
+    final key = draft.itemKeys.join('\n');
+    if (_forKey != key) {
+      // A different set of findings: a different report.
+      _forKey = key;
       _reportId = newReportId();
     }
-    return SvcReport(
-      reportId: _reportId,
-      transport: draft.transport,
-      specKey: draft.specKey,
-      specDeviceName: draft.specDeviceName,
-      specManufacturer: draft.specManufacturer,
-      advertisedName: draft.advertisedName,
-      unexpected: draft.unexpected,
-      discovered: draft.discovered,
-      declared: draft.declared,
-      appVersion: draft.appVersion,
-      platform: draft.platform,
-    );
+    return draft.without(const {}, reportId: _reportId);
   }
+
+  SvcReport? get _report => _visible(ref.read(svcReportHandledProvider));
 
   Future<bool> _email(SvcReport report) async {
     try {
@@ -145,7 +140,7 @@ class _UnexpectedServicesBannerState
     if (handled) {
       await ref
           .read(svcReportHandledProvider.notifier)
-          .markHandled(report.dedupeKey);
+          .markHandled(report.itemKeys);
     }
   }
 
@@ -160,7 +155,8 @@ class _UnexpectedServicesBannerState
           children: [
             const Text(
               'Exactly this, and nothing else. No Bluetooth or network '
-              'address, no hostname, and nothing you named the device.',
+              'address, no hostname, and nothing you named the device. A '
+              'response includes only the part the app could not read.',
             ),
             const SizedBox(height: 12),
             SelectableText(
@@ -186,15 +182,23 @@ class _UnexpectedServicesBannerState
 
   @override
   Widget build(BuildContext context) {
-    final report = _report;
+    final report = _visible(ref.watch(svcReportHandledProvider));
     if (report == null) return const SizedBox.shrink();
-    final handled = ref.watch(svcReportHandledProvider);
-    if (handled.contains(report.dedupeKey)) return const SizedBox.shrink();
 
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final count = report.unexpected.length;
-    final what = count == 1 ? 'a service' : '$count services';
+    final spec = '${report.specManufacturer} ${report.specDeviceName} spec';
+    final services = report.unexpected.length;
+    final answers = report.responses.length;
+    final shows = services == 1 ? 'a service' : '$services services';
+    final said = answers == 1
+        ? 'answered in a way'
+        : 'answered $answers times in ways';
+    final what = switch ((services > 0, answers > 0)) {
+      (true, false) => "shows $shows that its $spec doesn't describe",
+      (false, true) => "$said its $spec doesn't describe",
+      _ => "shows $shows and $said its $spec doesn't describe",
+    };
 
     return Padding(
       padding: widget.padding,
@@ -215,7 +219,7 @@ class _UnexpectedServicesBannerState
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Oh hey — unexpected services',
+                      'Oh hey — ${report.headline}',
                       style: text.titleSmall?.copyWith(
                         color: scheme.onSecondaryContainer,
                       ),
@@ -230,7 +234,7 @@ class _UnexpectedServicesBannerState
                         : () => unawaited(
                             ref
                                 .read(svcReportHandledProvider.notifier)
-                                .markHandled(report.dedupeKey),
+                                .markHandled(report.itemKeys),
                           ),
                   ),
                 ],
@@ -238,9 +242,7 @@ class _UnexpectedServicesBannerState
               Padding(
                 padding: const EdgeInsets.only(right: 12),
                 child: Text(
-                  'This device shows $what that its '
-                  '${report.specManufacturer} ${report.specDeviceName} spec '
-                  "doesn't describe. Telling us helps fix the spec — the "
+                  'This device $what. Telling us helps fix the spec — the '
                   'report identifies the device type, not you.',
                   style: text.bodyMedium?.copyWith(
                     color: scheme.onSecondaryContainer,
@@ -280,6 +282,36 @@ class _UnexpectedServicesBannerState
           ),
         ),
       ),
+    );
+  }
+}
+
+/// [UnexpectedServicesBanner] for a Wi-Fi device's screen: resolves the
+/// report from the matched [specKey] and whatever responses from [device]
+/// have been recorded. Renders nothing for a null [specKey] (an opener that
+/// did not know the spec), while the catalogue loads, or when nothing is
+/// unexpected.
+class WifiDeviceReportBanner extends ConsumerWidget {
+  final String? specKey;
+  final NetworkDevice device;
+  final EdgeInsetsGeometry padding;
+
+  const WifiDeviceReportBanner({
+    super.key,
+    required this.specKey,
+    required this.device,
+    this.padding = const EdgeInsets.only(bottom: 12),
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final key = specKey;
+    if (key == null) return const SizedBox.shrink();
+    return UnexpectedServicesBanner(
+      padding: padding,
+      report: ref
+          .watch(wifiSvcReportProvider((specKey: key, device: device)))
+          .valueOrNull,
     );
   }
 }

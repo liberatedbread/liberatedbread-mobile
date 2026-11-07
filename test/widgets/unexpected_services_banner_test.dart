@@ -92,7 +92,7 @@ void main() {
     expect(find.text('Oh hey — unexpected services'), findsNothing);
     expect(
       _prefs.getString(SvcReportHandledNotifier.storageKey),
-      contains(_draft.dedupeKey),
+      contains(_draft.itemKeys.single),
     );
   });
 
@@ -153,5 +153,78 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('"fe59"'), findsOneWidget);
     expect(h.posted, isEmpty);
+  });
+
+  testWidgets('a response-only report says "unexpected response"', (
+    tester,
+  ) async {
+    const report = SvcReport(
+      reportId: 'draft',
+      transport: SvcReportTransport.wifi,
+      specKey: 'Plug|Acme',
+      specDeviceName: 'Plug',
+      specManufacturer: 'Acme',
+      advertisedName: null,
+      unexpected: [],
+      responses: [
+        SvcReportResponse(
+          problem: 'unmapped_state',
+          where: 'command:get_sysinfo',
+          entity: 'Power',
+          detail: 'reply keys: a, b',
+        ),
+      ],
+      discovered: [],
+      declared: [],
+      appVersion: 'dev build',
+      platform: 'android',
+    );
+    final h = _Harness();
+    await tester.pumpWidget(h.build(report: report));
+    expect(find.text('Oh hey — unexpected response'), findsOneWidget);
+    expect(find.textContaining('answered in a way'), findsOneWidget);
+    await tester.tap(find.text('Send report'));
+    await tester.pumpAndSettle();
+    expect(h.posted.single['responses'], hasLength(1));
+  });
+
+  testWidgets('a new finding brings it back, without the handled one', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await tester.pumpWidget(h.build());
+    await tester.tap(find.byTooltip('Dismiss'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Oh hey'), findsNothing);
+
+    const withResponse = SvcReport(
+      reportId: 'draft',
+      transport: SvcReportTransport.ble,
+      specKey: 'Bulb|Acme',
+      specDeviceName: 'Bulb',
+      specManufacturer: 'Acme',
+      advertisedName: 'ACME_1',
+      unexpected: [SvcReportEntry(kind: 'gatt', id: 'fe59')],
+      responses: [
+        SvcReportResponse(
+          problem: 'undecodable_value',
+          where: 'gatt:fff1',
+          detail: '3 bytes',
+          sample: '010203',
+        ),
+      ],
+      discovered: ['fe59', 'fff0'],
+      declared: ['fff0'],
+      appVersion: 'dev build',
+      platform: 'android',
+    );
+    await tester.pumpWidget(h.build(report: withResponse));
+    await tester.pumpAndSettle();
+    expect(find.text('Oh hey — unexpected response'), findsOneWidget);
+    await tester.tap(find.text('Send report'));
+    await tester.pumpAndSettle();
+    final sent = h.posted.single;
+    expect(sent['unexpected'], isEmpty);
+    expect(sent['responses'], hasLength(1));
   });
 }

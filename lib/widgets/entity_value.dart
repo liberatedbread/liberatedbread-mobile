@@ -10,6 +10,7 @@ import '../core/error_text.dart';
 import '../core/hex.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../providers/svc_report_provider.dart' show recordUndecodableBle;
 import '../services/spec_codec.dart';
 import 'decoded_value_widget.dart' show serviceWritesProvider, serviceWriteKey;
 
@@ -271,14 +272,32 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
     int generation,
     int seq,
   ) async {
-    final decoded = await ref
-        .read(specCodecProvider)
-        .decodeValue(
-          specYaml: widget.specYaml,
-          serviceUuid: widget.serviceUuid,
+    final List<DecodedValueDto> decoded;
+    try {
+      decoded = await ref
+          .read(specCodecProvider)
+          .decodeValue(
+            specYaml: widget.specYaml,
+            serviceUuid: widget.serviceUuid,
+            charUuid: stateChar,
+            bytes: bytes,
+          );
+    } catch (e) {
+      // The device answered and the spec's format rejected it: what the
+      // "unexpected response" banner reports. The caller still shows its
+      // own error.
+      if (mounted) {
+        recordUndecodableBle(
+          ref,
+          deviceId: widget.deviceId,
           charUuid: stateChar,
+          entity: widget.entity.name,
           bytes: bytes,
+          error: e,
         );
+      }
+      rethrow;
+    }
     if (!mounted || generation != _generation) return;
     // Older bytes than what is on screen; see [_arrivalSeq].
     if (seq < _appliedSeq) return;

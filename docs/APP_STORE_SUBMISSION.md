@@ -251,13 +251,16 @@ self-classification report — a once-a-year email (template at the bottom) to
     phone; the last position is remembered on the phone only, rounded to
     about 1 km, until the user taps *Forget location*. Stated in the location
     purpose string.
-  - an "unexpected services" report, only when the user taps the banner's
-    Send report or Email only (`lib/widgets/unexpected_services_banner.dart`).
+  - a device report ("unexpected services" / "unexpected response"), only
+    when the user taps the banner's Send report or Email only
+    (`lib/widgets/unexpected_services_banner.dart`).
     Send report POSTs to `svc-reports.liberatedbread.com`, **our** server
     (backend: liberatedbread-web-django), and opens the mail app addressed
     to `svc-reports@liberatedbread.com`. The payload is shown verbatim
     beforehand. It names the matched spec, the services it does not
-    describe, the app version and the platform, and carries no identifier
+    describe and/or the responses the app could not read (a Wi-Fi reply's
+    key names only; at most 32 bytes of a BLE value that would not decode),
+    the app version and the platform, and carries no identifier
     (`lib/models/svc_report.dart`). The server keeps no IP address.
 
   Declared rather than claimed under Apple's *optional disclosure*

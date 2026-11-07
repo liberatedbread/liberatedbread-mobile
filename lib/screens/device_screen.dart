@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
+import '../models/svc_report.dart';
 import '../providers/adopt_provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
@@ -1037,8 +1038,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             ?.chosen
             ?.spec;
         final safety = matched?.safetyAdvisory;
-        // Services the matched spec does not describe, if any: the "oh hey"
-        // banner offers to tell us. Null (and no banner) for an unmatched
+        // Services the matched spec does not describe, or values it could not
+        // decode, if any: the "oh hey" banner offers to tell us. Null (and no banner) for an unmatched
         // device — there is no spec to be surprised against.
         final svcReport = matched == null
             ? null
@@ -1046,6 +1047,15 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 spec: matched,
                 services: _services,
                 advertisedName: widget.device.name,
+                // Values from this device the spec's format rejected,
+                // recorded by the value widgets below.
+                responses: ref.watch(
+                  responseAnomaliesProvider.select(
+                    (all) =>
+                        all[bleAnomalyKey(widget.device.id)] ??
+                        const <SvcReportResponse>[],
+                  ),
+                ),
               );
         // The header scrolls with the controls rather than sitting pinned
         // above them: pinned, it took over a third of a phone screen and

@@ -13,22 +13,31 @@ heading.
 
 ### Added
 
-- **"Oh hey — unexpected services": tell us when a device outgrows its
-  spec.** After a device matches a spec, the device screen compares what it
-  exposes with what the spec declares. Over Bluetooth that is GATT services,
-  apart from GAP, GATT and Device Information. Over Wi-Fi it is mDNS types,
-  apart from generic ones like `_http._tcp`, and SSDP targets, apart from
-  `upnp:rootdevice` and per-unit `uuid:` targets. When something is left
-  over, a dismissible banner appears. **Send report** posts the report to
-  `svc-reports.liberatedbread.com` and, at the same time, opens the mail app
-  with the same report addressed to `svc-reports@liberatedbread.com`.
-  **Email only** skips the server, and **What's sent?** shows the exact JSON
-  first. A report names the spec, the unexpected services and their
-  characteristics, the app version and the platform. It never carries a
-  Bluetooth or IP address, a hostname, TXT records or a Wi-Fi device's
-  instance name. A finding the user sent or dismissed stays hidden until the
-  device shows a different set. Nothing is sent without a tap, and mock mode
-  sends nothing at all.
+- **"Oh hey — unexpected services / response": tell us when a device
+  outgrows its spec.** After a device matches a spec, the app compares what
+  the device exposes with what the spec declares. Over Bluetooth that is
+  GATT services, apart from GAP, GATT and Device Information. Over Wi-Fi it
+  is mDNS types, apart from generic ones like `_http._tcp`, and SSDP
+  targets, apart from `upnp:rootdevice` and per-unit `uuid:` targets.
+  Responses count too: a Bluetooth value the spec's format rejects, a Wi-Fi
+  state reply in which no field maps to an entity, or a value outside an
+  entity's options. The code that reads a device's answer records each
+  failure, and recording sends nothing. When anything turns up, a
+  dismissible banner titled for what was found appears on the Bluetooth,
+  Wi-Fi, label-printer or hub device screen. **Send report** posts the
+  report to `svc-reports.liberatedbread.com` and, at the same time, opens
+  the mail app with the same report addressed to
+  `svc-reports@liberatedbread.com`. **Email only** skips the server, and
+  **What's sent?** shows the exact JSON first. A report names the spec, the
+  unexpected services and their characteristics, the responses, the app
+  version and the platform. A response carries a Wi-Fi reply's key names
+  (identifier-like segments redacted) but never their values, or up to 32
+  bytes of the Bluetooth value that would not decode. A report never carries
+  a Bluetooth or IP address, a hostname, TXT records or a Wi-Fi device's
+  instance name. Each finding the user sent or dismissed stays hidden, and
+  the banner returns only for new ones. Nothing is sent without a tap, mock
+  mode sends nothing at all, and the iOS privacy manifest declares the
+  report as user-initiated Other Diagnostic Data.
 
 - **Orba 2 and Mousr join the local BLE catalogue.** Orba 2's SysEx
   configuration and transport commands are packetized as complete BLE-MIDI
