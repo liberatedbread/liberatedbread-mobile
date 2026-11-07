@@ -201,6 +201,7 @@ void main() {
       Log.hub.info('e');
       Log.packs.info('f');
       Log.ads.info('g');
+      Log.reports.info('g2');
       Log.app.info('h');
       Log.radio.info('i');
       Log.ui.info('j');
@@ -214,6 +215,7 @@ void main() {
         'hub',
         'packs',
         'ads',
+        'reports',
         'app',
         'radio',
         'ui',
@@ -232,6 +234,7 @@ void main() {
         'hub',
         'packs',
         'ads',
+        'reports',
         'app',
         'radio',
         'ui',

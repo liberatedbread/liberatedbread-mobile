@@ -303,6 +303,11 @@ class Log {
   /// Ad-banner config fetch and cache.
   static const Logger ads = Logger._('ads');
 
+  /// Unexpected-services reports the user chose to send (svc-reports
+  /// backend and the email hand-off). Lines carry the report id and the
+  /// outcome, never the payload.
+  static const Logger reports = Logger._('reports');
+
   /// App startup and process-wide concerns.
   static const Logger app = Logger._('app');
 
@@ -329,6 +334,7 @@ class Log {
     hub,
     packs,
     ads,
+    reports,
     app,
     radio,
     ui,

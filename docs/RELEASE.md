@@ -124,6 +124,13 @@ lost upload key. Back the upload key up off every build machine anyway.
   the user's own credentials sent to the service that issued them, disclosed
   where they are entered, the same way the App Store runbook treats them. The
   banner check is anonymous.
+  **Also declare** *App info and performance ▸ Diagnostics*: collected, not
+  shared, **optional**, purpose *App functionality*. This covers the
+  "unexpected services" report a user can send from a device screen to
+  `svc-reports.liberatedbread.com`, our own server. It carries no
+  identifier, but Play has no user-initiated exemption for data that
+  reaches the developer, so it is declared (see the App Store runbook's
+  Step 7 for the iOS side, which is still an open decision).
 - **Ads**: answer *yes*. The banner is an affiliate promotion, and declaring
   "no ads" while shipping it is a policy violation.
 - **Location permission declaration**: the app requests

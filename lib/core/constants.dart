@@ -41,6 +41,16 @@ class AppConstants {
   static const String adBannerConfigUrl =
       'https://liberatedbread.com/app/banner.json';
 
+  /// Where the "unexpected services" banner sends a report when the user
+  /// taps Send (see [SvcReportService]). Ours, https only, and contacted
+  /// only on that tap — never in the background.
+  static const String svcReportsUrl =
+      'https://svc-reports.liberatedbread.com/api/v1/reports';
+
+  /// The mailbox the same report is addressed to when the user sends it by
+  /// email.
+  static const String svcReportsEmail = 'svc-reports@liberatedbread.com';
+
   /// The affiliate shop page the bundled fallback banner points at.
   static const String shopUrl = 'https://liberatedbread.com/shop/';
 

@@ -19,6 +19,7 @@ import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../providers/svc_report_provider.dart';
 import '../services/http_control_service.dart';
 import '../services/json_fields.dart';
 import '../services/mqtt_session.dart' show MqttMessage;
@@ -40,6 +41,7 @@ import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/rabbit_air_controls_panel.dart';
 import '../widgets/unclaimed_actions.dart';
+import '../widgets/unexpected_services_banner.dart';
 import 'roomba_identity.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
@@ -1719,6 +1721,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
           children: [
+            // mDNS types / SSDP targets the matched spec does not describe:
+            // the "oh hey" banner offers to tell us. Nothing while the
+            // catalogue loads, for an opener that did not know the spec, or
+            // when the spec covers everything.
+            if (widget.specKey case final specKey?)
+              UnexpectedServicesBanner(
+                report: ref
+                    .watch(
+                      wifiSvcReportProvider((
+                        specKey: specKey,
+                        device: widget.device,
+                      )),
+                    )
+                    .valueOrNull,
+              ),
             // Live camera, for a device whose spec declares one (Snapmaker U1).
             // Renders nothing otherwise.
             CameraViewCard(

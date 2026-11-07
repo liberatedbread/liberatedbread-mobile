@@ -14,11 +14,13 @@ import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/scan_match_provider.dart';
+import '../providers/svc_report_provider.dart';
 import '../services/ble_service.dart';
 import '../services/spec_codec.dart' show BleHandshakeDto;
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/safety_advisory_gate.dart';
+import '../widgets/unexpected_services_banner.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
@@ -1021,7 +1023,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         // so it costs no extra FFI. Unlike a security advisory it does not
         // suppress the controls — [SafetyAdvisoryGate] shows a banner over them
         // and, when the spec asks, gates them behind a one-time acknowledgement.
-        final safety = ref
+        final matched = ref
             .watch(
               matchedDeviceSpecProvider(
                 SpecMatchRequest.forServices(
@@ -1033,8 +1035,18 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             )
             .valueOrNull
             ?.chosen
-            ?.spec
-            .safetyAdvisory;
+            ?.spec;
+        final safety = matched?.safetyAdvisory;
+        // Services the matched spec does not describe, if any: the "oh hey"
+        // banner offers to tell us. Null (and no banner) for an unmatched
+        // device — there is no spec to be surprised against.
+        final svcReport = matched == null
+            ? null
+            : buildBleSvcReport(
+                spec: matched,
+                services: _services,
+                advertisedName: widget.device.name,
+              );
         // The header scrolls with the controls rather than sitting pinned
         // above them: pinned, it took over a third of a phone screen and
         // pushed a light's readings below the fold. Pinned stays only where
@@ -1042,7 +1054,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         // and the safety gate, which until acknowledged shows no panel at all
         // and would otherwise take Find and Disconnect away with it.
         final scrollsWithPanel = !isRabbitAirSetup && safety == null;
-        final header = _ConnectedHeader(
+        final connectedHeader = _ConnectedHeader(
           scrolling: scrollsWithPanel,
           name: widget.device.displayName,
           device: widget.device,
@@ -1091,6 +1103,19 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             }
             navigator.pop();
           },
+        );
+        final header = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            connectedHeader,
+            UnexpectedServicesBanner(
+              report: svcReport,
+              // The same inset as _ConnectedHeader's card above it.
+              padding: scrollsWithPanel
+                  ? const EdgeInsets.fromLTRB(8, 4, 8, 4)
+                  : const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            ),
+          ],
         );
         final panel = DeviceControlPanel(
           deviceId: widget.device.id,

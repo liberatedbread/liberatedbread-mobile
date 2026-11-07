@@ -13,6 +13,23 @@ heading.
 
 ### Added
 
+- **"Oh hey — unexpected services": tell us when a device outgrows its
+  spec.** After a device matches a spec, the device screen compares what it
+  exposes with what the spec declares. Over Bluetooth that is GATT services,
+  apart from GAP, GATT and Device Information. Over Wi-Fi it is mDNS types,
+  apart from generic ones like `_http._tcp`, and SSDP targets, apart from
+  `upnp:rootdevice` and per-unit `uuid:` targets. When something is left
+  over, a dismissible banner appears. **Send report** posts the report to
+  `svc-reports.liberatedbread.com` and, at the same time, opens the mail app
+  with the same report addressed to `svc-reports@liberatedbread.com`.
+  **Email only** skips the server, and **What's sent?** shows the exact JSON
+  first. A report names the spec, the unexpected services and their
+  characteristics, the app version and the platform. It never carries a
+  Bluetooth or IP address, a hostname, TXT records or a Wi-Fi device's
+  instance name. A finding the user sent or dismissed stays hidden until the
+  device shows a different set. Nothing is sent without a tap, and mock mode
+  sends nothing at all.
+
 - **Orba 2 and Mousr join the local BLE catalogue.** Orba 2's SysEx
   configuration and transport commands are packetized as complete BLE-MIDI
   messages, with CRC-16, LSB-first 7-bit packing and ordered multi-write plans

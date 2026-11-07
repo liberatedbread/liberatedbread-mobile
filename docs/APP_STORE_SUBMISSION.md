@@ -238,6 +238,25 @@ self-classification report — a once-a-year email (template at the bottom) to
     phone; the last position is remembered on the phone only, rounded to
     about 1 km, until the user taps *Forget location*. Stated in the location
     purpose string.
+  - an "unexpected services" report, only when the user taps the banner's
+    Send report or Email only (`lib/widgets/unexpected_services_banner.dart`).
+    Send report POSTs to `svc-reports.liberatedbread.com`, **our** server
+    (backend: liberatedbread-web-django), and opens the mail app addressed
+    to `svc-reports@liberatedbread.com`. The payload is shown verbatim
+    beforehand. It names the matched spec, the services it does not
+    describe, the app version and the platform, and carries no identifier
+    (`lib/models/svc_report.dart`). The server keeps no IP address.
+
+  **Decision needed (owner):** the report is the one connection whose data
+  reaches a server of ours. "Data Not Collected" holds for it only on
+  Apple's *optional disclosure* exemption: user-initiated each time, clear
+  about what is sent, infrequent, not primary functionality, no tracking or
+  ads. That exemption also asks for the user's name or account to be shown
+  on the submission form, and this app has neither, so the reading is
+  arguable. The conservative answer is **Diagnostics ▸ Other Diagnostic
+  Data**, purpose App Functionality, not linked to the user, not used for
+  tracking. If you choose it, add that entry to `NSPrivacyCollectedDataTypes`
+  and its test in the same commit, and update the manifest comment.
 
   If App Review asks how "Data Not Collected" squares with a sign-in form, the
   answer is the iRobot bullet: the credentials are sent to the vendor, not to
