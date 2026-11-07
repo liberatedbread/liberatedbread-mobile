@@ -348,6 +348,45 @@ void main() {
     expect(roles['current_operation']?.raw, 'IDLE');
   });
 
+  test('a Denon receiver reads its power switch by role', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // `is_on: Power.value` with `on_value: "ON"`, and no `value`: the role
+    // read is the switch card's only live state. The status document as
+    // xmlStateFields flattens it.
+    final denon = await rootBundle.loadString(
+      'vendor/protocol-specs/device-specs/devices/denon-avr-s720w.yaml',
+    );
+    final codec = RealSpecCodec();
+    for (final (power, on) in [('ON', true), ('STANDBY', false)]) {
+      final returned = xmlStateFields(
+        '<item><Power><value>$power</value></Power>'
+        '<MasterVolume><value>-40.0</value></MasterVolume></item>',
+      );
+      expect(
+        await codec.readNetworkEntity(
+          specYaml: denon,
+          entityName: 'Power',
+          returned: returned,
+        ),
+        isNull,
+        reason: power,
+      );
+      final roles = await codec.readNetworkEntityRoles(
+        specYaml: denon,
+        entityName: 'Power',
+        returned: returned,
+      );
+      expect(
+        roles.singleWhere((r) => r.role == 'is_on').reading.isOn,
+        on,
+        reason: power,
+      );
+    }
+  });
+
   test('encodeEntityValue sends the value to the entity that owns it', () async {
     if (!rustReady) {
       markTestSkipped('Rust lib not loaded');

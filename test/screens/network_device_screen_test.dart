@@ -4785,6 +4785,51 @@ void main() {
       );
     });
 
+    // A Denon receiver's Power and Mute, and ratgdo's remote lock-out, map
+    // `is_on` (with an `on_value`) and no `value`: the single read is null,
+    // and the switch read "State unknown" with its toggle drawn Off whether
+    // the receiver was on or in standby.
+    testWidgets('a switch reads its power from its is_on role', (tester) async {
+      NetworkActionDto action(String role) => NetworkActionDto(
+        credentials: const [],
+        instanceParams: const [],
+        role: role,
+        transport: 'soap',
+        commandName: 'power_$role',
+        userParams: const [],
+        readBack: const [],
+      );
+      await pumpUtility(
+        tester,
+        entities: [
+          NetworkEntityDto(
+            isInstanced: false,
+            name: 'Power',
+            platform: 'switch',
+            stateCommand: 'GetCrockpotState',
+            options: const [],
+            actions: [action('turn_on'), action('turn_off')],
+          ),
+        ],
+        reading: (_, _) => null,
+        // What the real codec answers for the vendored Denon's
+        // `is_on: Power.value` / `on_value: "ON"` over a powered-on status.
+        roles: (_, _) => const [
+          NetworkRoleReadingDto(
+            role: 'is_on',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.onOff,
+              isOn: true,
+              raw: 'ON',
+            ),
+          ),
+        ],
+      );
+
+      expect(find.text('State unknown'), findsNothing);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    });
+
     testWidgets('hidden declared controls are counted, not vanished', (
       tester,
     ) async {

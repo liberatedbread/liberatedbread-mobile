@@ -93,15 +93,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   final Map<String, Map<String, String>> _stateByCommand = {};
   final Map<String, NetworkReadingDto?> _readings = {};
 
-  /// A light's or cover's readings by role: a light's `is_on`, `brightness`
-  /// and `color_temperature`, a cover's `state` and `position`. Such an
-  /// entity may declare no `value` (every catalogue light, ratgdo's door),
-  /// leaving its [_readings] entry null — its state is these, read by
+  /// A light's, cover's or switch's readings by role: a light's `is_on`,
+  /// `brightness` and `color_temperature`, a cover's `state` and `position`,
+  /// a switch's `is_on`. Such an entity may declare no `value` (every
+  /// catalogue light, ratgdo's door, a Denon's Power), leaving its
+  /// [_readings] entry null — its state is these, read by
   /// [SpecCodec.readNetworkEntityRoles].
   final Map<String, Map<String, NetworkReadingDto>> _roleReadings = {};
 
   /// The platforms whose cards draw [_roleReadings].
-  static const _roleCards = {'light', 'cover'};
+  static const _roleCards = {'light', 'cover', 'switch'};
 
   /// Slider positions the user has set but the device has not yet confirmed,
   /// shown until the next state decode supersedes them.
@@ -1401,7 +1402,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               returned: returned,
             );
       _readings[entity.name] = reading;
-      // Only the light and cover cards draw roles, so only they pay for the
+      // Only the cards in [_roleCards] draw roles, so only they pay for the
       // read.
       final roles = returned == null || !_roleCards.contains(entity.platform)
           ? const <NetworkRoleReadingDto>[]
@@ -2558,8 +2559,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   Widget _switchCard(NetworkEntityDto entity) {
-    final reading = _readings[entity.name];
-    final isOn = reading?.isOn;
+    // A switch that maps its power as the `is_on` role and no `value` — a
+    // Denon receiver's Power and Mute, ratgdo's remote lock-out — reads it
+    // there; the single reading answers for one that maps a `value`.
+    final isOn =
+        _roleReadings[entity.name]?['is_on']?.isOn ??
+        _readings[entity.name]?.isOn;
     final turnOn = _actionFor(entity, 'turn_on');
     final turnOff = _actionFor(entity, 'turn_off');
     final busy = _sending.contains(entity.name);
