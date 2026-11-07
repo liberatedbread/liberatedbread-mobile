@@ -178,6 +178,31 @@ void main() {
     expect(find.textContaining('did not return a valid'), findsOneWidget);
   });
 
+  testWidgets('shows why no specs from a pack could be installed', (
+    tester,
+  ) async {
+    const message =
+        'None of the specs in the manifest could be installed: '
+        'bad.yaml (not a valid device spec).';
+    final service = FakeSpecPackService(
+      nextResult: const InstallFailed(
+        SpecPackError(SpecPackErrorKind.noSpecsInstalled, message),
+      ),
+    );
+    await tester.pumpWidget(_wrap(service));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://specs.example.com/pack.json',
+    );
+    await tester.tap(find.text('Install / Refresh'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(message), findsOneWidget);
+    expect(find.text('None of the specs could be downloaded.'), findsNothing);
+  });
+
   testWidgets('reports partial failures after a successful install', (
     tester,
   ) async {

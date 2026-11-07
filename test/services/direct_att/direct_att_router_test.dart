@@ -163,7 +163,11 @@ void main() {
     );
 
     test('everything after the hand-over runs over the direct link', () async {
-      bluezMeter();
+      service.isLinux = true;
+      // BlueZ's never-updated 23 marks the MTU unknown at connect. Asking the
+      // router again after the hand-over must replace the 512 fallback with
+      // the direct link's real MTU, asserted below.
+      bluezMeter().mtu = 23;
       final meter = attMeter();
       await service.connect(_meterId);
       await service.discoverServices(_meterId);
