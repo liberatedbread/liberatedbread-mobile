@@ -249,6 +249,46 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Apple AirPort Extreme / AirPort Time Capsule / AirPort Express",
+    "path": "device-specs/devices/apple-airport-acp.yaml",
+    "protocol": "lan",
+    "category": "network",
+    "manufacturer": "Apple",
+    "manufacturer_status": "unsupported",
+    "protocol_handler": "apple_acp",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "samuelthomas2774/node-acp",
+        "url": "https://github.com/samuelthomas2774/node-acp",
+        "description": "TypeScript ACP client and server emulator: SRP authentication, session encryption, property catalogue, Bonjour TXT format."
+      },
+      {
+        "title": "x56/airpyrt-tools",
+        "url": "https://github.com/x56/airpyrt-tools",
+        "description": "Python ACP client (archived): header, keystream, property elements; README security note on the legacy password key."
+      },
+      {
+        "title": "Apple Support: How to reset your AirPort base station",
+        "url": "https://support.apple.com/102330",
+        "kind": "manual",
+        "description": "Apple's archived reset instructions for the AirPort Extreme, AirPort Time Capsule and AirPort Express (802.11n and 802.11ac), plus the older 802.11b/g models: soft, hard and factory-default resets.\n"
+      },
+      {
+        "title": "9to5Mac: Apple discontinues AirPort base stations (2018-04-26)",
+        "url": "https://9to5mac.com/2018/04/26/how-to-reset-airport-base-station/",
+        "description": "Report of the April 2018 discontinuation, with reset guidance."
+      },
+      {
+        "title": "Apple Technical Q&A QA1312: Bonjour service types (retired)",
+        "url": "https://developer.apple.com/library/mac/qa/qa1312/_index.html",
+        "description": "Lists _airport._tcp as the service Apple's configuration tool uses to locate base stations."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Aqara Hub family (M1S Gen 2, M2, AC Partner P3)",
     "path": "device-specs/devices/aqara-hub.yaml",
     "protocol": "wifi",
@@ -1652,6 +1692,49 @@
         "url": "https://www.dyson.com/content/dam/dyson/maintenance/user-guides/en_anz/air-treatment/ANZ_Pure_Cool_Tower_OPMAN.pdf",
         "kind": "manual",
         "description": "Vendor manual for the tower form factor this spec's exemplar belongs to.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Ecosense / FTLab RadonEye RD200",
+    "path": "device-specs/devices/ecosense-radoneye-rd200.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "FTLab Co., Ltd. / Ecosense",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "jdeath/rd200v2 (MIT)",
+        "url": "https://github.com/jdeath/rd200v2",
+        "kind": "implementation",
+        "description": "Maintained local client covering both RD200 generations, exact response lengths, field decoding and unit behavior."
+      },
+      {
+        "title": "lopsided98/radonpy (Apache-2.0)",
+        "url": "https://github.com/lopsided98/radonpy",
+        "kind": "implementation",
+        "description": "Older RD200 client with the V1 command catalogue, framed responses and chunked history transfer."
+      },
+      {
+        "title": "Ecosense RD200 FAQ",
+        "url": "https://ecosense.io/pages/rd200-faq-en",
+        "kind": "vendor_support",
+        "description": "Official single-client, no-cloud, hourly-history, timestamp and data-reset guidance for RD200."
+      },
+      {
+        "title": "RadonEye RD200 operation manual (distributor PDF)",
+        "url": "https://www.boehm-radon.ch/files/2-45-radon_eye.pdf",
+        "kind": "manual",
+        "description": "RD200-specific older operation manual covering external power, OLED/history/settings, destructive data clearing and the exact unit conversion; ranges are document-date-specific."
+      },
+      {
+        "title": "RadonEye RD200 quick guide, December 2021 (distributor PDF)",
+        "url": "https://www.radonshop.com/mediafiles/Anleitungen/Radon/FTLab_RadonEye-RD200/FTLab_RadonEye_ManualEN.pdf",
+        "kind": "manual",
+        "description": "RD200-specific two-page quick guide for connection, display, history, settings and clearing memory; not a universal firmware or health specification."
       }
     ],
     "schema_version": "2020-12"
@@ -5127,11 +5210,17 @@
     "name": "Oral-B iO Smart Brush",
     "path": "device-specs/devices/oral-b-io-smartbrush.yaml",
     "protocol": "ble",
-    "category": "health",
+    "category": "personal_care",
     "manufacturer": "Procter & Gamble",
     "manufacturer_status": "active",
     "testing_status": "untested",
     "helpful_urls": [
+      {
+        "title": "thomasgregg/oralb-ha — captured iO Sense protocol",
+        "url": "https://github.com/thomasgregg/oralb-ha",
+        "kind": "implementation",
+        "description": "Captured iO Series 10 / iO Sense implementation and protocol reference: charger service and passthrough, read-only native commands, battery and retained-session layouts, advertisement status and 488 passing tests."
+      },
       {
         "title": "MatrixEditor/oralb-io",
         "url": "https://github.com/MatrixEditor/oralb-io",
@@ -5410,6 +5499,56 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Philips Wi-Fi Air Purifiers and Humidifiers (encrypted CoAP)",
+    "path": "device-specs/devices/philips-air-coap.yaml",
+    "protocol": "wifi",
+    "category": "appliance",
+    "manufacturer": "Philips (Versuni, formerly Philips Domestic Appliances)",
+    "manufacturer_status": "active",
+    "protocol_handler": "philips_air_coap",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "rgerganov/py-air-control",
+        "url": "https://github.com/rgerganov/py-air-control",
+        "kind": "implementation",
+        "description": "Original reverse engineering of all three generations (HTTP, plain CoAP, encrypted CoAP); CLI value sets and key meanings."
+      },
+      {
+        "title": "betaboon/aioairctrl",
+        "url": "https://github.com/betaboon/aioairctrl",
+        "kind": "implementation",
+        "description": "asyncio client for encrypted CoAP: sync, observe, envelope."
+      },
+      {
+        "title": "kongo09/aioairctrl (maintained fork, PyPI 0.3.1)",
+        "url": "https://github.com/kongo09/aioairctrl",
+        "kind": "implementation",
+        "description": "Counter wrap, Max-Age handling and decryption tests against real captures."
+      },
+      {
+        "title": "kongo09/philips-airpurifier-coap",
+        "url": "https://github.com/kongo09/philips-airpurifier-coap",
+        "kind": "implementation",
+        "description": "Home Assistant integration; source of the per-model key sets, value maps and the firmware caveat."
+      },
+      {
+        "title": "Philips: I cannot connect my Philips Air Purifier with the App",
+        "url": "https://www.usa.philips.com/c-t/XC000019027/i-cannot-connect-my-philips-air-purifier-with-the-app",
+        "kind": "vendor_support",
+        "description": "Pairing requirements (2.4 GHz, PHILIPS Setup network) and the power-plus-mode 10-second reset."
+      },
+      {
+        "title": "Philips AC0850/20 user manual (manualsnet)",
+        "url": "https://manualsnet.com/philips/ac0850-20-ac0850",
+        "kind": "manual",
+        "description": "Manual for the AC0850/20 compact purifier: first-time Wi-Fi setup with the Air+ app, the 3-second hold that re-enters pairing mode, and the 5-second mode-button hold that resets the filter counter.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Philips jointSPACE TV API",
     "path": "device-specs/devices/philips-jointspace.yaml",
     "protocol": "wifi",
@@ -5655,6 +5794,68 @@
         "url": "https://cdn.shopify.com/s/files/1/0518/0133/files/BluetoothControllerInstallGuide.pdf?4216",
         "kind": "manual",
         "description": "Retailer-hosted install guide for a Triones/HappyLighting controller. These ship under many brands on identical hardware with no vendor documentation.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Qingping / ClearGrass Sensors (stock BLE broadcasts)",
+    "path": "device-specs/devices/qingping-stock-ble.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Qingping / ClearGrass",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Bluetooth-Devices/qingping-ble (MIT)",
+        "url": "https://github.com/Bluetooth-Devices/qingping-ble",
+        "kind": "implementation",
+        "description": "Maintained parser and anonymized fixtures for stock 0xFDCD advertisements; source of the envelope, model and TLV maps."
+      },
+      {
+        "title": "Home Assistant Qingping integration",
+        "url": "https://www.home-assistant.io/integrations/qingping/",
+        "kind": "implementation",
+        "description": "Passive local-update behavior, account/hub independence and app-only configuration boundary."
+      },
+      {
+        "title": "Qingping CGG1 user guide (archived PDF)",
+        "url": "https://web.archive.org/web/20230101000000/https://mi-house.ru/asserts/instructions/2321/1/CGG1.pdf",
+        "kind": "manual",
+        "description": "Archived five-page guide for CGG1 specifically: setup, historical app/gateway roles and the destructive local-history/pairing reset. Not a family-wide reset guide."
+      },
+      {
+        "title": "Qingping Bluetooth gateway",
+        "url": "https://qingping.co/bluetooth-gateway",
+        "kind": "vendor_support",
+        "description": "Official optional gateway path; not required for passive local reception."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Quicklynks BM2 Battery Monitor",
+    "path": "device-specs/devices/quicklynks-bm2.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Quicklynks",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "KrystianD/bm2-battery-monitor (MIT)",
+        "url": "https://github.com/KrystianD/bm2-battery-monitor",
+        "kind": "implementation",
+        "description": "Public BM2 client supplying AES framing, FFF4 notification handling and voltage extraction."
+      },
+      {
+        "title": "andystewart999/ha_bm2monitor (MIT)",
+        "url": "https://github.com/andystewart999/ha_bm2monitor",
+        "kind": "implementation",
+        "description": "Local BM2 integration supplying percentage/status, enhanced/legacy advertisements and active/passive behavior."
       }
     ],
     "schema_version": "2020-12"
@@ -6471,6 +6672,74 @@
         "url": "https://wiki.snapmaker.com/en/Snapmaker_2/troubleshooting/reset",
         "kind": "vendor_support",
         "description": "Source for both reset routes in this spec — the developer-mode touchscreen path and the M502/M500 serial pair.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SolarEdge Inverter (Modbus TCP / SunSpec)",
+    "path": "device-specs/devices/solaredge-modbus-tcp.yaml",
+    "protocol": "wifi",
+    "category": "energy",
+    "manufacturer": "SolarEdge Technologies",
+    "manufacturer_status": "active",
+    "protocol_handler": "modbus_tcp_sunspec",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "SolarEdge Inverters - SunSpec Logging, technical note v3.2 (mirror in solaredge-modbus-multi)",
+        "url": "https://github.com/WillCodeForCats/solaredge-modbus-multi/blob/main/doc/sunspec-implementation-technical-note.pdf",
+        "kind": "vendor_support",
+        "description": "SolarEdge's own note for SetApp and display (LCD) inverters: enabling Modbus TCP, port and unit id, the single-connection limit, and the common, inverter, multiple-MPPT and meter register maps. Version 3.2, June 2025, mirrored by the solaredge-modbus-multi project.\n"
+      },
+      {
+        "title": "Power Control Protocol for SolarEdge Inverters, technical note v1.3 (mirror)",
+        "url": "https://github.com/WillCodeForCats/solaredge-modbus-multi/blob/main/doc/Power-Control-Open-Protocol-for-SolarEdge-Inverters.pdf",
+        "kind": "vendor_support",
+        "description": "SolarEdge's 2017 note on the 0xF000/0xF100/0xE000 control registers for inverters with CPU firmware 3.xxxx or later. Not currently listed by SolarEdge.\n"
+      },
+      {
+        "title": "WillCodeForCats/solaredge-modbus-multi",
+        "url": "https://github.com/WillCodeForCats/solaredge-modbus-multi",
+        "kind": "implementation",
+        "description": "Home Assistant custom integration: multi-inverter Modbus TCP polling, meters, batteries and opt-in controls; its COMPARISON_WITH_CORE.md documents leader/follower behaviour."
+      },
+      {
+        "title": "Home Assistant: SolarEdge Modbus integration",
+        "url": "https://www.home-assistant.io/integrations/solaredge_modbus/",
+        "kind": "implementation",
+        "description": "Core integration since 2026.10: enabling Modbus TCP, port 1502, unit id 1, the Wi-Fi caveat, connection limits and flash-wear warning."
+      },
+      {
+        "title": "Home Assistant 2026.10 release notes",
+        "url": "https://www.home-assistant.io/blog/2026/10/07/release-202610/",
+        "kind": "other",
+        "description": "The release that removed SolarEdge Local and added the core SolarEdge Modbus integration."
+      },
+      {
+        "title": "binsentsu/home-assistant-solaredge-modbus",
+        "url": "https://github.com/binsentsu/home-assistant-solaredge-modbus",
+        "kind": "implementation",
+        "description": "Earlier Home Assistant custom component; README covers enabling Modbus TCP over Ethernet and Wi-Fi and the RRCR prerequisite for power control."
+      },
+      {
+        "title": "frenck/python-solaredged",
+        "url": "https://github.com/frenck/python-solaredged",
+        "kind": "implementation",
+        "description": "Python library behind the Home Assistant core integration."
+      },
+      {
+        "title": "sunspec/pysunspec2",
+        "url": "https://github.com/sunspec/pysunspec2",
+        "kind": "implementation",
+        "description": "SunSpec Alliance's reference Python client and model definitions (models 1, 101-103, 160, 201-204)."
+      },
+      {
+        "title": "HA Community: SolarEdge API V2 uses OAuth; old API turned off in November",
+        "url": "https://community.home-assistant.io/t/solaredge-api-v2-uses-oauth-old-api-will-be-turned-off-in-november/1026150",
+        "kind": "forum",
+        "description": "Community reports of the Monitoring API V1 retirement (1 or 3 November 2026) and the move to V2."
       }
     ],
     "schema_version": "2020-12"
@@ -7616,6 +7885,49 @@
         "url": "https://support.vizio.com/s/article/How-to-Reset-your-VIZIO-SmartCast-TV?language=en_US",
         "kind": "vendor_support",
         "description": "Vendor article giving the on-screen factory-reset path (Menu, Admin & Privacy, Reset to Factory Settings) and the PIN it asks for.\n"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "WaterRower ComModule / SmartRow",
+    "path": "device-specs/devices/waterrower-smartrow.yaml",
+    "protocol": "ble",
+    "category": "fitness",
+    "manufacturer": "WaterRower",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "madooroy/smartrow-bridge (GPL-3.0)",
+        "url": "https://github.com/madooroy/smartrow-bridge",
+        "kind": "implementation",
+        "description": "Capture-backed V3.10 SmartRow decoder, checksum/keylock tests and full-session replay."
+      },
+      {
+        "title": "inonoob/pirowflo",
+        "url": "https://github.com/inonoob/pirowflo",
+        "kind": "implementation",
+        "description": "Independent SmartRow commands, checksum and telemetry client."
+      },
+      {
+        "title": "phbaer/waterrower-local-ble",
+        "url": "https://github.com/phbaer/waterrower-local-ble",
+        "kind": "implementation",
+        "description": "Independent SmartRow and LightRing BF local protocol reference."
+      },
+      {
+        "title": "WaterRower Bluetooth ComModule owner's manual (archived PDF)",
+        "url": "https://web.archive.org/web/20250109115057/https://media2.waterrower.com/service/manuals/WEB_ComModule_Instructions_Commodule-Manual.pdf",
+        "kind": "manual",
+        "description": "WRM_7701 v1.3 for the S4 Bluetooth ComModule: fitting, charging, LED states, apps and safety. Not a SmartRow protocol manual."
+      },
+      {
+        "title": "WaterRower SmartRow user manual (archived PDF)",
+        "url": "https://web.archive.org/web/20250109142126id_/https://media2.waterrower.com/service/manuals/SmartRow-Manual.pdf",
+        "kind": "manual",
+        "description": "SmartRow-specific archived user manual; physical installation and operation, not the recovered byte layout."
       }
     ],
     "schema_version": "2020-12"

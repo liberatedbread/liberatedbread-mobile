@@ -128,6 +128,27 @@ device:
     the HEM-7530T (Complete) are not decoded. Changing batteries can
     reset the device clock — re-run time sync afterwards.
 
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      Blood-pressure readings synced from the monitor are a personal log,
+      not a basis for a medication decision.
+    detail: >
+      A third-party client reads records the monitor has already stored in
+      its EEPROM; it takes no measurement and adds no accuracy of its own.
+      Show systolic, diastolic and pulse exactly as the record decodes, with
+      the timestamp and whatever flags the record carries, and remember
+      that the per-model memory maps are community-recovered: a wrong map
+      decodes plausible-looking numbers from the wrong bytes. A number that
+      arrived through this spec must never decide a dose, a skipped dose or
+      whether to seek care; the monitor's own display, its instructions for
+      use and a healthcare professional govern. A battery change can reset
+      the clock, so timestamps may be wrong until the next time sync. This
+      spec and any client built from it are experimental and unaffiliated
+      with Omron.
+    acknowledge_required: true
+    advisory_url: "https://www.manualslib.com/manual/928334/Omron-Hem-7322.html"
+
   identification:
     local_name_prefixes: ["HEM-"]
     service_uuids:

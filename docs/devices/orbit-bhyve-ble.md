@@ -104,6 +104,25 @@ Each HT25-0000 watering command needs a seven-frame init earlier in the same
 connection: set the clock, read status, health and info, write its own mesh
 id, write the hub's mesh id, then set the clock again.
 
+### Run time and safety
+
+Every start is timed on the timer itself. The valve closes when the run ends,
+whether or not a phone or client is still connected, so a dropped link cannot
+leave it open past the requested time. ljmerza's reliability notes say to rely
+on this on-device auto-close as the safety net, and the HT25-0000 also sends
+its own run-end frame.
+
+The exception is the **HT25A-0001 on fw0098**. It ignores the requested time
+and always runs its default 1800 s, so the client has to send *controller off*
+when the time is up (and *controller auto* afterwards if programs should keep
+running). If the link drops before that, the valve stays open for up to
+30 minutes. Never send the shared stop frame to this model, because it starts
+a new 30-minute run.
+
+The device's own maximum run time is not known. The HT25-0000 start accepts up
+to 65535 s (about 18 h) and the protobuf start templates up to 16383 s (about
+4.6 h), so a client should cap runs to what the owner intends.
+
 `scripts/test_orbit_bhyve_ble_spec.py` transcribes the handshake, keystream,
 trailer and inner CRC. It reproduces every frame vector in the spec, which uses
 an invented key, and checks the CRC rule against four plaintext requests

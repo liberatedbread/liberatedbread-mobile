@@ -213,6 +213,14 @@ spec's `device.setup` block; the patterns are explained in
 | [Keto-Mojo GK+ Glucose & Ketone Meter](keto-mojo-gk-plus.md) | BLE | Spec Available | None needed (connect and request records) | Keto-Mojo (active) |
 | [Orbit B-hyve Bluetooth Hose Timers](orbit-bhyve-ble.md) | BLE (encrypted) | Spec Available | Export the network key once from the Orbit account (medium) | Orbit (active) |
 | [LIVISI SmartHome (SHC 1 / SHC 2)](livisi-smarthome.md) | LAN (HTTP 8080, WebSocket events) | Spec Available | Local SmartHome on; local password, token login (medium) | LIVISI (servers off 2024-03-01) |
+| [Qingping / ClearGrass Sensors (stock BLE)](qingping-stock-ble.md) | BLE (passive 0xFDCD service data) | Spec Available | None needed (no connection) | Qingping / ClearGrass |
+| [Ecosense / FTLab RadonEye RD200](ecosense-radoneye-rd200.md) | BLE (two generations) | Spec Available | None needed (one central) | FTLab / Ecosense |
+| [SolarEdge Inverters (Modbus TCP / SunSpec)](solaredge-modbus-tcp.md) | WiFi/LAN (Modbus TCP 1502 / 502) | Spec Available | Turn Modbus TCP on in SetApp or the inverter menu (medium) | SolarEdge (active; cloud API V1 retired Nov 2026) |
+| [Apple AirPort Extreme / Time Capsule / Express (ACP)](apple-airport-acp.md) | LAN (ACP on TCP 5009, Bonjour) | Spec Available | Base-station admin password; SRP login (medium) | Apple (discontinued 2018) |
+| [Philips Wi-Fi Air Purifiers and Humidifiers (encrypted CoAP)](philips-air-coap.md) | WiFi (CoAP UDP 5683, encrypted) | Spec Available | Philips app joins it to Wi-Fi once; then no account (medium) | Philips / Versuni (active) |
+| [Quicklynks BM2 Battery Monitor](quicklynks-bm2.md) | BLE GATT + passive advertisements | Spec Available | None needed (read-only) | Quicklynks |
+| [WaterRower ComModule / SmartRow](waterrower-smartrow.md) | BLE FTMS + SmartRow ASCII | Spec Available | None needed (local telemetry) | WaterRower |
+| [Oral-B iO Smart Brush and iO Sense Charger](oral-b-io-smartbrush.md) | BLE GATT + manufacturer advertisements | Spec Available | None needed for brush reads; charger provisioning unresolved | Procter & Gamble |
 
 ## Not everything here was liberated
 

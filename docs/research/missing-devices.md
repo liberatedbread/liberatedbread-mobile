@@ -16,9 +16,10 @@ about 270 unvalidated write-ups in `research-notes/`, 69 target stubs in
     Progress against this list, and new finds since it was written, are logged
     week by week in [Weekly Device Sweeps](weekly-sweeps.md). Done so far from
     *Do these next*: #1 Instant Pot, #2 AM43, #3 JuiceBox, #5 Sengled, #7 Yummly,
-    #6 BiSecur, #8 LIVISI, #15 Drobo, #16 Kano wand, #17 TiVo, #18 Hot Wheels
-    id, #19 TRÅDFRI gateway, #22 Insteon Hub; from the category tables: Orbit
-    B-hyve and the Elgato classic-HTTP family; from *Graduate these research
+    #6 BiSecur, #8 LIVISI, #11 AirPort ACP, #12 Philips air purifiers, #15
+    Drobo, #16 Kano wand, #17 TiVo, #18 Hot Wheels id, #19 TRÅDFRI gateway, #22
+    Insteon Hub; from the category tables: Orbit B-hyve, the Elgato
+    classic-HTTP family and SolarEdge (as Modbus TCP, not the SetApp web API); from *Graduate these research
     notes*: QardioArm, Insteon Hub.
 
 This page answers one question: **which locally-controllable devices does the

@@ -1,0 +1,603 @@
+# Ecosense / FTLab RadonEye RD200 — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (public, clean-room; derived facts only):
+#   - jdeath/rd200v2, commit ceb604c9809cd33ec61ffa58a60eea522ead816f (MIT).
+#   - lopsided98/radonpy, commit 17930248331eeebe5572177dd72fca0390b55d61
+#     (Apache-2.0).
+#   - Ecosense RD200 FAQ, operation manual and 2021 quick guide.
+
+device:
+  name: "Ecosense / FTLab RadonEye RD200"
+  manufacturer: "FTLab Co., Ltd. / Ecosense"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. Two public clients and
+      manuals supply both generations' protocol facts. Upstream tests and
+      mocked GATT exchanges passed on 2026-11-01, but no physical capture was
+      made. The examples below are constructed from the documented layouts,
+      not owner readings or captured device identifiers.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "sensor"
+  type: "radon-monitor"
+  notes: >
+    Mains-powered environmental radon monitor with two incompatible BLE
+    protocol generations. V1 names begin FR:R2 and uses a custom service;
+    known V2 names use the prefixes listed below with standard-base write and
+    notify characteristics. Select a generation from BOTH its advertised name
+    and discovered GATT shape. Never send a command as a generation probe and
+    never reuse V1 configuration/history opcodes on V2.
+
+    V1 returns float32 little-endian pCi/L readings inside a command/length
+    envelope. V2 returns uint16 little-endian Bq/m³ readings with different
+    packet lengths and no established V1-style envelope. Convert units with
+    1 pCi/L = 37 Bq/m³; multiplying Bq/m³ by 0.027 is only a presentation
+    approximation. Preserve raw readings and round only for display.
+
+    Only one phone can connect at a time according to the vendor FAQ. Close
+    the vendor app before using another client. This spec covers RD200, not
+    RadonEye Pro, RadonEye Plus, EcoQube or EcoQube Flex.
+
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      Environmental readings require valid device status and context; a BLE
+      value alone is not a medical or radiation-safety determination.
+    detail: >
+      Do not use a single reading as the sole basis for health conclusions,
+      medical decisions or a safety interlock. Vibration and device status can
+      affect measurement validity, and not all status values are decoded.
+      Follow current local radiation guidance and the manual for the actual
+      unit. Preserve malformed/unavailable values as unknown rather than zero.
+    acknowledge_required: false
+    advisory_url: "https://ecosense.io/pages/rd200-faq-en"
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/jdeath/rd200v2"
+    license: "MIT"
+    upstream_docs:
+      - url: "https://ecosense.io/pages/rd200-faq-en"
+        title: "Ecosense — RD200 FAQ"
+        covers: "Single-client behavior, no-cloud operation, hourly history and app reset role; no packet layout."
+    notes: >
+      The GATT and payload layouts are community-recovered. The maintained
+      rd200v2 client covers both generations; radonpy supplies the older
+      framed command and history surface.
+
+  identification:
+    local_name_prefixes: ["FR:R2", "FR:RU", "FR:RE", "FR:GI", "FR:H", "FR:RD", "FR:GL", "FR:GJ", "FR:I", "FR:J", "FR:K"]
+    service_uuids:
+      - "00001523-1212-efde-1523-785feabcd123"
+    notes: >
+      FR:R2 plus the custom 0x1523 service identifies V1. The other listed
+      names plus the standard-base 0x1524 write / 0x1525 notify pair identify
+      V2. The V2 parent service UUID is not established; do not invent it from
+      V1. Unknown FR: prefixes and other RadonEye products are unverified.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "00001523-1212-efde-1523-785feabcd123"
+          local_name:
+            match: "regex"
+            value: "^FR:(R2|RU|RE|GI|H|RD|GL|GJ|I|J|K)"
+        notes: >
+          Use both name and GATT shape after connecting. The V1 custom service
+          is not evidence for V2, and an unknown FR: name is not permission to
+          choose the newer command set. Discovery itself sends no commands.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No account, cloud, Wi-Fi provisioning or application key is needed in
+      either inspected client. OS/firmware bonding behavior is not established
+      for every combination, so do not assume a fixed pairing code.
+    methods:
+      - type: "ble_direct"
+        name: "V1 direct measurement and history"
+        role: "variant"
+        verified: false
+        description: >
+          Match FR:R2 and the custom service, subscribe to the relevant
+          response characteristic before writing a query, and validate its
+          command and declared payload length.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Close any other connected client, match FR:R2 and discover custom service 00001523-1212-efde-1523-785feabcd123."
+            actor: "client"
+          - action: "Enable notifications on 00001525-1212-efde-1523-785feabcd123 before a normal query, or 00001526-1212-efde-1523-785feabcd123 before starting history transfer."
+            actor: "client"
+          - action: "Write the selected V1 command to 00001524-1212-efde-1523-785feabcd123 and validate the response envelope before decoding."
+            actor: "client"
+      - type: "ble_direct"
+        name: "V2 direct measurement"
+        role: "variant"
+        verified: false
+        description: >
+          Match a known newer name and the standard-base write/notify pair,
+          subscribe before each sequential query, and require the exact
+          response length for that query.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Close any other connected client and discover the standard-base 0x1524 write and 0x1525 notify characteristics; do not guess their parent service UUID."
+            actor: "client"
+          - action: "Enable notifications on 00001525-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+          - action: "Write one V2 query byte to 00001524-0000-1000-8000-00805f9b34fb, wait for its reply, then stop notifications before the next query."
+            actor: "client"
+            expect: "Measurement 0x50 returns 12 bytes, peak/identity 0x40 returns 68 bytes, and uptime 0x51 returns 16 bytes."
+    factory_reset:
+      applicable: false
+      confidence: "medium"
+      effect: >
+        No full factory reset or dedicated hardware reset button is documented.
+        The V1 0xE0 command and vendor app's data reset erase stored history;
+        that is a destructive data operation, not a harmless reconnect/reset.
+      description: >
+        Preserve history before using erase_history. Nothing here claims that
+        erasing measurements resets calibration, firmware, bonding or all
+        device settings, and no such full reset is asserted.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Close the previous phone/client and reconnect directly; there is no Wi-Fi network to rejoin."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No application credential is established. Any OS-level bond is managed by the host Bluetooth stack."
+
+  pairing:
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "optional"
+    exclusivity:
+      single_connection: true
+      single_bond: "unknown"
+      recovery: "Close the vendor app or previous client before reconnecting. No fixed pairing PIN is documented."
+    enter_pairing_mode:
+      required: false
+      notes: "No application pairing mode or key exchange is used by the inspected clients."
+    notes: >
+      `required: false` means no application-level pairing step is needed by
+      these clients, not that every OS/firmware combination forbids bonding.
+      The vendor confirms one active phone connection at a time.
+
+  variants:
+    - model: "RD200 V1 (older)"
+      identification:
+        local_name_prefix: "FR:R2"
+        service_uuids:
+          - "00001523-1212-efde-1523-785feabcd123"
+      notes: >
+        Custom service and command/length responses. A source client's report
+        that newer controllers changed around November 2021 is not a universal
+        manufacturing cutoff; identify by name and GATT instead.
+    - model: "RD200 V2 (newer)"
+      identification:
+        local_name_contains: ["FR:RU", "FR:RE", "FR:GI", "FR:H", "FR:RD", "FR:GL", "FR:GJ", "FR:I", "FR:J", "FR:K"]
+      notes: >
+        Standard-base 0x1524 write and 0x1525 notify characteristics; exact
+        response lengths and native Bq/m³ integer values. Parent service UUID
+        and history/configuration surfaces remain unknown.
+
+services:
+  - uuid: "00001523-1212-efde-1523-785feabcd123"
+    name: "RadonEye V1 custom service"
+    variants: ["RD200 V1 (older)"]
+    notes: "V1 only. Do not select this command set for an FR:R2-looking device unless this service is actually present."
+    characteristics:
+      - uuid: "00001524-1212-efde-1523-785feabcd123"
+        name: "V1 control"
+        properties: ["write"]
+        role: "command"
+        notes: >
+          Simple queries are one command byte. Parameterized writes are
+          [command][payload_length][payload]. A normal response uses the same
+          envelope on the measurement characteristic. No checksum is stated
+          by the source clients; validate command and length.
+        commands:
+          read_measurement:
+            description: "Query current, one-day and one-month concentrations plus pulse counts; response 0x50 has a 16-byte payload."
+            encoding: "bytes"
+            value: [0x50]
+            verification: "reported"
+          read_status:
+            description: "Query status, process time, raw DC value and peak; response 0x51 has a 14-byte payload."
+            encoding: "bytes"
+            value: [0x51]
+            verification: "reported"
+          set_clock:
+            description: "Set six calendar bytes: two-digit year, month, day, hour, minute, second. Persistent calendar semantics remain unresolved."
+            encoding: "bytes"
+            template: [0xA1, 0x06, "{year}", "{month}", "{day}", "{hour}", "{minute}", "{second}"]
+            parameters:
+              year: {type: "uint8", min: 0, max: 99}
+              month: {type: "uint8", min: 1, max: 12}
+              day: {type: "uint8", min: 1, max: 31}
+              hour: {type: "uint8", min: 0, max: 23}
+              minute: {type: "uint8", min: 0, max: 59}
+              second: {type: "uint8", min: 0, max: 59}
+            verification: "reported"
+          set_display_unit:
+            description: "Set display/reporting unit: 0 pCi/L or 1 Bq/m³. This does not change the documented native V1 float32 unit."
+            encoding: "bytes"
+            template: [0xA2, 0x01, "{unit}"]
+            parameters:
+              unit: {type: "uint8", min: 0, max: 1, labels: ["pCi/L", "Bq/m³"]}
+            verification: "reported"
+          read_serial:
+            description: "Query serial text; response begins with an eight-character date followed by owner-specific serial data. Redact it."
+            encoding: "bytes"
+            value: [0xA4]
+            verification: "reported"
+          read_serial_type:
+            description: "Query serial type; first three response-payload bytes are decoded as text."
+            encoding: "bytes"
+            value: [0xA6]
+            verification: "reported"
+          read_model_name:
+            description: "Query model text; first payload byte is unknown, remaining bytes are text."
+            encoding: "bytes"
+            value: [0xA8]
+            verification: "reported"
+          set_alarm:
+            description: "Set alarm enabled/status byte, float32 LE threshold and interval byte (1 = 10 minutes, 6 = one hour, 0x24 = six hours). Check threshold units/limits for the actual device first."
+            encoding: "bytes"
+            template: [0xAA, 0x06, "{enabled}", "{threshold}", "{interval}"]
+            parameters:
+              enabled: {type: "uint8", min: 0, max: 1}
+              threshold: {type: "float32", endianness: "little"}
+              interval: {type: "uint8", allowed: [1, 6, 36], labels: ["10 minutes", "1 hour", "6 hours"]}
+            verification: "reported"
+          read_configuration:
+            description: "Query unit, alarm status, float32 threshold and alarm interval; payload layout <BBfB."
+            encoding: "bytes"
+            value: [0xAC]
+            verification: "reported"
+          read_oled:
+            description: "Query OLED uint32 value. The source client says this does not seem to work; do not rely on it."
+            encoding: "bytes"
+            value: [0xAD]
+            verification: "reported"
+          read_firmware:
+            description: "Query firmware text: first 64 payload bytes, then optional uint32 LE status (absent status becomes zero in the source client)."
+            encoding: "bytes"
+            value: [0xAF]
+            verification: "reported"
+          read_module_configuration:
+            description: "Query <BIIf>: device type, serial date, serial number and float factor. Exact semantics are not established; redact identifiers."
+            encoding: "bytes"
+            value: [0xB1]
+            verification: "reported"
+          read_protection:
+            description: "Query protection; response command is 0xB3 (not 0xB4), with two uint32 status fields."
+            encoding: "bytes"
+            value: [0xB4]
+            verification: "reported"
+          read_display_calibration:
+            description: "Query display calibration float32. Do not confuse it with a generic concentration multiplier."
+            encoding: "bytes"
+            value: [0xBD]
+            verification: "reported"
+          read_product_mode:
+            description: "Query product/process mode <BBH>: on/off, hour and Bq field; exact semantics are not established."
+            encoding: "bytes"
+            value: [0xC1]
+            verification: "reported"
+          erase_history:
+            description: "Erase stored long-term measurements. This is destructive and is not a factory reset."
+            encoding: "bytes"
+            value: [0xE0]
+            advanced: true
+            advanced_reason: "Permanently deletes stored measurement history. Download and preserve history first; the documented protocol has no undelete operation."
+            verification: "reported"
+          read_log_info:
+            description: "Query history information before transfer. First three response-payload bytes are uint16 LE entry count and a signed byte labeled checksum; trailing bytes are unknown."
+            encoding: "bytes"
+            value: [0xE8]
+            verification: "reported"
+          start_log_transfer:
+            description: "Start history on the separate log characteristic after subscribing there. Accumulate entry_count x 2 bytes; do not expect one entry per notification."
+            encoding: "bytes"
+            value: [0xE9]
+            verification: "reported"
+
+      - uuid: "00001525-1212-efde-1523-785feabcd123"
+        name: "V1 measurement and command responses"
+        properties: ["notify"]
+        notes: >
+          Normal response envelope: [command][payload_length][payload]. The
+          format below applies only to response command 0x50, whose complete
+          frame is 18 bytes. Other commands use payload_formats.V1_Status or
+          their command-specific layouts. Require the complete 16-byte
+          measurement payload; one client’s shorter length guard is a bug.
+        format:
+          - {offset: 0, length: 1, name: "response_command", type: "uint8", notes: "0x50 for this measurement layout."}
+          - {offset: 1, length: 1, name: "payload_length", type: "uint8", notes: "16 for a complete V1 measurement."}
+          - {offset: 2, length: 4, name: "current_radon", type: "float32", endianness: "little", unit: "pCi/L"}
+          - {offset: 6, length: 4, name: "one_day_average", type: "float32", endianness: "little", unit: "pCi/L"}
+          - {offset: 10, length: 4, name: "one_month_average", type: "float32", endianness: "little", unit: "pCi/L"}
+          - {offset: 14, length: 2, name: "pulse_count", type: "uint16", endianness: "little", unit: "count"}
+          - {offset: 16, length: 2, name: "previous_pulse_count", type: "uint16", endianness: "little", unit: "count"}
+
+      - uuid: "00001526-1212-efde-1523-785feabcd123"
+        name: "V1 history stream"
+        properties: ["notify"]
+        notes: >
+          History does not arrive on the normal response characteristic.
+          Subscribe here before sending 0xE9. Concatenate notification chunks
+          until entry_count x 2 bytes have arrived. Each entry is uint16 LE
+          divided by 100; its concentration unit is unresolved. Preserve
+          relative ordering and explicitly associate download/start times.
+
+payload_formats:
+  V1_Measurement:
+    description: "Payload of V1 response 0x50: exactly 16 bytes, <fffHH. The characteristic format gives absolute frame offsets."
+    fields:
+      - {index: 0, name: "current_radon", unit: "pCi/L", description: "Float32 LE at payload bytes 0-3."}
+      - {index: 4, name: "one_day_average", unit: "pCi/L", description: "Float32 LE at payload bytes 4-7."}
+      - {index: 8, name: "one_month_average", unit: "pCi/L", description: "Float32 LE at payload bytes 8-11."}
+      - {index: 12, name: "pulse_count", unit: "count", description: "Uint16 LE at payload bytes 12-13."}
+      - {index: 14, name: "previous_pulse_count", unit: "count", description: "Uint16 LE at payload bytes 14-15; described as previous/10-minute count by the source."}
+    parse_rules:
+      - "Require response command 0x50 and payload length 16, then require all 16 bytes before unpacking."
+      - "NaN, infinity and sentinel policy is not established; do not turn non-finite values into numeric readings."
+    example: "50 10 00 00 20 40 00 00 60 40 00 00 90 40 32 00 3c 00"
+
+  V1_Status:
+    description: "Payload of V1 response 0x51: exactly 14 bytes, <BBIIf (16 bytes including command and length)."
+    fields:
+      - {index: 0, name: "device_status", description: "Uint8; enumeration not established."}
+      - {index: 1, name: "vibration_status", description: "Uint8; enumeration not established."}
+      - {index: 2, name: "process_time", unit: "min", description: "Uint32 LE; the other client interprets it as uptime minutes."}
+      - {index: 6, name: "raw_dc", description: "Uint32 LE; meaning and electrical conversion unknown."}
+      - {index: 10, name: "peak_radon", unit: "pCi/L", description: "Float32 LE."}
+    parse_rules:
+      - "Do not invent status enumerations or an electrical unit for raw_dc. A numeric concentration is not proof of valid measurement status."
+
+  V1_Configuration:
+    description: "Payload of V1 response 0xAC: <BBfB = display unit, alarm status, float32 LE threshold, alarm interval."
+    fields:
+      - {index: 0, name: "display_unit", description: "0 pCi/L, 1 Bq/m³."}
+      - {index: 1, name: "alarm_status", description: "One-byte status/enabled value."}
+      - {index: 2, name: "alarm_threshold", description: "Float32 LE; unit follows current device configuration and must be checked."}
+      - {index: 6, name: "alarm_interval", description: "1 = 10 minutes, 6 = one hour, 0x24 = six hours."}
+
+  V1_History:
+    description: >
+      Start with response 0xE8: first three payload bytes are uint16 LE entry
+      count and a signed byte labeled checksum. Then subscribe to the V1 log
+      characteristic and send 0xE9. Each history entry is two bytes.
+    fields:
+      - {index: 0, name: "entry_count", unit: "count", description: "Uint16 LE in 0xE8 response-payload bytes 0-1."}
+      - {index: 2, name: "reported_checksum", description: "Signed byte in 0xE8 response payload; source does not verify it and its algorithm is unknown."}
+      - {name: "history_entry", description: "Uint16 LE divided by 100. Do not label it Bq/m³ or pCi/L without further evidence.", scale: 0.01}
+    parse_rules:
+      - "Accumulate arbitrary notification chunks until entry_count x 2 bytes have arrived; reject truncation rather than padding."
+      - "The vendor says measurements are hourly but there is no internal calendar timestamp for a dated series. Preserve order and host-side download/start association."
+
+  V2_Measurement:
+    description: "Response to V2 query 0x50: exactly 12 bytes. The first two bytes are an uninterpreted response header, not V1's command/length envelope."
+    fields:
+      - {index: 0, name: "response_header", description: "Two bytes; complete semantics unknown."}
+      - {index: 2, name: "current_radon", unit: "Bq/m³", scale: 1, description: "Uint16 LE."}
+      - {index: 4, name: "one_day_average", unit: "Bq/m³", scale: 1, description: "Uint16 LE."}
+      - {index: 6, name: "one_month_average", unit: "Bq/m³", scale: 1, description: "Uint16 LE."}
+      - {index: 8, name: "pulse_count", unit: "count", scale: 1, description: "Uint16 LE."}
+      - {index: 10, name: "previous_pulse_count", unit: "count", scale: 1, description: "Uint16 LE."}
+    parse_rules:
+      - "Require exactly 12 bytes. If the length differs, make all five measurement values unavailable rather than decoding a partial packet."
+      - "No extra concentration multiplier is applied. Convert Bq/m³ to pCi/L with division by 37 only for presentation."
+    example: "00 00 64 00 6e 00 78 00 0d 00 0e 00"
+
+  V2_Peak_Identity:
+    description: "Response to V2 query 0x40: exactly 68 bytes. Other bytes and the header are not established."
+    fields:
+      - {index: 16, name: "hardware_model_text", description: "Five UTF-8 bytes at 16-20; handle padding deliberately, do not assume NUL termination."}
+      - {index: 22, name: "firmware_text", description: "Eight UTF-8 bytes at 22-29."}
+      - {index: 51, name: "peak_radon", unit: "Bq/m³", scale: 1, description: "Uint16 LE at bytes 51-52."}
+    parse_rules:
+      - "Require exactly 68 bytes. Do not publish serial or owner identifiers in logs."
+
+  V2_Uptime:
+    description: "Response to V2 query 0x51: exactly 16 bytes."
+    fields:
+      - {index: 4, name: "uptime", unit: "min", scale: 1, description: "Uint32 LE at bytes 4-7. Other fields and any seconds field are not established."}
+    parse_rules:
+      - "Require exactly 16 bytes. A client may multiply minutes by 60 for elapsed seconds, but must not claim the packet carries seconds."
+
+protocol_details:
+  generation_selection:
+    rule: "Match both known local-name prefix and discovered GATT shape; never send a probe command to select a generation."
+    v1: "FR:R2 + service 00001523-1212-efde-1523-785feabcd123"
+    v2: "Known newer FR prefix + write 00001524-0000-1000-8000-00805f9b34fb and notify 00001525-0000-1000-8000-00805f9b34fb"
+  v1_framing:
+    query: "one command byte on the control characteristic"
+    parameterized_write: "[command][payload_length][payload]"
+    normal_response: "[command][payload_length][payload] on the measurement characteristic"
+    history_response: "arbitrary notification chunks on the separate log characteristic"
+    checksum: "none established for the command envelope; the unverified history-info checksum byte is separate"
+  v2_gatt:
+    parent_service_uuid: null
+    write_characteristic: "00001524-0000-1000-8000-00805f9b34fb"
+    notify_characteristic: "00001525-0000-1000-8000-00805f9b34fb"
+    notes: >
+      The parent service UUID was not established, so these characteristics
+      live here rather than in a fabricated services entry. Subscribe before a
+      query, wait for its reply, then stop notifications. The source queries
+      measurement, peak/identity and uptime sequentially, allowing 15 seconds
+      for measurement and 5 seconds for the others; those are client timeouts,
+      not hardware timing requirements. Its ten-minute polling interval is a
+      client policy, not a device requirement.
+    queries:
+      measurement: {value: [0x50], response_bytes: 12, payload_format: "V2_Measurement"}
+      peak_identity: {value: [0x40], response_bytes: 68, payload_format: "V2_Peak_Identity"}
+      uptime: {value: [0x51], response_bytes: 16, payload_format: "V2_Uptime"}
+  unit_conversion:
+    exact_rule: "1 pCi/L = 37 Bq/m³"
+    v1_native: "pCi/L float32 LE"
+    v2_native: "Bq/m³ uint16 LE"
+    warning: "0.027 is an approximate Bq/m³-to-pCi/L display factor, not a wire scale. Preserve raw values and round only for presentation."
+  test_vectors:
+    v1_measurement:
+      frame_hex: "50 10 00 00 20 40 00 00 60 40 00 00 90 40 32 00 3c 00"
+      current_pci_l: 2.5
+      one_day_pci_l: 3.5
+      one_month_pci_l: 4.5
+      pulse_count: 50
+      previous_pulse_count: 60
+      constructed: true
+    v2_measurement:
+      frame_hex: "00 00 64 00 6e 00 78 00 0d 00 0e 00"
+      current_bq_m3: 100
+      one_day_bq_m3: 110
+      one_month_bq_m3: 120
+      pulse_count: 13
+      previous_pulse_count: 14
+      constructed: true
+
+entities:
+  - platform: "sensor"
+    name: "V1 Current Radon"
+    unit: "pCi/L"
+    variants: ["RD200 V1 (older)"]
+    state_characteristic: "00001525-1212-efde-1523-785feabcd123"
+    state_mapping: {value: "current_radon"}
+    notes: "Parse only a complete 0x50 response with 16-byte payload; non-finite values are unavailable."
+  - platform: "sensor"
+    name: "V1 One-Day Average Radon"
+    unit: "pCi/L"
+    variants: ["RD200 V1 (older)"]
+    state_characteristic: "00001525-1212-efde-1523-785feabcd123"
+    state_mapping: {value: "one_day_average"}
+  - platform: "sensor"
+    name: "V1 One-Month Average Radon"
+    unit: "pCi/L"
+    variants: ["RD200 V1 (older)"]
+    state_characteristic: "00001525-1212-efde-1523-785feabcd123"
+    state_mapping: {value: "one_month_average"}
+  - platform: "sensor"
+    name: "V2 Current Radon"
+    unit: "Bq/m³"
+    variants: ["RD200 V2 (newer)"]
+    notes: "From protocol_details.v2_gatt measurement query, absolute response bytes 2-3; no fabricated parent service or state_characteristic."
+  - platform: "sensor"
+    name: "V2 One-Day Average Radon"
+    unit: "Bq/m³"
+    variants: ["RD200 V2 (newer)"]
+    notes: "Absolute response bytes 4-5 of the exact 12-byte V2 measurement response."
+  - platform: "sensor"
+    name: "V2 One-Month Average Radon"
+    unit: "Bq/m³"
+    variants: ["RD200 V2 (newer)"]
+    notes: "Absolute response bytes 6-7 of the exact 12-byte V2 measurement response."
+  - platform: "sensor"
+    name: "V2 Peak Radon"
+    unit: "Bq/m³"
+    variants: ["RD200 V2 (newer)"]
+    notes: "Absolute response bytes 51-52 of the exact 68-byte V2 peak/identity response."
+  - platform: "sensor"
+    name: "V2 Uptime"
+    device_class: "duration"
+    unit: "min"
+    variants: ["RD200 V2 (newer)"]
+    notes: "Uint32 LE at response bytes 4-7 of the exact 16-byte V2 uptime response."
+
+local_access:
+  status: "native"
+  summary: "The vendor says RD200 has no cloud/server dependency; both protocol generations work directly over BLE."
+  covers:
+    - "V1 current/average measurements, status, configuration, history and documented settings"
+    - "V2 current/average/peak measurements, identity and uptime"
+    - "Exact unit conversion and generation-specific framing"
+  not_covered:
+    - "V2 history, alarms, unit/clock settings and erase; do not reuse V1 opcodes"
+    - "Firmware update transport and image format"
+    - "RadonEye Pro/Plus, EcoQube and EcoQube Flex"
+
+cloud:
+  required: false
+  vendor_service: "None for RD200 according to the current vendor FAQ"
+  data_leaves_device:
+    - "Measurements go over BLE to the connected client; no RD200 server path is required or specified."
+  notes: "The newer Ecosense app for EcoQube Flex is not a replacement protocol client for RD200."
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      url: "https://github.com/jdeath/rd200v2"
+      artifact: "jdeath/rd200v2, commit ceb604c9809cd33ec61ffa58a60eea522ead816f (MIT)"
+      description: >
+        Both generations' name matching, V2 exact lengths and integer fields,
+        V1 float parsing, peak/uptime and single-client behavior. Upstream
+        tests and mocked exchanges passed; no code is transcribed here.
+    - type: "public_implementation"
+      url: "https://github.com/lopsided98/radonpy"
+      artifact: "lopsided98/radonpy, commit 17930248331eeebe5572177dd72fca0390b55d61 (Apache-2.0)"
+      description: >
+        V1 command definitions, framing, measurement/status/configuration
+        layouts and chunked history. This project’s constructed vectors are
+        independently decoded by scripts/test_ecosense_radoneye_rd200_spec.py.
+    - type: "vendor_documentation"
+      url: "https://ecosense.io/pages/rd200-faq-en"
+      description: "Single-phone connection, no-cloud operation, hourly history, no calendar timestamp and destructive app data reset."
+    - type: "vendor_documentation"
+      url: "https://www.boehm-radon.ch/files/2-45-radon_eye.pdf"
+      artifact: "RadonEye RD200 operation manual, distributor-hosted 2016 document modified 2020"
+      description: "RD200 identity, external power, history/settings roles, destructive clear operation and exact 37 Bq/m³ per pCi/L conversion."
+  documentation_review: >
+    Reviewed 2026-11-01. Source-derived facts remain reported/untested even
+    where offline mocked GATT checks passed. Constructed vectors test this
+    document's internal consistency, not a physical device's firmware.
+  open_questions: >
+    V2 parent service UUID and envelope; V2 history/settings; status enums,
+    invalid/sentinel handling, raw DC conversion and history-entry units;
+    exact hardware/firmware coverage and OS bonding behavior.
+
+remaining_unknowns:
+  - "The V2 parent service UUID and complete response-envelope semantics are unknown. Its characteristic map is in protocol_details rather than a fabricated service."
+  - "No V2 history, alarm, unit, clock or erase command is established. Never reuse V1 opcodes on V2."
+  - "V1 status/vibration enumerations, raw DC conversion, non-finite/sentinel policy and history-entry concentration unit are unresolved."
+  - "The source does not establish the V1 history-info checksum algorithm; do not pretend to validate it."
+  - "No universal November 2021 manufacturing cutoff is claimed; select generation by name and GATT shape."
+  - "Firmware-update transport, images and recovery are not established."
+  - "No physical device was used by this project; mocked/source validation is not hardware confirmation."
+
+helpful_urls:
+  - title: "jdeath/rd200v2 (MIT)"
+    url: "https://github.com/jdeath/rd200v2"
+    kind: "implementation"
+    description: "Maintained local client covering both RD200 generations, exact response lengths, field decoding and unit behavior."
+  - title: "lopsided98/radonpy (Apache-2.0)"
+    url: "https://github.com/lopsided98/radonpy"
+    kind: "implementation"
+    description: "Older RD200 client with the V1 command catalogue, framed responses and chunked history transfer."
+  - title: "Ecosense RD200 FAQ"
+    url: "https://ecosense.io/pages/rd200-faq-en"
+    kind: "vendor_support"
+    description: "Official single-client, no-cloud, hourly-history, timestamp and data-reset guidance for RD200."
+  - title: "RadonEye RD200 operation manual (distributor PDF)"
+    url: "https://www.boehm-radon.ch/files/2-45-radon_eye.pdf"
+    kind: "manual"
+    description: "RD200-specific older operation manual covering external power, OLED/history/settings, destructive data clearing and the exact unit conversion; ranges are document-date-specific."
+  - title: "RadonEye RD200 quick guide, December 2021 (distributor PDF)"
+    url: "https://www.radonshop.com/mediafiles/Anleitungen/Radon/FTLab_RadonEye-RD200/FTLab_RadonEye_ManualEN.pdf"
+    kind: "manual"
+    description: "RD200-specific two-page quick guide for connection, display, history, settings and clearing memory; not a universal firmware or health specification."

@@ -185,37 +185,119 @@ http_endpoints:
 
 payload_formats:
   obs_st:
-    description: "Tempest combined observation (the 'obs' array inside the obs_st message)."
+    description: "Tempest combined observation: the 18-element array in obs[0]. Null means unavailable, not zero."
     fields:
-      - name: "wind_avg"
-        unit: "m/s"
-        description: "Average wind speed (index 2 of the obs array; lull=1, gust=3)."
-      - name: "wind_direction"
-        unit: "deg"
-        description: "Wind direction (index 4)."
-      - name: "station_pressure"
-        unit: "mbar"
-        description: "Station pressure (index 6)."
-      - name: "air_temperature"
-        unit: "C"
-        description: "Air temperature (index 7)."
-      - name: "relative_humidity"
-        unit: "%"
-        description: "Relative humidity (index 8)."
-      - name: "illuminance"
-        unit: "lux"
-        description: "Illuminance (index 9)."
-      - name: "uv"
-        description: "UV index (index 10)."
-      - name: "solar_radiation"
-        unit: "W/m2"
-        description: "Solar radiation (index 11)."
-      - name: "rain_accumulation"
-        unit: "mm"
-        description: "Rain over the reporting interval (index 12)."
+      - {index: 0, name: "timestamp", unit: "s", description: "Observation epoch seconds; distinct from status timestamps."}
+      - {index: 1, name: "wind_lull", unit: "m/s", description: "Minimum three-second wind sample."}
+      - {index: 2, name: "wind_avg", unit: "m/s", description: "Average wind over the report interval."}
+      - {index: 3, name: "wind_gust", unit: "m/s", description: "Maximum three-second wind sample."}
+      - {index: 4, name: "wind_direction", unit: "deg"}
+      - {index: 5, name: "wind_sample_interval", unit: "s", description: "3/6/60/300 maps to power-save modes 0/1/2/3; other values are unknown."}
+      - {index: 6, name: "station_pressure", unit: "mbar", description: "Local station pressure, not sea-level-adjusted pressure."}
+      - {index: 7, name: "air_temperature", unit: "C"}
+      - {index: 8, name: "relative_humidity", unit: "%"}
+      - {index: 9, name: "illuminance", unit: "lux"}
+      - {index: 10, name: "uv", unit: "index"}
+      - {index: 11, name: "solar_radiation", unit: "W/m2"}
+      - {index: 12, name: "rain_previous_minute", unit: "mm", description: "Rain over the previous minute, not cumulative daily rain or rain over the whole report interval."}
+      - {index: 13, name: "precipitation_type", description: "0 none, 1 rain, 2 hail, 3 rain+hail (experimental)."}
+      - {index: 14, name: "lightning_average_distance", unit: "km", description: "Nullable; absent/no strikes is null."}
+      - {index: 15, name: "lightning_strike_count", unit: "count"}
+      - {index: 16, name: "battery_voltage", unit: "V", description: "Voltage, not an estimated battery percentage."}
+      - {index: 17, name: "report_interval", unit: "min", description: "Zero is a value, not proof of nullness."}
     parse_rules:
-      - "The observation is the first element of the message's `obs` array; indices above are positions within it."
-      - "See the WeatherFlow UDP API for the exact index of every field and for the legacy obs_air / obs_sky layouts."
+      - "Require obs to be an array containing an 18-element observation before indexing it. Reject a short observation instead of raising an index error or inventing fields."
+      - "Preserve null measurements as unavailable. Do not replace them with zero."
+      - "Index 12 can derive an instantaneous rain rate in mm/h by multiplying by 60; it is not a trustworthy daily total."
+      - "Rapid wind is instantaneous and distinct from index 2's report-interval average; do not overwrite one with the other."
+      - "Station pressure is local measured pressure. Sea-level pressure requires a separate altitude-aware calculation."
+
+  obs_air:
+    description: "Legacy AIR observation: the eight-element array in obs[0]; do not apply obs_st offsets."
+    fields:
+      - {index: 0, name: "timestamp", unit: "s"}
+      - {index: 1, name: "station_pressure", unit: "mbar"}
+      - {index: 2, name: "air_temperature", unit: "C"}
+      - {index: 3, name: "relative_humidity", unit: "%"}
+      - {index: 4, name: "lightning_strike_count", unit: "count"}
+      - {index: 5, name: "lightning_average_distance", unit: "km"}
+      - {index: 6, name: "battery_voltage", unit: "V", description: "Client model uses volts; the vendor table leaves this unit blank."}
+      - {index: 7, name: "report_interval", unit: "min"}
+    parse_rules:
+      - "Require all eight elements before indexing. AIR does not carry the complete Tempest field set."
+
+  obs_sky:
+    description: "Legacy SKY observation: the 14-element array in obs[0]; its rain field differs from Tempest."
+    fields:
+      - {index: 0, name: "timestamp", unit: "s"}
+      - {index: 1, name: "illuminance", unit: "lux"}
+      - {index: 2, name: "uv", unit: "index"}
+      - {index: 3, name: "rain_previous_minute", unit: "mm"}
+      - {index: 4, name: "wind_lull", unit: "m/s"}
+      - {index: 5, name: "wind_avg", unit: "m/s"}
+      - {index: 6, name: "wind_gust", unit: "m/s"}
+      - {index: 7, name: "wind_direction", unit: "deg"}
+      - {index: 8, name: "battery_voltage", unit: "V"}
+      - {index: 9, name: "report_interval", unit: "min"}
+      - {index: 10, name: "solar_radiation", unit: "W/m2"}
+      - {index: 11, name: "rain_local_day_accumulation", unit: "mm", description: "Local-day total; unlike obs_st index 12, which is previous-minute rain."}
+      - {index: 12, name: "precipitation_type", description: "0 none, 1 rain, 2 hail."}
+      - {index: 13, name: "wind_sample_interval", unit: "s"}
+    parse_rules:
+      - "Require all 14 elements before indexing. Do not substitute local-day accumulation at index 11 for the previous-minute value at index 3."
+
+  rapid_wind:
+    description: "Instantaneous wind in the ob array, usually every three seconds unless power saving changes it."
+    fields:
+      - {index: 0, name: "timestamp", unit: "s"}
+      - {index: 1, name: "speed", unit: "m/s"}
+      - {index: 2, name: "direction", unit: "deg"}
+    parse_rules:
+      - "Require three elements and ignore reports older than the latest accepted rapid-wind timestamp."
+
+  evt_strike:
+    description: "Lightning event in the evt array. Energy is an opaque number without a documented physical unit."
+    fields:
+      - {index: 0, name: "timestamp", unit: "s"}
+      - {index: 1, name: "distance", unit: "km", description: "Storm-leading-edge estimate, not necessarily the individual strike; 63 means out of range and becomes unavailable."}
+      - {index: 2, name: "energy", description: "Opaque integer; clear bit 24 (1 << 24) to work around affected Tempest firmware, not a physical-unit conversion."}
+    parse_rules:
+      - "Require three elements. Emit only newer events and preserve energy as a number without assigning it a unit."
+
+protocol_details:
+  transport:
+    port: 50222
+    protocol: "UDP broadcast JSON"
+    access: "passive receive only after separate app provisioning"
+    authenticated: false
+    serial_prefixes: {HB: "hub", AR: "AIR", SK: "SKY", ST: "Tempest"}
+    identity_rule: "Use serial_number and type; hub_sn links sensors to a hub. Unknown serials or message types remain unknown."
+  device_status_bits:
+    0x0001: "lightning failed"
+    0x0002: "lightning noise"
+    0x0004: "lightning disturber"
+    0x0008: "pressure failed"
+    0x0010: "temperature failed"
+    0x0020: "relative-humidity failed"
+    0x0040: "wind failed"
+    0x0080: "precipitation failed"
+    0x0100: "light/UV failed"
+    0x0200: "power booster detected"
+    0x8000: "power booster depleted"
+    0x10000: "power booster shore power"
+  hub_status:
+    reset_flags: [BOR, PIN, POR, SFT, WDG, WWD, LPW, HRDFLT]
+    radio_status: {0: "off", 1: "on", 3: "active", 7: "BLE connected"}
+    notes: "Radio/firmware/sequence/internal fields are diagnostics, not weather observations. Unknown status bits are retained for diagnostics but not presented as known faults."
+  parser_requirements:
+    - "Validate JSON shape and size, serial_number, type, array lengths, numeric ranges, nulls and timestamp ordering before updating state."
+    - "A sensor is fully loaded only after both a status update and an observation, not after status alone."
+    - "Keep observation timestamps separate from status timestamps and voltage/RSSI separate from derived battery percentage."
+    - "Local UDP supplies current observations/events, not cloud history, forecast, calibration or an on-demand history endpoint."
+  source_validation: >
+    WeatherFlow v171 and the pinned pyweatherflowudp parser at c89fa2ae were
+    reviewed on 2026-11-01. Its 49 tests and focused offline parser checks
+    passed upstream; no physical station was accessed for this update.
 
 entities:
   - platform: "sensor"

@@ -44,6 +44,8 @@ EXAMPLE_VALUES = {
     "set_operation_mode": {
         "capability_id": "0123456789abcdef0123456789abcdef", "operation_mode": "Auto"},
     "set_variable": {"capability_id": "0123456789abcdef0123456789abcdef", "value": True},
+    "set_siren_channel": {
+        "capability_id": "0123456789abcdef0123456789abcdef", "active_channel": "Notification"},
     "restart_controller": {"device_id": "fedcba9876543210fedcba9876543210"},
 }
 

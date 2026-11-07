@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **"Use caution, especially for anything safety-critical", said where it
+  will be read.** The README, the docs home and the clean-room scope rule now
+  state the line the project had been assuming: these specs are
+  reverse-engineered, mostly unverified and maintained in spare time, so every
+  value deserves care, and where being wrong could hurt someone they are not
+  the tool at all — fine for seeing which breakfast spikes a glucose reading,
+  never for deciding an insulin dose, and the same for blood pressure, SpO2,
+  gas alarms, doors and anything on wheels.
+  Every `category: health` spec now carries a `device.safety_advisory`
+  saying so where a client shows it (Beurer PO60, Beurer BM92, the F7/SP001
+  oximeter and the Omron family join QardioArm and the Keto-Mojo GK+), the
+  Tuya gas alarm carries a `danger` advisory (its buzzer is the safety
+  device; a report through Wi-Fi, a hub and an app is not, and the
+  alarm-silencing datapoints go behind a deliberate action), and
+  `scripts/test_device_specs.py` fails a health spec that forgets the block.
+  The Oral-B iO toothbrush, filed under `health`, moves to `personal_care`,
+  which is what schema.json says a grooming device is.
 - **BiSecur discovery replies are machine-readable.** `response_format` gains
   `xml`, with `xml:<attribute>` identity sources. The BiSecur gateway declares
   its LogicBox MAC and MCP protocol attributes and the `hormann-bisecur` LAN

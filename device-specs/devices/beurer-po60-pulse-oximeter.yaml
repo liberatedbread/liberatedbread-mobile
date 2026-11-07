@@ -60,6 +60,27 @@ device:
     for the PO60 (the only FirmwareRevisionString reads in the codebase are
     on scales), and no firmware URLs were found.
 
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      SpO2 and pulse readings synced from the oximeter are a personal log,
+      not a basis for a medical decision.
+    detail: >
+      A third-party client reads sessions the device has already stored; it
+      takes no measurement and adds no accuracy of its own. Show each value
+      exactly as the record carries it, with its timestamp, and never let a
+      number that arrived through this spec decide whether someone needs
+      oxygen, a medication or urgent care: a reading that worries you is a
+      reason to look at the device's own display and call a professional,
+      not to re-sync. Fingertip oximeters read low or not at all with cold
+      hands, nail polish, movement and poor perfusion, and have been
+      reported to overestimate on darker skin; none of that is visible in a
+      synced record. This spec and any client built from it are
+      experimental and unaffiliated with Beurer; the manufacturer's
+      instructions for use govern.
+    acknowledge_required: true
+    advisory_url: "https://www.manualslib.com/manual/2178319/Beurer-Po-60.html"
+
   identification:
     local_name_prefix: "PO60"
     service_uuids:

@@ -1,0 +1,1256 @@
+# Philips Wi-Fi air purifiers and humidifiers — local encrypted CoAP — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public, open source; clean-room — derived facts only):
+#   - rgerganov/py-air-control (MIT, master e548496, 2022-01-24):
+#     pyairctrl/coap_client.py (sync, envelope, status/control paths),
+#     pyairctrl/airctrl.py (CLI value sets for om/mode/rhset/aqil/uil/dt/ddp/cl),
+#     pyairctrl/status_transformer.py (key meanings, error codes),
+#     pyairctrl/http_client.py and plain_coap_client.py (the two other
+#     generations, mentioned only), README (pairing-mode button on AC2729)
+#   - betaboon/aioairctrl (MIT, master c97640b, 2021) and its maintained
+#     PyPI release aioairctrl 0.3.1 (kongo09/aioairctrl):
+#     aioairctrl/coap/encryption.py (key/IV derivation, digest, counter
+#     wrap), aioairctrl/coap/client.py (observe, Max-Age, control retry and
+#     re-sync), tests/test_encryption.py (counter rules)
+#   - kongo09/philips-airpurifier-coap (MIT, master 964ef21, 2026-07-26):
+#     const.py (the three key sets and value maps), philips.py (per-model
+#     classes and preset payloads), helpers.py (model detection),
+#     manifest.json (DHCP matchers), coordinator.py (reconnect timer),
+#     README (supported models, firmware caveat), issue tracker (#190, #318,
+#     #326, #345)
+#   - Philips support: "I cannot connect my Philips Air Purifier with the
+#     App" (pairing requirements, account-reset button hold); AC0850/20 user
+#     manual (pairing-mode hold, filter counter reset)
+# Nothing here was driven against a purifier by this project. No Philips app
+# internals are used or named.
+
+device:
+  name: "Philips Wi-Fi Air Purifiers and Humidifiers (encrypted CoAP)"
+  manufacturer: "Philips (Versuni, formerly Philips Domestic Appliances)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The envelope (sync,
+      MD5-derived AES-128-CBC key and IV, SHA-256 trailer) is transcribed
+      from three independent open-source clients that agree byte for byte
+      (py-air-control, aioairctrl, and aioairctrl 0.3.1 as used by the
+      Home Assistant integration). scripts/test_philips_air_coap_spec.py
+      rebuilds every example envelope in this file from the stated rule with
+      invented counters. The key tables per model generation come from the
+      Home Assistant integration's model classes, which are built from
+      owner-submitted status dumps.
+  protocol: "wifi"
+  transport: "udp"
+  category: "appliance"
+  type: "air-purifier"
+  notes: >
+    Philips connected air purifiers, purifier/humidifier 2-in-1s, standalone
+    humidifiers, fan heaters and fans (model prefixes AC, AMF, CX, HU)
+    expose a small CoAP (RFC 7252) server on UDP 5683 of the home LAN. No
+    vendor account, cloud call or pairing is needed to use it: any host on
+    the LAN can open a session. Three resources carry everything:
+    POST /sys/dev/sync exchanges a 4-byte counter, GET /sys/dev/status with
+    the Observe option streams the device state, and POST /sys/dev/control
+    writes desired state. Status and control payloads are JSON wrapped in an
+    envelope: an 8-hex-digit counter, the AES-128-CBC ciphertext as
+    uppercase hex, and a SHA-256 digest as uppercase hex. The AES key and IV
+    are derived from the counter and a fixed shared string published in
+    every open-source client (protocol_details.envelope), so the encryption
+    authenticates nothing; it only obscures.
+
+    GENERATIONS. Philips has shipped three local protocols. (1) The oldest
+    Wi-Fi units (for example AC2729 and AC2889 on early firmware, per
+    py-air-control's README) speak HTTP on port 80 under /di/v1/products/...
+    with a Diffie-Hellman key exchange and AES, are found by SSDP, and take
+    Wi-Fi credentials over that HTTP API. (2) Some units speak plain,
+    unencrypted CoAP on 5683 after an ICMP "hello" (py-air-control's
+    plain_coap client). (3) The encrypted-CoAP generation documented here,
+    which covers every model the Home Assistant integration supports. Only
+    (3) is in scope; (1) and (2) are named so a client can recognise them
+    and are in remaining_unknowns.
+
+    KEY SETS. Inside the encrypted-CoAP generation the JSON status keys come
+    in three dialects, chosen by model and Wi-Fi firmware, not by protocol:
+    "classic" short names (pwr, mode, om, pm25, ...), a dashed numeric set
+    (D03-02, D03-12, ...), and a compact numeric set (D03102, D0310C, ...).
+    The three are device.variants here, identified by which model-id key the
+    status carries. Value types differ between them as well (strings,
+    upper-case words, integers) and the compact set requires JSON integers.
+
+    LOCAL ACCESS IS FRAGILE. The integration's README warns that some models
+    have newer firmware that no longer allows local connections, and that
+    even working units drop the CoAP session and need a power cycle.
+    Philips's current app ("Air+", and the "Clean Home+" app for newer
+    lines) uses the vendor cloud, not this path. See cloud and
+    remaining_unknowns.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Philips publishes no local API. The encrypted-CoAP envelope was
+      reverse engineered by Radoslav Gerganov (py-air-control, blog post
+      "Controlling the air purifier", xakcop.com) and re-implemented by
+      aioairctrl; the per-model key tables have been crowd-sourced through
+      the kongo09 Home Assistant integration's issue tracker. The shared
+      key-derivation string is a published constant of those projects.
+
+  identification:
+    default_port: 5683
+    mac_prefixes:
+      - prefix: "68:79:C4"
+        confidence: "low"
+        notes: "DHCP matcher in kongo09/philips-airpurifier-coap manifest.json. Not exclusive to Philips purifiers; ranking only."
+      - prefix: "B0:F8:93"
+        confidence: "low"
+        notes: "DHCP matcher in the same manifest; a Wi-Fi module vendor block, shared."
+      - prefix: "04:78:63"
+        confidence: "low"
+        notes: "DHCP matcher in the same manifest; shared."
+      - prefix: "84:9D:C2"
+        confidence: "low"
+        notes: "DHCP matcher in the same manifest; shared."
+      - prefix: "80:A0:36"
+        confidence: "low"
+        notes: "DHCP matcher in the same manifest; shared."
+    notes: >
+      The encrypted-CoAP units advertise no mDNS service and answer no SSDP
+      search that the clients rely on (py-air-control refuses to autodetect
+      for CoAP). The Home Assistant integration finds them from DHCP leases:
+      the MAC prefixes above, or a DHCP hostname beginning "mxchip" (the
+      Wi-Fi module vendor), then confirms by completing a sync and reading
+      the status. The decisive identification is therefore a successful
+      POST /sys/dev/sync answered with eight hex digits, followed by a
+      status whose model-id key (modelid, D01-05 or D01S05) names a known
+      model.
+
+  discovery:
+    static_ip_required: true
+    identity:
+      stable_keys: ["DeviceId"]
+      display: "name"
+    none: >
+      The encrypted-CoAP units advertise nothing a client can browse for: no
+      mDNS service, and no SSDP answer that the clients use (py-air-control
+      refuses to autodetect for CoAP). A client either takes the address from
+      the user or watches DHCP for the MAC prefixes / "mxchip" hostname in
+      device.identification, as the Home Assistant integration does, then
+      confirms with a sync. A DHCP reservation is recommended; the
+      integration's README says a moved address must be re-entered unless
+      DHCP discovery finds it again. Key a stored unit by the status's
+      DeviceId (32 hex characters), not by its address.
+
+  variants:
+    - model: "classic-keys"
+      identification:
+        state_probe:
+          command: "get_status"
+          keys_present: ["state.reported.modelid"]
+    - model: "dashed-keys"
+      identification:
+        state_probe:
+          command: "get_status"
+          keys_present: ["state.reported.D01-05"]
+    - model: "compact-keys"
+      identification:
+        state_probe:
+          command: "get_status"
+          keys_present: ["state.reported.D01S05"]
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Wi-Fi onboarding is done by the Philips app with a Philips account;
+      no open-source client implements it for the encrypted-CoAP
+      generation (py-air-control's Wi-Fi setter works only on the HTTP
+      generation). Once the unit is on the LAN, the local CoAP path needs
+      no credential, token or pairing: setup for a local client is just
+      knowing the address.
+    methods:
+      - type: "cloud_account"
+        name: "Pair with the Philips app, then talk CoAP locally"
+        role: "primary"
+        verified: false
+        description: >
+          Two steps in order: put the purifier into Wi-Fi pairing mode on
+          the device, then let the Philips app (Air+ for the models in this
+          spec; a Philips account is required) push the home Wi-Fi
+          credentials. The app is needed only for this; local control then
+          works without it while the firmware still allows it.
+        cloud:
+          provider: "Philips account (Air+ app, Versuni)"
+          local_alternative: >
+            None known for this generation. py-air-control can set Wi-Fi
+            locally only on the older HTTP generation (PUT
+            /di/v1/products/0/wifi on the PHILIPS Setup network); no source
+            documents a local provisioning exchange for encrypted-CoAP units.
+        stages:
+          - type: "device_ui"
+            name: "Enter Wi-Fi pairing mode"
+            verified: false
+            description: >
+              The button differs by model. The AC0850/20 manual says to
+              power the unit on and then hold a button for 3 seconds until
+              it beeps (the extracted text does not name it; check the
+              model's manual); py-air-control's README says the AC2729 enters
+              pairing mode with power and child-lock held together for 3
+              seconds. In pairing mode the Wi-Fi indicator blinks orange and
+              the unit opens an open access point named "PHILIPS Setup".
+            steps:
+              - action: "Power the unit on, then hold the model's Wi-Fi pairing button (or button pair) for about 3 seconds until it beeps."
+                actor: "user"
+                expect: "The Wi-Fi indicator blinks orange; a network named PHILIPS Setup appears."
+          - type: "cloud_account"
+            name: "Provision Wi-Fi from the Philips app"
+            verified: false
+            description: >
+              The app signs in to the Philips account, joins the PHILIPS
+              Setup network and hands over the home network's SSID and
+              passphrase. Philips support requires a 2.4 GHz network and a
+              passphrase of at most 63 characters without special symbols.
+              The provisioning exchange of this generation is not
+              documented by any source read (see remaining_unknowns).
+            cloud:
+              provider: "Philips account (Air+ app, Versuni)"
+              local_alternative: >
+                None known for this generation. py-air-control can set Wi-Fi
+                locally only on the older HTTP generation (PUT
+                /di/v1/products/0/wifi on the PHILIPS Setup network); no source
+                documents a local provisioning exchange for encrypted-CoAP units.
+            steps:
+              - action: "In the Philips app, add a new device and follow its prompts while the unit is in pairing mode."
+                actor: "user"
+                expect: "The Wi-Fi indicator turns solid white once the unit is online."
+              - action: "Find the unit's LAN address (router DHCP table) and POST a random 8-hex-digit string to /sys/dev/sync on UDP 5683."
+                actor: "client"
+                expect: "The unit answers with eight hex digits (its counter); local control is available."
+    factory_reset:
+      applicable: true
+      confidence: low
+      effect: >
+        Philips support describes this as the reset needed when the unit was
+        previously bound to a different Philips account; what else it clears
+        (Wi-Fi credentials, filter counters, settings) is not stated.
+      description: >
+        Philips's support page gives one general procedure without naming
+        models. It is separate from the Wi-Fi pairing-mode hold (which only
+        re-pairs) and from the filter-counter reset (the AC0850/20 manual:
+        hold the mode button for 5 seconds), neither of which is a factory
+        reset.
+      procedures:
+        - name: "Power and mode held together"
+          verified: false
+          basis: "Philips support article XC000019027, 'I cannot connect my Philips Air Purifier with the App' (general, not model-specific)."
+          steps:
+            - action: "With the unit powered, hold the power button and the mode button together for 10 seconds until it beeps."
+              actor: "user"
+            - action: "Wait for the unit to restart and re-enter Wi-Fi pairing mode, then pair it again with the app."
+              actor: "device"
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: false
+      notes: >
+        A changed router means pairing mode (the 3-second hold above) and
+        provisioning from the Philips app again; no local command sets Wi-Fi
+        on this generation. Afterwards the unit has a new address, so a
+        local client must re-learn it.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Home Wi-Fi SSID and passphrase"
+        - "Cloud identity (DeviceId, ProductId) used by the Philips app"
+      issued_to_client: []
+      notes: >
+        The local CoAP path issues nothing: no key, token or session id
+        outlives the sync counter, and the encryption key is derived from
+        public data. Any host on the LAN can read and control the unit.
+        Use `<device-id>` placeholders in notes; a DeviceId is a cloud
+        identifier.
+
+protocol_handler: "philips_air_coap"
+
+protocol_details:
+  transport: >
+    CoAP (RFC 7252) over plain UDP, port 5683, URI coap://<host>:5683/<path>.
+    No DTLS. Every client sends NON (non-confirmable) messages. Payloads are
+    ASCII text; the status and control bodies are the envelope below, the
+    sync body and the control reply are not enveloped.
+  session:
+    sync: >
+      POST /sys/dev/sync, NON, body = 8 random uppercase hex digits (4
+      random bytes). The device answers with 8 hex digits: the counter the
+      client must continue from. The client's random value is not used again
+      by any client. A new sync may be done at any time; the clients
+      re-sync after a failed control write and on reconnect.
+    counter: >
+      The counter is a 32-bit big-endian value written as exactly 8
+      uppercase hex digits. Before EVERY envelope it encrypts, the client
+      adds one to its counter and uses the result: the first control write
+      after a sync answered "6D2C0F41" is enveloped under "6D2C0F42".
+      aioairctrl 0.3.1 wraps FFFFFFFF to 00000000; the original aioairctrl
+      raised on overflow and py-air-control dropped leading zeros (it writes
+      the counter without padding), so behaviour at the edges is
+      client-specific and untested on a device. Device envelopes carry the
+      device's own counter, which a client reads from the first 8 characters
+      and does not have to track.
+    observe: >
+      GET /sys/dev/status with Observe = 0 registers an observation (RFC
+      7641); the first response is the full current status and every later
+      notification on the token is a full status again, not a delta.
+      aioairctrl reads Max-Age from the response (60 s if absent) and the
+      Home Assistant integration treats three missed Max-Age periods as a
+      dead session and reconnects (new context, new sync, new observation).
+      A one-shot read is the same GET; the clients simply stop after the
+      first response.
+    control_reply: >
+      POST /sys/dev/control answers a plain (not enveloped) JSON body.
+      Success is exactly {"status":"success"} (py-air-control compares the
+      string); anything else is a failure, after which aioairctrl re-syncs
+      once and retries up to five times.
+  envelope:
+    shared_secret: "JiangPan"
+    shared_secret_notes: >
+      A fixed ASCII string published as a constant in py-air-control
+      (coap_client.py) and aioairctrl (coap/encryption.py). It is the same
+      for every unit; it is not a per-device or per-user key.
+    key_derivation: >
+      H = uppercase hex of MD5( ASCII(shared_secret + counter) ), where
+      counter is the 8 uppercase hex digits. H is 32 characters. The AES key
+      is the ASCII bytes of H[0:16] and the CBC IV the ASCII bytes of
+      H[16:32] (16 bytes each, so AES-128). The hex characters themselves
+      are the key material; H is NOT hex-decoded.
+    cipher: "AES-128-CBC, PKCS#7 padding to 16 bytes, over the UTF-8 JSON plaintext."
+    digest: >
+      D = uppercase hex of SHA-256( ASCII(counter + C) ) where C is the
+      uppercase hex ciphertext. A plain hash, not an HMAC: it is keyed by
+      nothing and detects corruption only. Clients reject a device envelope
+      whose D does not match.
+    layout: "counter (8 chars) || C (uppercase hex, 32*n chars) || D (64 chars), one ASCII string, no separators."
+    decode: >
+      counter = first 8 chars; D = last 64; C = the rest. Check D, derive key
+      and IV from counter, decrypt C, strip PKCS#7, parse JSON.
+    test_vectors:
+      - name: "classic-keys power on, after a sync answered 6D2C0F41"
+        counter: "6D2C0F42"
+        key_ascii: "2AC168ADC45FFD17"
+        iv_ascii: "4D26503742B84CA5"
+        plaintext: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "pwr": "1"}}}'
+        envelope: "6D2C0F4242DC07095A0FD80857F2C25E4749F7D3B84FA8794A4D02BAF6FCE775D051287A17D6854ECBE9E7EBC48F4486FAC90226CA971AA4D8EE11EFB80125C336939E589AABE1F749F00DE11C320D728E6BDE643057E1015B0507AF0BCD5D3EB000E606AE74578655D9911C45BDB504C14E03768205949AF0E74AE2BDD214D41563C9BF"
+      - name: "compact-keys power on plus turbo, after a sync answered FFFFFFFE"
+        counter: "FFFFFFFF"
+        plaintext: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1, "D0310C": 18}}}'
+        envelope: "FFFFFFFF490A4FB4260304C3AF5BB283BCC64678BE308F68B0B61C3BF9F88ECBF7CE917A30532382ABA340285C1C9DC97A52D8CFADB34DFDFABE05D0140B805C0B33B736D94123499EF5589EF52AF924D9552AD73AD93D11E341EBE5EA3F53EC227E1FB13913AAA55A3AB3953AA7B147324421E3CD7DFCE12D0532A97CCF5282F81C175863114FF1CAC9E5FF90BFD871FDB4B478"
+      - name: "classic-keys status notification from a device (invented values)"
+        counter: "0000A0B1"
+        key_ascii: "7DA07C487434567D"
+        iv_ascii: "E7F05AFDEC5A9AB3"
+        plaintext: '{"state":{"reported":{"name":"Bedroom","type":"AC2729","modelid":"AC2729/10","swversion":"0.2.1","WifiVersion":"AWS_Philips_AIR@62.1","DeviceId":"0123456789abcdef0123456789abcdef","pwr":"1","cl":false,"aqil":100,"uil":"1","dt":0,"dtrs":0,"mode":"M","om":"2","func":"PH","rhset":60,"rh":45,"temp":22,"pm25":7,"iaql":2,"err":0,"wl":100,"fltsts0":120,"fltsts1":2400,"fltsts2":2400,"wicksts":2400},"desired":null}}'
+        envelope: "0000A0B1B149D927CD9AA69B551A3172AED0B55A76A2EAE0478B53751801717DBF570C73046D9EDEDCEEF67C24F240CDBCFFDC8C1BC8376ED41E7128E2583245259842946EF8756C377926A2F81D1F488D34B04C0DDE42B2AD6840E4185D0A432284730972B0A10234F8331B84CD56F79BA50113EC9DD9A679691548552CFB940F008D2625E54CE7D70DD2AC7B0DBC4CECEDB2C1241643F6F78E220CF4327DB4C39CBB38E84A90316DAADC8E3DE77FF669BC4591DC7CC52A76920816BD63317D740905DB8D41FC94C2889CE04CC670DA2C2B17E53447BBE398732784AB5D53BE43666CB3EA2EBE2B9946212379419109364CD08004C00053E6A2CBC0F2B423029D18C1288D20D1E06D6987BE4F6B5E5DDEF0541C02438EBE4B49F5E08B48FEFB2876EFAF12976D38AED35AA099675F2B541FB74F806B69614A14D49DD1F4F4C4C93020110F06FC4EC909015BC80082A7FEB02EDC33D0EE18BCF241EB724E34BAE2D3CE03F091A830BEE90663C04E7B08D189F3F1F2D3BE507C3D5CF69D4A75C675F19B241C3213D652E56433544900FE2FE14B355FC39CAC931017DB0D7617AE234ABEE5FFA63E94EF36D1E0A432B088E53CCE7DEEDEB57AF289EA849FC14A624678563F"
+    vector_notes: >
+      All counters, names and ids are invented. The control plaintexts use
+      Python json.dumps default spacing because that is byte for byte what
+      py-air-control and aioairctrl send; compact JSON is not known to be
+      rejected but has not been reported either.
+  control_document: >
+    Every write is one JSON object: {"state": {"desired": {"CommandType":
+    "app", "DeviceId": "", "EnduserId": "", <key>: <value>, ...}}}. The
+    three fixed members are sent empty by every client. Several keys may be
+    set in one write (the integration sends power and mode together). Keys
+    and value types follow the unit's key set (variants); the same write
+    with the wrong set's keys is accepted with "success" by some units and
+    ignored (reported in the integration's issues, not established as a
+    rule).
+  key_sets:
+    classic-keys:
+      models: "AC1214, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3021, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3829, AC3836, AC3854/50, AC3854/51, AC3858/50, AC3858/51, AC3858/83, AC3858/86, AC4231, AC4236, AC4550, AC4558, AC5659, AC5660 (kongo09 philips.py classes on the classic base)."
+      identity: "modelid (e.g. AC2729/10), type, name, swversion, WifiVersion (e.g. AWS_Philips_AIR@62.1), ProductId, DeviceId, Runtime (ms), rssi (dBm), err."
+      writable:
+        pwr: "string \"1\" on / \"0\" off."
+        mode: "string. P auto (purification), A allergen, S sleep, M manual, B bacteria, N night, T turbo, GT gentle, AG and F also accepted by py-air-control; which a model offers varies (philips.py per model)."
+        om: "string fan speed: \"1\" \"2\" \"3\", \"s\" silent, \"t\" turbo, \"a\" auto. AC2729 sets speed by mode M plus om, and night by mode S plus om s; py-air-control notes the AC2889 needs mode M and om together."
+        cl: "JSON boolean child lock (true/false)."
+        aqil: "integer display brightness: 0, 25, 50, 75, 100."
+        uil: "string button/display light: \"1\" on, \"0\" off."
+        dt: "integer off-timer in hours 0-12 (0 = off); dtrs reports minutes left."
+        rhset: "integer target humidity: 40, 50, 60, 70 (humidifier models)."
+        func: "string P purification only, PH purification and humidification (2-in-1 models)."
+        ddp: "string preferred index on the display: \"0\" IAI, \"1\" PM2.5, \"2\" gas, \"3\" humidity."
+      readable:
+        pm25: "PM2.5, integer µg/m³."
+        iaql: "Indoor allergen index, integer 1-12."
+        rh: "Relative humidity %, integer (humidifier models)."
+        temp: "Temperature °C, integer (humidifier models)."
+        tvoc: "Total VOC index (models with a gas sensor)."
+        wl: "Water level %, 0 or 100 in captures (humidifier models)."
+        err: "Error bit field; 0 none. Reported values: 193 pre-filter must be cleaned, 49155 pre-filter must be cleaned, 32768 water tank open, 49408 no water. The integration reads bit 8 (0x100) as 'out of water'."
+        fltsts0: "Pre-filter (and wick) clean-in, hours."
+        fltsts1: "HEPA filter replace-in, hours; fltt1 its type code (e.g. A3)."
+        fltsts2: "Active-carbon filter replace-in, hours; fltt2 its type code (e.g. C7)."
+        wicksts: "Wick filter replace-in, hours."
+        flttotal0: "Pre-filter total life, hours (newer classic firmware; the integration uses it as the 100 % mark when present)."
+        flttotal1: "HEPA total life, hours."
+        flttotal2: "Carbon total life, hours."
+        wicktotal: "Wick total life, hours."
+        aqit: "Air-quality notification threshold (an app setting, not a sensor)."
+    dashed-keys:
+      models: "AC1715 and AC0850/xx whose WifiVersion begins AWS_Philips_AIR (not _Combo), AC0850/85."
+      identity: "D01-03 name, D01-05 model id, D01-07 language, D01-21 software version, plus WifiVersion, ProductId, DeviceId, Runtime, rssi."
+      writable:
+        D03-02: "string power: \"ON\" / \"OFF\"."
+        D03-12: "string mode: \"Auto General\", \"Gentle/Speed 1\", \"Speed 2\", \"Turbo\", \"Sleep\" (AC1715); AC0850 offers Auto General, Turbo, Sleep."
+        D03-05: "integer display backlight: 100 on, 0 off."
+        D03-42: "string preferred index: \"IAI\" or \"PM2.5\"."
+      readable:
+        D03-32: "Indoor allergen index, integer."
+        D03-33: "PM2.5, integer µg/m³."
+        D05-13: "Pre-filter clean-in, hours; D05-07 its total (e.g. 720)."
+        D05-14: "NanoProtect filter replace-in, hours; D05-08 its total (e.g. 4800); D05-02 its type code."
+    compact-keys:
+      models: "AC0850/xx whose WifiVersion begins AWS_Philips_AIR_Combo, AC0850/81, AC0950, AC0951, AC2210, AC2220, AC2221, AC3210, AC3220, AC3221, AC3420, AC3421, AC3737, AC4220, AC4221, AMF765, AMF870, CX3120, CX3550, CX5120, HU1509, HU1510, HU4209, HU4210, HU5710."
+      value_type_rule: "Every D03 value is a JSON integer; kongo09 issue #326 (CX3120) reports that strings are not accepted."
+      identity: "D01S03 name, D01S05 model id, D01S12 software version, plus WifiVersion, ProductId, DeviceId, Runtime, rssi."
+      writable:
+        D03102: "power: 1 on, 0 off."
+        D0310C: "mode. AC22xx/AC32xx/AC42xx: 0 auto, 1-5 manual speeds, 17 sleep, 18 turbo, 19 medium. AC0850 Combo: 0 auto, 17 sleep, 18 turbo. AC0950/AC3420 also set D0310D alongside. HU1509/HU1510/HU4209/HU4210/HU5710: 0 auto, 17 sleep, 19 medium, 65 high."
+        D0310D: "fan speed companion to D0310C on some models (AC0950: 1 with auto/sleep, 2 medium, 18 turbo)."
+        D0310A: "function on fans/heaters: 1 fan, 2 circulation, 3 heating (CX models). On 2-in-1s, 4 reads as humidification on."
+        D03103: "child lock: 1 on, 0 off."
+        D03130: "beep: 100 on, 0 off."
+        D0312D: "display backlight 0-100 (some models)."
+        D03105: "display backlight on other models: 0 off, 115 medium, 123 on, 101 auto (where offered)."
+        D03135: "lamp mode: 0 off, 1 air-quality or humidity ring, 2 ambient light."
+        D03137: "ambient light style: 1 warm, 2 dawn, 3 calm, 4 breath."
+        D03110: "off-timer: 0 off, 1 30 min, 2-13 = 1-12 h (some models lack 1)."
+        D03128: "target humidity: 40-70 step 10 (2-in-1s) or 30-70 step 5 (HU models)."
+        D0312A: "preferred index: 0 IAI, 1 PM2.5, 2 gas."
+        D03134: "keep sensors on in standby: 1/0."
+        D03180: "Auto Plus AI: 1/0."
+        D0320F: "oscillation angle (fans/heaters; 0 off, model-specific on values)."
+        D0310E: "target temperature °C 1-37 (heaters)."
+        D03138: "auto quick-dry: 1/0 (HU5710)."
+        D03139: "quick-dry: 1/0 (HU5710)."
+      readable:
+        D03221: "PM2.5, integer µg/m³."
+        D03120: "Indoor allergen index, integer."
+        D03122: "Gas (VOC) level."
+        D03125: "Relative humidity %."
+        D03224: "Temperature in tenths of °C."
+        D03240: "Error bit field; bit 8 (0x100) out of water, as in the classic set."
+        D03211: "Timer remaining, minutes."
+        D0313F: "Heater action: 65 strong, 67 medium, 68 low, -16 idle, 0 fan."
+        D0520D: "Pre-filter clean-in, hours; D05207 its total."
+        D0540E: "NanoProtect filter replace-in, hours; D05408 its total."
+  other_generations:
+    http: >
+      Older Wi-Fi purifiers: HTTP on port 80, GET/PUT
+      /di/v1/products/1/air (status and control), /di/v1/products/0/wifi
+      (Wi-Fi credentials, settable), /di/v1/products/0/firmware,
+      /di/v1/products/1/fltsts, a Diffie-Hellman exchange on
+      /di/v1/products/0/security yielding an AES session key, and SSDP
+      discovery on UDP 1900 (py-air-control http_client.py). The same
+      classic JSON keys. Not covered by this spec.
+    plain_coap: >
+      Some units answer unencrypted JSON on /sys/dev/status and
+      /sys/dev/control after an ICMP and empty-CoAP "hello" (py-air-control
+      plain_coap_client.py). Not covered by this spec.
+
+payload_formats:
+  SyncReply:
+    description: "Plain-text body of the 2.xx reply to POST /sys/dev/sync."
+    fields:
+      - name: "counter"
+        description: "Eight uppercase hex digits: the device's current counter. The next client envelope uses this value plus one."
+    example: "6D2C0F41"
+  StatusDocument:
+    description: >
+      The decrypted body of every GET /sys/dev/status response and
+      notification. Values here are invented, classic key set; see
+      protocol_details.key_sets for the dashed and compact sets, which use
+      the same wrapper.
+    fields:
+      - name: "state.reported"
+        description: "Object of status keys; which keys appear depends on model and key set."
+      - name: "state.desired"
+        description: "null in every published capture."
+    parse_rules:
+      - "Decode the envelope (protocol_details.envelope.decode), then parse JSON."
+      - "Choose the key set by which model-id key is present: modelid (classic), D01-05 (dashed), D01S05 (compact)."
+      - "Treat a missing key as 'not on this model', not as zero; humidity, water and wick keys exist only on humidifying models."
+    example: '{"state":{"reported":{"name":"Bedroom","type":"AC2729","modelid":"AC2729/10","swversion":"0.2.1","WifiVersion":"AWS_Philips_AIR@62.1","DeviceId":"0123456789abcdef0123456789abcdef","pwr":"1","cl":false,"aqil":100,"uil":"1","dt":0,"dtrs":0,"mode":"M","om":"2","func":"PH","rhset":60,"rh":45,"temp":22,"pm25":7,"iaql":2,"err":0,"wl":100,"fltsts0":120,"fltsts1":2400,"fltsts2":2400,"wicksts":2400},"desired":null}}'
+  ControlReply:
+    description: "Plain JSON body of the reply to POST /sys/dev/control (not enveloped)."
+    fields:
+      - name: "status"
+        description: "\"success\" when the write was accepted; anything else is a failure."
+    example: '{"status":"success"}'
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only, to satisfy the schema's access-surface rule. The
+      encrypted-CoAP generation serves no HTTP; its API is CoAP on UDP 5683
+      (see `commands`, whose entries carry `transport: coap`, and
+      protocol_details). The older HTTP generation is out of scope.
+
+# Every POST body below is the application PLAINTEXT. The `philips_air_coap`
+# handler syncs, increments the counter and wraps it in
+# protocol_details.envelope before sending, and unwraps every status reply.
+commands:
+  sync:
+    description: >
+      Start (or restart) a session: POST eight random uppercase hex digits;
+      the reply (payload_formats.SyncReply) is the counter to continue
+      from. Not enveloped.
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/sync"
+    body: "{nonce}"
+    parameters:
+      nonce:
+        type: "string"
+        required: true
+        min_length: 8
+        max_length: 8
+        description: "4 random bytes as 8 uppercase hex digits, chosen fresh by the client for each sync (no schema auto kind for random). The device does not echo it."
+    example_body: "1A2B3C4D"
+    verification: "reported"
+
+  get_status:
+    description: >
+      Read the status (payload_formats.StatusDocument), enveloped. Send with
+      Observe = 0 to subscribe; each notification is a full status.
+    transport: "coap"
+    method: "GET"
+    path: "/sys/dev/status"
+    verification: "reported"
+
+  power_on:
+    description: "Classic key set: switch on."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "pwr": "1"}}}'
+    verification: "reported"
+
+  power_off:
+    description: "Classic key set: switch off (standby)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "pwr": "0"}}}'
+    verification: "reported"
+
+  set_mode:
+    description: "Classic key set: operating mode. Values a given model accepts differ; see protocol_details.key_sets.classic-keys.writable.mode."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "mode": "{mode}"}}}'
+    parameters:
+      mode:
+        type: "string"
+        required: true
+        enum: ["P", "A", "AG", "F", "S", "M", "B", "N", "T", "GT"]
+        description: "P auto, A allergen, S sleep, M manual, B bacteria, N night, T turbo, GT gentle; AG and F are accepted by py-air-control without a documented meaning."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "mode": "P"}}}'
+    verification: "reported"
+
+  set_fan_speed:
+    description: "Classic key set: manual fan speed. Most models need mode M in the same or an earlier write (AC2889 per py-air-control; the integration always sends mode with om). Silent is not a mode-M speed: use set_silent."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "mode": "M", "om": "{speed}"}}}'
+    parameters:
+      speed:
+        type: "string"
+        required: true
+        enum: ["1", "2", "3", "t"]
+        description: "1-3 speeds, t turbo. (py-air-control also lists s silent, which the integration's AC2729 table sends with mode S, and a for auto, which is mode P; neither goes with mode M.)"
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "mode": "M", "om": "2"}}}'
+    verification: "reported"
+
+  set_silent:
+    description: "Classic key set: silent / night speed. The integration's AC2729 table sends mode S with om s, not mode M."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "mode": "S", "om": "s"}}}'
+    verification: "reported"
+
+  child_lock_on:
+    description: "Classic key set: lock the buttons (cl is a JSON boolean)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "cl": true}}}'
+    verification: "reported"
+
+  child_lock_off:
+    description: "Classic key set: unlock the buttons."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "cl": false}}}'
+    verification: "reported"
+
+  set_light_brightness:
+    description: "Classic key set: air-quality ring / display brightness (aqil)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "aqil": {brightness}}}}'
+    parameters:
+      brightness:
+        type: "integer"
+        required: true
+        enum: [0, 25, 50, 75, 100]
+        unit: "%"
+        description: "Brightness steps py-air-control offers; 0 is off."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "aqil": 50}}}'
+    verification: "reported"
+
+  set_button_light:
+    description: "Classic key set: button / UI lights on or off (uil)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "uil": "{state}"}}}'
+    parameters:
+      state:
+        type: "string"
+        required: true
+        enum: ["0", "1"]
+        description: "\"1\" on, \"0\" off (a string, unlike aqil)."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "uil": "0"}}}'
+    verification: "reported"
+
+  set_timer:
+    description: "Classic key set: switch-off timer (dt)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "dt": {hours}}}}'
+    parameters:
+      hours:
+        type: "integer"
+        required: true
+        min: 0
+        max: 12
+        unit: "h"
+        description: "Hours until standby; 0 cancels. dtrs in the status counts down in minutes."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "dt": 2}}}'
+    verification: "reported"
+
+  set_target_humidity:
+    description: "Classic key set, humidifying models: target relative humidity (rhset)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "rhset": {humidity}}}}'
+    parameters:
+      humidity:
+        type: "integer"
+        required: true
+        enum: [40, 50, 60, 70]
+        unit: "%"
+        description: "The four steps py-air-control and the integration allow (70 is shown as max on the unit)."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "rhset": 50}}}'
+    verification: "reported"
+
+  set_function:
+    description: "Classic key set, 2-in-1 models: purification only or purification plus humidification (func)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "func": "{function}"}}}'
+    parameters:
+      function:
+        type: "string"
+        required: true
+        enum: ["P", "PH"]
+        description: "P purification, PH purification and humidification."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "func": "PH"}}}'
+    verification: "reported"
+
+  set_preferred_index:
+    description: "Classic key set: which reading the display shows (ddp)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "ddp": "{index}"}}}'
+    parameters:
+      index:
+        type: "string"
+        required: true
+        enum: ["0", "1", "2", "3"]
+        description: "0 IAI, 1 PM2.5, 2 gas, 3 humidity (offered values depend on the sensors fitted)."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "ddp": "1"}}}'
+    verification: "reported"
+
+  dashed_power_on:
+    description: "Dashed key set (AC1715, AC0850 non-Combo): switch on."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03-02": "ON"}}}'
+    verification: "reported"
+
+  dashed_power_off:
+    description: "Dashed key set: switch off."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03-02": "OFF"}}}'
+    verification: "reported"
+
+  dashed_set_mode:
+    description: "Dashed key set: mode by name (D03-12), sent with power on as the integration does."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03-02": "ON", "D03-12": "{mode}"}}}'
+    parameters:
+      mode:
+        type: "string"
+        required: true
+        enum: ["Auto General", "Gentle/Speed 1", "Speed 2", "Turbo", "Sleep"]
+        description: "AC1715 offers all five; AC0850 Auto General, Turbo and Sleep."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03-02": "ON", "D03-12": "Sleep"}}}'
+    verification: "reported"
+
+  compact_power_on:
+    description: "Compact key set: switch on (integer 1)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1}}}'
+    verification: "reported"
+
+  compact_power_off:
+    description: "Compact key set: switch off (integer 0)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 0}}}'
+    verification: "reported"
+
+  compact_set_mode:
+    description: >
+      Compact key set, models that set mode with D0310C alone (the
+      integration's AC22xx/AC32xx/AC42xx, AC0850 Combo and HU classes):
+      mode code, sent with power on. Codes are model-specific
+      (protocol_details.key_sets.compact-keys.writable.D0310C); the enum is
+      their union. Not for AC0950/AC0951 or AC3420/AC3421, which need
+      compact_set_mode_pair.
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1, "D0310C": {mode}}}}'
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        enum: [0, 1, 2, 3, 4, 5, 17, 18, 19, 65]
+        description: "0 auto, 1-5 manual speeds (AC22xx/AC32xx/AC42xx), 17 sleep, 18 turbo, 19 medium, 65 high (HU models)."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1, "D0310C": 18}}}'
+    verification: "reported"
+
+  compact_set_mode_pair:
+    description: >
+      Compact key set, AC0950/AC0951 and AC3420/AC3421: mode code D0310C and
+      its companion D0310D in one write, as the integration's tables send
+      them. AC0950: auto 0+1, sleep 17+1, medium 19+2, turbo 18+18. AC3420:
+      auto 0+3, sleep 17+1, medium 19+3, turbo 18+18, speeds 1-4 as n+n,
+      speed 5 as 5+18. Send only a listed pair.
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1, "D0310C": {mode}, "D0310D": {companion}}}}'
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        enum: [0, 1, 2, 3, 4, 5, 17, 18, 19]
+        description: "D0310C, as in compact_set_mode."
+      companion:
+        type: "integer"
+        required: true
+        enum: [1, 2, 3, 4, 18]
+        description: "D0310D, the per-model companion value listed in this command's description."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03102": 1, "D0310C": 19, "D0310D": 2}}}'
+    verification: "reported"
+
+  compact_child_lock_on:
+    description: "Compact key set: lock the buttons (D03103 = 1)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03103": 1}}}'
+    verification: "reported"
+
+  compact_child_lock_off:
+    description: "Compact key set: unlock the buttons (D03103 = 0)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03103": 0}}}'
+    verification: "reported"
+
+  compact_set_target_humidity:
+    description: "Compact key set, humidifying models: target humidity (D03128)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03128": {humidity}}}}'
+    parameters:
+      humidity:
+        type: "integer"
+        required: true
+        min: 30
+        max: 70
+        unit: "%"
+        description: "2-in-1 purifiers (AC3420, AC3421) take 40-70 in steps of 10; HU humidifiers 30-70 in steps of 5. Round to the model's step before sending."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03128": 50}}}'
+    verification: "reported"
+
+  compact_set_timer:
+    description: "Compact key set: off-timer code (D03110)."
+    transport: "coap"
+    method: "POST"
+    path: "/sys/dev/control"
+    body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03110": {code}}}}'
+    parameters:
+      code:
+        type: "integer"
+        required: true
+        min: 0
+        max: 13
+        description: "0 off, 1 = 30 min, 2-13 = 1-12 h. Some models (the integration's TIMER2 map) do not offer 1."
+    example_body: '{"state": {"desired": {"CommandType": "app", "DeviceId": "", "EnduserId": "", "D03110": 3}}}'
+    verification: "reported"
+
+entities:
+  - platform: "fan"
+    name: "Purifier"
+    variants: ["classic-keys"]
+    state_command: "get_status"
+    state_mapping:
+      is_on: "state.reported.pwr"
+      on_value: "1"
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+    notes: >
+      Power only. Speed is a mode/om pair whose valid combinations are
+      model-specific, so it is exposed as the Mode and Fan Speed selects
+      rather than as set_percentage. Prefer observing get_status to polling.
+  - platform: "select"
+    name: "Mode"
+    variants: ["classic-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.mode"
+      options:
+        "P": "auto"
+        "A": "allergen"
+        "S": "sleep"
+        "M": "manual"
+        "B": "bacteria"
+        "N": "night"
+        "T": "turbo"
+        "GT": "gentle"
+    commands:
+      select_option: "set_mode"
+    notes: "Not every model offers every mode (kongo09 philips.py lists them per model)."
+  - platform: "select"
+    name: "Fan Speed"
+    variants: ["classic-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.om"
+      options:
+        "1": "1"
+        "2": "2"
+        "3": "3"
+        "t": "turbo"
+    commands:
+      select_option: "set_fan_speed"
+    notes: "Selecting a speed also sets mode M. Silent (om s) is left out because it needs mode S; it is commands.set_silent. In auto mode om reports the automatic speed (and may read a); in silent it reads s."
+  - platform: "switch"
+    name: "Child Lock"
+    variants: ["classic-keys"]
+    state_command: "get_status"
+    state_mapping:
+      is_on: "state.reported.cl"
+      on_value: true
+    commands:
+      turn_on: "child_lock_on"
+      turn_off: "child_lock_off"
+  - platform: "select"
+    name: "Display Brightness"
+    variants: ["classic-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.aqil"
+      options:
+        "0": "off"
+        "25": "25%"
+        "50": "50%"
+        "75": "75%"
+        "100": "100%"
+    commands:
+      select_option: "set_light_brightness"
+  - platform: "select"
+    name: "Off Timer"
+    variants: ["classic-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.dt"
+    commands:
+      select_option: "set_timer"
+    notes: "0-12 hours; dtrs gives the minutes left."
+  - platform: "sensor"
+    name: "PM2.5"
+    variants: ["classic-keys"]
+    device_class: "pm25"
+    unit: "µg/m³"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.pm25"
+  - platform: "sensor"
+    name: "Allergen Index"
+    variants: ["classic-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.iaql"
+    notes: "Philips indoor allergen index (IAI), 1-12, unitless."
+  - platform: "sensor"
+    name: "Humidity"
+    variants: ["classic-keys"]
+    device_class: "humidity"
+    unit: "%"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.rh"
+    notes: "Humidifying models only; absent elsewhere."
+  - platform: "sensor"
+    name: "Temperature"
+    variants: ["classic-keys"]
+    device_class: "temperature"
+    unit: "C"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.temp"
+    notes: "Humidifying models only; whole degrees."
+  - platform: "sensor"
+    name: "Water Level"
+    variants: ["classic-keys"]
+    unit: "%"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.wl"
+    notes: "Humidifying models. The integration shows 0 whenever err is 32768 or 49408 (tank open / no water)."
+  - platform: "sensor"
+    name: "HEPA Filter Remaining"
+    variants: ["classic-keys"]
+    unit: "h"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.fltsts1"
+    notes: "Hours until replacement. Pre-filter is fltsts0, carbon fltsts2, wick wicksts; flttotal* give the totals on newer firmware."
+  - platform: "sensor"
+    name: "Pre-filter Clean In"
+    variants: ["classic-keys"]
+    unit: "h"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.fltsts0"
+  - platform: "sensor"
+    name: "Carbon Filter Remaining"
+    variants: ["classic-keys"]
+    unit: "h"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.fltsts2"
+    notes: "Models with an active-carbon filter."
+  - platform: "number"
+    name: "Target Humidity"
+    variants: ["classic-keys"]
+    unit: "%"
+    min: 40
+    max: 70
+    step: 10
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.rhset"
+    commands:
+      set_value: "set_target_humidity"
+    notes: "Humidifying models only."
+
+  - platform: "fan"
+    name: "Purifier"
+    variants: ["dashed-keys"]
+    state_command: "get_status"
+    state_mapping:
+      is_on: "state.reported.D03-02"
+      on_value: "ON"
+    commands:
+      turn_on: "dashed_power_on"
+      turn_off: "dashed_power_off"
+  - platform: "select"
+    name: "Mode"
+    variants: ["dashed-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D03-12"
+      options:
+        "Auto General": "auto"
+        "Gentle/Speed 1": "speed 1"
+        "Speed 2": "speed 2"
+        "Turbo": "turbo"
+        "Sleep": "sleep"
+    commands:
+      select_option: "dashed_set_mode"
+  - platform: "sensor"
+    name: "PM2.5"
+    variants: ["dashed-keys"]
+    device_class: "pm25"
+    unit: "µg/m³"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D03-33"
+  - platform: "sensor"
+    name: "Allergen Index"
+    variants: ["dashed-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D03-32"
+  - platform: "sensor"
+    name: "Filter Remaining"
+    variants: ["dashed-keys"]
+    unit: "h"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D05-14"
+    notes: "NanoProtect filter hours left; D05-08 is the total."
+
+  - platform: "fan"
+    name: "Purifier"
+    variants: ["compact-keys"]
+    state_command: "get_status"
+    state_mapping:
+      is_on: "state.reported.D03102"
+      on_value: 1
+    commands:
+      turn_on: "compact_power_on"
+      turn_off: "compact_power_off"
+  - platform: "sensor"
+    name: "Mode"
+    variants: ["compact-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D0310C"
+      options:
+        "0": "auto"
+        "1": "speed 1"
+        "2": "speed 2"
+        "3": "speed 3"
+        "4": "speed 4"
+        "5": "speed 5"
+        "17": "sleep"
+        "18": "turbo"
+        "19": "medium"
+        "65": "high"
+    notes: >
+      Read-only on purpose. Setting the mode takes compact_set_mode on most
+      compact models but compact_set_mode_pair (with D0310D) on AC0950 and
+      AC3420, and the three key-set variants cannot tell those groups apart,
+      so one select binding would send an incomplete write to some units.
+      Union of the per-model codes.
+  - platform: "switch"
+    name: "Child Lock"
+    variants: ["compact-keys"]
+    state_command: "get_status"
+    state_mapping:
+      is_on: "state.reported.D03103"
+      on_value: 1
+    commands:
+      turn_on: "compact_child_lock_on"
+      turn_off: "compact_child_lock_off"
+  - platform: "sensor"
+    name: "PM2.5"
+    variants: ["compact-keys"]
+    device_class: "pm25"
+    unit: "µg/m³"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D03221"
+    notes: "Purifiers only; absent on HU humidifiers and CX heaters."
+  - platform: "sensor"
+    name: "Allergen Index"
+    variants: ["compact-keys"]
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D03120"
+  - platform: "sensor"
+    name: "Humidity"
+    variants: ["compact-keys"]
+    device_class: "humidity"
+    unit: "%"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D03125"
+  - platform: "sensor"
+    name: "Temperature"
+    variants: ["compact-keys"]
+    device_class: "temperature"
+    unit: "C"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D03224"
+      scale: 0.1
+    notes: "Raw value is tenths of a degree."
+  - platform: "sensor"
+    name: "Filter Remaining"
+    variants: ["compact-keys"]
+    unit: "h"
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D0540E"
+    notes: "NanoProtect filter hours left; D05408 is the total, D0520D/D05207 the pre-filter."
+  - platform: "number"
+    name: "Target Humidity"
+    variants: ["compact-keys"]
+    unit: "%"
+    min: 30
+    max: 70
+    step: 5
+    state_command: "get_status"
+    state_mapping:
+      value: "state.reported.D03128"
+    commands:
+      set_value: "compact_set_target_humidity"
+    notes: "Humidifying models only; 2-in-1 purifiers accept 40-70 in steps of 10."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_cloud"]
+      transport: "cloud"
+      image:
+        signing: "unknown"
+        source: "vendor_cloud"
+        notes: >
+          Units update themselves over the internet (the status carries
+          otacheck and, on classic firmware, ota keys). Owners report that
+          an update has removed or broken local CoAP access; the integration
+          README warns of it without naming versions. Blocking the unit's
+          internet access is the owners' reported way to keep a working
+          firmware. No local upload path is known.
+      enter:
+        how: "unknown"
+        notes: "No local command that starts or blocks an update is documented."
+      dfu_mode:
+        notes: "How the unit behaves while updating is not established."
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+
+cloud:
+  required: false
+  vendor_service: "Philips Air+ / Clean Home+ cloud (Versuni), AWS IoT based per the WifiVersion strings"
+  failure_mode: >
+    Onboarding (Wi-Fi provisioning) needs the Philips app and account. The
+    local CoAP path documented here works without the cloud on firmware
+    that still exposes it.
+  notes: >
+    The cloud is the official control route and the one Philips's own app
+    uses; local CoAP is unofficial and some firmware no longer offers it.
+
+local_access:
+  status: "native"
+  summary: >
+    Encrypted CoAP on UDP 5683 with a public key-derivation string: no
+    account, token or pairing. Works on the models in
+    protocol_details.key_sets while their firmware still exposes it.
+  covers:
+    - "Power, mode and fan speed"
+    - "Child lock, display and button lights, off-timer"
+    - "Target humidity and function on humidifying models"
+    - "PM2.5, allergen index, humidity, temperature, water level, filter life"
+    - "Push updates via CoAP observe"
+  not_covered:
+    - "Wi-Fi provisioning and re-pairing (Philips app only)"
+    - "Firmware updates"
+    - "Filter-counter reset (no local write is documented)"
+
+evidence:
+  documentation_review: >
+    Read 2026-11-01: py-air-control master (coap_client.py, airctrl.py,
+    status_transformer.py, http_client.py, plain_coap_client.py, README),
+    aioairctrl master and the 0.3.1 sdist from PyPI (encryption.py,
+    client.py, tests/test_encryption.py), and kongo09/philips-airpurifier-coap
+    master (const.py, philips.py, helpers.py, coordinator.py, manifest.json,
+    README) plus issues #190, #318, #326 and #345. All three clients agree
+    on paths, port, envelope layout, MD5 key/IV split, SHA-256 trailer and
+    the control wrapper. aioairctrl 0.3.1's own test suite decrypts two real
+    device captures (an AC0850/11 dashed-key status and an AC2729/10
+    classic-key status), which confirms the envelope against devices; those
+    captures are not reproduced here because they carry real device ids.
+  status_correction: >
+    The backlog note expected an HMAC-SHA-256 trailer. Every client computes
+    a plain SHA-256 over counter + ciphertext hex; no key is involved.
+  open_questions: >
+    Which firmware versions removed local access, and on which models; the
+    provisioning exchange on PHILIPS Setup for this generation; whether the
+    device rejects reused or out-of-order counters; what AC0650/AC0651 and
+    AC1715 units that refuse CoAP speak instead.
+
+remaining_unknowns:
+  - "Firmware that removes local access: the integration README says some models have newer firmware that does not allow local connections, and forum owners report the same after automatic updates, but no source names a version or a model list. Issue #345 (AC2220/10 on 0.2.1) turned out to be a network problem, not firmware."
+  - "Models that never answered: kongo09 issue #318 says nobody has found a way to talk to the AC0651 (firmware 0.2.1; it pings but ignores CoAP), and #190 reports AC1715/11 units refusing the connection, with the maintainer suggesting some units may not offer encrypted CoAP at all."
+  - "Counter rules on the device side: whether it rejects a reused, skipped or out-of-order counter, whether it enforces the SHA-256 trailer on client envelopes, and what a write with a stale counter answers. Clients re-sync on any non-success."
+  - "Counter edges: aioairctrl 0.3.1 wraps FFFFFFFF to 00000000 and zero-pads; py-air-control does not pad; device behaviour at either edge is untested."
+  - "Wi-Fi provisioning of this generation over the PHILIPS Setup access point is not implemented by any open-source client; only the HTTP generation's /di/v1/products/0/wifi PUT is."
+  - "The compact-key mode table is per model: the integration's AC22xx, AC0850 Combo and HU classes send D0310C alone (compact_set_mode), while AC0950 and AC3420 also send D0310D (compact_set_mode_pair). The compact Mode entity is read-only until variants can be told apart by model value (a variant whose identification excludes a model, or a per-model command table); the schema has no such negative match today."
+  - "Value types for classic writes are inconsistent between clients: py-air-control sends om, pwr, mode, uil and ddp as strings and rhset, aqil, dt as integers, matching what the status reports; which the firmware strictly requires is unverified."
+  - "Wi-Fi passphrase protection during provisioning is unknown."
+  - "The HTTP generation (SSDP, Diffie-Hellman, /di/v1) and the plain-CoAP generation are named in protocol_details.other_generations but not specified."
+  - "Schema gaps: there is no CoAP transport block (commands use transport coap with method/path and the session rules live in protocol_details, plus a placeholder http_endpoints entry), no declarative envelope or framing scheme for an encrypted CoAP body (hence protocol_handler philips_air_coap), no DHCP discovery method (the MAC/hostname matchers live in identification notes), and no way to say a command's body is a key-set dialect beyond variants."
+
+helpful_urls:
+  - title: "rgerganov/py-air-control"
+    url: "https://github.com/rgerganov/py-air-control"
+    kind: "implementation"
+    description: "Original reverse engineering of all three generations (HTTP, plain CoAP, encrypted CoAP); CLI value sets and key meanings."
+  - title: "betaboon/aioairctrl"
+    url: "https://github.com/betaboon/aioairctrl"
+    kind: "implementation"
+    description: "asyncio client for encrypted CoAP: sync, observe, envelope."
+  - title: "kongo09/aioairctrl (maintained fork, PyPI 0.3.1)"
+    url: "https://github.com/kongo09/aioairctrl"
+    kind: "implementation"
+    description: "Counter wrap, Max-Age handling and decryption tests against real captures."
+  - title: "kongo09/philips-airpurifier-coap"
+    url: "https://github.com/kongo09/philips-airpurifier-coap"
+    kind: "implementation"
+    description: "Home Assistant integration; source of the per-model key sets, value maps and the firmware caveat."
+  - title: "Philips: I cannot connect my Philips Air Purifier with the App"
+    url: "https://www.usa.philips.com/c-t/XC000019027/i-cannot-connect-my-philips-air-purifier-with-the-app"
+    kind: "vendor_support"
+    description: "Pairing requirements (2.4 GHz, PHILIPS Setup network) and the power-plus-mode 10-second reset."
+  - title: "Philips AC0850/20 user manual (manualsnet)"
+    url: "https://manualsnet.com/philips/ac0850-20-ac0850"
+    kind: "manual"
+    description: >
+      Manual for the AC0850/20 compact purifier: first-time Wi-Fi setup with
+      the Air+ app, the 3-second hold that re-enters pairing mode, and the
+      5-second mode-button hold that resets the filter counter.

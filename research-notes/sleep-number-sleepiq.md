@@ -32,8 +32,11 @@ Text commands use a `fUzIoN` frame with little-endian length and CRC32;
 commands have a trailing space when argument-less. Responses can fragment and
 must be length/CRC checked before parsing. Useful families include capability
 and configuration queries, firmness, actuator targets/positions/motion,
-global halt, presets, warming, lighting and climate. Do not expose factory
-reset, manufacturing stress tests or cloud diagnostic export.
+global halt, presets, warming, lighting and climate. Factory reset,
+manufacturing stress tests and cloud diagnostic export are in scope like any
+other known command: document them once their bytes are established and flag
+them `advanced`, with what they change and how to recover, rather than
+withholding them (docs/CLEANROOM_RULES.md, capability disclosure).
 
 ## MCR
 

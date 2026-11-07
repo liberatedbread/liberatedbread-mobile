@@ -205,3 +205,13 @@ def test_control_commands_are_the_two_byte_f1_pairs(spec):
     for command in commands.values():
         assert command["verification"] == "reported"
         assert not command.get("advanced")
+
+
+def test_measurement_setup_does_not_force_notifications(spec):
+    measurement = characteristic(spec, MEASUREMENT_UUID)
+    assert measurement["properties"] == ["indicate"]
+    steps = spec["device"]["setup"]["methods"][0]["steps"]
+    enable = next(step["action"] for step in steps if MEASUREMENT_UUID in step["action"])
+    assert "CCCD 02 00" in enable
+    assert "CCCD 01 00" not in enable
+    assert "configuration callback" in measurement["notes"]

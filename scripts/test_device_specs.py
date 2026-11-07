@@ -4069,3 +4069,28 @@ def test_feature_variants_name_declared_models_and_do_not_overlap(specs):
                     f"more than one {feature_type!r} feature"
                 )
                 seen |= scope
+
+
+def test_health_devices_carry_a_safety_advisory(specs):
+    """Every `category: health` spec says its readings are not a basis for a
+    treatment decision.
+
+    Everything in this repository warrants caution and nothing in it is fit
+    for a safety-critical decision, and a health device is where that is most
+    easily forgotten: a glucose,
+    blood-pressure or SpO2 value that arrived through a reverse-engineered
+    spec looks exactly like one read off the device. `device.safety_advisory`
+    is the block a client shows before the controls, so it is where the
+    sentence has to live -- README.md and docs/CLEANROOM_RULES.md promise
+    that it is there.
+    """
+    missing = sorted(
+        device_id
+        for device_id, spec in specs.items()
+        if spec["device"].get("category") == "health"
+        and "safety_advisory" not in spec["device"]
+    )
+    assert not missing, (
+        "health specs without a device.safety_advisory "
+        f"(readings are a log, not a basis for a dose): {missing}"
+    )

@@ -1,0 +1,758 @@
+# Apple AirPort Extreme / AirPort Time Capsule / AirPort Express (ACP on TCP 5009) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (all public; clean-room — derived facts only):
+#   - samuelthomas2774/node-acp (MIT, 2018-2020): src/lib/message.ts,
+#     keystream.ts, property.ts, properties.ts, client.ts, session.ts,
+#     cflbinary.ts, util.ts, src/types/*.ts, src/test/*.ts
+#   - x56/airpyrt-tools (MIT, 2016; archived): acp/message.py, keystream.py,
+#     property.py, client.py, session.py, encryption.py, cflbinary.py, README
+#   - Apple Support "How to reset your AirPort base station" (archived)
+#   - Apple Technical Q&A QA1312 (retired): the _airport._tcp service type
+# Every frame below and in scripts/test_apple_airport_acp_spec.py was built
+# from the rule in protocol_details with the invented admin password
+# "example-owner-pw". The rule was first checked against node-acp's own
+# published unit-test vectors (password "testing"); none is copied here.
+# Firmware image decryption and the flashing procedure that both community
+# projects contain are deliberately left out (see remaining_unknowns).
+
+device:
+  name: "Apple AirPort Extreme / AirPort Time Capsule / AirPort Express"
+  manufacturer: "Apple"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. The header, checksum,
+      key-obfuscation and property-element rules reproduce node-acp's
+      published unit-test vectors; the SRP and session-encryption steps are
+      transcribed from node-acp's client, which its README presents as
+      working against real base stations.
+  protocol: "lan"
+  transport: "tcp"
+  category: "network"
+  type: "wifi-router"
+  notes: >
+    Apple's AirPort base stations: AirPort Extreme (802.11n and 802.11ac
+    generations), AirPort Time Capsule (an AirPort Extreme with an internal
+    disk) and AirPort Express (802.11n). Apple confirmed in April 2018 that it
+    had discontinued the line; the archived support pages remain, and the
+    last firmware named by the community tooling is 7.9.1 for the 802.11ac
+    Extreme / Time Capsule and 7.8.1 for the 802.11n Express. Without
+    Apple's own configuration tool, an owner has no management client
+    unless a third party speaks ACP.
+
+    `protocol: lan` because these are routers: the schema reserves `wifi`
+    for devices that join a wireless network and need SoftAP-style
+    provisioning, which this spec does not cover. (An AirPort Express can
+    itself be told to join a network; that is a property write here, not a
+    provisioning flow.)
+
+    The management protocol, ACP (AirPort Configuration Protocol in the
+    community code), is a request/response exchange on TCP 5009. Each
+    message is a 128-byte big-endian header (magic "acpp", version, Adler-32
+    checksums of header and body, flags, command id, error code, and a
+    32-byte key field) followed by a body. Configuration lives in
+    four-character properties (syNm device name, syVs firmware version,
+    raNm Wi-Fi network name, waIP WAN address, ...) read and written as
+    property elements. Reboot is a write of the property acRB. Session
+    security comes in two forms: the legacy one obfuscates the admin
+    password into every header with a fixed XOR keystream; the newer one
+    runs SRP-6a as user "admin" and then encrypts the whole stream with
+    AES-128-CTR. Use SRP. See protocol_details.acp.
+
+    SECURITY: the legacy header key is a fixed, reversible transform of the
+    admin password, so anyone who can see one legacy request on the network
+    has the password. A client should authenticate with SRP first and only
+    fall back to the legacy key when the owner accepts that, on a trusted
+    wired segment. Keep "setup over WAN" off (property waNM) so TCP 5009 is
+    not reachable from the internet.
+
+  security_advisory:
+    severity: "reported"
+    summary: "Legacy ACP sends the admin password in a trivially reversible form inside every request header."
+    detail: >
+      airpyrt-tools' README warns that the original protocol "puts the admin
+      password of the device over the wire in a trivially recoverable
+      format" and that the newer SRP authentication with session
+      encryption fixed this. A client must prefer SRP (commands.authenticate_start
+      and the stage-3 message) and leave legacy mode as an explicit opt-in.
+      Disable setup over the WAN port on any base station that faces the
+      internet.
+    advisory_url: "https://github.com/x56/airpyrt-tools#notes"
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/samuelthomas2774/node-acp"
+    license: "MIT (both community implementations)"
+    notes: >
+      Apple never published ACP. Two independent community implementations
+      (Python, archived 2022; TypeScript, last active 2020) agree on the
+      header, checksums, key keystream and property framing. node-acp adds
+      working SRP authentication and session encryption; airpyrt only
+      experimented with SRP through a platform library.
+
+  identification:
+    default_port: 5009
+    lan_protocols: ["apple-acp"]
+    mdns_service_type: "_airport._tcp.local."
+    mdns_txt_match:
+      - key: "waMA"
+        match: "present"
+        description: "Same condition as the discovery block: node-acp's util.ts documents the TXT data as one entry starting with waMA."
+    notes: >
+      The _airport._tcp Bonjour type is the stable signal (Apple QA1312: the
+      configuration tool uses it to locate base stations). syAP from the TXT
+      record or the property of the same name tells the model.
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_airport._tcp.local."
+          port: 5009
+          txt_record_keys: ["waMA"]
+          txt_match:
+            - key: "waMA"
+              match: "present"
+              description: >
+                node-acp's util.ts documents the base station's TXT data as
+                one string starting with waMA (Ethernet MAC) and its
+                server emulator advertises it that way.
+          identity_mapping:
+            stable_keys:
+              - source: "txt:waMA"
+                key: "mac"
+        notes: >
+          node-acp's util.ts (createAdvertisementData /
+          getAdvertisementData) says the TXT data arrives merged into a
+          single entry: the first key holds its own value followed by
+          ",key=value" pairs for the rest, so split the value of waMA on
+          commas. Keys it names: waMA (Ethernet MAC, dash-separated hex,
+          e.g. aa-bb-cc-dd-ee-ff), raMA (5 GHz Wi-Fi MAC; node-acp says this
+          is what Apple's tool uses to identify a unit), raM2 (2.4 GHz Wi-Fi
+          MAC), raNm (Wi-Fi network name), raCh (2.4 GHz channel), rCh2 (5 GHz
+          channel), raSt (0 create a network, 1 join a network, 3 Wi-Fi off),
+          raNA (NAT on, 0/1), syFl (hex flags, meaning unknown, e.g. 0x820C),
+          syAP (product id), syVs (firmware version, e.g. 7.8), srcv (build,
+          e.g. 78000.12), bjSd (meaning unknown), prob (optional, meaning
+          unknown). The service port is assumed to be 5009; both clients
+          connect there regardless.
+    identity:
+      stable_keys: ["mac"]
+      display: "syNm"
+      notes: "waMA from the TXT data; the property waMA returns the same six bytes over ACP. syNm is the owner-set device name."
+    static_ip_required: false
+
+  variants:
+    - model: "AirPort Extreme 802.11ac / AirPort Time Capsule 802.11ac"
+      notes: >
+        syAP 120 is the AirPort Extreme 802.11ac (node-acp util.ts). The
+        Time Capsule 802.11ac's product id is not given in the sources.
+        Last firmware named by node-acp's scripts: 7.9.1.
+    - model: "AirPort Express 802.11n (2nd generation)"
+      notes: "syAP 115 (node-acp util.ts). Last firmware named by node-acp's scripts: 7.8.1."
+    - model: "Earlier 802.11n and 802.11b/g base stations"
+      notes: >
+        Not established. Both parsers accept header version 0x00000001 as
+        well as 0x00030001, and airpyrt lists "protocol v1 (for old
+        firmwares/devices)" as unimplemented, so older units may speak an
+        older ACP that this spec does not describe.
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      This spec covers managing a base station that is already set up and
+      has an admin (base station) password. First-time setup of a
+      factory-fresh unit (which Apple's tool does over the unit's own open
+      setup Wi-Fi network) is not described by the sources and is out of
+      scope; see remaining_unknowns.
+    methods:
+      - type: "wired"
+        name: "Connect and authenticate with the base station password"
+        role: "primary"
+        verified: false
+        description: >
+          Find the base station by Bonjour (_airport._tcp) or address, open
+          TCP 5009, and run SRP authentication as user "admin" with the
+          base station password. From then on every byte both ways is
+          AES-128-CTR encrypted and request headers carry an all-zero key
+          field. Legacy mode skips SRP and puts the obfuscated password in
+          every header instead.
+        issues_credentials:
+          admin_password:
+            user_entered: true
+            notes: >
+              The base station password the owner set in Apple's tool (the
+              property syPW). Up to 32 bytes are used by the legacy header
+              key. A soft reset (below) lets the owner set a new one if it
+              is lost.
+        steps:
+          - action: "Connect the client to the base station's LAN (Ethernet or its Wi-Fi network)."
+            actor: "user"
+          - action: "Browse _airport._tcp.local. or take the base station's address from the user."
+            actor: "client"
+            expect: "A service instance whose TXT data starts with waMA=."
+          - action: "Open TCP 5009 and send the AUTHENTICATE stage-1 message (commands.authenticate_start)."
+            actor: "client"
+            expect: "An AUTHENTICATE reply, error code 0, whose CFB0 body holds salt (16 bytes), generator (02), publicKey B (192 bytes) and modulus (the 1536-bit SRP group)."
+          - action: "Compute SRP-6a (SHA-1) as user admin with the password, send stage 3 with A, M1 and a random 16-byte client IV."
+            actor: "client"
+            expect: "A reply with error 0 carrying response (M2, 20 bytes) and the server's 16-byte IV; error -6754 means a wrong password."
+          - action: "Verify M2, derive the two AES keys (protocol_details.acp.session_encryption) and encrypt everything that follows."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: >
+        Apple describes three levels. A soft reset only lifts the password
+        (and access control / RADIUS) for five minutes so the owner can set
+        a new one; nothing else changes. A hard reset returns the unit to
+        an unconfigured state but keeps the last saved configuration and
+        profiles, which can be restored. A factory-default reset erases the
+        saved configurations and profiles. None of them erases data on a
+        Time Capsule's internal disk or an attached USB disk.
+      description: >
+        From Apple's archived support article "How to reset your AirPort
+        base station", for the 802.11n and 802.11ac models. The reset
+        button is a small recessed button on the back or bottom; use a pen
+        tip or paper clip. Apple's article has separate, different
+        procedures for the 802.11b/g AirPort Extreme and the original
+        802.11b base stations; those are not transcribed here.
+      procedures:
+        - name: "Soft reset: reset button about 1 second, powered on"
+          verified: false
+          basis: "Apple Support, 'How to reset your AirPort base station' (archived)."
+          power_state: "on"
+          hold_seconds: 1
+          indicator: "Status light flashes amber."
+          description: >
+            Resets the base station password and disables access control
+            and RADIUS for five minutes. Join its network, set a new
+            password with a management client within those five minutes,
+            or the old settings come back.
+          steps:
+            - action: "With the base station powered on, press the recessed reset button with a pen tip for about 1 second, then release."
+              actor: "user"
+              expect: "The status light flashes amber."
+            - action: "Join the base station's network and set a new base station password (property syPW) within five minutes."
+              actor: "user"
+        - name: "Hard reset: reset button about 5 seconds, powered on"
+          verified: false
+          basis: "Apple Support, 'How to reset your AirPort base station' (archived)."
+          power_state: "on"
+          hold_seconds: 5
+          indicator: "Status light flashes amber rapidly."
+          description: >
+            Wait about a minute after release; the unit then appears as an
+            unconfigured base station. The previous configuration is kept
+            and can be restored with Apple's tool.
+          steps:
+            - action: "With the base station powered on, hold the reset button for about 5 seconds, then release."
+              actor: "user"
+              expect: "The status light flashes amber rapidly."
+            - action: "Wait about a minute for it to come back as an unconfigured base station."
+              actor: "user"
+        - name: "Factory-default reset: hold reset while reconnecting power, about 6 seconds"
+          verified: false
+          basis: "Apple Support, 'How to reset your AirPort base station' (archived)."
+          power_state: "off"
+          hold_seconds: 6
+          indicator: "Status light flashes amber rapidly."
+          description: >
+            Unplug the base station, hold the reset button, plug it back in
+            and keep holding for about six seconds. Erases the saved
+            configurations and profiles; disk contents survive. Apple's
+            article ties this procedure to firmware 7.9.1 on the 802.11ac
+            Extreme and Time Capsule; whether it works on other models or
+            firmware is not stated there.
+          steps:
+            - action: "Unplug the base station from power."
+              actor: "user"
+            - action: "Hold the reset button, plug the base station back in, and keep holding for about 6 seconds."
+              actor: "user"
+              expect: "The status light flashes amber rapidly."
+            - action: "Release and wait about a minute before setting it up again."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The base station is normally the router. If it bridges behind
+        another router instead, its address changes with DHCP and the
+        client finds it again by Bonjour. Upstream and Wi-Fi settings are
+        ordinary properties (waXX, raXX, WiFi), changed with set_property.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Base station (admin) password, property syPW"
+        - "Wi-Fi network passwords inside the WiFi configuration plist"
+        - "PPPoE user name and password (peUN, pePW)"
+        - "Disk-sharing users and passwords (usrd) on units with disks"
+      issued_to_client:
+        - "None persistent. SRP yields a per-connection session key."
+      notes: >
+        Reading syPW, pePW, the WiFi plist or usrd returns secrets in the
+        reply; a client must not log property replies verbatim.
+
+protocol_handler: "apple_acp"
+
+protocol_details:
+  acp:
+    transport: >
+      TCP 5009 on the base station. One request, then its reply, on one
+      connection; node-acp serialises requests through a queue. Integers in
+      the header and property elements are big-endian.
+    header:
+      size: 128
+      fields:
+        - "offset 0, 4 bytes: magic, ASCII \"acpp\" (61 63 70 70)."
+        - "offset 4, 4 bytes: version, 0x00030001 in every request both clients send. Both parsers also accept 0x00000001."
+        - "offset 8, 4 bytes: header checksum = Adler-32 (zlib) of all 128 header bytes with this field set to zero."
+        - "offset 12, 4 bytes: body checksum = Adler-32 of the body bytes. A header without a body (body size -1) carries 1, the Adler-32 of nothing."
+        - "offset 16, 4 bytes: body size, signed. The body length in bytes, or -1 (FF FF FF FF) when no body follows (GET_FEATURES request)."
+        - "offset 20, 4 bytes: flags. The clients send 4 on GET_PROPERTY and AUTHENTICATE and 0 on SET_PROPERTY, GET_FEATURES, MONITOR and RPC; node-acp's server emulator answers with 5. Meaning of the bits not established."
+        - "offset 24, 4 bytes: unused, 0."
+        - "offset 28, 4 bytes: command id; see commands."
+        - "offset 32, 4 bytes: error code, signed; 0 in requests. See error_codes."
+        - "offset 36, 12 bytes: zero."
+        - "offset 48, 32 bytes: key field; see key_field."
+        - "offset 80, 48 bytes: zero."
+      example_hex: "61637070000300013caa1252183801ac00000010000000040000000000000014000000000000000000000000000000006b419968b46d306263dbeb18f4a7c5603e09c835f431657f3c9cb56d969aa507000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      example_notes: "The header of commands.get_name in legacy mode: version 0x00030001, header checksum 0x3CAA1252, body checksum 0x183801AC, body size 16, flags 4, command 0x14, key field = legacy key for the invented password example-owner-pw."
+    key_field:
+      keystream: >
+        A fixed 256-byte-periodic keystream: byte i = ((i + 0x55) & 0xFF) XOR
+        static_key[i mod 16], with static_key = 5b6faf5d9d5b0e1351f2da1de7e8d673.
+        Its first 32 bytes are
+        0e39f805c401554f0cac857d868ab5173e09c835f431657f3c9cb56d969aa507.
+      legacy_password_key: >
+        The admin password's bytes, truncated to 32 and right-padded with
+        NUL to 32, XORed byte-by-byte with the first 32 keystream bytes.
+        Sent in every legacy-mode request. Both clients encode the password
+        as single-byte characters; how the base station treats non-ASCII
+        passwords is unknown.
+      example_password: "example-owner-pw"
+      example_key: "6b419968b46d306263dbeb18f4a7c5603e09c835f431657f3c9cb56d969aa507"
+      unauthenticated_key: >
+        AUTHENTICATE and GET_FEATURES always carry the key of the empty
+        password, i.e. the 32 keystream bytes themselves.
+      after_srp: >
+        Once SRP session encryption is on, node-acp sends an all-zero key
+        field in GET_PROPERTY, SET_PROPERTY, MONITOR and RPC headers (the
+        header itself is then encrypted on the wire).
+    commands:
+      "0x01 ECHO": "Listed by both clients; payload echoed. Not used by either."
+      "0x03 FLASH_PRIMARY": "Firmware upload to the primary flash partition. Out of scope here; see features.firmware_update."
+      "0x05 FLASH_SECONDARY": "Firmware upload to the secondary partition. Out of scope."
+      "0x06 FLASH_BOOTLOADER": "Bootloader upload. Out of scope."
+      "0x14 GET_PROPERTY": "Body: one property element per property wanted, value 4 zero bytes. Request flags 4. Reply: a header, then property elements up to an end marker; see property_element."
+      "0x15 SET_PROPERTY": "Body: one property element per property to write, carrying the new value. Request flags 0. Reply: a header, then one element per written property (an error element if it failed), then the end marker."
+      "0x16 PERFORM": "Named by both clients; payload and purpose unknown."
+      "0x17": "Accepted by both parsers; name and purpose unknown."
+      "0x18 MONITOR": "Starts a monitor session: body is 4 zero bytes then a CFB0 plist of filters. The base station then pushes frames starting \"XE\" (8-byte header: 4-byte magic, 4-byte big-endian length, then a CFB0 plist). node-acp warns that sending any other message after starting one makes the base station disconnect."
+      "0x19 RPC": "Body: CFB0 plist {function: name, inputs: {...}}; reply {status, outputs}. node-acp lists function names such as acpd.system.show, dhcp.client.lease.action, wsc.start, syslogd.flush, acpd.checkConnection. Not exercised in this spec."
+      "0x1A AUTHENTICATE": "SRP exchange; see srp_authentication."
+      "0x1B GET_FEATURES": "Header only (body size -1, flags 0, unauthenticated key). Reply body is a CFB0 plist of supported features; works without authentication (node-acp README)."
+    property_element:
+      layout:
+        - "4 bytes: property name, four ASCII characters (case-sensitive, e.g. syNm)."
+        - "4 bytes: flags, big-endian. Requests send 0. In a reply, bit 0 set means the value is a 4-byte signed error code instead of the property's value."
+        - "4 bytes: value size, big-endian."
+        - "size bytes: the value, in the property's type (value_types)."
+      request_value: "GET_PROPERTY asks for a property with value size 4 and four zero bytes."
+      end_marker: >
+        A reply's list ends with an element whose name and value are both
+        four zero bytes: 00000000 00000000 00000004 00000000. The clients
+        read elements one by one until they see it, rather than trusting
+        the reply header's body size. Neither client appends the marker to
+        a request.
+      example_hex: "73794e6d000000000000000400000000"
+      example_notes: "syNm, flags 0, size 4, value 0: the GET_PROPERTY request element for the device name."
+    value_types:
+      str: "UTF-8 text, no terminator (syNm, syVs, raNm, srcv, sySN, logm uses log)."
+      u32: "Unsigned 32-bit big-endian (syAP, syUT seconds, time Unix seconds, syRe, slvl)."
+      dec: "Unsigned big-endian integer, normally 4 bytes (acRB, acRF...)."
+      hex: "4-byte value the clients show as hex (syFl, TMEn, dbug)."
+      u16: "Unsigned 16-bit big-endian (auRR)."
+      ui8: "One byte (diag, isAC)."
+      boo: "One byte, 00 or 01 (raNA, raDS, waNM, IGMP, SUEn)."
+      mac: "Six bytes (waMA, raMA, laMA)."
+      ip4: "Four bytes, network order (waIP, waSM, waRA, laIP, laSM, waD1-3)."
+      ip6: "Sixteen bytes (6Wad, 6Lad...)."
+      uid: "Sixteen-byte UUID (uuid)."
+      log: "NUL-separated log lines (logm)."
+      cfb: "A CFB0 plist; see cfb0_plist (WiFi, DRes, dhSL, raSL, sySt, timz...)."
+      bpl: "An Apple binary plist (bplist00) (auHK)."
+      bin: "Raw bytes, meaning per property."
+    cfb0_plist:
+      description: >
+        Apple's compact binary property list used in AUTHENTICATE,
+        GET_FEATURES, MONITOR, RPC and every cfb property. "CFB0", one
+        root object, "END!". Objects are a marker byte (high nibble type,
+        low nibble info) then data.
+      markers:
+        "0x00": "null; also the terminator of an array or dict"
+        "0x08 / 0x09": "false / true"
+        "0x1n": "integer of 2^n bytes, big-endian, unsigned (n = 0..3)"
+        "0x2n": "real of 2^n bytes, IEEE big-endian (n = 2 or 3)"
+        "0x4n": "data of n bytes (n < 15); 0x4F is followed by an integer object giving the length"
+        "0x70": "UTF-8 string terminated by a 00 byte"
+        "0xA0": "array: objects until a 00 marker"
+        "0xD0": "dict: key object, value object, ... until a 00 marker"
+        "0x30, 0x50, 0x60, 0x80, 0xB0, 0xC0": "date, ASCII string, UTF-16 string, uid, ordset, set: named by the parsers, not implemented by either"
+      example_hex: "43464230d070737461746500100170757365726e616d65007061646d696e0000454e4421"
+      example_notes: "{state: 1, username: \"admin\"}: the body of commands.authenticate_start."
+    srp_authentication:
+      summary: >
+        SRP-6a with SHA-1 and the 1536-bit group (fast-srp-hap's
+        params[1536], i.e. RFC 5054's; generator 2), user name "admin",
+        password = the base station password. node-acp's client uses a
+        24-byte random private value.
+      stage_1:
+        sends: "AUTHENTICATE (0x1A), flags 4, unauthenticated key, body CFB0 {state: 1, username: \"admin\"}."
+        receives: "AUTHENTICATE reply, error 0, body CFB0 {salt: data(16), generator: data (02), publicKey: data(192) = B, modulus: data = N}."
+      stage_3:
+        sends: "AUTHENTICATE, flags 4, unauthenticated key, body CFB0 {iv: data(16) random client IV, publicKey: data(192) = A, state: 3, response: data(20) = M1}."
+        receives: "Reply with error 0 and body CFB0 {response: data(20) = M2, iv: data(16) server IV}. Error -6754 = wrong password."
+      key: "K = the SRP session key as fast-srp-hap computes it (SHA-1 of the shared secret S, 20 bytes). Verify M2 before using it."
+    session_encryption:
+      cipher: "AES-128-CTR, one keystream per direction, continuing across messages for the life of the connection; it covers headers and bodies alike."
+      client_to_server: "key = PBKDF2-HMAC-SHA1(K, salt F072FA3F66B410A135FAE8E6D1D43D5F, 5 iterations, 16 bytes); initial counter = client IV."
+      server_to_client: "key = PBKDF2-HMAC-SHA1(K, salt BD0682C9FE79325BC73655F4174B996C, 7 iterations, 16 bytes); initial counter = server IV."
+      example:
+        K: "101112131415161718191a1b1c1d1e1f20212223"
+        client_key: "f68af1ea5cefb5f6e135b6039c54f232"
+        server_key: "86c7e9956cefb97409ee955fd67fed3e"
+        notes: "Invented K, to check a PBKDF2 implementation; not from a real session."
+    error_codes:
+      "0": "Success"
+      "-10 (0xFFFFFFF6)": "Property not available / not readable (property element error)"
+      "-16 (0xFFFFFFF0)": "Invalid key"
+      "-6754 (0xFFFFE59E)": "Incorrect password (AUTHENTICATE)"
+      "-6772 (0xFFFFE58C)": "Unknown; node-acp saw it from raNm"
+    properties:
+      notes: >
+        The catalogue is node-acp's src/lib/properties.ts (types and
+        descriptions are its best understanding; several are marked "??"
+        there). The property "prop" returns the list of property names a
+        given unit supports. A selection follows; read-only status reads
+        first.
+      status_reads:
+        syNm: "str: device (base station) name"
+        syVs: "str: firmware version"
+        srcv: "str: source / build version"
+        syAP: "u32: product id (115 AirPort Express 802.11n 2nd gen, 120 AirPort Extreme 802.11ac)"
+        syAM: "str: model identifier"
+        sySN: "str: serial number (private; do not log)"
+        syUT: "u32: uptime, seconds"
+        time: "u32: system time"
+        sySt: "cfb: system status (problem codes such as waNL Ethernet unplugged, upAv update available, DubN double NAT, opNW unsecured Wi-Fi)"
+        raNm: "str: Wi-Fi network name"
+        raMA: "mac: Wi-Fi MAC"
+        waMA: "mac: WAN (Ethernet) MAC"
+        laMA: "mac: LAN MAC"
+        waIP: "ip4: WAN IPv4 address"
+        waSM: "ip4: WAN subnet mask"
+        waRA: "ip4: WAN router address"
+        laIP: "ip4: LAN IPv4 address"
+        raSL: "cfb: connected Wi-Fi clients"
+        dhSL: "cfb: DHCP leases"
+        logm: "log: system log"
+        feat: "str: supported features"
+        prop: "str: valid ACP property names on this unit"
+      writable_settings:
+        syNm: "str: device name"
+        syPW: "str: base station password (secret)"
+        raNA: "boo: NAT on/off"
+        raDS: "boo: DHCP server on/off"
+        waNM: "boo: disable setup over WAN"
+        slvl: "u32: system log level 0-7"
+        leAc: "u32: status light, 1 or 2 (meaning per value not given)"
+        SUEn: "boo: check for firmware updates"
+        WiFi: "cfb: the Wi-Fi configuration plist (network names, security, passwords)"
+        ntSV: "str: NTP server host name"
+      actions:
+        acRB: "dec 0: reboot"
+        acRI: "dec 0: reload services (uncertain)"
+        acRN: "dec 0: resets something (unknown)"
+        acRF: "dec 0: reset to factory defaults"
+
+payload_formats:
+  PropertyElement:
+    description: "One property element, as in protocol_details.acp.property_element."
+    fields:
+      - name: "name"
+        offset: 0
+        description: "4 ASCII characters."
+      - name: "flags"
+        offset: 4
+        type: "uint32"
+        endianness: "big"
+        description: "Bit 0 set in a reply: value is a 4-byte signed error code."
+      - name: "size"
+        offset: 8
+        type: "uint32"
+        endianness: "big"
+        description: "Length of the value in bytes."
+      - name: "value"
+        offset: 12
+        description: "size bytes, typed per protocol_details.acp.value_types."
+    example: "73794e6d000000000000000c4578616d706c652042617365"
+    example_notes: "syNm = \"Example Base\" (12 bytes), as written by commands.set_name."
+  EndMarker:
+    description: "The element that ends a reply's property list."
+    example: "00000000000000000000000400000000"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    status: "placeholder"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only, to satisfy the schema's access-surface rule. The
+      base station is managed over a raw TCP socket on port 5009 (see
+      protocol_details.acp), not HTTP.
+
+commands:
+  authenticate_start:
+    description: >
+      SRP stage 1: ask for the SRP parameters. The rest of the exchange
+      (stage 3 with A, M1 and the client IV, then key derivation) depends
+      on the reply and on random values, so it has no fixed frame; see
+      protocol_details.acp.srp_authentication. After stage 4 succeeds
+      every later command is sent AES-CTR encrypted with an all-zero key
+      field instead of the legacy password key shown in the examples
+      below.
+    body: "AUTHENTICATE 0x1A, flags 4, key = keystream, body CFB0 {state: 1, username: admin}"
+    example_body: "6163707000030001ff9510fee60d0baf0000002400000004000000000000001a000000000000000000000000000000000e39f805c401554f0cac857d868ab5173e09c835f431657f3c9cb56d969aa50700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000043464230d070737461746500100170757365726e616d65007061646d696e0000454e4421"
+    example_notes: "Header (body size 36, flags 4, command 0x1A, unauthenticated key) then the CFB0 body."
+    verification: "reported"
+  get_features:
+    description: "Ask which features the base station supports. Needs no password. The reply body is a CFB0 plist whose keys are not documented by the sources."
+    body: "GET_FEATURES 0x1B, flags 0, key = keystream, no body (size -1, checksum 1)"
+    example_body: "6163707000030001e790132700000001ffffffff00000000000000000000001b000000000000000000000000000000000e39f805c401554f0cac857d868ab5173e09c835f431657f3c9cb56d969aa507000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    verification: "reported"
+  get_name:
+    description: "Read syNm, the base station's name."
+    body: "GET_PROPERTY 0x14, flags 4, key from {admin_password}, element syNm"
+    parameters:
+      admin_password:
+        type: "string"
+        required: true
+        max_length: 32
+        source: "credential:admin_password"
+        description: "The base station password set in Apple's tool. Used for the legacy header key; under SRP the key field is zero."
+    example_body: "61637070000300013caa1252183801ac00000010000000040000000000000014000000000000000000000000000000006b419968b46d306263dbeb18f4a7c5603e09c835f431657f3c9cb56d969aa50700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000073794e6d000000000000000400000000"
+    example_notes: "Legacy mode, invented password example-owner-pw."
+    verification: "reported"
+  get_status:
+    description: >
+      Read name, firmware version, product id, uptime and Wi-Fi network
+      name in one request (syNm, syVs, syAP, syUT, raNm). The reply holds
+      one element per property, in order, then the end marker; a property
+      the unit does not have comes back as an error element (flags bit 0,
+      value -10).
+    body: "GET_PROPERTY 0x14, flags 4, key from {admin_password}, elements syNm syVs syAP syUT raNm"
+    parameters:
+      admin_password:
+        type: "string"
+        required: true
+        max_length: 32
+        source: "credential:admin_password"
+        description: "The base station password set in Apple's tool."
+    example_body: "6163707000030001620612a57c7b081100000050000000040000000000000014000000000000000000000000000000006b419968b46d306263dbeb18f4a7c5603e09c835f431657f3c9cb56d969aa50700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000073794e6d00000000000000040000000073795673000000000000000400000000737941500000000000000004000000007379555400000000000000040000000072614e6d000000000000000400000000"
+    example_notes: "Legacy mode, invented password example-owner-pw; body 80 bytes."
+    verification: "reported"
+  get_wan_ip:
+    description: "Read waIP, the WAN IPv4 address (four bytes, network order)."
+    body: "GET_PROPERTY 0x14, flags 4, key from {admin_password}, element waIP"
+    parameters:
+      admin_password:
+        type: "string"
+        required: true
+        max_length: 32
+        source: "credential:admin_password"
+        description: "The base station password set in Apple's tool."
+    example_body: "61637070000300012eb312321551017600000010000000040000000000000014000000000000000000000000000000006b419968b46d306263dbeb18f4a7c5603e09c835f431657f3c9cb56d969aa50700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000077614950000000000000000400000000"
+    verification: "reported"
+  get_log:
+    description: "Read logm, the system log, as NUL-separated lines. May contain client MACs and names; do not upload it anywhere without the owner's say."
+    body: "GET_PROPERTY 0x14, flags 4, key from {admin_password}, element logm"
+    parameters:
+      admin_password:
+        type: "string"
+        required: true
+        max_length: 32
+        source: "credential:admin_password"
+        description: "The base station password set in Apple's tool."
+    example_body: "616370700003000167ba12b2189001b400000010000000040000000000000014000000000000000000000000000000006b419968b46d306263dbeb18f4a7c5603e09c835f431657f3c9cb56d969aa5070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006c6f676d000000000000000400000000"
+    verification: "reported"
+  set_name:
+    description: >
+      Write syNm, the base station's name. Shown here as the model for
+      every SET_PROPERTY: elements carry the new value, the reply lists
+      each written property (or an error element), then the end marker.
+      Whether a written setting takes effect at once or needs a reboot
+      (acRB) is not established; Apple's tool restarts the base station
+      after most changes.
+    body: "SET_PROPERTY 0x15, flags 0, key from {admin_password}, element syNm = {name}"
+    parameters:
+      admin_password:
+        type: "string"
+        required: true
+        max_length: 32
+        source: "credential:admin_password"
+        description: "The base station password set in Apple's tool."
+      name:
+        type: "string"
+        required: true
+        min_length: 1
+        description: "New device name, UTF-8."
+    example_body: "6163707000030001647912a842eb061b00000018000000000000000000000015000000000000000000000000000000006b419968b46d306263dbeb18f4a7c5603e09c835f431657f3c9cb56d969aa50700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000073794e6d000000000000000c4578616d706c652042617365"
+    example_notes: "Name \"Example Base\", legacy mode, invented password example-owner-pw."
+    advanced: true
+    advanced_reason: >
+      Writes the base station's configuration. The name itself is harmless,
+      but SET_PROPERTY is the same path that changes Wi-Fi, WAN, DHCP and
+      password settings, and a wrong value there can drop every device on
+      the network, including the client doing the writing. Read and save
+      the current value first. If the base station becomes unreachable, a
+      hard reset (reset button about 5 s) returns it to an unconfigured
+      state that keeps the previous configuration for restoring.
+    verification: "reported"
+  reboot:
+    description: "Restart the base station by writing acRB = 0 (both clients do this). The connection drops and the network is down until it has restarted."
+    body: "SET_PROPERTY 0x15, flags 0, key from {admin_password}, element acRB = 00000000"
+    parameters:
+      admin_password:
+        type: "string"
+        required: true
+        max_length: 32
+        source: "credential:admin_password"
+        description: "The base station password set in Apple's tool."
+    example_body: "61637070000300015db1129a13d7015d00000010000000000000000000000015000000000000000000000000000000006b419968b46d306263dbeb18f4a7c5603e09c835f431657f3c9cb56d969aa50700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000061635242000000000000000400000000"
+    advanced: true
+    advanced_reason: >
+      Takes the whole network offline while the base station restarts, and
+      the client loses its own connection. A Time Capsule restarting in the
+      middle of a backup interrupts it. It comes back on its own with the
+      same settings; if it does not, power-cycle it.
+    verification: "reported"
+
+entities:
+  - platform: "button"
+    name: "Restart"
+    icon: "mdi:restart"
+    commands:
+      press: "reboot"
+    notes: "Writes acRB; the network drops for about a minute. Advanced: confirm first."
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["custom"]
+      transport: "tcp"
+      image:
+        signing: "unknown"
+        encrypted: true
+        source: "vendor_cloud"
+        format: "Apple .basebinary file, per model (syAP) and version."
+        notes: >
+          Apple served the images from its own update servers; node-acp's
+          README names one public URL for product 120 / 7.9.1. Both
+          community projects can decrypt and unpack the images; that
+          material is deliberately not transcribed here. Whether the
+          bootloader checks a signature is not established.
+      enter:
+        how: "in_place"
+        notes: >
+          Both community clients send the image to the running ACP service
+          in a FLASH_PRIMARY (0x03) message on TCP 5009, with no separate
+          entry step; FLASH_SECONDARY (0x05) and FLASH_BOOTLOADER (0x06)
+          also exist. No flashing command is declared in this spec. The
+          property fugp reports update progress and cks0-cks2 the flash
+          partition checksums; SUEn turns on the base station's own update
+          check.
+      dfu_mode:
+        notes: "How the base station appears while flashing is not established."
+      recovery:
+        interrupted: "unknown"
+        notes: "The flash command names suggest primary and secondary partitions; whether an interrupted primary flash falls back to the secondary is not established."
+      verification: "reported"
+
+cloud:
+  required: false
+  vendor_service: "Apple firmware update servers; iCloud Back to My Mac"
+  failure_mode: >
+    Management is entirely local. Apple's firmware downloads were the only
+    routine cloud dependency. Back to My Mac remote access (configured
+    through the iCld property) is an Apple service whose current state is
+    not covered here; nothing in this spec depends on it.
+
+local_access:
+  status: "native"
+  summary: >
+    ACP on TCP 5009: property reads and writes, reboot, features, logs, with
+    SRP authentication and an encrypted session. Two open-source clients
+    exist (node-acp, airpyrt-tools).
+  covers:
+    - "Device name, firmware version, model, uptime, Wi-Fi name and addresses"
+    - "System log, connected clients, DHCP leases"
+    - "Any configuration property, written with SET_PROPERTY"
+    - "Restart"
+  not_covered:
+    - "First-time setup of a factory-fresh unit"
+    - "Firmware flashing (documented by the community, left out here)"
+    - "Time Capsule disk management and file sharing (AFP/SMB, separate protocols)"
+
+evidence:
+  documentation_review: >
+    node-acp (samuelthomas2774, MIT, version 0.7.0) and airpyrt-tools
+    (x56, MIT, archived) were read on 2026-11-01: message, keystream,
+    property, property catalogue, client, session, encryption, CFB0 plist
+    and advertisement-data source files and node-acp's unit tests. The
+    header/checksum/keystream/element rules were checked against
+    node-acp's unit-test vectors by a script. Apple's archived reset
+    article and retired QA1312 were read the same day.
+  open_questions: >
+    The flags field, the GET_FEATURES reply keys, how a factory-fresh unit
+    is set up, and which older models speak ACP version 1.
+
+remaining_unknowns:
+  - "Meaning of the header flags field (4 on GET_PROPERTY and AUTHENTICATE requests, 0 elsewhere, 5 in node-acp's emulated replies)."
+  - "Whether the base station sets the reply header's body size to the stream length or to -1; both clients ignore it and read elements to the end marker."
+  - "The keys of the GET_FEATURES reply plist."
+  - "Which settings take effect on write and which need a reboot; whether writes are persisted immediately."
+  - "Commands 0x16 PERFORM and 0x17: payloads and purpose."
+  - "Product ids (syAP) other than 115 (Express 802.11n 2nd gen) and 120 (Extreme 802.11ac)."
+  - "Whether pre-802.11n base stations speak this ACP or the older version 0x00000001, and how that differs."
+  - "First-time setup of a factory-fresh base station: not described by the sources."
+  - "The meanings of syFl, bjSd and prob in the Bonjour TXT data, and whether every model advertises the merged single-entry form."
+  - "Whether firmware images are signed, and what an interrupted flash leaves behind. Flashing and image decryption are deliberately out of scope."
+  - "How the base station treats a password longer than 32 bytes or with non-ASCII characters in legacy mode."
+  - "The command vocabulary has no envelope for a 128-byte binary header with Adler-32 checksums or for an SRP handshake, so `body` describes the message and protocol_handler names the encoder; the property catalogue lives in protocol_details."
+
+helpful_urls:
+  - title: "samuelthomas2774/node-acp"
+    url: "https://github.com/samuelthomas2774/node-acp"
+    description: "TypeScript ACP client and server emulator: SRP authentication, session encryption, property catalogue, Bonjour TXT format."
+  - title: "x56/airpyrt-tools"
+    url: "https://github.com/x56/airpyrt-tools"
+    description: "Python ACP client (archived): header, keystream, property elements; README security note on the legacy password key."
+  - title: "Apple Support: How to reset your AirPort base station"
+    url: "https://support.apple.com/102330"
+    kind: "manual"
+    description: >
+      Apple's archived reset instructions for the AirPort Extreme, AirPort
+      Time Capsule and AirPort Express (802.11n and 802.11ac), plus the older
+      802.11b/g models: soft, hard and factory-default resets.
+  - title: "9to5Mac: Apple discontinues AirPort base stations (2018-04-26)"
+    url: "https://9to5mac.com/2018/04/26/how-to-reset-airport-base-station/"
+    description: "Report of the April 2018 discontinuation, with reset guidance."
+  - title: "Apple Technical Q&A QA1312: Bonjour service types (retired)"
+    url: "https://developer.apple.com/library/mac/qa/qa1312/_index.html"
+    description: "Lists _airport._tcp as the service Apple's configuration tool uses to locate base stations."

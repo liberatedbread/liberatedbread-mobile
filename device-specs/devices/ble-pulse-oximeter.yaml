@@ -51,6 +51,26 @@ device:
     update API no longer responds (all verified 2026-07-30). Generic F7/SP001
     clones remain on sale.
 
+  safety_advisory:
+    severity: "warning"
+    summary: >
+      SpO2 and pulse values polled from the oximeter are a personal log,
+      not a basis for a medical decision.
+    detail: >
+      A client polls the device for the values it is currently showing; it
+      adds no accuracy of its own, and a missed or stale frame can look like
+      a reading. Show SpO2, pulse rate and perfusion index exactly as the
+      frame carries them, mark a value stale when a poll goes unanswered,
+      and never let a number that arrived through this spec decide whether
+      someone needs oxygen, a medication or urgent care: a reading that
+      worries you is a reason to look at the device's own display and call
+      a professional. Fingertip oximeters read low or not at all with cold
+      hands, nail polish, movement and poor perfusion, and have been
+      reported to overestimate on darker skin; the frame shows none of
+      that. The vendor is gone, so no instructions for use are maintained;
+      this spec and any client built from it are experimental.
+    acknowledge_required: true
+
   identification:
     local_name_prefix: "F7"
     service_uuids:

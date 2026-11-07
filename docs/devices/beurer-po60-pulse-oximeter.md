@@ -14,6 +14,13 @@ easiest devices in this knowledge base to liberate: **there is no cloud in the
 loop at all** — the only radio is BLE, the companion apps work in guest mode,
 and the entire sync protocol is three commands.
 
+!!! warning "Medical device"
+    SpO2 and pulse values synced through this spec are a personal log, not a
+    clinical measurement, and must never decide whether someone needs oxygen,
+    a medication or urgent care. Chart them if you like; act on the device's
+    own display and a professional's advice. The spec carries a
+    `safety_advisory` saying so.
+
 The protocol was recovered from two companion apps and cross-verified between
 them: the legacy *beurer HealthManager* (`com.beurer.connect.healthmanager`
 v2.17, unobfuscated) and the current *beurer HealthManager Pro*

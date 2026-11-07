@@ -28,7 +28,7 @@ movement_safety:
   serialize: true
   cleanup_on_cancel_replace_failure: stop/release required
   acknowledge_is_not_arrival: true
-  exclude: factory reset, manufacturing stress tests, fault bypass
+  flag_advanced: factory reset, manufacturing stress tests, fault bypass (document, do not withhold)
 
 status:
   evidence: static app analysis plus community implementation; no bed capture

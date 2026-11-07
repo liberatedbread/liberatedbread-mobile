@@ -15,23 +15,29 @@ device:
     notes: >
       Not driven against hardware by this project. The 15-byte envelope,
       command codes and float32 drive-vector layout come from static analysis
-      of the recovered official 1.0.7 app. Notification payload layouts,
-      auto-mode offsets and drive-value physical scaling remain unverified.
+      of the recovered official 1.0.7 app. The second code byte of a
+      one-digit command code is unresolved (see the command input notes).
+      Notification payload layouts, auto-mode offsets and drive-value
+      physical scaling remain unverified.
   protocol: "ble"
   transport: "ble-gatt"
   category: "other"
   type: "robot-pet-toy"
   notes: >
     Phone-direct robotic cat toy. Ordinary operation does not require an
-    account or cloud service. Nordic UART is the primary command path; Laird
-    VSP is a legacy/alternate identity. The app bundles recovery firmware,
-    but no update was performed and no firmware is shipped in this spec.
-    Movement and tail calibration require a clear area and supervision.
+    account or cloud service. Nordic UART is the command path. The app also
+    references the Nordic Secure DFU service (0000fe59-0000-1000-8000-00805f9b34fb)
+    and its bootloader characteristics; see features. An earlier note
+    misread the 8ec9000x DFU characteristics as a Laird virtual serial port;
+    no Laird VSP UUID (569a1101-…) was recorded for this toy. The app
+    bundles recovery firmware, but no update was performed and no firmware
+    is shipped in this spec. Movement and tail calibration require a clear
+    area and supervision.
   safety_advisory:
     severity: caution
     summary: "Moving robot and tail assembly — supervise use."
     detail: >
-      Test STOP first and use movement only in a clear area away from pets,
+      Test the stop command first and use movement only in a clear area away from pets,
       people, cables and edges. The app-derived drive values have no proven
       physical units. Do not attempt DFU until normal control and charging
       state are established.
@@ -44,24 +50,36 @@ device:
       from the recovered official app's packet builders and command metadata,
       not from a live capture.
   identification:
-    local_name_prefix: "Mousr"
+    local_names: ["Mousr"]
     service_uuids:
       - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
     notes: >
-      The factory name is reported as Mousr but is user-renamable. Prefer the
-      Nordic UART service; MousrDfu is a different bootloader identity.
+      Name and service are a narrowing pair: treat an advertisement as this
+      toy only when the name is exactly "Mousr" AND the Nordic UART service
+      is present (advertised, or found on connect before any write). The
+      Nordic UART service on its own identifies nothing; many unrelated
+      products in this catalogue carry it, and this spec declares movement
+      commands. The name is an exact match, not a prefix, so the bootloader
+      name "MousrDfu" is excluded here; it is declared in
+      features[firmware_update].dfu.dfu_mode, which a consumer checks first.
+      The factory name is reported, not observed, and the app lets an owner
+      rename the toy. A renamed unit is not auto-matched: the user adds it
+      by hand.
   discovery:
     methods:
       - type: "ble_scan"
         ble:
           local_name:
-            match: "prefix"
+            match: "exact"
             value: "Mousr"
-          service_uuids:
-            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
         notes: >
-          Do not match MousrDfu and then send ordinary commands. A renamed
-          toy can still be found by the Nordic UART service.
+          Name only, matched exactly so "MousrDfu" (bootloader) does not
+          match. The Nordic UART service is deliberately not listed here:
+          within a ble_scan method a name and a service are alternatives,
+          and the service alone would match every Nordic UART product. After
+          connecting, confirm 6e400001-b5a3-f393-e0a9-e50e24dcca9e is present
+          before writing anything. A renamed toy is not found by this method;
+          the user picks it from a generic scan and adds it by hand.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -85,7 +103,7 @@ device:
             actor: "user"
           - action: "Connect to the Nordic UART service and enable notifications on 6e400003-b5a3-f393-e0a9-e50e24dcca9e."
             actor: "client"
-          - action: "Send STOP before testing any other command."
+          - action: "Send the stop command before testing any other command, and check that it is accepted (see the code-byte note on the command input characteristic)."
             actor: "client"
     factory_reset:
       applicable: "unknown"
@@ -131,17 +149,30 @@ services:
         properties: ["write"]
         notes: >
           Every declared command is exactly 15 bytes: ASCII 30, a 12-byte
-          payload (zero-filled when unused), then the two-character decimal
-          command code. A one-digit code has NUL as its second character.
+          payload (zero-filled when unused), then the command code in
+          offsets 13-14. A two-digit code is its two ASCII digits (18 is
+          31 38). For a one-digit code the second byte is UNRESOLVED: the
+          static analysis this spec rests on yielded two contradictory
+          readings and no capture settles it. Form A is a leading ASCII zero
+          then the digit (code 2 is 30 32); form B is the digit then NUL
+          (code 2 is 32 00). The declared values below keep the bytes the
+          analysis recorded for each command, which mix the two forms (stop
+          is form B, the others form A), so every one-digit command is
+          marked verification hypothesis and its description gives the other
+          form. A client should try stop in both forms and keep whichever the
+          toy obeys.
         commands:
           stop:
-            description: "Stop movement (command 0)."
+            description: "Stop movement (command 0). Declared in form B (code bytes 30 00); form A would end 30 30."
+            verification: "hypothesis"
             value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00]
           chirp:
             description: "Play a chirp (command 18)."
+            verification: "reported"
             value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x38]
           move:
-            description: "Send a raw drive vector (command 2); units and valid ranges are unverified."
+            description: "Send a raw drive vector (command 2); units and valid ranges are unverified. Declared in form A (code bytes 30 32); form B would end 32 00."
+            verification: "hypothesis"
             template: [0x30, "{speed}", "{hold}", "{angle}", 0x30, 0x32]
             parameters:
               speed:
@@ -160,27 +191,25 @@ services:
                 default: 0.0
                 description: "Raw app control value, not proven degrees."
             advanced: true
-            advanced_reason: "Drives a moving robot. Use only small values in a clear area after testing STOP; physical scaling is not established."
+            advanced_reason: "Drives a moving robot. Use only small values in a clear area after testing the stop command; physical scaling is not established."
           spin:
-            description: "Start the spin action (command 1)."
+            description: "Start the spin action (command 1). Declared in form A (code bytes 30 31); form B would end 31 00."
+            verification: "hypothesis"
             value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x31]
             advanced: true
-            advanced_reason: "Starts movement; use in a clear area after testing STOP."
+            advanced_reason: "Starts movement; use in a clear area after testing the stop command."
           reset_heading:
-            description: "Reset the toy's heading (command 3)."
+            description: "Reset the toy's heading reference used by autonomous movement (command 3). Declared in form A (code bytes 30 33); form B would end 33 00."
+            verification: "hypothesis"
             value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x33]
-            advanced: true
-            advanced_reason: "Changes the orientation reference used by autonomous movement."
           sleep:
-            description: "Enter sleep mode (command 10)."
+            description: "Enter sleep mode until the toy is woken (command 10)."
+            verification: "reported"
             value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x30]
-            advanced: true
-            advanced_reason: "Ends the current play session until the toy is woken."
           turn_off:
-            description: "Power the toy off (command 9)."
+            description: "Power the toy off, ending the session (command 9). Declared in form A (code bytes 30 39); form B would end 39 00."
+            verification: "hypothesis"
             value: [0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39]
-            advanced: true
-            advanced_reason: "Powers down the toy and ends the current session."
       - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
         name: "UART notifications"
         properties: ["notify"]
@@ -188,14 +217,26 @@ services:
           Notification IDs are recovered, but their complete payload layouts
           are not. Keep the value opaque until a capture confirms the
           envelope rather than presenting guessed battery or pose readings.
-  - uuid: "8ec90001-f315-4f60-9fb8-838830daea50"
-    name: "Legacy/alternate Laird VSP"
-    notes: "Identity recorded from the app. No command path is asserted for this service."
+  - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+    name: "Nordic Secure DFU service"
+    notes: >
+      Firmware-update path, recorded from the app's UUID references, not
+      from a GATT dump of a toy. 8ec90001-f315-4f60-9fb8-838830daea50 (DFU
+      control point) and 8ec90002-f315-4f60-9fb8-838830daea50 (DFU packet)
+      are the stack's bootloader characteristics; they were previously
+      mislabelled here as a Laird VSP service. Whether the running
+      application exposes the stack's buttonless characteristic is not
+      established. A GATT explorer lists this service read-only; see
+      features.
     characteristics:
-      - uuid: "8ec90002-f315-4f60-9fb8-838830daea50"
-        name: "Laird VSP characteristic"
+      - uuid: "8ec90001-f315-4f60-9fb8-838830daea50"
+        name: "DFU control point (bootloader)"
         properties: []
-        notes: "Properties and live use are unconfirmed; do not write."
+        notes: "Nordic Secure DFU control point, present in the bootloader. Properties on this unit are not observed; do not write outside a deliberate update."
+      - uuid: "8ec90002-f315-4f60-9fb8-838830daea50"
+        name: "DFU packet (bootloader)"
+        properties: []
+        notes: "Nordic Secure DFU packet characteristic, present in the bootloader. Properties on this unit are not observed; do not write outside a deliberate update."
 
 payload_formats:
   CommandPacket:
@@ -206,69 +247,120 @@ payload_formats:
       - name: "payload"
         description: "Offsets 1-12, zero-filled when unused."
       - name: "decimal_code"
-        description: "Offsets 13-14, two characters; a one-digit code has NUL second."
+        description: "Offsets 13-14. A two-digit code is two ASCII digits. A one-digit code is unresolved between form A (ASCII 0 then the digit) and form B (the digit then NUL); see the command input notes."
     parse_rules:
       - "Reject packets whose total length is not exactly 15 bytes."
-      - "MOVE places three little-endian IEEE-754 binary32 values at offsets 1, 5 and 9, then code 02."
+      - "The move command places three little-endian IEEE-754 binary32 values at offsets 1, 5 and 9, then code 2 (form A 30 32 as declared; form B would be 32 00)."
       - "Do not label the drive values as physical speed, degrees or percent without new evidence."
     example: "30 00 00 80 3f 00 00 00 00 00 00 00 00 30 32"
   NotificationVocabulary:
     description: "Recovered notification IDs, not complete payload declarations."
     values:
-      15: "AUTO_ACK"
+      15: "auto-mode acknowledgement"
       28: "firmware version"
       29: "hardware version"
       30: "initialization done"
-      48: "ROBOT_POSE"
-      50: "RESETTAIL_FAILINFO"
-      64: "STUCK_TOF_MSG"
+      48: "robot pose"
+      50: "tail reset failed (failure detail)"
+      64: "stuck: distance sensor"
       95: "crash-log finish"
       96: "crash-log string"
       97: "debug info"
-      98: "BATTERY_VOLTAGE"
-      99: "ROBOT_STOPPED"
-      100: "RC_STUCK"
-      255: "NACK"
+      98: "battery voltage"
+      99: "robot stopped"
+      100: "stuck while being driven"
+      255: "negative acknowledgement"
+
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["nordic_secure_dfu"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "bundled_in_app"
+        format: "nrfutil DFU zips: three application packages and one SoftDevice/bootloader package bundled in the app."
+        notes: >
+          The images stay in the app; none is shipped here. Whether this
+          bootloader enforces the stack's default ECDSA signature check is
+          not established.
+      enter:
+        how: "unknown"
+        notes: >
+          The command vocabulary has a bootloader-entry code (8), but its
+          payload and code-byte form are not established, so it is not
+          declared as a command. Whether the running application also
+          exposes the stack's buttonless characteristic
+          (8ec90003-f315-4f60-9fb8-838830daea50) is not established.
+      dfu_mode:
+        local_names: ["MousrDfu"]
+        notes: >
+          Bootloader name recorded from the app, not observed on a unit.
+          Address behaviour is not observed; a stock nRF5 SDK bootloader
+          without bond sharing would advertise at address+1. A device in
+          this mode gets no ordinary controls.
+      services: ["0000fe59-0000-1000-8000-00805f9b34fb"]
+      recovery:
+        interrupted: "unknown"
+        notes: >
+          The nRF5 SDK defaults (dual-bank where flash allows, 120 s
+          inactivity timeout back to a valid application) have not been
+          checked on a toy.
+      verification: "reported"
+      notes: >
+        From the app's Nordic DFU library references and bundled packages,
+        not from an update performed on hardware. Do not attempt an update
+        until ordinary control and charging state are established.
 
 entities: []
 
 protocol_details:
   command_vocabulary:
-    0: "STOP"
-    1: "SPIN"
-    2: "MOVE"
-    3: "RESET_HEADING"
-    4: "GET_DEBUG_LOG"
-    5: "SPIN_PLAN"
-    8: "ENTER_DFU_MODE"
-    9: "TURN_OFF"
-    10: "SLEEP"
-    15: "CONFIG_AUTO_MODE"
-    18: "CHIRP"
-    19: "SOUND_VOLUME"
-    23: "Flick_SIGNAL"
-    24: "Reverse_SIGNAL"
-    25: "Tail_Calib_SIGNAL"
-    26: "Set_Tail_SIGNAL"
-    28: "INITIALIZE_DEVICE"
-    31: "FLIP_ROBOT"
-    41: "CFG_DRIVER_ASSIST"
-    45: "TUTORIAL_STEP"
-    46: "CMD_SET_TIME"
-    100: "INVALID"
-  excluded_controls: >
+    0: "stop"
+    1: "spin"
+    2: "move (drive vector)"
+    3: "reset heading"
+    4: "request debug log"
+    5: "planned spin"
+    8: "enter firmware-update (bootloader) mode"
+    9: "turn off"
+    10: "sleep"
+    15: "configure autonomous play mode"
+    18: "chirp"
+    19: "set sound volume"
+    23: "tail flick"
+    24: "reverse"
+    25: "tail calibration"
+    26: "set tail"
+    28: "initialize device"
+    31: "flip the robot over"
+    41: "configure driver assist"
+    45: "tutorial step"
+    46: "set time"
+    100: "invalid command"
+  undeclared_controls: >
     Auto-mode byte offsets, debug-log transfer, tail calibration, driver
-    assist, tutorial control, set-time and DFU are not declared because their
-    payload or safety sequence is not established. No reset or firmware write
-    should be inferred from the command number alone.
+    assist, tutorial control, set time and bootloader entry (code 8) are not
+    declared as commands because their payload, or the code-byte form, is
+    not established. They are listed above so the next person can capture
+    them, not withheld. No reset or firmware write should be inferred from
+    the command number alone.
+  one_digit_code_forms:
+    note: >
+      Both candidate encodings of every one-digit code, as the last two
+      bytes of the 15-byte packet. Neither is backed by an observation.
+    form_a_ascii_zero_then_digit: "30 3n (code 0 = 30 30, code 2 = 30 32)"
+    form_b_digit_then_nul: "3n 00 (code 0 = 30 00, code 2 = 32 00)"
   test_vectors:
     stop_hex: "30 00 00 00 00 00 00 00 00 00 00 00 00 30 00"
+    stop_form_a_hex: "30 00 00 00 00 00 00 00 00 00 00 00 00 30 30"
     chirp_hex: "30 00 00 00 00 00 00 00 00 00 00 00 00 31 38"
     move:
       speed: 1.0
       hold: 0.0
       angle: 0.0
       expected_hex: "30 00 00 80 3f 00 00 00 00 00 00 00 00 30 32"
+      form_b_hex: "30 00 00 80 3f 00 00 00 00 00 00 00 00 32 00"
     move_fractional:
       speed: 0.5
       hold: 0.25
@@ -291,13 +383,16 @@ evidence:
   open_questions: >
     Drive-value ranges and physical units, notification payload layouts,
     auto-mode configuration offsets, bonding requirements, firmware/DFU
-    compatibility and the exact role of the legacy Laird channel.
+    compatibility, the second code byte of one-digit command codes, and
+    whether the factory name is exactly "Mousr".
 
 remaining_unknowns:
   - "Drive values are app control values, not established m/s, degrees or percent."
   - "Notification IDs are known but payload layouts are not; no battery or pose decoder is declared."
   - "Auto-mode configuration has a 12-byte payload but its exact offsets are unresolved."
   - "The app carries Nordic DFU packages, but no update sequence or version compatibility was tested."
+  - "One-digit command codes (stop 0, spin 1, move 2, reset heading 3, turn off 9) have two contradictory encodings in the analysis: ASCII 0 then the digit, or the digit then NUL. Neither was observed; the declared values mix them. A capture of the app sending stop and move settles it."
+  - "The factory advertised name is reported as exactly Mousr but has not been seen on a unit; identification uses it as an exact name."
   - "No hardware capture confirms bonding, command acceptance or connection limits."
 
 helpful_urls:

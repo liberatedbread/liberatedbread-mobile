@@ -214,10 +214,16 @@ services:
         name: "Manufacturing token"
         properties: ["read"]
         notes: >
-          Reading starts MPID setup. Generation-one tokens are 136 bytes;
-          other supported formats are variable-length and can be at least
-          182 bytes. The community client's fixed 148-byte device-key label
-          is not a safe general parser rule. The token contains a protocol
+          Reading starts MPID setup. Per the app analysis, generation-one
+          tokens are 136 bytes and other supported formats are
+          variable-length, at least 182 bytes. Separately, the community
+          client's PROTOCOL.md records a 148-byte read from this
+          characteristic on its unit (labelled there a device
+          key/certificate). That is an observation, not a format, and it
+          does not reconcile with 136 or 182+: whether it is a third token
+          format, a truncated read or a firmware difference is unknown.
+          Parse by the token's own version and lengths, never a fixed size.
+          The token contains a protocol
           version, serial, compressed public key, manufacturing key id,
           signature and salt. Per-unit values stay out of the spec.
       - uuid: "af0a6ec7-0004-000a-84a0-91559fc6f0de"
@@ -487,6 +493,37 @@ payload_formats:
       - "Byte order of model_id and flags is unpublished; keep them as raw bytes."
     example: "AQAAAAAqAAAAAAAAAAAAqrvM3e7_"
 
+features:
+  - type: "firmware_update"
+    dfu:
+      mechanisms: ["vendor_ble"]
+      transport: "ble"
+      image:
+        signing: "unknown"
+        source: "unknown"
+        notes: >
+          The recovered app verifies an image signature before sending, so
+          vendor images are signed; whether the portal itself rejects an
+          unsigned or foreign image is not established. Where the app
+          obtains images is not recorded here, and none is offered.
+      enter:
+        how: "unknown"
+        notes: >
+          The app's OTA messages (new image, image request/response, block,
+          chunk, transfer complete, error, stop) travel over service 000b;
+          whether the portal receives the image in place or reboots into a
+          loader first is not established.
+      services: ["af0a6ec7-0001-000b-84a0-91559fc6f0de"]
+      recovery:
+        interrupted: "unknown"
+      verification: "reported"
+      notes: >
+        From the recovered official app, not from an update performed on a
+        portal. Commands on 0002-000b, image chunks on 0003-000b, MTU 247
+        requested. No update is offered: compatibility is untested and the
+        complete OTA state machine is not documented here. A GATT explorer
+        lists service 000b read-only.
+
 entities:
   - platform: "binary_sensor"
     name: "Car on Portal"
@@ -579,9 +616,10 @@ protocol_details:
     Read the manufacturing token on 0003, parse its version, serial,
     compressed public key, manufacturing key id, signature and salt, then
     write the phone's public key and salt on 0004. Later packets on 0002 are
-    encrypted in both directions. Generation-one tokens are 136 bytes and
-    other formats vary; do not apply the community note's fixed 148-byte
-    assumption. The outer official command envelope and complete session
+    encrypted in both directions. Per the app analysis, generation-one
+    tokens are 136 bytes and other formats vary (at least 182 bytes). The
+    community note observed a 148-byte read on its unit; that length matches
+    neither and is unexplained, so no fixed size is assumed. The outer official command envelope and complete session
     state machine remain unimplemented, and the community read-only path
     does not perform this exchange.
   ota_service: >
@@ -661,7 +699,7 @@ evidence:
 
 remaining_unknowns:
   - "Speed unit: the raw float is either m/s or a passage time in seconds; the x64 'scale mph' figure is a display convention, not a measured conversion. Needs a timed run over a known distance."
-  - "MPID: manufacturing tokens are variable-length (136-byte generation one, at least 182 bytes in another format), not a fixed 148-byte certificate. The complete session state machine and official command envelope remain unresolved."
+  - "MPID: the app analysis describes variable-length manufacturing tokens (136-byte generation one, at least 182 bytes in another format), while the community note observed a 148-byte read on its unit. The two do not reconcile; which format that unit returned, or whether the read was truncated, is unknown. The complete session state machine and official command envelope remain unresolved."
   - "OTA: service 000b is vendor-confirmed, but no image or version compatibility was tested and no update is offered."
   - "Control register bytes 1-3 (fe 00 fe vs 72 9b fe) and the effect of any write to it or to the command channel. Nothing should be written until a capture shows what the vendor app wrote."
   - "The record(s) following the URI record in the NDEF message — the source calls them a signature; the TNF, type and length are unpublished."

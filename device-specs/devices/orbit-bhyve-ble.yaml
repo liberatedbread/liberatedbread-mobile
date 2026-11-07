@@ -62,9 +62,10 @@ device:
       * Everything else seen so far (HT25G2-0001, HT25A-0001, the bare
         HT25-0001, HT31-0001, HT32A-0001, HT34A-0001, HT34-0001): protobuf
         messages in a CRC-checked inner wrapper, frame magic 0x11.
-    The routing rule both clients use: hardware string starting HT25 and
-    ending "-0000" is the mesh family; every other HT25*, HT31*, HT32* and
-    HT34* is the protobuf family. The hardware string comes from the
+    ljmerza's routing rule (wxfield targets the HT34A-0001 only and does
+    not route): a hardware string starting HT25G2 or HT25A is the protobuf
+    family; any other HT25* ending "-0000" is the mesh family; every other
+    HT25*, HT31*, HT32* and HT34* is the protobuf family. The hardware string comes from the
     owner's account record; nothing in the advertisement says which family
     a timer is.
 
@@ -123,6 +124,7 @@ device:
   variants:
     - model: "HT25-0000"
     - model: "HT25G2-0001"
+    - model: "HT25-0001"
     - model: "HT25A-0001"
     - model: "HT31-0001"
     - model: "HT32A-0001"
@@ -226,8 +228,8 @@ device:
         The key is not exchanged over BLE and is not derived from the
         handshake; the handshake only fixes the per-session nonce and
         counters. A 00006c76-fe32-4f58-8b78-98e42b2c047f write of the key
-        was tried upstream and refused ("write not permitted") on every
-        unit; do not write it.
+        was tried upstream and refused on every unit (see that
+        characteristic's notes); do not write it.
 
   pairing:
     required: false
@@ -316,9 +318,9 @@ services:
           start_zone_1:
             description: >
               Protobuf family: manual run of zone 1 (wire station 0) for
-              `duration` seconds — field 14 timerMode {mode 2 manual, field
-              2 manualModeParams {field 3 stationInfo {field 1 station 0,
-              field 2 run seconds}}}. 600 s renders as the body
+              `duration` seconds — field 14 (timer mode) {field 1 mode 2 =
+              manual, field 2 (manual parameters) {field 3 (station entry)
+              {field 1 station 0, field 2 run seconds}}}. 600 s renders as the body
               72 0b 08 02 12 07 1a 05 08 00 10 d8 04. HT25A-0001 fw0098
               ignores the duration (see its entity).
             encoding: "bytes"
@@ -378,8 +380,8 @@ services:
             verification: "reported"
           stop_watering:
             description: >
-              Protobuf family: stop whatever is running — timerMode {mode 2
-              manual, empty manualModeParams}. Verified upstream on
+              Protobuf family: stop whatever is running — timer mode {mode
+              2 manual, empty field 2}. Verified upstream on
               HT25G2-0001 fw0111 and HT34A-0001 fw0107. NOT for HT25A-0001
               fw0098, where this exact frame STARTS a default 30-minute
               run; use controller_off there. The device answers a stop with
@@ -390,8 +392,8 @@ services:
             verification: "reported"
           controller_off:
             description: >
-              Protobuf family: controller mode off — timerMode {mode 0,
-              empty manualModeParams}. Stops a run on every model and is the
+              Protobuf family: controller mode off — timer mode {mode 0,
+              empty field 2}. Stops a run on every model and is the
               only verified stop on HT25A-0001 fw0098. It also disables
               stored programs until controller_auto is sent; upstream sends
               controller_auto after a stop if the controller was in auto
@@ -402,8 +404,8 @@ services:
           controller_auto:
             description: >
               Protobuf family: controller mode auto (stored programs run) —
-              timerMode {mode 1, empty manualModeParams}. The empty field 2
-              is required; a timerMode without it is silently ignored.
+              timer mode {mode 1, empty field 2}. The empty field 2 is
+              required; a field 14 without it is silently ignored.
             encoding: "bytes"
             value: [0x72, 0x04, 0x08, 0x01, 0x12, 0x00]
             verification: "reported"
@@ -559,9 +561,10 @@ services:
         name: "Unused write characteristic"
         properties: ["write"]
         notes: >
-          Answers ATT error 0x80 / "write not permitted" to every write
-          tried upstream. ljmerza associates it with the firmware path. Do
-          not write it.
+          Refused on every write tried upstream: ljmerza's docs report both
+          an ATT application error (0x80) and "Write Not Permitted" (which
+          is ATT error 0x03, a different code). ljmerza associates it with
+          the firmware path. Do not write it.
 
 payload_formats:
   ProtobufStatus:
@@ -613,7 +616,7 @@ payload_formats:
 entities:
   - platform: "switch"
     name: "Zone 1"
-    variants: ["HT25G2-0001", "HT31-0001", "HT32A-0001", "HT34A-0001", "HT34-0001"]
+    variants: ["HT25G2-0001", "HT25-0001", "HT31-0001", "HT32A-0001", "HT34A-0001", "HT34-0001"]
     commands:
       turn_on: "start_zone_1"
       turn_off: "stop_watering"
@@ -652,7 +655,9 @@ entities:
       the requested run time and always runs its default 1800 s, so the
       CLIENT must send controller_off when the requested time is up, and
       then controller_auto if programs should keep running. Never send
-      stop_watering to this model: it restarts a 30-minute run.
+      stop_watering to this model: it restarts a 30-minute run. If the
+      client never sends the stop (link lost, client gone), the run ends on
+      its own at 1800 s.
   - platform: "switch"
     name: "Valve"
     variants: ["HT25-0000"]
@@ -856,6 +861,20 @@ protocol_details:
   transport_behaviour:
     single_session: "One central at a time. Upstream recommends connect, do one thing, disconnect, under a per-device lock."
     duplicate_notifications: "Drop a notification byte-identical to the previous one before decrypting (see 6c73 notes)."
+    run_timing: >
+      Every start is timed on the timer. The valve closes when the run ends
+      whether or not a central is still connected, so a dropped link cannot
+      leave it open past the requested time (ljmerza
+      docs/ble-reliability-and-behavior.md section 2.3: rely on the
+      on-device auto-close as the safety net; HT25-0000 also pushes its own
+      run-end frame, mesh message 0x0c, per devices/ht25.py). Exception:
+      HT25A-0001 fw0098 ignores the requested time and runs its 1800 s
+      default (ljmerza devices/ht25a.py, hardware-verified 2026-09-14). A
+      client that loses the link before sending controller_off leaves the
+      valve open for up to 30 minutes. The device's own maximum run is
+      unknown. ht25_start accepts up to 65535 s (about 18.2 h) and the
+      protobuf templates up to 16383 s (about 4.6 h). A client should cap
+      runs to what the owner intends.
     write_mode: "Write requests and write commands have both actuated an HT34A. ljmerza's current code writes with response (waiting under a second for it); its older docs/ble-protocol.md reports write requests of about 25 bytes or more refused with ATT error 0x80 on one unit, so fall back to write without response if that error appears."
 
 evidence:
@@ -882,7 +901,7 @@ remaining_unknowns:
   - "The network key and mesh ids are only obtainable from the Orbit account (or the vendor app's storage on a rooted phone). If the cloud is retired before an owner exports them, no public method recovers them."
   - "Whether the outer trailer is enforced by the device (sources disagree; see evidence)."
   - "Factory reset procedure and whether it clears the mesh key."
-  - "HT34-0001 and HT32A-0001 actuation rests on sibling-model evidence; HT25-0001 (bare) is routed to the protobuf family by rule, not by a tested unit."
+  - "HT34-0001 is routed to the XD protocol on a fork's report and is not hardware-tested by either source. HT25-0001 (bare) is routed to the protobuf family by rule, not by a tested unit."
   - "HT25-0000 STATUS countdown: 1/64 s ticks is a fit to two captures; runs over 1023 s may use offset 8."
 
 helpful_urls:

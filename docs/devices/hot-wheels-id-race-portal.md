@@ -84,9 +84,12 @@ All UUIDs are `af0a6ec7-XXXX-YYYY-84a0-91559fc6f0de`: `YYYY` is the service
 
 **MPID setup** reads the manufacturing token, parses its version, serial,
 compressed public key, manufacturing key id, signature and salt, then writes
-the phone's public key and salt on `0004`. Generation-one tokens are 136
-bytes; other formats vary and can be at least 182 bytes. The community
-client's fixed 148-byte device-key label is therefore not a safe parser rule.
+the phone's public key and salt on `0004`. Per the app analysis,
+generation-one tokens are 136 bytes and other formats vary, at least 182
+bytes. The community client's protocol notes separately record a 148-byte
+read on its unit. That observation matches neither format and is unexplained
+(a third format, a truncated read or a firmware difference), so a parser goes
+by the token's own version and lengths, never a fixed size.
 Later packets on `0002` are encrypted. The complete session state machine and
 outer official command envelope remain out of scope.
 

@@ -46,8 +46,14 @@ the newer Ecowitt app wants an account only for cloud features.
 
 ## APK
 Not needed — protocol is vendor-documented (PDF) and implemented by multiple
-open-source projects. (WS View Plus = `com.ost.wsview`; Ecowitt app =
-`com.ecowitt.ecowitt`, fetchable if a spec ever needs app-behavior details.)
+open-source projects. Current store links reviewed 2026-11-02 identify
+**WSView Plus** as `com.ost.wsautool` and **Ecowitt** as `com.ost.ecowitt`.
+`com.ost.wsview` is the legacy WS View app; `com.ecowitt.ecowitt` was not found
+in the current US lookups. The newer HTTP API v1.0.6 supports read-only live
+weather, sensor registry, selected device info and configured units on
+GW1100/GW1200/GW2000/GW3000. It does not establish HTTP JSON support on GW1000.
+Missing-value sentinels, pagination failures and conflicting wind/rain/light
+mappings must remain explicit rather than being normalized into guessed values.
 
 ## Company status (checked 2026-08-07)
 Active. Ecowitt keeps shipping gateways and publishing firmware; wxforum wiki

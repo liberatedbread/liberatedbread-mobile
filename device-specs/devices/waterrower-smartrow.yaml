@@ -1,0 +1,507 @@
+# WaterRower ComModule / SmartRow — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources (public, clean-room; derived facts only):
+#   - madooroy/smartrow-bridge, commit fdf634e60726208625df267741f26d1a796a2cd8
+#     (GPL-3.0), including its sanitized V3.10 capture and 44 tests.
+#   - inonoob/pirowflo, commit c4aab7a22b712101059ea34f3593d86296cdd839.
+#   - phbaer/waterrower-local-ble, commit
+#     43927584a4618c161b263a35008275d8a991754c.
+#   - Bluetooth SIG FTMS 1.0 and WaterRower ComModule owner manual.
+
+device:
+  name: "WaterRower ComModule / SmartRow"
+  manufacturer: "WaterRower"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not driven against hardware by this project. SmartRow V3.10 layouts come
+      from a sanitized public capture: all 1,476 records pass the documented
+      checksum, and all 44 bridge tests passed. ComModule uses standard FTMS.
+      These establish source/capture consistency, not measurement accuracy or
+      compatibility with other firmware. No physical WaterRower was used here.
+  protocol: "ble"
+  transport: "ble-gatt"
+  category: "fitness"
+  type: "rowing-machine-telemetry"
+  notes: >
+    Two related but distinct telemetry paths. ComModule attaches to an S4
+    Performance Monitor and exposes standard FTMS Rower Data. SmartRow is a
+    separate power meter with service 0x1234, commands on 0x1235 and
+    CR-delimited ASCII telemetry on 0x1236. Do not assign the ComModule f364
+    vendor extension to SmartRow; that extension remains undecoded.
+
+    SmartRow V3.10 records are 17 wire bytes: 16 visible characters plus CR.
+    Reassemble fragments, validate sum(bytes 0-13) & 0xff against the two hex
+    characters at 14-15, then decode by prefix. Distance digits at 1-5 use a
+    low-nibble transformation. Force-curve units and the physical units of the
+    b work/stroke-length fields are unresolved and remain raw.
+
+    The KEYLOCK exchange is an interoperability transform, not meaningful
+    cryptographic authentication. No motor, workout-programming, resistance,
+    calibration or firmware command is documented. LightRing BF is a separate
+    LED device, not SmartRow telemetry; see protocol_details.lightring_bf.
+
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/madooroy/smartrow-bridge"
+    license: "GPL-3.0"
+    upstream_docs:
+      - url: "https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/"
+        title: "Bluetooth SIG Fitness Machine Service 1.0"
+        covers: "ComModule's standard Rower Data fields and fragmented-record behavior."
+    notes: >
+      FTMS is a published standard. SmartRow's command and record layouts are
+      community-recovered, corroborated by the vendor app's protocol roles and
+      a sanitized public V3.10 capture. Only derived facts are recorded.
+
+  identification:
+    local_name_prefix: "SmartRow"
+    service_uuids:
+      - "00001234-0000-1000-8000-00805f9b34fb"
+      - "00001826-0000-1000-8000-00805f9b34fb"
+    notes: >
+      SmartRow advertisements carry its name and 0x1234 service. ComModule
+      advertises standard FTMS 0x1826, which is shared with other fitness
+      equipment and is not unique identification. Do not identify a rower from
+      FTMS alone or assume the f364 extension is SmartRow.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "00001234-0000-1000-8000-00805f9b34fb"
+            - "00001826-0000-1000-8000-00805f9b34fb"
+          local_name:
+            match: "prefix"
+            value: "SmartRow"
+        notes: >
+          Use the SmartRow name/service combination where available. ComModule
+          requires owner confirmation as an S4 Bluetooth ComModule because the
+          standard FTMS service is not model-specific.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: "No cloud account or application credential is needed for local telemetry. Pairing requirements beyond the observed open GATT paths are unverified."
+    methods:
+      - type: "ble_direct"
+        name: "ComModule standard FTMS"
+        role: "variant"
+        verified: false
+        description: "Confirm the S4 ComModule, subscribe to standard Rower Data, and aggregate fragmented records without writing the Fitness Machine Control Point."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Confirm the device is the Bluetooth ComModule attached to the S4 monitor."
+            actor: "user"
+          - action: "Subscribe to 00002ad1-0000-1000-8000-00805f9b34fb and decode fields using payload_formats.FTMS_Rower_Data."
+            actor: "client"
+          - action: "Retain partial-record fields until a notification with More Data bit 0 clear finalizes the record."
+            actor: "client"
+      - type: "ble_direct"
+        name: "SmartRow V3.10 telemetry"
+        role: "variant"
+        verified: false
+        description: "Match SmartRow/0x1234, subscribe to 0x1236, perform only the required session exchange, then reassemble and validate ASCII records."
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Match SmartRow and service 00001234-0000-1000-8000-00805f9b34fb, then subscribe to 00001236-0000-1000-8000-00805f9b34fb."
+            actor: "client"
+          - action: "Use start_session only when beginning a new workout and any current session has been preserved. Do not probe unrelated hardware with it."
+            actor: "user"
+          - action: "Reassemble 17-byte records, validate checksum and prefix, then decode the V3.10 fields. Keepalive is approximately every two seconds on V3.10, not a mandated interval."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: "No common factory-reset procedure is established for ComModule and SmartRow. start_session is a workout reset/start, not a hardware factory reset."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Reconnect directly and resubscribe. No cloud session is required for local telemetry."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "The KEYLOCK transform is not an owner secret or secure provisioning credential."
+
+  pairing:
+    required: false
+    confidence: "low"
+    security_mode: "none"
+    bonding: "none"
+    enter_pairing_mode:
+      required: false
+    notes: "The reviewed SmartRow/ComModule paths do not establish a bonding requirement; other firmware or OS combinations remain unverified."
+
+  variants:
+    - model: "ComModule (S4 bridge)"
+      identification:
+        service_uuids:
+          - "00001826-0000-1000-8000-00805f9b34fb"
+      notes: "Standard FTMS on the S4 Bluetooth ComModule. FTMS alone is not unique identification; owner confirmation is required."
+    - model: "SmartRow (V3.10)"
+      identification:
+        local_name_prefix: "SmartRow"
+        service_uuids:
+          - "00001234-0000-1000-8000-00805f9b34fb"
+      notes: "Capture-backed ASCII record layouts are specific to V3.10. Other firmware needs validation before using these offsets/scales."
+
+services:
+  - uuid: "00001826-0000-1000-8000-00805f9b34fb"
+    name: "Fitness Machine Service (ComModule)"
+    variants: ["ComModule (S4 bridge)"]
+    characteristics:
+      - uuid: "00002ad1-0000-1000-8000-00805f9b34fb"
+        name: "Rower Data"
+        properties: ["notify"]
+        notes: >
+          Standard FTMS little-endian flags followed by present fields in
+          payload_formats.FTMS_Rower_Data order. Bit 0 is inverted More Data:
+          clear means Stroke Rate/Count are present and the record is final;
+          set means those fields are absent and more fragments follow.
+        format:
+          - {offset: 0, length: 2, name: "flags", type: "uint16", endianness: "little", notes: "Bits 1-12 determine optional fields; bit 0 is inverted More Data; bits 13-15 reserved."}
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service (ComModule, when exposed)"
+    variants: ["ComModule (S4 bridge)"]
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+        notes: "Standard uint8 percentage 0-100; other values reserved. Presence on every ComModule needs hardware verification."
+        format:
+          - {offset: 0, length: 1, name: "battery_percent", type: "uint8", unit: "%", device_class: "battery"}
+
+  - uuid: "00001234-0000-1000-8000-00805f9b34fb"
+    name: "SmartRow service"
+    variants: ["SmartRow (V3.10)"]
+    characteristics:
+      - uuid: "00001235-0000-1000-8000-00805f9b34fb"
+        name: "SmartRow commands"
+        properties: ["write"]
+        role: "command"
+        notes: "ASCII session/configuration commands. Do not use these as generation-discovery probes; match SmartRow and 0x1234 first."
+        commands:
+          start_session:
+            description: "Initial start/reset sequence; the pulley answers with its version. Only send when starting a new workout."
+            encoding: "bytes"
+            value: [0x24, 0x0d, 0x56, 0x40, 0x0d]
+            advanced: true
+            advanced_reason: "Starts/resets the active workout session. Preserve any session that must be kept before sending it; this is not a factory reset."
+            verification: "reported"
+          keepalive:
+            description: "Keepalive poll; approximately every two seconds on V3.10, not a hardware-mandated interval."
+            encoding: "bytes"
+            value: [0x24]
+            verification: "reported"
+          request_configuration:
+            description: "Request configuration after a V3 greeting."
+            encoding: "bytes"
+            value: [0x2a]
+            verification: "reported"
+          request_remote_text:
+            description: "Request remote/configuration text, CR REMOTE> CR."
+            encoding: "bytes"
+            value: [0x0d, 0x52, 0x45, 0x4d, 0x4f, 0x54, 0x45, 0x3e, 0x0d]
+            verification: "reported"
+          request_keylock_challenge:
+            description: "Request a key-lock challenge after a V3 version reply. This is an interoperability exchange, not meaningful authentication."
+            encoding: "bytes"
+            value: [0x23]
+            verification: "reported"
+
+      - uuid: "00001236-0000-1000-8000-00805f9b34fb"
+        name: "SmartRow telemetry"
+        properties: ["notify"]
+        notes: >
+          CR-delimited ASCII. Reassemble fragments before decoding; one
+          notification is not necessarily one record. Telemetry records are
+          17 bytes including CR. Validate checksum before interpreting any
+          field, including KEYLOCK challenges.
+
+payload_formats:
+  FTMS_Rower_Data:
+    description: "Standard FTMS Rower Data on ComModule: uint16 LE flags, then present fields in the order below. Missing fields remain unavailable."
+    fields:
+      - {name: "stroke_rate", unit: "strokes/min", scale: 0.5, description: "uint8 when bit 0 is CLEAR; raw value times 0.5."}
+      - {name: "stroke_count", unit: "count", description: "uint16 LE when bit 0 is CLEAR."}
+      - {name: "average_stroke_rate", unit: "strokes/min", scale: 0.5, description: "uint8 when bit 1 is set; raw times 0.5."}
+      - {name: "total_distance", unit: "m", description: "uint24 LE when bit 2 is set."}
+      - {name: "instantaneous_pace", unit: "s/500m", description: "uint16 LE when bit 3 is set; not speed in m/s."}
+      - {name: "average_pace", unit: "s/500m", description: "uint16 LE when bit 4 is set."}
+      - {name: "instantaneous_power", unit: "W", description: "Signed int16 LE when bit 5 is set."}
+      - {name: "average_power", unit: "W", description: "Signed int16 LE when bit 6 is set."}
+      - {name: "resistance_level", description: "uint8 when bit 7 is set; unitless, not automatically a damper number."}
+      - {name: "total_energy", unit: "kcal", description: "uint16 LE when bit 8 is set; 0xffff unavailable."}
+      - {name: "energy_per_hour", unit: "kcal/h", description: "uint16 LE when bit 8 is set; 0xffff unavailable."}
+      - {name: "energy_per_minute", unit: "kcal/min", description: "uint8 when bit 8 is set; 0xff unavailable."}
+      - {name: "heart_rate", unit: "bpm", description: "uint8 when bit 9 is set; workout telemetry, not validated for medical use."}
+      - {name: "metabolic_equivalent", unit: "MET", scale: 0.1, description: "uint8 when bit 10 is set; raw times 0.1."}
+      - {name: "elapsed_time", unit: "s", description: "uint16 LE when bit 11 is set."}
+      - {name: "remaining_time", unit: "s", description: "uint16 LE when bit 12 is set."}
+    parse_rules:
+      - "Read flags little-endian. Bits 13-15 are reserved; bit 0 is inverted More Data, not a presence flag for more measurements."
+      - "When bit 0 is clear, Stroke Rate/Count are present and the record is final. When set, they are absent and more fragments follow. Retain partial fields until finalization."
+      - "Energy fields form one group under bit 8. Map their unavailable sentinels to unknown, not enormous readings."
+      - "A synthetic all-fields buffer uses flags 0x1ffe and is 29 bytes. It does not fit one default-MTU notification and is not a claim that real hardware sends every field together."
+
+  SmartRow_Record:
+    description: "One V3.10 ASCII record: 14 data characters, two uppercase hex checksum characters, then CR (17 wire bytes)."
+    fields:
+      - {index: 0, name: "prefix", description: "Record family: a, b, c, d, e, f, x, y or z. Other prefixes are not decoded by this profile."}
+      - {index: 1, name: "distance_digits", unit: "m", description: "Five characters at 1-5. Decode each byte as (byte & 0x0f) | 0x30, then parse decimal metres."}
+      - {index: 6, name: "record_fields", description: "Prefix-specific fields through offset 13; see protocol_details.smartrow_records."}
+      - {index: 14, name: "checksum", description: "Two ASCII hex characters equal to sum(raw bytes 0-13) & 0xff."}
+      - {index: 16, name: "terminator", description: "CR 0x0d."}
+    parse_rules:
+      - "Reassemble complete CR-terminated records before parsing. Require exactly 17 bytes for telemetry and reject short, trailing or unknown records."
+      - "Validate checksum before every field. Do not use the record if its checksum or prefix is invalid."
+      - "Decode distance independently of prefix. Ordinary ASCII digits pass through unchanged, so the low-nibble rule is also harmless on older records."
+      - "Power average, work and stroke-rate decimal scaling is division by 10; preserve raw precision. The bridge rounds only for presentation."
+      - "An f record with ! at offset 11 means stopped. Repeated c/d/e values after it are stale until a new stroke, not new activity."
+
+protocol_details:
+  smartrow_records:
+    common:
+      wire_bytes: 17
+      data_bytes: 14
+      checksum_encoding: "two ASCII hex characters at 14-15 = sum(raw[0:14]) & 0xff"
+      terminator: 0x0d
+      distance: "characters 1-5, each (byte & 0x0f) | 0x30, decimal metres"
+    a:
+      elapsed: "minutes at 6-8, seconds at 9-10 (MMMSS), not hours/minutes/seconds"
+      unit: "s"
+    b:
+      work_per_stroke: "characters 6-10 divided by 10; physical unit unresolved"
+      stroke_length: "characters 11-13; bridge calls centimetres, preserve raw pending physical calibration"
+    c:
+      instant_power: "characters 6-8, unit W"
+      average_power: "characters 9-13 divided by 10, unit W"
+    d:
+      stroke_rate: "characters 6-8 divided by 10, unit strokes/min"
+      stroke_count: "characters 9-12, unit count"
+    e:
+      instant_split: "minutes at 6 plus seconds at 7-8, unit s/500m"
+      average_split: "minutes at 9 plus seconds at 10-11, unit s/500m"
+    f:
+      stopped: "exclamation mark at offset 11; repeated c/d/e values are stale until a new stroke"
+    force_curve:
+      prefixes: [x, y, z]
+      points_per_record: 8
+      point_offsets: [6, 13]
+      formula: "(ord(character) - 33) * 16"
+      concatenation: "x, then y, then z = 24 points"
+      units: "unresolved; preserve the raw force profile, do not infer calibrated force"
+  keylock:
+    challenge: "Sixteen visible ASCII characters beginning KEYLOCK=, with big-endian seed hex at offsets 10-13 and two checksum characters at 14-15, optionally CR/LF wrapped; validate checksum before responding"
+    seed_offsets: [10, 13]
+    response_algorithm: "seed = big-endian hex value; value = seed * 17923 // 256; format as six uppercase hex digits, drop first two, return remaining four lowercase wrapped in CR"
+    bad_checksum_response: "#"
+    security: "Interoperability transform, not evidence of meaningful cryptographic authentication"
+    test_vectors:
+      synthetic: {challenge_hex: "4b45594c4f434b3d3030314132423935", response_hex: "0d323831300d", expected_text: "2810"}
+      capture_backed: {challenge_hex: "0d4b45594c4f434b3d43424646333143340d", response_hex: "0d636136330d", expected_text: "ca63"}
+  test_vectors:
+    power_349:
+      record_text: "c@@@BH  0  349FD"
+      distance_m: 28
+      instant_power_w: 0
+      average_power_w: 34.9
+    power_45:
+      record_text: "c@@@GB 45  35815"
+      distance_m: 72
+      instant_power_w: 45
+      average_power_w: 35.8
+    stroke_266:
+      record_text: "d@@@BH266   3-0C"
+      stroke_rate_spm: 26.6
+      stroke_count: 3
+    pace_337:
+      record_text: "e@@@BG000337 w72"
+      instant_pace_s_500m: 0
+      average_pace_s_500m: 217
+    elapsed_12:
+      record_text: "a@@@BH00012   FE"
+      elapsed_s: 12
+    force_x:
+      record_text: "x@@PBE&(*,-.!!10"
+      distance_m: 25
+      points: [80, 112, 144, 176, 192, 208, 0, 0]
+  ftms:
+    all_fields_flags: 0x1ffe
+    all_fields_bytes: 29
+    more_data_bit: 0
+    energy_unavailable: {total_energy: 0xffff, energy_per_hour: 0xffff, energy_per_minute: 0xff}
+  lightring_bf:
+    identity: "Separate LightRing BF LED device, not SmartRow telemetry or ComModule configuration"
+    local_name: "LightRing BF"
+    service_uuid: "e54b1234-67f5-479e-8711-b3b99198ce6c"
+    control_characteristic: "e54b0003-67f5-479e-8711-b3b99198ce6c"
+    properties: [read, write, notify, indicate]
+    pairing: "No pairing/bonding required in the public implementation"
+    solid_color: "00 green red blue (four bytes); red is 00 00 ff 00"
+    pixel_frame: "02 slot_le16 followed by exactly 52 green/red/blue triplets (159 bytes total); unused pixels zero"
+    select_frame: "03 slot mode_flag duration_le16; integration uses slot 0, mode 0, duration 0. Exact loop/start semantics unresolved"
+    experimental: "05/0d native animation timelines exist in the public implementation but are not confirmed on hardware and are not declared as supported commands here"
+
+entities:
+  - platform: "sensor"
+    name: "ComModule Distance"
+    device_class: "distance"
+    unit: "m"
+    variants: ["ComModule (S4 bridge)"]
+    notes: "FTMS uint24 LE Total Distance when bit 2 is set."
+  - platform: "sensor"
+    name: "ComModule Power"
+    device_class: "power"
+    unit: "W"
+    variants: ["ComModule (S4 bridge)"]
+    notes: "FTMS signed int16 LE Instantaneous Power when bit 5 is set."
+  - platform: "sensor"
+    name: "ComModule Stroke Rate"
+    unit: "strokes/min"
+    variants: ["ComModule (S4 bridge)"]
+    notes: "FTMS uint8 raw times 0.5 when More Data bit 0 is clear."
+  - platform: "sensor"
+    name: "ComModule Battery"
+    device_class: "battery"
+    unit: "%"
+    variants: ["ComModule (S4 bridge)"]
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+    state_mapping: {value: "battery_percent"}
+    notes: "When the standard Battery Service is exposed; values 101-255 reserved."
+  - platform: "sensor"
+    name: "SmartRow Distance"
+    device_class: "distance"
+    unit: "m"
+    variants: ["SmartRow (V3.10)"]
+    notes: "Five low-nibble-decoded decimal characters at offsets 1-5 after checksum validation."
+  - platform: "sensor"
+    name: "SmartRow Instant Power"
+    device_class: "power"
+    unit: "W"
+    variants: ["SmartRow (V3.10)"]
+    notes: "c record offsets 6-8; zeroed for presentation after stop/timeout while raw state remains inspectable."
+  - platform: "sensor"
+    name: "SmartRow Average Power"
+    device_class: "power"
+    unit: "W"
+    variants: ["SmartRow (V3.10)"]
+    notes: "c record offsets 9-13 divided by 10; retained across pauses."
+  - platform: "sensor"
+    name: "SmartRow Stroke Rate"
+    unit: "strokes/min"
+    variants: ["SmartRow (V3.10)"]
+    notes: "d record offsets 6-8 divided by 10."
+  - platform: "sensor"
+    name: "SmartRow Stroke Count"
+    unit: "count"
+    variants: ["SmartRow (V3.10)"]
+    notes: "d record offsets 9-12."
+  - platform: "sensor"
+    name: "SmartRow Instant Pace"
+    unit: "s/500m"
+    variants: ["SmartRow (V3.10)"]
+    notes: "e record: minutes at 6 plus seconds at 7-8."
+  - platform: "sensor"
+    name: "SmartRow Average Pace"
+    unit: "s/500m"
+    variants: ["SmartRow (V3.10)"]
+    notes: "e record: minutes at 9 plus seconds at 10-11."
+  - platform: "sensor"
+    name: "SmartRow Elapsed Time"
+    device_class: "duration"
+    unit: "s"
+    variants: ["SmartRow (V3.10)"]
+    notes: "a record MMMSS: minutes at 6-8 plus seconds at 9-10; not hours/minutes/seconds."
+  - platform: "sensor"
+    name: "SmartRow Raw Force Point"
+    variants: ["SmartRow (V3.10)"]
+    notes: "x/y/z each provide eight (ord(char)-33)*16 points; concatenate for 24. No calibrated force unit is asserted."
+
+local_access:
+  status: "native"
+  summary: "ComModule and SmartRow telemetry are available directly over BLE without the vendor cloud."
+  covers:
+    - "Standard ComModule FTMS Rower Data and optional battery percentage"
+    - "SmartRow V3.10 session commands, checksummed telemetry and 24-point raw force curve"
+    - "LightRing BF identity and its separately scoped static LED protocol"
+  not_covered:
+    - "ComModule f364 extension, other SmartRow firmware and calibrated force/work/stroke-length units"
+    - "Motor/workout programming, resistance, calibration, history upload and firmware update"
+    - "LightRing native animation behavior, which remains experimental"
+
+cloud:
+  required: false
+  notes: "No account or cloud connection is required for the documented local telemetry."
+
+evidence:
+  artifacts:
+    - type: "public_implementation"
+      url: "https://github.com/madooroy/smartrow-bridge"
+      artifact: "madooroy/smartrow-bridge, commit fdf634e60726208625df267741f26d1a796a2cd8 (GPL-3.0)"
+      description: "Sanitized V3.10 capture with 1,476 checksum-valid records and 44 passing tests; source of the capture-backed vectors and stopped/rollover behavior."
+    - type: "public_implementation"
+      url: "https://github.com/inonoob/pirowflo"
+      artifact: "inonoob/pirowflo, commit c4aab7a22b712101059ea34f3593d86296cdd839"
+      description: "Independent SmartRow commands, checksum and telemetry behavior; 15 upstream tests passed."
+    - type: "public_implementation"
+      url: "https://github.com/phbaer/waterrower-local-ble"
+      artifact: "phbaer/waterrower-local-ble, commit 43927584a4618c161b263a35008275d8a991754c"
+      description: "Independent SmartRow/LightRing protocol reference and LightRing static frame layouts."
+    - type: "vendor_documentation"
+      url: "https://web.archive.org/web/20250109115057/https://media2.waterrower.com/service/manuals/WEB_ComModule_Instructions_Commodule-Manual.pdf"
+      artifact: "WaterRower Bluetooth ComModule owner's manual, WRM_7701 v1.3"
+      description: "S4 attachment, charging, app role, LED states and safety; not a SmartRow wire-format source."
+    - type: "standard"
+      url: "https://www.bluetooth.com/specifications/specs/fitness-machine-service-1-0/"
+      description: "FTMS Rower Data field order, types, scaling, sentinels and fragmented-record rules."
+  documentation_review: >
+    Reviewed 2026-11-06 SmartRow correction and the earlier FTMS profile. The
+    independent spec tests transcribe checksum, field and keylock rules without
+    importing the public clients. No code or owner identifiers are copied.
+  open_questions: >
+    Other SmartRow firmware, calibrated force/work/stroke-length units,
+    ComModule f364 payloads, actual field support and physical pairing/reset
+    behavior. The capture establishes parser consistency, not measurement truth.
+
+remaining_unknowns:
+  - "SmartRow layouts are V3.10-specific; other firmware must be captured before using these offsets/scales."
+  - "Force-curve units and the physical units of b work and stroke length remain unresolved."
+  - "The ComModule f3641401/f3641404 extension is undecoded and is not SmartRow."
+  - "No physical WaterRower, ComModule, SmartRow or LightRing was used by this project."
+  - "LightRing native animations and exact select-frame loop/start semantics remain experimental."
+
+helpful_urls:
+  - title: "madooroy/smartrow-bridge (GPL-3.0)"
+    url: "https://github.com/madooroy/smartrow-bridge"
+    kind: "implementation"
+    description: "Capture-backed V3.10 SmartRow decoder, checksum/keylock tests and full-session replay."
+  - title: "inonoob/pirowflo"
+    url: "https://github.com/inonoob/pirowflo"
+    kind: "implementation"
+    description: "Independent SmartRow commands, checksum and telemetry client."
+  - title: "phbaer/waterrower-local-ble"
+    url: "https://github.com/phbaer/waterrower-local-ble"
+    kind: "implementation"
+    description: "Independent SmartRow and LightRing BF local protocol reference."
+  - title: "WaterRower Bluetooth ComModule owner's manual (archived PDF)"
+    url: "https://web.archive.org/web/20250109115057/https://media2.waterrower.com/service/manuals/WEB_ComModule_Instructions_Commodule-Manual.pdf"
+    kind: "manual"
+    description: "WRM_7701 v1.3 for the S4 Bluetooth ComModule: fitting, charging, LED states, apps and safety. Not a SmartRow protocol manual."
+  - title: "WaterRower SmartRow user manual (archived PDF)"
+    url: "https://web.archive.org/web/20250109142126id_/https://media2.waterrower.com/service/manuals/SmartRow-Manual.pdf"
+    kind: "manual"
+    description: "SmartRow-specific archived user manual; physical installation and operation, not the recovered byte layout."
