@@ -3,9 +3,13 @@
 <!--
   App-level privacy manifest for Liberated Bread.
 
-  The app collects no data and tracks no one: no advertising SDK, no analytics,
-  no identifiers leave the device, and nothing about what the user controls is
-  reported anywhere.
+  The app tracks no one: no advertising SDK, no analytics, no identifiers
+  leave the device, and nothing about what the user controls is reported
+  anywhere on its own. It collects ONE thing, and only when the user asks it
+  to: a diagnostics report about a device that did something its spec does
+  not describe, sent when the user taps Send on the banner that offers it.
+  That is the single NSPrivacyCollectedDataTypes entry below (Other
+  Diagnostic Data, not linked, not tracking, App Functionality).
 
   It is not, however, offline-only, and the previous wording here ("its only
   outbound request is an anonymous GET for the banner config") was wrong. Every
@@ -47,19 +51,19 @@
       (lib/models/svc_report.dart). The server does not store the sender's
       IP address.
 
-  The unexpected-services report is the one that DOES reach a server of
-  ours. NSPrivacyCollectedDataTypes stays empty for it on the reading that it
-  is Apple's optional-disclosure case: user-initiated each time, shown before
-  sending, not part of the app's primary function, never used for tracking
-  or ads, and carrying no identifier. Apple also expects such a form to
-  display the user's name or account, and this app has neither. That
-  reading is the owner's call to confirm, recorded in
-  docs/APP_STORE_SUBMISSION.md Step 7. If it is answered the other way,
-  declare Other Diagnostic Data (App Functionality, not linked, not
-  tracking) here and update the manifest test in the same commit.
+  The device report is the one that DOES reach a server of ours, so it is
+  declared: NSPrivacyCollectedDataTypeOtherDiagnosticData, not linked to the
+  user, not used for tracking, purpose App Functionality (it is how a spec
+  gets fixed so the device works). Apple's optional-disclosure exemption
+  might have covered it, but that exemption expects the submission form to
+  show the user's name or account and this app has neither, so declaring is
+  the answer that cannot be wrong. It is user-initiated diagnostics: never
+  sent in the background, shown verbatim before sending, and sent again only
+  on another tap. The App Privacy form has no field to say so; the store
+  description and review notes do (docs/APP_STORE_SUBMISSION.md Step 7).
 
   None of the others is a collection of data BY this app, which is why
-  NSPrivacyCollectedDataTypes stays empty; they are listed because a privacy
+  NSPrivacyCollectedDataTypes lists nothing else; they are listed because a privacy
   manifest that quietly understates a network surface is worse than one that
   does not mention it.
 
@@ -121,7 +125,20 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>

@@ -60,7 +60,7 @@ void main() {
       );
     });
 
-    test('declares no tracking and collects no data', () {
+    test('declares no tracking, and only user-initiated diagnostics', () {
       expect(
         manifest['NSPrivacyTracking'],
         isFalse,
@@ -70,15 +70,29 @@ void main() {
             'would also require App Tracking Transparency and a '
             'NSUserTrackingUsageDescription that do not exist.',
       );
+      // Exactly one entry: the device report a user sends from the banner
+      // (lib/widgets/unexpected_services_banner.dart). Anything more, or
+      // this one linked or tracking, means the App Privacy answers in App
+      // Store Connect and docs/APP_STORE_SUBMISSION.md Step 7 move too.
       expect(
         manifest['NSPrivacyCollectedDataTypes'],
-        isEmpty,
+        [
+          {
+            'NSPrivacyCollectedDataType':
+                'NSPrivacyCollectedDataTypeOtherDiagnosticData',
+            'NSPrivacyCollectedDataTypeLinked': false,
+            'NSPrivacyCollectedDataTypeTracking': false,
+            'NSPrivacyCollectedDataTypePurposes': [
+              'NSPrivacyCollectedDataTypePurposeAppFunctionality',
+            ],
+          },
+        ],
         reason:
-            'NSPrivacyCollectedDataTypes must stay empty in '
-            '$_manifestPath. If the app ever does collect something, this '
-            'list and the App Privacy answers in App Store Connect have to '
-            'move together — and docs/APP_STORE_SUBMISSION.md has to stop '
-            'saying no data leaves the device.',
+            'NSPrivacyCollectedDataTypes in $_manifestPath must declare the '
+            'user-initiated device report as Other Diagnostic Data (not '
+            'linked, not tracking, App Functionality) and nothing else. If '
+            'that changes, the App Privacy answers in App Store Connect and '
+            'docs/APP_STORE_SUBMISSION.md Step 7 have to move with it.',
       );
     });
 
@@ -97,6 +111,8 @@ void main() {
         'lib/services/irobot_cloud_service.dart',
         'lib/services/mygmrs_client.dart',
         'lib/services/repeaterbook_client.dart',
+        'lib/widgets/unexpected_services_banner.dart',
+        'lib/models/svc_report.dart',
       };
       final hostPin = RegExp(r"static const String host = '");
       final services = Directory('${repoRoot.path}/lib/services');

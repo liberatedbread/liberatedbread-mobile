@@ -210,14 +210,27 @@ self-classification report — a once-a-year email (template at the bottom) to
 
 - **Privacy Policy URL:** `https://liberatedbread.com/privacy/` (matches the
   in-app link).
-- **Data collection:** the app collects nothing → answer **"Data Not
-  Collected."** The rationale, which must match the description below and the
-  comment in `ios/Runner/PrivacyInfo.xcprivacy` word for word in substance: no
-  account is required, no analytics or advertising SDK is linked, and nothing
-  about what the user controls is reported anywhere. The app is not
-  offline-only, though — these are the connections it opens beyond the user's
-  own devices, every one optional or anonymous, and none a collection of data
-  by this app:
+- **Data collection:** answer **"Data Collected"**, with exactly one type:
+  - **Diagnostics ▸ Other Diagnostic Data**
+  - Used for: **App Functionality** only
+  - Linked to the user's identity: **No**
+  - Used for tracking: **No**
+
+  This is the device report a user chooses to send from the "unexpected
+  services" / "unexpected response" banner (last bullet below). It is
+  **user-initiated diagnostics**: never sent in the background, shown
+  verbatim before it is sent, and sent again only on another tap. The App
+  Privacy form has no field for "optional" or "user-initiated", so say it in
+  the description (Step 8) and the review notes (`docs/RELEASE.md`
+  § Review), and make sure the privacy policy says it too.
+
+  The rationale, which must match the description below and the comment in
+  `ios/Runner/PrivacyInfo.xcprivacy` word for word in substance: no account
+  is required, no analytics or advertising SDK is linked, and nothing about
+  what the user controls is reported anywhere on its own. These are the
+  connections the app opens beyond the user's own devices, every one
+  optional or anonymous, and none but the last a collection of data by this
+  app:
   - an anonymous GET for the promotional banner config;
   - a device-profile pack download, if the user installs one — from GitHub or
     a URL they enter (`lib/services/spec_pack_service.dart`);
@@ -247,18 +260,14 @@ self-classification report — a once-a-year email (template at the bottom) to
     describe, the app version and the platform, and carries no identifier
     (`lib/models/svc_report.dart`). The server keeps no IP address.
 
-  **Decision needed (owner):** the report is the one connection whose data
-  reaches a server of ours. "Data Not Collected" holds for it only on
-  Apple's *optional disclosure* exemption: user-initiated each time, clear
-  about what is sent, infrequent, not primary functionality, no tracking or
-  ads. That exemption also asks for the user's name or account to be shown
-  on the submission form, and this app has neither, so the reading is
-  arguable. The conservative answer is **Diagnostics ▸ Other Diagnostic
-  Data**, purpose App Functionality, not linked to the user, not used for
-  tracking. If you choose it, add that entry to `NSPrivacyCollectedDataTypes`
-  and its test in the same commit, and update the manifest comment.
+  Declared rather than claimed under Apple's *optional disclosure*
+  exemption. That exemption fits in most respects: user-initiated,
+  infrequent, clear about what is sent. But it also expects the user's name
+  or account on the submission form, and this app has neither. Declaring is
+  the answer that cannot be wrong. If the report ever carries an identifier
+  or is linked to an account, the "Linked" answer changes with it.
 
-  If App Review asks how "Data Not Collected" squares with a sign-in form, the
+  If App Review asks how the narrow answer squares with a sign-in form, the
   answer is the iRobot bullet: the credentials are sent to the vendor, not to
   us, and no identifier leaves the device for this app's benefit.
 
@@ -322,7 +331,8 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 **Description:**
 > Liberated Bread is a universal remote for the devices on your own network. It
 > talks to them directly — over Bluetooth Low Energy and your local Wi-Fi — with
-> no account required, no cloud relay, and no data collection.
+> no account required, no cloud relay, and nothing collected unless you choose
+> to send it.
 >
 > It ships with a catalogue of device profiles and can discover and control a
 > wide range of gear on your LAN, including smart plugs and bulbs, media players
@@ -330,7 +340,7 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > printers, cameras, and more — plus a bridge to your own Home Assistant server.
 >
 > Privacy by design: device control is direct and local, and nothing about it
-> is reported anywhere. The app makes no account and collects no data. The only
+> is reported anywhere on its own. The app makes no account. The only
 > connections it opens beyond your own devices are ones you can see and choose:
 > an anonymous check for an in-app banner, downloading a device-profile pack if
 > you install one, your own Home Assistant server if you configure it, and — if
@@ -339,6 +349,10 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > password. When you ask for radio channels near you, only the US state(s)
 > within your search radius go to the repeater directories you have turned on (myGMRS, and
 > RepeaterBook with your own access token); your position stays on your phone.
+> And if a device does something its profile doesn't describe, the app offers
+> to send us a diagnostics report so we can fix the profile. It is only ever
+> sent when you tap Send, it shows you exactly what it contains first, and it
+> carries no addresses, names or identifiers.
 >
 > This is independent, community-maintained software provided as-is. Please read the in-app terms and
 > the disclaimer at https://liberatedbread.com/disclaimer/ before use — some

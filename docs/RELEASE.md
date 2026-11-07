@@ -124,13 +124,20 @@ lost upload key. Back the upload key up off every build machine anyway.
   the user's own credentials sent to the service that issued them, disclosed
   where they are entered, the same way the App Store runbook treats them. The
   banner check is anonymous.
-  **Also declare** *App info and performance ▸ Diagnostics*: collected, not
-  shared, **optional**, purpose *App functionality*. This covers the
-  "unexpected services" report a user can send from a device screen to
-  `svc-reports.liberatedbread.com`, our own server. It carries no
-  identifier, but Play has no user-initiated exemption for data that
-  reaches the developer, so it is declared (see the App Store runbook's
-  Step 7 for the iOS side, which is still an open decision).
+  **Also declare** *App info and performance ▸ Diagnostics*:
+  - collected: **yes**; shared: **no**;
+  - processed ephemerally: **no** (reports are stored for triage);
+  - required or optional: **"Users can choose whether this data is
+    collected"**. This is Play's own wording for user-initiated collection,
+    and it is accurate: nothing is sent without a tap;
+  - purpose: **App functionality**.
+
+  This covers the device report a user chooses to send from the "unexpected
+  services" / "unexpected response" banner to `svc-reports.liberatedbread.com`,
+  our own server. It carries no identifier. Play has no exemption for
+  user-initiated data that reaches the developer, so it is declared, and the
+  optional answer is where Play lets you say it is user-initiated. The iOS
+  side is the App Store runbook's Step 7.
 - **Ads**: answer *yes*. The banner is an affiliate promotion, and declaring
   "no ads" while shipping it is a policy violation.
 - **Location permission declaration**: the app requests
@@ -182,6 +189,12 @@ The privacy page should say what the code does:
     once the user pastes their own access token, to RepeaterBook
     (`www.repeaterbook.com`, with that token; saving the token also checks it
     there once). Each directory can be turned off;
+  - a diagnostics report about a device that did something its profile does
+    not describe (an unexpected service or response), sent to
+    `svc-reports.liberatedbread.com` and/or by email to
+    `svc-reports@liberatedbread.com`, **only when the user taps Send**. It
+    shows its contents first, carries no addresses, names or identifiers,
+    and the server keeps no IP address;
 - the last position used for a repeater search stays on the phone, rounded to
   about 1 km, until the user forgets it;
 - the banner is an affiliate link.
@@ -199,7 +212,11 @@ Under Guideline 2.1, an app that controls hardware the reviewer does not own
 looks like it does nothing. In the review notes, say:
 
 - the app controls Bluetooth and local-network devices;
-- it has no accounts and no server;
+- it has no accounts and no server of its own for device control. Its one
+  server, `svc-reports.liberatedbread.com`, receives a diagnostics report
+  only when the user taps Send on a banner about a device that did something
+  its profile does not describe. That is user-initiated diagnostics, declared
+  as Other Diagnostic Data;
 - "no devices found" is correct behaviour on a network with no supported
   hardware.
 
