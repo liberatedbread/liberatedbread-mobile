@@ -130,6 +130,27 @@ class HttpHaApiClient implements HaApiClient {
   }
 
   @override
+  Future<Set<String>> loadedComponents({
+    required String baseUrl,
+    required String token,
+  }) async {
+    final response = await _get(Uri.parse('$baseUrl/api/components'), token);
+    _throwForStatus(response);
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is! List) {
+        throw _malformed(response.statusCode, 'components', 'not a list');
+      }
+      return {
+        for (final entry in decoded)
+          if (entry is String) entry,
+      };
+    } on FormatException catch (e) {
+      throw _malformed(response.statusCode, 'components', e);
+    }
+  }
+
+  @override
   Future<void> callService({
     required String baseUrl,
     required String token,

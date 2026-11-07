@@ -253,6 +253,54 @@ void main() {
     );
   });
 
+  group('loadedComponents', () {
+    test('reads /api/components with bearer auth', () async {
+      http.Request? seen;
+      final client = HttpHaApiClient(
+        MockClient((request) async {
+          seen = request;
+          return http.Response(
+            jsonEncode(['http', 'localthings', 'localthings.sensor']),
+            200,
+          );
+        }),
+      );
+
+      final components = await client.loadedComponents(
+        baseUrl: _base,
+        token: 'tok',
+      );
+
+      expect(components, {'http', 'localthings', 'localthings.sensor'});
+      expect(seen!.method, 'GET');
+      expect(seen!.url.toString(), '$_base/api/components');
+      expect(seen!.headers['Authorization'], 'Bearer tok');
+    });
+
+    test('a rejected token is an auth failure', () {
+      final client = HttpHaApiClient(
+        MockClient((_) async => http.Response('unauthorized', 401)),
+      );
+      expect(
+        client.loadedComponents(baseUrl: _base, token: 'bad'),
+        throwsA(isA<HaAuthException>()),
+      );
+    });
+
+    test('a body that is not a list stays inside the typed hierarchy', () {
+      for (final body in ['{"components": []}', 'not json']) {
+        final client = HttpHaApiClient(
+          MockClient((_) async => http.Response(body, 200)),
+        );
+        expect(
+          client.loadedComponents(baseUrl: _base, token: 'tok'),
+          throwsA(isA<HaServerException>()),
+          reason: body,
+        );
+      }
+    });
+  });
+
   group('friendlyHaMessage for a network failure', () {
     const e = HaNetworkException('no route');
 

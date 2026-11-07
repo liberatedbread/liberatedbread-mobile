@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -14,20 +15,28 @@ import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/ad_banner.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/ad_banner_provider.dart';
+import 'package:liberated_bread_mobile/models/ha_config.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart'
-    show urlOpenerProvider;
+    show
+        HaConfigNotifier,
+        haApiClientProvider,
+        settingsStoreProvider,
+        urlOpenerProvider;
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/network_scan_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_description_provider.dart';
 import 'package:liberated_bread_mobile/screens/wifi_scan_screen.dart';
 import 'package:liberated_bread_mobile/services/ad_banner_service.dart';
+import 'package:liberated_bread_mobile/services/ha_api_client.dart';
 import 'package:liberated_bread_mobile/services/number_registry.dart';
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/ad_banner_bar.dart';
 
+import '../fakes/fake_ha_api_client.dart';
 import '../fakes/fake_spec_codec.dart';
+import '../fakes/in_memory_settings_store.dart';
 
 /// Emits a canned set of hosts, or an error.
 class _FakeNetworkScanService implements NetworkScanService {
@@ -632,6 +641,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.extraMdnsTypesPerScan.single, contains('_hue._tcp.local.'));
+    // Home Assistant's own type is asked for by name too: no spec names it,
+    // and the LocalThings card depends on seeing it.
+    expect(
+      service.extraMdnsTypesPerScan.single,
+      contains('_home-assistant._tcp.local.'),
+    );
   });
 
   testWidgets('a chatty device cannot overflow the details sheet', (
@@ -698,5 +713,211 @@ void main() {
 
     expect(find.byIcon(Icons.router_outlined), findsOneWidget);
     expect(find.byIcon(unknownDeviceIcon), findsNothing);
+  });
+
+  group('LocalThings', () {
+    final hub = _device(
+      host: '192.168.1.70',
+      name: 'SmartThings Hub',
+      port: 8081,
+      serviceTypes: const ['_smartthings._tcp.local'],
+      txt: const {'id': '<hub-id>', 'type': 'hubv2'},
+    );
+    final ha = _device(
+      host: '192.168.1.80',
+      name: 'Home',
+      port: 8123,
+      serviceTypes: const ['_home-assistant._tcp.local'],
+      txt: const {'internal_url': 'http://homeassistant.local:8123'},
+    );
+
+    Widget wrapWithHa(
+      _FakeNetworkScanService service, {
+      FakeHaApiClient? api,
+      bool connected = false,
+      List<Uri>? opened,
+    }) => ProviderScope(
+      overrides: [
+        networkScanServiceProvider.overrideWithValue(service),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
+        deviceSpecsProvider.overrideWith((ref) => {'hue.yaml': 'yaml'}),
+        specCodecProvider.overrideWithValue(
+          FakeSpecCodec(spec: _spec, networkMatches: (_) => const []),
+        ),
+        settingsStoreProvider.overrideWithValue(
+          InMemorySettingsStore({
+            if (connected)
+              HaConfigNotifier.configKey: jsonEncode(
+                const HaConfig(
+                  baseUrl: 'http://ha.local:8123',
+                  token: 'tok',
+                  deviceId: 'dev',
+                ).toJson(),
+              ),
+          }),
+        ),
+        haApiClientProvider.overrideWithValue(api ?? FakeHaApiClient()),
+        urlOpenerProvider.overrideWithValue((uri) async {
+          opened?.add(uri);
+          return true;
+        }),
+      ],
+      child: const MaterialApp(home: WifiScanScreen()),
+    );
+
+    Future<void> scan(WidgetTester tester) async {
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a hub and a Home Assistant on the LAN bring up the card', (
+      tester,
+    ) async {
+      final opened = <Uri>[];
+      await tester.pumpWidget(
+        wrapWithHa(_FakeNetworkScanService(devices: [hub, ha]), opened: opened),
+      );
+      await scan(tester);
+
+      expect(find.byKey(const Key('localthings-suggestion')), findsOneWidget);
+      expect(find.text('Take your Samsung appliances local'), findsOneWidget);
+
+      await tester.tap(find.text('Get LocalThings'));
+      await tester.pumpAndSettle();
+      expect(opened.single.host, 'my.home-assistant.io');
+      expect(opened.single.queryParameters['repository'], 'localthings');
+
+      // Nobody could say whether it is installed, so the add flow is offered
+      // too — at the instance the scan found, not via the hosted redirect.
+      await tester.tap(find.text('Already installed? Add one'));
+      await tester.pumpAndSettle();
+      expect(
+        opened.last.toString(),
+        'http://homeassistant.local:8123/_my_redirect/config_flow_start'
+        '?domain=localthings',
+      );
+    });
+
+    testWidgets('a hub with no Home Assistant anywhere gets no card', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapWithHa(_FakeNetworkScanService(devices: [hub])),
+      );
+      await scan(tester);
+
+      expect(find.byKey(const Key('localthings-suggestion')), findsNothing);
+    });
+
+    testWidgets('Home Assistant alone, with no SmartThings, asks nothing', (
+      tester,
+    ) async {
+      final api = FakeHaApiClient()..components = {'localthings'};
+      await tester.pumpWidget(
+        wrapWithHa(
+          _FakeNetworkScanService(devices: [ha]),
+          api: api,
+          connected: true,
+        ),
+      );
+      await scan(tester);
+
+      expect(find.byKey(const Key('localthings-suggestion')), findsNothing);
+      expect(api.componentReads, 0);
+    });
+
+    testWidgets('a connected HA with LocalThings loaded offers the add flow', (
+      tester,
+    ) async {
+      final opened = <Uri>[];
+      final api = FakeHaApiClient()
+        ..components = {'http', 'localthings', 'localthings.sensor'};
+      await tester.pumpWidget(
+        wrapWithHa(
+          // No HA on the scan: the connected one is enough.
+          _FakeNetworkScanService(devices: [hub]),
+          api: api,
+          connected: true,
+          opened: opened,
+        ),
+      );
+      await scan(tester);
+
+      expect(api.componentReads, 1);
+      expect(
+        find.text('LocalThings is in your Home Assistant'),
+        findsOneWidget,
+      );
+      expect(find.text('Get LocalThings'), findsNothing);
+
+      await tester.tap(find.text('Add an appliance'));
+      await tester.pumpAndSettle();
+      // The connected address, which this phone has proven it can reach.
+      expect(
+        opened.single.toString(),
+        'http://ha.local:8123/_my_redirect/config_flow_start'
+        '?domain=localthings',
+      );
+    });
+
+    testWidgets('a connected HA without LocalThings offers only the install', (
+      tester,
+    ) async {
+      final api = FakeHaApiClient()..components = {'http', 'smartthings'};
+      await tester.pumpWidget(
+        wrapWithHa(
+          _FakeNetworkScanService(devices: [hub]),
+          api: api,
+          connected: true,
+        ),
+      );
+      await scan(tester);
+
+      expect(find.text('Take your Samsung appliances local'), findsOneWidget);
+      expect(find.text('Get LocalThings'), findsOneWidget);
+      expect(find.text('Already installed? Add one'), findsNothing);
+    });
+
+    testWidgets('a Home Assistant that cannot answer still gets the advice', (
+      tester,
+    ) async {
+      final api = FakeHaApiClient()
+        ..componentsError = const HaNetworkException('no route');
+      await tester.pumpWidget(
+        wrapWithHa(
+          _FakeNetworkScanService(devices: [hub]),
+          api: api,
+          connected: true,
+        ),
+      );
+      await scan(tester);
+
+      expect(find.text('Get LocalThings'), findsOneWidget);
+      expect(find.text('Already installed? Add one'), findsOneWidget);
+    });
+
+    testWidgets("the hub's details point at LocalThings", (tester) async {
+      final opened = <Uri>[];
+      await tester.pumpWidget(
+        wrapWithHa(_FakeNetworkScanService(devices: [hub]), opened: opened),
+      );
+      await scan(tester);
+
+      await tester.tap(find.text('SmartThings Hub'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('About LocalThings'),
+        100,
+        scrollable: find.byType(Scrollable).last,
+      );
+      expect(find.text('Samsung appliances can go local'), findsOneWidget);
+
+      await tester.tap(find.text('About LocalThings'));
+      await tester.pumpAndSettle();
+      expect(
+        opened.single.toString(),
+        'https://github.com/mbillow/localthings',
+      );
+    });
   });
 }
