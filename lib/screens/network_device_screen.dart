@@ -93,10 +93,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   final Map<String, Map<String, String>> _stateByCommand = {};
   final Map<String, NetworkReadingDto?> _readings = {};
 
-  /// A light's readings by role (`is_on`, `brightness`, `color_temperature`).
-  /// A light declares no `value`, so its [_readings] entry is null — its
-  /// state is these, read by [SpecCodec.readNetworkEntityRoles].
+  /// A light's or cover's readings by role: a light's `is_on`, `brightness`
+  /// and `color_temperature`, a cover's `state` and `position`. Such an
+  /// entity may declare no `value` (every catalogue light, ratgdo's door),
+  /// leaving its [_readings] entry null — its state is these, read by
+  /// [SpecCodec.readNetworkEntityRoles].
   final Map<String, Map<String, NetworkReadingDto>> _roleReadings = {};
+
+  /// The platforms whose cards draw [_roleReadings].
+  static const _roleCards = {'light', 'cover'};
 
   /// Slider positions the user has set but the device has not yet confirmed,
   /// shown until the next state decode supersedes them.
@@ -1396,8 +1401,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               returned: returned,
             );
       _readings[entity.name] = reading;
-      // Only the light card draws roles, so only a light pays for the read.
-      final roles = returned == null || entity.platform != 'light'
+      // Only the light and cover cards draw roles, so only they pay for the
+      // read.
+      final roles = returned == null || !_roleCards.contains(entity.platform)
           ? const <NetworkRoleReadingDto>[]
           : await codec.readNetworkEntityRoles(
               specYaml: widget.controls.specYaml,
@@ -1408,8 +1414,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         for (final role in roles) role.role: role.reading,
       };
       // A fresh decode supersedes a slider position the user was holding —
-      // the device has now said where it actually is.
-      if (reading != null) _pendingSetpoints.remove(entity.name);
+      // the device has now said where it actually is. A role reading says
+      // so as much as the single one: a ratgdo door's position is a role.
+      if (reading != null || roles.isNotEmpty) {
+        _pendingSetpoints.remove(entity.name);
+      }
       // Say WHY a card reads "State unknown": the state command answered, but
       // no field in it mapped to this entity's reading. Without this the app is
       // silent about a real gap (a bulb's light_state, a variant's renamed
@@ -3035,7 +3044,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// reports one, and a position slider only when there is a live position
   /// to anchor it to.
   Widget _coverCard(NetworkEntityDto entity) {
-    final reading = _readings[entity.name];
+    // A cover that maps `state` and `position` rather than one `value` — a
+    // ratgdo's OPEN/CLOSED and its 0..1 travel — reads them by role; the
+    // single reading stays the fallback for one that maps a `value`.
+    final roles = _roleReadings[entity.name] ?? const {};
+    final status = roles['state'] ?? _readings[entity.name];
     final open = _actionFor(entity, 'open_cover');
     final close = _actionFor(entity, 'close_cover');
     final stop = _actionFor(entity, 'stop_cover');
@@ -3048,7 +3061,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             : Icons.curtains_outlined);
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
-    final positionValue = reading?.number;
+    final positionValue =
+        roles['position']?.number ?? _readings[entity.name]?.number;
     // Where the finger is during a drag, as the number and fan sliders keep
     // it. The slider drew only the live reading with a no-op onChanged, so
     // the thumb sat still while dragged and a garage door was sent to a
@@ -3091,8 +3105,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              else if (reading != null)
-                Text(reading.label ?? reading.raw, style: text.bodyMedium),
+              else if (status != null)
+                Text(status.label ?? status.raw, style: text.bodyMedium),
             ],
           ),
           const SizedBox(height: 10),

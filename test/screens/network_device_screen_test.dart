@@ -3995,6 +3995,7 @@ void main() {
       List<String> hiddenNames = const [],
       NetworkReadingDto? Function(String, Map<String, String>)? reading,
       List<NetworkRoleReadingDto> Function(String, Map<String, String>)? roles,
+      MockClient? device,
     }) async {
       posts = [];
       codec = FakeSpecCodec(
@@ -4015,7 +4016,7 @@ void main() {
           overrides: [
             specCodecProvider.overrideWithValue(codec),
             soapControlClientProvider.overrideWithValue(
-              SoapControlClient(httpClient: cooker(mode: 1, time: 3)),
+              SoapControlClient(httpClient: device ?? cooker(mode: 1, time: 3)),
             ),
           ],
           child: const MaterialApp(home: SizedBox()),
@@ -4678,6 +4679,110 @@ void main() {
           .toList();
       expect(sliders, [40, 213]);
       expect(find.text('213 mired'), findsOneWidget);
+    });
+
+    // A ratgdo's door maps `state` and `position` and no `value`, so the
+    // single read is null for it, the way it is for a light: the card showed
+    // no OPEN/CLOSED and, with no live position to anchor it, never drew its
+    // position slider at all.
+    testWidgets('a cover card reads its state and position by role', (
+      tester,
+    ) async {
+      final cover = utilityEntities.firstWhere((e) => e.platform == 'cover');
+      final door = NetworkEntityDto(
+        isInstanced: false,
+        name: cover.name,
+        platform: cover.platform,
+        deviceClass: cover.deviceClass,
+        stateCommand: cover.stateCommand,
+        options: const [],
+        actions: [
+          ...cover.actions,
+          // ratgdo's set_cover_position: ESPHome's 0.0..1.0 fraction.
+          const NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
+            role: 'set_cover_position',
+            transport: 'soap',
+            commandName: 'door_set_position',
+            userParams: ['position'],
+            min: 0,
+            max: 1,
+            readBack: [],
+          ),
+        ],
+      );
+      await pumpUtility(
+        tester,
+        entities: [door],
+        // A device that takes the position, so the read-back after it runs.
+        device: MockClient((request) async {
+          if (request.url.path == '/setup.xml') {
+            return http.Response(_setupXml, 200);
+          }
+          final action = request.headers['SOAPACTION'] ?? '';
+          return http.Response(
+            action.contains('GetCrockpotState')
+                ? _stateResponse(mode: 1, time: 3)
+                : _ackResponse,
+            200,
+          );
+        }),
+        reading: (_, _) => null,
+        // What read_network_entity_roles answers for the vendored ratgdo
+        // door given {"state":"OPEN","position":0.25,...}: the state as
+        // text, the position as a number on the wire's own scale.
+        roles: (entity, _) => const [
+          NetworkRoleReadingDto(
+            role: 'state',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.text,
+              raw: 'OPEN',
+            ),
+          ),
+          NetworkRoleReadingDto(
+            role: 'position',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: 0.25,
+              raw: '0.25',
+            ),
+          ),
+          NetworkRoleReadingDto(
+            role: 'current_operation',
+            reading: NetworkReadingDto(
+              kind: NetworkReadingKind.text,
+              raw: 'IDLE',
+            ),
+          ),
+        ],
+      );
+
+      expect(find.text('OPEN'), findsOneWidget);
+      final slider = find.byType(Slider);
+      expect(slider, findsOneWidget);
+      expect(tester.widget<Slider>(slider).value, 0.25);
+
+      // A drag is held until the device's next reading supersedes it — a
+      // role reading is that reading too, or the dragged position would
+      // stand for the door's own for as long as the screen stayed open.
+      final gesture = await tester.startGesture(tester.getCenter(slider));
+      await tester.pump();
+      await gesture.moveBy(const Offset(40, 0));
+      await tester.pump();
+      expect(tester.widget<Slider>(slider).value, isNot(0.25));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(
+        codec.renderNetworkCommandCalls.map((c) => c.commandName),
+        contains('door_set_position'),
+      );
+      expect(find.textContaining('did not accept'), findsNothing);
+      expect(
+        tester.widget<Slider>(slider).value,
+        0.25,
+        reason: 'the read-back after the send is where the door is',
+      );
     });
 
     testWidgets('hidden declared controls are counted, not vanished', (

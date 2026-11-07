@@ -11,6 +11,7 @@ import 'dart:typed_data' show Uint16List;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/constants.dart';
+import 'package:liberated_bread_mobile/services/json_fields.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/services/ws_control_service.dart';
@@ -306,6 +307,45 @@ void main() {
       expect(roles['is_on']?.isOn, isTrue, reason: 'held: $held');
       expect(roles['brightness']?.number, 60, reason: 'held: $held');
     }
+  });
+
+  test('a ratgdo door reads its state and position by role', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // The cover maps `state`, `position` and `current_operation`, and no
+    // `value`: the role read is the cover card's only live state. The reply
+    // is the spec's own GET /cover/Door example as jsonStateFields
+    // flattens it.
+    final ratgdo = await rootBundle.loadString(
+      'vendor/protocol-specs/device-specs/devices/ratgdo.yaml',
+    );
+    final returned = jsonStateFields(
+      '{"id":"cover/Door","state":"OPEN","current_operation":"IDLE",'
+      '"position":0.25}',
+    );
+    final codec = RealSpecCodec();
+    expect(
+      await codec.readNetworkEntity(
+        specYaml: ratgdo,
+        entityName: 'Garage Door',
+        returned: returned,
+      ),
+      isNull,
+    );
+    final roles = {
+      for (final r in await codec.readNetworkEntityRoles(
+        specYaml: ratgdo,
+        entityName: 'Garage Door',
+        returned: returned,
+      ))
+        r.role: r.reading,
+    };
+    expect(roles['state']?.raw, 'OPEN');
+    // ESPHome's 0..1 fraction, the scale set_cover_position's bounds use.
+    expect(roles['position']?.number, 0.25);
+    expect(roles['current_operation']?.raw, 'IDLE');
   });
 
   test('encodeEntityValue sends the value to the entity that owns it', () async {
