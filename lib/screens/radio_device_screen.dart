@@ -19,12 +19,14 @@ import '../providers/channel_plan_provider.dart';
 import '../providers/radio_profile_provider.dart';
 import '../providers/radio_programmer_provider.dart';
 import '../providers/saved_radio_provider.dart';
+import '../providers/svc_report_provider.dart';
 import '../services/baofeng_ble_programmer.dart' show RadioWritePreflight;
 import '../services/codeplug_backup_store.dart';
 import '../services/radio_programmer.dart';
 import '../src/rust/api/radio_api.dart' as rust;
 import '../widgets/confirm_dialog.dart';
 import '../widgets/tx_unlock_dialog.dart';
+import '../widgets/unexpected_services_banner.dart';
 import 'channel_plan_screen.dart';
 
 /// What forgetting a saved radio costs, asked the same way from this
@@ -173,6 +175,21 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
           padding: const EdgeInsets.only(bottom: 32),
           children: [
             _Header(target: _target, saved: saved),
+            if (profile != null)
+              UnexpectedServicesBanner(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                report: buildRadioSvcReport(
+                  profile: profile,
+                  link: _target.transport,
+                  responses: ref.watch(
+                    responseAnomaliesProvider.select(
+                      (all) =>
+                          all[radioAnomalyKey(_target, profile)] ??
+                          const <RadioDiagnostic>[],
+                    ),
+                  ),
+                ),
+              ),
             if (_error case final String error)
               ListTile(
                 leading: Icon(
@@ -944,6 +961,18 @@ class _RadioDeviceScreenState extends ConsumerState<RadioDeviceScreen> {
       outcome = await body(programmer);
     } catch (error) {
       if (!mounted) return;
+      // The radio said something the profile did not expect: the "unexpected
+      // response" banner offers to tell us. Recording sends nothing.
+      final diagnostic = switch (error) {
+        RadioProtocolException(:final diagnostic) => diagnostic,
+        RadioUnsupportedException(:final diagnostic) => diagnostic,
+        _ => null,
+      };
+      if (diagnostic != null) {
+        ref
+            .read(responseAnomaliesProvider.notifier)
+            .record(radioAnomalyKey(_target, profile), diagnostic);
+      }
       final text = [
         friendlyErrorText(
           error,

@@ -3,9 +3,15 @@
 <!--
   App-level privacy manifest for Liberated Bread.
 
-  The app collects no data and tracks no one: no advertising SDK, no analytics,
-  no identifiers leave the device, and nothing about what the user controls is
-  reported anywhere.
+  The app tracks no one: no advertising SDK, no analytics, no identifiers
+  leave the device, and nothing about what the user controls is reported
+  anywhere on its own. It collects ONE thing, and only when the user asks it
+  to: a diagnostics report about a device, or a radio, that did something
+  its spec or programming profile does not describe, sent when the user taps
+  Send on the banner that offers it. That report is the Other Diagnostic
+  Data entry below. The report may carry a note the user chose to type in
+  its optional details box, which is the Customer Support entry. Both are
+  not linked, not tracking, App Functionality.
 
   It is not, however, offline-only, and the previous wording here ("its only
   outbound request is an anonymous GET for the banner config") was wrong. Every
@@ -35,9 +41,41 @@
         token checks it there once.
       Stated in the location purpose string (Info.plist
       NSLocationWhenInUseUsageDescription).
+    * a device report ("unexpected services" / "unexpected response"),
+      ONLY when the user taps Send report or Email only on the banner that
+      offers one (lib/widgets/unexpected_services_banner.dart). Send report POSTs it to
+      svc-reports.liberatedbread.com (OUR server) and opens the user's mail
+      app addressed to us. Email only does the mail half alone. The banner's
+      "What's sent?" shows the payload verbatim beforehand. It names the
+      matched spec, the services the spec does not describe and/or the
+      responses the app could not read, the app version and the platform. A
+      response is described by its shape: a Wi-Fi reply's key NAMES with
+      identifier-like segments redacted, never its values; for a BLE value
+      that would not decode, at most 32 bytes of it; for an unknown option,
+      that option. It carries no identifier: no Bluetooth or IP address, no
+      hostname, no TXT record and no Wi-Fi instance name
+      (lib/models/svc_report.dart). A radio's report names its programming
+      profile and what the radio answered (the ident it sent, a reply's
+      header, an acknowledgement byte, a block address), never the radio's
+      id or name and never its memory, which holds the owner's channels
+      (lib/services/radio_programmer.dart, RadioDiagnostics). If the user
+      types anything in the banner's optional details box, that text goes
+      too, as user_note. The server does not store the sender's IP
+      address.
 
-  None of these is a collection of data BY this app, which is why
-  NSPrivacyCollectedDataTypes stays empty; they are listed because a privacy
+  The device report is the one that DOES reach a server of ours, so it is
+  declared: NSPrivacyCollectedDataTypeOtherDiagnosticData, not linked to the
+  user, not used for tracking, purpose App Functionality (it is how a spec
+  gets fixed so the device works). Apple's optional-disclosure exemption
+  might have covered it, but that exemption expects the submission form to
+  show the user's name or account and this app has neither, so declaring is
+  the answer that cannot be wrong. It is user-initiated diagnostics: never
+  sent in the background, shown verbatim before sending, and sent again only
+  on another tap. The App Privacy form has no field to say so; the store
+  description and review notes do (docs/APP_STORE_SUBMISSION.md Step 7).
+
+  None of the others is a collection of data BY this app, which is why
+  NSPrivacyCollectedDataTypes lists nothing else; they are listed because a privacy
   manifest that quietly understates a network surface is worse than one that
   does not mention it.
 
@@ -99,7 +137,32 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCustomerSupport</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>

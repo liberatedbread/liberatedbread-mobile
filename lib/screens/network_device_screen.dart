@@ -15,10 +15,12 @@ import '../core/error_text.dart';
 import '../core/log.dart';
 import '../core/decimal_input.dart';
 import '../models/network_device.dart';
+import '../models/svc_report.dart';
 import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/roomba_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../providers/svc_report_provider.dart';
 import '../services/http_control_service.dart';
 import '../services/json_fields.dart';
 import '../services/mqtt_session.dart' show MqttMessage;
@@ -40,6 +42,7 @@ import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
 import '../widgets/rabbit_air_controls_panel.dart';
 import '../widgets/unclaimed_actions.dart';
+import '../widgets/unexpected_services_banner.dart';
 import 'roomba_identity.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
@@ -1387,6 +1390,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }());
   }
 
+  /// Hand a response the app could not make sense of to the device's
+  /// report banner. Recording sends nothing.
+  void _recordAnomaly(SvcReportResponse response) {
+    // No spec key, no banner to show it in (WifiDeviceReportBanner).
+    final specKey = widget.specKey;
+    if (!mounted || specKey == null) return;
+    ref
+        .read(responseAnomaliesProvider.notifier)
+        .record(wifiAnomalyKey(widget.device, specKey), response);
+  }
+
   Future<void> _decodeEntities() async {
     await _refineSurface();
     final codec = ref.read(specCodecProvider);
@@ -1432,6 +1446,27 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           'kasa/${entity.name}: state command '
           '"${entity.stateCommand}" answered but no field mapped to a reading '
           '(keys: ${returned.keys.join(", ")})',
+        );
+        // And offer to tell us: the "unexpected response" banner. Key
+        // names only, never the reply's values (SvcReportResponse).
+        _recordAnomaly(
+          SvcReportResponse.unmappedState(
+            command: entity.stateCommand,
+            entity: entity.name,
+            keys: returned.keys,
+          ),
+        );
+      }
+      // A value outside the spec's options (an unrecognised Crock-Pot
+      // mode): the card says "Unrecognized state", and the banner offers to
+      // report it.
+      if (reading != null && reading.kind == NetworkReadingKind.unknownOption) {
+        _recordAnomaly(
+          SvcReportResponse.unrecognizedValue(
+            where: 'command:${entity.stateCommand}',
+            entity: entity.name,
+            raw: reading.raw,
+          ),
         );
       }
     }
@@ -1719,6 +1754,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
           children: [
+            // mDNS types / SSDP targets the matched spec does not describe,
+            // or replies it could not read: the "oh hey" banner offers to
+            // tell us. Nothing while the catalogue loads, for an opener that
+            // did not know the spec, or when nothing is unexpected.
+            WifiDeviceReportBanner(
+              specKey: widget.specKey,
+              device: widget.device,
+            ),
             // Live camera, for a device whose spec declares one (Snapmaker U1).
             // Renders nothing otherwise.
             CameraViewCard(

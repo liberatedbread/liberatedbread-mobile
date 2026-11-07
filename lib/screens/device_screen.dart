@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
+import '../models/svc_report.dart';
 import '../providers/adopt_provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
@@ -14,11 +15,13 @@ import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/scan_match_provider.dart';
+import '../providers/svc_report_provider.dart';
 import '../services/ble_service.dart';
 import '../services/spec_codec.dart' show BleHandshakeDto;
 import '../widgets/ad_banner_bar.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/safety_advisory_gate.dart';
+import '../widgets/unexpected_services_banner.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
@@ -1021,7 +1024,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         // so it costs no extra FFI. Unlike a security advisory it does not
         // suppress the controls — [SafetyAdvisoryGate] shows a banner over them
         // and, when the spec asks, gates them behind a one-time acknowledgement.
-        final safety = ref
+        final matched = ref
             .watch(
               matchedDeviceSpecProvider(
                 SpecMatchRequest.forServices(
@@ -1032,9 +1035,29 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               ),
             )
             .valueOrNull
-            ?.chosen
-            ?.spec
-            .safetyAdvisory;
+            ?.chosen;
+        final safety = matched?.spec.safetyAdvisory;
+        // Services the matched spec does not describe, or values it could not
+        // decode, if any: the "oh hey" banner offers to tell us. Null (and no
+        // banner) for an unmatched device — there is no spec to be surprised
+        // against. Only failures recorded under THIS spec count: after the
+        // chooser picks another, the last one's stay with it.
+        final svcReport = matched == null
+            ? null
+            : buildBleSvcReport(
+                spec: matched.spec,
+                services: _services,
+                advertisedName: widget.device.name,
+                // Values from this device the spec's format rejected,
+                // recorded by the value widgets below.
+                responses: ref.watch(
+                  responseAnomaliesProvider.select(
+                    (all) =>
+                        all[bleAnomalyKey(widget.device.id, matched.yaml)] ??
+                        const <SvcReportResponse>[],
+                  ),
+                ),
+              );
         // The header scrolls with the controls rather than sitting pinned
         // above them: pinned, it took over a third of a phone screen and
         // pushed a light's readings below the fold. Pinned stays only where
@@ -1042,7 +1065,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         // and the safety gate, which until acknowledged shows no panel at all
         // and would otherwise take Find and Disconnect away with it.
         final scrollsWithPanel = !isRabbitAirSetup && safety == null;
-        final header = _ConnectedHeader(
+        final connectedHeader = _ConnectedHeader(
           scrolling: scrollsWithPanel,
           name: widget.device.displayName,
           device: widget.device,
@@ -1092,17 +1115,32 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             navigator.pop();
           },
         );
+        // Never pinned: in the pinned layouts (the safety gate, the setup
+        // view) the body is not a list, and a banner above it took the
+        // gate's consent step off a phone screen. It scrolls with the
+        // controls instead, so behind a safety gate it appears only once
+        // the warning is acknowledged.
+        final banner = UnexpectedServicesBanner(
+          report: svcReport,
+          // The same inset as _ConnectedHeader's card when it scrolls.
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+        );
         final panel = DeviceControlPanel(
           deviceId: widget.device.id,
           deviceName: widget.device.displayName,
           services: _services,
           manufacturerData: widget.device.manufacturerData,
-          header: scrollsWithPanel ? header : null,
+          header: scrollsWithPanel
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [connectedHeader, banner],
+                )
+              : banner,
         );
         if (scrollsWithPanel) return panel;
         return Column(
           children: [
-            header,
+            connectedHeader,
             Expanded(
               child: isRabbitAirSetup
                   ? RabbitAirSetupInfoPanel(

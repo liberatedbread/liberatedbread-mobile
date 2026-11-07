@@ -13,6 +13,41 @@ heading.
 
 ### Added
 
+- **"Oh hey — unexpected services / response": tell us when a device
+  outgrows its spec.** After a device matches a spec, the app compares what
+  the device exposes with what the spec declares. Over Bluetooth that is
+  GATT services, apart from GAP, GATT and Device Information. Over Wi-Fi it
+  is mDNS types, apart from generic ones like `_http._tcp`, and SSDP
+  targets, apart from `upnp:rootdevice` and per-unit `uuid:` targets.
+  Responses count too: a Bluetooth value the spec's format rejects, a Wi-Fi
+  state reply in which no field maps to an entity, or a value outside an
+  entity's options. The code that reads a device's answer records each
+  failure, and recording sends nothing. When anything turns up, a
+  dismissible banner titled for what was found appears on the Bluetooth,
+  Wi-Fi, label-printer or hub device screen. **Send report** posts the
+  report to `svc-reports.liberatedbread.com` and, at the same time, opens
+  the mail app with the same report addressed to
+  `svc-reports@liberatedbread.com`. **Email only** skips the server, and
+  **What's sent?** shows the exact JSON first. A report names the spec, the
+  unexpected services and their characteristics, the responses, the app
+  version and the platform. A response carries a Wi-Fi reply's key names
+  (identifier-like segments redacted) but never their values, or up to 32
+  bytes of the Bluetooth value that would not decode. A report never carries
+  a Bluetooth or IP address, a hostname, TXT records or a Wi-Fi device's
+  instance name. Each finding the user sent or dismissed stays hidden, and
+  the banner returns only for new ones. **Radios** get the same banner on
+  their programming screen when a session fails because the radio answered
+  in a way its profile does not expect: an ident no profile knows, a refused
+  session, a malformed read reply, a refused write, a read-back that differs,
+  or a short image. That report names the programming profile and what the
+  radio answered (the ident, a reply header, an acknowledgement byte, a
+  block address), never the radio's id, name or memory. Timeouts and
+  dropped links are not offered; they are usually the cable or the range.
+  **Add details** opens an optional box whose text travels with the report
+  as `user_note`. Nothing is sent without a tap, and mock mode sends nothing
+  at all. The iOS privacy manifest declares the report as user-initiated
+  Other Diagnostic Data, and the note as Customer Support.
+
 - **Orba 2 and Mousr join the local BLE catalogue.** Orba 2's SysEx
   configuration and transport commands are packetized as complete BLE-MIDI
   messages, with CRC-16, LSB-first 7-bit packing and ordered multi-write plans

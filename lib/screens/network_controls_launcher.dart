@@ -61,7 +61,11 @@ Future<void> openNetworkControls({
               specKey: specKey,
             )
           : controls.isHub
-          ? HubDeviceScreen(device: device, controls: controls)
+          ? HubDeviceScreen(
+              device: device,
+              controls: controls,
+              specKey: specKey,
+            )
           : NetworkDeviceScreen(
               device: device,
               controls: controls,

@@ -11,6 +11,7 @@ import '../core/value_format.dart';
 import '../providers/ble_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../providers/svc_report_provider.dart' show recordUndecodableBle;
 import '../services/ble_service.dart';
 import '../services/spec_codec.dart';
 import '../core/error_text.dart';
@@ -185,11 +186,30 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   Future<void> _decodeAndSet(List<int> bytes, int seq) async {
     final codec = ref.read(specCodecProvider);
     final forwarder = ref.read(haForwarderProvider);
-    final decoded = await codec.decodeValue(
-      specYaml: widget.specYaml,
-      charUuid: widget.specChar.uuid,
-      bytes: bytes,
-    );
+    final List<DecodedValueDto> decoded;
+    try {
+      decoded = await codec.decodeValue(
+        specYaml: widget.specYaml,
+        charUuid: widget.specChar.uuid,
+        bytes: bytes,
+      );
+    } catch (e) {
+      // The device answered and the spec's format rejected it: what the
+      // "unexpected response" banner reports. The callers still show their
+      // own error.
+      if (mounted) {
+        recordUndecodableBle(
+          ref,
+          deviceId: widget.deviceId,
+          specYaml: widget.specYaml,
+          charUuid: widget.specChar.uuid,
+          entity: widget.specChar.name,
+          bytes: bytes,
+          error: e,
+        );
+      }
+      rethrow;
+    }
     // Superseded by newer bytes: neither shown nor forwarded.
     if (seq < _appliedSeq) {
       if (mounted) setState(() => _loading = false);

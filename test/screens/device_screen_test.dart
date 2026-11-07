@@ -1240,6 +1240,10 @@ void main() {
       expect(find.text('Safety warning'), findsOneWidget);
       // acknowledge_required + nothing stored: the consent step gates the panel.
       expect(find.textContaining('I understand'), findsOneWidget);
+      // The device shows a service the spec does not declare (Battery), but
+      // the report banner waits behind the warning: nothing is pinned above
+      // the consent step to push it off the screen.
+      expect(find.textContaining('Oh hey'), findsNothing);
     },
   );
 

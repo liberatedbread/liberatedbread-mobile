@@ -9,6 +9,7 @@ import 'package:liberated_bread_mobile/models/ha_config.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/providers/svc_report_provider.dart';
 import 'package:liberated_bread_mobile/services/ha_sensor_forwarder.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/decoded_value_widget.dart';
@@ -666,5 +667,51 @@ void main() {
 
     expect(find.text('Brightness: 30'), findsOneWidget);
     expect(find.text('Brightness: 10'), findsNothing);
+  });
+
+  testWidgets('a value the spec cannot decode is recorded for the banner', (
+    tester,
+  ) async {
+    final ble = FakeBleService(
+      readValues: const {
+        '0000fff2-0000-1000-8000-00805f9b34fb': [9, 9, 9],
+      },
+    );
+    final codec = FakeSpecCodec(decodeError: Exception('expected 2 bytes'));
+    late WidgetRef captured;
+    await tester.pumpWidget(
+      _wrap(
+        Consumer(
+          builder: (context, ref, _) {
+            captured = ref;
+            return const DecodedValueWidget(
+              deviceId: 'd',
+              serviceUuid: 's',
+              specYaml: 'y',
+              specChar: _statusChar,
+              canRead: true,
+              canNotify: false,
+            );
+          },
+        ),
+        ble: ble,
+        codec: codec,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final recorded = captured.read(
+      responseAnomaliesProvider,
+    )[bleAnomalyKey('d', 'y')];
+    expect(recorded, hasLength(1));
+    expect(recorded!.single.problem, 'undecodable_value');
+    expect(recorded.single.where, 'gatt:fff2');
+    expect(recorded.single.sample, '090909');
+    expect(recorded.single.entity, 'Status');
+    // Recorded against the spec it was decoded with, so a different spec
+    // for the same device starts clean (the "Change" chooser).
+    expect(
+      captured.read(responseAnomaliesProvider)[bleAnomalyKey('d', 'other')],
+      isNull,
+    );
   });
 }

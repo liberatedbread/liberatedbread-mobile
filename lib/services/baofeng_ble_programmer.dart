@@ -136,7 +136,11 @@ class BaofengBleProgrammer implements RadioProgrammer, RadioWritePreflight {
       )) {
         // A short read written back would leave the radio holding half a
         // codeplug, so it is refused here rather than at the write.
-        throw const RadioProtocolException(
+        throw RadioProtocolException.diagnosed(
+          RadioDiagnostics.shortImage(
+            image.length,
+            plan.fold(0, (sum, block) => sum + block.len),
+          ),
           'The radio sent back less memory than it should have. Nothing '
           'was changed; try again.',
         );
@@ -386,6 +390,7 @@ class _RadioSession {
     final magics = await rust.radioIdentMagics(modelId: modelId);
     var accepted = false;
     var sawData = false;
+    var lastAnswer = const <int>[];
     for (var i = 0; i < magics.length && !accepted; i++) {
       if (i > 0) await _pause(timing.settle);
       inbox.clear();
@@ -397,11 +402,13 @@ class _RadioSession {
         continue;
       }
       sawData = true;
+      lastAnswer = ack;
       accepted = await rust.radioIsAck(reply: ack);
     }
     if (!accepted) {
       if (sawData) {
-        throw const RadioProtocolException(
+        throw RadioProtocolException.diagnosed(
+          RadioDiagnostics.sessionRefused(lastAnswer),
           'The radio did not accept the programming request. Make sure it '
           'is the model selected, and that nothing else is connected to it.',
         );
@@ -437,7 +444,9 @@ class _RadioSession {
       // A reply for the wrong address means the conversation slipped; the
       // Rust error is for the log, the screen gets something it can say.
       Log.radio.warning('bad read reply at $addr', error: error);
-      throw const RadioProtocolException();
+      throw RadioProtocolException.diagnosed(
+        RadioDiagnostics.badReadReply(addr, len, reply, error),
+      );
     }
   }
 
@@ -456,7 +465,8 @@ class _RadioSession {
       throw RadioTimeoutException.midWrite(addr);
     }
     if (!await rust.radioIsAck(reply: ack)) {
-      throw RadioProtocolException(
+      throw RadioProtocolException.diagnosed(
+        RadioDiagnostics.writeRefused(addr, ack),
         'The radio refused a write at 0x${addr.toRadixString(16)}. It may '
         'now hold a partly written codeplug — restore your backup before '
         'using it.',

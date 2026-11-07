@@ -115,8 +115,10 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
       }
     }
     final bytes = image.toBytes();
-    if (bytes.length != await rust.uv5RImageLen()) {
-      throw const RadioProtocolException(
+    final wantLen = await rust.uv5RImageLen();
+    if (bytes.length != wantLen) {
+      throw RadioProtocolException.diagnosed(
+        RadioDiagnostics.shortImage(bytes.length, wantLen),
         'The radio sent back less memory than it should have. Nothing '
         'was changed; try again.',
       );
@@ -329,7 +331,8 @@ class SerialRadioProgrammer implements BandLimitProgrammer {
           block.imageOffset + block.len,
         );
         if (!listEquals(got.sublist(at, at + block.len), want)) {
-          throw RadioProtocolException(
+          throw RadioProtocolException.diagnosed(
+            RadioDiagnostics.verifyMismatch(block.addr),
             'The radio does not hold what was written at '
             '0x${block.addr.toRadixString(16).padLeft(4, '0')}. '
             'Restore your backup before using it.',
@@ -524,7 +527,8 @@ class _Uv5rSession {
         ident = await rust.uv5RParseIdent(reply: reply);
       } catch (error) {
         Log.radio.warning('unrecognised ident', error: error);
-        throw const RadioUnsupportedException(
+        throw RadioUnsupportedException.diagnosed(
+          RadioDiagnostics.unrecognizedIdent(reply),
           'The radio answered, but not as a model this app programs — it '
           'may be a variant such as the 220 MHz one. Check the model, or '
           'export the plan for CHIRP.',
@@ -533,7 +537,8 @@ class _Uv5rSession {
       await link.write([_ack]);
       final accepted = await _take(1);
       if (accepted.single != _ack) {
-        throw const RadioProtocolException(
+        throw RadioProtocolException.diagnosed(
+          RadioDiagnostics.sessionRefused(accepted),
           'The radio would not start a programming session. Turn it off '
           'and on, and try again.',
         );
@@ -573,7 +578,9 @@ class _Uv5rSession {
       data = await rust.uv5RParseReadReply(reply: reply, addr: addr, len: len);
     } catch (error) {
       Log.radio.warning('bad read reply at $addr', error: error);
-      throw const RadioProtocolException();
+      throw RadioProtocolException.diagnosed(
+        RadioDiagnostics.badReadReply(addr, len, reply, error),
+      );
     }
     await link.write([_ack]);
     await _pause(timing.blockGap);
@@ -598,7 +605,8 @@ class _Uv5rSession {
       throw RadioTimeoutException.midWrite(addr);
     }
     if (ack.single != _ack) {
-      throw RadioProtocolException(
+      throw RadioProtocolException.diagnosed(
+        RadioDiagnostics.writeRefused(addr, ack),
         'The radio refused a write at '
         '0x${addr.toRadixString(16).padLeft(4, '0')}. It may now hold a '
         'partly written memory — restore your backup before using it.',

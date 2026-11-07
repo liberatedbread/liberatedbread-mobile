@@ -210,14 +210,28 @@ self-classification report — a once-a-year email (template at the bottom) to
 
 - **Privacy Policy URL:** `https://liberatedbread.com/privacy/` (matches the
   in-app link).
-- **Data collection:** the app collects nothing → answer **"Data Not
-  Collected."** The rationale, which must match the description below and the
-  comment in `ios/Runner/PrivacyInfo.xcprivacy` word for word in substance: no
-  account is required, no analytics or advertising SDK is linked, and nothing
-  about what the user controls is reported anywhere. The app is not
-  offline-only, though — these are the connections it opens beyond the user's
-  own devices, every one optional or anonymous, and none a collection of data
-  by this app:
+- **Data collection:** answer **"Data Collected"**, with exactly two types,
+  each used for **App Functionality** only, **not** linked to the user's
+  identity, and **not** used for tracking:
+  - **Diagnostics ▸ Other Diagnostic Data**: the device or radio report a
+    user chooses to send from the "unexpected services" / "unexpected
+    response" banner (last bullet below);
+  - **User Content ▸ Customer Support**: the optional note the user may type
+    in that banner's details box, which travels with the report.
+
+  Both are **user-initiated**: never sent in the background, shown verbatim
+  before they are sent, and sent again only on another tap. The App
+  Privacy form has no field for "optional" or "user-initiated", so say it in
+  the description (Step 8) and the review notes (`docs/RELEASE.md`
+  § Review), and make sure the privacy policy says it too.
+
+  The rationale, which must match the description below and the comment in
+  `ios/Runner/PrivacyInfo.xcprivacy` word for word in substance: no account
+  is required, no analytics or advertising SDK is linked, and nothing about
+  what the user controls is reported anywhere on its own. These are the
+  connections the app opens beyond the user's own devices, every one
+  optional or anonymous, and none but the last a collection of data by this
+  app:
   - an anonymous GET for the promotional banner config;
   - a device-profile pack download, if the user installs one — from GitHub or
     a URL they enter (`lib/services/spec_pack_service.dart`);
@@ -238,8 +252,31 @@ self-classification report — a once-a-year email (template at the bottom) to
     phone; the last position is remembered on the phone only, rounded to
     about 1 km, until the user taps *Forget location*. Stated in the location
     purpose string.
+  - a device report ("unexpected services" / "unexpected response"), only
+    when the user taps the banner's Send report or Email only
+    (`lib/widgets/unexpected_services_banner.dart`).
+    Send report POSTs to `svc-reports.liberatedbread.com`, **our** server
+    (backend: liberatedbread-web-django), and opens the mail app addressed
+    to `svc-reports@liberatedbread.com`. The payload is shown verbatim
+    beforehand. It names the matched spec, the services it does not
+    describe and/or the responses the app could not read (a Wi-Fi reply's
+    key names only; at most 32 bytes of a BLE value that would not decode),
+    the app version and the platform, and carries no identifier
+    (`lib/models/svc_report.dart`). A radio's report names its programming
+    profile and what the radio answered (its ident, a reply header, an
+    acknowledgement byte, a block address), never the radio's id, name or
+    memory (`lib/services/radio_programmer.dart`). Anything the user types
+    in the optional details box goes with it. The server keeps no IP
+    address.
 
-  If App Review asks how "Data Not Collected" squares with a sign-in form, the
+  Declared rather than claimed under Apple's *optional disclosure*
+  exemption. That exemption fits in most respects: user-initiated,
+  infrequent, clear about what is sent. But it also expects the user's name
+  or account on the submission form, and this app has neither. Declaring is
+  the answer that cannot be wrong. If the report ever carries an identifier
+  or is linked to an account, the "Linked" answer changes with it.
+
+  If App Review asks how the narrow answer squares with a sign-in form, the
   answer is the iRobot bullet: the credentials are sent to the vendor, not to
   us, and no identifier leaves the device for this app's benefit.
 
@@ -303,7 +340,8 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 **Description:**
 > Liberated Bread is a universal remote for the devices on your own network. It
 > talks to them directly — over Bluetooth Low Energy and your local Wi-Fi — with
-> no account required, no cloud relay, and no data collection.
+> no account required, no cloud relay, and nothing collected unless you choose
+> to send it.
 >
 > It ships with a catalogue of device profiles and can discover and control a
 > wide range of gear on your LAN, including smart plugs and bulbs, media players
@@ -311,7 +349,7 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > printers, cameras, and more — plus a bridge to your own Home Assistant server.
 >
 > Privacy by design: device control is direct and local, and nothing about it
-> is reported anywhere. The app makes no account and collects no data. The only
+> is reported anywhere on its own. The app makes no account. The only
 > connections it opens beyond your own devices are ones you can see and choose:
 > an anonymous check for an in-app banner, downloading a device-profile pack if
 > you install one, your own Home Assistant server if you configure it, and — if
@@ -320,6 +358,12 @@ Deploy `banner.json` v2 to `https://liberatedbread.com/app/banner.json`.
 > password. When you ask for radio channels near you, only the US state(s)
 > within your search radius go to the repeater directories you have turned on (myGMRS, and
 > RepeaterBook with your own access token); your position stays on your phone.
+> And if a device does something its profile doesn't describe, the app offers
+> to send us a diagnostics report so we can fix the profile, with a note if
+> you want to add one. The same goes for a radio that answers in a way its
+> programming profile doesn't expect. It is only ever sent when you tap Send,
+> it shows you exactly what it contains first, and it carries no addresses,
+> names or identifiers.
 >
 > This is independent, community-maintained software provided as-is. Please read the in-app terms and
 > the disclaimer at https://liberatedbread.com/disclaimer/ before use — some

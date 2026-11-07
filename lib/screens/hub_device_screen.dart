@@ -17,6 +17,7 @@ import '../services/hub_http_client.dart';
 import '../services/spec_codec.dart';
 import '../widgets/hub_child_light_card.dart';
 import '../widgets/hub_pairing_sheet.dart';
+import '../widgets/unexpected_services_banner.dart';
 
 /// Controls for a hub — a device that fronts a population of children the
 /// spec cannot enumerate. The Hue Bridge is the first one.
@@ -39,10 +40,16 @@ class HubDeviceScreen extends ConsumerStatefulWidget {
   final NetworkDevice device;
   final NetworkControls controls;
 
+  /// The matched spec's `specKeyFor` identity, when the opener knew it: what
+  /// the unexpected-services banner checks the hub against. Null shows no
+  /// banner.
+  final String? specKey;
+
   const HubDeviceScreen({
     super.key,
     required this.device,
     required this.controls,
+    this.specKey,
   });
 
   @override
@@ -474,6 +481,12 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
           children: [
+            // Services the hub's spec does not describe: the "oh hey" banner
+            // offers to tell us.
+            WifiDeviceReportBanner(
+              specKey: widget.specKey,
+              device: widget.device,
+            ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),

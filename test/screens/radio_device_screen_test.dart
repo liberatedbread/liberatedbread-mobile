@@ -20,6 +20,7 @@ import 'package:liberated_bread_mobile/providers/radio_programmer_provider.dart'
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_radio_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
+import 'package:liberated_bread_mobile/providers/svc_report_provider.dart';
 import 'package:liberated_bread_mobile/screens/radio_device_screen.dart';
 import 'package:liberated_bread_mobile/services/baofeng_ble_programmer.dart'
     show RadioWritePreflight;
@@ -372,6 +373,53 @@ void main() {
 
       expect(find.textContaining('stopped responding'), findsWidgets);
       expect(harness.container.read(savedRadiosProvider), isEmpty);
+    });
+
+    testWidgets('a timeout offers no report: it is the link, not the radio', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        programmer: FakeRadioProgrammer(error: const RadioTimeoutException()),
+      );
+      await tester.tap(find.text('Check it answers'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Oh hey'), findsNothing);
+    });
+
+    testWidgets('an answer the profile does not expect offers a report', (
+      tester,
+    ) async {
+      final harness = await _pump(
+        tester,
+        programmer: FakeRadioProgrammer(
+          error: RadioUnsupportedException.diagnosed(
+            RadioDiagnostics.unrecognizedIdent(const [0xAA, 0x30, 0x76, 0x02]),
+            'The radio answered, but not as a model this app programs.',
+          ),
+        ),
+      );
+      await tester.tap(find.text('Check it answers'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Oh hey — unexpected response'), findsOneWidget);
+      expect(find.textContaining('programming profile'), findsOneWidget);
+      final recorded = harness.container.read(responseAnomaliesProvider);
+      expect(recorded.values.single.single.problem, 'unrecognized_ident');
+      // Never the radio's own id: the key stays on the phone and the report
+      // names the profile.
+      final report = buildRadioSvcReport(
+        profile: uv5rProfile,
+        link: _ble.transport,
+        responses: recorded.values.single,
+      )!;
+      expect(report.toJson()['radio'], {
+        'profile_id': 'uv5r',
+        'family': 'serialUv5r',
+        'link': 'ble',
+      });
+      expect(report.toPrettyJson(), isNot(contains(_ble.id)));
+      expect(report.toPrettyJson(), isNot(contains(_ble.name)));
     });
 
     testWidgets('a programmer that cannot drive the model is not asked', (
