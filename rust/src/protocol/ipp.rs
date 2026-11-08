@@ -477,4 +477,18 @@ mod tests {
         assert_eq!(s.markers[0].color, None);
         assert_eq!(s.markers[1].color.as_deref(), Some("#FF00FF"));
     }
+
+    #[test]
+    fn processing_is_read_and_unsupported_value_types_are_ignored() {
+        let reply = Reply::new(0)
+            .ints(VT_ENUM, "printer-state", &[4])
+            .attr(0x7F, "printer-state-message", &[b"not text"])
+            .attr(0x42, "marker-names", &[b"Black"])
+            .attr(VT_BOOLEAN, "marker-levels", &[&[1][..]])
+            .end();
+        let s = decode_printer_attributes(&reply).unwrap();
+        assert_eq!(s.state, "processing");
+        assert_eq!(s.state_message, None);
+        assert_eq!(s.markers[0].level, None);
+    }
 }

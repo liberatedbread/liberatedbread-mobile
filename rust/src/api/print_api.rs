@@ -523,9 +523,17 @@ mod tests {
     #[test]
     fn a_die_cut_roll_fixes_the_length() {
         let yaml = vendored("brother-ql-1110nwb.yaml");
-        let canvas = brother_ql_label_canvas(yaml, params(17, 54, true)).unwrap();
+        let canvas = brother_ql_label_canvas(yaml.clone(), params(17, 54, true)).unwrap();
         assert_eq!(canvas.width_dots, 165);
         assert_eq!(canvas.length_dots, Some(566));
+
+        let job = render_brother_ql_job(yaml, params(17, 54, true), vec![0, 0, 0], 1, 1).unwrap();
+        assert!(job.windows(13).any(|field| {
+            field.starts_with(&[0x1B, 0x69, 0x7A])
+                && field[4] == 0x0B
+                && field[5] == 17
+                && field[6] == 54
+        }));
     }
 
     #[test]
@@ -560,18 +568,53 @@ mod tests {
     fn an_unlisted_roll_falls_back_to_millimetres() {
         let yaml = vendored("brother-ql-1110nwb.yaml");
         // No 45 mm roll in the table.
-        let canvas = brother_ql_label_canvas(yaml, params(45, 0, false)).unwrap();
+        let canvas = brother_ql_label_canvas(yaml.clone(), params(45, 0, false)).unwrap();
         assert!(canvas.media_name.is_none());
         assert_eq!(canvas.width_dots, 45 * 3000 / 254);
+
+        let die_cut = brother_ql_label_canvas(yaml, params(45, 80, true)).unwrap();
+        let expected = 80 * 3000 / 254;
+        assert_eq!(die_cut.length_dots, Some(expected - expected / 8));
     }
 
     #[test]
-    fn prepare_print_raster_checks_its_buffer() {
+    fn prepare_print_raster_checks_its_buffer_and_each_dither() {
         assert!(prepare_print_raster(vec![0; 15], 2, 2, PrintDither::Threshold, 128).is_err());
         assert!(prepare_print_raster(vec![], 0, 0, PrintDither::Threshold, 128).is_err());
-        let out =
-            prepare_print_raster(vec![0, 0, 0, 255], 1, 1, PrintDither::Atkinson, 128).unwrap();
-        assert_eq!(out, vec![0, 0, 0]);
+        for mode in [
+            PrintDither::Threshold,
+            PrintDither::FloydSteinberg,
+            PrintDither::Atkinson,
+        ] {
+            let out = prepare_print_raster(vec![0, 0, 0, 255], 1, 1, mode, 128).unwrap();
+            assert_eq!(out, vec![0, 0, 0]);
+        }
+    }
+
+    #[test]
+    fn a_brother_head_disagreement_is_an_error_not_a_misplaced_label() {
+        let yaml = vendored("brother-ql-1110nwb.yaml").replace("head_dots: 1296", "head_dots: 16");
+        let error = brother_ql_label_canvas(yaml, params(62, 0, false)).unwrap_err();
+        assert!(error.to_string().contains("disagrees"));
+
+        let no_declared_head =
+            vendored("brother-ql-1110nwb.yaml").replace("      head_dots: 1296\n", "");
+        let canvas = brother_ql_label_canvas(no_declared_head, params(62, 0, false)).unwrap();
+        assert!(canvas.width_dots > 0);
+        assert!(canvas.media_name.unwrap().contains("62"));
+    }
+
+    #[test]
+    fn brother_rendering_rejects_bad_buffers_and_encoder_limits() {
+        let yaml = vendored("brother-ql-1110nwb.yaml");
+        assert!(
+            render_brother_ql_job(yaml.clone(), params(62, 0, false), vec![0; 3], 1, 2).is_err()
+        );
+
+        let no_height = yaml.replace("max_height: 35434", "max_height: 0");
+        assert!(
+            render_brother_ql_job(no_height, params(62, 0, false), vec![255; 3], 1, 1).is_err()
+        );
     }
 
     #[test]
@@ -592,6 +635,46 @@ mod tests {
         assert!(!dto.hardware_tested, "the D110 task is reported, not run");
     }
 
+    fn ipp_attribute(reply: &mut Vec<u8>, tag: u8, name: &str, value: &[u8]) {
+        reply.push(tag);
+        reply.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        reply.extend_from_slice(name.as_bytes());
+        reply.extend_from_slice(&(value.len() as u16).to_be_bytes());
+        reply.extend_from_slice(value);
+    }
+
+    fn ipp_reply() -> Vec<u8> {
+        let mut reply = vec![0x02, 0x00, 0x00, 0x00, 0, 0, 0, 7, 0x01, 0x04];
+        ipp_attribute(&mut reply, 0x23, "printer-state", &5i32.to_be_bytes());
+        ipp_attribute(
+            &mut reply,
+            0x44,
+            "printer-state-reasons",
+            b"toner-low-report",
+        );
+        ipp_attribute(&mut reply, 0x41, "printer-state-message", b"Ready");
+        ipp_attribute(
+            &mut reply,
+            0x41,
+            "printer-make-and-model",
+            b"Example LaserJet 400",
+        );
+        ipp_attribute(&mut reply, 0x42, "marker-names", b"Black Toner");
+        ipp_attribute(&mut reply, 0x42, "marker-colors", b"#000000");
+        ipp_attribute(&mut reply, 0x44, "marker-types", b"toner");
+        ipp_attribute(&mut reply, 0x21, "marker-levels", &12i32.to_be_bytes());
+        ipp_attribute(&mut reply, 0x21, "marker-low-levels", &15i32.to_be_bytes());
+        ipp_attribute(&mut reply, 0x44, "media-ready", b"iso_a4_210x297mm");
+        ipp_attribute(
+            &mut reply,
+            0x49,
+            "document-format-supported",
+            b"application/pdf",
+        );
+        reply.push(0x03);
+        reply
+    }
+
     #[test]
     fn the_ipp_surface_round_trips_through_the_dtos() {
         let req = ipp_get_printer_attributes_request("ipp://printer.local:631/ipp/print".into(), 9);
@@ -599,6 +682,27 @@ mod tests {
         assert!(decode_ipp_printer_attributes(vec![1, 2, 3]).is_err());
         let yaml = "device:\n  name: X\n  manufacturer: Y\n  manufacturer_status: active\n  protocol: wifi\n  category: printer\nprotocol_handler: ipp_status\n";
         assert!(ipp_status_supported(yaml.to_string()).unwrap());
+
+        let status = decode_ipp_printer_attributes(ipp_reply()).unwrap();
+        assert!(status.ok);
+        assert_eq!(status.status_code, 0);
+        assert_eq!(status.state, "stopped");
+        assert_eq!(status.state_reasons, vec!["toner-low-report"]);
+        assert_eq!(status.state_message.as_deref(), Some("Ready"));
+        assert_eq!(
+            status.make_and_model.as_deref(),
+            Some("Example LaserJet 400")
+        );
+        assert_eq!(status.markers.len(), 1);
+        let marker = &status.markers[0];
+        assert_eq!(marker.name, "Black Toner");
+        assert_eq!(marker.color.as_deref(), Some("#000000"));
+        assert_eq!(marker.kind.as_deref(), Some("toner"));
+        assert_eq!(marker.level, Some(12));
+        assert!(!marker.some_remaining);
+        assert_eq!(marker.low_level, Some(15));
+        assert_eq!(status.media_ready, vec!["iso_a4_210x297mm"]);
+        assert_eq!(status.document_formats, vec!["application/pdf"]);
     }
 
     #[test]

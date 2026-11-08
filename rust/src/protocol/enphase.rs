@@ -334,4 +334,45 @@ mod tests {
                 .unwrap();
         assert_eq!(recovered, plain);
     }
+
+    #[test]
+    fn malformed_srp_frame_and_cipher_inputs_are_rejected() {
+        assert!(enphase_client_ephemeral(vec![0; 31]).is_err());
+        assert!(enphase_client_ephemeral(vec![0; 32]).is_err());
+        assert!(enphase_process_challenge(
+            hex(PRIVATE),
+            Vec::new(),
+            hex(SALT),
+            hex(PUBLIC_B),
+            "alice".into(),
+            "password123".into(),
+        )
+        .is_err());
+        assert!(enphase_process_challenge(
+            hex(PRIVATE),
+            hex(PUBLIC_A),
+            Vec::new(),
+            hex(PUBLIC_B),
+            "alice".into(),
+            "password123".into(),
+        )
+        .is_err());
+
+        assert!(xbee_decode_frame(vec![0; 6]).is_err());
+        let mut truncated = xbee_encode_frame(0x2d, 1, vec![0, 4, 0]);
+        truncated.pop();
+        assert!(xbee_decode_frame(truncated).is_err());
+        assert!(enphase_apply_cipher(vec![0; 31], vec![0; 12], 0, Vec::new()).is_err());
+    }
+
+    #[test]
+    fn the_cipher_counter_carries_without_losing_stream_alignment() {
+        let key = hex(SESSION_KEY);
+        let nonce = hex("00112233445566778899aabb");
+        let offset = 254 * COUNTER_BYTES as u64;
+        let whole = enphase_apply_cipher(key.clone(), nonce.clone(), offset, vec![7; 32]).unwrap();
+        let first = enphase_apply_cipher(key.clone(), nonce.clone(), offset, vec![7; 16]).unwrap();
+        let second = enphase_apply_cipher(key, nonce, offset + 16, vec![7; 16]).unwrap();
+        assert_eq!(whole, [first, second].concat());
+    }
 }

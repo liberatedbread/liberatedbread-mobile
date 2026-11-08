@@ -470,4 +470,35 @@ mod tests {
         let spec = spec();
         assert!(encode_print_job(&spec, &white(200, 2), 200, 2, 0, 180).is_err());
     }
+
+    #[test]
+    fn wider_rows_use_a_little_endian_total_dot_count() {
+        assert_eq!(black_dot_counts(&[0xFF; 13], 96), [0, 104, 0]);
+    }
+
+    #[test]
+    fn a_job_without_its_print_characteristic_is_refused() {
+        let mut spec = spec();
+        spec.services.clear();
+        assert!(matches!(
+            encode_print_job(&spec, &white(96, 2), 96, 2, 0, 20),
+            Err(ProtocolError::ImageUploadUnsupported { .. })
+        ));
+    }
+
+    #[test]
+    fn oversized_row_indexes_and_sub_mtu_writes_are_refused() {
+        let mut spec = spec();
+        for feature in &mut spec.features {
+            feature.max_height = None;
+        }
+        let height = u16::MAX as u32 + 1;
+        let height_error = encode_print_job(&spec, &white(1, height as usize), 1, height, 0, 20)
+            .expect_err("a row index beyond u16 must be refused");
+        assert!(height_error.to_string().contains("u16 row index"));
+
+        let mtu_error = encode_print_job(&spec, &white(1, 1), 1, 1, 0, 19)
+            .expect_err("a sub-MTU write size must be refused");
+        assert!(mtu_error.to_string().contains("BLE minimum"));
+    }
 }

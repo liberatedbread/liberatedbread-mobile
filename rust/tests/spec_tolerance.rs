@@ -753,3 +753,22 @@ entities:
         liberated_bread_core::error::ProtocolError::EntityNotInstanced(_)
     ));
 }
+
+#[test]
+fn a_non_list_print_media_value_degrades_to_no_rolls() {
+    let yaml = r#"
+device:
+  name: "Printer"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "printer"
+features:
+  - type: "image_upload"
+    max_width: 96
+    media: "not a list"
+"#;
+    let spec = parse_device_spec(yaml).expect("a malformed media list must not fail the spec");
+    assert_eq!(spec.features.len(), 1);
+    assert!(spec.features[0].media.is_empty());
+}
