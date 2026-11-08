@@ -118,7 +118,10 @@ void main() {
 
     expect(find.textContaining('mock connect failure'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
-    expect(fake.connectCalls, 1);
+    // The opening attempt, and the screen's own retries of a failure that is
+    // not an answer, before the error card and its button.
+    const perTap = 1 + deviceConnectAutoRetries;
+    expect(fake.connectCalls, perTap);
 
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle(
@@ -126,6 +129,6 @@ void main() {
       EnginePhase.sendSemanticsUpdate,
       const Duration(seconds: 30),
     );
-    expect(fake.connectCalls, 2);
+    expect(fake.connectCalls, 2 * perTap);
   });
 }
